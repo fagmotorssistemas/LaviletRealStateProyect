@@ -23,9 +23,11 @@ export default function ShowroomPage() {
   const [createOpen, setCreateOpen] = useState(false)
 
   const sourceOptions = [
-    { value: 'oficina', label: 'Oficina' },
-    { value: 'proyecto', label: 'Proyecto' },
-    { value: 'mixto', label: 'Mixto' },
+    { value: 'organica', label: 'Orgánica' },
+    { value: 'redes_sociales', label: 'Redes sociales' },
+    { value: 'referido', label: 'Referido' },
+    { value: 'agendada', label: 'Cita agendada' },
+    { value: 'otro', label: 'Otro' },
   ]
 
   useEffect(() => {
@@ -67,7 +69,7 @@ export default function ShowroomPage() {
         />
         <Select
           options={sourceOptions}
-          placeholder="Fuente"
+          placeholder="Origen de la visita"
           value={filters.source}
           onChange={(e) => updateFilter('source', e.target.value)}
           className="w-full"

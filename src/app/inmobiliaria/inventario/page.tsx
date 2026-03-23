@@ -14,8 +14,8 @@ import { Spinner } from '@/components/ui/Spinner'
 import { Pagination } from '@/components/ui/Pagination'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
-import type { Unit, UnitStatus } from '@/types/inmobiliaria'
-import { UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
+import type { InventorySortOption, Unit, UnitStatus } from '@/types/inmobiliaria'
+import { INVENTORY_SORT_OPTIONS, UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
 import { toast } from 'sonner'
 
 export default function InventarioPage() {
@@ -85,9 +85,22 @@ export default function InventarioPage() {
           onSearchChange={(value) => updateFilter('search', value)}
           searchPlaceholder="Buscar unidad..."
           resultsTotal={total}
-          hasActiveFilters={Boolean(filters.search || filters.projectId || filters.status || filters.category)}
+          hasActiveFilters={Boolean(
+            filters.search
+            || filters.projectId
+            || filters.status
+            || filters.category
+            || filters.sortBy !== 'unit_natural',
+          )}
           onReset={resetFilters}
         >
+          <Select
+            label="Ordenar por"
+            options={INVENTORY_SORT_OPTIONS}
+            value={filters.sortBy}
+            onChange={(e) => updateFilter('sortBy', e.target.value as InventorySortOption)}
+            className="w-full sm:w-64"
+          />
           <Select
             options={projects.map((p) => ({ value: p.id, label: p.name }))}
             placeholder="Todos los proyectos"

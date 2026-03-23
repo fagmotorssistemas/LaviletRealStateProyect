@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { listShowroomVisits } from '@/services/inmobiliaria.service'
-import type { LocationType, ShowroomVisit } from '@/types/inmobiliaria'
+import type { ShowroomVisit, ShowroomVisitSource } from '@/types/inmobiliaria'
 
 interface Filters {
   projectId: string
   salespersonId: string
-  source: string
+  source: ShowroomVisitSource | ''
 }
 
 export function useShowroom() {
@@ -37,7 +37,7 @@ export function useShowroom() {
         tenantId: tenant.id,
         projectId: filters.projectId || undefined,
         salespersonId: filters.salespersonId || undefined,
-        source: (filters.source || undefined) as LocationType | undefined,
+        source: filters.source ? filters.source : undefined,
         search: search || undefined,
         page,
         pageSize,

@@ -1,8 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { compareUnitsByUnitNumber } from '@/lib/inmobiliaria/sortUnits'
 import type {
   Unit, Lead, Appointment, ShowroomVisit, LeadInteraction,
-  UnitStatus, LeadStatus, AppointmentStatus, InteractionType, LocationType,
-  Project, Contract, ContractStatus,
+  UnitStatus, LeadStatus, AppointmentStatus, InteractionType,
+  ShowroomVisitSource,
+  Project, Contract, ContractStatus, InventorySortOption,
 } from '@/types/inmobiliaria'
 
 // ─── Projects ───────────────────────────────────────────────
@@ -34,24 +36,72 @@ interface ListUnitsParams {
   search?: string
   page?: number
   pageSize?: number
+  /** `unit_natural`: orden numérico en cliente (solo inventario). Sin definir: paginación en servidor por `unit_number`. */
+  sort?: InventorySortOption
 }
+
+const FETCH_BATCH = 1000
 
 export async function listUnits(supabase: SupabaseClient, params: ListUnitsParams) {
   const page = params.page ?? 1
   const pageSize = params.pageSize ?? 10
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
+  const sort = params.sort
+
+  if (sort === 'unit_natural') {
+    const all: Unit[] = []
+    let batchFrom = 0
+    for (;;) {
+      let q = supabase
+        .from('units')
+        .select('*, project:projects(id, name)')
+        .eq('tenant_id', params.tenantId)
+      if (params.projectId) q = q.eq('project_id', params.projectId)
+      if (params.status) q = q.eq('status', params.status)
+      if (params.category) q = q.eq('category', params.category)
+      if (params.search) q = q.or(`unit_number.ilike.%${params.search}%,description.ilike.%${params.search}%`)
+      const { data, error } = await q.range(batchFrom, batchFrom + FETCH_BATCH - 1)
+      if (error) throw error
+      const rows = (data ?? []) as Unit[]
+      if (rows.length === 0) break
+      all.push(...rows)
+      if (rows.length < FETCH_BATCH) break
+      batchFrom += FETCH_BATCH
+    }
+    all.sort(compareUnitsByUnitNumber)
+    const total = all.length
+    const pageSlice = all.slice(from, to + 1)
+    return { data: pageSlice, total }
+  }
 
   let query = supabase
     .from('units')
     .select('*, project:projects(id, name)', { count: 'exact' })
     .eq('tenant_id', params.tenantId)
-    .order('unit_number', { ascending: true })
 
   if (params.projectId) query = query.eq('project_id', params.projectId)
   if (params.status) query = query.eq('status', params.status)
   if (params.category) query = query.eq('category', params.category)
   if (params.search) query = query.or(`unit_number.ilike.%${params.search}%,description.ilike.%${params.search}%`)
+
+  switch (sort) {
+    case 'price_desc':
+      query = query.order('published_commercial_price', { ascending: false, nullsFirst: false })
+      break
+    case 'price_asc':
+      query = query.order('published_commercial_price', { ascending: true, nullsFirst: false })
+      break
+    case 'area_desc':
+      query = query.order('area_total_m2', { ascending: false, nullsFirst: false })
+      break
+    case 'area_asc':
+      query = query.order('area_total_m2', { ascending: true, nullsFirst: false })
+      break
+    default:
+      query = query.order('unit_number', { ascending: true })
+  }
+  query = query.order('id', { ascending: true })
 
   const { data, error, count } = await query.range(from, to)
   if (error) throw error
@@ -322,7 +372,7 @@ interface ListShowroomParams {
   page?: number
   pageSize?: number
   search?: string
-  source?: LocationType
+  source?: ShowroomVisitSource
 }
 
 export async function listShowroomVisits(supabase: SupabaseClient, params: ListShowroomParams) {

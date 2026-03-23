@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { listUnits, listProjects } from '@/services/inmobiliaria.service'
-import type { Unit, Project, UnitStatus } from '@/types/inmobiliaria'
+import type { Unit, Project, UnitStatus, InventorySortOption } from '@/types/inmobiliaria'
 
 interface Filters {
   projectId: string
   status: string
   category: string
   search: string
+  sortBy: InventorySortOption
 }
 
 export function useInventoryUnits() {
@@ -25,6 +26,7 @@ export function useInventoryUnits() {
     status: '',
     category: '',
     search: '',
+    sortBy: 'unit_natural',
   })
 
   // TODO: replace with real tenant from auth context
@@ -54,6 +56,7 @@ export function useInventoryUnits() {
         search: filters.search || undefined,
         page,
         pageSize,
+        sort: filters.sortBy,
       })
       setUnits(res.data)
       setTotal(res.total)
@@ -79,13 +82,13 @@ export function useInventoryUnits() {
     if (tenantId) loadUnits(tenantId)
   }
 
-  const updateFilter = (key: keyof Filters, value: string) => {
+  const updateFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
     setPage(1)
   }
 
   const resetFilters = () => {
-    setFilters({ projectId: '', status: '', category: '', search: '' })
+    setFilters({ projectId: '', status: '', category: '', search: '', sortBy: 'unit_natural' })
     setPage(1)
   }
 

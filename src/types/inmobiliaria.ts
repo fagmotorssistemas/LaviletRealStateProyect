@@ -34,6 +34,18 @@ export type InteractionType =
   | 'otro'
 
 export type LocationType = 'oficina' | 'proyecto' | 'mixto'
+
+// Origen de la visita de showroom (no es el mismo concepto que `LocationType` usado en `appointments`)
+export type ShowroomVisitSource =
+  | 'organica'
+  | 'redes_sociales'
+  | 'referido'
+  | 'agendada'
+  | 'otro'
+  // Valores heredados (si ya existen visitas guardadas con la lógica anterior)
+  | 'oficina'
+  | 'proyecto'
+  | 'mixto'
 export type ContractStatus = 'pendiente' | 'firmado' | 'anulado'
 
 export interface Tenant {
@@ -148,7 +160,7 @@ export interface ShowroomVisit {
   id: string
   tenant_id: string
   salesperson_id: string | null
-  source: LocationType
+  source: ShowroomVisitSource
   office_id: string | null
   project_id: string | null
   lead_id: string | null
@@ -191,6 +203,22 @@ export interface Contract {
   created_at: string
   lead?: Lead
 }
+
+/** Orden de listado en inventario (unidades). */
+export type InventorySortOption =
+  | 'unit_natural'
+  | 'price_desc'
+  | 'price_asc'
+  | 'area_desc'
+  | 'area_asc'
+
+export const INVENTORY_SORT_OPTIONS: { value: InventorySortOption; label: string }[] = [
+  { value: 'unit_natural', label: 'Número de unidad (orden natural)' },
+  { value: 'price_desc', label: 'Precio: más caros primero' },
+  { value: 'price_asc', label: 'Precio: más baratos primero' },
+  { value: 'area_desc', label: 'Mayor área total' },
+  { value: 'area_asc', label: 'Menor área total' },
+]
 
 export const UNIT_STATUS_OPTIONS: { value: UnitStatus; label: string }[] = [
   { value: 'disponible', label: 'Disponible' },
