@@ -14,7 +14,6 @@ import {
   X,
   LogOut,
   ChevronLeft,
-  Building2,
   Layers,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -65,7 +64,7 @@ export function InmobiliariaSidebar() {
         )}
       >
         <div className="flex items-center justify-between px-4 py-4 border-b border-[#BDA27E]/20">
-          {!collapsed ? (
+          {!collapsed && (
             <Image
               src="/LogoHorizontal.png"
               alt="Lavilet"
@@ -74,16 +73,12 @@ export function InmobiliariaSidebar() {
               className="h-18 w-auto object-contain"
               preload
             />
-          ) : (
-            <div className="mx-auto flex h-10 w-10 items-center justify-center">
-              <Building2 size={22} className="text-[#2B1A18]" />
-            </div>
           )}
           <button
             onClick={() => { setCollapsed(!collapsed); setMobileOpen(false) }}
             className="rounded-lg p-1.5 text-[#BDA27E] hover:bg-[#BDA27E]/10 transition-colors cursor-pointer hidden md:block"
           >
-            {collapsed ? <Menu size={20} /> : <ChevronLeft size={20} />}
+            {collapsed ? <Menu size={24} /> : <ChevronLeft size={20} />}
           </button>
           <button
             onClick={() => setMobileOpen(false)}

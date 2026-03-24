@@ -78,8 +78,6 @@ Documento de diseño para construir una base de datos equivalente al módulo de 
 | `estimated_projection_date` | date | desde excel (fecha_proyeccion) |
 | `architects` | text | |
 | `plan_type` | text | "PLAN COMERCIAL TENTATIVO..." |
-| `summary_financial_initial_pvp_total` | numeric | `valor_comercial_sumado_pvp_inicial` |
-| `summary_financial_min_expected_with_discounts` | numeric | `valor_minimo_esperado_con_descuentos` |
 | `policies_json` | jsonb | forma_pago + descuentos_preventa + reglas cash (flexible) |
 | `created_at` | timestamptz | default now() |
 | `updated_at` | timestamptz | default now() |

@@ -1,6 +1,6 @@
 'use client'
 
-import { Calendar, MapPin, User, Clock } from 'lucide-react'
+import { MapPin, User, Clock } from 'lucide-react'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { formatDateTime } from '@/lib/utils'
 import type { Appointment } from '@/types/inmobiliaria'
@@ -33,11 +33,6 @@ export function AppointmentCard({ appointment, onSelect }: AppointmentCardProps)
         <div className="flex items-center gap-2">
           <Clock size={14} className="text-gray-400" />
           <span>{formatDateTime(appointment.start_time)}</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Calendar size={14} className="text-gray-400" />
-          <span className="capitalize">{appointment.location_type}</span>
         </div>
 
         <div className="flex items-center gap-2">

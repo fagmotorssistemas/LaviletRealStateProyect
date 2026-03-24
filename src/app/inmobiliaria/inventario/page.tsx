@@ -1,13 +1,19 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useState } from 'react'
-import { LayoutGrid, Plus } from 'lucide-react'
+import { Download, LayoutGrid, Plus } from 'lucide-react'
 import { useInventoryUnits } from '@/hooks/inmobiliaria/useInventoryUnits'
 import { updateUnitStatus } from '@/services/inmobiliaria.service'
 import { useAuth } from '@/contexts/AuthContext'
 import { InventoryUnitsTable } from '@/components/inmobiliaria/inventory/InventoryUnitsTable'
 import { UnitDetailModal } from '@/components/inmobiliaria/inventory/UnitDetailModal'
 import { CreateUnitModal } from '@/components/inmobiliaria/inventory/CreateUnitModal'
+const ExportInventoryModal = dynamic(
+  () =>
+    import('@/components/inmobiliaria/inventory/ExportInventoryModal').then((m) => m.ExportInventoryModal),
+  { ssr: false },
+)
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { InmobiliariaFiltersToolbar } from '@/components/inmobiliaria/shared/InmobiliariaFiltersToolbar'
 import { Spinner } from '@/components/ui/Spinner'
@@ -45,6 +51,7 @@ export default function InventarioPage() {
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const handleSelectUnit = (unit: Unit) => {
     setSelectedUnit(unit)
@@ -73,17 +80,30 @@ export default function InventarioPage() {
           </p>
         </div>
 
-        <Button onClick={() => setCreateOpen(true)} className="shrink-0">
-          <Plus size={16} className="mr-2" />
-          Nueva Unidad
-        </Button>
+        <div className="flex shrink-0 flex-wrap gap-2 justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setExportOpen(true)}
+            className="gap-2"
+            disabled={!tenantId}
+            title={!tenantId ? 'Carga un proyecto para exportar' : undefined}
+          >
+            <Download size={16} aria-hidden />
+            Exportar
+          </Button>
+          <Button onClick={() => setCreateOpen(true)} className="gap-2">
+            <Plus size={16} aria-hidden />
+            Nueva Unidad
+          </Button>
+        </div>
       </div>
 
       <div>
         <InmobiliariaFiltersToolbar
           searchValue={filters.search}
           onSearchChange={(value) => updateFilter('search', value)}
-          searchPlaceholder="Buscar unidad..."
+          searchPlaceholder="Buscar por número o descripción..."
           resultsTotal={total}
           hasActiveFilters={Boolean(
             filters.search
@@ -160,6 +180,20 @@ export default function InventarioPage() {
         onCreated={reload}
         projects={projects}
         tenantId={tenantId}
+      />
+
+      <ExportInventoryModal
+        isOpen={exportOpen}
+        onClose={() => setExportOpen(false)}
+        tenantId={tenantId}
+        projects={projects}
+        categoryOptions={categoryOptions}
+        tableFilters={{
+          projectId: filters.projectId,
+          status: filters.status,
+          category: filters.category,
+          sortBy: filters.sortBy,
+        }}
       />
     </div>
   )

@@ -3,7 +3,7 @@
 import type { Appointment } from '@/types/inmobiliaria'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { formatDateTime } from '@/lib/utils'
-import { Clock, MapPin, User } from 'lucide-react'
+import { MapPin, User } from 'lucide-react'
 
 interface AgendaAppointmentsTableProps {
   appointments: Appointment[]
@@ -31,16 +31,7 @@ export function AgendaAppointmentsTable({ appointments, onSelect }: AgendaAppoin
               onClick={() => onSelect(a)}
               className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors"
             >
-              <td className="px-4 py-3 font-medium text-gray-900">
-                {a.title ?? '—'}
-                <div className="text-xs text-gray-400 mt-1 flex items-center gap-2">
-                  <Clock size={12} />
-                  <span className="inline-flex items-center gap-2">
-                    <span className="sr-only">Tipo de ubicación</span>
-                    <span>{a.location_type}</span>
-                  </span>
-                </div>
-              </td>
+              <td className="px-4 py-3 font-medium text-gray-900">{a.title ?? '—'}</td>
               <td className="px-4 py-3">
                 <StatusBadge status={a.status} type="appointment" />
               </td>

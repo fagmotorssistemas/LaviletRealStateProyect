@@ -16,12 +16,11 @@ export function LeadsList({ leads, onSelect }: LeadsListProps) {
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50/50">
             <th className="px-4 py-3 text-left font-medium text-gray-600">Lead</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Estado</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Teléfono</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Email</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Asignado</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Fuente</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Creado</th>
+            <th className="px-4 py-3 text-left font-medium text-gray-600">Estado</th>
           </tr>
         </thead>
         <tbody>
@@ -32,13 +31,8 @@ export function LeadsList({ leads, onSelect }: LeadsListProps) {
               className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors"
             >
               <td className="px-4 py-3 font-medium text-gray-900">{lead.name}</td>
-              <td className="px-4 py-3">
-                <StatusBadge status={lead.status} type="lead" />
-              </td>
+
               <td className="px-4 py-3 text-gray-600">{lead.phone ?? '—'}</td>
-              <td className="px-4 py-3 text-gray-600">
-                {lead.email ? <span className="block truncate max-w-[240px]">{lead.email}</span> : '—'}
-              </td>
               <td className="px-4 py-3 text-gray-600">{lead.assigned_profile?.full_name ?? '—'}</td>
               <td className="px-4 py-3">
                 {lead.source ? (
@@ -50,6 +44,9 @@ export function LeadsList({ leads, onSelect }: LeadsListProps) {
                 )}
               </td>
               <td className="px-4 py-3 text-gray-600">{formatDate(lead.created_at)}</td>
+              <td className="px-4 py-3">
+                <StatusBadge status={lead.status} type="lead" />
+              </td>
             </tr>
           ))}
         </tbody>

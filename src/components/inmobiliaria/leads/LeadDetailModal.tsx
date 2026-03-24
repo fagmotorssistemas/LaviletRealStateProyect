@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  X, Phone, Mail, DollarSign, CreditCard, MessageSquare,
+  X, Phone, DollarSign, CreditCard, MessageSquare,
   Edit3, Loader2, CheckCircle2, Building2, Send, Plus,
   Trash2, Search, ChevronDown, Calendar, MapPin, ChevronLeft, ChevronRight,
 } from 'lucide-react'
@@ -256,9 +256,6 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }
                   <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5 flex-wrap">
                     {lead.phone && (
                       <span className="flex items-center gap-1"><Phone size={12} />{lead.phone}</span>
-                    )}
-                    {lead.email && (
-                      <span className="flex items-center gap-1"><Mail size={12} />{lead.email}</span>
                     )}
                     {lead.assigned_profile?.full_name && (
                       <span className="text-slate-400">Asignado: {lead.assigned_profile.full_name}</span>

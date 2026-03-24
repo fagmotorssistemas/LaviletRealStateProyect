@@ -33,9 +33,7 @@ export type InteractionType =
   | 'email'
   | 'otro'
 
-export type LocationType = 'oficina' | 'proyecto' | 'mixto'
-
-// Origen de la visita de showroom (no es el mismo concepto que `LocationType` usado en `appointments`)
+// Origen de la visita de showroom
 export type ShowroomVisitSource =
   | 'organica'
   | 'redes_sociales'
@@ -93,8 +91,6 @@ export interface Project {
   estimated_projection_date: string | null
   architects: string | null
   plan_type: string | null
-  summary_financial_initial_pvp_total: number | null
-  summary_financial_min_expected_with_discounts: number | null
   policies_json: Record<string, unknown> | null
   /** Resumen corto para tarjetas y listados. */
   short_description: string | null
@@ -121,6 +117,24 @@ export interface ProjectDetail extends Project {
   project_assets: ProjectAsset[]
 }
 
+/** Fotos/archivos de una unidad (inventario), en Storage o URL legacy en `url`. */
+export interface UnitMedia {
+  id: string
+  unit_id: string
+  tenant_id: string
+  type: string
+  url: string
+  storage_path: string | null
+  file_name: string | null
+  mime_type: string | null
+  file_size_bytes: number | null
+  caption: string | null
+  sort_order: number
+  is_cover: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface Unit {
   id: string
   tenant_id: string
@@ -143,6 +157,7 @@ export interface Unit {
   created_at: string
   updated_at: string
   project?: Project
+  unit_media?: UnitMedia[]
 }
 
 export interface Lead {
@@ -150,7 +165,6 @@ export interface Lead {
   tenant_id: string
   name: string
   phone: string | null
-  email: string | null
   status: LeadStatus
   budget: number | null
   financing: boolean
@@ -192,7 +206,6 @@ export interface Appointment {
   start_time: string
   end_time: string | null
   status: AppointmentStatus
-  location_type: LocationType
   office_id: string | null
   project_id: string | null
   notes: string | null

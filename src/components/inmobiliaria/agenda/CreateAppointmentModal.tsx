@@ -7,7 +7,6 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import type { Project, Unit, Lead } from '@/types/inmobiliaria'
-import type { LocationType } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
 import { createAppointment, listLeads, listProjects } from '@/services/inmobiliaria.service'
 import { toast } from 'sonner'
@@ -16,12 +15,6 @@ import {
   toastAppointmentValidationError,
 } from '@/lib/inmobiliaria/appointmentFormValidation'
 import { AppointmentInterestUnitsPicker } from '@/components/inmobiliaria/agenda/AppointmentInterestUnitsPicker'
-
-const locationOptions = [
-  { value: 'proyecto', label: 'Proyecto' },
-  { value: 'oficina', label: 'Oficina' },
-  { value: 'mixto', label: 'Mixto' },
-]
 
 interface CreateAppointmentModalProps {
   isOpen: boolean
@@ -40,7 +33,6 @@ export function CreateAppointmentModal({ isOpen, onClose, onCreated, tenantId }:
     title: '',
     lead_id: '',
     project_id: '',
-    location_type: 'proyecto' as LocationType,
     start_time: '',
     end_time: '',
     notes: '',
@@ -65,7 +57,6 @@ export function CreateAppointmentModal({ isOpen, onClose, onCreated, tenantId }:
       title: form.title,
       lead_id: form.lead_id,
       project_id: form.project_id,
-      location_type: form.location_type,
       start_time: form.start_time,
       end_time: form.end_time,
       notes: form.notes,
@@ -86,7 +77,6 @@ export function CreateAppointmentModal({ isOpen, onClose, onCreated, tenantId }:
           title: form.title.trim(),
           lead_id: form.lead_id,
           project_id: form.project_id,
-          location_type: form.location_type,
           start_time: new Date(form.start_time).toISOString(),
           end_time: new Date(form.end_time).toISOString(),
           responsible_id: user?.id ?? null,
@@ -101,7 +91,6 @@ export function CreateAppointmentModal({ isOpen, onClose, onCreated, tenantId }:
         title: '',
         lead_id: '',
         project_id: '',
-        location_type: 'proyecto',
         start_time: '',
         end_time: '',
         notes: '',
@@ -126,25 +115,15 @@ export function CreateAppointmentModal({ isOpen, onClose, onCreated, tenantId }:
           onChange={(e) => update('title', e.target.value)}
         />
 
-        <div className="grid grid-cols-2 gap-4">
-          <Select
-            id="lead"
-            label="Lead *"
-            options={leads.map((l) => ({ value: l.id, label: l.name }))}
-            placeholder="Seleccionar lead"
-            value={form.lead_id}
-            required
-            onChange={(e) => update('lead_id', e.target.value)}
-          />
-          <Select
-            id="location"
-            label="Tipo de ubicación *"
-            options={locationOptions}
-            value={form.location_type}
-            required
-            onChange={(e) => update('location_type', e.target.value)}
-          />
-        </div>
+        <Select
+          id="lead"
+          label="Lead *"
+          options={leads.map((l) => ({ value: l.id, label: l.name }))}
+          placeholder="Seleccionar lead"
+          value={form.lead_id}
+          required
+          onChange={(e) => update('lead_id', e.target.value)}
+        />
 
         <Select
           id="project"

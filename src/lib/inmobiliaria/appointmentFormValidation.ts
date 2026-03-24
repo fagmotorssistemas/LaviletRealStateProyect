@@ -4,7 +4,6 @@ export interface AppointmentFormValues {
   title: string
   lead_id: string
   project_id: string
-  location_type: string
   start_time: string
   end_time: string
   notes: string
@@ -19,7 +18,6 @@ export function validateAppointmentForm(values: AppointmentFormValues): {
   if (!values.title.trim()) missing.push('Título')
   if (!values.lead_id) missing.push('Lead')
   if (!values.project_id) missing.push('Proyecto')
-  if (!values.location_type) missing.push('Tipo de ubicación')
   if (!values.start_time) missing.push('Fecha y hora de inicio')
   if (!values.end_time) missing.push('Fecha y hora de fin')
   if (!values.notes?.trim()) missing.push('Notas')

@@ -39,7 +39,7 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
   const [availableUnits, setAvailableUnits] = useState<Unit[]>([])
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([])
   const [form, setForm] = useState({
-    name: '', phone: '', email: '', status: 'nuevo', budget: '', financing: false, source: '', resume: '',
+    name: '', phone: '', status: 'nuevo', budget: '', financing: false, source: '', resume: '',
   })
 
   useEffect(() => {
@@ -65,7 +65,6 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
         tenant_id: tenantId,
         name: form.name,
         phone: form.phone || null,
-        email: form.email || null,
         status: form.status as 'nuevo',
         budget: form.budget ? Number(form.budget) : null,
         financing: form.financing,
@@ -75,7 +74,7 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
       toast.success('Lead creado exitosamente')
       onCreated()
       onClose()
-      setForm({ name: '', phone: '', email: '', status: 'nuevo', budget: '', financing: false, source: '', resume: '' })
+      setForm({ name: '', phone: '', status: 'nuevo', budget: '', financing: false, source: '', resume: '' })
       setSelectedUnitIds([])
     } catch {
       toast.error('Error al crear el lead')
@@ -91,10 +90,7 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
           <Input id="name" label="Nombre *" placeholder="Nombre del prospecto" value={form.name} onChange={(e) => update('name', e.target.value)} />
           <Input id="phone" label="Teléfono" placeholder="0991234567" value={form.phone} onChange={(e) => update('phone', e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Input id="email" label="Email" type="email" placeholder="correo@ejemplo.com" value={form.email} onChange={(e) => update('email', e.target.value)} />
-          <Select id="source" label="Fuente" options={sourceOptions} placeholder="¿Cómo nos contactó?" value={form.source} onChange={(e) => update('source', e.target.value)} />
-        </div>
+        <Select id="source" label="Fuente" options={sourceOptions} placeholder="¿Cómo nos contactó?" value={form.source} onChange={(e) => update('source', e.target.value)} />
         <div className="grid grid-cols-3 gap-4">
           <Input id="budget" label="Presupuesto" type="number" placeholder="120000" value={form.budget} onChange={(e) => update('budget', e.target.value)} />
           <Select id="status" label="Estado" options={LEAD_STATUS_OPTIONS} value={form.status} onChange={(e) => update('status', e.target.value)} />

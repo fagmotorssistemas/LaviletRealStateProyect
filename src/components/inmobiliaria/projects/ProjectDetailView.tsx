@@ -11,9 +11,11 @@ import {
   FileText,
   ImageIcon,
   LayoutGrid,
+  LayoutList,
   Loader2,
   MapPin,
   Pencil,
+  Phone,
   Trash2,
   Upload,
 } from 'lucide-react'
@@ -45,6 +47,41 @@ import {
 
 type TabKey = 'resumen' | 'galeria' | 'documentos'
 
+function SummarySection({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string
+  icon: typeof MapPin
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/90 p-5 shadow-sm">
+      <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">
+        <Icon size={16} className="shrink-0 text-[#BDA27E]" strokeWidth={2} />
+        {title}
+      </h3>
+      <dl className="space-y-3">{children}</dl>
+    </section>
+  )
+}
+
+function SummaryRow({ label, value }: { label: string; value: React.ReactNode }) {
+  const isEmpty =
+    value === null ||
+    value === undefined ||
+    (typeof value === 'string' && value.trim() === '')
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:gap-4 sm:items-baseline">
+      <dt className="text-xs font-medium text-slate-500 shrink-0 sm:w-40">{label}</dt>
+      <dd className="text-sm text-slate-900 break-words">
+        {isEmpty ? <span className="text-slate-400 italic">Sin dato</span> : value}
+      </dd>
+    </div>
+  )
+}
+
 interface ProjectDetailViewProps {
   projectId: string
 }
@@ -55,6 +92,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
   const [detail, setDetail] = useState<ProjectDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<TabKey>('resumen')
+  const [editingResumen, setEditingResumen] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const [uploadKind, setUploadKind] = useState<ProjectAssetKind>('photo')
@@ -106,36 +144,40 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
     architects: '',
     plan_type: '',
     estimated_projection_date: '',
-    summary_financial_initial_pvp_total: '',
-    summary_financial_min_expected_with_discounts: '',
   })
+
+  const applyDetailToForm = useCallback((d: ProjectDetail) => {
+    setForm({
+      name: d.name,
+      short_description: d.short_description ?? '',
+      description: d.description ?? '',
+      address: d.address ?? '',
+      city: d.city ?? '',
+      country: d.country ?? 'Ecuador',
+      developer_name: d.developer_name ?? '',
+      construction_phase: (d.construction_phase ?? '') as '' | ProjectConstructionPhase,
+      website_url: d.website_url ?? '',
+      contact_phone: d.contact_phone ?? '',
+      contact_email: d.contact_email ?? '',
+      total_units_planned: d.total_units_planned != null ? String(d.total_units_planned) : '',
+      architects: d.architects ?? '',
+      plan_type: d.plan_type ?? '',
+      estimated_projection_date: d.estimated_projection_date ?? '',
+    })
+  }, [])
 
   useEffect(() => {
     if (!detail) return
-    setForm({
-      name: detail.name,
-      short_description: detail.short_description ?? '',
-      description: detail.description ?? '',
-      address: detail.address ?? '',
-      city: detail.city ?? '',
-      country: detail.country ?? 'Ecuador',
-      developer_name: detail.developer_name ?? '',
-      construction_phase: (detail.construction_phase ?? '') as '' | ProjectConstructionPhase,
-      website_url: detail.website_url ?? '',
-      contact_phone: detail.contact_phone ?? '',
-      contact_email: detail.contact_email ?? '',
-      total_units_planned: detail.total_units_planned != null ? String(detail.total_units_planned) : '',
-      architects: detail.architects ?? '',
-      plan_type: detail.plan_type ?? '',
-      estimated_projection_date: detail.estimated_projection_date ?? '',
-      summary_financial_initial_pvp_total:
-        detail.summary_financial_initial_pvp_total != null ? String(detail.summary_financial_initial_pvp_total) : '',
-      summary_financial_min_expected_with_discounts:
-        detail.summary_financial_min_expected_with_discounts != null
-          ? String(detail.summary_financial_min_expected_with_discounts)
-          : '',
-    })
-  }, [detail])
+    applyDetailToForm(detail)
+  }, [detail, applyDetailToForm])
+
+  const goTab = (next: TabKey) => {
+    if (tab === 'resumen' && next !== 'resumen' && detail) {
+      applyDetailToForm(detail)
+      setEditingResumen(false)
+    }
+    setTab(next)
+  }
 
   const updateForm = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 
@@ -164,14 +206,9 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
         architects: form.architects.trim() || null,
         plan_type: form.plan_type.trim() || null,
         estimated_projection_date: form.estimated_projection_date || null,
-        summary_financial_initial_pvp_total: form.summary_financial_initial_pvp_total
-          ? Number(form.summary_financial_initial_pvp_total)
-          : null,
-        summary_financial_min_expected_with_discounts: form.summary_financial_min_expected_with_discounts
-          ? Number(form.summary_financial_min_expected_with_discounts)
-          : null,
       })
       toast.success('Proyecto actualizado')
+      setEditingResumen(false)
       await load()
     } catch {
       toast.error('Error al guardar')
@@ -315,7 +352,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
       <div className="flex gap-1 border-b border-slate-200 overflow-x-auto">
         {(
           [
-            { id: 'resumen' as const, label: 'Resumen', icon: Pencil },
+            { id: 'resumen' as const, label: 'Resumen', icon: LayoutList },
             { id: 'galeria' as const, label: 'Fotos y planos', icon: ImageIcon },
             { id: 'documentos' as const, label: 'Documentos', icon: FileText },
           ] as const
@@ -323,7 +360,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
           <button
             key={id}
             type="button"
-            onClick={() => setTab(id)}
+            onClick={() => goTab(id)}
             className={`flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
               tab === id
                 ? 'border-[#2B1A18] text-[#2B1A18]'
@@ -336,8 +373,145 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
         ))}
       </div>
 
-      {tab === 'resumen' && (
+      {tab === 'resumen' && !editingResumen && (
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm max-w-4xl overflow-hidden">
+          <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/50 px-6 py-5 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Resumen del proyecto</h2>
+              <p className="mt-1 text-sm text-slate-500">Vista de lectura de la ficha. Pulsa editar para modificar los datos.</p>
+            </div>
+            <Button type="button" variant="outline" className="shrink-0 gap-2" onClick={() => setEditingResumen(true)}>
+              <Pencil size={16} strokeWidth={2} />
+              Editar ficha
+            </Button>
+          </div>
+
+          <div className="p-6 space-y-8">
+            <div className="flex flex-wrap gap-2">
+              {detail.construction_phase && (
+                <span className="inline-flex items-center rounded-full bg-[#BDA27E]/15 px-3 py-1 text-xs font-semibold text-[#2B1A18]">
+                  {constructionPhaseLabel(detail.construction_phase)}
+                </span>
+              )}
+              {detail.total_units_planned != null && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                  <Building2 size={14} className="text-slate-400" />
+                  {detail.total_units_planned} u. planificadas
+                </span>
+              )}
+              {detail.estimated_projection_date && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                  <Calendar size={14} className="text-slate-400" />
+                  Proyección {formatDate(detail.estimated_projection_date)}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              {detail.short_description ? (
+                <p className="text-lg font-medium leading-snug text-slate-800">{detail.short_description}</p>
+              ) : (
+                <p className="text-sm text-slate-400 italic">Sin resumen corto. Ideal para listados y tarjetas del proyecto.</p>
+              )}
+              {detail.description ? (
+                <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-4 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                  {detail.description}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400 italic">Aún no hay descripción amplia.</p>
+              )}
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <SummarySection title="Ubicación" icon={MapPin}>
+                <SummaryRow label="Dirección" value={detail.address} />
+                <SummaryRow label="Ciudad" value={detail.city} />
+                <SummaryRow label="País" value={detail.country} />
+              </SummarySection>
+
+              <SummarySection title="Promotor y operación" icon={Building2}>
+                <SummaryRow label="Constructora / promotora" value={detail.developer_name} />
+                <SummaryRow label="Fase" value={detail.construction_phase ? constructionPhaseLabel(detail.construction_phase) : null} />
+                <SummaryRow
+                  label="Unidades totales (planificadas)"
+                  value={detail.total_units_planned != null ? String(detail.total_units_planned) : null}
+                />
+              </SummarySection>
+
+              <SummarySection title="Contacto" icon={Phone}>
+                <SummaryRow label="Teléfono" value={detail.contact_phone} />
+                <SummaryRow
+                  label="Email"
+                  value={
+                    detail.contact_email ? (
+                      <a href={`mailto:${detail.contact_email}`} className="font-medium text-[#2B1A18] hover:underline">
+                        {detail.contact_email}
+                      </a>
+                    ) : null
+                  }
+                />
+                <SummaryRow
+                  label="Sitio web"
+                  value={
+                    detail.website_url ? (
+                      <a
+                        href={detail.website_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 font-medium text-[#2B1A18] hover:underline break-all"
+                      >
+                        {detail.website_url}
+                        <ExternalLink size={14} className="shrink-0" />
+                      </a>
+                    ) : null
+                  }
+                />
+              </SummarySection>
+
+              <SummarySection title="Técnico" icon={FileText}>
+                <SummaryRow label="Arquitectos" value={detail.architects} />
+                <SummaryRow label="Tipo de plan" value={detail.plan_type} />
+                <SummaryRow
+                  label="Fecha de proyección / entrega"
+                  value={detail.estimated_projection_date ? formatDate(detail.estimated_projection_date) : null}
+                />
+              </SummarySection>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'resumen' && editingResumen && (
         <form onSubmit={handleSaveResumen} className="rounded-xl border border-slate-200 bg-white p-6 space-y-4 max-w-3xl">
+          <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Editar ficha del proyecto</h2>
+              <p className="text-sm text-slate-500">Ajusta los campos y guarda los cambios.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  applyDetailToForm(detail)
+                  setEditingResumen(false)
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Guardando...
+                  </>
+                ) : (
+                  'Guardar cambios'
+                )}
+              </Button>
+            </div>
+          </div>
+
           <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Información general</h2>
           <Input id="p-name" label="Nombre del proyecto *" value={form.name} onChange={(e) => updateForm('name', e.target.value)} />
           <Input
@@ -397,27 +571,17 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
             onChange={(e) => updateForm('estimated_projection_date', e.target.value)}
           />
 
-          <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider pt-4">Resumen financiero (referencial)</h2>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Input
-              id="p-pvp"
-              label="PVP total inicial"
-              type="number"
-              step="0.01"
-              value={form.summary_financial_initial_pvp_total}
-              onChange={(e) => updateForm('summary_financial_initial_pvp_total', e.target.value)}
-            />
-            <Input
-              id="p-min"
-              label="Mínimo esperado con descuentos"
-              type="number"
-              step="0.01"
-              value={form.summary_financial_min_expected_with_discounts}
-              onChange={(e) => updateForm('summary_financial_min_expected_with_discounts', e.target.value)}
-            />
-          </div>
-
-          <div className="flex justify-end pt-4">
+          <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                applyDetailToForm(detail)
+                setEditingResumen(false)
+              }}
+            >
+              Cancelar
+            </Button>
             <Button type="submit" disabled={saving}>
               {saving ? (
                 <>

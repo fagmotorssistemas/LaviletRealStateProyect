@@ -6,10 +6,10 @@ import { listUnits, listProjects } from '@/services/inmobiliaria.service'
 import type { Unit, Project, UnitStatus, InventorySortOption } from '@/types/inmobiliaria'
 
 interface Filters {
+  search: string
   projectId: string
   status: string
   category: string
-  search: string
   sortBy: InventorySortOption
 }
 
@@ -22,10 +22,10 @@ export function useInventoryUnits() {
   const pageSize = 10
   const [total, setTotal] = useState(0)
   const [filters, setFilters] = useState<Filters>({
+    search: '',
     projectId: '',
     status: '',
     category: '',
-    search: '',
     sortBy: 'unit_natural',
   })
 
@@ -53,7 +53,7 @@ export function useInventoryUnits() {
         projectId: filters.projectId || undefined,
         status: (filters.status || undefined) as UnitStatus | undefined,
         category: filters.category || undefined,
-        search: filters.search || undefined,
+        search: filters.search.trim() || undefined,
         page,
         pageSize,
         sort: filters.sortBy,
@@ -88,7 +88,7 @@ export function useInventoryUnits() {
   }
 
   const resetFilters = () => {
-    setFilters({ projectId: '', status: '', category: '', search: '', sortBy: 'unit_natural' })
+    setFilters({ search: '', projectId: '', status: '', category: '', sortBy: 'unit_natural' })
     setPage(1)
   }
 

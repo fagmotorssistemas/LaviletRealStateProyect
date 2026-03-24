@@ -8,11 +8,19 @@ import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
-import type { Unit, UnitStatus, Project } from '@/types/inmobiliaria'
-import { useState, useEffect } from 'react'
+import type { Unit, UnitMedia, UnitStatus, Project } from '@/types/inmobiliaria'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { updateUnit } from '@/services/inmobiliaria.service'
+import {
+  updateUnit,
+  getUnit,
+  uploadUnitMedia,
+  deleteUnitMedia,
+  setUnitCoverMedia,
+} from '@/services/inmobiliaria.service'
+import { prepareImageForWebUpload } from '@/lib/images/prepareImageForWebUpload'
 import { toast } from 'sonner'
+import Image from 'next/image'
 import {
   Building2,
   Layers,
@@ -26,7 +34,14 @@ import {
   FileText,
   RefreshCw,
   Pencil,
+  Loader2,
+  Upload,
+  Trash2,
+  Images,
+  LayoutList,
 } from 'lucide-react'
+
+type UnitDetailTab = 'ficha' | 'imagenes'
 
 const categoryOptions = [
   { value: 'Departamento', label: 'Departamento' },
@@ -103,9 +118,23 @@ export function UnitDetailModal({
   const [isEditing, setIsEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(defaultEditForm)
+  const [resolvedUnit, setResolvedUnit] = useState<Unit | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [mediaUploading, setMediaUploading] = useState(false)
+  const [detailTab, setDetailTab] = useState<UnitDetailTab>('ficha')
+
+  const reloadUnitDetail = useCallback(async () => {
+    if (!unit?.id) return
+    const u = await getUnit(supabase, unit.id)
+    setResolvedUnit(u)
+    return u
+  }, [supabase, unit?.id])
 
   useEffect(() => {
-    if (!isOpen) setIsEditing(false)
+    if (!isOpen) {
+      setIsEditing(false)
+      setDetailTab('ficha')
+    }
   }, [isOpen])
 
   useEffect(() => {
@@ -116,12 +145,38 @@ export function UnitDetailModal({
     }
   }, [unit?.id])
 
+  useEffect(() => {
+    if (!isOpen || !unit?.id) {
+      setResolvedUnit(null)
+      return
+    }
+    let cancelled = false
+    setDetailLoading(true)
+    getUnit(supabase, unit.id)
+      .then((u) => {
+        if (!cancelled) setResolvedUnit(u)
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('No se pudieron cargar los datos completos de la unidad')
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, unit?.id, supabase])
+
   if (!unit) return null
+
+  const displayUnit = resolvedUnit ?? unit
+  const unitMedia = displayUnit.unit_media ?? []
+  const tenantForMedia = displayUnit.tenant_id
 
   const updateField = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 
   const handleSaveStatus = () => {
-    if (newStatus && newStatus !== unit.status) {
+    if (newStatus && newStatus !== displayUnit.status) {
       onStatusChange(unit.id, newStatus as UnitStatus)
     }
     setNewStatus('')
@@ -135,7 +190,7 @@ export function UnitDetailModal({
     }
     setSaving(true)
     try {
-      const row = await updateUnit(supabase, unit.id, {
+      await updateUnit(supabase, unit.id, {
         project_id: form.project_id,
         unit_number: form.unit_number.trim(),
         category: form.category,
@@ -151,8 +206,10 @@ export function UnitDetailModal({
         status: form.status as UnitStatus,
         description: form.description || null,
       })
-      const project = projects.find((p) => p.id === row.project_id)
-      const merged = { ...row, project: project ?? unit.project } as Unit
+      const full = await getUnit(supabase, unit.id)
+      const project = projects.find((p) => p.id === full.project_id)
+      const merged = { ...full, project: project ?? full.project } as Unit
+      setResolvedUnit(merged)
       onUnitUpdated?.(merged)
       toast.success('Unidad actualizada')
       setIsEditing(false)
@@ -164,23 +221,86 @@ export function UnitDetailModal({
   }
 
   const cancelEdit = () => {
-    setForm(unitToFormFields(unit))
+    setForm(unitToFormFields(displayUnit))
     setIsEditing(false)
   }
 
-  const projectName = (unit.project as unknown as { name: string })?.name ?? '—'
+  const projectName = (displayUnit.project as unknown as { name: string })?.name ?? '—'
+
+  const handleUnitMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files ? Array.from(e.target.files) : []
+    e.target.value = ''
+    if (!picked.length || !tenantForMedia) return
+
+    const hadNoImages = unitMedia.length === 0
+    setMediaUploading(true)
+    let ok = 0
+    try {
+      for (let i = 0; i < picked.length; i++) {
+        const raw = picked[i]
+        try {
+          const file = await prepareImageForWebUpload(raw)
+          await uploadUnitMedia(supabase, {
+            tenantId: tenantForMedia,
+            projectId: displayUnit.project_id,
+            unitId: displayUnit.id,
+            file,
+            setAsCover: hadNoImages && i === 0,
+          })
+          ok += 1
+        } catch (err) {
+          console.error(err)
+          toast.error(`No se pudo subir: ${raw.name}`)
+        }
+      }
+      if (ok === picked.length) {
+        toast.success(ok === 1 ? 'Imagen subida' : `${ok} imágenes subidas`)
+      } else if (ok > 0) {
+        toast.success(`Se subieron ${ok} de ${picked.length} imagen(es)`)
+      } else {
+        toast.error('No se pudo subir ninguna imagen')
+      }
+      await reloadUnitDetail()
+    } finally {
+      setMediaUploading(false)
+    }
+  }
+
+  const handleDeleteUnitMedia = async (mediaId: string) => {
+    if (!confirm('¿Eliminar esta imagen?')) return
+    try {
+      await deleteUnitMedia(supabase, mediaId)
+      toast.success('Imagen eliminada')
+      await reloadUnitDetail()
+    } catch {
+      toast.error('Error al eliminar')
+    }
+  }
+
+  const handleSetUnitCover = async (mediaId: string) => {
+    try {
+      await setUnitCoverMedia(supabase, displayUnit.id, mediaId)
+      toast.success('Portada actualizada')
+      await reloadUnitDetail()
+    } catch {
+      toast.error('Error al guardar portada')
+    }
+  }
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={isEditing ? `Editar unidad ${unit.unit_number}` : `Unidad ${unit.unit_number}`}
+      title={isEditing ? `Editar unidad ${displayUnit.unit_number}` : `Unidad ${displayUnit.unit_number}`}
       size="lg"
       headerActions={
         !isEditing ? (
           <button
             type="button"
-            onClick={() => setIsEditing(true)}
+            onClick={() => {
+              setDetailTab('ficha')
+              setIsEditing(true)
+            }}
             title="Editar"
             className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#2B1A18] transition-colors cursor-pointer"
           >
@@ -317,15 +437,41 @@ export function UnitDetailModal({
         </form>
       ) : (
         <div className="space-y-5">
+          {/* Pestañas: ficha vs galería */}
+          <div className="-mt-1 flex gap-1 overflow-x-auto border-b border-gray-200">
+            {(
+              [
+                { id: 'ficha' as const, label: 'Ficha', icon: LayoutList },
+                { id: 'imagenes' as const, label: 'Imágenes', icon: Images },
+              ] as const
+            ).map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setDetailTab(id)}
+                className={`flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+                  detailTab === id
+                    ? 'border-[#2B1A18] text-[#2B1A18]'
+                    : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                <Icon size={16} strokeWidth={1.75} aria-hidden />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {detailTab === 'ficha' ? (
+            <>
           {/* Header: estado + categoría */}
           <div className="flex items-center gap-3 flex-wrap">
-            <StatusBadge status={unit.status} type="unit" />
+            <StatusBadge status={displayUnit.status} type="unit" />
             <div className="flex items-center gap-1.5 text-sm text-gray-500">
               <Tag size={14} className="text-gray-800" />
-              {unit.category}
+              {displayUnit.category}
             </div>
-            {unit.unit_subtype && (
-              <span className="text-sm text-gray-400">• {unit.unit_subtype}</span>
+            {displayUnit.unit_subtype && (
+              <span className="text-sm text-gray-400">• {displayUnit.unit_subtype}</span>
             )}
           </div>
 
@@ -334,9 +480,9 @@ export function UnitDetailModal({
             <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Información general</h4>
             <div className="grid grid-cols-2 gap-4">
               <InfoRow icon={<Building2 size={15} className="text-gray-800" />} label="Proyecto" value={projectName} />
-              <InfoRow icon={<Layers size={15} className="text-gray-800" />} label="Piso" value={unit.floor ?? '—'} />
-              <InfoRow icon={<Car size={15} className="text-gray-800" />} label="Parqueos asignados" value={String(unit.parking_assigned ?? 0)} />
-              <InfoRow icon={<DollarSign size={15} className="text-gray-800" />} label="Costo / m²" value={unit.cost_per_m2_internal ? `$${Number(unit.cost_per_m2_internal).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'} />
+              <InfoRow icon={<Layers size={15} className="text-gray-800" />} label="Piso" value={displayUnit.floor ?? '—'} />
+              <InfoRow icon={<Car size={15} className="text-gray-800" />} label="Parqueos asignados" value={String(displayUnit.parking_assigned ?? 0)} />
+              <InfoRow icon={<DollarSign size={15} className="text-gray-800" />} label="Costo / m²" value={displayUnit.cost_per_m2_internal ? `$${Number(displayUnit.cost_per_m2_internal).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'} />
             </div>
           </div>
 
@@ -347,22 +493,22 @@ export function UnitDetailModal({
               <InfoRow
                 icon={<Ruler size={15} className="text-gray-800" />}
                 label="Área del departamento"
-                value={unit.area_internal_m2 ? `${Number(unit.area_internal_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
+                value={displayUnit.area_internal_m2 ? `${Number(displayUnit.area_internal_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
               />
               <InfoRow
                 icon={<Umbrella size={15} className="text-gray-800" />}
                 label="Terraza cubierta"
-                value={unit.area_terrace_covered_m2 ? `${Number(unit.area_terrace_covered_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
+                value={displayUnit.area_terrace_covered_m2 ? `${Number(displayUnit.area_terrace_covered_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
               />
               <InfoRow
                 icon={<Sun size={15} className="text-gray-800" />}
                 label="Terraza descubierta"
-                value={unit.area_terrace_open_m2 ? `${Number(unit.area_terrace_open_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
+                value={displayUnit.area_terrace_open_m2 ? `${Number(displayUnit.area_terrace_open_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
               />
               <InfoRow
                 icon={<SquareDashed size={15} className="text-gray-800" />}
                 label="Área total"
-                value={unit.area_total_m2 ? `${Number(unit.area_total_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
+                value={displayUnit.area_total_m2 ? `${Number(displayUnit.area_total_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
               />
             </div>
           </div>
@@ -372,17 +518,17 @@ export function UnitDetailModal({
             <div className="flex items-center gap-2 mb-1">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Precio comercial</h4>
             </div>
-            <PriceText value={unit.published_commercial_price} size="lg" />
+            <PriceText value={displayUnit.published_commercial_price} size="lg" />
           </div>
 
           {/* Descripción */}
-          {unit.description && (
+          {displayUnit.description && (
             <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
               <div className="flex items-center gap-2 mb-2">
                 <FileText size={15} className="text-gray-800" />
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Descripción</h4>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed">{unit.description}</p>
+              <p className="text-sm text-gray-700 leading-relaxed">{displayUnit.description}</p>
             </div>
           )}
 
@@ -395,18 +541,114 @@ export function UnitDetailModal({
             <div className="flex gap-3">
               <Select
                 options={UNIT_STATUS_OPTIONS}
-                value={newStatus || unit.status}
+                value={newStatus || displayUnit.status}
                 onChange={(e) => setNewStatus(e.target.value)}
                 className="flex-1"
               />
-              <Button onClick={handleSaveStatus} disabled={!newStatus || newStatus === unit.status}>
+              <Button onClick={handleSaveStatus} disabled={!newStatus || newStatus === displayUnit.status}>
                 Guardar
               </Button>
             </div>
           </div>
+            </>
+          ) : (
+            <div className="space-y-5">
+              <div>
+                <h3 className="text-sm font-semibold text-[#2B1A18]">Galería de la unidad</h3>
+              </div>
+
+              <div className="flex flex-col gap-4 rounded-xl border border-gray-100 bg-gray-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  {detailLoading && <Loader2 size={14} className="animate-spin text-gray-400" aria-hidden />}
+                  <span>
+                    {unitMedia.length === 0 && !detailLoading
+                      ? 'Sin imágenes aún.'
+                      : `${unitMedia.length} imagen${unitMedia.length === 1 ? '' : 'es'}`}
+                  </span>
+                </div>
+                <label className="inline-flex sm:shrink-0">
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    multiple
+                    onChange={handleUnitMediaUpload}
+                    disabled={mediaUploading || detailLoading}
+                  />
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-lg bg-[#2B1A18] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#3d2a24] ${mediaUploading || detailLoading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
+                  >
+                    {mediaUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                    Subir imágenes
+                  </span>
+                </label>
+              </div>
+
+              {unitMedia.length === 0 && !detailLoading ? (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/30 py-12 text-center">
+                  <Images className="mx-auto mb-3 h-10 w-10 text-gray-300" aria-hidden />
+                  <p className="text-sm text-gray-500">Aún no hay fotos en esta unidad.</p>
+                  <p className="mt-1 text-xs text-gray-400">Usa «Subir imágenes» para agregar la primera.</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {unitMedia.map((m) => (
+                    <UnitInventoryPhotoCard
+                      key={m.id}
+                      media={m}
+                      onDelete={() => handleDeleteUnitMedia(m.id)}
+                      onSetCover={() => handleSetUnitCover(m.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </Modal>
+  )
+}
+
+function UnitInventoryPhotoCard({
+  media,
+  onDelete,
+  onSetCover,
+}: {
+  media: UnitMedia
+  onDelete: () => void
+  onSetCover: () => void
+}) {
+  const alt = media.file_name ?? 'Foto de la unidad'
+  const isImage = media.mime_type?.startsWith('image/') ?? true
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="relative aspect-[4/3] bg-gray-200">
+        {isImage ? (
+          <Image src={media.url} alt={alt} fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" />
+        ) : (
+          <a href={media.url} target="_blank" rel="noreferrer" className="flex h-full items-center justify-center p-4 text-sm text-[#2B1A18] underline">
+            Ver archivo
+          </a>
+        )}
+        {media.is_cover && (
+          <span className="absolute left-2 top-2 rounded bg-[#2B1A18] px-2 py-0.5 text-[10px] font-bold text-white">
+            PORTADA
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 p-3">
+        {!media.is_cover && isImage && (
+          <button type="button" onClick={onSetCover} className="cursor-pointer text-xs font-semibold text-[#BDA27E] hover:underline">
+            Usar como portada
+          </button>
+        )}
+        <button type="button" onClick={onDelete} className="ml-auto flex cursor-pointer items-center gap-1 text-xs text-red-500 hover:underline">
+          <Trash2 size={12} /> Quitar
+        </button>
+      </div>
+    </div>
   )
 }
 

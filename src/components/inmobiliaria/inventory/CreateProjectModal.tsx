@@ -37,8 +37,6 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, tenantId }: Cre
     estimated_projection_date: '',
     architects: '',
     plan_type: '',
-    summary_financial_initial_pvp_total: '',
-    summary_financial_min_expected_with_discounts: '',
   })
 
   const update = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
@@ -65,8 +63,6 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, tenantId }: Cre
         estimated_projection_date: form.estimated_projection_date || null,
         architects: form.architects || null,
         plan_type: form.plan_type || null,
-        summary_financial_initial_pvp_total: form.summary_financial_initial_pvp_total ? Number(form.summary_financial_initial_pvp_total) : null,
-        summary_financial_min_expected_with_discounts: form.summary_financial_min_expected_with_discounts ? Number(form.summary_financial_min_expected_with_discounts) : null,
       })
       toast.success('Proyecto creado exitosamente')
       onCreated()
@@ -87,8 +83,6 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, tenantId }: Cre
         estimated_projection_date: '',
         architects: '',
         plan_type: '',
-        summary_financial_initial_pvp_total: '',
-        summary_financial_min_expected_with_discounts: '',
       })
     } catch {
       toast.error('Error al crear proyecto')
@@ -130,10 +124,6 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, tenantId }: Cre
         <div className="grid grid-cols-2 gap-4">
           <Input id="architects" label="Arquitectos" placeholder="Nombre del estudio" value={form.architects} onChange={(e) => update('architects', e.target.value)} />
           <Input id="plan" label="Tipo de plan" placeholder="Ej: PLAN COMERCIAL TENTATIVO" value={form.plan_type} onChange={(e) => update('plan_type', e.target.value)} />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Input id="pvp" label="PVP Total inicial" type="number" step="0.01" placeholder="4850000" value={form.summary_financial_initial_pvp_total} onChange={(e) => update('summary_financial_initial_pvp_total', e.target.value)} />
-          <Input id="min" label="Mínimo esperado con descuentos" type="number" step="0.01" placeholder="4600000" value={form.summary_financial_min_expected_with_discounts} onChange={(e) => update('summary_financial_min_expected_with_discounts', e.target.value)} />
         </div>
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>

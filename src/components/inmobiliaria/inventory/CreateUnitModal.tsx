@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/Button'
 import { UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
 import type { Project } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
-import { createUnit } from '@/services/inmobiliaria.service'
+import { createUnit, uploadUnitMedia } from '@/services/inmobiliaria.service'
+import { prepareImageForWebUpload } from '@/lib/images/prepareImageForWebUpload'
 import { toast } from 'sonner'
+import { ImagePlus, X } from 'lucide-react'
 
 const categoryOptions = [
   { value: 'Departamento', label: 'Departamento' },
@@ -40,6 +42,7 @@ interface CreateUnitModalProps {
 export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId }: CreateUnitModalProps) {
   const { supabase } = useAuth()
   const [loading, setLoading] = useState(false)
+  const [imageFiles, setImageFiles] = useState<File[]>([])
   const [form, setForm] = useState({
     project_id: '',
     unit_number: '',
@@ -67,7 +70,7 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
     }
     setLoading(true)
     try {
-      await createUnit(supabase, {
+      const created = await createUnit(supabase, {
         tenant_id: tenantId,
         project_id: form.project_id,
         unit_number: form.unit_number,
@@ -84,9 +87,35 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
         status: form.status as 'disponible',
         description: form.description || null,
       })
-      toast.success('Unidad creada exitosamente')
+      let uploadFailures = 0
+      for (let i = 0; i < imageFiles.length; i++) {
+        const raw = imageFiles[i]
+        try {
+          const file = await prepareImageForWebUpload(raw)
+          await uploadUnitMedia(supabase, {
+            tenantId,
+            projectId: form.project_id,
+            unitId: created.id,
+            file,
+            setAsCover: i === 0 && imageFiles.length > 0,
+          })
+        } catch {
+          uploadFailures += 1
+          toast.error(`No se pudo subir: ${raw.name}`)
+        }
+      }
+      if (imageFiles.length === 0) {
+        toast.success('Unidad creada exitosamente')
+      } else if (uploadFailures === 0) {
+        toast.success('Unidad creada e imágenes subidas')
+      } else if (uploadFailures === imageFiles.length) {
+        toast.error('Unidad creada, pero ninguna imagen se pudo subir')
+      } else {
+        toast.success('Unidad creada; algunas imágenes no se subieron')
+      }
       onCreated()
       onClose()
+      setImageFiles([])
       setForm({ project_id: '', unit_number: '', category: 'Departamento', unit_subtype: '', floor: '', area_internal_m2: '', area_terrace_covered_m2: '', area_terrace_open_m2: '', area_total_m2: '', parking_assigned: '0', cost_per_m2_internal: '', published_commercial_price: '', status: 'disponible', description: '' })
     } catch {
       toast.error('Error al crear la unidad')
@@ -120,6 +149,47 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
           <Select id="status" label="Estado" options={UNIT_STATUS_OPTIONS} value={form.status} onChange={(e) => update('status', e.target.value)} />
         </div>
         <Textarea id="desc" label="Descripción" placeholder="Descripción opcional de la unidad..." value={form.description} onChange={(e) => update('description', e.target.value)} />
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-gray-800">Fotos de la unidad (opcional)</p>
+          <p className="text-xs text-gray-500">
+           La primera foto queda como portada.
+          </p>
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 hover:bg-gray-100">
+            <ImagePlus size={18} className="text-gray-500" />
+            <span>Agregar imágenes</span>
+            <input
+              type="file"
+              className="hidden"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              multiple
+              onChange={(e) => {
+                const list = e.target.files ? Array.from(e.target.files) : []
+                e.target.value = ''
+                setImageFiles((prev) => [...prev, ...list])
+              }}
+            />
+          </label>
+          {imageFiles.length > 0 && (
+            <ul className="flex flex-wrap gap-2 pt-1">
+              {imageFiles.map((f, idx) => (
+                <li
+                  key={`${f.name}-${idx}-${f.size}`}
+                  className="flex items-center gap-1 rounded-md border border-gray-100 bg-white px-2 py-1 text-xs text-gray-700"
+                >
+                  <span className="max-w-[180px] truncate">{f.name}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-red-600"
+                    onClick={() => setImageFiles((prev) => prev.filter((_, i) => i !== idx))}
+                    aria-label="Quitar archivo"
+                  >
+                    <X size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
           <Button type="submit" disabled={loading}>{loading ? 'Creando...' : 'Crear Unidad'}</Button>

@@ -1,6 +1,6 @@
 'use client'
 
-import { Search, Plus, RotateCcw } from 'lucide-react'
+import { Plus, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -12,10 +12,9 @@ interface InventoryToolbarProps {
     projectId: string
     status: string
     category: string
-    search: string
   }
   projects: Project[]
-  onFilterChange: (key: 'projectId' | 'status' | 'category' | 'search', value: string) => void
+  onFilterChange: (key: 'projectId' | 'status' | 'category', value: string) => void
   onReset: () => void
   onAdd: () => void
 }
@@ -32,16 +31,6 @@ export function InventoryToolbar({ filters, projects, onFilterChange, onReset, o
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="flex flex-1 flex-wrap gap-3">
-        <div className="relative w-full sm:w-56">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Buscar unidad..."
-            value={filters.search}
-            onChange={(e) => onFilterChange('search', e.target.value)}
-            className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#BDA27E]/30 focus:border-[#2B1A18] transition-colors"
-          />
-        </div>
         <Select
           options={projects.map((p) => ({ value: p.id, label: p.name }))}
           placeholder="Todos los proyectos"

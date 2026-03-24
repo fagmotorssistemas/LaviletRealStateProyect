@@ -14,7 +14,6 @@ import type {
   AppointmentStatus,
   AppointmentWithUnits,
   Lead,
-  LocationType,
   Project,
   Unit,
 } from '@/types/inmobiliaria'
@@ -28,12 +27,6 @@ import {
   validateAppointmentForm,
   toastAppointmentValidationError,
 } from '@/lib/inmobiliaria/appointmentFormValidation'
-
-const locationOptions = [
-  { value: 'proyecto', label: 'Proyecto' },
-  { value: 'oficina', label: 'Oficina' },
-  { value: 'mixto', label: 'Mixto' },
-]
 
 function toDatetimeLocalValue(iso: string) {
   const d = new Date(iso)
@@ -49,7 +42,6 @@ const defaultForm = {
   title: '',
   lead_id: '',
   project_id: '',
-  location_type: 'proyecto' as LocationType,
   start_time: '',
   end_time: '',
   notes: '',
@@ -61,7 +53,6 @@ function appointmentToForm(d: AppointmentWithUnits) {
     title: d.title ?? '',
     lead_id: d.lead_id ?? '',
     project_id: d.project_id ?? '',
-    location_type: d.location_type,
     start_time: toDatetimeLocalValue(d.start_time),
     end_time: d.end_time ? toDatetimeLocalValue(d.end_time) : '',
     notes: d.notes ?? '',
@@ -168,7 +159,6 @@ export function AppointmentDetailModal({
       title: form.title,
       lead_id: form.lead_id,
       project_id: form.project_id,
-      location_type: form.location_type,
       start_time: form.start_time,
       end_time: form.end_time,
       notes: form.notes,
@@ -188,7 +178,6 @@ export function AppointmentDetailModal({
           title: form.title.trim(),
           lead_id: form.lead_id,
           project_id: form.project_id,
-          location_type: form.location_type,
           start_time: new Date(form.start_time).toISOString(),
           end_time: new Date(form.end_time).toISOString(),
           notes: form.notes.trim(),
@@ -265,7 +254,6 @@ export function AppointmentDetailModal({
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-3">
             <StatusBadge status={detail.status} type="appointment" />
-            <span className="text-sm text-gray-500 capitalize">{detail.location_type}</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -368,25 +356,15 @@ export function AppointmentDetailModal({
             required
             onChange={(e) => updateField('title', e.target.value)}
           />
-          <div className="grid grid-cols-2 gap-4">
-            <Select
-              id="edit-lead"
-              label="Lead *"
-              options={leads.map((l) => ({ value: l.id, label: l.name }))}
-              placeholder="Seleccionar lead"
-              value={form.lead_id}
-              required
-              onChange={(e) => updateField('lead_id', e.target.value)}
-            />
-            <Select
-              id="edit-location"
-              label="Tipo de ubicación *"
-              options={locationOptions}
-              value={form.location_type}
-              required
-              onChange={(e) => updateField('location_type', e.target.value)}
-            />
-          </div>
+          <Select
+            id="edit-lead"
+            label="Lead *"
+            options={leads.map((l) => ({ value: l.id, label: l.name }))}
+            placeholder="Seleccionar lead"
+            value={form.lead_id}
+            required
+            onChange={(e) => updateField('lead_id', e.target.value)}
+          />
           <Select
             id="edit-project"
             label="Proyecto *"

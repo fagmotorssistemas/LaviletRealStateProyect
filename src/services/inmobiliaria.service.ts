@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { compareUnitsByUnitNumber } from '@/lib/inmobiliaria/sortUnits'
 import type {
-  Unit, Lead, Appointment, AppointmentWithUnits, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
+  Unit, UnitMedia, Lead, Appointment, AppointmentWithUnits, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
   UnitStatus, LeadStatus, AppointmentStatus, InteractionType,
   ShowroomVisitSource,
   Project, ProjectAsset, ProjectAssetKind, ProjectDetail, ContractStatus, InventorySortOption,
@@ -9,6 +9,9 @@ import type {
 
 /** Bucket público para fotos, planos PDF y documentos de proyecto. */
 export const PROJECT_ASSETS_BUCKET = 'project-assets'
+
+/** Bucket público para imágenes por unidad (departamento, local, etc.). */
+export const UNIT_ASSETS_BUCKET = 'unit-assets'
 
 // ─── Projects ───────────────────────────────────────────────
 export async function listProjects(supabase: SupabaseClient, tenantId: string): Promise<Project[]> {
@@ -245,14 +248,202 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
   return { data: data as Unit[], total: count ?? 0 }
 }
 
+/** Parámetros para exportar inventario (sin paginación; trae todas las filas que coincidan). */
+export interface FetchUnitsForExportParams {
+  tenantId: string
+  projectId?: string
+  /** Vacío = todos los estados */
+  statuses?: UnitStatus[]
+  category?: string
+  sort?: InventorySortOption
+}
+
+function applyExportUnitFilters(
+  supabase: SupabaseClient,
+  params: Omit<FetchUnitsForExportParams, 'sort'>,
+) {
+  let q = supabase.from('units').select('*, project:projects(id, name)').eq('tenant_id', params.tenantId)
+  if (params.projectId) q = q.eq('project_id', params.projectId)
+  if (params.statuses?.length) q = q.in('status', params.statuses)
+  if (params.category) q = q.eq('category', params.category)
+  return q
+}
+
+export async function countUnitsForExport(
+  supabase: SupabaseClient,
+  params: Omit<FetchUnitsForExportParams, 'sort'>,
+): Promise<number> {
+  let q = supabase.from('units').select('*', { count: 'exact', head: true }).eq('tenant_id', params.tenantId)
+  if (params.projectId) q = q.eq('project_id', params.projectId)
+  if (params.statuses?.length) q = q.in('status', params.statuses)
+  if (params.category) q = q.eq('category', params.category)
+  const { count, error } = await q
+  if (error) throw error
+  return count ?? 0
+}
+
+export async function fetchUnitsForExport(
+  supabase: SupabaseClient,
+  params: FetchUnitsForExportParams,
+): Promise<Unit[]> {
+  const sort = params.sort ?? 'unit_natural'
+  const filterBase = {
+    tenantId: params.tenantId,
+    projectId: params.projectId,
+    statuses: params.statuses,
+    category: params.category,
+  }
+
+  if (sort === 'unit_natural') {
+    const all: Unit[] = []
+    let batchFrom = 0
+    for (;;) {
+      const q = applyExportUnitFilters(supabase, filterBase).range(batchFrom, batchFrom + FETCH_BATCH - 1)
+      const { data, error } = await q
+      if (error) throw error
+      const rows = (data ?? []) as Unit[]
+      if (rows.length === 0) break
+      all.push(...rows)
+      if (rows.length < FETCH_BATCH) break
+      batchFrom += FETCH_BATCH
+    }
+    all.sort(compareUnitsByUnitNumber)
+    return all
+  }
+
+  const all: Unit[] = []
+  let batchFrom = 0
+  for (;;) {
+    let q = applyExportUnitFilters(supabase, filterBase)
+    switch (sort) {
+      case 'price_desc':
+        q = q.order('published_commercial_price', { ascending: false, nullsFirst: false })
+        break
+      case 'price_asc':
+        q = q.order('published_commercial_price', { ascending: true, nullsFirst: false })
+        break
+      case 'area_desc':
+        q = q.order('area_total_m2', { ascending: false, nullsFirst: false })
+        break
+      case 'area_asc':
+        q = q.order('area_total_m2', { ascending: true, nullsFirst: false })
+        break
+      default:
+        q = q.order('unit_number', { ascending: true })
+    }
+    q = q.order('id', { ascending: true })
+    const { data, error } = await q.range(batchFrom, batchFrom + FETCH_BATCH - 1)
+    if (error) throw error
+    const rows = (data ?? []) as Unit[]
+    if (rows.length === 0) break
+    all.push(...rows)
+    if (rows.length < FETCH_BATCH) break
+    batchFrom += FETCH_BATCH
+  }
+  return all
+}
+
 export async function getUnit(supabase: SupabaseClient, unitId: string) {
   const { data, error } = await supabase
     .from('units')
-    .select('*, project:projects(id, name)')
+    .select(
+      '*, project:projects(id, name), unit_media(id, tenant_id, unit_id, type, url, storage_path, file_name, mime_type, file_size_bytes, caption, sort_order, is_cover, created_at, updated_at)',
+    )
     .eq('id', unitId)
+    .order('sort_order', { referencedTable: 'unit_media', ascending: true })
     .single()
   if (error) throw error
-  return data as Unit
+  const row = data as Unit
+  return row
+}
+
+export function getUnitMediaPublicUrl(supabase: SupabaseClient, storagePath: string): string {
+  return supabase.storage.from(UNIT_ASSETS_BUCKET).getPublicUrl(storagePath).data.publicUrl
+}
+
+export async function uploadUnitMedia(
+  supabase: SupabaseClient,
+  params: {
+    tenantId: string
+    projectId: string
+    unitId: string
+    file: File
+    caption?: string | null
+    setAsCover?: boolean
+    /** Por defecto `gallery` (fotos de la unidad). */
+    type?: string
+  },
+): Promise<UnitMedia> {
+  const { file: uploadFile, tenantId, projectId, unitId, caption, setAsCover, type = 'gallery' } = params
+  const ext = uploadFile.name.includes('.') ? uploadFile.name.split('.').pop() : undefined
+  const safeName = `${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+  const storagePath = `${tenantId}/${projectId}/${unitId}/${safeName}`
+
+  const { error: upErr } = await supabase.storage
+    .from(UNIT_ASSETS_BUCKET)
+    .upload(storagePath, uploadFile, { upsert: false, contentType: uploadFile.type || undefined })
+  if (upErr) throw upErr
+
+  const publicUrl = getUnitMediaPublicUrl(supabase, storagePath)
+
+  const { data: maxRow } = await supabase
+    .from('unit_media')
+    .select('sort_order')
+    .eq('unit_id', unitId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextOrder = (maxRow?.sort_order ?? -1) + 1
+
+  const isCover = Boolean(setAsCover)
+  if (isCover) {
+    await supabase.from('unit_media').update({ is_cover: false }).eq('unit_id', unitId)
+  }
+
+  const { data, error } = await supabase
+    .from('unit_media')
+    .insert({
+      tenant_id: tenantId,
+      unit_id: unitId,
+      type,
+      url: publicUrl,
+      storage_path: storagePath,
+      file_name: uploadFile.name,
+      mime_type: uploadFile.type || null,
+      file_size_bytes: uploadFile.size,
+      caption: caption ?? null,
+      sort_order: nextOrder,
+      is_cover: isCover,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    await supabase.storage.from(UNIT_ASSETS_BUCKET).remove([storagePath])
+    throw error
+  }
+  return data as UnitMedia
+}
+
+export async function deleteUnitMedia(supabase: SupabaseClient, mediaId: string): Promise<void> {
+  const { data: row, error: fetchErr } = await supabase.from('unit_media').select('storage_path').eq('id', mediaId).single()
+  if (fetchErr) throw fetchErr
+  if (row?.storage_path) {
+    await supabase.storage.from(UNIT_ASSETS_BUCKET).remove([row.storage_path])
+  }
+  const { error } = await supabase.from('unit_media').delete().eq('id', mediaId)
+  if (error) throw error
+}
+
+export async function setUnitCoverMedia(supabase: SupabaseClient, unitId: string, mediaId: string): Promise<void> {
+  await supabase.from('unit_media').update({ is_cover: false }).eq('unit_id', unitId)
+  const { error } = await supabase.from('unit_media').update({ is_cover: true }).eq('id', mediaId).eq('unit_id', unitId)
+  if (error) throw error
+}
+
+export async function updateUnitMediaCaption(supabase: SupabaseClient, mediaId: string, caption: string | null): Promise<void> {
+  const { error } = await supabase.from('unit_media').update({ caption }).eq('id', mediaId)
+  if (error) throw error
 }
 
 export async function createUnit(
@@ -323,7 +514,7 @@ export async function listLeads(supabase: SupabaseClient, params: ListLeadsParam
 
   if (params.status) query = query.eq('status', params.status)
   if (params.assignedTo) query = query.eq('assigned_to', params.assignedTo)
-  if (params.search) query = query.or(`name.ilike.%${params.search}%,phone.ilike.%${params.search}%,email.ilike.%${params.search}%`)
+  if (params.search) query = query.or(`name.ilike.%${params.search}%,phone.ilike.%${params.search}%`)
 
   const { data, error, count } = await query.range(from, to)
   if (error) throw error

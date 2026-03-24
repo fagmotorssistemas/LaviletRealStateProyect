@@ -8,7 +8,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { getProjectAssetPublicUrl, listProjects } from '@/services/inmobiliaria.service'
 import { CreateProjectModal } from '@/components/inmobiliaria/inventory/CreateProjectModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
-import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { formatDate } from '@/lib/utils'
@@ -148,21 +147,6 @@ export default function ProyectosPage() {
                   {project.architects && (
                     <p className="text-xs text-gray-400 mb-2 line-clamp-1">Arq: {project.architects}</p>
                   )}
-
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    {project.summary_financial_initial_pvp_total != null && (
-                      <div>
-                        <p className="text-xs text-gray-400">PVP Total</p>
-                        <PriceText value={project.summary_financial_initial_pvp_total} size="sm" />
-                      </div>
-                    )}
-                    {project.summary_financial_min_expected_with_discounts != null && (
-                      <div>
-                        <p className="text-xs text-gray-400">Mín. esperado</p>
-                        <PriceText value={project.summary_financial_min_expected_with_discounts} size="sm" />
-                      </div>
-                    )}
-                  </div>
 
                   {project.estimated_projection_date && (
                     <div className="mt-2 text-sm">
