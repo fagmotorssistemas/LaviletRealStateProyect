@@ -59,6 +59,32 @@ export interface Tenant {
   created_at: string
 }
 
+/** Fase comercial / obra (UI y reportes). */
+export type ProjectConstructionPhase =
+  | 'preventa'
+  | 'en_construccion'
+  | 'entrega_proxima'
+  | 'entregado'
+
+/** Archivos vinculados al proyecto (fotos, planos PDF, brochures). */
+export type ProjectAssetKind = 'photo' | 'floor_plan' | 'brochure' | 'document' | 'other'
+
+export interface ProjectAsset {
+  id: string
+  tenant_id: string
+  project_id: string
+  kind: ProjectAssetKind
+  file_name: string
+  storage_path: string
+  mime_type: string | null
+  file_size_bytes: number | null
+  caption: string | null
+  sort_order: number
+  is_cover: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface Project {
   id: string
   tenant_id: string
@@ -70,8 +96,29 @@ export interface Project {
   summary_financial_initial_pvp_total: number | null
   summary_financial_min_expected_with_discounts: number | null
   policies_json: Record<string, unknown> | null
+  /** Resumen corto para tarjetas y listados. */
+  short_description: string | null
+  /** Descripción amplia del proyecto. */
+  description: string | null
+  city: string | null
+  country: string | null
+  /** Constructora / promotora. */
+  developer_name: string | null
+  construction_phase: ProjectConstructionPhase | null
+  website_url: string | null
+  contact_phone: string | null
+  contact_email: string | null
+  total_units_planned: number | null
   created_at: string
   updated_at: string
+  /** Incluido cuando el listado carga relación anidada. */
+  project_assets?: ProjectAsset[]
+}
+
+/** Detalle con conteo de unidades (sin cargar todas las filas). */
+export interface ProjectDetail extends Project {
+  units_count: number
+  project_assets: ProjectAsset[]
 }
 
 export interface Unit {
@@ -156,6 +203,11 @@ export interface Appointment {
   project?: Project
 }
 
+/** Cita con unidades vinculadas (`appointment_units`). */
+export interface AppointmentWithUnits extends Appointment {
+  units: Unit[]
+}
+
 export interface ShowroomVisit {
   id: string
   tenant_id: string
@@ -174,6 +226,11 @@ export interface ShowroomVisit {
   salesperson?: { full_name: string | null }
   project?: Project
   lead?: Lead
+}
+
+/** Visita con unidades de interés cargadas desde `showroom_visit_units`. */
+export interface ShowroomVisitWithUnits extends ShowroomVisit {
+  units: Unit[]
 }
 
 export interface UnitSalesClosing {
@@ -202,6 +259,11 @@ export interface Contract {
   created_by: string | null
   created_at: string
   lead?: Lead
+}
+
+/** Contrato con unidades vinculadas (`contract_units`). */
+export interface ContractWithUnits extends Contract {
+  units: Unit[]
 }
 
 /** Orden de listado en inventario (unidades). */

@@ -9,6 +9,8 @@ interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title?: string
+  /** Contenido a la derecha del título (p. ej. acciones) antes del botón cerrar */
+  headerActions?: ReactNode
   children: ReactNode
   className?: string
   size?: 'sm' | 'md' | 'lg' | 'xl'
@@ -21,7 +23,7 @@ const sizeClasses = {
   xl: 'max-w-4xl',
 }
 
-export function Modal({ isOpen, onClose, title, children, className, size = 'md' }: ModalProps) {
+export function Modal({ isOpen, onClose, title, headerActions, children, className, size = 'md' }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden'
@@ -57,14 +59,18 @@ export function Modal({ isOpen, onClose, title, children, className, size = 'md'
         )}
       >
         {title && (
-          <div className="flex items-center justify-between border-b border-[#BDA27E]/20 px-6 py-4">
-            <h2 className="text-lg font-semibold text-[#2B1A18]">{title}</h2>
-            <button
-              onClick={onClose}
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors cursor-pointer"
-            >
-              <X size={20} />
-            </button>
+          <div className="flex items-center justify-between gap-3 border-b border-[#BDA27E]/20 px-6 py-4">
+            <h2 className="text-lg font-semibold text-[#2B1A18] min-w-0 flex-1">{title}</h2>
+            <div className="flex shrink-0 items-center gap-1">
+              {headerActions}
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
           </div>
         )}
         <div className="p-6">{children}</div>

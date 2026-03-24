@@ -7,13 +7,14 @@ import { useAuth } from '@/contexts/AuthContext'
 import { listProjects } from '@/services/inmobiliaria.service'
 import { ShowroomVisitsTable } from '@/components/inmobiliaria/showroom/ShowroomVisitsTable'
 import { CreateVisitModal } from '@/components/inmobiliaria/showroom/CreateVisitModal'
+import { VisitDetailModal } from '@/components/inmobiliaria/showroom/VisitDetailModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { InmobiliariaFiltersToolbar } from '@/components/inmobiliaria/shared/InmobiliariaFiltersToolbar'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Pagination } from '@/components/ui/Pagination'
-import type { Project } from '@/types/inmobiliaria'
+import type { Project, ShowroomVisit } from '@/types/inmobiliaria'
 import { Plus } from 'lucide-react'
 
 export default function ShowroomPage() {
@@ -21,6 +22,8 @@ export default function ShowroomPage() {
   const { visits, isLoading, tenantId, filters, updateFilter, reload, page, pageSize, total, search, updateSearch, reset, setPage } = useShowroom()
   const [projects, setProjects] = useState<Project[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  const [selectedVisit, setSelectedVisit] = useState<ShowroomVisit | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   const sourceOptions = [
     { value: 'organica', label: 'Orgánica' },
@@ -86,7 +89,13 @@ export default function ShowroomPage() {
         />
       ) : (
         <>
-          <ShowroomVisitsTable visits={visits} onSelect={() => {}} />
+          <ShowroomVisitsTable
+            visits={visits}
+            onSelect={(v) => {
+              setSelectedVisit(v)
+              setDetailOpen(true)
+            }}
+          />
           {total > 0 && (
             <div className="pt-4">
               <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
@@ -94,6 +103,18 @@ export default function ShowroomPage() {
           )}
         </>
       )}
+
+      <VisitDetailModal
+        visit={selectedVisit}
+        isOpen={detailOpen}
+        onClose={() => {
+          setDetailOpen(false)
+          setSelectedVisit(null)
+        }}
+        projects={projects}
+        tenantId={tenantId}
+        onVisitUpdated={reload}
+      />
 
       <CreateVisitModal
         isOpen={createOpen}

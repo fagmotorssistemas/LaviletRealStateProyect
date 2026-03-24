@@ -1,21 +1,158 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { compareUnitsByUnitNumber } from '@/lib/inmobiliaria/sortUnits'
 import type {
-  Unit, Lead, Appointment, ShowroomVisit, LeadInteraction,
+  Unit, Lead, Appointment, AppointmentWithUnits, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
   UnitStatus, LeadStatus, AppointmentStatus, InteractionType,
   ShowroomVisitSource,
-  Project, Contract, ContractStatus, InventorySortOption,
+  Project, ProjectAsset, ProjectAssetKind, ProjectDetail, ContractStatus, InventorySortOption,
 } from '@/types/inmobiliaria'
 
+/** Bucket público para fotos, planos PDF y documentos de proyecto. */
+export const PROJECT_ASSETS_BUCKET = 'project-assets'
+
 // ─── Projects ───────────────────────────────────────────────
-export async function listProjects(supabase: SupabaseClient, tenantId: string) {
-  const { data, error } = await supabase
+export async function listProjects(supabase: SupabaseClient, tenantId: string): Promise<Project[]> {
+  const { data: projects, error } = await supabase
     .from('projects')
     .select('*')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
   if (error) throw error
-  return data as Project[]
+  const rows = projects ?? []
+  if (rows.length === 0) return []
+
+  const ids = rows.map((p) => p.id)
+  const { data: assetRows } = await supabase
+    .from('project_assets')
+    .select('id, tenant_id, project_id, kind, file_name, storage_path, mime_type, file_size_bytes, caption, sort_order, is_cover, created_at, updated_at')
+    .in('project_id', ids)
+
+  const byProject = new Map<string, ProjectAsset[]>()
+  for (const a of assetRows ?? []) {
+    const list = byProject.get(a.project_id) ?? []
+    list.push(a as ProjectAsset)
+    byProject.set(a.project_id, list)
+  }
+
+  return rows.map((p) => ({
+    ...(p as Project),
+    project_assets: byProject.get(p.id) ?? [],
+  }))
+}
+
+export async function getProject(supabase: SupabaseClient, projectId: string, tenantId: string): Promise<Project | null> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*')
+    .eq('id', projectId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  if (error) throw error
+  return data as Project | null
+}
+
+export async function getProjectDetail(supabase: SupabaseClient, projectId: string, tenantId: string): Promise<ProjectDetail | null> {
+  const project = await getProject(supabase, projectId, tenantId)
+  if (!project) return null
+
+  const [{ count }, { data: assets, error: assetsErr }] = await Promise.all([
+    supabase.from('units').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    supabase
+      .from('project_assets')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true }),
+  ])
+  if (assetsErr) throw assetsErr
+
+  return {
+    ...project,
+    units_count: count ?? 0,
+    project_assets: (assets ?? []) as ProjectAsset[],
+  }
+}
+
+export function getProjectAssetPublicUrl(supabase: SupabaseClient, storagePath: string): string {
+  return supabase.storage.from(PROJECT_ASSETS_BUCKET).getPublicUrl(storagePath).data.publicUrl
+}
+
+export async function uploadProjectAsset(
+  supabase: SupabaseClient,
+  params: {
+    tenantId: string
+    projectId: string
+    file: File
+    kind: ProjectAssetKind
+    caption?: string | null
+    setAsCover?: boolean
+  },
+): Promise<ProjectAsset> {
+  const { file: uploadFile, tenantId, projectId, kind, caption, setAsCover } = params
+  const ext = uploadFile.name.includes('.') ? uploadFile.name.split('.').pop() : undefined
+  const safeName = `${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+  const storagePath = `${tenantId}/${projectId}/${safeName}`
+
+  const { error: upErr } = await supabase.storage
+    .from(PROJECT_ASSETS_BUCKET)
+    .upload(storagePath, uploadFile, { upsert: false, contentType: uploadFile.type || undefined })
+  if (upErr) throw upErr
+
+  const { data: maxRow } = await supabase
+    .from('project_assets')
+    .select('sort_order')
+    .eq('project_id', projectId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextOrder = (maxRow?.sort_order ?? -1) + 1
+
+  const isCover = Boolean(setAsCover && kind === 'photo')
+  if (isCover) {
+    await supabase.from('project_assets').update({ is_cover: false }).eq('project_id', projectId).eq('kind', 'photo')
+  }
+
+  const { data, error } = await supabase
+    .from('project_assets')
+    .insert({
+      tenant_id: tenantId,
+      project_id: projectId,
+      kind,
+      file_name: uploadFile.name,
+      storage_path: storagePath,
+      mime_type: uploadFile.type || null,
+      file_size_bytes: uploadFile.size,
+      caption: caption ?? null,
+      sort_order: nextOrder,
+      is_cover: isCover,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    await supabase.storage.from(PROJECT_ASSETS_BUCKET).remove([storagePath])
+    throw error
+  }
+  return data as ProjectAsset
+}
+
+export async function deleteProjectAsset(supabase: SupabaseClient, assetId: string): Promise<void> {
+  const { data: row, error: fetchErr } = await supabase.from('project_assets').select('storage_path').eq('id', assetId).single()
+  if (fetchErr) throw fetchErr
+  await supabase.storage.from(PROJECT_ASSETS_BUCKET).remove([row.storage_path])
+  const { error } = await supabase.from('project_assets').delete().eq('id', assetId)
+  if (error) throw error
+}
+
+export async function setProjectCoverPhoto(supabase: SupabaseClient, projectId: string, assetId: string): Promise<void> {
+  await supabase.from('project_assets').update({ is_cover: false }).eq('project_id', projectId).eq('kind', 'photo')
+  const { error } = await supabase.from('project_assets').update({ is_cover: true }).eq('id', assetId).eq('project_id', projectId)
+  if (error) throw error
+}
+
+export async function updateProjectAssetCaption(supabase: SupabaseClient, assetId: string, caption: string | null): Promise<void> {
+  const { error } = await supabase.from('project_assets').update({ caption }).eq('id', assetId)
+  if (error) throw error
 }
 
 export async function createProject(
@@ -320,6 +457,35 @@ export async function listAppointments(supabase: SupabaseClient, params: ListApp
   return { data: data as Appointment[], total: count ?? 0 }
 }
 
+export async function getAppointment(supabase: SupabaseClient, appointmentId: string): Promise<AppointmentWithUnits> {
+  const { data: appt, error } = await supabase
+    .from('appointments')
+    .select(
+      '*, lead:leads(id, name, phone), responsible:profiles!appointments_responsible_id_fkey(full_name), project:projects(id, name)',
+    )
+    .eq('id', appointmentId)
+    .single()
+  if (error) throw error
+
+  const { data: linkRows } = await supabase
+    .from('appointment_units')
+    .select('unit_id')
+    .eq('appointment_id', appointmentId)
+
+  const unitIds = (linkRows ?? []).map((r) => r.unit_id)
+  let units: Unit[] = []
+  if (unitIds.length) {
+    const { data: unitsData, error: uErr } = await supabase
+      .from('units')
+      .select('*, project:projects(id, name)')
+      .in('id', unitIds)
+    if (uErr) throw uErr
+    units = (unitsData ?? []) as Unit[]
+  }
+
+  return { ...(appt as Appointment), units }
+}
+
 export async function createAppointment(
   supabase: SupabaseClient,
   payload: Partial<Appointment> & { tenant_id: string; start_time: string },
@@ -341,7 +507,8 @@ export async function createAppointment(
 export async function updateAppointment(
   supabase: SupabaseClient,
   appointmentId: string,
-  payload: Partial<Appointment>
+  payload: Partial<Appointment>,
+  unitIds?: string[]
 ) {
   const { data, error } = await supabase
     .from('appointments')
@@ -350,7 +517,19 @@ export async function updateAppointment(
     .select()
     .single()
   if (error) throw error
-  return data as Appointment
+  const row = data as Appointment
+
+  if (unitIds !== undefined) {
+    const { error: delErr } = await supabase.from('appointment_units').delete().eq('appointment_id', appointmentId)
+    if (delErr) throw delErr
+    if (unitIds.length) {
+      const rows = unitIds.map((unit_id) => ({ appointment_id: appointmentId, unit_id }))
+      const { error: linkError } = await supabase.from('appointment_units').insert(rows)
+      if (linkError) throw linkError
+    }
+  }
+
+  return row
 }
 
 export async function updateAppointmentStatus(supabase: SupabaseClient, appointmentId: string, status: AppointmentStatus) {
@@ -400,6 +579,65 @@ export async function listShowroomVisits(supabase: SupabaseClient, params: ListS
   const { data, error, count } = await query.range(from, to)
   if (error) throw error
   return { data: data as ShowroomVisit[], total: count ?? 0 }
+}
+
+export async function getShowroomVisit(supabase: SupabaseClient, visitId: string): Promise<ShowroomVisitWithUnits> {
+  const { data: visit, error } = await supabase
+    .from('showroom_visits')
+    .select(
+      '*, salesperson:profiles!showroom_visits_salesperson_id_fkey(full_name), project:projects(id, name), lead:leads(id, name)',
+    )
+    .eq('id', visitId)
+    .single()
+  if (error) throw error
+
+  const { data: linkRows } = await supabase
+    .from('showroom_visit_units')
+    .select('unit_id')
+    .eq('showroom_visit_id', visitId)
+
+  const unitIds = (linkRows ?? []).map((r) => r.unit_id)
+  let units: Unit[] = []
+  if (unitIds.length) {
+    const { data: unitsData, error: uErr } = await supabase
+      .from('units')
+      .select('*, project:projects(id, name)')
+      .in('id', unitIds)
+    if (uErr) throw uErr
+    units = (unitsData ?? []) as Unit[]
+  }
+
+  return { ...(visit as ShowroomVisit), units }
+}
+
+export async function updateShowroomVisit(
+  supabase: SupabaseClient,
+  visitId: string,
+  payload: Partial<
+    Pick<ShowroomVisit, 'source' | 'project_id' | 'client_name' | 'phone' | 'visit_start' | 'visit_end' | 'notes'>
+  >,
+  unitIds?: string[]
+) {
+  const { data, error } = await supabase
+    .from('showroom_visits')
+    .update(payload)
+    .eq('id', visitId)
+    .select()
+    .single()
+  if (error) throw error
+  const visit = data as ShowroomVisit
+
+  if (unitIds !== undefined) {
+    const { error: delErr } = await supabase.from('showroom_visit_units').delete().eq('showroom_visit_id', visitId)
+    if (delErr) throw delErr
+    if (unitIds.length) {
+      const rows = unitIds.map((unit_id) => ({ showroom_visit_id: visitId, unit_id }))
+      const { error: linkError } = await supabase.from('showroom_visit_units').insert(rows)
+      if (linkError) throw linkError
+    }
+  }
+
+  return visit
 }
 
 export async function createShowroomVisit(
@@ -473,6 +711,58 @@ export async function listContracts(supabase: SupabaseClient, params: ListContra
   const { data, error, count } = await query.range(from, to)
   if (error) throw error
   return { data: data as Contract[], total: count ?? 0 }
+}
+
+export async function getContract(supabase: SupabaseClient, contractId: string): Promise<ContractWithUnits> {
+  const { data: row, error } = await supabase
+    .from('contracts')
+    .select('*, lead:leads(id, name, phone)')
+    .eq('id', contractId)
+    .single()
+  if (error) throw error
+
+  const { data: linkRows } = await supabase.from('contract_units').select('unit_id').eq('contract_id', contractId)
+
+  const unitIds = (linkRows ?? []).map((r) => r.unit_id)
+  let units: Unit[] = []
+  if (unitIds.length) {
+    const { data: unitsData, error: uErr } = await supabase
+      .from('units')
+      .select('*, project:projects(id, name)')
+      .in('id', unitIds)
+    if (uErr) throw uErr
+    units = (unitsData ?? []) as Unit[]
+  }
+
+  return { ...(row as Contract), units }
+}
+
+export async function updateContract(
+  supabase: SupabaseClient,
+  contractId: string,
+  payload: Partial<Contract>,
+  unitIds?: string[]
+) {
+  const { data, error } = await supabase
+    .from('contracts')
+    .update(payload)
+    .eq('id', contractId)
+    .select()
+    .single()
+  if (error) throw error
+  const contract = data as Contract
+
+  if (unitIds !== undefined) {
+    const { error: delErr } = await supabase.from('contract_units').delete().eq('contract_id', contractId)
+    if (delErr) throw delErr
+    if (unitIds.length) {
+      const rows = unitIds.map((unit_id) => ({ contract_id: contractId, unit_id }))
+      const { error: linkError } = await supabase.from('contract_units').insert(rows)
+      if (linkError) throw linkError
+    }
+  }
+
+  return contract
 }
 
 export async function createContract(

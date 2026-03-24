@@ -5,6 +5,7 @@ import { FileText, Plus, Receipt } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { listContracts } from '@/services/inmobiliaria.service'
 import { CreateContractModal } from '@/components/inmobiliaria/contracts/CreateContractModal'
+import { ContractDetailModal } from '@/components/inmobiliaria/contracts/ContractDetailModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
@@ -28,6 +29,8 @@ export default function ContratosPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [tenantId, setTenantId] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [selectedContract, setSelectedContract] = useState<Contract | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const pageSize = 10
@@ -128,7 +131,23 @@ export default function ContratosPage() {
               </thead>
               <tbody>
                 {contracts.map((c) => (
-                  <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                  <tr
+                    key={c.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setSelectedContract(c)
+                      setDetailOpen(true)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setSelectedContract(c)
+                        setDetailOpen(true)
+                      }
+                    }}
+                    className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors cursor-pointer"
+                  >
                     <td className="px-4 py-3 font-medium text-gray-900">{c.contract_number ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{c.lead?.name ?? '—'}</td>
                     <td className="px-4 py-3"><StatusBadge status={c.status} type="contract" /></td>
@@ -182,6 +201,17 @@ export default function ContratosPage() {
           )}
         </>
       )}
+
+      <ContractDetailModal
+        contract={selectedContract}
+        isOpen={detailOpen}
+        onClose={() => {
+          setDetailOpen(false)
+          setSelectedContract(null)
+        }}
+        tenantId={tenantId}
+        onContractUpdated={load}
+      />
 
       <CreateContractModal
         isOpen={createOpen}

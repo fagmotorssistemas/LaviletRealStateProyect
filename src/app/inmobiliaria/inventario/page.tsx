@@ -144,9 +144,14 @@ export default function InventarioPage() {
 
       <UnitDetailModal
         unit={selectedUnit}
+        projects={projects}
         isOpen={detailOpen}
         onClose={() => setDetailOpen(false)}
         onStatusChange={handleStatusChange}
+        onUnitUpdated={(u) => {
+          setSelectedUnit(u)
+          reload()
+        }}
       />
 
       <CreateUnitModal

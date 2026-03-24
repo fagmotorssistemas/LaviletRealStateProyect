@@ -15,12 +15,14 @@ import {
   LogOut,
   ChevronLeft,
   Building2,
+  Layers,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 
 const menuItems = [
   { label: 'Inventario', href: '/inmobiliaria/inventario', icon: LayoutGrid },
+  { label: 'Proyectos', href: '/inmobiliaria/proyectos', icon: Layers },
   { label: 'Leads', href: '/inmobiliaria/leads', icon: UserPlus },
   { label: 'Showroom', href: '/inmobiliaria/showroom', icon: Landmark },
   { label: 'Agenda', href: '/inmobiliaria/agenda', icon: CalendarDays },

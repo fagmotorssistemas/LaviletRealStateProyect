@@ -225,8 +225,13 @@ export default function AgendaPage() {
       <AppointmentDetailModal
         appointment={selectedAppt}
         isOpen={detailOpen}
-        onClose={() => setDetailOpen(false)}
+        onClose={() => {
+          setDetailOpen(false)
+          setSelectedAppt(null)
+        }}
         onStatusChange={handleStatusChange}
+        tenantId={tenantId}
+        onAppointmentUpdated={reload}
       />
 
       <CreateAppointmentModal

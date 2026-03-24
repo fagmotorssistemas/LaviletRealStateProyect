@@ -5,19 +5,22 @@ import { createPortal } from 'react-dom'
 import {
   X, Phone, Mail, DollarSign, CreditCard, MessageSquare,
   Edit3, Loader2, CheckCircle2, Building2, Send, Plus,
-  Trash2, Search, ChevronDown,
+  Trash2, Search, ChevronDown, Calendar, MapPin, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { Select } from '@/components/ui/Select'
 import { Spinner } from '@/components/ui/Spinner'
 import { LEAD_STATUS_OPTIONS, INTERACTION_TYPE_OPTIONS } from '@/types/inmobiliaria'
-import type { Lead, LeadStatus, LeadInteraction, InteractionType, Unit } from '@/types/inmobiliaria'
+import type { Lead, LeadStatus, LeadInteraction, InteractionType, Unit, Project } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   getLead, updateLead, updateLeadStatus,
   listLeadInteractions, addLeadInteraction,
   listUnits, addLeadUnit, removeLeadUnit,
+  listProjects,
 } from '@/services/inmobiliaria.service'
+import { LeadDetailAgendaTab } from '@/components/inmobiliaria/leads/LeadDetailAgendaTab'
+import { LeadDetailShowroomTab } from '@/components/inmobiliaria/leads/LeadDetailShowroomTab'
 import { formatDateTime, formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -58,6 +61,11 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }
   const [interactionContent, setInteractionContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  /** Pestaña derecha: bitácora, agenda o showroom */
+  const [rightTab, setRightTab] = useState<'historial' | 'agenda' | 'showroom'>('historial')
+  const [projects, setProjects] = useState<Project[]>([])
+  const tabsScrollRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!leadId || !isOpen) return
     setLoading(true)
@@ -72,6 +80,26 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }
       setWantsFinancing(leadData.financing || false)
     }).finally(() => setLoading(false))
   }, [supabase, leadId, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) setRightTab('historial')
+  }, [isOpen])
+
+  useEffect(() => {
+    setRightTab('historial')
+  }, [leadId])
+
+  useEffect(() => {
+    if (!tenantId || !isOpen || !leadId) return
+    listProjects(supabase, tenantId).then(setProjects).catch(() => setProjects([]))
+  }, [supabase, tenantId, isOpen, leadId])
+
+  const scrollTabs = (dir: 'left' | 'right') => {
+    const el = tabsScrollRef.current
+    if (!el) return
+    const delta = dir === 'left' ? -120 : 120
+    el.scrollBy({ left: delta, behavior: 'smooth' })
+  }
 
   useEffect(() => {
     if (isOpen) {
@@ -479,91 +507,162 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }
               </div>
             </div>
 
-            {/* ── RIGHT COLUMN (Bitácora) ── */}
-            <div className="w-full md:w-2/3 flex flex-col bg-white h-full overflow-hidden">
+            {/* ── RIGHT COLUMN (Pestañas: Historial / Agenda / Showroom) ── */}
+            <div className="w-full md:w-2/3 flex flex-col bg-white h-full overflow-hidden min-h-0">
 
-              {/* Header */}
-              <div className="shrink-0 flex items-center gap-2 border-b border-slate-100 px-6 py-3 bg-white">
-                <MessageSquare className="h-4 w-4 text-[#2B1A18]" />
-                <span className="text-sm font-semibold text-[#2B1A18]">Bitácora</span>
-                {interactions.length > 0 && (
-                  <span className="text-xs text-slate-400 ml-1">({interactions.length})</span>
-                )}
-              </div>
-
-              {/* Timeline */}
-              <div className="flex-1 overflow-y-auto p-6">
-                {interactions.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                    <MessageSquare size={40} strokeWidth={1.5} className="mb-3" />
-                    <p className="text-sm font-medium">Sin interacciones registradas</p>
-                    <p className="text-xs mt-1">Agrega la primera interacción con este prospecto</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {interactions.map((interaction) => (
-                      <div key={interaction.id} className="flex gap-3">
-                        <div className="mt-1 shrink-0">
-                          <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
-                            <MessageSquare size={14} className="text-slate-500" />
-                          </div>
-                        </div>
-                        <div className="flex-1 bg-slate-50 rounded-xl p-4 border border-slate-100">
-                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                            <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
-                              {interaction.type}
-                            </span>
-                            <span className="text-xs text-slate-400">{formatDateTime(interaction.created_at)}</span>
-                            {interaction.responsible?.full_name && (
-                              <span className="text-xs text-slate-400">• {interaction.responsible.full_name}</span>
-                            )}
-                          </div>
-                          <p className="text-sm text-slate-700">{interaction.content}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Input Form */}
-              <div className="shrink-0 border-t border-slate-200 bg-white p-4">
-                <div className="flex items-end gap-3">
-                  <div className="w-32 shrink-0">
-                    <Select
-                      options={INTERACTION_TYPE_OPTIONS}
-                      value={interactionType}
-                      onChange={(e) => setInteractionType(e.target.value as InteractionType)}
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <textarea
-                      value={interactionContent}
-                      onChange={(e) => setInteractionContent(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault()
-                          handleAddInteraction()
-                        }
-                      }}
-                      placeholder="Escribe una interacción..."
-                      rows={2}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 resize-y min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#BDA27E]/30 focus:border-[#2B1A18] transition-colors"
-                    />
-                  </div>
+              {/* Barra de pestañas (scroll horizontal) */}
+              <div className="shrink-0 flex items-stretch gap-1 border-b border-slate-200 bg-white px-2">
+                <button
+                  type="button"
+                  onClick={() => scrollTabs('left')}
+                  className="shrink-0 px-1 py-3 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                  aria-label="Desplazar pestañas a la izquierda"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div
+                  ref={tabsScrollRef}
+                  className="flex-1 min-w-0 flex items-stretch gap-1 overflow-x-auto scrollbar-thin py-0 [scrollbar-width:thin]"
+                >
                   <button
-                    onClick={handleAddInteraction}
-                    disabled={submitting || !interactionContent.trim()}
-                    className="shrink-0 rounded-lg bg-[#2B1A18] p-2.5 text-white hover:bg-[#3d2a24] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    type="button"
+                    onClick={() => setRightTab('historial')}
+                    className={`shrink-0 flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                      rightTab === 'historial'
+                        ? 'border-[#2B1A18] text-[#2B1A18]'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
                   >
-                    {submitting ? (
-                      <Loader2 size={18} className="animate-spin" />
-                    ) : (
-                      <Send size={18} />
+                    <MessageSquare className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    Historial
+                    {interactions.length > 0 && (
+                      <span className="text-xs text-slate-400 font-normal">({interactions.length})</span>
                     )}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setRightTab('agenda')}
+                    className={`shrink-0 flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                      rightTab === 'agenda'
+                        ? 'border-[#2B1A18] text-[#2B1A18]'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Calendar className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    Agenda
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRightTab('showroom')}
+                    className={`shrink-0 flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                      rightTab === 'showroom'
+                        ? 'border-[#2B1A18] text-[#2B1A18]'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <MapPin className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    Showroom
+                  </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => scrollTabs('right')}
+                  className="shrink-0 px-1 py-3 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                  aria-label="Desplazar pestañas a la derecha"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
               </div>
+
+              {rightTab === 'historial' && (
+                <>
+                  {/* Timeline */}
+                  <div className="flex-1 overflow-y-auto p-6 min-h-0">
+                    {interactions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-slate-400">
+                        <MessageSquare size={40} strokeWidth={1.5} className="mb-3" />
+                        <p className="text-sm font-medium">Sin interacciones registradas</p>
+                        <p className="text-xs mt-1">Agrega la primera interacción con este prospecto</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {interactions.map((interaction) => (
+                          <div key={interaction.id} className="flex gap-3">
+                            <div className="mt-1 shrink-0">
+                              <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
+                                <MessageSquare size={14} className="text-slate-500" />
+                              </div>
+                            </div>
+                            <div className="flex-1 bg-slate-50 rounded-xl p-4 border border-slate-100">
+                              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
+                                  {interaction.type}
+                                </span>
+                                <span className="text-xs text-slate-400">{formatDateTime(interaction.created_at)}</span>
+                                {interaction.responsible?.full_name && (
+                                  <span className="text-xs text-slate-400">• {interaction.responsible.full_name}</span>
+                                )}
+                              </div>
+                              <p className="text-sm text-slate-700">{interaction.content}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Input Form */}
+                  <div className="shrink-0 border-t border-slate-200 bg-white p-4">
+                    <div className="flex items-end gap-3">
+                      <div className="w-32 shrink-0">
+                        <Select
+                          options={INTERACTION_TYPE_OPTIONS}
+                          value={interactionType}
+                          onChange={(e) => setInteractionType(e.target.value as InteractionType)}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <textarea
+                          value={interactionContent}
+                          onChange={(e) => setInteractionContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault()
+                              handleAddInteraction()
+                            }
+                          }}
+                          placeholder="Escribe una interacción..."
+                          rows={2}
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 resize-y min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#BDA27E]/30 focus:border-[#2B1A18] transition-colors"
+                        />
+                      </div>
+                      <button
+                        onClick={handleAddInteraction}
+                        disabled={submitting || !interactionContent.trim()}
+                        className="shrink-0 rounded-lg bg-[#2B1A18] p-2.5 text-white hover:bg-[#3d2a24] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        {submitting ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          <Send size={18} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {rightTab === 'agenda' && lead && (
+                <div className="flex-1 overflow-y-auto p-6 min-h-0">
+                  <LeadDetailAgendaTab lead={lead} tenantId={tenantId} projects={projects} />
+                </div>
+              )}
+
+              {rightTab === 'showroom' && lead && (
+                <div className="flex-1 overflow-y-auto p-6 min-h-0">
+                  <LeadDetailShowroomTab lead={lead} tenantId={tenantId} projects={projects} />
+                </div>
+              )}
             </div>
           </div>
         ) : null}

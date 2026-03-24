@@ -1,16 +1,27 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Building2, Plus, Search, RotateCcw } from 'lucide-react'
+import Link from 'next/link'
+import Image from 'next/image'
+import { Building2, ChevronRight, Plus, Search, RotateCcw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { listProjects } from '@/services/inmobiliaria.service'
+import { getProjectAssetPublicUrl, listProjects } from '@/services/inmobiliaria.service'
 import { CreateProjectModal } from '@/components/inmobiliaria/inventory/CreateProjectModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { formatDate } from '@/lib/utils'
+import { constructionPhaseLabel } from '@/lib/inmobiliaria/projectLabels'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Project } from '@/types/inmobiliaria'
+
+function coverImageUrl(project: Project, supabase: SupabaseClient): string | null {
+  const assets = project.project_assets ?? []
+  const cover = assets.find((a) => a.kind === 'photo' && a.is_cover) ?? assets.find((a) => a.kind === 'photo')
+  if (!cover) return null
+  return getProjectAssetPublicUrl(supabase, cover.storage_path)
+}
 
 export default function ProyectosPage() {
   const { supabase } = useAuth()
@@ -39,10 +50,15 @@ export default function ProyectosPage() {
   useEffect(() => { load() }, [load])
 
   const filtered = search
-    ? projects.filter((p) =>
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        (p.address ?? '').toLowerCase().includes(search.toLowerCase())
-      )
+    ? projects.filter((p) => {
+        const q = search.toLowerCase()
+        return (
+          p.name.toLowerCase().includes(q) ||
+          (p.address ?? '').toLowerCase().includes(q) ||
+          (p.city ?? '').toLowerCase().includes(q) ||
+          (p.short_description ?? '').toLowerCase().includes(q)
+        )
+      })
     : projects
 
   return (
@@ -91,53 +107,78 @@ export default function ProyectosPage() {
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((project) => (
-            <div
-              key={project.id}
-              className="rounded-xl border border-gray-200 bg-white p-5 hover:shadow-md transition-shadow cursor-pointer"
-            >
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#BDA27E]/15">
-                  <Building2 size={20} className="text-[#2B1A18]" />
+          {filtered.map((project) => {
+            const img = coverImageUrl(project, supabase)
+            return (
+              <Link
+                key={project.id}
+                href={`/inmobiliaria/proyectos/${project.id}`}
+                className="group rounded-xl border border-gray-200 bg-white overflow-hidden hover:shadow-lg hover:border-[#BDA27E]/40 transition-all"
+              >
+                <div className="relative h-40 bg-slate-100">
+                  {img ? (
+                    <Image src={img} alt="" fill className="object-cover" sizes="(max-width: 1024px) 50vw, 33vw" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <Building2 size={40} className="text-[#BDA27E]/40" strokeWidth={1.25} />
+                    </div>
+                  )}
+                  {project.construction_phase && (
+                    <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      {constructionPhaseLabel(project.construction_phase)}
+                    </span>
+                  )}
                 </div>
-                <h3 className="font-semibold text-gray-900 truncate">{project.name}</h3>
-              </div>
-
-              {project.address && (
-                <p className="text-sm text-gray-500 mb-2 truncate">{project.address}</p>
-              )}
-
-              {project.architects && (
-                <p className="text-xs text-gray-400 mb-2">Arq: {project.architects}</p>
-              )}
-
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                {project.summary_financial_initial_pvp_total != null && (
-                  <div>
-                    <p className="text-xs text-gray-400">PVP Total</p>
-                    <PriceText value={project.summary_financial_initial_pvp_total} size="sm" />
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="font-semibold text-gray-900 group-hover:text-[#2B1A18] line-clamp-2">{project.name}</h3>
+                    <ChevronRight size={18} className="shrink-0 text-gray-300 group-hover:text-[#BDA27E] mt-0.5" />
                   </div>
-                )}
-                {project.summary_financial_min_expected_with_discounts != null && (
-                  <div>
-                    <p className="text-xs text-gray-400">Mín. esperado</p>
-                    <PriceText value={project.summary_financial_min_expected_with_discounts} size="sm" />
-                  </div>
-                )}
-              </div>
 
-              {project.estimated_projection_date && (
-                <div className="mt-2 text-sm">
-                  <p className="text-xs text-gray-400">Fecha proyección</p>
-                  <p className="font-medium text-gray-700">{formatDate(project.estimated_projection_date)}</p>
+                  {project.short_description && (
+                    <p className="text-sm text-gray-500 line-clamp-2 mb-2">{project.short_description}</p>
+                  )}
+
+                  {(project.city || project.address) && (
+                    <p className="text-sm text-gray-500 mb-2 line-clamp-1">
+                      {[project.city, project.address].filter(Boolean).join(' • ')}
+                    </p>
+                  )}
+
+                  {project.architects && (
+                    <p className="text-xs text-gray-400 mb-2 line-clamp-1">Arq: {project.architects}</p>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    {project.summary_financial_initial_pvp_total != null && (
+                      <div>
+                        <p className="text-xs text-gray-400">PVP Total</p>
+                        <PriceText value={project.summary_financial_initial_pvp_total} size="sm" />
+                      </div>
+                    )}
+                    {project.summary_financial_min_expected_with_discounts != null && (
+                      <div>
+                        <p className="text-xs text-gray-400">Mín. esperado</p>
+                        <PriceText value={project.summary_financial_min_expected_with_discounts} size="sm" />
+                      </div>
+                    )}
+                  </div>
+
+                  {project.estimated_projection_date && (
+                    <div className="mt-2 text-sm">
+                      <p className="text-xs text-gray-400">Fecha proyección</p>
+                      <p className="font-medium text-gray-700">{formatDate(project.estimated_projection_date)}</p>
+                    </div>
+                  )}
+
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
+                    <span className="text-xs text-gray-400">Creado: {formatDate(project.created_at)}</span>
+                    <span className="text-xs font-medium text-[#BDA27E] group-hover:underline">Ver ficha</span>
+                  </div>
                 </div>
-              )}
-
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <span className="text-xs text-gray-400">Creado: {formatDate(project.created_at)}</span>
-              </div>
-            </div>
-          ))}
+              </Link>
+            )
+          })}
         </div>
       )}
 

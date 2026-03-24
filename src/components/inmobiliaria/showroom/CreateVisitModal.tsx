@@ -31,7 +31,7 @@ interface CreateVisitModalProps {
 }
 
 export function CreateVisitModal({ isOpen, onClose, onCreated, projects, tenantId }: CreateVisitModalProps) {
-  const { supabase } = useAuth()
+  const { supabase, user } = useAuth()
   const [loading, setLoading] = useState(false)
   const [unitSearchOpen, setUnitSearchOpen] = useState(false)
   const [unitSearchQuery, setUnitSearchQuery] = useState('')
@@ -130,6 +130,7 @@ export function CreateVisitModal({ isOpen, onClose, onCreated, projects, tenantI
     try {
       await createShowroomVisit(supabase, {
         tenant_id: tenantId,
+        salesperson_id: user?.id ?? null,
         source: form.source,
         project_id: form.project_id || null,
         client_name: form.client_name,
@@ -155,8 +156,15 @@ export function CreateVisitModal({ isOpen, onClose, onCreated, projects, tenantI
       setUnitSearchQuery('')
       setUnitSearchOpen(false)
       setUnitSearchResults([])
-    } catch {
-      toast.error('Error al registrar visita')
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string'
+              ? error.message
+              : 'Error al registrar visita')
+      toast.error(message)
+      console.error('Error registrando visita:', error)
     } finally {
       setLoading(false)
     }
