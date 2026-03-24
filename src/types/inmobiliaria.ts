@@ -1,3 +1,6 @@
+/** Valores alineados con el enum PostgreSQL `public.user_role`. */
+export type UserRole = 'asesor' | 'admin' | 'contable' | 'marketing'
+
 export type UnitStatus =
   | 'disponible'
   | 'en_preventa'

@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import type { ContractStatus, Lead, Project, Unit } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import {
   CONTRACTS_FILES_BUCKET,
   createContract,
@@ -31,7 +32,8 @@ interface CreateContractModalProps {
 }
 
 export function CreateContractModal({ isOpen, onClose, onCreated, tenantId }: CreateContractModalProps) {
-  const { supabase, user } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [loading, setLoading] = useState(false)
   const [leads, setLeads] = useState<Lead[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -50,14 +52,14 @@ export function CreateContractModal({ isOpen, onClose, onCreated, tenantId }: Cr
 
   useEffect(() => {
     if (isOpen && tenantId) {
-      Promise.all([listLeads(supabase, { tenantId }), listProjects(supabase, tenantId)])
+      Promise.all([listLeads(supabase, { tenantId, scope }), listProjects(supabase, tenantId)])
         .then(([lRes, p]) => {
           setLeads(lRes.data)
           setProjects(p)
         })
         .catch(console.error)
     }
-  }, [isOpen, tenantId, supabase])
+  }, [isOpen, tenantId, supabase, scope])
 
   const update = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 

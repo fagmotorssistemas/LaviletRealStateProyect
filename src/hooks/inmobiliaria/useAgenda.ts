@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { listAppointments } from '@/services/inmobiliaria.service'
 import type { Appointment, AppointmentStatus } from '@/types/inmobiliaria'
 
@@ -16,7 +17,8 @@ const PENDING_STATUSES: AppointmentStatus[] = ['pendiente', 'aceptado', 'reprogr
 const HISTORY_STATUSES: AppointmentStatus[] = ['atendido', 'cancelado']
 
 export function useAgenda() {
-  const { supabase } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [tenantId, setTenantId] = useState('')
@@ -50,6 +52,7 @@ export function useAgenda() {
         dateTo: dateTo ? new Date(`${dateTo}T23:59:59.999Z`).toISOString() : undefined,
         page,
         pageSize,
+        scope,
       })
       setAppointments(res.data)
       setTotal(res.total)
@@ -58,7 +61,7 @@ export function useAgenda() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, filters, page, pageSize, search, dateFrom, dateTo, statusIn])
+  }, [supabase, filters, page, pageSize, search, dateFrom, dateTo, statusIn, scope])
 
   useEffect(() => { loadAppointments() }, [loadAppointments])
 

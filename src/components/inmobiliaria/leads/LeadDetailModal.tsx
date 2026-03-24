@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X, Phone, DollarSign, CreditCard, MessageSquare,
@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { LEAD_STATUS_OPTIONS, INTERACTION_TYPE_OPTIONS } from '@/types/inmobiliaria'
 import type { Lead, LeadStatus, LeadInteraction, InteractionType, Unit, Project } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import {
   getLead, updateLead, updateLeadStatus,
   listLeadInteractions, addLeadInteraction,
@@ -33,7 +34,8 @@ interface LeadDetailModalProps {
 }
 
 export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }: LeadDetailModalProps) {
-  const { supabase, user } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [lead, setLead] = useState<Lead | null>(null)
   const [interactions, setInteractions] = useState<LeadInteraction[]>([])
   const [loading, setLoading] = useState(false)
@@ -69,17 +71,25 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }
   useEffect(() => {
     if (!leadId || !isOpen) return
     setLoading(true)
-    Promise.all([
-      getLead(supabase, leadId),
-      listLeadInteractions(supabase, leadId),
-    ]).then(([leadData, interactionsData]) => {
-      setLead(leadData)
-      setInteractions(interactionsData)
-      setResume(leadData.resume || '')
-      setBudget(leadData.budget?.toString() || '')
-      setWantsFinancing(leadData.financing || false)
-    }).finally(() => setLoading(false))
-  }, [supabase, leadId, isOpen])
+    getLead(supabase, leadId, scope)
+      .then((leadData) => {
+        setLead(leadData)
+        setResume(leadData.resume || '')
+        setBudget(leadData.budget?.toString() || '')
+        setWantsFinancing(leadData.financing || false)
+        return listLeadInteractions(supabase, leadId)
+      })
+      .then((interactionsData) => {
+        setInteractions(interactionsData)
+      })
+      .catch((err) => {
+        toast.error(err instanceof Error ? err.message : 'Error al cargar el lead')
+        setLead(null)
+        setInteractions([])
+        onClose()
+      })
+      .finally(() => setLoading(false))
+  }, [supabase, leadId, isOpen, scope, onClose])
 
   useEffect(() => {
     if (!isOpen) setRightTab('historial')
@@ -161,7 +171,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }
       await updateLeadStatus(supabase, lead.id, status)
       toast.success('Estado actualizado')
       onUpdated()
-      const updated = await getLead(supabase, lead.id)
+      const updated = await getLead(supabase, lead.id, scope)
       setLead(updated)
     } catch {
       toast.error('Error al actualizar')
@@ -212,7 +222,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }
     if (!lead) return
     try {
       await addLeadUnit(supabase, lead.id, unit.id, lead.lead_units?.length ?? 0)
-      const updated = await getLead(supabase, lead.id)
+      const updated = await getLead(supabase, lead.id, scope)
       setLead(updated)
       setUnitSearchQuery('')
       setUnitSearchResults([])
@@ -226,7 +236,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId }
     if (!lead) return
     try {
       await removeLeadUnit(supabase, lead.id, unitId)
-      const updated = await getLead(supabase, lead.id)
+      const updated = await getLead(supabase, lead.id, scope)
       setLead(updated)
       toast.success('Unidad eliminada')
     } catch {

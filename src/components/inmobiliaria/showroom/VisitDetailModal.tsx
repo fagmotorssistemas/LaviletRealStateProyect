@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import type { Project, ShowroomVisit, ShowroomVisitSource, ShowroomVisitWithUnits, Unit } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { getShowroomVisit, listUnits, updateShowroomVisit } from '@/services/inmobiliaria.service'
 import { toast } from 'sonner'
 import { Building2, Loader2, Pencil, Phone, User, MapPin, CalendarClock, FileText, Plus, Search, Trash2 } from 'lucide-react'
@@ -87,7 +88,8 @@ export function VisitDetailModal({
   tenantId,
   onVisitUpdated,
 }: VisitDetailModalProps) {
-  const { supabase } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [detail, setDetail] = useState<ShowroomVisitWithUnits | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -113,7 +115,7 @@ export function VisitDetailModal({
     let cancelled = false
     setLoadingDetail(true)
     setLoadError(false)
-    getShowroomVisit(supabase, visit.id)
+    getShowroomVisit(supabase, visit.id, scope)
       .then((d) => {
         if (!cancelled) setDetail(d)
       })
@@ -130,7 +132,7 @@ export function VisitDetailModal({
     return () => {
       cancelled = true
     }
-  }, [isOpen, visit?.id, supabase])
+  }, [isOpen, visit?.id, supabase, scope])
 
   const updateField = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 
@@ -235,7 +237,7 @@ export function VisitDetailModal({
         },
         selectedUnits.map((u) => u.id),
       )
-      const fresh = await getShowroomVisit(supabase, detail.id)
+      const fresh = await getShowroomVisit(supabase, detail.id, scope)
       setDetail(fresh)
       onVisitUpdated?.(fresh)
       toast.success('Visita actualizada')
@@ -255,7 +257,7 @@ export function VisitDetailModal({
     if (!visit?.id) return
     setLoadingDetail(true)
     setLoadError(false)
-    getShowroomVisit(supabase, visit.id)
+    getShowroomVisit(supabase, visit.id, scope)
       .then(setDetail)
       .catch(() => {
         setLoadError(true)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { Input } from '@/components/ui/Input'
@@ -11,6 +11,7 @@ import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
 import type { Contract, ContractStatus, ContractWithUnits, Lead, Project, Unit } from '@/types/inmobiliaria'
 import { formatDate } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import {
   CONTRACTS_FILES_BUCKET,
   getContract,
@@ -63,7 +64,8 @@ export function ContractDetailModal({
   tenantId,
   onContractUpdated,
 }: ContractDetailModalProps) {
-  const { supabase } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [detail, setDetail] = useState<ContractWithUnits | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -91,7 +93,7 @@ export function ContractDetailModal({
     let cancelled = false
     setLoadingDetail(true)
     setLoadError(false)
-    getContract(supabase, contract.id)
+    getContract(supabase, contract.id, scope)
       .then((d) => {
         if (!cancelled) setDetail(d)
       })
@@ -108,17 +110,17 @@ export function ContractDetailModal({
     return () => {
       cancelled = true
     }
-  }, [isOpen, contract?.id, supabase])
+  }, [isOpen, contract?.id, supabase, scope])
 
   useEffect(() => {
     if (!isOpen || !tenantId) return
-    Promise.all([listProjects(supabase, tenantId), listLeads(supabase, { tenantId })])
+    Promise.all([listProjects(supabase, tenantId), listLeads(supabase, { tenantId, scope })])
       .then(([p, lRes]) => {
         setProjects(p)
         setLeads(lRes.data)
       })
       .catch(console.error)
-  }, [isOpen, tenantId, supabase])
+  }, [isOpen, tenantId, supabase, scope])
 
   const updateField = (key: string, value: string) => setForm((prev) => ({ ...prev, [key]: value }))
 
@@ -215,7 +217,7 @@ export function ContractDetailModal({
         selectedUnits.map((u) => u.id),
       )
 
-      const fresh = await getContract(supabase, detail.id)
+      const fresh = await getContract(supabase, detail.id, scope)
       setDetail(fresh)
       onContractUpdated?.()
       toast.success('Contrato actualizado')
@@ -234,7 +236,7 @@ export function ContractDetailModal({
     if (!contract?.id) return
     setLoadingDetail(true)
     setLoadError(false)
-    getContract(supabase, contract.id)
+    getContract(supabase, contract.id, scope)
       .then(setDetail)
       .catch(() => {
         setLoadError(true)

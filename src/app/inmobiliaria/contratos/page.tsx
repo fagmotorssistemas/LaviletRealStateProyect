@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { FileText, Plus, Receipt } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { listContracts } from '@/services/inmobiliaria.service'
 import { CreateContractModal } from '@/components/inmobiliaria/contracts/CreateContractModal'
 import { ContractDetailModal } from '@/components/inmobiliaria/contracts/ContractDetailModal'
@@ -24,7 +25,8 @@ const contractStatusOptions = [
 ]
 
 export default function ContratosPage() {
-  const { supabase } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [contracts, setContracts] = useState<Contract[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [tenantId, setTenantId] = useState('')
@@ -49,6 +51,7 @@ export default function ContratosPage() {
           search: search || undefined,
           page,
           pageSize,
+          scope,
         })
         setContracts(res.data)
         setTotal(res.total)
@@ -58,7 +61,7 @@ export default function ContratosPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, statusFilter, search, page, pageSize])
+  }, [supabase, statusFilter, search, page, pageSize, scope])
 
   useEffect(() => { load() }, [load])
 

@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { listShowroomVisits } from '@/services/inmobiliaria.service'
 import type { ShowroomVisit, ShowroomVisitSource } from '@/types/inmobiliaria'
 
@@ -12,7 +13,8 @@ interface Filters {
 }
 
 export function useShowroom() {
-  const { supabase } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [visits, setVisits] = useState<ShowroomVisit[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [tenantId, setTenantId] = useState('')
@@ -41,6 +43,7 @@ export function useShowroom() {
         search: search || undefined,
         page,
         pageSize,
+        scope,
       })
       setVisits(res.data)
       setTotal(res.total)
@@ -49,7 +52,7 @@ export function useShowroom() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, filters, page, pageSize, search])
+  }, [supabase, filters, page, pageSize, search, scope])
 
   useEffect(() => { loadVisits() }, [loadVisits])
 

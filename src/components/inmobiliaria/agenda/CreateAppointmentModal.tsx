@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import type { Project, Unit, Lead } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { createAppointment, listLeads, listProjects } from '@/services/inmobiliaria.service'
 import { toast } from 'sonner'
 import {
@@ -24,7 +25,8 @@ interface CreateAppointmentModalProps {
 }
 
 export function CreateAppointmentModal({ isOpen, onClose, onCreated, tenantId }: CreateAppointmentModalProps) {
-  const { supabase, user } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [loading, setLoading] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [leads, setLeads] = useState<Lead[]>([])
@@ -40,14 +42,14 @@ export function CreateAppointmentModal({ isOpen, onClose, onCreated, tenantId }:
 
   useEffect(() => {
     if (isOpen && tenantId) {
-      Promise.all([listProjects(supabase, tenantId), listLeads(supabase, { tenantId })])
+      Promise.all([listProjects(supabase, tenantId), listLeads(supabase, { tenantId, scope })])
         .then(([p, lRes]) => {
           setProjects(p)
           setLeads(lRes.data)
         })
         .catch(console.error)
     }
-  }, [isOpen, tenantId, supabase])
+  }, [isOpen, tenantId, supabase, scope])
 
   const update = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 

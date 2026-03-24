@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { LEAD_STATUS_OPTIONS } from '@/types/inmobiliaria'
 import type { Unit } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { createLead, listUnits } from '@/services/inmobiliaria.service'
 import { toast } from 'sonner'
 import { X } from 'lucide-react'
@@ -34,7 +35,8 @@ const sourceOptions = [
 ]
 
 export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: CreateLeadModalProps) {
-  const { supabase } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [loading, setLoading] = useState(false)
   const [availableUnits, setAvailableUnits] = useState<Unit[]>([])
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([])
@@ -61,16 +63,21 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
     if (!form.name.trim()) { toast.error('El nombre es obligatorio'); return }
     setLoading(true)
     try {
-      await createLead(supabase, {
-        tenant_id: tenantId,
-        name: form.name,
-        phone: form.phone || null,
-        status: form.status as 'nuevo',
-        budget: form.budget ? Number(form.budget) : null,
-        financing: form.financing,
-        source: form.source || null,
-        resume: form.resume || null,
-      }, selectedUnitIds.length ? selectedUnitIds : undefined)
+      await createLead(
+        supabase,
+        {
+          tenant_id: tenantId,
+          name: form.name,
+          phone: form.phone || null,
+          status: form.status as 'nuevo',
+          budget: form.budget ? Number(form.budget) : null,
+          financing: form.financing,
+          source: form.source || null,
+          resume: form.resume || null,
+          ...(scope && !scope.isAdmin && user?.id ? { assigned_to: user.id } : {}),
+        },
+        selectedUnitIds.length ? selectedUnitIds : undefined,
+      )
       toast.success('Lead creado exitosamente')
       onCreated()
       onClose()

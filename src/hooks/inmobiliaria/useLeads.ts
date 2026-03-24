@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { listLeads } from '@/services/inmobiliaria.service'
 import type { Lead, LeadStatus } from '@/types/inmobiliaria'
 
@@ -12,7 +13,8 @@ interface Filters {
 }
 
 export function useLeads() {
-  const { supabase } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [leads, setLeads] = useState<Lead[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [tenantId, setTenantId] = useState('')
@@ -39,6 +41,7 @@ export function useLeads() {
         assignedTo: filters.assignedTo || undefined,
         page,
         pageSize,
+        scope,
       })
       setLeads(res.data)
       setTotal(res.total)
@@ -47,7 +50,7 @@ export function useLeads() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, filters, page, pageSize])
+  }, [supabase, filters, page, pageSize, scope])
 
   useEffect(() => { loadLeads() }, [loadLeads])
 

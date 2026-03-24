@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { compareUnitsByUnitNumber } from '@/lib/inmobiliaria/sortUnits'
+import type { DataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import type {
   Unit, UnitMedia, Lead, Appointment, AppointmentWithUnits, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
   UnitStatus, LeadStatus, AppointmentStatus, InteractionType,
@@ -498,6 +499,8 @@ interface ListLeadsParams {
   assignedTo?: string
   page?: number
   pageSize?: number
+  /** Si no es admin, solo leads asignados al usuario. */
+  scope?: DataAccessScope | null
 }
 
 export async function listLeads(supabase: SupabaseClient, params: ListLeadsParams) {
@@ -512,8 +515,13 @@ export async function listLeads(supabase: SupabaseClient, params: ListLeadsParam
     .eq('tenant_id', params.tenantId)
     .order('created_at', { ascending: false })
 
+  if (params.scope && !params.scope.isAdmin) {
+    query = query.eq('assigned_to', params.scope.userId)
+  } else if (params.assignedTo) {
+    query = query.eq('assigned_to', params.assignedTo)
+  }
+
   if (params.status) query = query.eq('status', params.status)
-  if (params.assignedTo) query = query.eq('assigned_to', params.assignedTo)
   if (params.search) query = query.or(`name.ilike.%${params.search}%,phone.ilike.%${params.search}%`)
 
   const { data, error, count } = await query.range(from, to)
@@ -521,14 +529,18 @@ export async function listLeads(supabase: SupabaseClient, params: ListLeadsParam
   return { data: data as Lead[], total: count ?? 0 }
 }
 
-export async function getLead(supabase: SupabaseClient, leadId: string) {
+export async function getLead(supabase: SupabaseClient, leadId: string, scope?: DataAccessScope | null) {
   const { data, error } = await supabase
     .from('leads')
     .select('*, lead_units(*, unit:units(id, unit_number, published_commercial_price, status, project:projects(name))), assigned_profile:profiles!leads_assigned_to_fkey(full_name)')
     .eq('id', leadId)
     .single()
   if (error) throw error
-  return data as Lead
+  const lead = data as Lead
+  if (scope && !scope.isAdmin && lead.assigned_to !== scope.userId) {
+    throw new Error('No tienes permiso para ver este lead.')
+  }
+  return lead
 }
 
 export async function createLead(
@@ -617,6 +629,8 @@ interface ListAppointmentsParams {
   page?: number
   pageSize?: number
   search?: string
+  /** Si no es admin, solo citas donde es responsable. */
+  scope?: DataAccessScope | null
 }
 
 export async function listAppointments(supabase: SupabaseClient, params: ListAppointmentsParams) {
@@ -635,7 +649,11 @@ export async function listAppointments(supabase: SupabaseClient, params: ListApp
 
   if (params.statuses?.length) query = query.in('status', params.statuses)
   else if (params.status) query = query.eq('status', params.status)
-  if (params.responsibleId) query = query.eq('responsible_id', params.responsibleId)
+  if (params.scope && !params.scope.isAdmin) {
+    query = query.eq('responsible_id', params.scope.userId)
+  } else if (params.responsibleId) {
+    query = query.eq('responsible_id', params.responsibleId)
+  }
   if (params.dateFrom) query = query.gte('start_time', params.dateFrom)
   if (params.dateTo) query = query.lte('start_time', params.dateTo)
   if (params.search) {
@@ -648,7 +666,11 @@ export async function listAppointments(supabase: SupabaseClient, params: ListApp
   return { data: data as Appointment[], total: count ?? 0 }
 }
 
-export async function getAppointment(supabase: SupabaseClient, appointmentId: string): Promise<AppointmentWithUnits> {
+export async function getAppointment(
+  supabase: SupabaseClient,
+  appointmentId: string,
+  scope?: DataAccessScope | null,
+): Promise<AppointmentWithUnits> {
   const { data: appt, error } = await supabase
     .from('appointments')
     .select(
@@ -657,6 +679,11 @@ export async function getAppointment(supabase: SupabaseClient, appointmentId: st
     .eq('id', appointmentId)
     .single()
   if (error) throw error
+
+  const row = appt as Appointment
+  if (scope && !scope.isAdmin && row.responsible_id !== scope.userId) {
+    throw new Error('No tienes permiso para ver esta cita.')
+  }
 
   const { data: linkRows } = await supabase
     .from('appointment_units')
@@ -674,7 +701,7 @@ export async function getAppointment(supabase: SupabaseClient, appointmentId: st
     units = (unitsData ?? []) as Unit[]
   }
 
-  return { ...(appt as Appointment), units }
+  return { ...row, units }
 }
 
 export async function createAppointment(
@@ -743,6 +770,8 @@ interface ListShowroomParams {
   pageSize?: number
   search?: string
   source?: ShowroomVisitSource
+  /** Si no es admin, solo visitas donde es el asesor registrado. */
+  scope?: DataAccessScope | null
 }
 
 export async function listShowroomVisits(supabase: SupabaseClient, params: ListShowroomParams) {
@@ -760,7 +789,11 @@ export async function listShowroomVisits(supabase: SupabaseClient, params: ListS
     .order('visit_start', { ascending: false })
 
   if (params.projectId) query = query.eq('project_id', params.projectId)
-  if (params.salespersonId) query = query.eq('salesperson_id', params.salespersonId)
+  if (params.scope && !params.scope.isAdmin) {
+    query = query.eq('salesperson_id', params.scope.userId)
+  } else if (params.salespersonId) {
+    query = query.eq('salesperson_id', params.salespersonId)
+  }
   if (params.source) query = query.eq('source', params.source)
   if (params.search) {
     const q = params.search.trim()
@@ -772,7 +805,11 @@ export async function listShowroomVisits(supabase: SupabaseClient, params: ListS
   return { data: data as ShowroomVisit[], total: count ?? 0 }
 }
 
-export async function getShowroomVisit(supabase: SupabaseClient, visitId: string): Promise<ShowroomVisitWithUnits> {
+export async function getShowroomVisit(
+  supabase: SupabaseClient,
+  visitId: string,
+  scope?: DataAccessScope | null,
+): Promise<ShowroomVisitWithUnits> {
   const { data: visit, error } = await supabase
     .from('showroom_visits')
     .select(
@@ -781,6 +818,11 @@ export async function getShowroomVisit(supabase: SupabaseClient, visitId: string
     .eq('id', visitId)
     .single()
   if (error) throw error
+
+  const row = visit as ShowroomVisit
+  if (scope && !scope.isAdmin && row.salesperson_id !== scope.userId) {
+    throw new Error('No tienes permiso para ver esta visita.')
+  }
 
   const { data: linkRows } = await supabase
     .from('showroom_visit_units')
@@ -798,7 +840,7 @@ export async function getShowroomVisit(supabase: SupabaseClient, visitId: string
     units = (unitsData ?? []) as Unit[]
   }
 
-  return { ...(visit as ShowroomVisit), units }
+  return { ...row, units }
 }
 
 export async function updateShowroomVisit(
@@ -879,6 +921,8 @@ interface ListContractsParams {
   search?: string
   page?: number
   pageSize?: number
+  /** Si no es admin, solo contratos creados por el usuario (`created_by`). */
+  scope?: DataAccessScope | null
 }
 
 export async function listContracts(supabase: SupabaseClient, params: ListContractsParams) {
@@ -893,6 +937,10 @@ export async function listContracts(supabase: SupabaseClient, params: ListContra
     .eq('tenant_id', params.tenantId)
     .order('created_at', { ascending: false })
 
+  if (params.scope && !params.scope.isAdmin) {
+    query = query.eq('created_by', params.scope.userId)
+  }
+
   if (params.status) query = query.eq('status', params.status)
   if (params.search) {
     const q = params.search.trim()
@@ -904,13 +952,24 @@ export async function listContracts(supabase: SupabaseClient, params: ListContra
   return { data: data as Contract[], total: count ?? 0 }
 }
 
-export async function getContract(supabase: SupabaseClient, contractId: string): Promise<ContractWithUnits> {
+export async function getContract(
+  supabase: SupabaseClient,
+  contractId: string,
+  scope?: DataAccessScope | null,
+): Promise<ContractWithUnits> {
   const { data: row, error } = await supabase
     .from('contracts')
     .select('*, lead:leads(id, name, phone)')
     .eq('id', contractId)
     .single()
   if (error) throw error
+
+  const contract = row as Contract
+  if (scope && !scope.isAdmin) {
+    if (contract.created_by !== scope.userId) {
+      throw new Error('No tienes permiso para ver este contrato.')
+    }
+  }
 
   const { data: linkRows } = await supabase.from('contract_units').select('unit_id').eq('contract_id', contractId)
 
@@ -925,7 +984,7 @@ export async function getContract(supabase: SupabaseClient, contractId: string):
     units = (unitsData ?? []) as Unit[]
   }
 
-  return { ...(row as Contract), units }
+  return { ...contract, units }
 }
 
 export async function updateContract(

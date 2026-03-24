@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { Select } from '@/components/ui/Select'
@@ -19,6 +19,7 @@ import type {
 } from '@/types/inmobiliaria'
 import { formatDateTime } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { getAppointment, listLeads, listProjects, updateAppointment } from '@/services/inmobiliaria.service'
 import { toast } from 'sonner'
 import { Building2, Clock, FileText, MapPin, Pencil, User } from 'lucide-react'
@@ -77,7 +78,8 @@ export function AppointmentDetailModal({
   tenantId,
   onAppointmentUpdated,
 }: AppointmentDetailModalProps) {
-  const { supabase } = useAuth()
+  const { supabase, user, profile } = useAuth()
+  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [newStatus, setNewStatus] = useState('')
   const [detail, setDetail] = useState<AppointmentWithUnits | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
@@ -101,7 +103,7 @@ export function AppointmentDetailModal({
     let cancelled = false
     setLoadingDetail(true)
     setLoadError(false)
-    getAppointment(supabase, appointment.id)
+    getAppointment(supabase, appointment.id, scope)
       .then((d) => {
         if (!cancelled) setDetail(d)
       })
@@ -118,17 +120,17 @@ export function AppointmentDetailModal({
     return () => {
       cancelled = true
     }
-  }, [isOpen, appointment?.id, supabase])
+  }, [isOpen, appointment?.id, supabase, scope])
 
   useEffect(() => {
     if (!isOpen || !tenantId) return
-    Promise.all([listProjects(supabase, tenantId), listLeads(supabase, { tenantId })])
+    Promise.all([listProjects(supabase, tenantId), listLeads(supabase, { tenantId, scope })])
       .then(([p, lRes]) => {
         setProjects(p)
         setLeads(lRes.data)
       })
       .catch(console.error)
-  }, [isOpen, tenantId, supabase])
+  }, [isOpen, tenantId, supabase, scope])
 
   const updateField = (key: string, value: string) => setForm((prev) => ({ ...prev, [key]: value }))
 
@@ -185,7 +187,7 @@ export function AppointmentDetailModal({
         },
         selectedUnits.map((u) => u.id),
       )
-      const fresh = await getAppointment(supabase, detail.id)
+      const fresh = await getAppointment(supabase, detail.id, scope)
       setDetail(fresh)
       onAppointmentUpdated?.()
       toast.success('Cita actualizada')
@@ -201,7 +203,7 @@ export function AppointmentDetailModal({
     if (!appointment?.id) return
     setLoadingDetail(true)
     setLoadError(false)
-    getAppointment(supabase, appointment.id)
+    getAppointment(supabase, appointment.id, scope)
       .then(setDetail)
       .catch(() => {
         setLoadError(true)

@@ -3,12 +3,13 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { AuthChangeEvent, User, Session, SupabaseClient } from '@supabase/supabase-js'
+import type { UserRole } from '@/types/inmobiliaria'
 
 interface Profile {
   id: string
   full_name: string | null
   avatar_url: string | null
-  role: string | null
+  role: UserRole | null
   phone: string | null
   email: string | null
 }
