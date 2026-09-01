@@ -98,12 +98,12 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, tenantId }: Cre
         <Input id="short" label="Resumen corto" placeholder="Una línea para listados" value={form.short_description} onChange={(e) => update('short_description', e.target.value)} />
         <Textarea id="desc" label="Descripción" placeholder="Opcional: descripción amplia" value={form.description} onChange={(e) => update('description', e.target.value)} />
         <Input id="address" label="Dirección" placeholder="Dirección del proyecto" value={form.address} onChange={(e) => update('address', e.target.value)} />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input id="city" label="Ciudad" value={form.city} onChange={(e) => update('city', e.target.value)} />
           <Input id="country" label="País" value={form.country} onChange={(e) => update('country', e.target.value)} />
         </div>
         <Input id="developer" label="Constructora / promotora" value={form.developer_name} onChange={(e) => update('developer_name', e.target.value)} />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
             id="phase"
             label="Fase"
@@ -113,15 +113,15 @@ export function CreateProjectModal({ isOpen, onClose, onCreated, tenantId }: Cre
           />
           <Input id="units" label="Unidades totales (planificadas)" type="number" min={0} value={form.total_units_planned} onChange={(e) => update('total_units_planned', e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input id="web" label="Sitio web" type="url" placeholder="https://" value={form.website_url} onChange={(e) => update('website_url', e.target.value)} />
           <Input id="projdate" label="Fecha proyección" type="date" value={form.estimated_projection_date} onChange={(e) => update('estimated_projection_date', e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input id="cphone" label="Teléfono contacto" value={form.contact_phone} onChange={(e) => update('contact_phone', e.target.value)} />
           <Input id="cemail" label="Email contacto" type="email" value={form.contact_email} onChange={(e) => update('contact_email', e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input id="architects" label="Arquitectos" placeholder="Nombre del estudio" value={form.architects} onChange={(e) => update('architects', e.target.value)} />
           <Input id="plan" label="Tipo de plan" placeholder="Ej: PLAN COMERCIAL TENTATIVO" value={form.plan_type} onChange={(e) => update('plan_type', e.target.value)} />
         </div>

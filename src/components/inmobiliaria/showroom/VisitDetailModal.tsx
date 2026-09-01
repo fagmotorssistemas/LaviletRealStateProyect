@@ -17,7 +17,7 @@ import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { formatDateTime } from '@/lib/utils'
 
 const sourceOptions = [
-  { value: 'organica', label: 'Orgánica' },
+  { value: 'organica', label: 'Showroom' },
   { value: 'redes_sociales', label: 'Redes sociales' },
   { value: 'referido', label: 'Referido' },
   { value: 'agendada', label: 'Cita agendada' },
@@ -25,7 +25,7 @@ const sourceOptions = [
 ]
 
 const sourceLabels: Record<string, string> = {
-  organica: 'Orgánica',
+  organica: 'Showroom',
   redes_sociales: 'Redes sociales',
   referido: 'Referido',
   agendada: 'Cita agendada',
@@ -78,6 +78,7 @@ interface VisitDetailModalProps {
   projects: Project[]
   tenantId: string
   onVisitUpdated?: (visit: ShowroomVisitWithUnits) => void
+  startInEdit?: boolean
 }
 
 export function VisitDetailModal({
@@ -87,6 +88,7 @@ export function VisitDetailModal({
   projects,
   tenantId,
   onVisitUpdated,
+  startInEdit = false,
 }: VisitDetailModalProps) {
   const { supabase, user, profile } = useAuth()
   const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
@@ -102,12 +104,14 @@ export function VisitDetailModal({
   const [unitSearchResults, setUnitSearchResults] = useState<Unit[]>([])
   const [searchingUnits, setSearchingUnits] = useState(false)
   const unitSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const enteredEditRef = useRef(false)
 
   useEffect(() => {
     if (!isOpen) {
       setIsEditing(false)
       setDetail(null)
       setLoadError(false)
+      enteredEditRef.current = false
       return
     }
     if (!visit?.id) return
@@ -133,6 +137,17 @@ export function VisitDetailModal({
       cancelled = true
     }
   }, [isOpen, visit?.id, supabase, scope])
+
+  useEffect(() => {
+    if (!isOpen || !detail || !startInEdit || loadingDetail || enteredEditRef.current) return
+    enteredEditRef.current = true
+    setForm(visitToForm(detail))
+    setSelectedUnits([...detail.units])
+    setUnitSearchOpen(false)
+    setUnitSearchQuery('')
+    setUnitSearchResults([])
+    setIsEditing(true)
+  }, [isOpen, detail, startInEdit, loadingDetail])
 
   const updateField = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 
@@ -283,7 +298,7 @@ export function VisitDetailModal({
             type="button"
             onClick={startEdit}
             title="Editar"
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#2B1A18] transition-colors cursor-pointer"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#3a3d36] transition-colors cursor-pointer"
           >
             <Pencil size={18} aria-hidden />
             <span className="sr-only">Editar</span>
@@ -406,7 +421,7 @@ export function VisitDetailModal({
 
       {!loadingDetail && !loadError && detail && isEditing && (
         <form onSubmit={handleSaveEdit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               id="edit-client"
               label="Nombre del cliente *"
@@ -423,7 +438,7 @@ export function VisitDetailModal({
               onChange={(e) => updateField('phone', e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               id="edit-source"
               label="Origen de la visita *"
@@ -442,7 +457,7 @@ export function VisitDetailModal({
               onChange={(e) => updateField('project_id', e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               id="edit-visit_date"
               label="Fecha de visita *"
@@ -453,7 +468,7 @@ export function VisitDetailModal({
             />
             <div />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               id="edit-visit_start_time"
               label="Hora inicio *"
@@ -488,7 +503,7 @@ export function VisitDetailModal({
               <button
                 type="button"
                 onClick={() => setUnitSearchOpen(!unitSearchOpen)}
-                className="flex items-center gap-1 text-[10px] font-semibold text-[#BDA27E] hover:text-[#a88d6a] cursor-pointer transition-colors uppercase tracking-wider"
+                className="flex items-center gap-1 text-[10px] font-semibold text-[#8b917c] hover:text-[#a88d6a] cursor-pointer transition-colors uppercase tracking-wider"
               >
                 <Plus size={12} /> Agregar
               </button>
@@ -504,7 +519,7 @@ export function VisitDetailModal({
                   onChange={(e) => handleUnitSearch(e.target.value)}
                   placeholder="Buscar unidad por número..."
                   autoFocus
-                  className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-[#BDA27E]/30 outline-none transition-all"
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-[#8b917c]/30 outline-none transition-all"
                 />
                 {searchingUnits && (
                   <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-400" />

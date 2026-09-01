@@ -1,5 +1,6 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import localFont from 'next/font/local'
+import { Cormorant_Garamond } from 'next/font/google'
 import { Toaster } from 'sonner'
 import './globals.css'
 
@@ -13,9 +14,22 @@ const satoshi = localFont({
   display: 'swap',
 })
 
+const cormorant = Cormorant_Garamond({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  variable: '--font-cormorant',
+  display: 'swap',
+})
+
 export const metadata: Metadata = {
   title: 'Lavilet ',
   description: 'Sistema de gestión inmobiliaria',
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -24,10 +38,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es" className={`${satoshi.variable} h-full antialiased`}>
+    <html lang="es" className={`${satoshi.variable} ${cormorant.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-sans">
         {children}
-        <Toaster theme="dark" position="top-right" richColors />
+        <Toaster theme="dark" position="top-center" richColors />
       </body>
     </html>
   )

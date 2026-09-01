@@ -262,7 +262,7 @@ export function ContractDetailModal({
             type="button"
             onClick={startEdit}
             title="Editar"
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#2B1A18] transition-colors cursor-pointer"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#3a3d36] transition-colors cursor-pointer"
           >
             <Pencil size={18} aria-hidden />
             <span className="sr-only">Editar</span>
@@ -368,7 +368,7 @@ export function ContractDetailModal({
 
       {!loadingDetail && !loadError && detail && isEditing && (
         <form onSubmit={handleSaveEdit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               id="edit-lead"
               label="Lead *"
@@ -412,7 +412,7 @@ export function ContractDetailModal({
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Select
               id="edit-status"
               label="Estado *"
@@ -437,7 +437,7 @@ export function ContractDetailModal({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Input
                 key={`edit-pdf-${fileResetToken}`}

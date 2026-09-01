@@ -23,7 +23,7 @@ export function LeadsToolbar({ filters, onFilterChange, onReset, onAdd }: LeadsT
             placeholder="Buscar lead..."
             value={filters.search}
             onChange={(e) => onFilterChange('search', e.target.value)}
-            className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#BDA27E]/30 focus:border-[#2B1A18] transition-colors"
+            className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#8b917c]/30 focus:border-[#3a3d36] transition-colors"
           />
         </div>
         <Select

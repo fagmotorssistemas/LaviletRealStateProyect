@@ -16,6 +16,7 @@ const ExportInventoryModal = dynamic(
 )
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { InmobiliariaFiltersToolbar } from '@/components/inmobiliaria/shared/InmobiliariaFiltersToolbar'
+import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Pagination } from '@/components/ui/Pagination'
 import { Button } from '@/components/ui/Button'
@@ -70,34 +71,36 @@ export default function InventarioPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventario</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Gestiona las unidades de tus proyectos inmobiliarios
-            {total > 0 && <span className="ml-2 text-gray-400">• {total} unidades</span>}
-          </p>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap gap-2 justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setExportOpen(true)}
-            className="gap-2"
-            disabled={!tenantId}
-            title={!tenantId ? 'Carga un proyecto para exportar' : undefined}
-          >
-            <Download size={16} aria-hidden />
-            Exportar
-          </Button>
-          <Button onClick={() => setCreateOpen(true)} className="gap-2">
-            <Plus size={16} aria-hidden />
-            Nueva Unidad
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        eyebrow="Catálogo de unidades"
+        title="Inventario"
+        description={
+          <>
+            Unidades publicadas de tus proyectos
+            {total > 0 && <span className="text-[#9a7d55]"> · {total} registros</span>}
+          </>
+        }
+        actions={
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setExportOpen(true)}
+              className="gap-2"
+              disabled={!tenantId}
+              title={!tenantId ? 'Carga un proyecto para exportar' : undefined}
+            >
+              <Download size={16} aria-hidden />
+              Exportar
+            </Button>
+            <Button onClick={() => setCreateOpen(true)} className="gap-2">
+              <Plus size={16} aria-hidden />
+              Nueva unidad
+            </Button>
+          </div>
+        }
+      />
 
       <div>
         <InmobiliariaFiltersToolbar
@@ -119,28 +122,24 @@ export default function InventarioPage() {
             options={INVENTORY_SORT_OPTIONS}
             value={filters.sortBy}
             onChange={(e) => updateFilter('sortBy', e.target.value as InventorySortOption)}
-            className="w-full sm:w-64"
           />
           <Select
             options={projects.map((p) => ({ value: p.id, label: p.name }))}
             placeholder="Todos los proyectos"
             value={filters.projectId}
             onChange={(e) => updateFilter('projectId', e.target.value)}
-            className="w-full sm:w-56"
           />
           <Select
             options={UNIT_STATUS_OPTIONS}
             placeholder="Todos los estados"
             value={filters.status}
             onChange={(e) => updateFilter('status', e.target.value)}
-            className="w-full sm:w-44"
           />
           <Select
             options={categoryOptions}
             placeholder="Categoría"
             value={filters.category}
             onChange={(e) => updateFilter('category', e.target.value)}
-            className="w-full sm:w-44"
           />
         </InmobiliariaFiltersToolbar>
       </div>

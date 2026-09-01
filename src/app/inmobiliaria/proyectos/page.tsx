@@ -6,8 +6,10 @@ import Image from 'next/image'
 import { Building2, ChevronRight, Plus, Search, RotateCcw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getProjectAssetPublicUrl, listProjects } from '@/services/inmobiliaria.service'
+import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 import { CreateProjectModal } from '@/components/inmobiliaria/inventory/CreateProjectModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
+import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { formatDate } from '@/lib/utils'
@@ -33,10 +35,10 @@ export default function ProyectosPage() {
   const load = useCallback(async () => {
     setIsLoading(true)
     try {
-      const { data: tenant } = await supabase.from('tenants').select('id').limit(1).single()
-      if (tenant) {
-        setTenantId(tenant.id)
-        const data = await listProjects(supabase, tenant.id)
+      const tenantIds = await getAccessibleTenantIds(supabase)
+      if (tenantIds.length) {
+        setTenantId(tenantIds[0])
+        const data = await listProjects(supabase, tenantIds[0], tenantIds)
         setProjects(data)
       }
     } catch (err) {
@@ -61,20 +63,25 @@ export default function ProyectosPage() {
     : projects
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Proyectos</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Tus proyectos y edificios inmobiliarios
-            {projects.length > 0 && <span className="ml-2 text-gray-400">• {projects.length} proyectos</span>}
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus size={16} className="mr-2" />
-          Nuevo Proyecto
-        </Button>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        eyebrow="Desarrollos"
+        title="Proyectos"
+        description={
+          <>
+            Edificios y desarrollos inmobiliarios
+            {projects.length > 0 && (
+              <span className="text-[#9a7d55]"> · {projects.length} registros</span>
+            )}
+          </>
+        }
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus size={16} className="mr-2" />
+            Nuevo proyecto
+          </Button>
+        }
+      />
 
       {projects.length > 0 && (
         <div className="flex gap-3">
@@ -85,7 +92,7 @@ export default function ProyectosPage() {
               placeholder="Buscar proyecto..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#BDA27E]/30 focus:border-[#2B1A18] transition-colors"
+              className="h-10 w-full rounded-sm border border-[#8b917c]/55 bg-[#f7f7f3] pl-9 pr-3 text-sm placeholder:text-[#8a8d82] focus:outline-none focus:ring-2 focus:ring-[#8b917c]/35 focus:border-[#3a3d36] transition-colors"
             />
           </div>
           {search && (
@@ -112,26 +119,26 @@ export default function ProyectosPage() {
               <Link
                 key={project.id}
                 href={`/inmobiliaria/proyectos/${project.id}`}
-                className="group rounded-xl border border-gray-200 bg-white overflow-hidden hover:shadow-lg hover:border-[#BDA27E]/40 transition-all"
+                className="crm-project-card group overflow-hidden"
               >
-                <div className="relative h-40 bg-slate-100">
+                <div className="relative h-44 bg-[#3a3d36]">
                   {img ? (
                     <Image src={img} alt="" fill className="object-cover" sizes="(max-width: 1024px) 50vw, 33vw" />
                   ) : (
                     <div className="flex h-full items-center justify-center">
-                      <Building2 size={40} className="text-[#BDA27E]/40" strokeWidth={1.25} />
+                      <Building2 size={40} className="text-[#8b917c]/40" strokeWidth={1.25} />
                     </div>
                   )}
                   {project.construction_phase && (
-                    <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
+                    <span className="absolute bottom-2 left-2 border border-[#8b917c]/50 bg-[#3a3d36]/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#ead9be]">
                       {constructionPhaseLabel(project.construction_phase)}
                     </span>
                   )}
                 </div>
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <h3 className="font-semibold text-gray-900 group-hover:text-[#2B1A18] line-clamp-2">{project.name}</h3>
-                    <ChevronRight size={18} className="shrink-0 text-gray-300 group-hover:text-[#BDA27E] mt-0.5" />
+                    <h3 className="font-display text-lg font-semibold text-[#3a3d36] line-clamp-2">{project.name}</h3>
+                    <ChevronRight size={18} className="shrink-0 text-gray-300 group-hover:text-[#8b917c] mt-0.5" />
                   </div>
 
                   {project.short_description && (
@@ -155,9 +162,11 @@ export default function ProyectosPage() {
                     </div>
                   )}
 
-                  <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
-                    <span className="text-xs text-gray-400">Creado: {formatDate(project.created_at)}</span>
-                    <span className="text-xs font-medium text-[#BDA27E] group-hover:underline">Ver ficha</span>
+                  <div className="mt-3 flex items-center justify-between border-t border-[#8b917c]/35 pt-3">
+                    <span className="text-xs text-[#6b5348]">Creado: {formatDate(project.created_at)}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9a7d55] group-hover:underline">
+                      Ver ficha
+                    </span>
                   </div>
                 </div>
               </Link>

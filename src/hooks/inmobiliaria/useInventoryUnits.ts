@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { listUnits, listProjects } from '@/services/inmobiliaria.service'
+import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 import type { Unit, Project, UnitStatus, InventorySortOption } from '@/types/inmobiliaria'
 
 interface Filters {
@@ -17,6 +18,7 @@ export function useInventoryUnits() {
   const { supabase } = useAuth()
   const [units, setUnits] = useState<Unit[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [tenantIds, setTenantIds] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [page, setPage] = useState(1)
   const pageSize = 10
@@ -29,27 +31,28 @@ export function useInventoryUnits() {
     sortBy: 'unit_natural',
   })
 
-  // TODO: replace with real tenant from auth context
-  const tenantId = projects[0]?.tenant_id ?? ''
+  const tenantId = tenantIds[0] ?? projects[0]?.tenant_id ?? ''
 
   const loadProjects = useCallback(async () => {
     try {
-      const { data } = await supabase.from('tenants').select('id').limit(1).single()
-      if (data) {
-        const projectList = await listProjects(supabase, data.id)
+      const tenantIds = await getAccessibleTenantIds(supabase)
+      if (tenantIds.length) {
+        setTenantIds(tenantIds)
+        const projectList = await listProjects(supabase, tenantIds[0], tenantIds)
         setProjects(projectList)
-        return data.id
+        return { tenantId: tenantIds[0], tenantIds }
       }
     } catch { /* no tenant yet */ }
-    return ''
+    return { tenantId: '', tenantIds: [] as string[] }
   }, [supabase])
 
-  const loadUnits = useCallback(async (tId: string) => {
+  const loadUnits = useCallback(async (tId: string, tenantIds?: string[]) => {
     if (!tId) { setIsLoading(false); return }
     setIsLoading(true)
     try {
       const res = await listUnits(supabase, {
         tenantId: tId,
+        tenantIds: tenantIds?.length ? tenantIds : [tId],
         projectId: filters.projectId || undefined,
         status: (filters.status || undefined) as UnitStatus | undefined,
         category: filters.category || undefined,
@@ -68,18 +71,17 @@ export function useInventoryUnits() {
   }, [supabase, filters, page, pageSize])
 
   useEffect(() => {
-    loadProjects().then((tId) => {
-      if (tId) loadUnits(tId)
-      else setIsLoading(false)
+    loadProjects().then(({ tenantId: tId }) => {
+      if (!tId) setIsLoading(false)
     })
   }, [loadProjects])
 
   useEffect(() => {
-    if (tenantId) loadUnits(tenantId)
-  }, [tenantId, loadUnits])
+    if (tenantId) loadUnits(tenantId, tenantIds)
+  }, [tenantId, tenantIds, loadUnits])
 
   const reload = () => {
-    if (tenantId) loadUnits(tenantId)
+    if (tenantId) loadUnits(tenantId, tenantIds)
   }
 
   const updateFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {

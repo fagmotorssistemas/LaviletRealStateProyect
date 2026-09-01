@@ -163,7 +163,7 @@ export function CreateContractModal({ isOpen, onClose, onCreated, tenantId }: Cr
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Nuevo Contrato" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
             id="lead"
             label="Lead *"
@@ -208,7 +208,7 @@ export function CreateContractModal({ isOpen, onClose, onCreated, tenantId }: Cr
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Select id="status" label="Estado *" options={statusOptions} value={form.status} onChange={(e) => update('status', e.target.value)} />
           <Input
             id="anticipo"
@@ -222,7 +222,7 @@ export function CreateContractModal({ isOpen, onClose, onCreated, tenantId }: Cr
           <Input id="anticipo_date" label="Fecha anticipo" type="date" value={form.anticipo_date} onChange={(e) => update('anticipo_date', e.target.value)} />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Input
               key={`contract-pdf-${fileResetToken}`}

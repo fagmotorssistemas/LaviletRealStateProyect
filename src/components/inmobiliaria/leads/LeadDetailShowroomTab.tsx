@@ -14,7 +14,7 @@ import type { ShowroomVisitSource } from '@/types/inmobiliaria'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 
 const sourceOptions = [
-  { value: 'organica', label: 'Orgánica' },
+  { value: 'organica', label: 'Showroom' },
   { value: 'redes_sociales', label: 'Redes sociales' },
   { value: 'referido', label: 'Referido' },
   { value: 'agendada', label: 'Cita agendada' },
@@ -284,7 +284,7 @@ export function LeadDetailShowroomTab({ lead, tenantId, projects }: LeadDetailSh
           <button
             type="button"
             onClick={() => setUnitSearchOpen(!unitSearchOpen)}
-            className="flex items-center gap-1 text-[10px] font-semibold text-[#BDA27E] hover:text-[#a88d6a] cursor-pointer transition-colors uppercase tracking-wider"
+            className="flex items-center gap-1 text-[10px] font-semibold text-[#8b917c] hover:text-[#a88d6a] cursor-pointer transition-colors uppercase tracking-wider"
           >
             <Plus size={12} /> Agregar
           </button>
@@ -303,7 +303,7 @@ export function LeadDetailShowroomTab({ lead, tenantId, projects }: LeadDetailSh
               onChange={(e) => handleUnitSearch(e.target.value)}
               placeholder="Buscar unidad por número..."
               autoFocus
-              className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-[#BDA27E]/30 outline-none transition-all"
+              className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-[#8b917c]/30 outline-none transition-all"
             />
 
             {searchingUnits && (

@@ -1,24 +1,26 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
-import { LEAD_STATUS_OPTIONS } from '@/types/inmobiliaria'
+import { LEAD_STATUS_OPTIONS, LEAD_TEMPERATURE_OPTIONS } from '@/types/inmobiliaria'
+import type { LeadTemperature, TeamProfile } from '@/types/inmobiliaria'
 import type { Unit } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
-import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { createLead, listUnits } from '@/services/inmobiliaria.service'
 import { toast } from 'sonner'
 import { X } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
 
 interface CreateLeadModalProps {
   isOpen: boolean
   onClose: () => void
   onCreated: () => void
   tenantId: string
+  advisors: TeamProfile[]
 }
 
 const sourceOptions = [
@@ -34,14 +36,21 @@ const sourceOptions = [
   { value: 'Otro', label: 'Otro' },
 ]
 
-export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: CreateLeadModalProps) {
-  const { supabase, user, profile } = useAuth()
-  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
+export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId, advisors }: CreateLeadModalProps) {
+  const { supabase, user } = useAuth()
   const [loading, setLoading] = useState(false)
   const [availableUnits, setAvailableUnits] = useState<Unit[]>([])
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([])
   const [form, setForm] = useState({
-    name: '', phone: '', status: 'nuevo', budget: '', financing: false, source: '', resume: '',
+    name: '',
+    phone: '',
+    status: 'nuevo',
+    temperature: 'frio' as LeadTemperature,
+    budget: '',
+    financing: false,
+    source: '',
+    resume: '',
+    assigned_to: '',
   })
 
   useEffect(() => {
@@ -49,6 +58,12 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
       listUnits(supabase, { tenantId }).then((res) => setAvailableUnits(res.data)).catch(console.error)
     }
   }, [isOpen, tenantId, supabase])
+
+  useEffect(() => {
+    if (isOpen && user?.id) {
+      setForm((prev) => (prev.assigned_to ? prev : { ...prev, assigned_to: user.id }))
+    }
+  }, [isOpen, user?.id])
 
   const update = (key: string, value: string | boolean) => setForm((p) => ({ ...p, [key]: value }))
 
@@ -70,18 +85,29 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
           name: form.name,
           phone: form.phone || null,
           status: form.status as 'nuevo',
+          temperature: form.temperature,
           budget: form.budget ? Number(form.budget) : null,
           financing: form.financing,
           source: form.source || null,
           resume: form.resume || null,
-          ...(scope && !scope.isAdmin && user?.id ? { assigned_to: user.id } : {}),
+          assigned_to: form.assigned_to || user?.id || null,
         },
         selectedUnitIds.length ? selectedUnitIds : undefined,
       )
       toast.success('Lead creado exitosamente')
       onCreated()
       onClose()
-      setForm({ name: '', phone: '', status: 'nuevo', budget: '', financing: false, source: '', resume: '' })
+      setForm({
+        name: '',
+        phone: '',
+        status: 'nuevo',
+        temperature: 'frio',
+        budget: '',
+        financing: false,
+        source: '',
+        resume: '',
+        assigned_to: user?.id ?? '',
+      })
       setSelectedUnitIds([])
     } catch {
       toast.error('Error al crear el lead')
@@ -93,14 +119,29 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Nuevo Lead" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input id="name" label="Nombre *" placeholder="Nombre del prospecto" value={form.name} onChange={(e) => update('name', e.target.value)} />
           <Input id="phone" label="Teléfono" placeholder="0991234567" value={form.phone} onChange={(e) => update('phone', e.target.value)} />
         </div>
         <Select id="source" label="Fuente" options={sourceOptions} placeholder="¿Cómo nos contactó?" value={form.source} onChange={(e) => update('source', e.target.value)} />
-        <div className="grid grid-cols-3 gap-4">
+        <Select
+          id="assigned_to"
+          label="Responsable"
+          options={advisors.map((a) => ({ value: a.id, label: a.full_name || 'Sin nombre' }))}
+          placeholder="¿Quién atiende este lead?"
+          value={form.assigned_to}
+          onChange={(e) => update('assigned_to', e.target.value)}
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Input id="budget" label="Presupuesto" type="number" placeholder="120000" value={form.budget} onChange={(e) => update('budget', e.target.value)} />
           <Select id="status" label="Estado" options={LEAD_STATUS_OPTIONS} value={form.status} onChange={(e) => update('status', e.target.value)} />
+          <Select
+            id="temperature"
+            label="Temperatura"
+            options={LEAD_TEMPERATURE_OPTIONS}
+            value={form.temperature}
+            onChange={(e) => update('temperature', e.target.value)}
+          />
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">Financiamiento</label>
             <label className="flex items-center gap-2 h-10 cursor-pointer">
@@ -119,7 +160,7 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
               {selectedUnitIds.map((id) => {
                 const u = availableUnits.find((x) => x.id === id)
                 return (
-                  <span key={id} className="inline-flex items-center gap-1 rounded-lg bg-[#BDA27E]/15 px-2.5 py-1 text-xs font-medium text-[#2B1A18]">
+                  <span key={id} className="inline-flex items-center gap-1 rounded-lg bg-[#8b917c]/15 px-2.5 py-1 text-xs font-medium text-[#3a3d36]">
                     {u?.unit_number ?? id}
                     <button type="button" onClick={() => toggleUnit(id)} className="hover:text-red-600 cursor-pointer"><X size={12} /></button>
                   </span>
@@ -134,7 +175,7 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId }: Create
                 <span className="font-medium">{u.unit_number}</span>
                 <span className="text-gray-400">—</span>
                 <span className="text-gray-500">{u.category}</span>
-                {u.published_commercial_price && <span className="ml-auto text-gray-500">${u.published_commercial_price.toLocaleString()}</span>}
+                {u.published_commercial_price && <span className="crm-num ml-auto text-gray-500">{formatCurrency(u.published_commercial_price)}</span>}
               </label>
             ))}
           </div>

@@ -16,6 +16,8 @@ export const INVENTORY_EXPORT_FIELDS = [
   { id: 'category', label: 'Categoría', group: 'identificacion' as const },
   { id: 'unit_subtype', label: 'Subtipo', group: 'identificacion' as const },
   { id: 'floor', label: 'Piso', group: 'identificacion' as const },
+  { id: 'bedrooms', label: 'Habitaciones', group: 'identificacion' as const },
+  { id: 'bathrooms', label: 'Baños', group: 'identificacion' as const },
   { id: 'status', label: 'Estado', group: 'identificacion' as const },
   { id: 'area_internal_m2', label: 'Área interna', group: 'superficies' as const },
   { id: 'area_terrace_covered_m2', label: 'Terraza cubierta', group: 'superficies' as const },
@@ -72,6 +74,10 @@ export function getInventoryExportCell(unit: Unit, fieldId: InventoryExportField
       return unit.unit_subtype ?? '—'
     case 'floor':
       return unit.floor ?? '—'
+    case 'bedrooms':
+      return formatNum(unit.bedrooms)
+    case 'bathrooms':
+      return formatNum(unit.bathrooms)
     case 'status':
       return formatStatus(unit.status)
     case 'area_internal_m2':

@@ -10,6 +10,7 @@ import { CreateVisitModal } from '@/components/inmobiliaria/showroom/CreateVisit
 import { VisitDetailModal } from '@/components/inmobiliaria/showroom/VisitDetailModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { InmobiliariaFiltersToolbar } from '@/components/inmobiliaria/shared/InmobiliariaFiltersToolbar'
+import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
@@ -19,18 +20,22 @@ import { Plus } from 'lucide-react'
 
 export default function ShowroomPage() {
   const { supabase } = useAuth()
-  const { visits, isLoading, tenantId, filters, updateFilter, reload, page, pageSize, total, search, updateSearch, reset, setPage } = useShowroom()
+  const { visits, advisors, isLoading, tenantId, filters, updateFilter, reload, page, pageSize, total, search, updateSearch, reset, setPage } = useShowroom()
   const [projects, setProjects] = useState<Project[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedVisit, setSelectedVisit] = useState<ShowroomVisit | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [startInEdit, setStartInEdit] = useState(false)
 
   const sourceOptions = [
-    { value: 'organica', label: 'Orgánica' },
+    { value: 'organica', label: 'Showroom' },
     { value: 'redes_sociales', label: 'Redes sociales' },
     { value: 'referido', label: 'Referido' },
     { value: 'agendada', label: 'Cita agendada' },
     { value: 'otro', label: 'Otro' },
+    { value: 'oficina', label: 'Oficina (histórico)' },
+    { value: 'proyecto', label: 'Proyecto (histórico)' },
+    { value: 'mixto', label: 'Mixto (histórico)' },
   ]
 
   useEffect(() => {
@@ -40,27 +45,30 @@ export default function ShowroomPage() {
   }, [supabase, tenantId])
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Showroom & Tráfico</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Registra y consulta las visitas de asesores con clientes
-            {total > 0 && <span className="ml-2 text-gray-400">• {total} visitas</span>}
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus size={16} className="mr-2" />
-          Nueva Visita
-        </Button>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        eyebrow="Tráfico presencial"
+        title="Showroom"
+        description={
+          <>
+            Visitas de asesores con clientes
+            {total > 0 && <span className="text-[#9a7d55]"> · {total} visitas</span>}
+          </>
+        }
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus size={16} className="mr-2" />
+            Nueva visita
+          </Button>
+        }
+      />
 
       <InmobiliariaFiltersToolbar
         searchValue={search}
         onSearchChange={updateSearch}
         searchPlaceholder="Buscar cliente o nota..."
         resultsTotal={total}
-        hasActiveFilters={Boolean(search || filters.projectId || filters.source)}
+        hasActiveFilters={Boolean(search || filters.projectId || filters.source || filters.salespersonId)}
         onReset={reset}
       >
         <Select
@@ -68,14 +76,18 @@ export default function ShowroomPage() {
           placeholder="Todos los proyectos"
           value={filters.projectId}
           onChange={(e) => updateFilter('projectId', e.target.value)}
-          className="w-full"
         />
         <Select
           options={sourceOptions}
           placeholder="Origen de la visita"
           value={filters.source}
           onChange={(e) => updateFilter('source', e.target.value)}
-          className="w-full"
+        />
+        <Select
+          options={advisors.map((a) => ({ value: a.id, label: a.full_name || 'Sin nombre' }))}
+          placeholder="Todos los asesores"
+          value={filters.salespersonId}
+          onChange={(e) => updateFilter('salespersonId', e.target.value)}
         />
       </InmobiliariaFiltersToolbar>
 
@@ -93,6 +105,12 @@ export default function ShowroomPage() {
             visits={visits}
             onSelect={(v) => {
               setSelectedVisit(v)
+              setStartInEdit(false)
+              setDetailOpen(true)
+            }}
+            onEdit={(v) => {
+              setSelectedVisit(v)
+              setStartInEdit(true)
               setDetailOpen(true)
             }}
           />
@@ -110,10 +128,12 @@ export default function ShowroomPage() {
         onClose={() => {
           setDetailOpen(false)
           setSelectedVisit(null)
+          setStartInEdit(false)
         }}
         projects={projects}
         tenantId={tenantId}
         onVisitUpdated={reload}
+        startInEdit={startInEdit}
       />
 
       <CreateVisitModal

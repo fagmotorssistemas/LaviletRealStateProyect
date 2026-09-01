@@ -2,6 +2,7 @@
 
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
+import { formatNumber } from '@/lib/utils'
 import type { Unit } from '@/types/inmobiliaria'
 
 interface InventoryUnitsTableProps {
@@ -19,6 +20,8 @@ export function InventoryUnitsTable({ units, onSelect }: InventoryUnitsTableProp
             <th className="px-4 py-3 text-left font-medium text-gray-600">Proyecto</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Categoría</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Piso</th>
+            <th className="px-4 py-3 text-center font-medium text-gray-600">Hab.</th>
+            <th className="px-4 py-3 text-center font-medium text-gray-600">Baños</th>
             <th className="px-4 py-3 text-right font-medium text-gray-600">Área (m²)</th>
             <th className="px-4 py-3 text-right font-medium text-gray-600">Precio</th>
             <th className="px-4 py-3 text-center font-medium text-gray-600">Estado</th>
@@ -35,7 +38,9 @@ export function InventoryUnitsTable({ units, onSelect }: InventoryUnitsTableProp
               <td className="px-4 py-3 text-gray-600">{(unit.project as unknown as { name: string })?.name ?? '—'}</td>
               <td className="px-4 py-3 text-gray-600">{unit.category}</td>
               <td className="px-4 py-3 text-gray-600">{unit.floor ?? '—'}</td>
-              <td className="px-4 py-3 text-right text-gray-600">{unit.area_total_m2 ?? '—'}</td>
+              <td className="px-4 py-3 text-center crm-num text-gray-600">{unit.bedrooms ?? '—'}</td>
+              <td className="px-4 py-3 text-center crm-num text-gray-600">{unit.bathrooms ?? '—'}</td>
+              <td className="px-4 py-3 text-right crm-num text-gray-600">{formatNumber(unit.area_total_m2)}</td>
               <td className="px-4 py-3 text-right">
                 <PriceText value={unit.published_commercial_price} size="sm" />
               </td>

@@ -9,18 +9,18 @@ interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title?: string
-  /** Contenido a la derecha del título (p. ej. acciones) antes del botón cerrar */
   headerActions?: ReactNode
   children: ReactNode
   className?: string
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'
 }
 
 const sizeClasses = {
-  sm: 'max-w-md',
-  md: 'max-w-lg',
-  lg: 'max-w-2xl',
-  xl: 'max-w-4xl',
+  sm: 'sm:max-w-md',
+  md: 'sm:max-w-lg',
+  lg: 'sm:max-w-2xl',
+  xl: 'sm:max-w-4xl',
+  full: 'sm:max-w-6xl',
 }
 
 export function Modal({ isOpen, onClose, title, headerActions, children, className, size = 'md' }: ModalProps) {
@@ -46,36 +46,35 @@ export function Modal({ isOpen, onClose, title, headerActions, children, classNa
   if (!isOpen) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      <div className="crm-modal-backdrop fixed inset-0 bg-[#3a3d36]/35" onClick={onClose} />
       <div
         className={cn(
-          'relative z-50 w-full mx-4 rounded-xl bg-white shadow-xl max-h-[90vh] overflow-y-auto',
+          'crm-modal-panel relative z-50 flex max-h-[100dvh] w-full flex-col overflow-hidden border border-[#c5c8bc] bg-white shadow-[0_24px_60px_rgba(85,92,74,0.18)] sm:mx-4 sm:max-h-[90vh]',
           sizeClasses[size],
-          className
+          className,
         )}
       >
         {title && (
-          <div className="flex items-center justify-between gap-3 border-b border-[#BDA27E]/20 px-6 py-4">
-            <h2 className="text-lg font-semibold text-[#2B1A18] min-w-0 flex-1">{title}</h2>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#555c4a]/40 bg-[#555c4a] px-4 py-3 sm:px-6">
+            <h2 className="min-w-0 flex-1 truncate font-display text-lg font-semibold tracking-wide text-[#f4f4ef] sm:text-xl">
+              {title}
+            </h2>
             <div className="flex shrink-0 items-center gap-1">
               {headerActions}
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors cursor-pointer"
+                className="cursor-pointer p-1.5 text-[#c5c8bc] transition-colors hover:bg-white/10 hover:text-[#f4f4ef]"
               >
                 <X size={20} />
               </button>
             </div>
           </div>
         )}
-        <div className="p-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
       </div>
     </div>,
-    document.body
+    document.body,
   )
 }

@@ -229,7 +229,7 @@ export function AppointmentDetailModal({
             type="button"
             onClick={startEdit}
             title="Editar"
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#2B1A18] transition-colors cursor-pointer"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#3a3d36] transition-colors cursor-pointer"
           >
             <Pencil size={18} aria-hidden />
             <span className="sr-only">Editar</span>
@@ -333,14 +333,18 @@ export function AppointmentDetailModal({
 
           <div className="border-t border-gray-100 pt-4">
             <p className="text-sm font-medium text-gray-700 mb-2">Cambiar estado</p>
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <Select
                 options={APPOINTMENT_STATUS_OPTIONS}
                 value={newStatus || detail.status}
                 onChange={(e) => setNewStatus(e.target.value)}
-                className="flex-1"
+                className="min-w-0 w-full flex-1"
               />
-              <Button onClick={handleSaveStatus} disabled={!newStatus || newStatus === detail.status}>
+              <Button
+                onClick={handleSaveStatus}
+                disabled={!newStatus || newStatus === detail.status}
+                className="w-full sm:w-auto"
+              >
                 Guardar
               </Button>
             </div>
@@ -424,11 +428,11 @@ export function AppointmentDetailModal({
             onChange={(e) => updateField('notes', e.target.value)}
           />
 
-          <div className="flex flex-wrap justify-end gap-3 pt-2">
-            <Button type="button" variant="outline" onClick={cancelEdit} disabled={saving}>
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:flex-wrap sm:justify-end">
+            <Button type="button" variant="outline" onClick={cancelEdit} disabled={saving} className="w-full sm:w-auto">
               Cancelar
             </Button>
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving} className="w-full sm:w-auto">
               {saving ? 'Guardando...' : 'Guardar cambios'}
             </Button>
           </div>

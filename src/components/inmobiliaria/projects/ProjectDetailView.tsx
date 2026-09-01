@@ -57,9 +57,9 @@ function SummarySection({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/90 p-5 shadow-sm">
-      <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">
-        <Icon size={16} className="shrink-0 text-[#BDA27E]" strokeWidth={2} />
+    <section className="border border-[#8b917c]/45 bg-[#f7f7f3] p-5 shadow-[0_10px_28px_rgba(43,26,24,0.08)]">
+      <h3 className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9a7d55]">
+        <Icon size={16} className="shrink-0 text-[#8b917c]" strokeWidth={2} />
         {title}
       </h3>
       <dl className="space-y-3">{children}</dl>
@@ -283,7 +283,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-600">
         <p className="mb-4">No se encontró el proyecto o no tienes acceso.</p>
-        <Link href="/inmobiliaria/proyectos" className="text-[#2B1A18] font-medium underline">
+        <Link href="/inmobiliaria/proyectos" className="text-[#3a3d36] font-medium underline">
           Volver a proyectos
         </Link>
       </div>
@@ -300,15 +300,15 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
         <div>
           <Link
             href="/inmobiliaria/proyectos"
-            className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-[#2B1A18] mb-3"
+            className="mb-3 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9a7d55] hover:text-[#3a3d36]"
           >
             <ArrowLeft size={16} />
             Proyectos
           </Link>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-bold text-slate-900">{detail.name}</h1>
+            <h1 className="font-display text-3xl font-semibold text-[#3a3d36]">{detail.name}</h1>
             {detail.construction_phase && (
-              <span className="rounded-full bg-[#BDA27E]/15 px-3 py-1 text-xs font-semibold text-[#2B1A18]">
+              <span className="border border-[#8b917c]/50 bg-[#8b917c]/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#3a3d36]">
                 {constructionPhaseLabel(detail.construction_phase)}
               </span>
             )}
@@ -363,7 +363,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
             onClick={() => goTab(id)}
             className={`flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
               tab === id
-                ? 'border-[#2B1A18] text-[#2B1A18]'
+                ? 'border-[#3a3d36] text-[#3a3d36]'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -389,7 +389,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
           <div className="p-6 space-y-8">
             <div className="flex flex-wrap gap-2">
               {detail.construction_phase && (
-                <span className="inline-flex items-center rounded-full bg-[#BDA27E]/15 px-3 py-1 text-xs font-semibold text-[#2B1A18]">
+                <span className="inline-flex items-center rounded-full bg-[#8b917c]/15 px-3 py-1 text-xs font-semibold text-[#3a3d36]">
                   {constructionPhaseLabel(detail.construction_phase)}
                 </span>
               )}
@@ -444,7 +444,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
                   label="Email"
                   value={
                     detail.contact_email ? (
-                      <a href={`mailto:${detail.contact_email}`} className="font-medium text-[#2B1A18] hover:underline">
+                      <a href={`mailto:${detail.contact_email}`} className="font-medium text-[#3a3d36] hover:underline">
                         {detail.contact_email}
                       </a>
                     ) : null
@@ -458,7 +458,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
                         href={detail.website_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 font-medium text-[#2B1A18] hover:underline break-all"
+                        className="inline-flex items-center gap-1 font-medium text-[#3a3d36] hover:underline break-all"
                       >
                         {detail.website_url}
                         <ExternalLink size={14} className="shrink-0" />
@@ -620,7 +620,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
             <div>
               <label className="inline-flex">
                 <input type="file" className="hidden" accept="image/*,application/pdf" onChange={handleFileUpload} disabled={uploading} />
-                <span className="inline-flex items-center gap-2 rounded-lg bg-[#2B1A18] px-4 py-2.5 text-sm font-medium text-white cursor-pointer hover:bg-[#3d2a24] disabled:opacity-50">
+                <span className="inline-flex items-center gap-2 rounded-lg bg-[#3a3d36] px-4 py-2.5 text-sm font-medium text-white cursor-pointer hover:bg-[#3d2a24] disabled:opacity-50">
                   {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload size={16} />}
                   Subir
                 </span>
@@ -660,7 +660,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
                       href={getProjectAssetPublicUrl(supabase, a.storage_path)}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-sm font-medium text-[#2B1A18] hover:underline truncate"
+                      className="text-sm font-medium text-[#3a3d36] hover:underline truncate"
                     >
                       {a.file_name}
                     </a>
@@ -690,7 +690,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
             <div>
               <label className="inline-flex">
                 <input type="file" className="hidden" accept=".pdf,.doc,.docx,application/pdf" onChange={handleFileUpload} disabled={uploading} />
-                <span className="inline-flex items-center gap-2 rounded-lg bg-[#2B1A18] px-4 py-2.5 text-sm font-medium text-white cursor-pointer hover:bg-[#3d2a24]">
+                <span className="inline-flex items-center gap-2 rounded-lg bg-[#3a3d36] px-4 py-2.5 text-sm font-medium text-white cursor-pointer hover:bg-[#3d2a24]">
                   {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload size={16} />}
                   Subir documento
                 </span>
@@ -710,7 +710,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
                       href={getProjectAssetPublicUrl(supabase, a.storage_path)}
                       target="_blank"
                       rel="noreferrer"
-                      className="block text-sm font-medium text-[#2B1A18] hover:underline truncate max-w-md"
+                      className="block text-sm font-medium text-[#3a3d36] hover:underline truncate max-w-md"
                     >
                       {a.file_name}
                     </a>
@@ -753,12 +753,12 @@ function AssetPhotoCard({
         {asset.mime_type?.startsWith('image/') ? (
           <Image src={url} alt={asset.file_name} fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
         ) : (
-          <a href={url} target="_blank" rel="noreferrer" className="flex h-full items-center justify-center text-sm text-[#2B1A18] underline p-4">
+          <a href={url} target="_blank" rel="noreferrer" className="flex h-full items-center justify-center text-sm text-[#3a3d36] underline p-4">
             Ver archivo
           </a>
         )}
         {asset.is_cover && (
-          <span className="absolute top-2 left-2 rounded bg-[#2B1A18] px-2 py-0.5 text-[10px] font-bold text-white">PORTADA</span>
+          <span className="absolute top-2 left-2 rounded bg-[#3a3d36] px-2 py-0.5 text-[10px] font-bold text-white">PORTADA</span>
         )}
       </div>
       <div className="p-3 space-y-2">
@@ -771,7 +771,7 @@ function AssetPhotoCard({
         />
         <div className="flex gap-2">
           {!asset.is_cover && asset.mime_type?.startsWith('image/') && (
-            <button type="button" onClick={onSetCover} className="text-xs text-[#BDA27E] font-semibold hover:underline cursor-pointer">
+            <button type="button" onClick={onSetCover} className="text-xs text-[#8b917c] font-semibold hover:underline cursor-pointer">
               Portada
             </button>
           )}

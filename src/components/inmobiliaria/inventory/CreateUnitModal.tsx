@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { createUnit, uploadUnitMedia } from '@/services/inmobiliaria.service'
 import { prepareImageForWebUpload } from '@/lib/images/prepareImageForWebUpload'
 import { toast } from 'sonner'
-import { ImagePlus, X } from 'lucide-react'
+import { ImagePlus, X, BedDouble, Bath } from 'lucide-react'
 
 const categoryOptions = [
   { value: 'Departamento', label: 'Departamento' },
@@ -53,6 +53,8 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
     area_terrace_covered_m2: '',
     area_terrace_open_m2: '',
     area_total_m2: '',
+    bedrooms: '',
+    bathrooms: '',
     parking_assigned: '0',
     cost_per_m2_internal: '',
     published_commercial_price: '',
@@ -81,6 +83,8 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
         area_terrace_covered_m2: form.area_terrace_covered_m2 ? Number(form.area_terrace_covered_m2) : null,
         area_terrace_open_m2: form.area_terrace_open_m2 ? Number(form.area_terrace_open_m2) : null,
         area_total_m2: form.area_total_m2 ? Number(form.area_total_m2) : null,
+        bedrooms: form.bedrooms !== '' ? Number(form.bedrooms) : null,
+        bathrooms: form.bathrooms !== '' ? Number(form.bathrooms) : null,
         parking_assigned: Number(form.parking_assigned) || 0,
         cost_per_m2_internal: form.cost_per_m2_internal ? Number(form.cost_per_m2_internal) : null,
         published_commercial_price: form.published_commercial_price ? Number(form.published_commercial_price) : null,
@@ -116,7 +120,7 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
       onCreated()
       onClose()
       setImageFiles([])
-      setForm({ project_id: '', unit_number: '', category: 'Departamento', unit_subtype: '', floor: '', area_internal_m2: '', area_terrace_covered_m2: '', area_terrace_open_m2: '', area_total_m2: '', parking_assigned: '0', cost_per_m2_internal: '', published_commercial_price: '', status: 'disponible', description: '' })
+      setForm({ project_id: '', unit_number: '', category: 'Departamento', unit_subtype: '', floor: '', area_internal_m2: '', area_terrace_covered_m2: '', area_terrace_open_m2: '', area_total_m2: '', bedrooms: '', bathrooms: '', parking_assigned: '0', cost_per_m2_internal: '', published_commercial_price: '', status: 'disponible', description: '' })
     } catch {
       toast.error('Error al crear la unidad')
     } finally {
@@ -127,22 +131,60 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Nueva Unidad" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select id="project" label="Proyecto *" options={projects.map((p) => ({ value: p.id, label: p.name }))} placeholder="Seleccionar proyecto" value={form.project_id} onChange={(e) => update('project_id', e.target.value)} />
           <Input id="unit_number" label="Nro. Unidad *" placeholder="Ej: 201" value={form.unit_number} onChange={(e) => update('unit_number', e.target.value)} />
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Select id="category" label="Categoría" options={categoryOptions} value={form.category} onChange={(e) => update('category', e.target.value)} />
           <Select id="subtype" label="Subtipo" options={subtypeOptions} placeholder="Seleccionar" value={form.unit_subtype} onChange={(e) => update('unit_subtype', e.target.value)} />
           <Input id="floor" label="Piso" placeholder="Ej: PB, 2, 5" value={form.floor} onChange={(e) => update('floor', e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input id="area_int" label="Área depto. (m²)" type="number" step="0.01" value={form.area_internal_m2} onChange={(e) => update('area_internal_m2', e.target.value)} />
           <Input id="area_ter_cov" label="Terraza cubierta (m²)" type="number" step="0.01" value={form.area_terrace_covered_m2} onChange={(e) => update('area_terrace_covered_m2', e.target.value)} />
           <Input id="area_ter_open" label="Terraza descubierta (m²)" type="number" step="0.01" value={form.area_terrace_open_m2} onChange={(e) => update('area_terrace_open_m2', e.target.value)} />
           <Input id="area_total" label="Área total (m²)" type="number" step="0.01" value={form.area_total_m2} onChange={(e) => update('area_total_m2', e.target.value)} />
         </div>
-        <div className="grid grid-cols-4 gap-4">
+
+        <div className="rounded-xl border border-[#8b917c]/25 bg-[#8b917c]/5 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex shrink-0 items-center gap-1 rounded-lg bg-white px-2 py-2 text-[#8b917c] shadow-sm">
+              <BedDouble size={16} aria-hidden />
+              <Bath size={16} aria-hidden />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-[#3a3d36]">Habitaciones y baños</h3>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Quedan guardados en la unidad y se ven en la tabla y ficha de inventario.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              id="bedrooms"
+              label="Habitaciones"
+              type="number"
+              step="0.5"
+              min="0"
+              placeholder="Ej: 2"
+              value={form.bedrooms}
+              onChange={(e) => update('bedrooms', e.target.value)}
+            />
+            <Input
+              id="bathrooms"
+              label="Baños"
+              type="number"
+              step="0.5"
+              min="0"
+              placeholder="Ej: 2.5"
+              value={form.bathrooms}
+              onChange={(e) => update('bathrooms', e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Input id="parking" label="Parqueos" type="number" value={form.parking_assigned} onChange={(e) => update('parking_assigned', e.target.value)} />
           <Input id="cost_m2" label="Costo/m²" type="number" step="0.01" placeholder="1500" value={form.cost_per_m2_internal} onChange={(e) => update('cost_per_m2_internal', e.target.value)} />
           <Input id="price" label="Precio comercial" type="number" step="0.01" placeholder="128000" value={form.published_commercial_price} onChange={(e) => update('published_commercial_price', e.target.value)} />

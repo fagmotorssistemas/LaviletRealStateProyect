@@ -12,16 +12,21 @@ interface AppointmentCardProps {
 
 export function AppointmentCard({ appointment, onSelect }: AppointmentCardProps) {
   return (
-    <div
+    <button
+      type="button"
       onClick={() => onSelect(appointment)}
-      className="rounded-xl border border-gray-200 bg-white p-4 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+      className="w-full min-w-0 cursor-pointer border border-[#c5c8bc] bg-[#f7f7f3] p-4 text-left transition-all hover:border-[#8b917c]"
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0">
-          <h3 className="font-semibold text-gray-900 truncate">{appointment.title || 'Cita'}</h3>
-          <p className="text-xs text-gray-500 mt-1">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-display text-lg font-semibold break-words text-[#3a3d36]">
+            {appointment.title || 'Cita'}
+          </h3>
+          <p className="mt-1 truncate text-xs text-[#5c6156]">
             {appointment.lead?.name ? appointment.lead.name : '—'}
-            {appointment.project?.name ? <span className="text-gray-400"> • {appointment.project.name}</span> : null}
+            {appointment.project?.name ? (
+              <span className="text-[#8a8d82]"> · {appointment.project.name}</span>
+            ) : null}
           </p>
         </div>
         <div className="shrink-0">
@@ -29,30 +34,29 @@ export function AppointmentCard({ appointment, onSelect }: AppointmentCardProps)
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
-        <div className="flex items-center gap-2">
-          <Clock size={14} className="text-gray-400" />
-          <span>{formatDateTime(appointment.start_time)}</span>
+      <div className="space-y-2 text-sm text-[#5c564f]">
+        <div className="flex min-w-0 items-start gap-2">
+          <Clock size={14} className="mt-0.5 shrink-0 text-[#8a8d82]" />
+          <span className="min-w-0 break-words">{formatDateTime(appointment.start_time)}</span>
         </div>
-
-        <div className="flex items-center gap-2">
-          <User size={14} className="text-gray-400" />
+        <div className="flex min-w-0 items-center gap-2">
+          <User size={14} className="shrink-0 text-[#8a8d82]" />
           <span className="truncate">{appointment.lead?.name ?? '—'}</span>
         </div>
-
-        <div className="flex items-center gap-2">
-          <MapPin size={14} className="text-gray-400" />
+        <div className="flex min-w-0 items-center gap-2">
+          <MapPin size={14} className="shrink-0 text-[#8a8d82]" />
           <span className="truncate">{appointment.project?.name ?? '—'}</span>
         </div>
       </div>
 
       {appointment.responsible?.full_name && (
-        <div className="mt-3 pt-3 border-t border-gray-100">
-          <p className="text-xs text-gray-500">
-            Responsable: <span className="font-medium text-gray-700">{appointment.responsible.full_name}</span>
+        <div className="mt-3 border-t border-[#e8e2d8] pt-3">
+          <p className="truncate text-xs text-[#5c6156]">
+            Responsable:{' '}
+            <span className="font-medium text-[#3a3d36]">{appointment.responsible.full_name}</span>
           </p>
         </div>
       )}
-    </div>
+    </button>
   )
 }

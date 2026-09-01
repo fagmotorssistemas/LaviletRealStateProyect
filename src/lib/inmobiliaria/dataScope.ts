@@ -15,8 +15,19 @@ export function getDataAccessScope(
   role: UserRole | string | null | undefined,
 ): DataAccessScope | null {
   if (!userId) return null
+  const normalized = String(role ?? '').trim().toLowerCase()
   return {
     userId,
-    isAdmin: role === 'admin',
+    isAdmin: normalized === 'admin' || normalized === 'administrador',
   }
+}
+
+/** Admin ve todo. El resto ve lo asignado a sí mismo y lo que aún no tiene dueño. */
+export function canAccessAssignedRecord(
+  scope: DataAccessScope | null | undefined,
+  assignedTo: string | null | undefined,
+): boolean {
+  if (!scope || scope.isAdmin) return true
+  if (!assignedTo) return true
+  return assignedTo === scope.userId
 }

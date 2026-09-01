@@ -95,12 +95,12 @@ export function AppointmentInterestUnitsPicker({
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-3">
-        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">{sectionLabel}</label>
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <label className="min-w-0 text-xs font-bold uppercase tracking-wider text-slate-500">{sectionLabel}</label>
         <button
           type="button"
           onClick={() => setUnitSearchOpen(!unitSearchOpen)}
-          className="flex items-center gap-1 text-[10px] font-semibold text-[#BDA27E] hover:text-[#a88d6a] cursor-pointer transition-colors uppercase tracking-wider"
+          className="flex shrink-0 cursor-pointer items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[#8b917c] transition-colors hover:text-[#a88d6a]"
         >
           <Plus size={12} /> Agregar
         </button>
@@ -117,7 +117,7 @@ export function AppointmentInterestUnitsPicker({
             onChange={(e) => handleUnitSearch(e.target.value)}
             placeholder="Buscar unidad por número..."
             autoFocus
-            className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-[#BDA27E]/30 outline-none transition-all"
+            className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-[#8b917c]/30 outline-none transition-all"
           />
 
           {searchingUnits && (
@@ -175,7 +175,7 @@ export function AppointmentInterestUnitsPicker({
               <button
                 type="button"
                 onClick={() => handleRemoveUnit(unit.id)}
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all cursor-pointer md:opacity-0 md:group-hover:opacity-100"
                 title="Quitar unidad"
               >
                 <Trash2 size={14} />

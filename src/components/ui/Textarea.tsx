@@ -11,14 +11,14 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
-          <label htmlFor={id} className="text-sm font-medium text-gray-700">
+          <label htmlFor={id} className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">
             {label}
           </label>
         )}
         <textarea
           id={id}
           className={cn(
-            'flex min-h-[80px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#BDA27E]/30 focus:border-[#2B1A18] disabled:cursor-not-allowed disabled:opacity-50 transition-colors resize-none',
+            'flex min-h-[80px] w-full border border-[#c5c8bc] bg-[#f7f7f3] px-3 py-2 text-sm text-[#3a3d36] placeholder:text-[#8a8d82] focus:outline-none focus:ring-2 focus:ring-[#8b917c]/30 focus:border-[#8b917c] disabled:cursor-not-allowed disabled:opacity-50 transition-colors resize-none',
             error && 'border-red-500 focus:ring-red-500/20 focus:border-red-500',
             className
           )}

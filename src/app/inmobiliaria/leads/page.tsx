@@ -8,15 +8,16 @@ import { LeadDetailModal } from '@/components/inmobiliaria/leads/LeadDetailModal
 import { CreateLeadModal } from '@/components/inmobiliaria/leads/CreateLeadModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { InmobiliariaFiltersToolbar } from '@/components/inmobiliaria/shared/InmobiliariaFiltersToolbar'
+import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Pagination } from '@/components/ui/Pagination'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import type { Lead } from '@/types/inmobiliaria'
-import { LEAD_STATUS_OPTIONS } from '@/types/inmobiliaria'
+import { LEAD_STATUS_OPTIONS, LEAD_TEMPERATURE_OPTIONS, UNASSIGNED_ASSIGNEE } from '@/types/inmobiliaria'
 
 export default function LeadsPage() {
-  const { leads, isLoading, tenantId, filters, updateFilter, resetFilters, reload, page, pageSize, total, setPage } = useLeads()
+  const { leads, advisors, isLoading, tenantId, filters, updateFilter, resetFilters, reload, page, pageSize, total, setPage } = useLeads()
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
@@ -27,21 +28,23 @@ export default function LeadsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Leads</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Gestiona tus prospectos y su avance comercial
-            {total > 0 && <span className="ml-2 text-gray-400">• {total} leads</span>}
-          </p>
-        </div>
-
-        <Button onClick={() => setCreateOpen(true)} className="shrink-0">
-          <Plus size={16} className="mr-2" />
-          Nuevo Lead
-        </Button>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        eyebrow="Cartera comercial"
+        title="Leads"
+        description={
+          <>
+            Prospectos y su avance comercial
+            {total > 0 && <span className="text-[#9a7d55]"> · {total} registros</span>}
+          </>
+        }
+        actions={
+          <Button onClick={() => setCreateOpen(true)} className="shrink-0">
+            <Plus size={16} className="mr-2" />
+            Nuevo lead
+          </Button>
+        }
+      />
 
       <div>
         <InmobiliariaFiltersToolbar
@@ -49,7 +52,7 @@ export default function LeadsPage() {
           onSearchChange={(value) => updateFilter('search', value)}
           searchPlaceholder="Buscar lead..."
           resultsTotal={total}
-          hasActiveFilters={Boolean(filters.search || filters.status || filters.assignedTo)}
+          hasActiveFilters={Boolean(filters.search || filters.status || filters.temperature || filters.assignedTo)}
           onReset={resetFilters}
         >
           <Select
@@ -57,7 +60,21 @@ export default function LeadsPage() {
             placeholder="Todos los estados"
             value={filters.status}
             onChange={(e) => updateFilter('status', e.target.value)}
-            className="w-full sm:w-44"
+          />
+          <Select
+            options={LEAD_TEMPERATURE_OPTIONS}
+            placeholder="Todas las temperaturas"
+            value={filters.temperature}
+            onChange={(e) => updateFilter('temperature', e.target.value)}
+          />
+          <Select
+            options={[
+              { value: UNASSIGNED_ASSIGNEE, label: 'Sin asignar' },
+              ...advisors.map((a) => ({ value: a.id, label: a.full_name || 'Sin nombre' })),
+            ]}
+            placeholder="Todos los responsables"
+            value={filters.assignedTo}
+            onChange={(e) => updateFilter('assignedTo', e.target.value)}
           />
         </InmobiliariaFiltersToolbar>
       </div>
@@ -85,6 +102,7 @@ export default function LeadsPage() {
         onClose={() => setDetailOpen(false)}
         onUpdated={reload}
         tenantId={tenantId}
+        advisors={advisors}
       />
 
       <CreateLeadModal
@@ -92,6 +110,7 @@ export default function LeadsPage() {
         onClose={() => setCreateOpen(false)}
         onCreated={reload}
         tenantId={tenantId}
+        advisors={advisors}
       />
     </div>
   )

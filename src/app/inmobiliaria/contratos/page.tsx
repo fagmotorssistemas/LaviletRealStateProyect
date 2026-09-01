@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { FileText, Plus, Receipt } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
-import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
+import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 import { listContracts } from '@/services/inmobiliaria.service'
 import { CreateContractModal } from '@/components/inmobiliaria/contracts/CreateContractModal'
 import { ContractDetailModal } from '@/components/inmobiliaria/contracts/ContractDetailModal'
@@ -11,6 +12,7 @@ import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
 import { InmobiliariaFiltersToolbar } from '@/components/inmobiliaria/shared/InmobiliariaFiltersToolbar'
+import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
@@ -25,8 +27,7 @@ const contractStatusOptions = [
 ]
 
 export default function ContratosPage() {
-  const { supabase, user, profile } = useAuth()
-  const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
+  const { supabase, user } = useAuth()
   const [contracts, setContracts] = useState<Contract[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [tenantId, setTenantId] = useState('')
@@ -35,51 +36,66 @@ export default function ContratosPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
-  const pageSize = 10
+  const pageSize = 25
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
 
   const load = useCallback(async () => {
+    if (!user) {
+      setContracts([])
+      setTotal(0)
+      setIsLoading(false)
+      return
+    }
     setIsLoading(true)
     try {
-      const { data: tenant } = await supabase.from('tenants').select('id').limit(1).single()
-      if (tenant) {
-        setTenantId(tenant.id)
-        const res = await listContracts(supabase, {
-          tenantId: tenant.id,
-          status: (statusFilter || undefined) as ContractStatus | undefined,
-          search: search || undefined,
-          page,
-          pageSize,
-          scope,
-        })
-        setContracts(res.data)
-        setTotal(res.total)
+      const tenantIds = await getAccessibleTenantIds(supabase)
+      if (!tenantIds.length) {
+        setContracts([])
+        setTotal(0)
+        return
       }
+      setTenantId(tenantIds[0])
+      const res = await listContracts(supabase, {
+        tenantId: tenantIds[0],
+        tenantIds,
+        status: (statusFilter || undefined) as ContractStatus | undefined,
+        search: search || undefined,
+        page,
+        pageSize,
+      })
+      setContracts(res.data)
+      setTotal(res.total)
     } catch (err) {
       console.error(err)
+      toast.error(err instanceof Error ? err.message : 'No se pudieron cargar los contratos')
+      setContracts([])
+      setTotal(0)
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, statusFilter, search, page, pageSize, scope])
+  }, [supabase, user, statusFilter, search, page, pageSize])
 
   useEffect(() => { load() }, [load])
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Contratos</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Gestión de contratos y anticipos
-            {total > 0 && <span className="ml-2 text-gray-400">• {total} contratos</span>}
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus size={16} className="mr-2" />
-          Nuevo Contrato
-        </Button>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        eyebrow="Documentación comercial"
+        title="Contratos"
+        description={
+          <>
+            Contratos y anticipos
+            {total > 0 && <span className="text-[#9a7d55]"> · {total} registros</span>}
+          </>
+        }
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus size={16} className="mr-2" />
+            Nuevo contrato
+          </Button>
+        }
+      />
 
       <InmobiliariaFiltersToolbar
         searchValue={search}

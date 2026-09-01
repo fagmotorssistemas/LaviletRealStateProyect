@@ -10,6 +10,7 @@ import { AppointmentDetailModal } from '@/components/inmobiliaria/agenda/Appoint
 import { CreateAppointmentModal } from '@/components/inmobiliaria/agenda/CreateAppointmentModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { InmobiliariaFiltersToolbar } from '@/components/inmobiliaria/shared/InmobiliariaFiltersToolbar'
+import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { Pagination } from '@/components/ui/Pagination'
@@ -99,20 +100,23 @@ export default function AgendaPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Agenda</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Citas y agendamientos con clientes
-            {total > 0 && <span className="ml-2 text-gray-400">• {total} citas</span>}
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus size={16} className="mr-2" />
-          Nueva Cita
-        </Button>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        eyebrow="Citas y seguimiento"
+        title="Agenda"
+        description={
+          <>
+            Agendamientos con clientes
+            {total > 0 && <span className="text-[#9a7d55]"> · {total} citas</span>}
+          </>
+        }
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus size={16} className="mr-2" />
+            Nueva cita
+          </Button>
+        }
+      />
 
       <InmobiliariaFiltersToolbar
         searchValue={search}
@@ -148,8 +152,10 @@ export default function AgendaPage() {
 
         {(datePreset === 'exact' || datePreset === 'custom') && (
           <>
-            <div className="flex flex-col gap-1.5 w-full">
-              <label className="text-sm font-medium text-gray-700">{datePreset === 'exact' ? 'Fecha exacta' : 'Desde'}</label>
+            <div className="flex min-w-0 w-full flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">
+                {datePreset === 'exact' ? 'Fecha exacta' : 'Desde'}
+              </label>
               <input
                 type="date"
                 value={dateFrom}
@@ -157,17 +163,17 @@ export default function AgendaPage() {
                   updateDateFrom(e.target.value)
                   if (datePreset === 'exact') updateDateTo(e.target.value)
                 }}
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BDA27E]/30 focus:border-[#2B1A18] transition-colors"
+                className="box-border h-10 w-full min-w-0 max-w-full border border-[#c5c8bc] bg-[#f7f7f3] px-3 text-base text-[#3a3d36] focus:border-[#8b917c] focus:outline-none focus:ring-2 focus:ring-[#8b917c]/30 sm:text-sm"
               />
             </div>
             {datePreset === 'custom' && (
-              <div className="flex flex-col gap-1.5 w-full">
-                <label className="text-sm font-medium text-gray-700">Hasta</label>
+              <div className="flex min-w-0 w-full flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">Hasta</label>
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(e) => updateDateTo(e.target.value)}
-                  className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BDA27E]/30 focus:border-[#2B1A18] transition-colors"
+                  className="box-border h-10 w-full min-w-0 max-w-full border border-[#c5c8bc] bg-[#f7f7f3] px-3 text-base text-[#3a3d36] focus:border-[#8b917c] focus:outline-none focus:ring-2 focus:ring-[#8b917c]/30 sm:text-sm"
                 />
               </div>
             )}
@@ -179,24 +185,26 @@ export default function AgendaPage() {
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : (
         <>
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div className="grid w-full grid-cols-2 gap-1">
               <Button
                 variant={tab === 'pending' ? 'secondary' : 'outline'}
                 size="sm"
+                className="w-full px-2 text-xs sm:text-sm"
                 onClick={() => setTab('pending')}
               >
-                Por atender{tab === 'pending' ? ` (${total})` : ''}
+                <span className="sm:hidden">Pendientes{tab === 'pending' ? ` (${total})` : ''}</span>
+                <span className="hidden sm:inline">Por atender{tab === 'pending' ? ` (${total})` : ''}</span>
               </Button>
               <Button
                 variant={tab === 'history' ? 'secondary' : 'outline'}
                 size="sm"
+                className="w-full px-2 text-xs sm:text-sm"
                 onClick={() => setTab('history')}
               >
-                Atendidas / Canceladas{tab === 'history' ? ` (${total})` : ''}
+                <span className="sm:hidden">Historial{tab === 'history' ? ` (${total})` : ''}</span>
+                <span className="hidden sm:inline">Atendidas / Canceladas{tab === 'history' ? ` (${total})` : ''}</span>
               </Button>
             </div>
-          </div>
 
           {appointments.length === 0 ? (
             <EmptyState
@@ -204,14 +212,23 @@ export default function AgendaPage() {
               title={tab === 'pending' ? 'Sin citas por atender' : 'Sin citas atendidas/canceladas'}
               description="Aún no hay registros para esta vista. Ajusta filtros o crea una nueva cita."
             />
-          ) : tab === 'pending' ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          ) : tab === 'history' ? (
+            <>
+              <div className="hidden min-w-0 md:block">
+                <AgendaAppointmentsTable appointments={appointments} onSelect={handleSelect} />
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:hidden">
+                {appointments.map((appt) => (
+                  <AppointmentCard key={appt.id} appointment={appt} onSelect={handleSelect} />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {appointments.map((appt) => (
                 <AppointmentCard key={appt.id} appointment={appt} onSelect={handleSelect} />
               ))}
             </div>
-          ) : (
-            <AgendaAppointmentsTable appointments={appointments} onSelect={handleSelect} />
           )}
 
           {total > 0 && (

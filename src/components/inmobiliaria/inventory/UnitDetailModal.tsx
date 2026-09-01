@@ -3,6 +3,7 @@
 import { Modal } from '@/components/ui/Modal'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
+import { formatNumber, formatCurrency } from '@/lib/utils'
 import { Select } from '@/components/ui/Select'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
@@ -22,6 +23,8 @@ import { prepareImageForWebUpload } from '@/lib/images/prepareImageForWebUpload'
 import { toast } from 'sonner'
 import Image from 'next/image'
 import {
+  Bath,
+  BedDouble,
   Building2,
   Layers,
   Tag,
@@ -70,6 +73,8 @@ const defaultEditForm = {
   area_terrace_covered_m2: '',
   area_terrace_open_m2: '',
   area_total_m2: '',
+  bedrooms: '',
+  bathrooms: '',
   parking_assigned: '0',
   cost_per_m2_internal: '',
   published_commercial_price: '',
@@ -88,6 +93,8 @@ function unitToFormFields(unit: Unit) {
     area_terrace_covered_m2: unit.area_terrace_covered_m2 != null ? String(unit.area_terrace_covered_m2) : '',
     area_terrace_open_m2: unit.area_terrace_open_m2 != null ? String(unit.area_terrace_open_m2) : '',
     area_total_m2: unit.area_total_m2 != null ? String(unit.area_total_m2) : '',
+    bedrooms: unit.bedrooms != null ? String(unit.bedrooms) : '',
+    bathrooms: unit.bathrooms != null ? String(unit.bathrooms) : '',
     parking_assigned: String(unit.parking_assigned ?? 0),
     cost_per_m2_internal: unit.cost_per_m2_internal != null ? String(unit.cost_per_m2_internal) : '',
     published_commercial_price: unit.published_commercial_price != null ? String(unit.published_commercial_price) : '',
@@ -200,6 +207,8 @@ export function UnitDetailModal({
         area_terrace_covered_m2: form.area_terrace_covered_m2 ? Number(form.area_terrace_covered_m2) : null,
         area_terrace_open_m2: form.area_terrace_open_m2 ? Number(form.area_terrace_open_m2) : null,
         area_total_m2: form.area_total_m2 ? Number(form.area_total_m2) : null,
+        bedrooms: form.bedrooms !== '' ? Number(form.bedrooms) : null,
+        bathrooms: form.bathrooms !== '' ? Number(form.bathrooms) : null,
         parking_assigned: Number(form.parking_assigned) || 0,
         cost_per_m2_internal: form.cost_per_m2_internal ? Number(form.cost_per_m2_internal) : null,
         published_commercial_price: form.published_commercial_price ? Number(form.published_commercial_price) : null,
@@ -302,7 +311,7 @@ export function UnitDetailModal({
               setIsEditing(true)
             }}
             title="Editar"
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#2B1A18] transition-colors cursor-pointer"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-[#3a3d36] transition-colors cursor-pointer"
           >
             <Pencil size={18} aria-hidden />
             <span className="sr-only">Editar</span>
@@ -312,7 +321,7 @@ export function UnitDetailModal({
     >
       {isEditing ? (
         <form onSubmit={handleSaveEdit} className="space-y-5">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               id="edit-project"
               label="Proyecto *"
@@ -329,7 +338,7 @@ export function UnitDetailModal({
               onChange={(e) => updateField('unit_number', e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Select
               id="edit-category"
               label="Categoría"
@@ -353,7 +362,7 @@ export function UnitDetailModal({
               onChange={(e) => updateField('floor', e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               id="edit-area_int"
               label="Área depto. (m²)"
@@ -387,7 +396,43 @@ export function UnitDetailModal({
               onChange={(e) => updateField('area_total_m2', e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="rounded-xl border border-[#8b917c]/25 bg-[#8b917c]/5 p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex shrink-0 items-center gap-1 rounded-lg bg-white px-2 py-2 text-[#8b917c] shadow-sm">
+                <BedDouble size={16} aria-hidden />
+                <Bath size={16} aria-hidden />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-[#3a3d36]">Habitaciones y baños</h3>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Quedan guardados en la unidad y se ven en la tabla y ficha de inventario.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                id="edit-bedrooms"
+                label="Habitaciones"
+                type="number"
+                step="0.5"
+                min="0"
+                placeholder="Ej: 2"
+                value={form.bedrooms}
+                onChange={(e) => updateField('bedrooms', e.target.value)}
+              />
+              <Input
+                id="edit-bathrooms"
+                label="Baños"
+                type="number"
+                step="0.5"
+                min="0"
+                placeholder="Ej: 2.5"
+                value={form.bathrooms}
+                onChange={(e) => updateField('bathrooms', e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Input
               id="edit-parking"
               label="Parqueos"
@@ -451,7 +496,7 @@ export function UnitDetailModal({
                 onClick={() => setDetailTab(id)}
                 className={`flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                   detailTab === id
-                    ? 'border-[#2B1A18] text-[#2B1A18]'
+                    ? 'border-[#3a3d36] text-[#3a3d36]'
                     : 'border-transparent text-gray-500 hover:text-gray-800'
                 }`}
               >
@@ -478,37 +523,39 @@ export function UnitDetailModal({
           {/* Información general */}
           <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Información general</h4>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <InfoRow icon={<Building2 size={15} className="text-gray-800" />} label="Proyecto" value={projectName} />
               <InfoRow icon={<Layers size={15} className="text-gray-800" />} label="Piso" value={displayUnit.floor ?? '—'} />
+              <InfoRow icon={<BedDouble size={15} className="text-gray-800" />} label="Habitaciones" value={displayUnit.bedrooms != null ? String(displayUnit.bedrooms) : '—'} />
+              <InfoRow icon={<Bath size={15} className="text-gray-800" />} label="Baños" value={displayUnit.bathrooms != null ? String(displayUnit.bathrooms) : '—'} />
               <InfoRow icon={<Car size={15} className="text-gray-800" />} label="Parqueos asignados" value={String(displayUnit.parking_assigned ?? 0)} />
-              <InfoRow icon={<DollarSign size={15} className="text-gray-800" />} label="Costo / m²" value={displayUnit.cost_per_m2_internal ? `$${Number(displayUnit.cost_per_m2_internal).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'} />
+              <InfoRow icon={<DollarSign size={15} className="text-gray-800" />} label="Costo / m²" value={displayUnit.cost_per_m2_internal ? formatCurrency(Number(displayUnit.cost_per_m2_internal)) : '—'} />
             </div>
           </div>
 
           {/* Áreas */}
           <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Superficies</h4>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <InfoRow
                 icon={<Ruler size={15} className="text-gray-800" />}
                 label="Área del departamento"
-                value={displayUnit.area_internal_m2 ? `${Number(displayUnit.area_internal_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
+                value={displayUnit.area_internal_m2 ? `${formatNumber(Number(displayUnit.area_internal_m2))} m²` : '—'}
               />
               <InfoRow
                 icon={<Umbrella size={15} className="text-gray-800" />}
                 label="Terraza cubierta"
-                value={displayUnit.area_terrace_covered_m2 ? `${Number(displayUnit.area_terrace_covered_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
+                value={displayUnit.area_terrace_covered_m2 ? `${formatNumber(Number(displayUnit.area_terrace_covered_m2))} m²` : '—'}
               />
               <InfoRow
                 icon={<Sun size={15} className="text-gray-800" />}
                 label="Terraza descubierta"
-                value={displayUnit.area_terrace_open_m2 ? `${Number(displayUnit.area_terrace_open_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
+                value={displayUnit.area_terrace_open_m2 ? `${formatNumber(Number(displayUnit.area_terrace_open_m2))} m²` : '—'}
               />
               <InfoRow
                 icon={<SquareDashed size={15} className="text-gray-800" />}
                 label="Área total"
-                value={displayUnit.area_total_m2 ? `${Number(displayUnit.area_total_m2).toLocaleString('en-US', { minimumFractionDigits: 2 })} m²` : '—'}
+                value={displayUnit.area_total_m2 ? `${formatNumber(Number(displayUnit.area_total_m2))} m²` : '—'}
               />
             </div>
           </div>
@@ -554,7 +601,7 @@ export function UnitDetailModal({
           ) : (
             <div className="space-y-5">
               <div>
-                <h3 className="text-sm font-semibold text-[#2B1A18]">Galería de la unidad</h3>
+                <h3 className="text-sm font-semibold text-[#3a3d36]">Galería de la unidad</h3>
               </div>
 
               <div className="flex flex-col gap-4 rounded-xl border border-gray-100 bg-gray-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -576,7 +623,7 @@ export function UnitDetailModal({
                     disabled={mediaUploading || detailLoading}
                   />
                   <span
-                    className={`inline-flex items-center gap-2 rounded-lg bg-[#2B1A18] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#3d2a24] ${mediaUploading || detailLoading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
+                    className={`inline-flex items-center gap-2 rounded-lg bg-[#3a3d36] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#3d2a24] ${mediaUploading || detailLoading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
                   >
                     {mediaUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
                     Subir imágenes
@@ -628,19 +675,19 @@ function UnitInventoryPhotoCard({
         {isImage ? (
           <Image src={media.url} alt={alt} fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" />
         ) : (
-          <a href={media.url} target="_blank" rel="noreferrer" className="flex h-full items-center justify-center p-4 text-sm text-[#2B1A18] underline">
+          <a href={media.url} target="_blank" rel="noreferrer" className="flex h-full items-center justify-center p-4 text-sm text-[#3a3d36] underline">
             Ver archivo
           </a>
         )}
         {media.is_cover && (
-          <span className="absolute left-2 top-2 rounded bg-[#2B1A18] px-2 py-0.5 text-[10px] font-bold text-white">
+          <span className="absolute left-2 top-2 rounded bg-[#3a3d36] px-2 py-0.5 text-[10px] font-bold text-white">
             PORTADA
           </span>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 p-3">
         {!media.is_cover && isImage && (
-          <button type="button" onClick={onSetCover} className="cursor-pointer text-xs font-semibold text-[#BDA27E] hover:underline">
+          <button type="button" onClick={onSetCover} className="cursor-pointer text-xs font-semibold text-[#8b917c] hover:underline">
             Usar como portada
           </button>
         )}
@@ -666,7 +713,7 @@ function InfoRow({
       <div className="mt-0.5 shrink-0">{icon}</div>
       <div className="min-w-0">
         <p className="text-xs text-gray-400 leading-tight">{label}</p>
-        <p className="text-sm font-medium leading-snug text-gray-800">{value}</p>
+        <p className="crm-num text-sm font-medium leading-snug text-gray-800">{value}</p>
       </div>
     </div>
   )

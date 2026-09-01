@@ -177,11 +177,11 @@ export function CreateAppointmentModal({ isOpen, onClose, onCreated, tenantId }:
           onChange={(e) => update('notes', e.target.value)}
         />
 
-        <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variant="outline" onClick={onClose}>
+        <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">
             Cancelar
           </Button>
-          <Button type="submit" disabled={loading}>
+          <Button type="submit" disabled={loading} className="w-full sm:w-auto">
             {loading ? 'Creando...' : 'Crear Cita'}
           </Button>
         </div>

@@ -30,12 +30,12 @@ export function Pagination({
 
   return (
     <div className={className ?? ''}>
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-gray-500">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-[#6b5348]">
           {total === 0 ? '0 resultados' : `Mostrando ${start}-${end} de ${total}`}
         </p>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -45,45 +45,51 @@ export function Pagination({
             Anterior
           </Button>
 
-          {rangeStart > 1 && (
-            <>
+          <div className="hidden items-center gap-2 sm:flex">
+            {rangeStart > 1 && (
+              <>
+                <Button
+                  variant={1 === safePage ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => onPageChange(1)}
+                  className="min-w-10"
+                >
+                  1
+                </Button>
+                {rangeStart > 2 && <span className="px-1 text-sm text-gray-500">...</span>}
+              </>
+            )}
+
+            {pages.map((p) => (
               <Button
-                variant={1 === safePage ? 'secondary' : 'outline'}
+                key={p}
+                variant={p === safePage ? 'secondary' : 'outline'}
                 size="sm"
-                onClick={() => onPageChange(1)}
+                onClick={() => onPageChange(p)}
                 className="min-w-10"
               >
-                1
+                {p}
               </Button>
-              {rangeStart > 2 && <span className="px-1 text-sm text-gray-500">...</span>}
-            </>
-          )}
+            ))}
 
-          {pages.map((p) => (
-            <Button
-              key={p}
-              variant={p === safePage ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={() => onPageChange(p)}
-              className="min-w-10"
-            >
-              {p}
-            </Button>
-          ))}
+            {rangeEnd < totalPages && (
+              <>
+                {rangeEnd < totalPages - 1 && <span className="px-1 text-sm text-gray-500">...</span>}
+                <Button
+                  variant={totalPages === safePage ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => onPageChange(totalPages)}
+                  className="min-w-10"
+                >
+                  {totalPages}
+                </Button>
+              </>
+            )}
+          </div>
 
-          {rangeEnd < totalPages && (
-            <>
-              {rangeEnd < totalPages - 1 && <span className="px-1 text-sm text-gray-500">...</span>}
-              <Button
-                variant={totalPages === safePage ? 'secondary' : 'outline'}
-                size="sm"
-                onClick={() => onPageChange(totalPages)}
-                className="min-w-10"
-              >
-                {totalPages}
-              </Button>
-            </>
-          )}
+          <span className="px-1 text-sm text-[#6b5348] sm:hidden">
+            {safePage} / {totalPages}
+          </span>
 
           <Button
             variant="outline"
@@ -98,4 +104,3 @@ export function Pagination({
     </div>
   )
 }
-

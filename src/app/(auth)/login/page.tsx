@@ -33,9 +33,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-[100dvh]">
       {/* Left - Form */}
-      <div className="flex flex-1 flex-col justify-center px-6 sm:px-12 lg:px-20 bg-white">
+      <div className="flex flex-1 flex-col justify-center bg-[#e8e9e3] px-4 py-8 sm:px-12 lg:px-20">
         <div className="mx-auto w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
             <Image
@@ -48,12 +48,12 @@ export default function LoginPage() {
             />
           </div>
 
-          <h1 className="text-2xl font-bold text-[#2B1A18] text-center">Bienvenido</h1>
-          <p className="mt-1 text-sm text-[#BDA27E] text-center">
-            Ingresa a tu cuenta de Lavilet 
+          <h1 className="text-center font-display text-3xl font-semibold text-[#3a3d36] sm:text-4xl">Bienvenido</h1>
+          <p className="mt-2 text-center text-sm tracking-wide text-[#7a7e70]">
+            Acceso al sistema de gestión inmobiliaria
           </p>
 
-          <div className="mt-2 mb-8 h-px bg-gradient-to-r from-transparent via-[#BDA27E]/40 to-transparent" />
+          <div className="mt-2 mb-8 h-px bg-gradient-to-r from-transparent via-[#8b917c]/40 to-transparent" />
 
           <form onSubmit={handleLogin} className="space-y-5">
             <Input
@@ -81,7 +81,7 @@ export default function LoginPage() {
 
           <p className="mt-6 text-center text-sm text-gray-500">
             ¿No tienes cuenta?{' '}
-            <Link href="/register" className="font-semibold text-[#BDA27E] hover:text-[#2B1A18] transition-colors">
+            <Link href="/register" className="font-semibold text-[#8b917c] hover:text-[#3a3d36] transition-colors">
               Regístrate
             </Link>
           </p>

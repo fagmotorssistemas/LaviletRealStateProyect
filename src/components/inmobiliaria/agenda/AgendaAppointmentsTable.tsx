@@ -12,7 +12,7 @@ interface AgendaAppointmentsTableProps {
 
 export function AgendaAppointmentsTable({ appointments, onSelect }: AgendaAppointmentsTableProps) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+    <div className="min-w-0 overflow-x-auto border border-[#c5c8bc] bg-[#f7f7f3]">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50/50">

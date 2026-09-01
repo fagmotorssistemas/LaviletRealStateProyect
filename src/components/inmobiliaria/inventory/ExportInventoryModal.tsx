@@ -183,7 +183,7 @@ export function ExportInventoryModal({
       InventoryExportFieldId,
       boolean
     >
-    ;(['project', 'unit_number', 'category', 'floor', 'status', 'area_total_m2', 'published_commercial_price'] as const).forEach(
+    ;(['project', 'unit_number', 'category', 'floor', 'bedrooms', 'bathrooms', 'status', 'area_total_m2', 'published_commercial_price'] as const).forEach(
       (k) => {
         m[k] = true
       },
@@ -273,7 +273,7 @@ export function ExportInventoryModal({
         {/* Alcance */}
         <section className="rounded-xl border border-gray-100 bg-gray-50/40 p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-[#2B1A18]">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-[#3a3d36]">
               <Filter size={16} aria-hidden />
               Qué incluir
             </h3>
@@ -360,7 +360,7 @@ export function ExportInventoryModal({
         {/* Columnas */}
         <section className="rounded-xl border border-gray-100 bg-white p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-[#2B1A18]">Columnas del archivo</h3>
+            <h3 className="text-sm font-semibold text-[#3a3d36]">Columnas del archivo</h3>
             <div className="flex flex-wrap gap-1.5">
               <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setFieldPreset('all')}>
                 Todas
@@ -382,7 +382,7 @@ export function ExportInventoryModal({
                   <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">{g.label}</span>
                   <button
                     type="button"
-                    className="text-xs text-[#BDA27E] hover:underline"
+                    className="text-xs text-[#8b917c] hover:underline"
                     onClick={() => toggleGroup(g.id, !allOn)}
                   >
                     {allOn ? 'Desmarcar grupo' : 'Marcar todo el grupo'}
@@ -411,14 +411,14 @@ export function ExportInventoryModal({
 
         {/* Formato */}
         <section className="rounded-xl border border-gray-100 bg-gray-50/40 p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[#2B1A18]">Formato de archivo</h3>
+          <h3 className="mb-3 text-sm font-semibold text-[#3a3d36]">Formato de archivo</h3>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setFormat('xlsx')}
               className={`flex flex-1 items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-colors sm:min-w-[140px] ${
                 format === 'xlsx'
-                  ? 'border-[#2B1A18] bg-[#2B1A18] text-white'
+                  ? 'border-[#3a3d36] bg-[#3a3d36] text-white'
                   : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
               }`}
             >
@@ -430,7 +430,7 @@ export function ExportInventoryModal({
               onClick={() => setFormat('pdf')}
               className={`flex flex-1 items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-colors sm:min-w-[140px] ${
                 format === 'pdf'
-                  ? 'border-[#2B1A18] bg-[#2B1A18] text-white'
+                  ? 'border-[#3a3d36] bg-[#3a3d36] text-white'
                   : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
               }`}
             >
@@ -452,7 +452,7 @@ export function ExportInventoryModal({
               </>
             ) : previewCount !== null ? (
               <span>
-                <strong className="text-[#2B1A18]">{previewCount}</strong> unidad(es) coinciden con el alcance
+                <strong className="text-[#3a3d36]">{previewCount}</strong> unidad(es) coinciden con el alcance
               </span>
             ) : (
               <span className="text-gray-400">—</span>

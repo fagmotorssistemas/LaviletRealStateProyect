@@ -74,7 +74,7 @@ export function AuthBrandPanel() {
 
       {/* Diagonal accent line */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute w-[1px] h-[200%] bg-gradient-to-b from-transparent via-[#BDA27E]/20 to-transparent -rotate-[25deg] auth-line-sweep" />
+        <div className="absolute w-[1px] h-[200%] bg-gradient-to-b from-transparent via-[#8b917c]/20 to-transparent -rotate-[25deg] auth-line-sweep" />
       </div>
 
       {/* Content */}
@@ -84,23 +84,23 @@ export function AuthBrandPanel() {
         {/* Dynamic text area */}
         <div className="flex-1 flex flex-col justify-center -mt-12">
           <div className="space-y-4">
-            <p className="text-xs font-medium tracking-[0.3em] uppercase text-[#BDA27E]/70">
+            <p className="text-xs font-medium tracking-[0.3em] uppercase text-[#8b917c]/70">
               Lavilet
             </p>
 
             <div className="min-h-[140px] flex flex-col justify-center">
               <h2
-                className="text-5xl xl:text-6xl font-bold leading-[1.1] auth-phrase-transition"
+            className="text-5xl xl:text-6xl font-display font-semibold leading-[1.1] auth-phrase-transition"
                 style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? 'translateY(0)' : 'translateY(16px)' }}
               >
-                <span className="text-[#BDA27E] italic">{phrase.top}</span>
+                <span className="text-[#8b917c] italic">{phrase.top}</span>
                 <br />
                 <span className="text-white/90">{phrase.bottom}</span>
               </h2>
             </div>
 
             <div className="flex items-center gap-3 mt-2">
-              <div className="h-px flex-1 max-w-[80px] bg-gradient-to-r from-[#BDA27E]/60 to-transparent" />
+              <div className="h-px flex-1 max-w-[80px] bg-gradient-to-r from-[#8b917c]/60 to-transparent" />
               <p className="text-white/40 text-sm">
                 inmobiliarios
               </p>
@@ -115,7 +115,7 @@ export function AuthBrandPanel() {
                 className="h-1 rounded-full transition-all duration-500"
                 style={{
                   width: i === currentPhrase ? 32 : 8,
-                  backgroundColor: i === currentPhrase ? '#BDA27E' : 'rgba(255,255,255,0.15)',
+                  backgroundColor: i === currentPhrase ? '#8b917c' : 'rgba(255,255,255,0.15)',
                 }}
               />
             ))}
