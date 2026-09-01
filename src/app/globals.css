@@ -2,6 +2,7 @@
 
 @theme {
   --font-sans: var(--font-satoshi), "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-bodoni), ui-serif, Georgia, serif;
   --color-brand: #2B1A18;
   --color-brand-light: #3d2a24;
   --color-gold: #BDA27E;
@@ -18,6 +19,10 @@
   --success: #16a34a;
   --warning: #d97706;
   --danger: #dc2626;
+}
+
+html {
+  scroll-padding-top: 5rem;
 }
 
 body {

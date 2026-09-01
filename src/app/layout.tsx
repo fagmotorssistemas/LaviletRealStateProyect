@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Bodoni_Moda } from 'next/font/google'
 import localFont from 'next/font/local'
 import { Toaster } from 'sonner'
 import './globals.css'
@@ -13,9 +14,18 @@ const satoshi = localFont({
   display: 'swap',
 })
 
+const bodoni = Bodoni_Moda({
+  subsets: ['latin', 'latin-ext'],
+  display: 'swap',
+  variable: '--font-bodoni',
+})
+
 export const metadata: Metadata = {
-  title: 'Lavilet ',
-  description: 'Sistema de gestión inmobiliaria',
+  title: {
+    default: 'Lavilet',
+    template: '%s | Lavilet',
+  },
+  description: 'Proyectos inmobiliarios y gestión Lavilet',
 }
 
 export default function RootLayout({
@@ -24,7 +34,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es" className={`${satoshi.variable} h-full antialiased`}>
+    <html lang="es" className={`${satoshi.variable} ${bodoni.variable} h-full scroll-smooth antialiased`}>
       <body className="min-h-full flex flex-col font-sans">
         {children}
         <Toaster theme="dark" position="top-right" richColors />

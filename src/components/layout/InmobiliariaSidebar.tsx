@@ -37,7 +37,7 @@ export function InmobiliariaSidebar() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.push('/login')
+    router.push('/')
   }
 
   return (
@@ -65,14 +65,16 @@ export function InmobiliariaSidebar() {
       >
         <div className="flex items-center justify-between px-4 py-4 border-b border-[#BDA27E]/20">
           {!collapsed && (
-            <Image
-              src="/LogoHorizontal.png"
-              alt="Lavilet"
-              width={160}
-              height={48}
-              className="h-18 w-auto object-contain"
-              preload
-            />
+            <Link href="/" className="shrink-0" onClick={() => setMobileOpen(false)}>
+              <Image
+                src="/LogoHorizontal.png"
+                alt="Lavilet"
+                width={160}
+                height={48}
+                className="h-18 w-auto object-contain"
+                preload
+              />
+            </Link>
           )}
           <button
             onClick={() => { setCollapsed(!collapsed); setMobileOpen(false) }}

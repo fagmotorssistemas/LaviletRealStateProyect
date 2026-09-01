@@ -6,18 +6,16 @@ import Image from 'next/image'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { AuthBrandPanel } from '@/components/auth/AuthBrandPanel'
-import { register } from './actions'
+import { login } from './actions'
 
-export default function RegisterPage() {
-  const [state, formAction, pending] = useActionState(register, null)
+export function LoginForm({ registered }: { registered: boolean }) {
+  const [state, formAction, pending] = useActionState(login, null)
 
   return (
     <div className="flex min-h-screen">
-      <AuthBrandPanel />
-
       <div className="flex flex-1 flex-col justify-center px-6 sm:px-12 lg:px-20 bg-white">
         <div className="mx-auto w-full max-w-sm">
-          <div className="flex flex-col items-center mb-8 lg:hidden">
+          <div className="flex flex-col items-center mb-8">
             <Image
               src="/LogoVertical.png"
               alt="Lavilet"
@@ -28,23 +26,20 @@ export default function RegisterPage() {
             />
           </div>
 
-          <h1 className="text-2xl font-bold text-[#2B1A18] text-center">Crear cuenta</h1>
+          <h1 className="text-2xl font-bold text-[#2B1A18] text-center">Bienvenido</h1>
           <p className="mt-1 text-sm text-[#BDA27E] text-center">
-            Regístrate en Lavilet
+            Ingresa a tu cuenta de Lavilet
           </p>
 
           <div className="mt-2 mb-8 h-px bg-gradient-to-r from-transparent via-[#BDA27E]/40 to-transparent" />
 
+          {registered && (
+            <p className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              Cuenta creada. Revisa tu correo para confirmar e inicia sesión.
+            </p>
+          )}
+
           <form action={formAction} className="space-y-5">
-            <Input
-              id="fullName"
-              name="fullName"
-              label="Nombre completo"
-              type="text"
-              placeholder="Juan Pérez"
-              autoComplete="name"
-              required
-            />
             <Input
               id="email"
               name="email"
@@ -60,9 +55,8 @@ export default function RegisterPage() {
               label="Contraseña"
               type="password"
               placeholder="••••••••"
-              autoComplete="new-password"
+              autoComplete="current-password"
               required
-              minLength={6}
             />
             {state?.error && (
               <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -70,14 +64,14 @@ export default function RegisterPage() {
               </p>
             )}
             <Button type="submit" className="w-full h-11" disabled={pending}>
-              {pending ? 'Creando cuenta...' : 'Registrarse'}
+              {pending ? 'Ingresando...' : 'Iniciar sesión'}
             </Button>
           </form>
 
           <p className="mt-6 text-center text-sm text-gray-500">
-            ¿Ya tienes cuenta?{' '}
-            <Link href="/login" className="font-semibold text-[#BDA27E] hover:text-[#2B1A18] transition-colors">
-              Inicia sesión
+            ¿No tienes cuenta?{' '}
+            <Link href="/register" className="font-semibold text-[#BDA27E] hover:text-[#2B1A18] transition-colors">
+              Regístrate
             </Link>
           </p>
           <p className="mt-3 text-center">
@@ -87,6 +81,8 @@ export default function RegisterPage() {
           </p>
         </div>
       </div>
+
+      <AuthBrandPanel />
     </div>
   )
 }
