@@ -105,7 +105,11 @@ export function InmobiliariaSidebar() {
           )}
         >
           {!collapsed && (
-            <div className="flex h-10 w-full items-center justify-center bg-[#f4f4ef] px-2">
+            <Link
+              href="/"
+              className="flex h-10 w-full items-center justify-center bg-[#f4f4ef] px-2"
+              onClick={() => setMobileOpen(false)}
+            >
               <Image
                 src="/LogoHorizontal.png"
                 alt="Lavilet"
@@ -114,7 +118,7 @@ export function InmobiliariaSidebar() {
                 className="h-8 w-full object-contain"
                 preload
               />
-            </div>
+            </Link>
           )}
         </div>
         <div className="flex items-center justify-end px-4 pt-4 md:hidden">

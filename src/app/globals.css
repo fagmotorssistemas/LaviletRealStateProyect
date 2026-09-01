@@ -3,6 +3,7 @@
 @theme {
   --font-sans: var(--font-satoshi), "Poppins", ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-cormorant), Georgia, "Times New Roman", serif;
+  --font-serif: var(--font-bodoni), ui-serif, Georgia, serif;
   --color-brand: #555c4a;
   --color-brand-light: #6d735f;
   --color-gold: #8b917c;
@@ -28,6 +29,10 @@
 
 html {
   font-size: 17px;
+}
+
+html {
+  scroll-padding-top: 5rem;
 }
 
 body {
