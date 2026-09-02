@@ -137,8 +137,9 @@ export default function FinanciamientoPage() {
       >
         {tab === 'planes' && (
           <Select
+            label="Proyecto"
             options={projects.map((p) => ({ value: p.id, label: p.name }))}
-            placeholder="Todos los proyectos"
+            placeholder="Todos"
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
             className="w-full"
@@ -146,8 +147,9 @@ export default function FinanciamientoPage() {
         )}
         {tab === 'solicitudes' && (
           <Select
+            label="Estado"
             options={LEAD_FINANCING_STATUS_OPTIONS}
-            placeholder="Todos los estados"
+            placeholder="Todos"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             className="w-full"

@@ -124,20 +124,23 @@ export default function InventarioPage() {
             onChange={(e) => updateFilter('sortBy', e.target.value as InventorySortOption)}
           />
           <Select
+            label="Proyecto"
             options={projects.map((p) => ({ value: p.id, label: p.name }))}
-            placeholder="Todos los proyectos"
+            placeholder="Todos"
             value={filters.projectId}
             onChange={(e) => updateFilter('projectId', e.target.value)}
           />
           <Select
+            label="Estado"
             options={UNIT_STATUS_OPTIONS}
-            placeholder="Todos los estados"
+            placeholder="Todos"
             value={filters.status}
             onChange={(e) => updateFilter('status', e.target.value)}
           />
           <Select
+            label="Categoría"
             options={categoryOptions}
-            placeholder="Categoría"
+            placeholder="Todas"
             value={filters.category}
             onChange={(e) => updateFilter('category', e.target.value)}
           />

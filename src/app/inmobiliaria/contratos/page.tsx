@@ -113,8 +113,9 @@ export default function ContratosPage() {
         }}
       >
         <Select
+          label="Estado"
           options={contractStatusOptions}
-          placeholder="Todos los estados"
+          placeholder="Todos"
           value={statusFilter}
           onChange={(e) => {
             setStatusFilter(e.target.value)

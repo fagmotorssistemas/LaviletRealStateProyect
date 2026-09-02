@@ -15,14 +15,14 @@ export function LeadsList({ leads, onSelect }: LeadsListProps) {
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-100 bg-gray-50/50">
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Lead</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Teléfono</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Responsable</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Fuente</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Creado</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Temperatura</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Estado</th>
+          <tr>
+            <th className="px-4 py-3 text-left">Lead</th>
+            <th className="px-4 py-3 text-left">Teléfono</th>
+            <th className="px-4 py-3 text-left">Responsable</th>
+            <th className="px-4 py-3 text-left">Fuente</th>
+            <th className="px-4 py-3 text-left">Creado</th>
+            <th className="px-4 py-3 text-left">Temperatura</th>
+            <th className="px-4 py-3 text-left">Estado</th>
           </tr>
         </thead>
         <tbody>
@@ -32,7 +32,7 @@ export function LeadsList({ leads, onSelect }: LeadsListProps) {
               onClick={() => onSelect(lead)}
               className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors"
             >
-              <td className="px-4 py-3 font-medium text-gray-900">{lead.name}</td>
+              <td className="px-4 py-3 font-medium text-[#2B1A18]">{lead.name}</td>
 
               <td className="px-4 py-3 crm-num text-gray-600">{lead.phone ?? '—'}</td>
               <td className="px-4 py-3">

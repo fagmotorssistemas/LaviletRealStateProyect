@@ -47,17 +47,17 @@ export function Modal({ isOpen, onClose, title, headerActions, children, classNa
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <div className="crm-modal-backdrop fixed inset-0 bg-[#3a3d36]/35" onClick={onClose} />
+      <div className="crm-modal-backdrop fixed inset-0 bg-[#2B1A18]/40" onClick={onClose} />
       <div
         className={cn(
-          'crm-modal-panel relative z-50 flex max-h-[100dvh] w-full flex-col overflow-hidden border border-[#c5c8bc] bg-white shadow-[0_24px_60px_rgba(85,92,74,0.18)] sm:mx-4 sm:max-h-[90vh]',
+          'crm-modal-panel relative z-50 flex max-h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-[0_24px_60px_rgba(43,26,24,0.18)] ring-1 ring-[#2B1A18]/8 sm:mx-4 sm:max-h-[90vh] sm:rounded-2xl',
           sizeClasses[size],
           className,
         )}
       >
         {title && (
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#555c4a]/40 bg-[#555c4a] px-4 py-3 sm:px-6">
-            <h2 className="min-w-0 flex-1 truncate font-display text-lg font-semibold tracking-wide text-[#f4f4ef] sm:text-xl">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#2B1A18]/8 bg-[#f7f3ee] px-4 py-3 sm:px-6">
+            <h2 className="min-w-0 flex-1 truncate font-display text-lg font-medium tracking-tight text-[#2B1A18] sm:text-xl">
               {title}
             </h2>
             <div className="flex shrink-0 items-center gap-1">
@@ -65,7 +65,7 @@ export function Modal({ isOpen, onClose, title, headerActions, children, classNa
               <button
                 type="button"
                 onClick={onClose}
-                className="cursor-pointer p-1.5 text-[#c5c8bc] transition-colors hover:bg-white/10 hover:text-[#f4f4ef]"
+                className="cursor-pointer p-1.5 text-[#2B1A18]/40 transition-colors hover:text-[#BDA27E]"
               >
                 <X size={20} />
               </button>

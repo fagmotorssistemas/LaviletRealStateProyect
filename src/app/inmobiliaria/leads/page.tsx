@@ -35,7 +35,7 @@ export default function LeadsPage() {
         description={
           <>
             Prospectos y su avance comercial
-            {total > 0 && <span className="text-[#9a7d55]"> · {total} registros</span>}
+            {total > 0 && <span className="text-[#BDA27E]"> · {total} registros</span>}
           </>
         }
         actions={
@@ -56,23 +56,26 @@ export default function LeadsPage() {
           onReset={resetFilters}
         >
           <Select
+            label="Estado"
             options={LEAD_STATUS_OPTIONS}
-            placeholder="Todos los estados"
+            placeholder="Todos"
             value={filters.status}
             onChange={(e) => updateFilter('status', e.target.value)}
           />
           <Select
+            label="Temperatura"
             options={LEAD_TEMPERATURE_OPTIONS}
-            placeholder="Todas las temperaturas"
+            placeholder="Todas"
             value={filters.temperature}
             onChange={(e) => updateFilter('temperature', e.target.value)}
           />
           <Select
+            label="Responsable"
             options={[
               { value: UNASSIGNED_ASSIGNEE, label: 'Sin asignar' },
               ...advisors.map((a) => ({ value: a.id, label: a.full_name || 'Sin nombre' })),
             ]}
-            placeholder="Todos los responsables"
+            placeholder="Todos"
             value={filters.assignedTo}
             onChange={(e) => updateFilter('assignedTo', e.target.value)}
           />
