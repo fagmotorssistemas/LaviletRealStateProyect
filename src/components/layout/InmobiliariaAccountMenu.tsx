@@ -3,17 +3,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { LogOut, Settings } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ChevronDown, LogOut, User } from 'lucide-react'
+import { cn, getInitials } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 
-export function InmobiliariaAccountMenu() {
+export function InmobiliariaAccountMenu({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
   const pathname = usePathname()
   const router = useRouter()
   const { supabase, profile } = useAuth()
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const reduceMotion = useReducedMotion()
+  const onDark = tone === 'dark'
+  const fullName = profile?.full_name?.trim() || 'Usuario'
+  const firstName = fullName.split(/\s+/)[0]
+  const initials = getInitials(fullName)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -40,21 +44,50 @@ export function InmobiliariaAccountMenu() {
     }
   }, [open])
 
+  const avatar = (
+    <span
+      className={cn(
+        'flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-[10px] font-medium tracking-wide',
+        onDark ? 'bg-white/15 text-white' : 'bg-[#787D62] text-white',
+      )}
+    >
+      {profile?.avatar_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <User size={15} strokeWidth={1.6} />
+      )}
+    </span>
+  )
+
   return (
     <div ref={menuRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          'flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] font-semibold tracking-[0.14em] uppercase transition-colors',
-          open ? 'text-white' : 'text-[#f4f4ef]/85 hover:text-white',
+          'flex cursor-pointer items-center gap-2 rounded-full py-1 pr-1.5 pl-1 transition-colors',
+          onDark
+            ? open
+              ? 'bg-white/15 text-white'
+              : 'text-white/90 hover:bg-white/10'
+            : open
+              ? 'bg-white text-[#787D62] shadow-sm ring-1 ring-[#787D62]/15'
+              : 'text-[#787D62] hover:bg-white/70',
         )}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Cuenta"
+        title={fullName}
       >
-        <Settings size={18} strokeWidth={1.75} className="shrink-0 text-[#c5c8bc]" />
-        <span className="hidden truncate sm:inline">Cuenta</span>
+        {avatar}
+        <span className="hidden max-w-[9rem] truncate text-[12px] font-medium tracking-[0.08em] sm:inline">
+          {firstName}
+        </span>
+        <ChevronDown
+          size={14}
+          strokeWidth={1.75}
+          className={cn('mr-1 hidden shrink-0 sm:block', open && 'rotate-180')}
+        />
       </button>
 
       <AnimatePresence>
@@ -65,21 +98,29 @@ export function InmobiliariaAccountMenu() {
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
             role="menu"
-            className="absolute right-0 z-50 mt-2 w-64 origin-top-right overflow-hidden rounded-xl border border-[#c5c8bc] bg-white py-1.5 shadow-[0_16px_36px_rgba(85,92,74,0.16)]"
+            className="absolute right-0 z-50 mt-2 w-64 origin-top-right overflow-hidden rounded-2xl bg-white py-1.5 shadow-[0_18px_40px_rgba(43,26,24,0.12)] ring-1 ring-[#2B1A18]/8"
           >
-            <div className="border-b border-[#e2e4dc] px-3.5 py-2.5">
-              <p className="truncate text-sm font-medium text-[#3a3d36]">
-                {profile?.full_name || 'Usuario'}
-              </p>
-              {profile?.email && (
-                <p className="truncate text-xs text-[#8a8278]">{profile.email}</p>
-              )}
+            <div className="flex items-center gap-3 border-b border-[#2B1A18]/8 px-3.5 py-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#787D62] text-[10px] font-medium text-white">
+                {profile?.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initials
+                )}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-[#2B1A18]">{fullName}</p>
+                {profile?.email && (
+                  <p className="truncate text-xs text-[#2B1A18]/45">{profile.email}</p>
+                )}
+              </div>
             </div>
             <button
               type="button"
               role="menuitem"
               onClick={handleLogout}
-              className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#5c6156] transition-colors hover:bg-[#e8e9e3] hover:text-[#3a3d36]"
+              className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#2B1A18]/70 transition-colors hover:bg-[#f7f3ee] hover:text-[#2B1A18]"
             >
               <LogOut size={16} className="shrink-0" />
               Cerrar sesión

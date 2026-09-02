@@ -72,20 +72,23 @@ export default function ShowroomPage() {
         onReset={reset}
       >
         <Select
+          label="Proyecto"
           options={projects.map((p) => ({ value: p.id, label: p.name }))}
-          placeholder="Todos los proyectos"
+          placeholder="Todos"
           value={filters.projectId}
           onChange={(e) => updateFilter('projectId', e.target.value)}
         />
         <Select
+          label="Origen"
           options={sourceOptions}
-          placeholder="Origen de la visita"
+          placeholder="Todos"
           value={filters.source}
           onChange={(e) => updateFilter('source', e.target.value)}
         />
         <Select
+          label="Asesor"
           options={advisors.map((a) => ({ value: a.id, label: a.full_name || 'Sin nombre' }))}
-          placeholder="Todos los asesores"
+          placeholder="Todos"
           value={filters.salespersonId}
           onChange={(e) => updateFilter('salespersonId', e.target.value)}
         />

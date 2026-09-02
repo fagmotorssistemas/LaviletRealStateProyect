@@ -49,6 +49,7 @@ export default function RootLayout({
   return (
     <html
       lang="es"
+      data-scroll-behavior="smooth"
       className={`${satoshi.variable} ${cormorant.variable} ${bodoni.variable} h-full scroll-smooth antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans">

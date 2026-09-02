@@ -94,14 +94,16 @@ export default function VentasPage() {
         onReset={reset}
       >
         <Select
+          label="Proyecto"
           options={projects.map((p) => ({ value: p.id, label: p.name }))}
-          placeholder="Todos los proyectos"
+          placeholder="Todos"
           value={projectId}
           onChange={(e) => setProjectId(e.target.value)}
         />
         <Select
+          label="Asesor"
           options={advisors.map((a) => ({ value: a.id, label: a.full_name || 'Sin nombre' }))}
-          placeholder="Todos los asesores"
+          placeholder="Todos"
           value={soldById}
           onChange={(e) => setSoldById(e.target.value)}
         />

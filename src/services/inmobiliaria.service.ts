@@ -1033,6 +1033,36 @@ function normalizeClosing(row: UnitSalesClosing): UnitSalesClosing {
   }
 }
 
+function mapClosingUnit(row: {
+  id: string
+  unit_number: string
+  category?: string | null
+  project_id?: string | null
+  project?: { id: string; name: string } | { id: string; name: string }[] | null
+}): NonNullable<UnitSalesClosing['unit']> {
+  const project = unwrapEmbedded(row.project)
+  return {
+    id: row.id,
+    unit_number: row.unit_number,
+    category: row.category ?? null,
+    project_id: row.project_id ?? undefined,
+    project: project ? { id: project.id, name: project.name } : null,
+  }
+}
+
+function mapFinancingUnit(row: {
+  id: string
+  unit_number: string
+  project?: { name: string } | { name: string }[] | null
+}): NonNullable<LeadFinancing['unit']> {
+  const project = unwrapEmbedded(row.project)
+  return {
+    id: row.id,
+    unit_number: row.unit_number,
+    project: project ? { name: project.name } : null,
+  }
+}
+
 async function hydrateSalesClosings(
   supabase: SupabaseClient,
   rows: UnitSalesClosing[],
@@ -1066,18 +1096,8 @@ async function hydrateSalesClosings(
   const contractsById = new Map((contractsRes.data ?? []).map((c) => [c.id, c]))
 
   for (const closing of closings) {
-    if (!closing.unit && closing.unit_id) {
-      const unit = unitsById.get(closing.unit_id)
-      if (unit) {
-        closing.unit = {
-          id: unit.id,
-          unit_number: unit.unit_number,
-          category: unit.category,
-          project_id: unit.project_id,
-          project: unwrapEmbedded(unit.project),
-        }
-      }
-    }
+    const rawUnit = closing.unit ?? (closing.unit_id ? unitsById.get(closing.unit_id) : undefined)
+    if (rawUnit) closing.unit = mapClosingUnit(rawUnit)
     if (!closing.lead && closing.lead_id) {
       closing.lead = (leadsById.get(closing.lead_id) as UnitSalesClosing['lead']) ?? null
     }
@@ -1486,7 +1506,7 @@ async function hydrateLeadFinancing(
       : Promise.resolve({ data: [] as { id: string; name: string; phone: string | null }[] }),
     unitIds.length
       ? supabase.from('units').select('id, unit_number, project:projects(name)').in('id', unitIds)
-      : Promise.resolve({ data: [] as { id: string; unit_number: string; project?: { name: string } | null }[] }),
+      : Promise.resolve({ data: [] as { id: string; unit_number: string; project?: { name: string } | { name: string }[] | null }[] }),
     partnerIds.length
       ? supabase.from('financing_partners').select('id, name, partner_type, approx_rate').in('id', partnerIds)
       : Promise.resolve({ data: [] as Pick<FinancingPartner, 'id' | 'name' | 'partner_type' | 'approx_rate'>[] }),
@@ -1498,18 +1518,11 @@ async function hydrateLeadFinancing(
     const embedded =
       unwrapPartner(r.partner) ??
       unwrapPartner((r as LeadFinancing & { financing_partners?: unknown }).financing_partners)
-    const rawUnit = r.unit_id ? unitMap.get(r.unit_id) : undefined
-    const mappedUnit = rawUnit
-      ? {
-          id: rawUnit.id as string,
-          unit_number: rawUnit.unit_number as string,
-          project: unwrapEmbedded(rawUnit.project),
-        }
-      : undefined
+    const rawUnit = r.unit ?? (r.unit_id ? unitMap.get(r.unit_id) : undefined)
     return {
       ...r,
       lead: r.lead ?? leadMap.get(r.lead_id),
-      unit: r.unit ?? mappedUnit,
+      unit: rawUnit ? mapFinancingUnit(rawUnit) : undefined,
       partner:
         embedded ??
         (r.financing_partner_id ? partnerMap.get(r.financing_partner_id) ?? null : null),

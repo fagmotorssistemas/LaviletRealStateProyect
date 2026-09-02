@@ -28,34 +28,36 @@ export function InmobiliariaFiltersToolbar({
   const totalText = resultsTotal == null ? null : `${resultsTotal} resultados`
 
   return (
-    <div className="crm-filters-panel bg-white p-0">
+    <div className="crm-filters-panel">
       <div className="crm-filters">
         {showSearch ? (
-          <div className="crm-filters-search flex min-w-0 flex-col gap-1">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">
+          <div className="crm-filters-search flex min-w-0 flex-col gap-1.5">
+            <div className="flex h-4 items-center justify-between gap-2">
+              <label className="text-[10px] font-medium tracking-[0.22em] text-[#787D62] uppercase">
                 Buscar
               </label>
               <div className="flex items-center gap-2">
                 {totalText && (
-                  <span className="text-[11px] tabular-nums text-[#5c6156]">{totalText}</span>
+                  <span className="text-[11px] tabular-nums tracking-wide text-[#787D62]/80">
+                    {totalText}
+                  </span>
                 )}
                 {hasActiveFilters && (
-                  <Button variant="ghost" size="sm" onClick={onReset}>
-                    <X size={14} className="mr-1" />
+                  <Button variant="ghost" size="sm" onClick={onReset} className="h-6 px-2 text-[11px]">
+                    <X size={12} className="mr-1" />
                     Limpiar
                   </Button>
                 )}
               </div>
             </div>
             <div className="relative min-w-0">
-              <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#7a806c]">
-                <Search className="h-4 w-4" />
+              <div className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#787D62]">
+                <Search className="h-4 w-4" strokeWidth={1.75} />
               </div>
               <input
                 type="text"
                 placeholder={searchPlaceholder}
-                className="h-9 w-full min-w-0 border border-[#c5c8bc] bg-[#f7f7f3] pl-9 pr-9 text-sm text-[#3a3d36] placeholder:text-[#8a8d82] focus:border-[#8b917c] focus:outline-none focus:ring-2 focus:ring-[#8b917c]/30"
+                className="h-10 w-full min-w-0 rounded-xl border border-[#787D62]/20 bg-[#f7f3ee]/60 pl-10 pr-9 text-sm text-[#2B1A18] placeholder:text-[#787D62]/50 transition-colors focus:border-[#787D62] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#787D62]/20"
                 value={searchValue}
                 onChange={(e) => onSearchChange?.(e.target.value)}
               />
@@ -63,7 +65,7 @@ export function InmobiliariaFiltersToolbar({
                 <button
                   type="button"
                   onClick={() => onSearchChange?.('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[#5c6156] transition-colors hover:bg-[#e8e9e3]"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1 text-[#787D62]/50 transition-colors hover:text-[#787D62]"
                   aria-label="Limpiar búsqueda"
                 >
                   <X className="h-4 w-4" />
@@ -72,13 +74,15 @@ export function InmobiliariaFiltersToolbar({
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex h-4 items-center justify-end gap-2">
             {totalText && (
-              <span className="text-[11px] tabular-nums text-[#5c6156]">{totalText}</span>
+              <span className="text-[11px] tabular-nums tracking-wide text-[#787D62]/80">
+                {totalText}
+              </span>
             )}
             {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={onReset}>
-                <X size={14} className="mr-1" />
+              <Button variant="ghost" size="sm" onClick={onReset} className="h-6 px-2 text-[11px]">
+                <X size={12} className="mr-1" />
                 Limpiar
               </Button>
             )}
