@@ -33,12 +33,12 @@ export function InmobiliariaFiltersToolbar({
         {showSearch ? (
           <div className="crm-filters-search flex min-w-0 flex-col gap-1.5">
             <div className="flex h-4 items-center justify-between gap-2">
-              <label className="text-[10px] font-medium tracking-[0.22em] text-[#787D62] uppercase">
+              <label className="text-[10px] font-semibold tracking-[0.22em] text-[#6e716b] uppercase">
                 Buscar
               </label>
               <div className="flex items-center gap-2">
                 {totalText && (
-                  <span className="text-[11px] tabular-nums tracking-wide text-[#787D62]/80">
+                  <span className="text-[11px] font-medium tabular-nums tracking-wide text-[#6e716b]">
                     {totalText}
                   </span>
                 )}
@@ -57,7 +57,7 @@ export function InmobiliariaFiltersToolbar({
               <input
                 type="text"
                 placeholder={searchPlaceholder}
-                className="h-10 w-full min-w-0 rounded-xl border border-[#787D62]/20 bg-[#f7f3ee]/60 pl-10 pr-9 text-sm text-[#2B1A18] placeholder:text-[#787D62]/50 transition-colors focus:border-[#787D62] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#787D62]/20"
+                className="crm-field crm-field-icon crm-field-icon-end bg-white"
                 value={searchValue}
                 onChange={(e) => onSearchChange?.(e.target.value)}
               />
@@ -76,7 +76,7 @@ export function InmobiliariaFiltersToolbar({
         ) : (
           <div className="flex h-4 items-center justify-end gap-2">
             {totalText && (
-              <span className="text-[11px] tabular-nums tracking-wide text-[#787D62]/80">
+              <span className="text-[11px] font-medium tabular-nums tracking-wide text-[#6e716b]">
                 {totalText}
               </span>
             )}

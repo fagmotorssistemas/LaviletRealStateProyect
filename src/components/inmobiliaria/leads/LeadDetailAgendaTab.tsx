@@ -123,7 +123,7 @@ export function LeadDetailAgendaTab({ lead, tenantId, projects }: LeadDetailAgen
         }}
       />
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+      <div className="border border-[#2B1A18]/12 bg-[#fcfbf9] p-4">
         <AppointmentInterestUnitsPicker
           tenantId={tenantId}
           projectId={form.project_id}

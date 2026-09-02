@@ -278,7 +278,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4">
-      <div className="flex h-[100dvh] w-full max-w-6xl flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-slate-900/5 sm:h-[90vh] sm:rounded-xl animate-in zoom-in-95 duration-200">
+      <div className="crm-sheet flex h-[100dvh] w-full max-w-6xl flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-slate-900/5 sm:h-[90vh] sm:rounded-xl animate-in zoom-in-95 duration-200">
 
         {/* ── HEADER ── */}
         <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4">
@@ -431,7 +431,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                     onChange={(e) => setResume(e.target.value)}
                     onBlur={handleSaveResume}
                     placeholder="Estatus actual del prospecto..."
-                    className="w-full rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm min-h-[120px] resize-none focus:ring-2 focus:ring-[#8b917c]/20 outline-none transition-all"
+                    className="crm-field min-h-[120px] p-4"
                   />
                 </div>
 
@@ -461,7 +461,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                   {lead.lead_units && lead.lead_units.length > 0 ? (
                     <div className="space-y-3">
                       {lead.lead_units.map((lu) => (
-                        <div key={lu.unit_id} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 group">
+                        <div key={lu.unit_id} className="flex items-center gap-3 border border-[#2B1A18]/12 bg-white p-3 group">
                           <div className="p-2 bg-slate-100 rounded-lg">
                             <Building2 className="h-4 w-4 text-slate-600" />
                           </div>
@@ -494,7 +494,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-slate-400 italic bg-white p-3 rounded-xl border border-dashed border-slate-200 text-center">
+                    <p className="border border-dashed border-[#2B1A18]/12 bg-white p-3 text-center text-sm italic text-[#8a8d87]">
                       Sin unidades seleccionadas.
                     </p>
                   )}
@@ -505,7 +505,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-3">
                     <User className="h-3 w-3" /> Responsable
                   </label>
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="space-y-3 border border-[#2B1A18]/12 bg-white p-4">
                     <PersonCell
                       name={lead.assigned_profile?.full_name}
                       avatarUrl={lead.assigned_profile?.avatar_url}
@@ -530,7 +530,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                     {isSavingFinance && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
                   </div>
 
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="space-y-4 border border-[#2B1A18]/12 bg-white p-5">
                     <div>
                       <label className="text-[10px] text-slate-400 uppercase font-bold mb-1 block">
                         Presupuesto ($)
@@ -542,7 +542,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                           value={budget}
                           onChange={(e) => setBudget(e.target.value)}
                           onBlur={() => handleSaveFinance(budget)}
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-[#8b917c]/30 outline-none transition-all"
+                          className="crm-field crm-field-icon bg-[#fcfbf9] font-semibold"
                           placeholder="0.00"
                         />
                       </div>
@@ -656,7 +656,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                                 <MessageSquare size={14} className="text-slate-500" />
                               </div>
                             </div>
-                            <div className="flex-1 bg-slate-50 rounded-xl p-4 border border-slate-100">
+                            <div className="flex-1 border border-[#2B1A18]/12 bg-[#fcfbf9] p-4">
                               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                 <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
                                   {interaction.type}
@@ -696,7 +696,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                           }}
                           placeholder="Escribe una interacción..."
                           rows={2}
-                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 resize-y min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#8b917c]/30 focus:border-[#3a3d36] transition-colors"
+                          className="crm-field min-h-[44px] resize-y bg-[#fcfbf9]"
                         />
                       </div>
                       <button

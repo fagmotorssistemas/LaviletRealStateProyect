@@ -20,7 +20,7 @@ export function PersonCell({
   }
 
   return (
-    <span className={cn('truncate text-sm font-medium text-[#3a3d36]', className)}>
+    <span className={cn('truncate text-sm font-semibold text-[#555850]', className)}>
       {name}
     </span>
   )

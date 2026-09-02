@@ -11,7 +11,7 @@ export function InmobiliariaTopbar() {
   const activeModule = moduleFromPath(pathname)
 
   return (
-    <header className="crm-topbar relative z-40 hidden h-16 shrink-0 items-center justify-between overflow-visible bg-[#fcfbf9] text-[#2B1A18] md:flex">
+    <header className="crm-topbar relative z-40 hidden h-16 shrink-0 items-center justify-between overflow-visible bg-[#fcfbf9] text-[#555850] md:flex">
       <nav className="flex h-full items-stretch gap-1 px-8" aria-label="Módulos">
         {crmModules.map((module) => {
           const isActive = module.id === activeModule
@@ -21,7 +21,7 @@ export function InmobiliariaTopbar() {
               href={module.href}
               className={cn(
                 'relative flex items-center px-5 text-[13px] font-semibold tracking-[0.18em] uppercase transition-colors',
-                isActive ? 'text-[#2B1A18]' : 'text-[#2B1A18]/55 hover:text-[#2B1A18]',
+                isActive ? 'text-[#4a4d48]' : 'text-[#6e716b] hover:text-[#4a4d48]',
               )}
             >
               {module.label}

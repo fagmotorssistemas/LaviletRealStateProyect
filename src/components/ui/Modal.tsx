@@ -57,7 +57,7 @@ export function Modal({ isOpen, onClose, title, headerActions, children, classNa
       >
         {title && (
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#2B1A18]/8 bg-[#f7f3ee] px-4 py-3 sm:px-6">
-            <h2 className="min-w-0 flex-1 truncate font-display text-lg font-medium tracking-tight text-[#2B1A18] sm:text-xl">
+            <h2 className="min-w-0 flex-1 truncate font-display text-lg font-semibold tracking-tight text-[#4a4d48] sm:text-xl">
               {title}
             </h2>
             <div className="flex shrink-0 items-center gap-1">
@@ -65,7 +65,7 @@ export function Modal({ isOpen, onClose, title, headerActions, children, classNa
               <button
                 type="button"
                 onClick={onClose}
-                className="cursor-pointer p-1.5 text-[#2B1A18]/40 transition-colors hover:text-[#BDA27E]"
+                className="cursor-pointer p-1.5 text-[#8a8d87] transition-colors hover:text-[#BDA27E]"
               >
                 <X size={20} />
               </button>

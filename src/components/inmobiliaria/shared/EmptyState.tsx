@@ -20,9 +20,9 @@ export function EmptyState({ icon: Icon, title, description, className, children
       <div className="mb-4 border border-[#8b917c] bg-[#555c4a] p-3">
         <Icon size={24} className="text-[#f4f4ef]" strokeWidth={1.5} />
       </div>
-      <h3 className="font-display text-xl font-semibold text-[#3a3d36]">{title}</h3>
+      <h3 className="font-display text-xl font-semibold text-[#4a4d48]">{title}</h3>
       {description && (
-        <p className="mt-2 max-w-md text-sm leading-relaxed text-[#5c6156]">{description}</p>
+        <p className="mt-2 max-w-md text-sm font-medium leading-relaxed text-[#6e716b]">{description}</p>
       )}
       {children && <div className="mt-4">{children}</div>}
     </div>

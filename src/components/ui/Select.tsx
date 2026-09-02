@@ -76,7 +76,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
           data-select-menu
           role="listbox"
           style={{ top: coords.top, left: coords.left, width: coords.width }}
-          className="fixed z-[80] max-h-64 overflow-y-auto rounded-2xl bg-white py-1.5 shadow-[0_18px_40px_rgba(43,26,24,0.14)] ring-1 ring-[#787D62]/15"
+          className="fixed z-[80] max-h-64 overflow-y-auto border border-[#2B1A18]/12 bg-white py-1 shadow-[0_18px_40px_rgba(43,26,24,0.14)]"
         >
           {placeholder && (
             <li>
@@ -87,7 +87,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
                 onClick={() => pick('')}
                 className={cn(
                   'flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm transition-colors',
-                  isPlaceholder ? 'bg-[#f7f3ee] text-[#787D62]' : 'text-[#2B1A18]/55 hover:bg-[#f7f3ee]',
+                  isPlaceholder ? 'bg-[#f7f3ee] text-[#787D62]' : 'text-[#6e716b] hover:bg-[#f7f3ee]',
                 )}
               >
                 <span className="truncate">{placeholder}</span>
@@ -107,7 +107,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
                     'flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm transition-colors',
                     active
                       ? 'bg-[#787D62]/10 font-medium text-[#787D62]'
-                      : 'text-[#2B1A18] hover:bg-[#f7f3ee]',
+                      : 'font-medium text-[#555850] hover:bg-[#f7f3ee]',
                   )}
                 >
                   <span className="truncate">{option.label}</span>
@@ -122,7 +122,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
     return (
       <div ref={rootRef} className="relative flex min-w-0 w-full flex-col gap-1.5">
         {label && (
-          <label htmlFor={selectId} className="text-[10px] font-medium uppercase tracking-[0.22em] text-[#787D62]">
+          <label htmlFor={selectId} className="crm-field-label">
             {label}
           </label>
         )}
@@ -154,13 +154,10 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
           aria-expanded={open}
           onClick={() => !disabled && setOpen((v) => !v)}
           className={cn(
-            'flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-xl border bg-white px-3.5 text-left text-sm transition-colors',
-            'border-[#787D62]/20 text-[#2B1A18] hover:border-[#787D62]/45',
-            'focus:outline-none focus:ring-2 focus:ring-[#787D62]/20 focus:border-[#787D62]',
-            open && 'border-[#787D62] ring-2 ring-[#787D62]/20',
-            isPlaceholder && 'text-[#787D62]/55',
-            disabled && 'cursor-not-allowed opacity-50',
-            error && 'border-red-500 focus:ring-red-500/20',
+            'crm-field cursor-pointer justify-between text-left',
+            open && 'border-[#bda27e] shadow-[0_0_0_2px_rgba(189,162,126,0.3)]',
+            isPlaceholder && 'text-[#8a8d87]',
+            error && 'border-red-500',
             className,
           )}
         >
@@ -168,7 +165,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
           <ChevronDown
             size={16}
             strokeWidth={1.75}
-            className={cn('shrink-0 text-[#787D62] transition-transform', open && 'rotate-180')}
+            className={cn('shrink-0 text-[#8a8d87] transition-transform', open && 'rotate-180')}
           />
         </button>
 

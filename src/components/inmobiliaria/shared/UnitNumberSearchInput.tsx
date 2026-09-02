@@ -89,7 +89,7 @@ export function UnitNumberSearchInput({
           onChange={(e) => runSearch(e.target.value)}
           placeholder={placeholder}
           autoFocus={autoFocus}
-          className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition-all focus:ring-2 focus:ring-[#8b917c]/30"
+          className="crm-field crm-field-icon"
         />
         {searching && (
           <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />
@@ -97,7 +97,7 @@ export function UnitNumberSearchInput({
       </div>
 
       {results.length > 0 && (
-        <div className="mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+        <div className="mt-1 max-h-48 overflow-y-auto border border-[#2B1A18]/12 bg-white shadow-lg">
           {results.map((unit) => (
             <button
               key={unit.id}
@@ -120,7 +120,7 @@ export function UnitNumberSearchInput({
       )}
 
       {query.trim() && !searching && results.length === 0 && (
-        <div className="mt-1 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+        <div className="mt-1 border border-[#2B1A18]/12 bg-white p-3 shadow-lg">
           <p className="text-center text-xs text-slate-400">
             {projectId
               ? 'Sin resultados en este proyecto. Prueba otro número o cambia el proyecto.'

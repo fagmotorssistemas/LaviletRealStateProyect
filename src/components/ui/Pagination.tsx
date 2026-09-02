@@ -31,7 +31,7 @@ export function Pagination({
   return (
     <div className={className ?? ''}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-[#2B1A18]/45">
+        <p className="text-sm font-medium text-[#6e716b]">
           {total === 0 ? '0 resultados' : `Mostrando ${start}-${end} de ${total}`}
         </p>
 
@@ -87,7 +87,7 @@ export function Pagination({
             )}
           </div>
 
-          <span className="px-1 text-sm text-[#2B1A18]/45 sm:hidden">
+          <span className="px-1 text-sm font-medium text-[#6e716b] sm:hidden">
             {safePage} / {totalPages}
           </span>
 

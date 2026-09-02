@@ -110,9 +110,9 @@ export function InmobiliariaAccountMenu({ tone = 'light' }: { tone?: 'light' | '
                 )}
               </span>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-[#2B1A18]">{fullName}</p>
+                <p className="truncate text-sm font-semibold text-[#555850]">{fullName}</p>
                 {profile?.email && (
-                  <p className="truncate text-xs text-[#2B1A18]/45">{profile.email}</p>
+                  <p className="truncate text-xs font-medium text-[#8a8d87]">{profile.email}</p>
                 )}
               </div>
             </div>
@@ -120,7 +120,7 @@ export function InmobiliariaAccountMenu({ tone = 'light' }: { tone?: 'light' | '
               type="button"
               role="menuitem"
               onClick={handleLogout}
-              className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#2B1A18]/70 transition-colors hover:bg-[#f7f3ee] hover:text-[#2B1A18]"
+              className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#6e716b] transition-colors hover:bg-[#f7f3ee] hover:text-[#555850]"
             >
               <LogOut size={16} className="shrink-0" />
               Cerrar sesión

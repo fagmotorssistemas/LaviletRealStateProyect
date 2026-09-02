@@ -84,7 +84,7 @@ export function StatusBadge({ status, type, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center justify-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-wide whitespace-nowrap',
+        'inline-flex items-center justify-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide whitespace-nowrap',
         isTemperature && 'w-[5.75rem]',
         type === 'lead' && 'w-[9rem] uppercase tracking-[0.06em]',
         !isTemperature && type !== 'lead' && 'uppercase tracking-[0.06em]',

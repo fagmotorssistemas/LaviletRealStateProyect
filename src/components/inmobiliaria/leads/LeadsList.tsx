@@ -5,6 +5,23 @@ import { PersonCell } from '@/components/inmobiliaria/shared/PersonCell'
 import { formatDate } from '@/lib/utils'
 import type { Lead } from '@/types/inmobiliaria'
 
+const SOURCE_LABELS: Record<string, string> = {
+  waba: 'WhatsApp',
+  whatsapp: 'WhatsApp',
+  referido: 'Referido',
+  portal_web: 'Portal web',
+  instagram: 'Instagram',
+  facebook_ads: 'Facebook Ads',
+  google_ads: 'Google Ads',
+  showroom: 'Showroom',
+}
+
+function sourceLabel(source: string | null | undefined): string {
+  const raw = source?.trim()
+  if (!raw) return '—'
+  return SOURCE_LABELS[raw.toLowerCase()] ?? raw
+}
+
 interface LeadsListProps {
   leads: Lead[]
   onSelect: (lead: Lead) => void
@@ -32,7 +49,7 @@ export function LeadsList({ leads, onSelect }: LeadsListProps) {
               onClick={() => onSelect(lead)}
               className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors"
             >
-              <td className="px-4 py-3 font-medium text-[#2B1A18]">{lead.name}</td>
+              <td className="px-4 py-3 font-semibold text-[#555850]">{lead.name}</td>
 
               <td className="px-4 py-3 crm-num text-gray-600">{lead.phone ?? '—'}</td>
               <td className="px-4 py-3">
@@ -42,13 +59,9 @@ export function LeadsList({ leads, onSelect }: LeadsListProps) {
                 />
               </td>
               <td className="px-4 py-3">
-                {lead.source ? (
-                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                    {lead.source}
-                  </span>
-                ) : (
-                  '—'
-                )}
+                <span className="inline-flex w-[9rem] items-center justify-center rounded-full border border-[#2B1A18]/12 bg-[#f4f4ef] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] whitespace-nowrap text-[#555850]">
+                  {sourceLabel(lead.source)}
+                </span>
               </td>
               <td className="px-4 py-3 text-gray-600">{formatDate(lead.created_at)}</td>
               <td className="px-4 py-3">

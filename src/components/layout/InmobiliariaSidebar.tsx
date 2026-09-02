@@ -86,7 +86,7 @@ export function InmobiliariaSidebar() {
       <aside
         data-collapsed={collapsed ? 'true' : 'false'}
         className={cn(
-          'crm-sidebar relative z-50 flex h-[100dvh] shrink-0 flex-col overflow-hidden bg-[#787D62] text-white transition-[width,transform] duration-300',
+          'crm-sidebar relative z-50 flex h-[100dvh] shrink-0 flex-col overflow-hidden bg-[#787D62] text-white transition-[width,transform] duration-300 md:overflow-visible',
           'fixed inset-y-0 left-0 md:relative md:z-10 md:h-full md:translate-x-0',
           collapsed ? 'w-64 md:w-[4.75rem]' : 'w-64',
           mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
@@ -138,7 +138,7 @@ export function InmobiliariaSidebar() {
           ))}
         </div>
 
-        <nav className="crm-sidebar-nav relative min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4">
+        <nav className="crm-sidebar-nav relative min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4 md:pr-0">
           {menuItems.map((item) => {
             const isActive = pathname.startsWith(item.href)
             return (
@@ -148,19 +148,21 @@ export function InmobiliariaSidebar() {
                 onClick={() => setMobileOpen(false)}
                 title={item.label}
                 className={cn(
-                  'relative flex items-center gap-3 rounded-2xl py-2.5 text-[11px] font-medium tracking-[0.18em] uppercase transition-colors duration-200',
-                  collapsed ? 'justify-center px-0' : 'px-3.5',
+                  'relative flex items-center gap-3 py-3 text-[13px] font-semibold tracking-[0.16em] uppercase transition-colors duration-200',
+                  collapsed ? 'justify-center px-0' : 'px-3.5 md:pr-4',
                   isActive
-                    ? 'bg-white text-[#787D62] shadow-[0_8px_20px_rgba(43,26,24,0.08)]'
-                    : 'text-white/80 hover:bg-white/10 hover:text-white',
+                    ? 'z-10 bg-white text-[#787D62] md:bg-transparent'
+                    : 'rounded-2xl text-white/80 hover:bg-white/10 hover:text-white md:mr-3',
+                  isActive && 'rounded-2xl md:rounded-none',
                 )}
               >
+                {isActive && <span className="crm-nav-cutout" aria-hidden />}
                 <item.icon
-                  size={18}
+                  size={20}
                   strokeWidth={1.5}
                   className={cn('relative z-10 shrink-0', isActive ? 'text-[#787D62]' : 'text-white/70')}
                 />
-                <span className={cn('truncate', collapsed && 'md:sr-only')}>
+                <span className={cn('relative z-10 truncate', collapsed && 'md:sr-only')}>
                   {item.label}
                 </span>
               </Link>

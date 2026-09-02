@@ -271,7 +271,7 @@ export function LeadDetailShowroomTab({ lead, tenantId, projects }: LeadDetailSh
             {selectedUnits.map((unit) => (
               <div
                 key={unit.id}
-                className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 group"
+                className="flex items-center gap-3 border border-[#2B1A18]/12 bg-white p-3 group"
               >
                 <div className="p-2 bg-slate-100 rounded-lg">
                   <Building2 className="h-4 w-4 text-slate-600" />
@@ -297,7 +297,7 @@ export function LeadDetailShowroomTab({ lead, tenantId, projects }: LeadDetailSh
             ))}
           </div>
         ) : (
-          <p className="text-sm text-slate-400 italic bg-white p-3 rounded-xl border border-dashed border-slate-200 text-center">
+          <p className="border border-dashed border-[#2B1A18]/12 bg-white p-3 text-center text-sm italic text-[#8a8d87]">
             Sin unidades seleccionadas.
           </p>
         )}
