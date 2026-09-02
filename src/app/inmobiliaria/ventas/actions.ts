@@ -31,5 +31,13 @@ export async function recordUnitClosingAction(
   payload: Parameters<typeof recordUnitClosing>[1],
 ): Promise<UnitSalesClosing> {
   await assertLoggedIn()
-  return recordUnitClosing(createAdminClient(), payload)
+  try {
+    return await recordUnitClosing(createAdminClient(), payload)
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : 'No se pudo registrar el cierre'
+    throw new Error(message)
+  }
 }

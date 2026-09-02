@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Building2, Loader2, Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Building2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -9,8 +9,9 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
+import { UnitNumberSearchInput } from '@/components/inmobiliaria/shared/UnitNumberSearchInput'
 import { useAuth } from '@/contexts/AuthContext'
-import { listContracts, listLeads, listUnits } from '@/services/inmobiliaria.service'
+import { listContracts, listLeads } from '@/services/inmobiliaria.service'
 import { recordUnitClosingAction } from '@/app/inmobiliaria/ventas/actions'
 import type { Contract, Lead, Project, TeamProfile, Unit } from '@/types/inmobiliaria'
 
@@ -44,10 +45,6 @@ export function CreateClosingModal({
   const [leads, setLeads] = useState<Lead[]>([])
   const [contracts, setContracts] = useState<Contract[]>([])
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
-  const [unitSearchQuery, setUnitSearchQuery] = useState('')
-  const [unitSearchResults, setUnitSearchResults] = useState<Unit[]>([])
-  const [searchingUnits, setSearchingUnits] = useState(false)
-  const unitSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [form, setForm] = useState({
     project_id: '',
     lead_id: '',
@@ -79,35 +76,8 @@ export function CreateClosingModal({
     }))
   }, [isOpen, tenantId, supabase, user?.id])
 
-  const handleUnitSearch = (query: string) => {
-    setUnitSearchQuery(query)
-    if (unitSearchTimerRef.current) clearTimeout(unitSearchTimerRef.current)
-    if (!query.trim()) {
-      setUnitSearchResults([])
-      return
-    }
-    unitSearchTimerRef.current = setTimeout(async () => {
-      setSearchingUnits(true)
-      try {
-        const { data } = await listUnits(supabase, {
-          tenantId,
-          projectId: form.project_id || undefined,
-          search: query,
-          pageSize: 20,
-        })
-        setUnitSearchResults(data ?? [])
-      } catch {
-        setUnitSearchResults([])
-      } finally {
-        setSearchingUnits(false)
-      }
-    }, 300)
-  }
-
   const pickUnit = (unit: Unit) => {
     setSelectedUnit(unit)
-    setUnitSearchQuery('')
-    setUnitSearchResults([])
     setForm((p) => ({
       ...p,
       project_id: unit.project_id || p.project_id,
@@ -210,35 +180,14 @@ export function CreateClosingModal({
               </button>
             </div>
           ) : (
-            <div className="relative mt-1.5">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={unitSearchQuery}
-                onChange={(e) => handleUnitSearch(e.target.value)}
+            <div className="mt-1.5">
+              <UnitNumberSearchInput
+                tenantId={tenantId}
+                projectId={form.project_id || undefined}
+                onSelect={pickUnit}
                 placeholder="Buscar por número de unidad..."
-                className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm focus:border-[#3a3d36] focus:outline-none focus:ring-2 focus:ring-[#8b917c]/30"
+                autoFocus={false}
               />
-              {searchingUnits && (
-                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />
-              )}
-              {unitSearchResults.length > 0 && (
-                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                  {unitSearchResults.map((unit) => (
-                    <button
-                      key={unit.id}
-                      type="button"
-                      onClick={() => pickUnit(unit)}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 cursor-pointer"
-                    >
-                      <Building2 className="h-4 w-4 shrink-0 text-slate-400" />
-                      <span className="font-medium text-slate-700">{unit.unit_number}</span>
-                      <span className="truncate text-xs text-slate-400">{unit.project?.name}</span>
-                      <StatusBadge status={unit.status} type="unit" className="ml-auto shrink-0" />
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           )}
         </div>

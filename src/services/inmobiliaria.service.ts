@@ -193,50 +193,38 @@ interface ListUnitsParams {
 
 const FETCH_BATCH = 1000
 
-export async function listUnits(supabase: SupabaseClient, params: ListUnitsParams) {
-  const page = params.page ?? 1
-  const pageSize = params.pageSize ?? 10
-  const from = (page - 1) * pageSize
-  const to = from + pageSize - 1
-  const sort = params.sort
+type UnitSearchMode = 'full' | 'number'
+
+/** PostgREST `.or()` treats `, ( ) . *` as syntax; strip wildcards that would break ilike. */
+function sanitizeIlikeTerm(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[%_*,()"\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80)
+}
+
+function mapUnitRow(row: Unit): Unit {
+  const project = unwrapEmbedded(row.project as Project | Project[] | null | undefined)
+  return { ...row, project: project ?? undefined }
+}
+
+function applyUnitsListFilters(query: any, params: ListUnitsParams, searchMode: UnitSearchMode) {
   const tenantIds = params.tenantIds?.length ? params.tenantIds : [params.tenantId]
-
-  if (sort === 'unit_natural') {
-    const all: Unit[] = []
-    let batchFrom = 0
-    for (;;) {
-      let q = supabase
-        .from('units')
-        .select('*, project:projects(id, name)')
-        .in('tenant_id', tenantIds)
-      if (params.projectId) q = q.eq('project_id', params.projectId)
-      if (params.status) q = q.eq('status', params.status)
-      if (params.category) q = q.eq('category', params.category)
-      if (params.search) q = q.or(`unit_number.ilike.%${params.search}%,description.ilike.%${params.search}%`)
-      const { data, error } = await q.range(batchFrom, batchFrom + FETCH_BATCH - 1)
-      if (error) throw error
-      const rows = (data ?? []) as Unit[]
-      if (rows.length === 0) break
-      all.push(...rows)
-      if (rows.length < FETCH_BATCH) break
-      batchFrom += FETCH_BATCH
-    }
-    all.sort(compareUnitsByUnitNumber)
-    const total = all.length
-    const pageSlice = all.slice(from, to + 1)
-    return { data: pageSlice, total }
-  }
-
-  let query = supabase
-    .from('units')
-    .select('*, project:projects(id, name)', { count: 'exact' })
-    .in('tenant_id', tenantIds)
-
+  query = query.in('tenant_id', tenantIds)
   if (params.projectId) query = query.eq('project_id', params.projectId)
   if (params.status) query = query.eq('status', params.status)
   if (params.category) query = query.eq('category', params.category)
-  if (params.search) query = query.or(`unit_number.ilike.%${params.search}%,description.ilike.%${params.search}%`)
+  const term = params.search ? sanitizeIlikeTerm(params.search) : ''
+  if (!term) return query
+  if (searchMode === 'number') {
+    return query.ilike('unit_number', `%${term}%`)
+  }
+  return query.or(`unit_number.ilike."%${term}%",description.ilike."%${term}%"`)
+}
 
+function applyUnitsListSort(query: any, sort: InventorySortOption | undefined) {
   switch (sort) {
     case 'price_desc':
       query = query.order('published_commercial_price', { ascending: false, nullsFirst: false })
@@ -253,11 +241,120 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
     default:
       query = query.order('unit_number', { ascending: true })
   }
-  query = query.order('id', { ascending: true })
+  return query.order('id', { ascending: true })
+}
 
-  const { data, error, count } = await query.range(from, to)
+export async function listUnits(supabase: SupabaseClient, params: ListUnitsParams) {
+  const page = params.page ?? 1
+  const pageSize = params.pageSize ?? 10
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
+  const sort = params.sort
+
+  if (sort === 'unit_natural') {
+    const all: Unit[] = []
+    let batchFrom = 0
+    let searchMode: UnitSearchMode = 'full'
+    for (;;) {
+      let q = applyUnitsListFilters(
+        supabase.from('units').select('*, project:projects(id, name)'),
+        params,
+        searchMode,
+      )
+      const { data, error } = await q.range(batchFrom, batchFrom + FETCH_BATCH - 1)
+      if (error && params.search && searchMode === 'full') {
+        searchMode = 'number'
+        batchFrom = 0
+        all.length = 0
+        continue
+      }
+      if (error) throw error
+      const rows = ((data ?? []) as Unit[]).map(mapUnitRow)
+      if (rows.length === 0) break
+      all.push(...rows)
+      if (rows.length < FETCH_BATCH) break
+      batchFrom += FETCH_BATCH
+    }
+    all.sort(compareUnitsByUnitNumber)
+    const total = all.length
+    const pageSlice = all.slice(from, to + 1)
+    return { data: pageSlice, total }
+  }
+
+  const run = (searchMode: UnitSearchMode) => {
+    let query = applyUnitsListFilters(
+      supabase.from('units').select('*, project:projects(id, name)', { count: 'exact' }),
+      params,
+      searchMode,
+    )
+    query = applyUnitsListSort(query, sort)
+    return query.range(from, to)
+  }
+
+  let { data, error, count } = await run('full')
+  if (error && params.search) {
+    const retry = await run('number')
+    data = retry.data
+    error = retry.error
+    count = retry.count
+  }
   if (error) throw error
-  return { data: data as Unit[], total: count ?? 0 }
+  return { data: ((data ?? []) as Unit[]).map(mapUnitRow), total: count ?? 0 }
+}
+
+function unitNumberMatchesQuery(unitNumber: string | null | undefined, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  const n = (unitNumber ?? '').trim().toLowerCase()
+  if (!q || !n) return false
+  if (n.includes(q)) return true
+  const qDigits = q.replace(/\D/g, '')
+  if (!qDigits) return false
+  return n.replace(/\D/g, '') === qDigits
+}
+
+/** Buscador de unidades por número para modales (showroom, leads, agenda, ventas). */
+export async function searchUnitsByNumber(
+  supabase: SupabaseClient,
+  params: {
+    tenantId: string
+    tenantIds?: string[]
+    projectId?: string
+    query: string
+    excludeIds?: string[]
+    pageSize?: number
+  },
+): Promise<Unit[]> {
+  const query = params.query.trim()
+  if (!query || !sanitizeIlikeTerm(query)) return []
+  const pageSize = params.pageSize ?? 20
+  const exclude = new Set(params.excludeIds ?? [])
+  const base = {
+    tenantId: params.tenantId,
+    tenantIds: params.tenantIds,
+    pageSize,
+  }
+
+  const fetch = (projectId?: string) =>
+    listUnits(supabase, { ...base, projectId, search: query })
+
+  let rows = ((await fetch(params.projectId)).data ?? []).filter((u) => !exclude.has(u.id))
+  if (rows.length === 0 && params.projectId) {
+    rows = ((await fetch(undefined)).data ?? []).filter((u) => !exclude.has(u.id))
+  }
+
+  if (rows.length === 0) {
+    const scan = await listUnits(supabase, {
+      ...base,
+      projectId: params.projectId,
+      pageSize: 200,
+    })
+    rows = (scan.data ?? []).filter((u) => !exclude.has(u.id) && unitNumberMatchesQuery(u.unit_number, query))
+  }
+
+  if (params.projectId) {
+    rows.sort((a, b) => Number(a.project_id !== params.projectId) - Number(b.project_id !== params.projectId))
+  }
+  return rows.slice(0, pageSize)
 }
 
 /** Parámetros para exportar inventario (sin paginación; trae todas las filas que coincidan). */
@@ -1195,7 +1292,13 @@ export async function recordUnitClosing(
     })
     .select()
     .single()
-  if (error) throw error
+  if (error) {
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : ''
+    if (code === '23505') {
+      throw new Error('Esta unidad ya tiene un cierre de venta. No se puede registrar otra vez.')
+    }
+    throw error
+  }
 
   await supabase.from('units').update({ status: 'vendido' as UnitStatus }).eq('id', payload.unit_id)
   if (payload.lead_id) {

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import {
   X, Phone, DollarSign, CreditCard, MessageSquare,
   Edit3, Loader2, CheckCircle2, Building2, Send, Plus,
-  Trash2, Search, ChevronDown, Calendar, MapPin, ChevronLeft, ChevronRight, User,
+  Trash2, ChevronDown, Calendar, MapPin, ChevronLeft, ChevronRight, User,
 } from 'lucide-react'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PersonCell } from '@/components/inmobiliaria/shared/PersonCell'
@@ -18,11 +18,12 @@ import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import {
   getLead, updateLead, updateLeadStatus, updateLeadTemperature, updateLeadAssignee,
   listLeadInteractions, addLeadInteraction,
-  listUnits, addLeadUnit, removeLeadUnit,
+  addLeadUnit, removeLeadUnit,
   listProjects,
 } from '@/services/inmobiliaria.service'
 import { LeadDetailAgendaTab } from '@/components/inmobiliaria/leads/LeadDetailAgendaTab'
 import { LeadDetailShowroomTab } from '@/components/inmobiliaria/leads/LeadDetailShowroomTab'
+import { UnitNumberSearchInput } from '@/components/inmobiliaria/shared/UnitNumberSearchInput'
 import { formatDateTime, formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -57,10 +58,6 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
 
   // Unit search
   const [unitSearchOpen, setUnitSearchOpen] = useState(false)
-  const [unitSearchQuery, setUnitSearchQuery] = useState('')
-  const [unitSearchResults, setUnitSearchResults] = useState<Unit[]>([])
-  const [searchingUnits, setSearchingUnits] = useState(false)
-  const unitSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Interaction form
   const [interactionType, setInteractionType] = useState<InteractionType>('seguimiento')
@@ -253,32 +250,12 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
     }
   }
 
-  const handleUnitSearch = (query: string) => {
-    setUnitSearchQuery(query)
-    if (unitSearchTimerRef.current) clearTimeout(unitSearchTimerRef.current)
-    if (!query.trim()) {
-      setUnitSearchResults([])
-      return
-    }
-    unitSearchTimerRef.current = setTimeout(async () => {
-      setSearchingUnits(true)
-      try {
-        const { data } = await listUnits(supabase, { tenantId, search: query, pageSize: 20 })
-        const existingIds = new Set(lead?.lead_units?.map(lu => lu.unit_id) ?? [])
-        setUnitSearchResults(data.filter(u => !existingIds.has(u.id)))
-      } catch { /* silent */ }
-      setSearchingUnits(false)
-    }, 300)
-  }
-
   const handleAddUnit = async (unit: Unit) => {
     if (!lead) return
     try {
       await addLeadUnit(supabase, lead.id, unit.id, lead.lead_units?.length ?? 0)
       const updated = await getLead(supabase, lead.id, scope)
       setLead(updated)
-      setUnitSearchQuery('')
-      setUnitSearchResults([])
       toast.success('Unidad agregada')
     } catch {
       toast.error('Error al agregar unidad')
@@ -472,50 +449,12 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                     </button>
                   </div>
 
-                  {/* Search input */}
                   {unitSearchOpen && (
-                    <div className="mb-3 relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <input
-                        type="text"
-                        value={unitSearchQuery}
-                        onChange={(e) => handleUnitSearch(e.target.value)}
-                        placeholder="Buscar unidad por número..."
-                        autoFocus
-                        className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-[#8b917c]/30 outline-none transition-all"
-                      />
-                      {searchingUnits && (
-                        <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-400" />
-                      )}
-
-                      {unitSearchResults.length > 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
-                          {unitSearchResults.map((unit) => (
-                            <button
-                              key={unit.id}
-                              onClick={() => handleAddUnit(unit)}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-slate-50 transition-colors cursor-pointer"
-                            >
-                              <Building2 className="h-4 w-4 text-slate-400 shrink-0" />
-                              <div className="min-w-0 flex-1 text-left">
-                                <span className="font-medium text-slate-700 block truncate">{unit.unit_number}</span>
-                                <span className="crm-num text-xs text-slate-400">
-                                  {unit.project?.name && `${unit.project.name} • `}
-                                  {formatCurrency(unit.published_commercial_price)}
-                                </span>
-                              </div>
-                              <StatusBadge status={unit.status} type="unit" className="shrink-0" />
-                            </button>
-                          ))}
-                        </div>
-                      )}
-
-                      {unitSearchQuery.trim() && !searchingUnits && unitSearchResults.length === 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-10 p-3">
-                          <p className="text-xs text-slate-400 text-center">Sin resultados</p>
-                        </div>
-                      )}
-                    </div>
+                    <UnitNumberSearchInput
+                      tenantId={tenantId}
+                      excludeIds={lead.lead_units?.map((lu) => lu.unit_id)}
+                      onSelect={handleAddUnit}
+                    />
                   )}
 
                   {/* Unit list */}
