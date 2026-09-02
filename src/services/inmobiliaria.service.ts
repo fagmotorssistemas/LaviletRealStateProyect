@@ -17,6 +17,11 @@ export const PROJECT_ASSETS_BUCKET = 'project-assets'
 /** Bucket público para imágenes por unidad (departamento, local, etc.). */
 export const UNIT_ASSETS_BUCKET = 'unit-assets'
 
+function unwrapEmbedded<T>(value: T | T[] | null | undefined): T | null {
+  if (value == null) return null
+  return (Array.isArray(value) ? value[0] : value) ?? null
+}
+
 // ─── Projects ───────────────────────────────────────────────
 export async function listProjects(supabase: SupabaseClient, tenantId: string, tenantIds?: string[]): Promise<Project[]> {
   const tenantFilterIds = tenantIds?.length ? tenantIds : [tenantId]
@@ -864,7 +869,7 @@ async function hydrateShowroomVisitUnits(supabase: SupabaseClient, visits: Showr
   if (unitIds.length) {
     const { data: unitRows } = await supabase
       .from('units')
-      .select('id, unit_number, category, project_id, project:projects(id, name)')
+      .select('*, project:projects(id, name)')
       .in('id', unitIds)
     for (const row of unitRows ?? []) {
       unitsById.set(row.id, row as Unit)
@@ -1063,7 +1068,15 @@ async function hydrateSalesClosings(
   for (const closing of closings) {
     if (!closing.unit && closing.unit_id) {
       const unit = unitsById.get(closing.unit_id)
-      if (unit) closing.unit = unit as UnitSalesClosing['unit']
+      if (unit) {
+        closing.unit = {
+          id: unit.id,
+          unit_number: unit.unit_number,
+          category: unit.category,
+          project_id: unit.project_id,
+          project: unwrapEmbedded(unit.project),
+        }
+      }
     }
     if (!closing.lead && closing.lead_id) {
       closing.lead = (leadsById.get(closing.lead_id) as UnitSalesClosing['lead']) ?? null
@@ -1485,10 +1498,18 @@ async function hydrateLeadFinancing(
     const embedded =
       unwrapPartner(r.partner) ??
       unwrapPartner((r as LeadFinancing & { financing_partners?: unknown }).financing_partners)
+    const rawUnit = r.unit_id ? unitMap.get(r.unit_id) : undefined
+    const mappedUnit = rawUnit
+      ? {
+          id: rawUnit.id as string,
+          unit_number: rawUnit.unit_number as string,
+          project: unwrapEmbedded(rawUnit.project),
+        }
+      : undefined
     return {
       ...r,
       lead: r.lead ?? leadMap.get(r.lead_id),
-      unit: r.unit ?? (r.unit_id ? unitMap.get(r.unit_id) : undefined),
+      unit: r.unit ?? mappedUnit,
       partner:
         embedded ??
         (r.financing_partner_id ? partnerMap.get(r.financing_partner_id) ?? null : null),
