@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils'
 
 type TourUnitPanelProps = {
   unitTypeName: string
-  units: TourUnitSummary[]
+  unit: TourUnitSummary | null
+  unitCount: number
 }
 
 function statusLabel(status: UnitStatus): string {
@@ -30,29 +31,28 @@ function statusClass(status: UnitStatus): string {
   return 'bg-white/20 text-white/80'
 }
 
-export function TourUnitPanel({ unitTypeName, units }: TourUnitPanelProps) {
-  const featured = units.find((u) => u.status === 'disponible') ?? units[0]
-  if (!featured) return null
+export function TourUnitPanel({ unitTypeName, unit, unitCount }: TourUnitPanelProps) {
+  if (!unit) return null
 
   return (
     <div className="max-w-[16.5rem] rounded-[4px] bg-black/55 px-3 py-2.5 text-white shadow-lg ring-1 ring-white/15 backdrop-blur-sm">
       <p className="text-[10px] font-semibold tracking-[0.16em] text-white/50 uppercase">
         {unitTypeName}
-        {units.length > 1 ? ` · ${units.length} uds.` : ''}
+        {unitCount > 1 ? ` · ${unitCount} uds.` : ''}
       </p>
       <div className="mt-1 flex items-baseline justify-between gap-3">
-        <p className="text-[17px] leading-none font-semibold tracking-wide">{featured.unit_number}</p>
-        <p className="text-[15px] leading-none font-semibold tabular-nums">{compactPrice(featured.published_commercial_price)}</p>
+        <p className="text-[17px] leading-none font-semibold tracking-wide">{unit.unit_number}</p>
+        <p className="text-[15px] leading-none font-semibold tabular-nums">{compactPrice(unit.published_commercial_price)}</p>
       </div>
       <div className="mt-2 flex items-center gap-2">
-        <span className={cn('rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase', statusClass(featured.status))}>
-          {statusLabel(featured.status)}
+        <span className={cn('rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase', statusClass(unit.status))}>
+          {statusLabel(unit.status)}
         </span>
-        {featured.area_total_m2 != null && (
-          <span className="text-[11px] text-white/65">{featured.area_total_m2} m²</span>
+        {unit.area_total_m2 != null && (
+          <span className="text-[11px] text-white/65">{unit.area_total_m2} m²</span>
         )}
-        {featured.bedrooms != null && (
-          <span className="text-[11px] text-white/65">{featured.bedrooms} hab.</span>
+        {unit.bedrooms != null && (
+          <span className="text-[11px] text-white/65">{unit.bedrooms} hab.</span>
         )}
       </div>
     </div>

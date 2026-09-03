@@ -1,4 +1,4 @@
-import { AuthProvider } from '@/contexts/AuthContext'
+import { CrmRoleGate } from '@/components/layout/CrmRoleGate'
 import { InmobiliariaSidebar } from '@/components/layout/InmobiliariaSidebar'
 import { InmobiliariaTopbar } from '@/components/layout/InmobiliariaTopbar'
 import { InmobiliariaRouteKey } from '@/components/layout/InmobiliariaRouteKey'
@@ -9,7 +9,7 @@ export default function InmobiliariaLayout({
   children: React.ReactNode
 }) {
   return (
-    <AuthProvider>
+    <CrmRoleGate>
       <div className="crm-app relative flex h-[100dvh] overflow-hidden">
         <InmobiliariaSidebar />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -19,6 +19,6 @@ export default function InmobiliariaLayout({
           </div>
         </div>
       </div>
-    </AuthProvider>
+    </CrmRoleGate>
   )
 }

@@ -6,6 +6,7 @@ import { Download, LayoutGrid, Plus } from 'lucide-react'
 import { useInventoryUnits } from '@/hooks/inmobiliaria/useInventoryUnits'
 import { updateUnitStatus } from '@/services/inmobiliaria.service'
 import { useAuth } from '@/contexts/AuthContext'
+import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { InventoryUnitsTable } from '@/components/inmobiliaria/inventory/InventoryUnitsTable'
 import { UnitDetailModal } from '@/components/inmobiliaria/inventory/UnitDetailModal'
 import { CreateUnitModal } from '@/components/inmobiliaria/inventory/CreateUnitModal'
@@ -27,6 +28,7 @@ import { toast } from 'sonner'
 
 export default function InventarioPage() {
   const { supabase } = useAuth()
+  const { canWrite } = useRoleAccess()
   const categoryOptions = [
     { value: 'Departamento', label: 'Departamento' },
     { value: 'Local Comercial', label: 'Local Comercial' },
@@ -82,23 +84,25 @@ export default function InventarioPage() {
           </>
         }
         actions={
-          <div className="flex shrink-0 flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setExportOpen(true)}
-              className="gap-2"
-              disabled={!tenantId}
-              title={!tenantId ? 'Carga un proyecto para exportar' : undefined}
-            >
-              <Download size={16} aria-hidden />
-              Exportar
-            </Button>
-            <Button onClick={() => setCreateOpen(true)} className="gap-2">
-              <Plus size={16} aria-hidden />
-              Nueva unidad
-            </Button>
-          </div>
+          canWrite ? (
+            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setExportOpen(true)}
+                className="gap-2"
+                disabled={!tenantId}
+                title={!tenantId ? 'Carga un proyecto para exportar' : undefined}
+              >
+                <Download size={16} aria-hidden />
+                Exportar
+              </Button>
+              <Button onClick={() => setCreateOpen(true)} className="gap-2">
+                <Plus size={16} aria-hidden />
+                Nueva unidad
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
@@ -169,34 +173,42 @@ export default function InventarioPage() {
         projects={projects}
         isOpen={detailOpen}
         onClose={() => setDetailOpen(false)}
-        onStatusChange={handleStatusChange}
-        onUnitUpdated={(u) => {
-          setSelectedUnit(u)
-          reload()
-        }}
+        onStatusChange={canWrite ? handleStatusChange : undefined}
+        readOnly={!canWrite}
+        onUnitUpdated={
+          canWrite
+            ? (u) => {
+                setSelectedUnit(u)
+                reload()
+              }
+            : undefined
+        }
       />
 
-      <CreateUnitModal
-        isOpen={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={reload}
-        projects={projects}
-        tenantId={tenantId}
-      />
-
-      <ExportInventoryModal
-        isOpen={exportOpen}
-        onClose={() => setExportOpen(false)}
-        tenantId={tenantId}
-        projects={projects}
-        categoryOptions={categoryOptions}
-        tableFilters={{
-          projectId: filters.projectId,
-          status: filters.status,
-          category: filters.category,
-          sortBy: filters.sortBy,
-        }}
-      />
+      {canWrite && (
+        <>
+          <CreateUnitModal
+            isOpen={createOpen}
+            onClose={() => setCreateOpen(false)}
+            onCreated={reload}
+            projects={projects}
+            tenantId={tenantId}
+          />
+          <ExportInventoryModal
+            isOpen={exportOpen}
+            onClose={() => setExportOpen(false)}
+            tenantId={tenantId}
+            projects={projects}
+            categoryOptions={categoryOptions}
+            tableFilters={{
+              projectId: filters.projectId,
+              status: filters.status,
+              category: filters.category,
+              sortBy: filters.sortBy,
+            }}
+          />
+        </>
+      )}
     </div>
   )
 }

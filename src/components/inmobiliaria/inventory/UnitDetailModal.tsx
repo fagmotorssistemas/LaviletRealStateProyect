@@ -108,8 +108,9 @@ interface UnitDetailModalProps {
   projects: Project[]
   isOpen: boolean
   onClose: () => void
-  onStatusChange: (unitId: string, status: UnitStatus) => void
+  onStatusChange?: (unitId: string, status: UnitStatus) => void
   onUnitUpdated?: (unit: Unit) => void
+  readOnly?: boolean
 }
 
 export function UnitDetailModal({
@@ -119,6 +120,7 @@ export function UnitDetailModal({
   onClose,
   onStatusChange,
   onUnitUpdated,
+  readOnly = false,
 }: UnitDetailModalProps) {
   const { supabase } = useAuth()
   const [newStatus, setNewStatus] = useState('')
@@ -183,7 +185,7 @@ export function UnitDetailModal({
   const updateField = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 
   const handleSaveStatus = () => {
-    if (newStatus && newStatus !== displayUnit.status) {
+    if (onStatusChange && newStatus && newStatus !== displayUnit.status) {
       onStatusChange(unit.id, newStatus as UnitStatus)
     }
     setNewStatus('')
@@ -303,7 +305,7 @@ export function UnitDetailModal({
       title={isEditing ? `Editar unidad ${displayUnit.unit_number}` : `Unidad ${displayUnit.unit_number}`}
       size="lg"
       headerActions={
-        !isEditing ? (
+        !isEditing && !readOnly ? (
           <button
             type="button"
             onClick={() => {
@@ -579,7 +581,7 @@ export function UnitDetailModal({
             </div>
           )}
 
-          {/* Cambiar estado */}
+          {!readOnly && (
           <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
             <div className="flex items-center gap-2 mb-3">
               <RefreshCw size={15} className="text-gray-800" />
@@ -592,11 +594,12 @@ export function UnitDetailModal({
                 onChange={(e) => setNewStatus(e.target.value)}
                 className="flex-1"
               />
-              <Button onClick={handleSaveStatus} disabled={!newStatus || newStatus === displayUnit.status}>
+              <Button onClick={handleSaveStatus} disabled={!newStatus || newStatus === displayUnit.status || !onStatusChange}>
                 Guardar
               </Button>
             </div>
           </div>
+          )}
             </>
           ) : (
             <div className="space-y-5">
@@ -613,6 +616,7 @@ export function UnitDetailModal({
                       : `${unitMedia.length} imagen${unitMedia.length === 1 ? '' : 'es'}`}
                   </span>
                 </div>
+                {!readOnly && (
                 <label className="inline-flex sm:shrink-0">
                   <input
                     type="file"
@@ -629,6 +633,7 @@ export function UnitDetailModal({
                     Subir imágenes
                   </span>
                 </label>
+                )}
               </div>
 
               {unitMedia.length === 0 && !detailLoading ? (
@@ -643,6 +648,7 @@ export function UnitDetailModal({
                     <UnitInventoryPhotoCard
                       key={m.id}
                       media={m}
+                      readOnly={readOnly}
                       onDelete={() => handleDeleteUnitMedia(m.id)}
                       onSetCover={() => handleSetUnitCover(m.id)}
                     />
@@ -661,10 +667,12 @@ function UnitInventoryPhotoCard({
   media,
   onDelete,
   onSetCover,
+  readOnly = false,
 }: {
   media: UnitMedia
   onDelete: () => void
   onSetCover: () => void
+  readOnly?: boolean
 }) {
   const alt = media.file_name ?? 'Foto de la unidad'
   const isImage = media.mime_type?.startsWith('image/') ?? true
@@ -685,6 +693,7 @@ function UnitInventoryPhotoCard({
           </span>
         )}
       </div>
+      {!readOnly && (
       <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 p-3">
         {!media.is_cover && isImage && (
           <button type="button" onClick={onSetCover} className="cursor-pointer text-xs font-semibold text-[#8b917c] hover:underline">
@@ -695,6 +704,7 @@ function UnitInventoryPhotoCard({
           <Trash2 size={12} /> Quitar
         </button>
       </div>
+      )}
     </div>
   )
 }

@@ -2,7 +2,16 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { canAccessPath, homePathForRole, knownRole } from '@/lib/inmobiliaria/roleAccess'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+
+function safeNextPath(raw: FormDataEntryValue | null, role: string | null) {
+  const value = String(raw ?? '').trim()
+  if (!value.startsWith('/') || value.startsWith('//')) return null
+  if (value.startsWith('/inmobiliaria') && !canAccessPath(role, value)) return null
+  return value
+}
 
 export type AuthFormState = { error: string } | null
 
@@ -31,6 +40,23 @@ export async function login(_prev: AuthFormState, formData: FormData): Promise<A
     return { error: loginErrorMessage(error.message) }
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  let role: string | null = null
+  if (user) {
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+    role = profile?.role ?? null
+    if (!knownRole(role)) {
+      const { data: adminProfile } = await createAdminClient()
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+      role = adminProfile?.role ?? null
+    }
+  }
+
   revalidatePath('/', 'layout')
-  redirect('/inmobiliaria/inventario')
+  redirect(safeNextPath(formData.get('next'), role) ?? homePathForRole(role))
 }

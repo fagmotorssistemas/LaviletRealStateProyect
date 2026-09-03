@@ -1,4 +1,5 @@
 import { buildTourNodes, type TourNodesResult } from '@/lib/tour/buildTourNodes'
+import { panoramaPublicUrl } from '@/lib/tour/panoramaPath'
 import type { TourWidth } from '@/lib/tour/pickTourWidth'
 import type { PanoramaVariants, TourHotspot, TourLightMode, TourUnitSummary } from '@/types/tour'
 
@@ -40,14 +41,17 @@ const ROOMS = [
   { room: 'balcon', label: 'Balcón', mapX: 20, mapY: 50, mapHeading: 90, initialYaw: 3.14, neutral: true },
 ] as const
 
-const TOUR_360_URL = '/tours/demo/tour_360.png?v=6'
-
-function variantsFor(): { url: string; variants: PanoramaVariants } {
+function variantsFor(
+  room: string,
+  finish: string | null,
+  light: TourLightMode,
+): { url: string; variants: PanoramaVariants } {
+  const key = { typology: MOCK_TOUR_UNIT_TYPE_SLUG, room, finish, light }
   return {
-    url: TOUR_360_URL,
+    url: panoramaPublicUrl(key, 2048),
     variants: {
-      '4096': { url: TOUR_360_URL },
-      '2048': { url: TOUR_360_URL },
+      '4096': { url: panoramaPublicUrl(key, 4096) },
+      '2048': { url: panoramaPublicUrl(key, 2048) },
     },
   }
 }
@@ -64,7 +68,7 @@ export async function getMockTourNodes(
 ): Promise<TourNodesResult> {
   const sources = ROOMS.map((room) => {
     const finish = room.neutral ? null : finishSlug
-    const { url, variants } = variantsFor()
+    const { url, variants } = variantsFor(room.room, finish, light)
     return {
       id: `mock:${room.room}:${finish ?? 'neutral'}:${light}`,
       room: room.room,
@@ -85,12 +89,50 @@ export async function getMockTourNodes(
 }
 
 /** Variantes del ambiente actual (acabados × luces, o solo luces si es neutro). */
-export function getMockRoomVariantUrls(_room: string, _width: TourWidth): string[] {
-  return [TOUR_360_URL]
+export function getMockRoomVariantUrls(room: string, width: TourWidth): string[] {
+  const finishes = room === 'balcon' ? [null] : MOCK_TOUR_FINISHES.map((f) => f.slug)
+  return finishes.flatMap((finish) =>
+    MOCK_TOUR_LIGHTS.map((item) =>
+      panoramaPublicUrl({ typology: MOCK_TOUR_UNIT_TYPE_SLUG, room, finish, light: item.slug }, width),
+    ),
+  )
 }
 
 export function getMockTourUnits(): TourUnitSummary[] {
   return [
+    {
+      id: 'mock-unit-a-101',
+      unit_number: 'A-101',
+      floor: '1',
+      published_commercial_price: 168000,
+      status: 'disponible',
+      area_total_m2: 78.5,
+      bedrooms: 2,
+      bathrooms: 2,
+      slug: 'a-101',
+    },
+    {
+      id: 'mock-unit-a-102',
+      unit_number: 'A-102',
+      floor: '1',
+      published_commercial_price: 172000,
+      status: 'reservado',
+      area_total_m2: 78.5,
+      bedrooms: 2,
+      bathrooms: 2,
+      slug: 'a-102',
+    },
+    {
+      id: 'mock-unit-a-201',
+      unit_number: 'A-201',
+      floor: '2',
+      published_commercial_price: 176000,
+      status: 'disponible',
+      area_total_m2: 78.5,
+      bedrooms: 2,
+      bathrooms: 2,
+      slug: 'a-201',
+    },
     {
       id: 'mock-unit-a-302',
       unit_number: 'A-302',

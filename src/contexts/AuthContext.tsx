@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { getMyProfileAction } from '@/app/(auth)/profile/actions'
 import { createClient } from '@/lib/supabase/client'
 import type { AuthChangeEvent, User, Session, SupabaseClient } from '@supabase/supabase-js'
 import type { UserRole } from '@/types/inmobiliaria'
@@ -33,34 +34,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const initialized = useRef(false)
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, newSession: Session | null) => {
-        if (initialized.current && event === 'TOKEN_REFRESHED') return
+    let cancelled = false
 
-        setSession(newSession)
-        setUser(newSession?.user ?? null)
+    const loadProfile = async () => {
+      try {
+        return await getMyProfileAction()
+      } catch (error) {
+        console.error('No se pudo leer profiles', error)
+        return null
+      }
+    }
 
-        if (newSession?.user) {
-          try {
-            const { data } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', newSession.user.id)
-              .single()
-            setProfile(data)
-          } catch {
-            if (!initialized.current) setProfile(null)
-          }
-        } else {
-          setProfile(null)
+    const applySession = async (next: Session | null) => {
+      if (cancelled) return
+      setSession(next)
+      setUser(next?.user ?? null)
+      if (next?.user) {
+        let nextProfile = await loadProfile()
+        if (!nextProfile && !cancelled) {
+          await new Promise((resolve) => setTimeout(resolve, 400))
+          nextProfile = await loadProfile()
         }
-
+        if (!cancelled) setProfile(nextProfile)
+      } else {
+        setProfile(null)
+      }
+      if (!cancelled) {
         setIsLoading(false)
         initialized.current = true
       }
-    )
+    }
 
-    return () => subscription.unsubscribe()
+    void supabase.auth.getSession().then(({ data: sessionData }: { data: { session: Session | null } }) => {
+      if (!initialized.current) void applySession(sessionData.session)
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, newSession: Session | null) => {
+      if (event === 'TOKEN_REFRESHED' && initialized.current) return
+      if (event === 'INITIAL_SESSION' && initialized.current) return
+      await applySession(newSession)
+    })
+
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
   }, [supabase])
 
   useEffect(() => {
@@ -73,22 +93,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [supabase])
 
   const value = useMemo(
     () => ({ supabase, user, session, profile, isLoading }),
-    [supabase, user, session, profile, isLoading]
+    [supabase, user, session, profile, isLoading],
   )
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  )
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

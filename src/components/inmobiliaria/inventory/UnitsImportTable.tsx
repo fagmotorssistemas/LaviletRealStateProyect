@@ -7,7 +7,7 @@ import { unitImportCategoryLabel, type UnitImport } from '@/types/inmobiliaria'
 
 interface UnitsImportTableProps {
   rows: UnitImport[]
-  onSelect: (row: UnitImport) => void
+  onSelect?: (row: UnitImport) => void
 }
 
 export function UnitsImportTable({ rows, onSelect }: UnitsImportTableProps) {
@@ -35,8 +35,12 @@ export function UnitsImportTable({ rows, onSelect }: UnitsImportTableProps) {
           {rows.map((row) => (
             <tr
               key={row.id}
-              onClick={() => onSelect(row)}
-              className="cursor-pointer border-b border-gray-50 transition-colors hover:bg-gray-50/50"
+              onClick={() => onSelect?.(row)}
+              className={
+                onSelect
+                  ? 'cursor-pointer border-b border-gray-50 transition-colors hover:bg-gray-50/50'
+                  : 'border-b border-gray-50'
+              }
             >
               <td className="px-4 py-3 font-medium text-gray-900">{row.unit_code}</td>
               <td className="px-4 py-3 text-gray-600">{unitImportCategoryLabel(row.category)}</td>

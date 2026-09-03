@@ -54,6 +54,20 @@ export function formatClock(date: string | Date | null | undefined): string {
   }).format(new Date(date))
 }
 
+/** Duración en segundos, p. ej. `45 s`, `12 min` o `1 h 20 min`. */
+export function formatSeconds(totalSeconds: number | null | undefined): string {
+  const seconds = Math.max(0, Math.round(Number(totalSeconds) || 0))
+  if (seconds < 60) return `${seconds} s`
+  const mins = Math.floor(seconds / 60)
+  if (mins < 60) {
+    const rest = seconds % 60
+    return rest ? `${mins} min ${rest} s` : `${mins} min`
+  }
+  const hours = Math.floor(mins / 60)
+  const restMins = mins % 60
+  return restMins ? `${hours} h ${restMins} min` : `${hours} h`
+}
+
 /** Duración entre dos instantes, p. ej. `20 min` o `1 h 30 min`. */
 export function formatVisitDuration(start: string, end?: string | null): string | null {
   if (!end) return null

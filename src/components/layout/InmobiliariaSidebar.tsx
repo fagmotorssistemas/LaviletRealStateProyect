@@ -7,19 +7,22 @@ import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { InmobiliariaAccountMenu } from '@/components/layout/InmobiliariaAccountMenu'
 import {
-  crmModules,
   itemsForModule,
   moduleFromPath,
+  modulesForRole,
 } from '@/components/layout/inmobiliariaNav'
+import { useAuth } from '@/contexts/AuthContext'
 
 const SIDEBAR_STORAGE_KEY = 'lavilet-sidebar-collapsed'
 
 export function InmobiliariaSidebar() {
   const pathname = usePathname()
+  const { profile, isLoading } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const visibleModules = isLoading ? [] : modulesForRole(profile?.role)
   const activeModule = moduleFromPath(pathname)
-  const menuItems = itemsForModule(activeModule)
+  const menuItems = isLoading ? [] : itemsForModule(activeModule, profile?.role)
 
   useEffect(() => {
     setMobileOpen(false)
@@ -121,7 +124,7 @@ export function InmobiliariaSidebar() {
         </div>
 
         <div className="grid grid-cols-2 gap-1 px-4 pb-3 md:hidden">
-          {crmModules.map((module) => (
+          {visibleModules.map((module) => (
             <Link
               key={module.id}
               href={module.href}

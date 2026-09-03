@@ -3,20 +3,27 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Menu, X } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
+import { homePathForRole } from '@/lib/inmobiliaria/roleAccess'
 import { cn } from '@/lib/utils'
 
-const NAV = [
+const NAV_BASE = [
   { href: '#proyectos', label: 'Proyectos' },
-  { href: '#tour', label: 'Tour' },
   { href: '#nosotros', label: 'Nosotros' },
   { href: '#proceso', label: 'Proceso' },
   { href: '#contacto', label: 'Contacto' },
 ]
 
 export function SiteHeader() {
+  const { user, profile, isLoading } = useAuth()
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const solid = scrolled || open
+  const NAV = user
+    ? [{ href: '#tour', label: 'Tour' }, ...NAV_BASE]
+    : NAV_BASE
+  const accountHref = user ? homePathForRole(profile?.role) : '/login'
+  const accountLabel = user ? (profile?.role === 'visitante' ? 'Mi cuenta' : 'Panel') : 'Acceso'
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24)
@@ -69,15 +76,17 @@ export function SiteHeader() {
         </nav>
 
         <div className="hidden items-center gap-6 md:flex">
-          <Link
-            href="/login"
-            className={cn(
-              'text-[11px] font-medium tracking-[0.18em] uppercase transition-colors',
-              solid ? 'text-[#2B1A18]/40 hover:text-[#2B1A18]' : 'text-white/55 hover:text-white',
-            )}
-          >
-            Acceso
-          </Link>
+          {!isLoading && (
+            <Link
+              href={accountHref}
+              className={cn(
+                'text-[11px] font-medium tracking-[0.18em] uppercase transition-colors',
+                solid ? 'text-[#2B1A18]/40 hover:text-[#2B1A18]' : 'text-white/55 hover:text-white',
+              )}
+            >
+              {accountLabel}
+            </Link>
+          )}
           <a
             href="#contacto"
             className={cn(
@@ -126,11 +135,11 @@ export function SiteHeader() {
               Agendar visita
             </a>
             <Link
-              href="/login"
+              href={accountHref}
               className="px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18]/40 uppercase"
               onClick={() => setOpen(false)}
             >
-              Acceso
+              {accountLabel}
             </Link>
           </div>
         </div>

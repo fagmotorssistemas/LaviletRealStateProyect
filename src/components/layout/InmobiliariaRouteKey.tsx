@@ -15,6 +15,7 @@ const MODULE_HREFS = [
   '/inmobiliaria/financiamiento',
   '/inmobiliaria/ventas',
   '/inmobiliaria/contratos',
+  '/inmobiliaria/usuarios',
 ]
 
 function moduleIndex(pathname: string) {

@@ -8,10 +8,13 @@ import {
   Layers,
   CircleDollarSign,
   BarChart3,
+  Users,
   type LucideIcon,
 } from 'lucide-react'
+import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
+import type { UserRole } from '@/types/inmobiliaria'
 
-export type CrmModuleId = 'ventas' | 'contabilidad'
+export type CrmModuleId = 'ventas' | 'contabilidad' | 'admin'
 
 export interface CrmNavItem {
   label: string
@@ -48,6 +51,12 @@ export const crmModules: {
       { label: 'Contratos', href: '/inmobiliaria/contratos', icon: FileText },
     ],
   },
+  {
+    id: 'admin',
+    label: 'Admin',
+    href: '/inmobiliaria/usuarios',
+    items: [{ label: 'Usuarios', href: '/inmobiliaria/usuarios', icon: Users }],
+  },
 ]
 
 export function moduleFromPath(pathname: string): CrmModuleId {
@@ -57,6 +66,13 @@ export function moduleFromPath(pathname: string): CrmModuleId {
   return match?.id ?? 'ventas'
 }
 
-export function itemsForModule(moduleId: CrmModuleId) {
-  return crmModules.find((module) => module.id === moduleId)?.items ?? crmModules[0].items
+export function itemsForModule(moduleId: CrmModuleId, role?: UserRole | string | null) {
+  if (role == null) return []
+  const items = crmModules.find((module) => module.id === moduleId)?.items ?? crmModules[0].items
+  return items.filter((item) => canAccessPath(role, item.href))
+}
+
+export function modulesForRole(role?: UserRole | string | null) {
+  if (role == null) return []
+  return crmModules.filter((module) => module.items.some((item) => canAccessPath(role, item.href)))
 }

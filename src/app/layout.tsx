@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Bodoni_Moda, Cormorant_Garamond } from 'next/font/google'
 import localFont from 'next/font/local'
 import { Toaster } from 'sonner'
+import { AuthProvider } from '@/contexts/AuthContext'
 import './globals.css'
 
 const satoshi = localFont({
@@ -53,8 +54,10 @@ export default function RootLayout({
       className={`${satoshi.variable} ${cormorant.variable} ${bodoni.variable} h-full scroll-smooth antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans">
-        {children}
-        <Toaster theme="dark" position="top-center" richColors />
+        <AuthProvider>
+          {children}
+          <Toaster theme="dark" position="top-center" richColors className="!z-[200]" />
+        </AuthProvider>
       </body>
     </html>
   )

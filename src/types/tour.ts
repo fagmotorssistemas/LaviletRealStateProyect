@@ -123,4 +123,29 @@ export interface TourUnitSummary {
   bedrooms: number | null
   bathrooms: number | null
   slug: string | null
+  typology_code?: string | null
+}
+
+export type TourTypologyOption = {
+  code: string
+  name: string
+  category: string
+  renders: { id: string; file_name: string; url: string }[]
+  planos: { id: string; file_name: string; url: string }[]
+}
+
+export type TourPublicCatalog = {
+  typologies: TourTypologyOption[]
+  units: Array<{
+    id: string
+    unit_code: string
+    typology_code: string | null
+    floor_label: string | null
+    floor_number: number | null
+    price: number | null
+    status: UnitStatus
+    bedrooms: number | null
+    bathrooms_full: number | null
+    area_internal_m2: number | null
+  }>
 }

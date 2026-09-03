@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Table2 } from 'lucide-react'
+import { ImagePlus, Plus, Table2 } from 'lucide-react'
+import { TypologyAssetsModal } from '@/components/inmobiliaria/inventory/TypologyAssetsModal'
 import { UnitsImportModal } from '@/components/inmobiliaria/inventory/UnitsImportModal'
 import { UnitsImportTable } from '@/components/inmobiliaria/inventory/UnitsImportTable'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { Pagination } from '@/components/ui/Pagination'
 import { Select } from '@/components/ui/Select'
 import { Spinner } from '@/components/ui/Spinner'
+import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { useUnitsImport } from '@/hooks/inmobiliaria/useUnitsImport'
 import { UNIT_STATUS_OPTIONS, unitImportCategoryLabel, type UnitImport } from '@/types/inmobiliaria'
 
@@ -29,7 +31,9 @@ export default function Inventario2Page() {
     total,
     setPage,
   } = useUnitsImport()
+  const { canWrite } = useRoleAccess()
   const [modalOpen, setModalOpen] = useState(false)
+  const [assetsOpen, setAssetsOpen] = useState(false)
   const [selected, setSelected] = useState<UnitImport | null>(null)
 
   const openCreate = () => {
@@ -58,10 +62,18 @@ export default function Inventario2Page() {
           </>
         }
         actions={
-          <Button onClick={openCreate} className="gap-2">
-            <Plus size={16} aria-hidden />
-            Nueva unidad
-          </Button>
+          canWrite ? (
+            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setAssetsOpen(true)} className="gap-2">
+                <ImagePlus size={16} aria-hidden />
+                Imágenes tipología
+              </Button>
+              <Button onClick={openCreate} className="gap-2">
+                <Plus size={16} aria-hidden />
+                Nueva unidad
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
@@ -118,7 +130,7 @@ export default function Inventario2Page() {
               : 'La tabla units_import no tiene registros. Crea la primera unidad.'
           }
         >
-          {!hasActiveFilters && (
+          {!hasActiveFilters && canWrite && (
             <Button onClick={openCreate} className="gap-2">
               <Plus size={16} aria-hidden />
               Nueva unidad
@@ -127,19 +139,24 @@ export default function Inventario2Page() {
         </EmptyState>
       ) : (
         <>
-          <UnitsImportTable rows={rows} onSelect={openEdit} />
+          <UnitsImportTable rows={rows} onSelect={canWrite ? openEdit : undefined} />
           <div className="pt-4">
             <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
           </div>
         </>
       )}
 
-      <UnitsImportModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSaved={reload}
-        row={selected}
-      />
+      {canWrite && (
+        <>
+          <UnitsImportModal
+            isOpen={modalOpen}
+            onClose={() => setModalOpen(false)}
+            onSaved={reload}
+            row={selected}
+          />
+          <TypologyAssetsModal isOpen={assetsOpen} onClose={() => setAssetsOpen(false)} />
+        </>
+      )}
     </div>
   )
 }

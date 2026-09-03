@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input'
 import { AuthBrandPanel } from '@/components/auth/AuthBrandPanel'
 import { login } from './actions'
 
-export function LoginForm({ registered }: { registered: boolean }) {
+export function LoginForm({ registered, next }: { registered: boolean; next?: string }) {
   const [state, formAction, pending] = useActionState(login, null)
 
   return (
@@ -40,6 +40,7 @@ export function LoginForm({ registered }: { registered: boolean }) {
           )}
 
           <form action={formAction} className="space-y-5">
+            {next ? <input type="hidden" name="next" value={next} /> : null}
             <Input
               id="email"
               name="email"

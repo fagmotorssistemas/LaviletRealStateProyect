@@ -1,13 +1,12 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowRight, Building2, CalendarDays, Landmark, MapPin } from 'lucide-react'
+import { ArrowRight, Building2, CalendarDays, Mail, MapPin } from 'lucide-react'
 import { FEATURED_SPACES, SITE, STEPS } from '@/lib/marketing/site'
-import { ContactForm } from './ContactForm'
 import { HeroStage } from './HeroStage'
 import { LaviletStory } from './LaviletStory'
 import { LockupProvider } from './LaviletLockup'
 import { SiteHeader } from './SiteHeader'
-import { TourViewerLoader } from '@/app/tour/TourViewerLoader'
+import { HomeTourSection } from './HomeTourSection'
 
 const btnDark =
   'inline-flex h-12 shrink-0 items-center justify-center rounded-lg bg-[#2B1A18] px-6 text-base font-medium text-white transition-colors hover:bg-[#3d2a24]'
@@ -55,7 +54,7 @@ export function HomeLanding() {
                   <h3 className="text-xl font-semibold">{space.title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-[#2B1A18]/65">{space.description}</p>
                   <a
-                    href="#contacto"
+                    href="#tour"
                     className="mt-5 inline-flex items-center text-sm font-semibold text-[#BDA27E] hover:text-[#2B1A18]"
                   >
                     Consultar disponibilidad
@@ -68,21 +67,7 @@ export function HomeLanding() {
         </div>
       </section>
 
-      <section id="tour" className="relative z-20 scroll-mt-24 bg-[#f7f3ee] py-20 lg:py-28">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="max-w-2xl">
-            <p className="text-xs font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Tour virtual</p>
-            <h2 className="mt-3 text-3xl font-bold sm:text-4xl">Recorre el showroom en 360°</h2>
-            <p className="mt-4 text-[#2B1A18]/65">
-              Entra a las unidades, cambia acabados y recorre cada espacio. Usa pantalla completa para
-              una vista más inmersiva.
-            </p>
-          </div>
-          <div className="mt-10 h-[min(78vh,720px)] min-h-[420px] overflow-hidden rounded-2xl bg-black shadow-sm ring-1 ring-[#2B1A18]/8">
-            <TourViewerLoader embedded />
-          </div>
-        </div>
-      </section>
+      <HomeTourSection />
 
       <section id="proceso" className="relative z-20 scroll-mt-24 bg-[#f7f3ee] py-20 lg:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -106,61 +91,56 @@ export function HomeLanding() {
             <p className="text-sm font-medium text-[#2B1A18]/70">Showroom Lavilet</p>
             <h2 className="mt-1 text-2xl font-bold text-[#2B1A18] sm:text-3xl">Agenda tu visita y recorre con calma</h2>
           </div>
-          <a href="#contacto" className={btnDark}>
+          <a href="#tour" className={btnDark}>
             Quiero agendar
           </a>
         </div>
       </section>
 
       <section id="contacto" className="relative z-20 scroll-mt-24 bg-[#f7f3ee] py-20 lg:py-28">
-        <div className="mx-auto grid max-w-7xl gap-10 px-4 sm:px-6 lg:grid-cols-[1fr_minmax(0,28rem)] lg:px-8">
-          <div>
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="max-w-2xl">
             <p className="text-xs font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Contacto</p>
             <h2 className="mt-3 text-3xl font-bold sm:text-4xl">Hablemos de tu próximo espacio</h2>
-            <p className="mt-4 max-w-md text-[#2B1A18]/65">
-              Déjanos tus datos y un asesor te contacta para coordinar la visita o enviarte las opciones
-              que mejor encajan contigo.
+            <p className="mt-4 text-[#2B1A18]/65">
+              El showroom se abre desde el tour. Aquí nos encuentras para escribirnos o coordinar tu visita
+              en persona.
             </p>
-            <ul className="mt-10 space-y-5 text-sm">
-              <li className="flex items-start gap-3">
-                <MapPin size={18} className="mt-0.5 text-[#BDA27E]" />
-                <span>
-                  <span className="block font-medium">Presencia</span>
-                  <span className="text-[#2B1A18]/60">{SITE.city}</span>
-                </span>
-              </li>
-              <li className="flex items-start gap-3">
-                <CalendarDays size={18} className="mt-0.5 text-[#BDA27E]" />
-                <span>
-                  <span className="block font-medium">Visitas</span>
-                  <span className="text-[#2B1A18]/60">Con cita en showroom</span>
-                </span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Landmark size={18} className="mt-0.5 text-[#BDA27E]" />
-                <span>
-                  <span className="block font-medium">Correo</span>
-                  <a href={`mailto:${SITE.email}`} className="text-[#2B1A18]/60 hover:text-[#BDA27E]">
-                    {SITE.email}
-                  </a>
-                </span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Building2 size={18} className="mt-0.5 text-[#BDA27E]" />
-                <span>
-                  <span className="block font-medium">Equipo comercial</span>
-                  <Link href="/login" className="text-[#2B1A18]/60 hover:text-[#BDA27E]">
-                    Acceso al panel interno
-                  </Link>
-                </span>
-              </li>
-            </ul>
           </div>
 
-          <div className="rounded-3xl bg-white p-6 shadow-xl ring-1 ring-[#2B1A18]/8 sm:p-8">
-            <h3 className="text-lg font-semibold">Solicita información</h3>
-            <p className="mt-1 mb-6 text-sm text-[#2B1A18]/55">Respondemos a la brevedad.</p>
-            <ContactForm />
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <article className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-[#2B1A18]/8">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#BDA27E]/15 text-[#BDA27E]">
+                <MapPin size={18} />
+              </span>
+              <h3 className="mt-4 text-sm font-semibold">Presencia</h3>
+              <p className="mt-1 text-sm text-[#2B1A18]/60">{SITE.city}</p>
+            </article>
+            <article className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-[#2B1A18]/8">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#BDA27E]/15 text-[#BDA27E]">
+                <CalendarDays size={18} />
+              </span>
+              <h3 className="mt-4 text-sm font-semibold">Visitas</h3>
+              <p className="mt-1 text-sm text-[#2B1A18]/60">Con cita en showroom</p>
+            </article>
+            <article className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-[#2B1A18]/8">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#BDA27E]/15 text-[#BDA27E]">
+                <Mail size={18} />
+              </span>
+              <h3 className="mt-4 text-sm font-semibold">Correo</h3>
+              <a href={`mailto:${SITE.email}`} className="mt-1 block text-sm text-[#2B1A18]/60 hover:text-[#BDA27E]">
+                {SITE.email}
+              </a>
+            </article>
+            <article className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-[#2B1A18]/8">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#BDA27E]/15 text-[#BDA27E]">
+                <Building2 size={18} />
+              </span>
+              <h3 className="mt-4 text-sm font-semibold">Equipo comercial</h3>
+              <Link href="/login" className="mt-1 block text-sm text-[#2B1A18]/60 hover:text-[#BDA27E]">
+                Acceso al panel interno
+              </Link>
+            </article>
           </div>
         </div>
       </section>

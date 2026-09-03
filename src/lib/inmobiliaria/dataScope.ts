@@ -6,10 +6,7 @@ export type DataAccessScope = {
   userId: string
 }
 
-/**
- * A partir del rol en `profiles`, determina si el usuario actúa como administrador.
- * Roles distintos de `admin` se tratan como restringidos (mismo criterio que asesor) hasta definir reglas propias.
- */
+/** A partir del rol en `profiles`, determina si el usuario actúa como administrador. */
 export function getDataAccessScope(
   userId: string | undefined,
   role: UserRole | string | null | undefined,

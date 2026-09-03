@@ -7,9 +7,10 @@ import type {
   ShowroomVisitSource,
   Project, ProjectAsset, ProjectAssetKind, ProjectDetail, ContractStatus, InventorySortOption,
   PaymentPlan, LeadFinancing, AsesoriaFinanciamiento, FinancingPartner, TeamProfile,
-  UnitSalesClosing,
+  UnitSalesClosing, TypologyImport, TypologyAsset, TypologyAssetKind,
 } from '@/types/inmobiliaria'
 import { UNASSIGNED_ASSIGNEE } from '@/types/inmobiliaria'
+import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 
 /** Bucket público para fotos, planos PDF y documentos de proyecto. */
 export const PROJECT_ASSETS_BUCKET = 'project-assets'
@@ -407,6 +408,99 @@ export async function updateUnitsImport(
   const { data, error } = await supabase.from('units_import').update(payload).eq('id', id).select('*').single()
   if (error) throw error
   return mapUnitImportRow(data as UnitImport)
+}
+
+export async function listTypologiesImport(supabase: SupabaseClient): Promise<TypologyImport[]> {
+  const { data, error } = await supabase
+    .from('typologies_import')
+    .select('code, category, name, created_at')
+    .order('code', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as TypologyImport[]
+}
+
+export async function listTypologyAssets(
+  supabase: SupabaseClient,
+  typologyCode: string,
+): Promise<TypologyAsset[]> {
+  const { data, error } = await supabase
+    .from('typology_assets')
+    .select('id, typology_code, kind, file_name, storage_path, sort_order, created_at')
+    .eq('typology_code', typologyCode)
+    .order('kind', { ascending: true })
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as TypologyAsset[]
+}
+
+export function getTypologyAssetPublicUrl(supabase: SupabaseClient, storagePath: string): string {
+  return supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).getPublicUrl(storagePath).data.publicUrl
+}
+
+export async function insertTypologyAsset(
+  supabase: SupabaseClient,
+  payload: {
+    typology_code: string
+    kind: TypologyAssetKind
+    file_name: string
+    storage_path: string
+  },
+): Promise<TypologyAsset> {
+  const { data: maxRow } = await supabase
+    .from('typology_assets')
+    .select('sort_order')
+    .eq('typology_code', payload.typology_code)
+    .eq('kind', payload.kind)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const { data, error } = await supabase
+    .from('typology_assets')
+    .insert({
+      ...payload,
+      sort_order: (maxRow?.sort_order ?? -1) + 1,
+    })
+    .select('id, typology_code, kind, file_name, storage_path, sort_order, created_at')
+    .single()
+
+  if (error) throw error
+  return data as TypologyAsset
+}
+
+export async function findTypologyAssetByKey(
+  supabase: SupabaseClient,
+  typologyCode: string,
+  kind: TypologyAssetKind,
+  fileName: string,
+): Promise<TypologyAsset | null> {
+  const { data, error } = await supabase
+    .from('typology_assets')
+    .select('id, typology_code, kind, file_name, storage_path, sort_order, created_at')
+    .eq('typology_code', typologyCode)
+    .eq('kind', kind)
+    .eq('file_name', fileName)
+    .maybeSingle()
+  if (error) throw error
+  return (data as TypologyAsset | null) ?? null
+}
+
+export async function deleteTypologyAsset(supabase: SupabaseClient, id: string): Promise<void> {
+  const { data: row, error: fetchErr } = await supabase
+    .from('typology_assets')
+    .select('id, storage_path')
+    .eq('id', id)
+    .single()
+  if (fetchErr) throw fetchErr
+
+  const { error: storageErr } = await supabase.storage
+    .from(TYPOLOGY_ASSETS_BUCKET)
+    .remove([row.storage_path])
+  if (storageErr) throw storageErr
+
+  const { error } = await supabase.from('typology_assets').delete().eq('id', id)
+  if (error) throw error
 }
 
 function unitNumberMatchesQuery(unitNumber: string | null | undefined, query: string): boolean {

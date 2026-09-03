@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Cache, CONSTANTS, Viewer, events } from '@photo-sphere-viewer/core'
 import { CompassPlugin } from '@photo-sphere-viewer/compass-plugin'
 import { MarkersPlugin } from '@photo-sphere-viewer/markers-plugin'
@@ -8,7 +8,9 @@ import { VirtualTourPlugin, events as tourEvents } from '@photo-sphere-viewer/vi
 import type { VirtualTourNode } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { Position } from '@photo-sphere-viewer/core'
 import { Maximize2, Minimize2, Moon, Sun } from 'lucide-react'
+import { createTourArrow } from '@/components/tour/createTourArrow'
 import { TourMinimap, type TourMinimapRoom } from '@/components/tour/TourMinimap'
+import { TourPicker } from '@/components/tour/TourPicker'
 import { TourUnitPanel } from '@/components/tour/TourUnitPanel'
 import { pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
 import {
@@ -19,7 +21,8 @@ import {
   loadTourUnits,
   type TourCatalog,
 } from '@/services/tour.service'
-import type { TourLightMode, TourUnitSummary } from '@/types/tour'
+import { useTourDwellTracking } from '@/hooks/useTourDwellTracking'
+import type { TourLightMode, TourPublicCatalog, TourTypologyOption, TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
 import '@photo-sphere-viewer/core/index.css'
 import '@photo-sphere-viewer/virtual-tour-plugin/index.css'
@@ -77,6 +80,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [loading, setLoading] = useState(false)
   const [booting, setBooting] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
+  const [selectedFloor, setSelectedFloor] = useState('')
+  const [selectedUnitId, setSelectedUnitId] = useState('')
+  const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
+  const [selectedTypology, setSelectedTypology] = useState('')
 
   const preloadUrls = useCallback((viewer: Viewer, urls: string[]) => {
     void Promise.all(
@@ -253,7 +260,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             preload: false,
             showLinkTooltip: true,
             linksOnCompass: true,
-            arrowStyle: { size: { width: 60, height: 60 } },
+            arrowStyle: {
+              element: createTourArrow,
+              size: { width: 36, height: 36 },
+              className: 'tour-nav-arrow-wrap',
+            },
             transitionOptions: (toNode, fromNode) => {
               const saved = pendingRotateRef.current
               if (saved) {
@@ -327,6 +338,44 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
   }, [embedded, preloadCurrentRoom, upgradeToHigh])
 
+  useEffect(() => {
+    let cancelled = false
+    void fetch('/api/tour/catalog')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: TourPublicCatalog | null) => {
+        if (cancelled || !data) return
+        setPublicCatalog(data)
+        const firstWithRender = data.typologies.find((item) => item.renders.length > 0)
+        setSelectedTypology((prev) => prev || firstWithRender?.code || data.typologies[0]?.code || '')
+      })
+      .catch((error) => console.error(error))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const currentTypology: TourTypologyOption | undefined = publicCatalog?.typologies.find(
+    (item) => item.code === selectedTypology,
+  )
+  const typologyRenderUrl = currentTypology?.renders[0]?.url
+  const hasTypologyPano = Boolean(typologyRenderUrl)
+
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || booting) return
+    if (typologyRenderUrl) {
+      setLoading(true)
+      void viewer
+        .setPanorama(typologyRenderUrl, { showLoader: false, transition: FADE })
+        .then(() => {
+          currentUrlRef.current = typologyRenderUrl
+        })
+        .finally(() => setLoading(false))
+      return
+    }
+    if (finish) void applyCombo(finish, light)
+  }, [typologyRenderUrl, booting, finish, light, applyCombo])
+
   const onFinish = (slug: string) => {
     if (slug === finish) return
     setFinish(slug)
@@ -349,11 +398,92 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     })
   }
 
+  const displayUnits = useMemo<TourUnitSummary[]>(() => {
+    const imported = (publicCatalog?.units ?? [])
+      .filter((item) => !selectedTypology || item.typology_code === selectedTypology)
+      .map((item) => ({
+        id: item.id,
+        unit_number: item.unit_code,
+        floor: item.floor_label || (item.floor_number == null ? null : String(item.floor_number)),
+        published_commercial_price: item.price,
+        status: item.status,
+        area_total_m2: item.area_internal_m2,
+        bedrooms: item.bedrooms,
+        bathrooms: item.bathrooms_full,
+        slug: item.unit_code,
+        typology_code: item.typology_code,
+      }))
+    return imported.length > 0 ? imported : units
+  }, [publicCatalog, selectedTypology, units])
+
+  const typologyOptions = useMemo(
+    () =>
+      (publicCatalog?.typologies ?? []).map((item) => ({
+        value: item.code,
+        label: `${item.code} · ${item.name}`,
+      })),
+    [publicCatalog],
+  )
+
+  const floorOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const item of displayUnits) {
+      const key = item.floor?.trim()
+      if (!key || seen.has(key)) continue
+      seen.set(key, /^\d+$/.test(key) ? `Piso ${key}` : key)
+    }
+    return [...seen.entries()]
+      .sort((a, b) => Number(a[0]) - Number(b[0]) || a[0].localeCompare(b[0], 'es'))
+      .map(([value, label]) => ({ value, label }))
+  }, [displayUnits])
+
+  const unitsOnFloor = useMemo(
+    () => displayUnits.filter((item) => (item.floor ?? '') === selectedFloor),
+    [displayUnits, selectedFloor],
+  )
+
+  const unitOptions = useMemo(
+    () => unitsOnFloor.map((item) => ({ value: item.id, label: item.unit_number })),
+    [unitsOnFloor],
+  )
+
+  const selectedUnit = displayUnits.find((item) => item.id === selectedUnitId) ?? unitsOnFloor[0] ?? null
+
+  useEffect(() => {
+    if (displayUnits.length === 0) return
+    const current = displayUnits.find((item) => item.id === selectedUnitId)
+    if (current) return
+    const featured = displayUnits.find((item) => item.status === 'disponible') ?? displayUnits[0]
+    setSelectedFloor(featured.floor ?? '')
+    setSelectedUnitId(featured.id)
+  }, [displayUnits, selectedUnitId])
+
+  const onTypologyChange = (code: string) => {
+    setSelectedTypology(code)
+    setSelectedFloor('')
+    setSelectedUnitId('')
+  }
+
+  const onFloorChange = (nextFloor: string) => {
+    setSelectedFloor(nextFloor)
+    const nextUnits = displayUnits.filter((item) => (item.floor ?? '') === nextFloor)
+    const keep = nextUnits.find((item) => item.id === selectedUnitId)
+    setSelectedUnitId((keep ?? nextUnits[0])?.id ?? '')
+  }
+
   const finishName = catalog?.finishes.find((f) => f.slug === finish)?.name ?? finish
   const currentNode = nodes.find((n) => n.id === room)
   const roomName = currentNode?.name ?? room
   const lightLabel = light === 'dia' ? 'Día' : 'Noche'
   const showFinish = currentNode?.data?.finishSlug != null
+
+  useTourDwellTracking({
+    typologyCode: selectedTypology,
+    room,
+    roomLabel: roomName,
+    unitId: selectedUnit?.id,
+    unitCode: selectedUnit?.unit_number,
+  })
 
   return (
     <div
@@ -374,7 +504,28 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         <div
           className="pointer-events-auto absolute top-0 left-0 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))]"
         >
-          {catalog && <TourUnitPanel unitTypeName={catalog.unitTypeName} units={units} />}
+          <div className="flex flex-col gap-2">
+            {(catalog || selectedUnit) && (
+              <TourUnitPanel
+                unitTypeName={currentTypology?.name ?? catalog?.unitTypeName ?? selectedTypology}
+                unit={selectedUnit}
+                unitCount={displayUnits.length}
+              />
+            )}
+            {(typologyOptions.length > 0 || floorOptions.length > 0) && (
+              <TourPicker
+                typologies={typologyOptions}
+                typology={selectedTypology}
+                floors={floorOptions}
+                units={unitOptions}
+                floor={selectedFloor}
+                unitId={selectedUnit?.id ?? ''}
+                onTypologyChange={onTypologyChange}
+                onFloorChange={onFloorChange}
+                onUnitChange={setSelectedUnitId}
+              />
+            )}
+          </div>
         </div>
 
         <div
@@ -404,38 +555,40 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             </div>
           )}
 
-          <div className="mx-auto flex w-full max-w-md items-center gap-2 rounded-[4px] bg-black/55 p-2 backdrop-blur-sm">
-            <div className="flex min-w-0 flex-1 gap-1.5">
-              {(catalog?.finishes ?? []).map((item) => (
-                <button
-                  key={item.slug}
-                  type="button"
-                  onClick={() => onFinish(item.slug)}
-                  className={cn(
-                    'h-10 flex-1 cursor-pointer rounded-[4px] text-[12px] font-semibold tracking-[0.12em] uppercase transition-colors',
-                    finish === item.slug
-                      ? 'bg-[#787D62] text-white'
-                      : 'bg-white/10 text-white/80 hover:bg-white/16',
-                  )}
-                >
-                  {item.name}
-                </button>
-              ))}
+          {!hasTypologyPano && (
+            <div className="mx-auto flex w-full max-w-md items-center gap-2 rounded-[4px] bg-black/55 p-2 backdrop-blur-sm">
+              <div className="flex min-w-0 flex-1 gap-1.5">
+                {(catalog?.finishes ?? []).map((item) => (
+                  <button
+                    key={item.slug}
+                    type="button"
+                    onClick={() => onFinish(item.slug)}
+                    className={cn(
+                      'h-10 flex-1 cursor-pointer rounded-[4px] text-[12px] font-semibold tracking-[0.12em] uppercase transition-colors',
+                      finish === item.slug
+                        ? 'bg-[#787D62] text-white'
+                        : 'bg-white/10 text-white/80 hover:bg-white/16',
+                    )}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={onLight}
+                className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[4px] bg-white/10 text-white hover:bg-white/16"
+                aria-label={light === 'dia' ? 'Cambiar a noche' : 'Cambiar a día'}
+                title={lightLabel}
+              >
+                {light === 'dia' ? <Moon size={16} strokeWidth={1.75} /> : <Sun size={16} strokeWidth={1.75} />}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={onLight}
-              className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[4px] bg-white/10 text-white hover:bg-white/16"
-              aria-label={light === 'dia' ? 'Cambiar a noche' : 'Cambiar a día'}
-              title={lightLabel}
-            >
-              {light === 'dia' ? <Moon size={16} strokeWidth={1.75} /> : <Sun size={16} strokeWidth={1.75} />}
-            </button>
-          </div>
+          )}
           <p className="px-1 text-center text-[11px] font-medium tracking-wide text-white/55">
-            {roomName}
-            {showFinish && finishName ? ` · ${finishName}` : ''}
-            {` · ${lightLabel}`}
+            {hasTypologyPano
+              ? `${selectedTypology}${currentTypology?.name ? ` · ${currentTypology.name}` : ''}`
+              : `${roomName}${showFinish && finishName ? ` · ${finishName}` : ''} · ${lightLabel}`}
           </p>
         </div>
       </div>

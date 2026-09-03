@@ -6,6 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ChevronDown, LogOut, User } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
+import { roleLabel } from '@/lib/inmobiliaria/roleAccess'
 
 export function InmobiliariaAccountMenu({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
   const pathname = usePathname()
@@ -113,6 +114,11 @@ export function InmobiliariaAccountMenu({ tone = 'light' }: { tone?: 'light' | '
                 <p className="truncate text-sm font-semibold text-[#555850]">{fullName}</p>
                 {profile?.email && (
                   <p className="truncate text-xs font-medium text-[#8a8d87]">{profile.email}</p>
+                )}
+                {profile?.role && (
+                  <p className="truncate text-[11px] font-medium tracking-[0.08em] text-[#9a7d55] uppercase">
+                    {roleLabel(profile.role)}
+                  </p>
                 )}
               </div>
             </div>

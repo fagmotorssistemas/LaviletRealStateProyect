@@ -20,6 +20,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useRoleAccess } from '@/hooks/useRoleAccess'
 import {
   deleteProjectAsset,
   getProjectAssetPublicUrl,
@@ -88,6 +89,7 @@ interface ProjectDetailViewProps {
 
 export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
   const { supabase } = useAuth()
+  const { canWrite } = useRoleAccess()
   const [tenantId, setTenantId] = useState('')
   const [detail, setDetail] = useState<ProjectDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -218,6 +220,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canWrite) return
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file || !detail || !tenantId) return
@@ -242,6 +245,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
   }
 
   const handleDeleteAsset = async (id: string) => {
+    if (!canWrite) return
     if (!confirm('¿Eliminar este archivo?')) return
     try {
       await deleteProjectAsset(supabase, id)
@@ -253,7 +257,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
   }
 
   const handleSetCover = async (assetId: string) => {
-    if (!detail) return
+    if (!canWrite || !detail) return
     try {
       await setProjectCoverPhoto(supabase, detail.id, assetId)
       toast.success('Portada actualizada')
@@ -264,6 +268,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
   }
 
   const handleCaptionBlur = async (assetId: string, caption: string) => {
+    if (!canWrite) return
     try {
       await updateProjectAssetCaption(supabase, assetId, caption.trim() || null)
     } catch {
@@ -380,10 +385,12 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
               <h2 className="text-base font-semibold text-slate-900">Resumen del proyecto</h2>
               <p className="mt-1 text-sm text-slate-500">Vista de lectura de la ficha. Pulsa editar para modificar los datos.</p>
             </div>
+            {canWrite && (
             <Button type="button" variant="outline" className="shrink-0 gap-2" onClick={() => setEditingResumen(true)}>
               <Pencil size={16} strokeWidth={2} />
               Editar ficha
             </Button>
+            )}
           </div>
 
           <div className="p-6 space-y-8">
@@ -598,6 +605,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
 
       {tab === 'galeria' && (
         <div className="space-y-8 rounded-xl border border-slate-200 bg-white p-6">
+          {canWrite && (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div className="flex-1 grid sm:grid-cols-2 gap-4">
               <Select
@@ -627,6 +635,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
               </label>
             </div>
           </div>
+          )}
 
           <section>
             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Fotos</h3>
@@ -677,6 +686,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
 
       {tab === 'documentos' && (
         <div className="space-y-6 rounded-xl border border-slate-200 bg-white p-6">
+          {canWrite && (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div className="flex-1 grid sm:grid-cols-2 gap-4">
               <Select
@@ -697,6 +707,7 @@ export function ProjectDetailView({ projectId }: ProjectDetailViewProps) {
               </label>
             </div>
           </div>
+          )}
 
           {docs.length === 0 ? (
             <p className="text-sm text-slate-400">No hay documentos.</p>

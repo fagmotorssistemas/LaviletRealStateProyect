@@ -1,7 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { assertCanAccessCrmPath, assertCanWriteCrm } from '@/lib/auth/session'
 import {
   createAsesoriaFinanciamiento,
   createLeadFinancing,
@@ -12,19 +12,11 @@ import {
 } from '@/services/inmobiliaria.service'
 import type { AsesoriaFinanciamiento, FinancingPartner, LeadFinancing } from '@/types/inmobiliaria'
 
-async function assertLoggedIn() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('No autenticado')
-}
-
 export async function listLeadFinancingAction(params: {
   status?: string
   search?: string
 } = {}): Promise<LeadFinancing[]> {
-  await assertLoggedIn()
+  await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
   return listLeadFinancing(createAdminClient(), params)
 }
 
@@ -32,19 +24,20 @@ export async function listAsesoriasFinanciamientoAction(params: {
   search?: string
   atendido?: boolean
 } = {}): Promise<AsesoriaFinanciamiento[]> {
-  await assertLoggedIn()
+  await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
   return listAsesoriasFinanciamiento(createAdminClient(), params)
 }
 
 export async function listFinancingPartnersAction(): Promise<FinancingPartner[]> {
-  await assertLoggedIn()
+  await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
   return listFinancingPartners(createAdminClient())
 }
 
 export async function createLeadFinancingAction(
   payload: Parameters<typeof createLeadFinancing>[1] & { financing_partner_name?: string | null },
 ): Promise<LeadFinancing> {
-  await assertLoggedIn()
+  await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
+  await assertCanWriteCrm()
   const admin = createAdminClient()
   const { financing_partner_name, ...rest } = payload
   let partnerId = rest.financing_partner_id || null
@@ -61,6 +54,7 @@ export async function createLeadFinancingAction(
 export async function createAsesoriaFinanciamientoAction(
   payload: Parameters<typeof createAsesoriaFinanciamiento>[1],
 ): Promise<AsesoriaFinanciamiento> {
-  await assertLoggedIn()
+  await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
+  await assertCanWriteCrm()
   return createAsesoriaFinanciamiento(createAdminClient(), payload)
 }

@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { canAccessPath, homePathForRole } from '@/lib/inmobiliaria/roleAccess'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -29,22 +31,41 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
   const isPublicPath =
-    pathname === '/' ||
-    pathname === '/tour' ||
-    pathname.startsWith('/tour') ||
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/register')
+    pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/register')
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    url.search = ''
+    url.search = pathname.startsWith('/tour') ? '?next=/tour' : ''
     return NextResponse.redirect(url)
+  }
+
+  let role: string | null = null
+  if (user) {
+    try {
+      const { data: profile } = await createAdminClient()
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+      role = profile?.role ?? 'visitante'
+    } catch {
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+      role = profile?.role ?? 'visitante'
+    }
   }
 
   if (user && (pathname.startsWith('/login') || pathname.startsWith('/register'))) {
     const url = request.nextUrl.clone()
-    url.pathname = '/inmobiliaria/inventario'
+    url.pathname = homePathForRole(role)
+    url.search = ''
+    url.hash = ''
+    return NextResponse.redirect(url)
+  }
+
+  if (user && pathname.startsWith('/inmobiliaria') && !canAccessPath(role, pathname)) {
+    const url = request.nextUrl.clone()
+    url.pathname = homePathForRole(role)
     url.search = ''
     return NextResponse.redirect(url)
   }

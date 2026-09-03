@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Building2, ChevronRight, Plus, Search, RotateCcw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { getProjectAssetPublicUrl, listProjects } from '@/services/inmobiliaria.service'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 import { CreateProjectModal } from '@/components/inmobiliaria/inventory/CreateProjectModal'
@@ -26,6 +27,7 @@ function coverImageUrl(project: Project, supabase: SupabaseClient): string | nul
 
 export default function ProyectosPage() {
   const { supabase } = useAuth()
+  const { canWrite } = useRoleAccess()
   const [projects, setProjects] = useState<Project[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [tenantId, setTenantId] = useState('')
@@ -76,10 +78,12 @@ export default function ProyectosPage() {
           </>
         }
         actions={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus size={16} className="mr-2" />
-            Nuevo proyecto
-          </Button>
+          canWrite ? (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus size={16} className="mr-2" />
+              Nuevo proyecto
+            </Button>
+          ) : undefined
         }
       />
 
@@ -175,12 +179,14 @@ export default function ProyectosPage() {
         </div>
       )}
 
-      <CreateProjectModal
-        isOpen={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={load}
-        tenantId={tenantId}
-      />
+      {canWrite && (
+        <CreateProjectModal
+          isOpen={createOpen}
+          onClose={() => setCreateOpen(false)}
+          onCreated={load}
+          tenantId={tenantId}
+        />
+      )}
     </div>
   )
 }

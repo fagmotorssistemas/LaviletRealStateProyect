@@ -1,5 +1,5 @@
 /** Valores alineados con el enum PostgreSQL `public.user_role`. */
-export type UserRole = 'asesor' | 'admin' | 'contable' | 'marketing'
+export type UserRole = 'visitante' | 'asesor' | 'admin' | 'contable' | 'marketing'
 
 export type UnitStatus =
   | 'disponible'
@@ -186,6 +186,7 @@ export interface UnitImport {
   created_at: string
   price: number | null
   status: UnitStatus
+  typology_code: string | null
 }
 
 export const UNIT_IMPORT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
@@ -197,6 +198,30 @@ export const UNIT_IMPORT_CATEGORY_OPTIONS: { value: string; label: string }[] = 
 export function unitImportCategoryLabel(category: string): string {
   return UNIT_IMPORT_CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? category
 }
+
+export type TypologyAssetKind = 'plano' | 'render'
+
+export interface TypologyImport {
+  code: string
+  category: string
+  name: string
+  created_at: string
+}
+
+export interface TypologyAsset {
+  id: string
+  typology_code: string
+  kind: TypologyAssetKind
+  file_name: string
+  storage_path: string
+  sort_order: number
+  created_at: string
+}
+
+export const TYPOLOGY_ASSET_KIND_OPTIONS: { value: TypologyAssetKind; label: string }[] = [
+  { value: 'plano', label: 'Plano' },
+  { value: 'render', label: 'Render' },
+]
 
 export interface Lead {
   id: string
