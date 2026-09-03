@@ -1,7 +1,6 @@
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { getMyProfileAction } from '@/app/(auth)/profile/actions'
 import { createClient } from '@/lib/supabase/client'
 import type { AuthChangeEvent, User, Session, SupabaseClient } from '@supabase/supabase-js'
 import type { UserRole } from '@/types/inmobiliaria'
@@ -36,9 +35,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
 
+    const loadProfileFromClient = async (): Promise<Profile | null> => {
+      const { data: sessionData } = await supabase.auth.getUser()
+      const current = sessionData.user
+      if (!current) return null
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, role, phone')
+        .eq('id', current.id)
+        .maybeSingle()
+      return {
+        id: current.id,
+        full_name: data?.full_name ?? current.user_metadata?.full_name ?? null,
+        avatar_url: data?.avatar_url ?? null,
+        role: (data?.role as UserRole | null) ?? null,
+        phone: data?.phone ?? current.user_metadata?.phone ?? null,
+        email: current.email ?? null,
+      }
+    }
+
     const loadProfile = async () => {
       try {
-        return await getMyProfileAction()
+        const response = await fetch('/api/me/profile', { cache: 'no-store' })
+        if (response.ok) {
+          const json = (await response.json()) as { profile?: Profile | null }
+          if (json.profile) return json.profile
+        }
+      } catch (error) {
+        console.error('No se pudo leer profiles', error)
+      }
+      try {
+        return await loadProfileFromClient()
       } catch (error) {
         console.error('No se pudo leer profiles', error)
         return null
