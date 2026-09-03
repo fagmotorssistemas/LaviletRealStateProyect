@@ -1,7 +1,6 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import { assertCanAccessCrmPath, assertCanWriteCrm } from '@/lib/auth/session'
+import { assertCanAccessCrmPath, assertCanWriteCrm, getCrmDataClient } from '@/lib/auth/session'
 import { listSalesClosings, recordUnitClosing } from '@/services/inmobiliaria.service'
 import type { UnitSalesClosing } from '@/types/inmobiliaria'
 
@@ -15,7 +14,7 @@ export async function listSalesClosingsAction(params: {
 }): Promise<UnitSalesClosing[]> {
   await assertCanAccessCrmPath('/inmobiliaria/ventas')
   if (!params.tenantIds.length) return []
-  return listSalesClosings(createAdminClient(), params)
+  return listSalesClosings(await getCrmDataClient(), params)
 }
 
 export async function recordUnitClosingAction(
@@ -24,7 +23,7 @@ export async function recordUnitClosingAction(
   await assertCanAccessCrmPath('/inmobiliaria/ventas')
   await assertCanWriteCrm()
   try {
-    return await recordUnitClosing(createAdminClient(), payload)
+    return await recordUnitClosing(await getCrmDataClient(), payload)
   } catch (err) {
     const message =
       err instanceof Error

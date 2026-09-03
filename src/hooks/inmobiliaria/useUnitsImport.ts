@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import {
   listUnitsImportAction,
   listUnitsImportFacetsAction,
@@ -34,6 +35,7 @@ export function useUnitsImport() {
       const facets = await listUnitsImportFacetsAction()
       setCategories(facets.categories)
       setFloors(facets.floors)
+      if (facets.error) toast.error(facets.error)
     } catch (err) {
       console.error(err)
     }
@@ -52,6 +54,7 @@ export function useUnitsImport() {
       })
       setRows(res.data)
       setTotal(res.total)
+      if (res.error) toast.error(res.error)
     } catch (err) {
       console.error(err)
     } finally {

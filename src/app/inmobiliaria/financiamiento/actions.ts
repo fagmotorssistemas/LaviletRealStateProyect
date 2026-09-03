@@ -1,7 +1,6 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import { assertCanAccessCrmPath, assertCanWriteCrm } from '@/lib/auth/session'
+import { assertCanAccessCrmPath, assertCanWriteCrm, getCrmDataClient } from '@/lib/auth/session'
 import {
   createAsesoriaFinanciamiento,
   createLeadFinancing,
@@ -17,7 +16,7 @@ export async function listLeadFinancingAction(params: {
   search?: string
 } = {}): Promise<LeadFinancing[]> {
   await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
-  return listLeadFinancing(createAdminClient(), params)
+  return listLeadFinancing(await getCrmDataClient(), params)
 }
 
 export async function listAsesoriasFinanciamientoAction(params: {
@@ -25,12 +24,12 @@ export async function listAsesoriasFinanciamientoAction(params: {
   atendido?: boolean
 } = {}): Promise<AsesoriaFinanciamiento[]> {
   await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
-  return listAsesoriasFinanciamiento(createAdminClient(), params)
+  return listAsesoriasFinanciamiento(await getCrmDataClient(), params)
 }
 
 export async function listFinancingPartnersAction(): Promise<FinancingPartner[]> {
   await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
-  return listFinancingPartners(createAdminClient())
+  return listFinancingPartners(await getCrmDataClient())
 }
 
 export async function createLeadFinancingAction(
@@ -38,7 +37,7 @@ export async function createLeadFinancingAction(
 ): Promise<LeadFinancing> {
   await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
   await assertCanWriteCrm()
-  const admin = createAdminClient()
+  const admin = await getCrmDataClient()
   const { financing_partner_name, ...rest } = payload
   let partnerId = rest.financing_partner_id || null
   if (!partnerId && financing_partner_name?.trim()) {
@@ -56,5 +55,5 @@ export async function createAsesoriaFinanciamientoAction(
 ): Promise<AsesoriaFinanciamiento> {
   await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
   await assertCanWriteCrm()
-  return createAsesoriaFinanciamiento(createAdminClient(), payload)
+  return createAsesoriaFinanciamiento(await getCrmDataClient(), payload)
 }

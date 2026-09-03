@@ -30,9 +30,9 @@ export function isAdminRole(role: string | null | undefined): boolean {
   return normalizeRole(role) === 'admin'
 }
 
-/** Visitante solo consulta. El resto puede operar en las vistas de su rol. */
+/** Visitante solo consulta. Rol desconocido no se trata como visitante. */
 export function canWriteCrm(role: string | null | undefined): boolean {
-  return normalizeRole(role) !== 'visitante'
+  return knownRole(role) !== 'visitante'
 }
 
 export function canManageUsers(role: string | null | undefined): boolean {
@@ -67,19 +67,23 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
 }
 
 export function allowedPathsForRole(role: string | null | undefined): readonly string[] {
-  return ROLE_PATHS[normalizeRole(role)]
+  const roleName = knownRole(role)
+  if (!roleName) return []
+  return ROLE_PATHS[roleName]
 }
 
 export function canAccessPath(role: string | null | undefined, pathname: string): boolean {
   if (!pathname.startsWith('/inmobiliaria')) return true
-  return allowedPathsForRole(role).some(
+  const roleName = knownRole(role)
+  if (!roleName) return true
+  return ROLE_PATHS[roleName].some(
     (href) => pathname === href || pathname.startsWith(`${href}/`),
   )
 }
 
 export function homePathForRole(role: string | null | undefined): string {
-  const normalized = normalizeRole(role)
-  if (normalized === 'visitante') return '/cuenta'
-  if (normalized === 'contable') return '/inmobiliaria/financiamiento'
+  const roleName = knownRole(role)
+  if (roleName === 'visitante') return '/cuenta'
+  if (roleName === 'contable') return '/inmobiliaria/financiamiento'
   return '/inmobiliaria/inventario'
 }

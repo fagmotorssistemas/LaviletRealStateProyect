@@ -3,16 +3,14 @@ import { createClient } from '@/lib/supabase/server'
 import {
   canAccessPath,
   canManageUsers,
-  canWriteCrm,
   isAdminRole,
   knownRole,
-  normalizeRole,
 } from '@/lib/inmobiliaria/roleAccess'
 import type { UserRole } from '@/types/inmobiliaria'
 
 export type SessionProfile = {
   id: string
-  role: UserRole
+  role: UserRole | null
   full_name: string | null
   email: string | null
 }
@@ -52,7 +50,7 @@ function mapOwnProfile(
     id: user.id,
     full_name: row?.full_name ?? user.user_metadata?.full_name ?? null,
     avatar_url: row?.avatar_url ?? null,
-    role: knownRole(row?.role),
+    role: knownRole(row?.role) ?? knownRole(user.user_metadata?.role),
     phone: row?.phone ?? user.user_metadata?.phone ?? null,
     email: user.email ?? null,
   }
@@ -93,6 +91,10 @@ export async function readOwnProfileRow(): Promise<SessionProfileRow | null> {
   }
 }
 
+export async function getCrmDataClient() {
+  return tryCreateAdminClient() ?? (await getSessionUser()).supabase
+}
+
 export async function getSessionProfile(): Promise<{
   user: NonNullable<Awaited<ReturnType<typeof getSessionUser>>['user']>
   profile: SessionProfile
@@ -104,7 +106,7 @@ export async function getSessionProfile(): Promise<{
     user,
     profile: {
       id: user.id,
-      role: normalizeRole(row?.role),
+      role: row?.role ?? knownRole(user.user_metadata?.role),
       full_name: row?.full_name ?? user.user_metadata?.full_name ?? null,
       email: row?.email ?? user.email ?? null,
     },
@@ -119,7 +121,7 @@ export async function assertLoggedIn() {
 
 export async function assertCanWriteCrm() {
   const session = await assertLoggedIn()
-  if (!canWriteCrm(session.profile.role)) {
+  if (knownRole(session.profile.role) === 'visitante') {
     throw new Error('Tu rol solo permite consultar información')
   }
   return session
@@ -127,7 +129,8 @@ export async function assertCanWriteCrm() {
 
 export async function assertCanAccessCrmPath(pathname: string) {
   const session = await assertLoggedIn()
-  if (!canAccessPath(session.profile.role, pathname)) {
+  const role = knownRole(session.profile.role)
+  if (role === 'visitante' || (role && !canAccessPath(role, pathname))) {
     throw new Error('No tienes acceso a esta sección')
   }
   return session

@@ -1,7 +1,7 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import { assertAdmin } from '@/lib/auth/session'
+import { tryCreateAdminClient } from '@/lib/supabase/admin'
+import { assertAdmin, getCrmDataClient } from '@/lib/auth/session'
 import { normalizeRole } from '@/lib/inmobiliaria/roleAccess'
 import type { UserRole } from '@/types/inmobiliaria'
 
@@ -66,30 +66,60 @@ function topKey(counts: Map<string, number>): string | null {
   return best
 }
 
-export async function listManagedUsersAction(): Promise<ManagedUser[]> {
-  await assertAdmin()
-  const { data, error } = await createAdminClient()
-    .from('profiles')
-    .select('id, full_name, email, phone, role, is_active, created_at')
-    .order('created_at', { ascending: false })
-  if (error) throw error
-  return ((data ?? []) as Array<Omit<ManagedUser, 'role'> & { role: string | null }>).map((row) => ({
+function mapManagedUsers(rows: Array<Omit<ManagedUser, 'role' | 'email'> & { role: string | null; email?: string | null }>) {
+  return rows.map((row) => ({
     ...row,
+    email: row.email ?? null,
     role: normalizeRole(row.role),
     is_active: row.is_active !== false,
   }))
+}
+
+export async function listManagedUsersAction(): Promise<ManagedUser[]> {
+  try {
+    await assertAdmin()
+    const client = await getCrmDataClient()
+    const withEmail = await client
+      .from('profiles')
+      .select('id, full_name, email, phone, role, is_active, created_at')
+      .order('created_at', { ascending: false })
+    if (!withEmail.error) {
+      return mapManagedUsers((withEmail.data ?? []) as Array<Omit<ManagedUser, 'role'> & { role: string | null }>)
+    }
+
+    const withoutEmail = await client
+      .from('profiles')
+      .select('id, full_name, phone, role, is_active, created_at')
+      .order('created_at', { ascending: false })
+    if (withoutEmail.error) {
+      console.error('listManagedUsersAction', withoutEmail.error.message)
+      return []
+    }
+    return mapManagedUsers((withoutEmail.data ?? []) as Array<Omit<ManagedUser, 'role' | 'email'> & { role: string | null }>)
+  } catch (error) {
+    console.error('listManagedUsersAction', error)
+    return []
+  }
 }
 
 export async function listTourMetricsAction(): Promise<{
   global: TourGlobalMetrics
   byUser: TourUserMetrics[]
 }> {
-  await assertAdmin()
-  const { data, error } = await createAdminClient()
-    .from('tour_events')
-    .select('seconds, room, metadata, tour_sessions(session_id)')
-    .eq('event_type', 'room_dwell')
-  if (error) throw error
+  const empty = {
+    global: { activeUsers: 0, totalSeconds: 0, topTypology: null, topRoom: null },
+    byUser: [] as TourUserMetrics[],
+  }
+  try {
+    await assertAdmin()
+    const { data, error } = await (await getCrmDataClient())
+      .from('tour_events')
+      .select('seconds, room, metadata, tour_sessions(session_id)')
+      .eq('event_type', 'room_dwell')
+    if (error) {
+      console.error('listTourMetricsAction', error.message)
+      return empty
+    }
 
   const byUser = new Map<
     string,
@@ -153,6 +183,10 @@ export async function listTourMetricsAction(): Promise<{
       cells: [...bucket.cells.values()].sort((a, b) => b.seconds - a.seconds),
     })),
   }
+  } catch (error) {
+    console.error('listTourMetricsAction', error)
+    return empty
+  }
 }
 
 export async function updateUserRoleAction(userId: string, role: UserRole): Promise<void> {
@@ -161,6 +195,7 @@ export async function updateUserRoleAction(userId: string, role: UserRole): Prom
   if (userId === session.user.id && nextRole !== 'admin') {
     throw new Error('No puedes quitarte el rol de administrador')
   }
-  const { error } = await createAdminClient().from('profiles').update({ role: nextRole }).eq('id', userId)
+  const client = tryCreateAdminClient() ?? (await getCrmDataClient())
+  const { error } = await client.from('profiles').update({ role: nextRole }).eq('id', userId)
   if (error) throw error
 }
