@@ -7,6 +7,7 @@ import { HeroStage } from './HeroStage'
 import { LaviletStory } from './LaviletStory'
 import { LockupProvider } from './LaviletLockup'
 import { SiteHeader } from './SiteHeader'
+import { TourViewerLoader } from '@/app/tour/TourViewerLoader'
 
 const btnDark =
   'inline-flex h-12 shrink-0 items-center justify-center rounded-lg bg-[#2B1A18] px-6 text-base font-medium text-white transition-colors hover:bg-[#3d2a24]'
@@ -63,6 +64,22 @@ export function HomeLanding() {
                 </div>
               </article>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="tour" className="relative z-20 scroll-mt-24 bg-[#f7f3ee] py-20 lg:py-28">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="max-w-2xl">
+            <p className="text-xs font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Tour virtual</p>
+            <h2 className="mt-3 text-3xl font-bold sm:text-4xl">Recorre el showroom en 360°</h2>
+            <p className="mt-4 text-[#2B1A18]/65">
+              Entra a las unidades, cambia acabados y recorre cada espacio. Usa pantalla completa para
+              una vista más inmersiva.
+            </p>
+          </div>
+          <div className="mt-10 h-[min(78vh,720px)] min-h-[420px] overflow-hidden rounded-2xl bg-black shadow-sm ring-1 ring-[#2B1A18]/8">
+            <TourViewerLoader embedded />
           </div>
         </div>
       </section>

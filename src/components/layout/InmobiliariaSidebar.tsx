@@ -140,7 +140,7 @@ export function InmobiliariaSidebar() {
 
         <nav className="crm-sidebar-nav relative min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4 md:pr-0">
           {menuItems.map((item) => {
-            const isActive = pathname.startsWith(item.href)
+            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
             return (
               <Link
                 key={item.href}

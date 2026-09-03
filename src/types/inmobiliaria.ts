@@ -168,6 +168,36 @@ export interface Unit {
   unit_media?: UnitMedia[]
 }
 
+/** Fila de `units_import` (carga cruda, sin tenant). */
+export interface UnitImport {
+  id: string
+  category: string
+  unit_code: string
+  plan_group: string | null
+  floor_label: string | null
+  floor_number: number | null
+  area_internal_m2: number | null
+  area_exterior_m2: number | null
+  parking: number | null
+  bedrooms: number | null
+  bathrooms_full: number | null
+  bathrooms_half: number | null
+  spaces: string[]
+  created_at: string
+  price: number | null
+  status: UnitStatus
+}
+
+export const UNIT_IMPORT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'departamento', label: 'Departamento' },
+  { value: 'suite', label: 'Suite' },
+  { value: 'local', label: 'Local' },
+]
+
+export function unitImportCategoryLabel(category: string): string {
+  return UNIT_IMPORT_CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? category
+}
+
 export interface Lead {
   id: string
   tenant_id: string

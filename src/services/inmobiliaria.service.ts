@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { compareUnitsByUnitNumber } from '@/lib/inmobiliaria/sortUnits'
 import { type DataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import type {
-  Unit, UnitMedia, Lead, Appointment, AppointmentWithUnits, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
+  Unit, UnitImport, UnitMedia, Lead, Appointment, AppointmentWithUnits, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
   UnitStatus, LeadStatus, LeadTemperature, AppointmentStatus, InteractionType,
   ShowroomVisitSource,
   Project, ProjectAsset, ProjectAssetKind, ProjectDetail, ContractStatus, InventorySortOption,
@@ -300,6 +300,113 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
   }
   if (error) throw error
   return { data: ((data ?? []) as Unit[]).map(mapUnitRow), total: count ?? 0 }
+}
+
+function mapUnitImportRow(row: UnitImport): UnitImport {
+  return {
+    ...row,
+    spaces: Array.isArray(row.spaces) ? row.spaces : [],
+    price: row.price ?? null,
+    status: row.status ?? 'disponible',
+  }
+}
+
+export type UnitsImportWrite = {
+  category: string
+  unit_code: string
+  plan_group: string | null
+  floor_label: string | null
+  floor_number: number | null
+  area_internal_m2: number | null
+  area_exterior_m2: number | null
+  parking: number | null
+  bedrooms: number | null
+  bathrooms_full: number | null
+  bathrooms_half: number | null
+  spaces: string[]
+  price: number | null
+  status: UnitStatus
+}
+
+export async function listUnitsImport(
+  supabase: SupabaseClient,
+  params: {
+    search?: string
+    category?: string
+    floorNumber?: string
+    status?: string
+    page?: number
+    pageSize?: number
+  } = {},
+): Promise<{ data: UnitImport[]; total: number }> {
+  const page = params.page ?? 1
+  const pageSize = params.pageSize ?? 10
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
+
+  let query = supabase
+    .from('units_import')
+    .select('*', { count: 'exact' })
+    .order('floor_number', { ascending: true, nullsFirst: false })
+    .order('unit_code', { ascending: true })
+
+  if (params.category) query = query.eq('category', params.category)
+  if (params.status) query = query.eq('status', params.status)
+  if (params.floorNumber !== undefined && params.floorNumber !== '') {
+    query = query.eq('floor_number', Number(params.floorNumber))
+  }
+
+  const search = params.search?.trim()
+  if (search) {
+    const escaped = search.replace(/[\\%_]/g, '\\$&')
+    query = query.or(
+      `unit_code.ilike.%${escaped}%,plan_group.ilike.%${escaped}%,floor_label.ilike.%${escaped}%,category.ilike.%${escaped}%`,
+    )
+  }
+
+  const { data, error, count } = await query.range(from, to)
+  if (error) throw error
+  return { data: ((data ?? []) as UnitImport[]).map(mapUnitImportRow), total: count ?? 0 }
+}
+
+export async function listUnitsImportFacets(
+  supabase: SupabaseClient,
+): Promise<{ categories: string[]; floors: { number: number; label: string }[] }> {
+  const { data, error } = await supabase
+    .from('units_import')
+    .select('category, floor_label, floor_number')
+  if (error) throw error
+
+  const categories = [...new Set((data ?? []).map((r) => r.category).filter(Boolean))].sort()
+  const floorMap = new Map<number, string>()
+  for (const row of data ?? []) {
+    if (row.floor_number == null) continue
+    floorMap.set(row.floor_number, row.floor_label || `Piso ${row.floor_number}`)
+  }
+  const floors = [...floorMap.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([number, label]) => ({ number, label }))
+
+  return { categories, floors }
+}
+
+export async function createUnitsImport(
+  supabase: SupabaseClient,
+  payload: UnitsImportWrite,
+): Promise<UnitImport> {
+  const { data, error } = await supabase.from('units_import').insert(payload).select('*').single()
+  if (error) throw error
+  return mapUnitImportRow(data as UnitImport)
+}
+
+export async function updateUnitsImport(
+  supabase: SupabaseClient,
+  id: string,
+  payload: UnitsImportWrite,
+): Promise<UnitImport> {
+  const { data, error } = await supabase.from('units_import').update(payload).eq('id', id).select('*').single()
+  if (error) throw error
+  return mapUnitImportRow(data as UnitImport)
 }
 
 function unitNumberMatchesQuery(unitNumber: string | null | undefined, query: string): boolean {

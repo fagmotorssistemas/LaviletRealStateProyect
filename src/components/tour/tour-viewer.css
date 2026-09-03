@@ -1,0 +1,8 @@
+.tour-compass {
+  top: max(10px, env(safe-area-inset-top)) !important;
+  right: max(10px, env(safe-area-inset-right)) !important;
+}
+
+.psv-virtual-tour-link {
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+}
