@@ -139,6 +139,7 @@ export type TourAssetRef = {
   id: string
   file_name: string
   url: string
+  variants?: Partial<Record<'2048' | '4096' | '8192', string>>
 }
 
 export type TourTypologyOption = {

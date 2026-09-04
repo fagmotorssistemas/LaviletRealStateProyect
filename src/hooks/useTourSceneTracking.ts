@@ -12,7 +12,7 @@ type SceneTarget = {
   light?: string
 }
 
-const GATE_SECONDS = 30
+const GATE_SECONDS = 40
 
 export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateClock?: boolean }) {
   const targetRef = useRef(target)

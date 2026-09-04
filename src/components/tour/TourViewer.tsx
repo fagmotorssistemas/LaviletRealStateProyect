@@ -18,7 +18,7 @@ import {
   TOUR_PANO_SLUG,
   tourRoomLabel,
 } from '@/lib/tour/tourRooms'
-import { pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
+import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
 import {
   getTourUnitTypeSlug,
   loadRoomVariantUrls,
@@ -53,6 +53,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const viewerRef = useRef<Viewer | null>(null)
   const tourRef = useRef<VirtualTourPlugin | null>(null)
   const targetWidthRef = useRef<TourWidth>(2048)
+  const catalogWidthRef = useRef<TourWidth>(4096)
   const currentUrlRef = useRef('')
   const preloadedRef = useRef(new Set<string>())
   const switchTokenRef = useRef(0)
@@ -183,8 +184,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
 
     let cancelled = false
-    const bootWidth = pickTourWidth()
+    const bootWidth = pickTourWidth({ cap: 4096 })
     targetWidthRef.current = bootWidth
+    catalogWidthRef.current = pickTourWidth()
 
     const boot = async () => {
       const unitTypeSlug = getTourUnitTypeSlug()
@@ -449,7 +451,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     return map
   }, [tourRooms, currentTypology])
 
-  const typologyPanoUrl = currentTypology?.panorama?.url ?? null
+  const typologyPanoUrl = pickCatalogPanoUrl(currentTypology?.panorama, catalogWidthRef.current)
   const isPanoRoom = room === TOUR_PANO_SLUG
   const flatPhotoUrl = isPanoRoom ? null : photoBySlug[room] ?? null
   const navTargets = useMemo(

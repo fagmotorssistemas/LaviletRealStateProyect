@@ -2,7 +2,14 @@ import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { getTypologyAssetPublicUrl } from '@/services/inmobiliaria.service'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
-import { stillAssetForRoom, typologyPanoramaAsset, unionTourRooms } from '@/lib/tour/tourRooms'
+import {
+  isTourPanoramaFileName,
+  panoWidthFromFileName,
+  stillAssetForRoom,
+  typologyPanoramaAsset,
+  typologyPanoramaVariants,
+  unionTourRooms,
+} from '@/lib/tour/tourRooms'
 import type { TypologyAsset } from '@/types/inmobiliaria'
 
 export const runtime = 'nodejs'
@@ -77,9 +84,15 @@ export async function GET() {
         category: row.bedrooms && row.bedrooms >= 2 ? 'departamento' : 'suite',
         panorama: (() => {
           const asset = typologyPanoramaAsset(list)
-          return asset ? toPublic(asset) : null
+          if (!asset) return null
+          const variants: Partial<Record<'2048' | '4096' | '8192', string>> = {}
+          for (const item of typologyPanoramaVariants(list)) {
+            const width = panoWidthFromFileName(item.file_name)
+            if (width) variants[String(width) as '2048' | '4096' | '8192'] = getTypologyAssetPublicUrl(admin, item.storage_path)
+          }
+          return { ...toPublic(asset), variants }
         })(),
-        renders: list.filter((item) => item.kind === 'render').map(toPublic),
+        renders: list.filter((item) => item.kind === 'render' && !isTourPanoramaFileName(item.file_name)).map(toPublic),
         planos: list.filter((item) => item.kind === 'plano').map(toPublic),
         rooms: rooms.map((room) => {
           const asset = stillAssetForRoom(list, room.slug)

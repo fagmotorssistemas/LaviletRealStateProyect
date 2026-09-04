@@ -11,11 +11,13 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
-import { TYPOLOGY_ASSET_MAX_BYTES } from '@/lib/typology-assets'
+import { TYPOLOGY_ASSET_MAX_BYTES, TYPOLOGY_PANO_MAX_BYTES } from '@/lib/typology-assets'
 import {
   assetMatchesRoom,
   isTourPanoramaFileName,
+  TOUR_PANO_FILE,
   TOUR_PANO_SLUG,
+  typologyPanoramaAsset,
   type TourRoomDef,
 } from '@/lib/tour/tourRooms'
 import { cn } from '@/lib/utils'
@@ -47,6 +49,7 @@ type TypologyAssetsModalProps = {
 }
 
 const MAX_MB = TYPOLOGY_ASSET_MAX_BYTES / (1024 * 1024)
+const PANO_MAX_MB = TYPOLOGY_PANO_MAX_BYTES / (1024 * 1024)
 
 export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProps) {
   const [typologies, setTypologies] = useState<TypologyImport[]>([])
@@ -255,8 +258,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
       text: room === TOUR_PANO_SLUG ? `Subiendo el 360 de ${code}…` : `Subiendo foto de ${room} para ${code}…`,
     })
     try {
-      if (file.size > TYPOLOGY_ASSET_MAX_BYTES) {
-        throw new Error(`Supera ${MAX_MB} MB`)
+      const limit = room === TOUR_PANO_SLUG ? TYPOLOGY_PANO_MAX_BYTES : TYPOLOGY_ASSET_MAX_BYTES
+      if (file.size > limit) {
+        throw new Error(`Supera ${limit / (1024 * 1024)} MB`)
       }
       await uploadOne(file, 'ambiente', room)
       if (room === TOUR_PANO_SLUG) {
@@ -280,7 +284,14 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const onDelete = async (id: string) => {
     setDeletingId(id)
     try {
-      await deleteTypologyAssetAction(id)
+      const target = assets.find((row) => row.id === id)
+      const toDelete =
+        target && isTourPanoramaFileName(target.file_name)
+          ? assets.filter((row) => isTourPanoramaFileName(row.file_name)).map((row) => row.id)
+          : [id]
+      for (const assetId of toDelete) {
+        await deleteTypologyAssetAction(assetId)
+      }
       toast.success('Imagen eliminada')
       await loadAssets(code)
     } catch {
@@ -345,11 +356,12 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             <div className="space-y-2">
               <p className="text-sm font-semibold text-[#3a3d36]">360</p>
               <p className="text-sm text-[#555850]">
-                Un solo recorrido 360 por tipología. Panorámico 2:1, ideal 4096×2048 — si es más chico se ve
-                borroso en el celular.
+                Un solo 360 por tipología, panorámico 2:1. Pedí 8192×4096 a producción (máx. {PANO_MAX_MB} MB).
+                En el celular se sirve 4096; en PC, 8192.
               </p>
               {(() => {
-                const pano = assets.find((row) => isTourPanoramaFileName(row.file_name))
+                const pano =
+                  assets.find((row) => row.file_name === TOUR_PANO_FILE) ?? typologyPanoramaAsset(assets)
                 return (
                   <label className="flex max-w-sm cursor-pointer flex-col overflow-hidden rounded-lg border border-[#2B1A18]/10 bg-white">
                     <div className="relative aspect-[2/1] bg-[#f4f4ef]">

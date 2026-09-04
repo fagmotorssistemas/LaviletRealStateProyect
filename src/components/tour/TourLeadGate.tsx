@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
 
 export function TourLeadGate({
@@ -56,15 +55,17 @@ export function TourLeadGate({
   }
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-30 flex justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div className="absolute inset-x-0 bottom-0 z-30 flex justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
       <form
         onSubmit={(event) => void handleSubmit(event)}
-        className="w-full max-w-md rounded-2xl bg-white/95 p-4 shadow-[0_16px_40px_rgba(0,0,0,0.28)] ring-1 ring-black/10 backdrop-blur-sm"
+        className="w-full max-w-[22rem] rounded-xl bg-white/95 px-3 py-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.24)] ring-1 ring-black/10 backdrop-blur-sm sm:max-w-sm sm:px-3.5 sm:py-3"
       >
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-medium tracking-[0.18em] text-[#BDA27E] uppercase">Showroom Lavilet</p>
-            <p className="mt-1 text-sm leading-relaxed text-[#2B1A18]">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium tracking-[0.16em] text-[#BDA27E] uppercase">
+              Showroom Lavilet
+            </p>
+            <p className="mt-0.5 text-[12px] leading-snug text-[#2B1A18]">
               {shown
                 ? `Te gustó la tipología ${typology}. Déjanos tu WhatsApp y te enviamos los planos y el precio de las unidades disponibles.`
                 : 'Déjanos tu WhatsApp y te enviamos los planos y el precio de las unidades disponibles.'}
@@ -76,37 +77,74 @@ export function TourLeadGate({
               logTourEvent({ event_type: 'gate_cerrado', typology_code: typology, unit_type_id: unitTypeId })
               onClose()
             }}
-            className="text-xs font-medium text-[#2B1A18]/45 hover:text-[#2B1A18]"
+            className="shrink-0 pt-0.5 text-[11px] font-medium text-[#2B1A18]/75 hover:text-[#2B1A18]"
           >
             Seguir viendo
           </button>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Input id="gate-name" name="name" label="Nombre" required autoComplete="name" />
-          <Input id="gate-phone" name="phone" label="WhatsApp" type="tel" required autoComplete="tel" />
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <label className="min-w-0">
+            <span className="sr-only">Nombre</span>
+            <input
+              id="gate-name"
+              name="name"
+              required
+              autoComplete="name"
+              placeholder="Nombre"
+              className="crm-field h-8 px-2.5 text-[13px]"
+            />
+          </label>
+          <label className="min-w-0">
+            <span className="sr-only">WhatsApp</span>
+            <input
+              id="gate-phone"
+              name="phone"
+              type="tel"
+              required
+              autoComplete="tel"
+              placeholder="WhatsApp"
+              className="crm-field h-8 px-2.5 text-[13px]"
+            />
+          </label>
+          <label className="col-span-2 min-w-0">
+            <span className="sr-only">Correo</span>
+            <input
+              id="gate-email"
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              placeholder="Correo"
+              className="crm-field h-8 px-2.5 text-[13px]"
+            />
+          </label>
         </div>
-        <div className="mt-2">
-          <Input id="gate-email" name="email" label="Correo" type="email" required autoComplete="email" />
-        </div>
-        <label className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-[#2B1A18]/65">
+
+        <label className="mt-1.5 flex items-start gap-1.5 text-[10px] leading-snug text-[#2B1A18]/60">
           <input
             id="gate-consent"
             name="consent"
             type="checkbox"
             checked={consented}
             onChange={(event) => setConsented(event.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#BDA27E]"
+            className="mt-0.5 h-3 w-3 shrink-0 accent-[#BDA27E]"
           />
           <span>
-            Autorizo que La Vilet me contacte con información del proyecto y que mi recorrido en este
-            sitio se asocie a mis datos. He leído la{' '}
+            Autorizo que La Vilet me contacte.{' '}
             <a href="/privacidad" className="underline decoration-[#2B1A18]/25 underline-offset-2 hover:text-[#2B1A18]">
-              política de privacidad
+              Privacidad
             </a>
-            .
           </span>
         </label>
-        <Button type="submit" variant="gold" className="mt-3 h-10 w-full" disabled={pending || !consented}>
+
+        <Button
+          type="submit"
+          variant="gold"
+          size="sm"
+          className="mt-2 h-8 w-full tracking-[0.1em]"
+          disabled={pending || !consented}
+        >
           {pending ? 'Enviando…' : 'Enviar WhatsApp'}
         </Button>
       </form>

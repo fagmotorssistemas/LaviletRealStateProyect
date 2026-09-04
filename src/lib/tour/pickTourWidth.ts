@@ -1,7 +1,7 @@
-export const TOUR_WIDTHS = [2048, 4096] as const
+export const TOUR_WIDTHS = [2048, 4096, 8192] as const
 export type TourWidth = (typeof TOUR_WIDTHS)[number]
 
-const SAFE_MAX = 4096
+const SAFE_MAX = 8192
 
 export function readMaxTextureSize(): number {
   if (typeof document === 'undefined') return 2048
@@ -22,11 +22,40 @@ export function readScreenPx(): number {
 }
 
 /**
- * Ancho de pano a servir. Nunca 8192.
- * Si la GPU admite 4096, se usa también en celular: al hacer zoom hace falta.
+ * Ancho de pano a servir.
+ * Celular: 4096 (casi ninguna GPU móvil texturiza 8192 bien).
+ * PC: 8192 si la GPU lo admite.
  */
-export function pickTourWidth(params?: { maxTextureSize?: number; screenPx?: number }): TourWidth {
+export function pickTourWidth(params?: {
+  maxTextureSize?: number
+  screenPx?: number
+  narrow?: boolean
+  cap?: TourWidth
+}): TourWidth {
   const maxTextureSize = params?.maxTextureSize ?? readMaxTextureSize()
-  const cap = Math.min(SAFE_MAX, maxTextureSize)
-  return cap < SAFE_MAX ? 2048 : 4096
+  const narrow = params?.narrow ?? (typeof window !== 'undefined' && window.innerWidth < 768)
+  const cap = params?.cap ?? SAFE_MAX
+
+  let width: TourWidth = 2048
+  if (maxTextureSize >= 4096) width = 4096
+  if (maxTextureSize >= 8192 && !narrow) width = 8192
+
+  if (width > cap) {
+    if (cap >= 8192) return 8192
+    if (cap >= 4096) return 4096
+    return 2048
+  }
+  return width
+}
+
+export function pickCatalogPanoUrl(
+  pano: { url: string; variants?: Partial<Record<string, string>> } | null | undefined,
+  width: TourWidth,
+): string | null {
+  if (!pano) return null
+  const variants = pano.variants ?? {}
+  if (width >= 8192 && variants['8192']) return variants['8192']
+  if (variants['4096']) return variants['4096']
+  if (variants['2048']) return variants['2048']
+  return pano.url
 }

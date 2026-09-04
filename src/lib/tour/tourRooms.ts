@@ -55,7 +55,12 @@ export type TourRoomSlug = string
 export const TOUR_PANO_SLUG = 'tour-360'
 export const TOUR_PANO_LABEL = '360'
 export const TOUR_PANO_FILE = 'tour-360.webp'
+export const TOUR_PANO_FILE_8192 = 'tour-360_8192.webp'
 export const TOUR_PANO_ROOM: TourRoomDef = { slug: TOUR_PANO_SLUG, label: TOUR_PANO_LABEL }
+
+export function tourPanoFileName(width: 4096 | 8192) {
+  return width === 8192 ? TOUR_PANO_FILE_8192 : TOUR_PANO_FILE
+}
 
 function slugifySpace(value: string) {
   return value
@@ -177,7 +182,21 @@ export function isTourPanoramaFileName(fileName: string) {
 }
 
 export function typologyPanoramaAsset<T extends { file_name: string }>(assets: T[]): T | undefined {
-  return assets.find((item) => isTourPanoramaFileName(item.file_name))
+  return (
+    assets.find((item) => item.file_name === TOUR_PANO_FILE) ??
+    assets.find((item) => isTourPanoramaFileName(item.file_name))
+  )
+}
+
+export function typologyPanoramaVariants<T extends { file_name: string }>(assets: T[]): T[] {
+  return assets.filter((item) => isTourPanoramaFileName(item.file_name))
+}
+
+export function panoWidthFromFileName(fileName: string): 2048 | 4096 | 8192 | null {
+  if (!isTourPanoramaFileName(fileName)) return null
+  if (/_8192\b/i.test(fileName)) return 8192
+  if (/_2048\b/i.test(fileName)) return 2048
+  return 4096
 }
 
 export function stillAssetForRoom<T extends { file_name: string }>(assets: T[], slug: string): T | undefined {
