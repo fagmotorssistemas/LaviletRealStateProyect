@@ -7,6 +7,15 @@ import { listUnitsImport, listUnitsImportFacets } from '@/services/inmobiliaria.
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'object' && error && 'message' in error) {
+    const message = String((error as { message?: unknown }).message ?? '')
+    if (message) return message
+  }
+  return 'No se pudo leer units_import'
+}
+
 function empty(error: string, status = 200) {
   return NextResponse.json(
     { data: [], total: 0, categories: [], floors: [], error },
@@ -23,20 +32,23 @@ export async function GET(request: Request) {
     if (role === 'visitante') return empty('No tienes acceso a esta sección', 403)
 
     const admin = tryCreateAdminClient()
-    if (!admin) return empty('Falta SUPABASE_SERVICE_ROLE_KEY en el servidor', 500)
+    if (!admin) {
+      return empty(
+        'La SUPABASE_SERVICE_ROLE_KEY de Vercel no es válida. Debe ser la service_role de Supabase (API), no la anon. Revisa que no tenga comillas y redespliega.',
+        500,
+      )
+    }
 
     const { searchParams } = new URL(request.url)
-    const [listed, facets] = await Promise.all([
-      listUnitsImport(admin, {
-        search: searchParams.get('search') ?? undefined,
-        category: searchParams.get('category') ?? undefined,
-        floorNumber: searchParams.get('floorNumber') ?? undefined,
-        status: searchParams.get('status') ?? undefined,
-        page: Number(searchParams.get('page') || 1),
-        pageSize: Number(searchParams.get('pageSize') || 10),
-      }),
-      listUnitsImportFacets(admin),
-    ])
+    const listed = await listUnitsImport(admin, {
+      search: searchParams.get('search') ?? undefined,
+      category: searchParams.get('category') ?? undefined,
+      floorNumber: searchParams.get('floorNumber') ?? undefined,
+      status: searchParams.get('status') ?? undefined,
+      page: Number(searchParams.get('page') || 1),
+      pageSize: Number(searchParams.get('pageSize') || 10),
+    })
+    const facets = await listUnitsImportFacets(admin)
 
     return NextResponse.json({
       data: listed.data,
@@ -46,6 +58,6 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     console.error('GET /api/inmobiliaria/units-import', error)
-    return empty(error instanceof Error ? error.message : 'No se pudo leer units_import')
+    return empty(errorMessage(error))
   }
 }

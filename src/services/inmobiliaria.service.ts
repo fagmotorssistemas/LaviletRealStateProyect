@@ -347,8 +347,10 @@ export async function listUnitsImport(
 
   let query = supabase
     .from('units_import')
-    .select('*', { count: 'exact' })
-    .order('floor_number', { ascending: true, nullsFirst: false })
+    .select(
+      'id, category, unit_code, plan_group, floor_label, floor_number, area_internal_m2, area_exterior_m2, parking, bedrooms, bathrooms_full, bathrooms_half, spaces, created_at, price, status, typology_code',
+      { count: 'exact' },
+    )
     .order('unit_code', { ascending: true })
 
   if (params.category) query = query.eq('category', params.category)
@@ -366,7 +368,7 @@ export async function listUnitsImport(
   }
 
   const { data, error, count } = await query.range(from, to)
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return { data: ((data ?? []) as UnitImport[]).map(mapUnitImportRow), total: count ?? 0 }
 }
 
@@ -376,7 +378,7 @@ export async function listUnitsImportFacets(
   const { data, error } = await supabase
     .from('units_import')
     .select('category, floor_label, floor_number')
-  if (error) throw error
+  if (error) throw new Error(error.message)
 
   const categories = [...new Set((data ?? []).map((r) => r.category).filter(Boolean))].sort()
   const floorMap = new Map<number, string>()

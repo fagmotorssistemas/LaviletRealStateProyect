@@ -1,10 +1,30 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
+function readEnv(name: string) {
+  return String(process.env[name] ?? '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+}
+
+function jwtRole(token: string) {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return null
+    const json = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { role?: string }
+    return json.role ?? null
+  } catch {
+    return null
+  }
+}
+
 /** Solo servidor. Nunca importar en componentes client. */
 export function tryCreateAdminClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const url = readEnv('NEXT_PUBLIC_SUPABASE_URL')
+  const key =
+    readEnv('SUPABASE_SERVICE_ROLE_KEY') || readEnv('SUPABASE_SERVICE_KEY') || readEnv('SERVICE_ROLE_KEY')
   if (!url || !key) return null
+  const role = jwtRole(key)
+  if (role && role !== 'service_role') return null
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
