@@ -1739,33 +1739,48 @@ export async function listSoldLeadsAsClosings(
   const leadIds = leads.map((lead) => lead.id)
   const sellerIds = [...new Set(leads.map((lead) => lead.assigned_to).filter(Boolean))] as string[]
 
-  const [linksRes, sellersRes] = await Promise.all([
-    supabase
-      .from('lead_units')
-      .select('lead_id, unit_id')
-      .in('lead_id', leadIds)
-      .then((res) => res)
-      .catch(() => ({ data: [] as Array<{ lead_id: string; unit_id: string }> })),
-    sellerIds.length
-      ? supabase.from('profiles').select('id, full_name, avatar_url').in('id', sellerIds)
-      : Promise.resolve({ data: [] as Array<{ id: string; full_name: string | null; avatar_url: string | null }> }),
+  type LeadUnitLink = { lead_id: string; unit_id: string }
+  type SellerRow = { id: string; full_name: string | null; avatar_url: string | null }
+
+  const [links, sellers] = await Promise.all([
+    (async (): Promise<LeadUnitLink[]> => {
+      try {
+        const { data: linkRows } = await supabase
+          .from('lead_units')
+          .select('lead_id, unit_id')
+          .in('lead_id', leadIds)
+        return (linkRows ?? []) as LeadUnitLink[]
+      } catch {
+        return []
+      }
+    })(),
+    (async (): Promise<SellerRow[]> => {
+      if (!sellerIds.length) return []
+      const { data: sellerRows } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', sellerIds)
+      return (sellerRows ?? []) as SellerRow[]
+    })(),
   ])
 
-  const unitIds = [...new Set((linksRes.data ?? []).map((link) => link.unit_id).filter(Boolean))]
+  const unitIds = [...new Set(links.map((link) => link.unit_id).filter(Boolean))]
   const unitsRes = unitIds.length
     ? await supabase
         .from('units')
         .select('id, unit_number, category, project_id, project:projects(id, name)')
         .in('id', unitIds)
     : { data: [] as Array<Parameters<typeof mapClosingUnit>[0]> }
-  const unitsById = new Map((unitsRes.data ?? []).map((unit) => [unit.id, mapClosingUnit(unit)]))
+  const unitsById = new Map(
+    (unitsRes.data ?? []).map((unit) => [unit.id, mapClosingUnit(unit as Parameters<typeof mapClosingUnit>[0])]),
+  )
 
   const unitByLead = new Map<string, ReturnType<typeof mapClosingUnit>>()
-  for (const link of linksRes.data ?? []) {
+  for (const link of links) {
     const unit = unitsById.get(link.unit_id)
     if (unit && !unitByLead.has(link.lead_id)) unitByLead.set(link.lead_id, unit)
   }
-  const sellersById = new Map((sellersRes.data ?? []).map((row) => [row.id, row]))
+  const sellersById = new Map(sellers.map((row) => [row.id, row]))
 
   const fromMs = params.from ? Date.parse(`${params.from}T00:00:00-05:00`) : null
   const toMs = params.to ? Date.parse(`${params.to}T23:59:59.999-05:00`) : null

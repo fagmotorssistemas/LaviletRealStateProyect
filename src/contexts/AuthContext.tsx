@@ -153,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     let cancelled = false
-    void supabase.auth.getSession().then(async ({ data }) => {
+    void supabase.auth.getSession().then(async ({ data }: { data: { session: Session | null } }) => {
       if (cancelled) return
       const cachedId = data.session?.user?.id ?? null
       if (cachedId && cachedId === userIdRef.current) return
