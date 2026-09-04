@@ -31,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const initialized = useRef(false)
+  const userIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -74,6 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const applySession = async (next: Session | null) => {
       if (cancelled) return
+      const nextUserId = next?.user?.id ?? null
+      userIdRef.current = nextUserId
       setSession(next)
       setUser(next?.user ?? null)
       if (next?.user) {
@@ -93,14 +96,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     void supabase.auth.getSession().then(({ data: sessionData }: { data: { session: Session | null } }) => {
-      if (!initialized.current) void applySession(sessionData.session)
+      if (cancelled || initialized.current || !sessionData.session) return
+      void applySession(sessionData.session)
     })
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, newSession: Session | null) => {
       if (event === 'TOKEN_REFRESHED' && initialized.current) return
-      if (event === 'INITIAL_SESSION' && initialized.current) return
+      const nextUserId = newSession?.user?.id ?? null
+      if (event === 'INITIAL_SESSION' && initialized.current && nextUserId === userIdRef.current) return
       await applySession(newSession)
     })
 

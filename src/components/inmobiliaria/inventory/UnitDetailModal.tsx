@@ -63,19 +63,39 @@ const subtypeOptions = [
   { value: 'oficina', label: 'Oficina' },
 ]
 
+function toNum(value: string): number | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const n = Number(trimmed)
+  return Number.isFinite(n) ? n : null
+}
+
+function spacesFromInput(value: string): string[] {
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
 const defaultEditForm = {
   project_id: '',
   unit_number: '',
   category: 'Departamento',
   unit_subtype: '',
+  unit_type_id: '',
+  plan_group: '',
   floor: '',
+  floor_number: '',
   area_internal_m2: '',
+  area_exterior_m2: '',
   area_terrace_covered_m2: '',
   area_terrace_open_m2: '',
   area_total_m2: '',
   bedrooms: '',
-  bathrooms: '',
+  bathrooms_full: '',
+  bathrooms_half: '',
   parking_assigned: '0',
+  spaces: '',
   cost_per_m2_internal: '',
   published_commercial_price: '',
   status: 'disponible' as UnitStatus,
@@ -88,14 +108,20 @@ function unitToFormFields(unit: Unit) {
     unit_number: unit.unit_number,
     category: unit.category,
     unit_subtype: unit.unit_subtype ?? '',
+    unit_type_id: unit.unit_type_id ?? '',
+    plan_group: unit.plan_group ?? '',
     floor: unit.floor ?? '',
+    floor_number: unit.floor_number != null ? String(unit.floor_number) : '',
     area_internal_m2: unit.area_internal_m2 != null ? String(unit.area_internal_m2) : '',
+    area_exterior_m2: unit.area_exterior_m2 != null ? String(unit.area_exterior_m2) : '',
     area_terrace_covered_m2: unit.area_terrace_covered_m2 != null ? String(unit.area_terrace_covered_m2) : '',
     area_terrace_open_m2: unit.area_terrace_open_m2 != null ? String(unit.area_terrace_open_m2) : '',
     area_total_m2: unit.area_total_m2 != null ? String(unit.area_total_m2) : '',
     bedrooms: unit.bedrooms != null ? String(unit.bedrooms) : '',
-    bathrooms: unit.bathrooms != null ? String(unit.bathrooms) : '',
+    bathrooms_full: (unit.bathrooms_full ?? unit.bathrooms) != null ? String(unit.bathrooms_full ?? unit.bathrooms) : '',
+    bathrooms_half: unit.bathrooms_half != null ? String(unit.bathrooms_half) : '',
     parking_assigned: String(unit.parking_assigned ?? 0),
+    spaces: (unit.spaces ?? []).join(', '),
     cost_per_m2_internal: unit.cost_per_m2_internal != null ? String(unit.cost_per_m2_internal) : '',
     published_commercial_price: unit.published_commercial_price != null ? String(unit.published_commercial_price) : '',
     status: unit.status,
@@ -106,6 +132,7 @@ function unitToFormFields(unit: Unit) {
 interface UnitDetailModalProps {
   unit: Unit | null
   projects: Project[]
+  unitTypes?: { id: string; name: string }[]
   isOpen: boolean
   onClose: () => void
   onStatusChange?: (unitId: string, status: UnitStatus) => void
@@ -116,6 +143,7 @@ interface UnitDetailModalProps {
 export function UnitDetailModal({
   unit,
   projects,
+  unitTypes = [],
   isOpen,
   onClose,
   onStatusChange,
@@ -199,21 +227,29 @@ export function UnitDetailModal({
     }
     setSaving(true)
     try {
+      const bathroomsFull = toNum(form.bathrooms_full)
       await updateUnit(supabase, unit.id, {
         project_id: form.project_id,
         unit_number: form.unit_number.trim(),
         category: form.category,
         unit_subtype: form.unit_subtype || null,
+        unit_type_id: form.unit_type_id || null,
+        plan_group: form.plan_group.trim() || null,
         floor: form.floor || null,
-        area_internal_m2: form.area_internal_m2 ? Number(form.area_internal_m2) : null,
-        area_terrace_covered_m2: form.area_terrace_covered_m2 ? Number(form.area_terrace_covered_m2) : null,
-        area_terrace_open_m2: form.area_terrace_open_m2 ? Number(form.area_terrace_open_m2) : null,
-        area_total_m2: form.area_total_m2 ? Number(form.area_total_m2) : null,
-        bedrooms: form.bedrooms !== '' ? Number(form.bedrooms) : null,
-        bathrooms: form.bathrooms !== '' ? Number(form.bathrooms) : null,
+        floor_number: toNum(form.floor_number),
+        area_internal_m2: toNum(form.area_internal_m2),
+        area_exterior_m2: toNum(form.area_exterior_m2),
+        area_terrace_covered_m2: toNum(form.area_terrace_covered_m2),
+        area_terrace_open_m2: toNum(form.area_terrace_open_m2),
+        area_total_m2: toNum(form.area_total_m2),
+        bedrooms: toNum(form.bedrooms),
+        bathrooms: bathroomsFull,
+        bathrooms_full: bathroomsFull,
+        bathrooms_half: toNum(form.bathrooms_half),
         parking_assigned: Number(form.parking_assigned) || 0,
-        cost_per_m2_internal: form.cost_per_m2_internal ? Number(form.cost_per_m2_internal) : null,
-        published_commercial_price: form.published_commercial_price ? Number(form.published_commercial_price) : null,
+        spaces: spacesFromInput(form.spaces),
+        cost_per_m2_internal: toNum(form.cost_per_m2_internal),
+        published_commercial_price: toNum(form.published_commercial_price),
         status: form.status as UnitStatus,
         description: form.description || null,
       })
@@ -356,22 +392,54 @@ export function UnitDetailModal({
               value={form.unit_subtype}
               onChange={(e) => updateField('unit_subtype', e.target.value)}
             />
+            <Select
+              id="edit-unit_type_id"
+              label="Tipología"
+              placeholder="Sin tipología"
+              options={unitTypes.map((item) => ({ value: item.id, label: item.name }))}
+              value={form.unit_type_id}
+              onChange={(e) => updateField('unit_type_id', e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Input
+              id="edit-plan_group"
+              label="Grupo"
+              placeholder="Ej: Tipo A"
+              value={form.plan_group}
+              onChange={(e) => updateField('plan_group', e.target.value)}
+            />
             <Input
               id="edit-floor"
-              label="Piso"
-              placeholder="Ej: PB, 2, 5"
+              label="Piso (etiqueta)"
+              placeholder="Ej: Piso 2"
               value={form.floor}
               onChange={(e) => updateField('floor', e.target.value)}
+            />
+            <Input
+              id="edit-floor_number"
+              label="Nro. piso"
+              type="number"
+              value={form.floor_number}
+              onChange={(e) => updateField('floor_number', e.target.value)}
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               id="edit-area_int"
-              label="Área depto. (m²)"
+              label="Área interna (m²)"
               type="number"
               step="0.01"
               value={form.area_internal_m2}
               onChange={(e) => updateField('area_internal_m2', e.target.value)}
+            />
+            <Input
+              id="edit-area_ext"
+              label="Área exterior (m²)"
+              type="number"
+              step="0.01"
+              value={form.area_exterior_m2}
+              onChange={(e) => updateField('area_exterior_m2', e.target.value)}
             />
             <Input
               id="edit-area_ter_cov"
@@ -411,7 +479,7 @@ export function UnitDetailModal({
                 </p>
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Input
                 id="edit-bedrooms"
                 label="Habitaciones"
@@ -423,14 +491,24 @@ export function UnitDetailModal({
                 onChange={(e) => updateField('bedrooms', e.target.value)}
               />
               <Input
-                id="edit-bathrooms"
-                label="Baños"
+                id="edit-bathrooms_full"
+                label="Baños completos"
                 type="number"
-                step="0.5"
+                step="1"
                 min="0"
-                placeholder="Ej: 2.5"
-                value={form.bathrooms}
-                onChange={(e) => updateField('bathrooms', e.target.value)}
+                placeholder="Ej: 2"
+                value={form.bathrooms_full}
+                onChange={(e) => updateField('bathrooms_full', e.target.value)}
+              />
+              <Input
+                id="edit-bathrooms_half"
+                label="Baños sociales"
+                type="number"
+                step="1"
+                min="0"
+                placeholder="Ej: 1"
+                value={form.bathrooms_half}
+                onChange={(e) => updateField('bathrooms_half', e.target.value)}
               />
             </div>
           </div>
@@ -466,6 +544,13 @@ export function UnitDetailModal({
               onChange={(e) => updateField('status', e.target.value)}
             />
           </div>
+          <Textarea
+            id="edit-spaces"
+            label="Espacios"
+            placeholder="Sala, cocina, terraza (separados por coma)"
+            value={form.spaces}
+            onChange={(e) => updateField('spaces', e.target.value)}
+          />
           <Textarea
             id="edit-desc"
             label="Descripción"
@@ -517,6 +602,9 @@ export function UnitDetailModal({
               <Tag size={14} className="text-gray-800" />
               {displayUnit.category}
             </div>
+            {displayUnit.typology_code && (
+              <span className="text-sm text-gray-400">• {displayUnit.typology_code}</span>
+            )}
             {displayUnit.unit_subtype && (
               <span className="text-sm text-gray-400">• {displayUnit.unit_subtype}</span>
             )}
@@ -527,9 +615,12 @@ export function UnitDetailModal({
             <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Información general</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <InfoRow icon={<Building2 size={15} className="text-gray-800" />} label="Proyecto" value={projectName} />
+              <InfoRow icon={<Layers size={15} className="text-gray-800" />} label="Tipología" value={displayUnit.typology_code ?? '—'} />
+              <InfoRow icon={<Layers size={15} className="text-gray-800" />} label="Grupo" value={displayUnit.plan_group ?? '—'} />
               <InfoRow icon={<Layers size={15} className="text-gray-800" />} label="Piso" value={displayUnit.floor ?? '—'} />
               <InfoRow icon={<BedDouble size={15} className="text-gray-800" />} label="Habitaciones" value={displayUnit.bedrooms != null ? String(displayUnit.bedrooms) : '—'} />
-              <InfoRow icon={<Bath size={15} className="text-gray-800" />} label="Baños" value={displayUnit.bathrooms != null ? String(displayUnit.bathrooms) : '—'} />
+              <InfoRow icon={<Bath size={15} className="text-gray-800" />} label="Baños completos" value={(displayUnit.bathrooms_full ?? displayUnit.bathrooms) != null ? String(displayUnit.bathrooms_full ?? displayUnit.bathrooms) : '—'} />
+              <InfoRow icon={<Bath size={15} className="text-gray-800" />} label="Baños sociales" value={displayUnit.bathrooms_half != null ? String(displayUnit.bathrooms_half) : '—'} />
               <InfoRow icon={<Car size={15} className="text-gray-800" />} label="Parqueos asignados" value={String(displayUnit.parking_assigned ?? 0)} />
               <InfoRow icon={<DollarSign size={15} className="text-gray-800" />} label="Costo / m²" value={displayUnit.cost_per_m2_internal ? formatCurrency(Number(displayUnit.cost_per_m2_internal)) : '—'} />
             </div>
@@ -541,8 +632,13 @@ export function UnitDetailModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <InfoRow
                 icon={<Ruler size={15} className="text-gray-800" />}
-                label="Área del departamento"
+                label="Área interna"
                 value={displayUnit.area_internal_m2 ? `${formatNumber(Number(displayUnit.area_internal_m2))} m²` : '—'}
+              />
+              <InfoRow
+                icon={<Ruler size={15} className="text-gray-800" />}
+                label="Área exterior"
+                value={displayUnit.area_exterior_m2 ? `${formatNumber(Number(displayUnit.area_exterior_m2))} m²` : '—'}
               />
               <InfoRow
                 icon={<Umbrella size={15} className="text-gray-800" />}
@@ -561,6 +657,16 @@ export function UnitDetailModal({
               />
             </div>
           </div>
+
+          {(displayUnit.spaces ?? []).length > 0 && (
+            <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <FileText size={15} className="text-gray-800" />
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Espacios</h4>
+              </div>
+              <p className="text-sm text-gray-700 leading-relaxed">{displayUnit.spaces.join(' · ')}</p>
+            </div>
+          )}
 
           {/* Precio comercial */}
           <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">

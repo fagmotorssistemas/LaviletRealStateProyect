@@ -122,8 +122,23 @@ export interface TourUnitSummary {
   area_total_m2: number | null
   bedrooms: number | null
   bathrooms: number | null
+  bathrooms_full?: number | null
+  bathrooms_half?: number | null
+  spaces?: string[]
   slug: string | null
   typology_code?: string | null
+}
+
+export type TourRoomPhoto = {
+  slug: string
+  label: string
+  url: string | null
+}
+
+export type TourAssetRef = {
+  id: string
+  file_name: string
+  url: string
 }
 
 export type TourTypologyOption = {
@@ -131,8 +146,10 @@ export type TourTypologyOption = {
   code: string
   name: string
   category: string
-  renders: { id: string; file_name: string; url: string }[]
-  planos: { id: string; file_name: string; url: string }[]
+  panorama: TourAssetRef | null
+  renders: TourAssetRef[]
+  planos: TourAssetRef[]
+  rooms: TourRoomPhoto[]
 }
 
 export type TourPublicCatalog = {
@@ -148,6 +165,8 @@ export type TourPublicCatalog = {
     status: UnitStatus
     bedrooms: number | null
     bathrooms_full: number | null
+    bathrooms_half: number | null
+    spaces: string[]
     area_internal_m2: number | null
   }>
 }

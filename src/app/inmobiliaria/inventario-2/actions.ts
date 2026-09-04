@@ -64,7 +64,7 @@ export async function updateUnitsImportAction(id: string, payload: UnitsImportWr
 
 export async function listTypologiesImportAction(): Promise<TypologyImport[]> {
   try {
-    await assertCanAccessCrmPath('/inmobiliaria/inventario-2')
+    await assertCanAccessCrmPath('/inmobiliaria/inventario')
     return await listTypologiesImport(await getCrmDataClient())
   } catch (error) {
     console.error('listTypologiesImportAction', error)
@@ -76,7 +76,7 @@ export async function listTypologyAssetsAction(
   typologyCode: string,
 ): Promise<(TypologyAsset & { public_url: string })[]> {
   try {
-    await assertCanAccessCrmPath('/inmobiliaria/inventario-2')
+    await assertCanAccessCrmPath('/inmobiliaria/inventario')
     const client = await getCrmDataClient()
     const rows = await listTypologyAssets(client, typologyCode)
     return rows.map((row) => ({
@@ -90,7 +90,7 @@ export async function listTypologyAssetsAction(
 }
 
 export async function deleteTypologyAssetAction(id: string): Promise<void> {
-  await assertCanAccessCrmPath('/inmobiliaria/inventario-2')
+  await assertCanAccessCrmPath('/inmobiliaria/inventario')
   await assertCanWriteCrm()
   return deleteTypologyAsset(await getCrmDataClient(), id)
 }

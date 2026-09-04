@@ -3,6 +3,16 @@
   right: max(10px, env(safe-area-inset-right)) !important;
 }
 
+.tour-chrome {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.psv-virtual-tour-arrows,
+.psv-virtual-tour-link {
+  display: none !important;
+}
+
 .psv-virtual-tour-arrows {
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
 }
@@ -38,4 +48,50 @@
   color: #fff;
   background: rgba(18, 16, 14, 0.46);
   border-color: rgba(255, 255, 255, 0.38);
+}
+
+.tour-hotspot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.tour-hotspot-disc {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(18, 16, 14, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.tour-hotspot-disc svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tour-hotspot-label {
+  max-width: 7.5rem;
+  padding: 2px 7px;
+  color: #fff;
+  font: 600 10px/1.2 sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+  background: rgba(18, 16, 14, 0.42);
+  border-radius: 4px;
+}
+
+.psv-marker:hover .tour-hotspot-disc {
+  background: rgba(120, 125, 98, 0.92);
+  border-color: rgba(255, 255, 255, 0.45);
 }

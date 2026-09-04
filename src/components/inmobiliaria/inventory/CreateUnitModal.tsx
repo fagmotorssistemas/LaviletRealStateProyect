@@ -31,36 +31,59 @@ const subtypeOptions = [
   { value: 'oficina', label: 'Oficina' },
 ]
 
+function toNum(value: string): number | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const n = Number(trimmed)
+  return Number.isFinite(n) ? n : null
+}
+
+function spacesFromInput(value: string): string[] {
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+const emptyForm = {
+  project_id: '',
+  unit_number: '',
+  category: 'Departamento',
+  unit_subtype: '',
+  unit_type_id: '',
+  plan_group: '',
+  floor: '',
+  floor_number: '',
+  area_internal_m2: '',
+  area_exterior_m2: '',
+  area_terrace_covered_m2: '',
+  area_terrace_open_m2: '',
+  area_total_m2: '',
+  bedrooms: '',
+  bathrooms_full: '',
+  bathrooms_half: '',
+  parking_assigned: '0',
+  spaces: '',
+  cost_per_m2_internal: '',
+  published_commercial_price: '',
+  status: 'disponible',
+  description: '',
+}
+
 interface CreateUnitModalProps {
   isOpen: boolean
   onClose: () => void
   onCreated: () => void
   projects: Project[]
+  unitTypes: { id: string; name: string }[]
   tenantId: string
 }
 
-export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId }: CreateUnitModalProps) {
+export function CreateUnitModal({ isOpen, onClose, onCreated, projects, unitTypes, tenantId }: CreateUnitModalProps) {
   const { supabase } = useAuth()
   const [loading, setLoading] = useState(false)
   const [imageFiles, setImageFiles] = useState<File[]>([])
-  const [form, setForm] = useState({
-    project_id: '',
-    unit_number: '',
-    category: 'Departamento',
-    unit_subtype: '',
-    floor: '',
-    area_internal_m2: '',
-    area_terrace_covered_m2: '',
-    area_terrace_open_m2: '',
-    area_total_m2: '',
-    bedrooms: '',
-    bathrooms: '',
-    parking_assigned: '0',
-    cost_per_m2_internal: '',
-    published_commercial_price: '',
-    status: 'disponible',
-    description: '',
-  })
+  const [form, setForm] = useState(emptyForm)
 
   const update = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 
@@ -72,22 +95,30 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
     }
     setLoading(true)
     try {
+      const bathroomsFull = toNum(form.bathrooms_full)
       const created = await createUnit(supabase, {
         tenant_id: tenantId,
         project_id: form.project_id,
         unit_number: form.unit_number,
         category: form.category,
         unit_subtype: form.unit_subtype || null,
+        unit_type_id: form.unit_type_id || null,
+        plan_group: form.plan_group.trim() || null,
         floor: form.floor || null,
-        area_internal_m2: form.area_internal_m2 ? Number(form.area_internal_m2) : null,
-        area_terrace_covered_m2: form.area_terrace_covered_m2 ? Number(form.area_terrace_covered_m2) : null,
-        area_terrace_open_m2: form.area_terrace_open_m2 ? Number(form.area_terrace_open_m2) : null,
-        area_total_m2: form.area_total_m2 ? Number(form.area_total_m2) : null,
-        bedrooms: form.bedrooms !== '' ? Number(form.bedrooms) : null,
-        bathrooms: form.bathrooms !== '' ? Number(form.bathrooms) : null,
+        floor_number: toNum(form.floor_number),
+        area_internal_m2: toNum(form.area_internal_m2),
+        area_exterior_m2: toNum(form.area_exterior_m2),
+        area_terrace_covered_m2: toNum(form.area_terrace_covered_m2),
+        area_terrace_open_m2: toNum(form.area_terrace_open_m2),
+        area_total_m2: toNum(form.area_total_m2),
+        bedrooms: toNum(form.bedrooms),
+        bathrooms: bathroomsFull,
+        bathrooms_full: bathroomsFull,
+        bathrooms_half: toNum(form.bathrooms_half),
         parking_assigned: Number(form.parking_assigned) || 0,
-        cost_per_m2_internal: form.cost_per_m2_internal ? Number(form.cost_per_m2_internal) : null,
-        published_commercial_price: form.published_commercial_price ? Number(form.published_commercial_price) : null,
+        spaces: spacesFromInput(form.spaces),
+        cost_per_m2_internal: toNum(form.cost_per_m2_internal),
+        published_commercial_price: toNum(form.published_commercial_price),
         status: form.status as 'disponible',
         description: form.description || null,
       })
@@ -120,7 +151,7 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
       onCreated()
       onClose()
       setImageFiles([])
-      setForm({ project_id: '', unit_number: '', category: 'Departamento', unit_subtype: '', floor: '', area_internal_m2: '', area_terrace_covered_m2: '', area_terrace_open_m2: '', area_total_m2: '', bedrooms: '', bathrooms: '', parking_assigned: '0', cost_per_m2_internal: '', published_commercial_price: '', status: 'disponible', description: '' })
+      setForm(emptyForm)
     } catch {
       toast.error('Error al crear la unidad')
     } finally {
@@ -138,10 +169,23 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Select id="category" label="Categoría" options={categoryOptions} value={form.category} onChange={(e) => update('category', e.target.value)} />
           <Select id="subtype" label="Subtipo" options={subtypeOptions} placeholder="Seleccionar" value={form.unit_subtype} onChange={(e) => update('unit_subtype', e.target.value)} />
-          <Input id="floor" label="Piso" placeholder="Ej: PB, 2, 5" value={form.floor} onChange={(e) => update('floor', e.target.value)} />
+          <Select
+            id="unit_type_id"
+            label="Tipología"
+            placeholder="Sin tipología"
+            options={unitTypes.map((item) => ({ value: item.id, label: item.name }))}
+            value={form.unit_type_id}
+            onChange={(e) => update('unit_type_id', e.target.value)}
+          />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Input id="plan_group" label="Grupo" placeholder="Ej: Tipo A" value={form.plan_group} onChange={(e) => update('plan_group', e.target.value)} />
+          <Input id="floor" label="Piso (etiqueta)" placeholder="Ej: Piso 2" value={form.floor} onChange={(e) => update('floor', e.target.value)} />
+          <Input id="floor_number" label="Nro. piso" type="number" value={form.floor_number} onChange={(e) => update('floor_number', e.target.value)} />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input id="area_int" label="Área depto. (m²)" type="number" step="0.01" value={form.area_internal_m2} onChange={(e) => update('area_internal_m2', e.target.value)} />
+          <Input id="area_int" label="Área interna (m²)" type="number" step="0.01" value={form.area_internal_m2} onChange={(e) => update('area_internal_m2', e.target.value)} />
+          <Input id="area_ext" label="Área exterior (m²)" type="number" step="0.01" value={form.area_exterior_m2} onChange={(e) => update('area_exterior_m2', e.target.value)} />
           <Input id="area_ter_cov" label="Terraza cubierta (m²)" type="number" step="0.01" value={form.area_terrace_covered_m2} onChange={(e) => update('area_terrace_covered_m2', e.target.value)} />
           <Input id="area_ter_open" label="Terraza descubierta (m²)" type="number" step="0.01" value={form.area_terrace_open_m2} onChange={(e) => update('area_terrace_open_m2', e.target.value)} />
           <Input id="area_total" label="Área total (m²)" type="number" step="0.01" value={form.area_total_m2} onChange={(e) => update('area_total_m2', e.target.value)} />
@@ -160,7 +204,7 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
               id="bedrooms"
               label="Habitaciones"
@@ -172,14 +216,24 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
               onChange={(e) => update('bedrooms', e.target.value)}
             />
             <Input
-              id="bathrooms"
-              label="Baños"
+              id="bathrooms_full"
+              label="Baños completos"
               type="number"
-              step="0.5"
+              step="1"
               min="0"
-              placeholder="Ej: 2.5"
-              value={form.bathrooms}
-              onChange={(e) => update('bathrooms', e.target.value)}
+              placeholder="Ej: 2"
+              value={form.bathrooms_full}
+              onChange={(e) => update('bathrooms_full', e.target.value)}
+            />
+            <Input
+              id="bathrooms_half"
+              label="Baños sociales"
+              type="number"
+              step="1"
+              min="0"
+              placeholder="Ej: 1"
+              value={form.bathrooms_half}
+              onChange={(e) => update('bathrooms_half', e.target.value)}
             />
           </div>
         </div>
@@ -190,6 +244,13 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, tenantId
           <Input id="price" label="Precio comercial" type="number" step="0.01" placeholder="128000" value={form.published_commercial_price} onChange={(e) => update('published_commercial_price', e.target.value)} />
           <Select id="status" label="Estado" options={UNIT_STATUS_OPTIONS} value={form.status} onChange={(e) => update('status', e.target.value)} />
         </div>
+        <Textarea
+          id="spaces"
+          label="Espacios"
+          placeholder="Sala, cocina, terraza (separados por coma)"
+          value={form.spaces}
+          onChange={(e) => update('spaces', e.target.value)}
+        />
         <Textarea id="desc" label="Descripción" placeholder="Descripción opcional de la unidad..." value={form.description} onChange={(e) => update('description', e.target.value)} />
         <div className="space-y-2">
           <p className="text-sm font-medium text-gray-800">Fotos de la unidad (opcional)</p>

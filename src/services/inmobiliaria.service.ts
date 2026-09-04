@@ -209,7 +209,24 @@ function sanitizeIlikeTerm(raw: string): string {
 
 function mapUnitRow(row: Unit): Unit {
   const project = unwrapEmbedded(row.project as Project | Project[] | null | undefined)
-  return { ...row, project: project ?? undefined }
+  const unitType = unwrapEmbedded(
+    (row as Unit & { unit_type?: { name?: string } | { name?: string }[] | null }).unit_type,
+  )
+  const bathroomsFull = row.bathrooms_full ?? row.bathrooms ?? null
+  return {
+    ...row,
+    project: project ?? undefined,
+    unit_type_id: row.unit_type_id ?? null,
+    typology_code: unitType?.name ?? row.typology_code ?? null,
+    plan_group: row.plan_group ?? null,
+    floor_number: row.floor_number ?? null,
+    area_exterior_m2: row.area_exterior_m2 ?? null,
+    bathrooms_full: bathroomsFull,
+    bathrooms_half: row.bathrooms_half ?? null,
+    bathrooms: bathroomsFull,
+    spaces: Array.isArray(row.spaces) ? row.spaces : [],
+    parking_assigned: row.parking_assigned ?? 0,
+  }
 }
 
 function applyUnitsListFilters(query: any, params: ListUnitsParams, searchMode: UnitSearchMode) {
@@ -223,7 +240,9 @@ function applyUnitsListFilters(query: any, params: ListUnitsParams, searchMode: 
   if (searchMode === 'number') {
     return query.ilike('unit_number', `%${term}%`)
   }
-  return query.or(`unit_number.ilike."%${term}%",description.ilike."%${term}%"`)
+  return query.or(
+    `unit_number.ilike."%${term}%",plan_group.ilike."%${term}%",floor.ilike."%${term}%",category.ilike."%${term}%"`,
+  )
 }
 
 function applyUnitsListSort(query: any, sort: InventorySortOption | undefined) {
@@ -259,7 +278,7 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
     let searchMode: UnitSearchMode = 'full'
     for (;;) {
       let q = applyUnitsListFilters(
-        supabase.from('units').select('*, project:projects(id, name)'),
+        supabase.from('units').select('*, project:projects(id, name), unit_type:unit_types(id, name, slug)'),
         params,
         searchMode,
       )
@@ -285,7 +304,7 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
 
   const run = (searchMode: UnitSearchMode) => {
     let query = applyUnitsListFilters(
-      supabase.from('units').select('*, project:projects(id, name)', { count: 'exact' }),
+      supabase.from('units').select('*, project:projects(id, name), unit_type:unit_types(id, name, slug)', { count: 'exact' }),
       params,
       searchMode,
     )
@@ -302,6 +321,21 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
   }
   if (error) throw error
   return { data: ((data ?? []) as Unit[]).map(mapUnitRow), total: count ?? 0 }
+}
+
+export async function listActiveUnitTypes(
+  supabase: SupabaseClient,
+  tenantIds: string[],
+): Promise<{ id: string; name: string }[]> {
+  if (!tenantIds.length) return []
+  const { data, error } = await supabase
+    .from('unit_types')
+    .select('id, name')
+    .in('tenant_id', tenantIds)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+  if (error) throw error
+  return (data ?? []).map((row) => ({ id: row.id, name: row.name }))
 }
 
 type UnitTableRow = {
@@ -593,7 +627,7 @@ export async function insertTypologyAsset(
     .select('id, typology_code, kind, file_name, storage_path, sort_order, created_at')
     .single()
 
-  if (error) throw error
+  if (error) throw new Error(error.message || 'No se pudo guardar la fila')
   return data as TypologyAsset
 }
 
@@ -785,14 +819,13 @@ export async function getUnit(supabase: SupabaseClient, unitId: string) {
   const { data, error } = await supabase
     .from('units')
     .select(
-      '*, project:projects(id, name), unit_media(id, tenant_id, unit_id, type, url, storage_path, file_name, mime_type, file_size_bytes, caption, sort_order, is_cover, created_at, updated_at)',
+      '*, project:projects(id, name), unit_type:unit_types(id, name, slug), unit_media(id, tenant_id, unit_id, type, url, storage_path, file_name, mime_type, file_size_bytes, caption, sort_order, is_cover, created_at, updated_at)',
     )
     .eq('id', unitId)
     .order('sort_order', { referencedTable: 'unit_media', ascending: true })
     .single()
   if (error) throw error
-  const row = data as Unit
-  return row
+  return mapUnitRow(data as Unit)
 }
 
 export function getUnitMediaPublicUrl(supabase: SupabaseClient, storagePath: string): string {
@@ -884,13 +917,22 @@ export async function updateUnitMediaCaption(supabase: SupabaseClient, mediaId: 
   if (error) throw error
 }
 
+function unitWriteRow(payload: Partial<Unit>) {
+  const { typology_code: _typology, project: _project, unit_media: _media, ...row } = payload
+  return row
+}
+
 export async function createUnit(
   supabase: SupabaseClient,
   payload: Partial<Unit> & { tenant_id: string; project_id: string; unit_number: string }
 ) {
-  const { data, error } = await supabase.from('units').insert(payload).select().single()
+  const { data, error } = await supabase
+    .from('units')
+    .insert(unitWriteRow(payload))
+    .select('*, project:projects(id, name), unit_type:unit_types(id, name, slug)')
+    .single()
   if (error) throw error
-  return data as Unit
+  return mapUnitRow(data as Unit)
 }
 
 export async function updateUnit(
@@ -900,12 +942,12 @@ export async function updateUnit(
 ) {
   const { data, error } = await supabase
     .from('units')
-    .update(payload)
+    .update(unitWriteRow(payload))
     .eq('id', unitId)
-    .select()
+    .select('*, project:projects(id, name), unit_type:unit_types(id, name, slug)')
     .single()
   if (error) throw error
-  return data as Unit
+  return mapUnitRow(data as Unit)
 }
 
 export async function updateUnitStatus(supabase: SupabaseClient, unitId: string, status: UnitStatus) {

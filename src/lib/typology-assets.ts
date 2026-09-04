@@ -3,7 +3,7 @@ import type { TypologyAssetKind } from '@/types/inmobiliaria'
 export const TYPOLOGY_ASSETS_BUCKET = 'typology-assets'
 /** 12 MB: planos arquitectónicos en PNG suelen ir de 2 a 10 MB; deja margen sin saturar sharp. */
 export const TYPOLOGY_ASSET_MAX_BYTES = 12 * 1024 * 1024
-export const TYPOLOGY_ASSET_KINDS: TypologyAssetKind[] = ['plano', 'render']
+export const TYPOLOGY_ASSET_KINDS: TypologyAssetKind[] = ['plano', 'render', 'ambiente']
 
 export function isTypologyAssetKind(value: string): value is TypologyAssetKind {
   return TYPOLOGY_ASSET_KINDS.includes(value as TypologyAssetKind)

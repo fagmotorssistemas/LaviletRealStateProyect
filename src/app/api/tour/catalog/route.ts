@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { getTypologyAssetPublicUrl } from '@/services/inmobiliaria.service'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
+import { stillAssetForRoom, typologyPanoramaAsset, unionTourRooms } from '@/lib/tour/tourRooms'
 import type { TypologyAsset } from '@/types/inmobiliaria'
 
 export const runtime = 'nodejs'
@@ -12,7 +13,7 @@ export async function GET() {
   const [{ data: typologies, error: tErr }, assetsRes, { data: units, error: uErr }] = await Promise.all([
     admin
       .from('unit_types')
-      .select('id, name, slug, description, bedrooms')
+      .select('id, name, slug, description, bedrooms, bathrooms')
       .eq('tenant_id', TOUR_TENANT_ID)
       .eq('is_active', true)
       .order('sort_order', { ascending: true }),
@@ -23,7 +24,7 @@ export async function GET() {
     admin
       .from('units')
       .select(
-        'id, unit_number, unit_type_id, floor, published_commercial_price, status, bedrooms, bathrooms, area_internal_m2',
+        'id, unit_number, unit_type_id, floor, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_internal_m2',
       )
       .eq('tenant_id', TOUR_TENANT_ID)
       .order('unit_number', { ascending: true }),
@@ -49,13 +50,45 @@ export async function GET() {
         file_name: item.file_name,
         url: getTypologyAssetPublicUrl(admin, item.storage_path),
       })
+      const typeUnits = (units ?? []).filter((unit) => unit.unit_type_id === row.id)
+      const roomDefs = unionTourRooms(
+        typeUnits.map((unit) => ({
+          bedrooms: unit.bedrooms ?? row.bedrooms,
+          bathrooms_full: unit.bathrooms_full ?? unit.bathrooms,
+          bathrooms_half: unit.bathrooms_half,
+          spaces: Array.isArray(unit.spaces) ? unit.spaces : [],
+        })),
+      )
+      const rooms =
+        roomDefs.length > 0
+          ? roomDefs
+          : unionTourRooms([
+              {
+                bedrooms: row.bedrooms,
+                bathrooms_full: row.bathrooms,
+                bathrooms_half: 0,
+                spaces: ['Sala', 'Cocina'],
+              },
+            ])
       return {
         id: row.id,
         code: row.name,
         name: row.description || row.name,
         category: row.bedrooms && row.bedrooms >= 2 ? 'departamento' : 'suite',
+        panorama: (() => {
+          const asset = typologyPanoramaAsset(list)
+          return asset ? toPublic(asset) : null
+        })(),
         renders: list.filter((item) => item.kind === 'render').map(toPublic),
         planos: list.filter((item) => item.kind === 'plano').map(toPublic),
+        rooms: rooms.map((room) => {
+          const asset = stillAssetForRoom(list, room.slug)
+          return {
+            slug: room.slug,
+            label: room.label,
+            url: asset ? getTypologyAssetPublicUrl(admin, asset.storage_path) : null,
+          }
+        }),
       }
     }),
     units: (units ?? []).map((row) => {
@@ -74,7 +107,9 @@ export async function GET() {
         published_commercial_price: row.published_commercial_price,
         status: row.status,
         bedrooms: row.bedrooms,
-        bathrooms_full: row.bathrooms,
+        bathrooms_full: row.bathrooms_full ?? row.bathrooms,
+        bathrooms_half: row.bathrooms_half ?? 0,
+        spaces: Array.isArray(row.spaces) ? row.spaces : [],
         area_internal_m2: row.area_internal_m2,
       }
     }),

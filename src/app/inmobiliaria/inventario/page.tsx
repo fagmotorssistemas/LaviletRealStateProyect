@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useState } from 'react'
-import { Download, LayoutGrid, Plus } from 'lucide-react'
+import { Download, ImagePlus, LayoutGrid, Plus } from 'lucide-react'
 import { useInventoryUnits } from '@/hooks/inmobiliaria/useInventoryUnits'
 import { updateUnitStatus } from '@/services/inmobiliaria.service'
 import { useAuth } from '@/contexts/AuthContext'
@@ -10,6 +10,7 @@ import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { InventoryUnitsTable } from '@/components/inmobiliaria/inventory/InventoryUnitsTable'
 import { UnitDetailModal } from '@/components/inmobiliaria/inventory/UnitDetailModal'
 import { CreateUnitModal } from '@/components/inmobiliaria/inventory/CreateUnitModal'
+import { TypologyAssetsModal } from '@/components/inmobiliaria/inventory/TypologyAssetsModal'
 const ExportInventoryModal = dynamic(
   () =>
     import('@/components/inmobiliaria/inventory/ExportInventoryModal').then((m) => m.ExportInventoryModal),
@@ -40,6 +41,7 @@ export default function InventarioPage() {
   const {
     units,
     projects,
+    unitTypes,
     isLoading,
     filters,
     tenantId,
@@ -54,6 +56,7 @@ export default function InventarioPage() {
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [assetsOpen, setAssetsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
 
   const handleSelectUnit = (unit: Unit) => {
@@ -86,6 +89,10 @@ export default function InventarioPage() {
         actions={
           canWrite ? (
             <div className="flex shrink-0 flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setAssetsOpen(true)} className="gap-2">
+                <ImagePlus size={16} aria-hidden />
+                Imágenes tipología
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -110,7 +117,7 @@ export default function InventarioPage() {
         <InmobiliariaFiltersToolbar
           searchValue={filters.search}
           onSearchChange={(value) => updateFilter('search', value)}
-          searchPlaceholder="Buscar por número o descripción..."
+          searchPlaceholder="Buscar por número, grupo o piso..."
           resultsTotal={total}
           hasActiveFilters={Boolean(
             filters.search
@@ -171,6 +178,7 @@ export default function InventarioPage() {
       <UnitDetailModal
         unit={selectedUnit}
         projects={projects}
+        unitTypes={unitTypes}
         isOpen={detailOpen}
         onClose={() => setDetailOpen(false)}
         onStatusChange={canWrite ? handleStatusChange : undefined}
@@ -192,8 +200,10 @@ export default function InventarioPage() {
             onClose={() => setCreateOpen(false)}
             onCreated={reload}
             projects={projects}
+            unitTypes={unitTypes}
             tenantId={tenantId}
           />
+          <TypologyAssetsModal isOpen={assetsOpen} onClose={() => setAssetsOpen(false)} />
           <ExportInventoryModal
             isOpen={exportOpen}
             onClose={() => setExportOpen(false)}

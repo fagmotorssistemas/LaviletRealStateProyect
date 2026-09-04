@@ -12,17 +12,20 @@ type SceneTarget = {
   light?: string
 }
 
-const GATE_SECONDS = 28
+const GATE_SECONDS = 30
 
-export function useTourSceneTracking(target: SceneTarget) {
+export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateClock?: boolean }) {
   const targetRef = useRef(target)
   const startedRef = useRef(Date.now())
   const visibleRef = useRef(typeof document === 'undefined' ? true : document.visibilityState === 'visible')
   const roomsRef = useRef(new Set<string>())
+  const sceneNudgeRef = useRef(false)
   const [uniqueScenes, setUniqueScenes] = useState(0)
   const [activeSeconds, setActiveSeconds] = useState(0)
+  const [gateSeconds, setGateSeconds] = useState(0)
   const [ready, setReady] = useState(false)
   const [identified, setIdentified] = useState(false)
+  const pauseGateClock = options?.pauseGateClock ?? false
 
   useEffect(() => {
     let cancelled = false
@@ -104,13 +107,29 @@ export function useTourSceneTracking(target: SceneTarget) {
     }
   }, [ready])
 
+  useEffect(() => {
+    if (!ready || !target.room || identified || pauseGateClock) return
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      setGateSeconds((value) => value + 1)
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [ready, target.room, identified, pauseGateClock])
+
+  useEffect(() => {
+    if (sceneNudgeRef.current || uniqueScenes < 3) return
+    sceneNudgeRef.current = true
+    setGateSeconds((value) => Math.max(value, GATE_SECONDS))
+  }, [uniqueScenes])
+
   return {
     ready,
     uniqueScenes,
     activeSeconds,
-    shouldOfferGate: ready && !identified && (uniqueScenes >= 3 || activeSeconds >= GATE_SECONDS),
+    shouldOfferGate: ready && !identified && gateSeconds >= GATE_SECONDS,
     identified,
     markIdentified: () => setIdentified(true),
+    snoozeGate: () => setGateSeconds(0),
     lastTypology: target.typologyCode,
     lastUnitTypeId: target.unitTypeId ?? null,
   }

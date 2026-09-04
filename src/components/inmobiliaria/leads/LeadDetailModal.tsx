@@ -23,6 +23,7 @@ import {
 } from '@/services/inmobiliaria.service'
 import { LeadDetailAgendaTab } from '@/components/inmobiliaria/leads/LeadDetailAgendaTab'
 import { LeadDetailShowroomTab } from '@/components/inmobiliaria/leads/LeadDetailShowroomTab'
+import { LeadDetailTourTab } from '@/components/inmobiliaria/leads/LeadDetailTourTab'
 import { UnitNumberSearchInput } from '@/components/inmobiliaria/shared/UnitNumberSearchInput'
 import { formatDateTime, formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -65,7 +66,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
   const [submitting, setSubmitting] = useState(false)
 
   /** Pestaña derecha: bitácora, agenda o showroom */
-  const [rightTab, setRightTab] = useState<'historial' | 'agenda' | 'showroom'>('historial')
+  const [rightTab, setRightTab] = useState<'historial' | 'agenda' | 'showroom' | 'recorrido'>('historial')
   const [projects, setProjects] = useState<Project[]>([])
   const tabsScrollRef = useRef<HTMLDivElement>(null)
 
@@ -626,6 +627,18 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                     <MapPin className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                     Showroom
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setRightTab('recorrido')}
+                    className={`shrink-0 flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                      rightTab === 'recorrido'
+                        ? 'border-[#3a3d36] text-[#3a3d36]'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Building2 className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    Recorrido 360°
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -724,6 +737,12 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
               {rightTab === 'showroom' && lead && (
                 <div className="flex-1 overflow-y-auto p-6 min-h-0">
                   <LeadDetailShowroomTab lead={lead} tenantId={tenantId} projects={projects} />
+                </div>
+              )}
+
+              {rightTab === 'recorrido' && lead && (
+                <div className="flex-1 overflow-y-auto p-6 min-h-0">
+                  <LeadDetailTourTab leadId={lead.id} />
                 </div>
               )}
             </div>

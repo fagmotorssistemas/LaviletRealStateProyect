@@ -16,6 +16,7 @@ interface Filters {
 export function useInventoryUnits() {
   const [units, setUnits] = useState<Unit[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [unitTypes, setUnitTypes] = useState<{ id: string; name: string }[]>([])
   const [tenantIds, setTenantIds] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -45,6 +46,7 @@ export function useInventoryUnits() {
       })
       setTenantIds(res.tenantIds)
       setProjects(res.projects)
+      setUnitTypes(res.unitTypes)
       setUnits(res.units)
       setTotal(res.total)
       if (res.error) toast.error(res.error)
@@ -73,6 +75,7 @@ export function useInventoryUnits() {
   return {
     units,
     projects,
+    unitTypes,
     isLoading,
     filters,
     tenantId,

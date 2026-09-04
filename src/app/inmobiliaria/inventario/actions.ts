@@ -2,7 +2,7 @@
 
 import { assertCanAccessCrmPath, getCrmDataClient } from '@/lib/auth/session'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
-import { listProjects, listUnits } from '@/services/inmobiliaria.service'
+import { listActiveUnitTypes, listProjects, listUnits } from '@/services/inmobiliaria.service'
 import type { InventorySortOption, Project, Unit, UnitStatus } from '@/types/inmobiliaria'
 
 export async function listInventoryAction(params: {
@@ -18,6 +18,7 @@ export async function listInventoryAction(params: {
   tenantIds: string[]
   projects: Project[]
   units: Unit[]
+  unitTypes: { id: string; name: string }[]
   total: number
   error?: string
 }> {
@@ -26,10 +27,10 @@ export async function listInventoryAction(params: {
     const client = await getCrmDataClient()
     const tenantIds = await getAccessibleTenantIds(client)
     if (!tenantIds.length) {
-      return { tenantId: '', tenantIds: [], projects: [], units: [], total: 0 }
+      return { tenantId: '', tenantIds: [], projects: [], units: [], unitTypes: [], total: 0 }
     }
 
-    const [projects, listed] = await Promise.all([
+    const [projects, listed, unitTypes] = await Promise.all([
       listProjects(client, tenantIds[0], tenantIds),
       listUnits(client, {
         tenantId: tenantIds[0],
@@ -42,6 +43,7 @@ export async function listInventoryAction(params: {
         page: params.page,
         pageSize: params.pageSize,
       }),
+      listActiveUnitTypes(client, tenantIds),
     ])
 
     return {
@@ -49,6 +51,7 @@ export async function listInventoryAction(params: {
       tenantIds,
       projects,
       units: listed.data,
+      unitTypes,
       total: listed.total,
     }
   } catch (error) {
@@ -58,6 +61,7 @@ export async function listInventoryAction(params: {
       tenantIds: [],
       projects: [],
       units: [],
+      unitTypes: [],
       total: 0,
       error: error instanceof Error ? error.message : 'No se pudo cargar el inventario',
     }

@@ -8,6 +8,7 @@ import { LockupProvider } from './LaviletLockup'
 import { SiteHeader } from './SiteHeader'
 import { HomeTourSection } from './HomeTourSection'
 import { CookiePreferencesLink } from './CookiePreferencesLink'
+import { ContactForm } from './ContactForm'
 
 const btnDark =
   'inline-flex h-12 shrink-0 items-center justify-center rounded-lg bg-[#2B1A18] px-6 text-base font-medium text-white transition-colors hover:bg-[#3d2a24]'
@@ -92,7 +93,7 @@ export function HomeLanding() {
             <p className="text-sm font-medium text-[#2B1A18]/70">Showroom Lavilet</p>
             <h2 className="mt-1 text-2xl font-bold text-[#2B1A18] sm:text-3xl">Agenda tu visita y recorre con calma</h2>
           </div>
-          <a href="#tour" className={btnDark}>
+          <a href="#contacto" className={btnDark}>
             Quiero agendar
           </a>
         </div>
@@ -104,12 +105,13 @@ export function HomeLanding() {
             <p className="text-xs font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Contacto</p>
             <h2 className="mt-3 text-3xl font-bold sm:text-4xl">Hablemos de tu próximo espacio</h2>
             <p className="mt-4 text-[#2B1A18]/65">
-              El showroom se abre desde el tour. Aquí nos encuentras para escribirnos o coordinar tu visita
-              en persona.
+              Déjanos tus datos y te contactamos para coordinar la visita al showroom o enviarte
+              disponibilidad.
             </p>
           </div>
 
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid gap-8 lg:grid-cols-[1fr_minmax(0,26rem)] lg:items-start">
+            <div className="grid gap-5 sm:grid-cols-2">
             <article className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-[#2B1A18]/8">
               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#BDA27E]/15 text-[#BDA27E]">
                 <MapPin size={18} />
@@ -142,6 +144,12 @@ export function HomeLanding() {
                 Acceso al panel interno
               </Link>
             </article>
+            </div>
+            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#2B1A18]/8 sm:p-8">
+              <h3 className="text-lg font-semibold">Solicita una visita</h3>
+              <p className="mt-1 mb-6 text-sm text-[#2B1A18]/55">Respondemos a la brevedad.</p>
+              <ContactForm />
+            </div>
           </div>
         </div>
       </section>

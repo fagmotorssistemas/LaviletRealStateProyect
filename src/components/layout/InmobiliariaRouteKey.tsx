@@ -11,6 +11,7 @@ const MODULE_HREFS = [
   '/inmobiliaria/proyectos',
   '/inmobiliaria/leads',
   '/inmobiliaria/showroom',
+  '/inmobiliaria/recorrido',
   '/inmobiliaria/agenda',
   '/inmobiliaria/financiamiento',
   '/inmobiliaria/ventas',

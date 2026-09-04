@@ -148,8 +148,13 @@ export interface Unit {
   category: string
   unit_number: string
   unit_subtype: string | null
+  unit_type_id: string | null
+  typology_code: string | null
+  plan_group: string | null
   floor: string | null
+  floor_number: number | null
   area_internal_m2: number | null
+  area_exterior_m2: number | null
   area_total_m2: number | null
   area_terrace_m2: number | null
   area_terrace_covered_m2: number | null
@@ -157,6 +162,9 @@ export interface Unit {
   parking_assigned: number
   bedrooms: number | null
   bathrooms: number | null
+  bathrooms_full: number | null
+  bathrooms_half: number | null
+  spaces: string[]
   cost_per_m2_internal: number | null
   published_commercial_price: number | null
   status: UnitStatus
@@ -203,7 +211,7 @@ export function unitImportCategoryLabel(category: string): string {
   return UNIT_IMPORT_CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? category
 }
 
-export type TypologyAssetKind = 'plano' | 'render'
+export type TypologyAssetKind = 'plano' | 'render' | 'ambiente'
 
 export interface TypologyImport {
   code: string
@@ -225,6 +233,7 @@ export interface TypologyAsset {
 export const TYPOLOGY_ASSET_KIND_OPTIONS: { value: TypologyAssetKind; label: string }[] = [
   { value: 'plano', label: 'Plano' },
   { value: 'render', label: 'Render' },
+  { value: 'ambiente', label: 'Ambiente' },
 ]
 
 export interface Lead {
