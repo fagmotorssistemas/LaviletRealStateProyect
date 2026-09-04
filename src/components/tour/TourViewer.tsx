@@ -21,7 +21,9 @@ import {
   loadTourUnits,
   type TourCatalog,
 } from '@/services/tour.service'
-import { useTourDwellTracking } from '@/hooks/useTourDwellTracking'
+import { useTourSceneTracking } from '@/hooks/useTourSceneTracking'
+import { TourLeadGate } from '@/components/tour/TourLeadGate'
+import { logTourEvent } from '@/lib/tour/visitorTracking'
 import type { TourLightMode, TourPublicCatalog, TourTypologyOption, TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
 import '@photo-sphere-viewer/core/index.css'
@@ -84,6 +86,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [selectedUnitId, setSelectedUnitId] = useState('')
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
   const [selectedTypology, setSelectedTypology] = useState('')
+  const [gateOpen, setGateOpen] = useState(false)
+  const [gateDismissed, setGateDismissed] = useState(false)
 
   const preloadUrls = useCallback((viewer: Viewer, urls: string[]) => {
     void Promise.all(
@@ -379,17 +383,39 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const onFinish = (slug: string) => {
     if (slug === finish) return
     setFinish(slug)
+    logTourEvent({
+      event_type: 'cambio_acabado',
+      room,
+      typology_code: selectedTypology,
+      unit_type_id: currentTypology?.id,
+      finish: slug,
+      light,
+    })
     void applyCombo(slug, light)
   }
 
   const onLight = () => {
     const next: TourLightMode = light === 'dia' ? 'noche' : 'dia'
     setLight(next)
+    logTourEvent({
+      event_type: 'cambio_luz',
+      room,
+      typology_code: selectedTypology,
+      unit_type_id: currentTypology?.id,
+      finish,
+      light: next,
+    })
     void applyCombo(finish, next)
   }
 
   const onSelectRoom = (roomId: string) => {
     if (!tourRef.current || roomId === room) return
+    logTourEvent({
+      event_type: 'minimapa',
+      room: roomId,
+      typology_code: selectedTypology,
+      unit_type_id: currentTypology?.id,
+    })
     void tourRef.current.setCurrentNode(roomId, {
       showLoader: true,
       effect: 'fade',
@@ -400,7 +426,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   const displayUnits = useMemo<TourUnitSummary[]>(() => {
     const imported = (publicCatalog?.units ?? [])
-      .filter((item) => !selectedTypology || item.typology_code === selectedTypology)
+      .filter((item) => {
+        if (!selectedTypology) return true
+        if (currentTypology?.id && item.unit_type_id) return item.unit_type_id === currentTypology.id
+        return item.typology_code === selectedTypology
+      })
       .map((item) => ({
         id: item.id,
         unit_number: item.unit_code,
@@ -414,7 +444,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         typology_code: item.typology_code,
       }))
     return imported.length > 0 ? imported : units
-  }, [publicCatalog, selectedTypology, units])
+  }, [publicCatalog, selectedTypology, currentTypology?.id, units])
 
   const typologyOptions = useMemo(
     () =>
@@ -477,13 +507,20 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const lightLabel = light === 'dia' ? 'Día' : 'Noche'
   const showFinish = currentNode?.data?.finishSlug != null
 
-  useTourDwellTracking({
-    typologyCode: selectedTypology,
+  const tracking = useTourSceneTracking({
     room,
     roomLabel: roomName,
-    unitId: selectedUnit?.id,
-    unitCode: selectedUnit?.unit_number,
+    typologyCode: selectedTypology,
+    unitTypeId: currentTypology?.id,
+    finish,
+    light,
   })
+
+  useEffect(() => {
+    if (tracking.identified) return
+    if (gateDismissed && tracking.activeSeconds >= 48) setGateDismissed(false)
+    if (tracking.shouldOfferGate && !gateDismissed) setGateOpen(true)
+  }, [tracking.shouldOfferGate, tracking.activeSeconds, tracking.identified, gateDismissed])
 
   return (
     <div
@@ -540,7 +577,17 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               type="button"
               onClick={() => {
                 viewerRef.current?.toggleFullscreen()
-                setFullscreen((v) => !v)
+                setFullscreen((v) => {
+                  const next = !v
+                  logTourEvent({
+                    event_type: 'fullscreen',
+                    room,
+                    typology_code: selectedTypology,
+                    unit_type_id: currentTypology?.id,
+                    metadata: { on: next },
+                  })
+                  return next
+                })
               }}
               className="mb-1 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[4px] bg-black/55 text-white ring-1 ring-white/15 backdrop-blur-sm"
               aria-label={fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
@@ -592,6 +639,20 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           </p>
         </div>
       </div>
+
+      <TourLeadGate
+        open={gateOpen}
+        typology={selectedTypology || tracking.lastTypology}
+        unitTypeId={currentTypology?.id ?? tracking.lastUnitTypeId}
+        onClose={() => {
+          setGateOpen(false)
+          setGateDismissed(true)
+        }}
+        onIdentified={() => {
+          tracking.markIdentified()
+          setGateOpen(false)
+        }}
+      />
     </div>
   )
 }

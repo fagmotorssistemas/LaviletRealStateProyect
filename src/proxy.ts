@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { canAccessPath, homePathForRole, knownRole } from '@/lib/inmobiliaria/roleAccess'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
+import { applyVisitorCookie } from '@/lib/tour/visitorCookie'
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -31,13 +32,23 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
   const isPublicPath =
-    pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/register')
+    pathname === '/' ||
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/register') ||
+    pathname.startsWith('/tour') ||
+    pathname.startsWith('/privacidad') ||
+    pathname.startsWith('/seguimiento')
+
+  const finish = (response: NextResponse) => {
+    applyVisitorCookie(request, response)
+    return response
+  }
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.search = pathname.startsWith('/tour') ? '?next=/tour' : ''
-    return NextResponse.redirect(url)
+    return finish(NextResponse.redirect(url))
   }
 
   let role: string | null = null
@@ -58,17 +69,17 @@ export async function proxy(request: NextRequest) {
     url.pathname = homePathForRole(role)
     url.search = ''
     url.hash = ''
-    return NextResponse.redirect(url)
+    return finish(NextResponse.redirect(url))
   }
 
   if (user && pathname.startsWith('/inmobiliaria') && knownRole(role) && !canAccessPath(role, pathname)) {
     const url = request.nextUrl.clone()
     url.pathname = homePathForRole(role)
     url.search = ''
-    return NextResponse.redirect(url)
+    return finish(NextResponse.redirect(url))
   }
 
-  return supabaseResponse
+  return finish(supabaseResponse)
 }
 
 export const config = {

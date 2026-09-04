@@ -38,6 +38,7 @@ export async function listUnitsImportAction(params: {
 export async function listUnitsImportFacetsAction(): Promise<{
   categories: string[]
   floors: { number: number; label: string }[]
+  unitTypes: { id: string; name: string }[]
   error?: string
 }> {
   try {
@@ -45,7 +46,7 @@ export async function listUnitsImportFacetsAction(): Promise<{
     return await listUnitsImportFacets(await getCrmDataClient())
   } catch (error) {
     console.error('listUnitsImportFacetsAction', error)
-    return { categories: [], floors: [], error: actionError(error) }
+    return { categories: [], floors: [], unitTypes: [], error: actionError(error) }
   }
 }
 

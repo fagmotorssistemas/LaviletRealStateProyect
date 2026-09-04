@@ -1,3 +1,4 @@
+import 'server-only'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 function readEnv(name: string) {
@@ -19,11 +20,10 @@ function jwtRole(token: string) {
   }
 }
 
-/** Solo servidor. Nunca importar en componentes client. */
+/** Solo servidor. Nunca leer NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY. */
 export function tryCreateAdminClient(): SupabaseClient | null {
   const url = readEnv('NEXT_PUBLIC_SUPABASE_URL')
-  const key =
-    readEnv('SUPABASE_SERVICE_ROLE_KEY') || readEnv('SUPABASE_SERVICE_KEY') || readEnv('SERVICE_ROLE_KEY')
+  const key = readEnv('SUPABASE_SERVICE_ROLE_KEY')
   if (!url || !key) return null
   const role = jwtRole(key)
   if (role && role !== 'service_role') return null

@@ -36,6 +36,7 @@ function spacesFromInput(value: string): string[] {
 type FormState = {
   category: string
   unit_code: string
+  unit_type_id: string
   plan_group: string
   floor_label: string
   floor_number: string
@@ -54,6 +55,7 @@ function emptyForm(): FormState {
   return {
     category: 'departamento',
     unit_code: '',
+    unit_type_id: '',
     plan_group: '',
     floor_label: '',
     floor_number: '',
@@ -73,6 +75,7 @@ function fromRow(row: UnitImport): FormState {
   return {
     category: row.category,
     unit_code: row.unit_code,
+    unit_type_id: row.unit_type_id ?? '',
     plan_group: row.plan_group ?? '',
     floor_label: row.floor_label ?? '',
     floor_number: row.floor_number == null ? '' : String(row.floor_number),
@@ -92,6 +95,7 @@ function toPayload(form: FormState): UnitsImportWrite {
   return {
     category: form.category,
     unit_code: form.unit_code.trim(),
+    unit_type_id: form.unit_type_id || null,
     plan_group: form.plan_group.trim() || null,
     floor_label: form.floor_label.trim() || null,
     floor_number: toNum(form.floor_number),
@@ -112,9 +116,10 @@ interface UnitsImportModalProps {
   onClose: () => void
   onSaved: () => void
   row: UnitImport | null
+  unitTypes: { id: string; name: string }[]
 }
 
-export function UnitsImportModal({ isOpen, onClose, onSaved, row }: UnitsImportModalProps) {
+export function UnitsImportModal({ isOpen, onClose, onSaved, row, unitTypes }: UnitsImportModalProps) {
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm)
   const isEdit = Boolean(row)
@@ -146,8 +151,8 @@ export function UnitsImportModal({ isOpen, onClose, onSaved, row }: UnitsImportM
       }
       onSaved()
       onClose()
-    } catch {
-      toast.error(row ? 'Error al actualizar la unidad' : 'Error al crear la unidad')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : row ? 'Error al actualizar la unidad' : 'Error al crear la unidad')
     } finally {
       setLoading(false)
     }
@@ -177,6 +182,15 @@ export function UnitsImportModal({ isOpen, onClose, onSaved, row }: UnitsImportM
             onChange={(e) => update('category', e.target.value)}
           />
         </div>
+
+        <Select
+          id="unit_type_id"
+          label="Tipología"
+          placeholder="Sin tipología"
+          options={unitTypes.map((item) => ({ value: item.id, label: item.name }))}
+          value={form.unit_type_id}
+          onChange={(e) => update('unit_type_id', e.target.value)}
+        />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Input

@@ -127,6 +127,7 @@ export interface TourUnitSummary {
 }
 
 export type TourTypologyOption = {
+  id: string
   code: string
   name: string
   category: string
@@ -139,6 +140,7 @@ export type TourPublicCatalog = {
   units: Array<{
     id: string
     unit_code: string
+    unit_type_id: string | null
     typology_code: string | null
     floor_label: string | null
     floor_number: number | null

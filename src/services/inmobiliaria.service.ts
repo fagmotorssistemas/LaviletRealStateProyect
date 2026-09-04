@@ -11,6 +11,7 @@ import type {
 } from '@/types/inmobiliaria'
 import { UNASSIGNED_ASSIGNEE } from '@/types/inmobiliaria'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
+import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 
 /** Bucket público para fotos, planos PDF y documentos de proyecto. */
 export const PROJECT_ASSETS_BUCKET = 'project-assets'
@@ -303,18 +304,85 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
   return { data: ((data ?? []) as Unit[]).map(mapUnitRow), total: count ?? 0 }
 }
 
-function mapUnitImportRow(row: UnitImport): UnitImport {
+type UnitTableRow = {
+  id: string
+  category: string | null
+  unit_number: string
+  plan_group: string | null
+  floor: string | null
+  floor_number: number | null
+  area_internal_m2: number | null
+  area_exterior_m2: number | null
+  parking_assigned: number | null
+  bedrooms: number | null
+  bathrooms_full: number | null
+  bathrooms_half: number | null
+  bathrooms: number | null
+  spaces: string[] | null
+  created_at: string
+  published_commercial_price: number | null
+  status: UnitStatus | null
+  unit_type_id: string | null
+  unit_type?: { id: string; name: string; slug: string } | { id: string; name: string; slug: string }[] | null
+}
+
+function unitTypeOf(row: UnitTableRow) {
+  const value = row.unit_type
+  return Array.isArray(value) ? value[0] : value
+}
+
+function mapUnitImportRow(row: UnitTableRow): UnitImport {
+  const type = unitTypeOf(row)
+  const unitNumber = row.unit_number
+  const price = row.published_commercial_price ?? null
   return {
-    ...row,
+    id: row.id,
+    category: row.category ?? '',
+    unit_code: unitNumber,
+    unit_number: unitNumber,
+    plan_group: row.plan_group,
+    floor_label: row.floor,
+    floor: row.floor,
+    floor_number: row.floor_number,
+    area_internal_m2: row.area_internal_m2,
+    area_exterior_m2: row.area_exterior_m2,
+    parking: row.parking_assigned,
+    bedrooms: row.bedrooms,
+    bathrooms_full: row.bathrooms_full ?? row.bathrooms,
+    bathrooms_half: row.bathrooms_half,
     spaces: Array.isArray(row.spaces) ? row.spaces : [],
-    price: row.price ?? null,
+    created_at: row.created_at,
+    price,
+    published_commercial_price: price,
     status: row.status ?? 'disponible',
+    unit_type_id: row.unit_type_id,
+    typology_code: type?.name ?? null,
   }
+}
+
+const UNITS_LIST_SELECT =
+  'id, category, unit_number, plan_group, floor, floor_number, area_internal_m2, area_exterior_m2, parking_assigned, bedrooms, bathrooms_full, bathrooms_half, bathrooms, spaces, created_at, published_commercial_price, status, unit_type_id'
+
+async function attachUnitTypes(supabase: SupabaseClient, rows: UnitTableRow[]): Promise<UnitImport[]> {
+  const ids = [...new Set(rows.map((row) => row.unit_type_id).filter((id): id is string => Boolean(id)))]
+  const typeById = new Map<string, { id: string; name: string; slug: string }>()
+  if (ids.length > 0) {
+    const { data, error } = await supabase.from('unit_types').select('id, name, slug').in('id', ids)
+    if (error) throw new Error(error.message)
+    for (const row of data ?? []) typeById.set(row.id, row)
+  }
+  return rows.map((row) =>
+    mapUnitImportRow({
+      ...row,
+      unit_type: row.unit_type_id ? typeById.get(row.unit_type_id) ?? null : null,
+    }),
+  )
 }
 
 export type UnitsImportWrite = {
   category: string
   unit_code: string
+  unit_type_id?: string | null
   plan_group: string | null
   floor_label: string | null
   floor_number: number | null
@@ -327,6 +395,27 @@ export type UnitsImportWrite = {
   spaces: string[]
   price: number | null
   status: UnitStatus
+}
+
+function toUnitsWrite(payload: UnitsImportWrite) {
+  return {
+    category: payload.category,
+    unit_number: payload.unit_code,
+    unit_type_id: payload.unit_type_id || null,
+    plan_group: payload.plan_group,
+    floor: payload.floor_label,
+    floor_number: payload.floor_number,
+    area_internal_m2: payload.area_internal_m2,
+    area_exterior_m2: payload.area_exterior_m2,
+    parking_assigned: payload.parking,
+    bedrooms: payload.bedrooms,
+    bathrooms_full: payload.bathrooms_full,
+    bathrooms_half: payload.bathrooms_half,
+    bathrooms: payload.bathrooms_full,
+    spaces: payload.spaces,
+    published_commercial_price: payload.price,
+    status: payload.status,
+  }
 }
 
 export async function listUnitsImport(
@@ -346,12 +435,10 @@ export async function listUnitsImport(
   const to = from + pageSize - 1
 
   let query = supabase
-    .from('units_import')
-    .select(
-      'id, category, unit_code, plan_group, floor_label, floor_number, area_internal_m2, area_exterior_m2, parking, bedrooms, bathrooms_full, bathrooms_half, spaces, created_at, price, status, typology_code',
-      { count: 'exact' },
-    )
-    .order('unit_code', { ascending: true })
+    .from('units')
+    .select(UNITS_LIST_SELECT, { count: 'exact' })
+    .eq('tenant_id', TOUR_TENANT_ID)
+    .order('unit_number', { ascending: true })
 
   if (params.category) query = query.eq('category', params.category)
   if (params.status) query = query.eq('status', params.status)
@@ -363,43 +450,68 @@ export async function listUnitsImport(
   if (search) {
     const escaped = search.replace(/[\\%_]/g, '\\$&')
     query = query.or(
-      `unit_code.ilike.%${escaped}%,plan_group.ilike.%${escaped}%,floor_label.ilike.%${escaped}%,category.ilike.%${escaped}%`,
+      `unit_number.ilike.%${escaped}%,plan_group.ilike.%${escaped}%,floor.ilike.%${escaped}%,category.ilike.%${escaped}%`,
     )
   }
 
   const { data, error, count } = await query.range(from, to)
   if (error) throw new Error(error.message)
-  return { data: ((data ?? []) as UnitImport[]).map(mapUnitImportRow), total: count ?? 0 }
+  return { data: await attachUnitTypes(supabase, (data ?? []) as UnitTableRow[]), total: count ?? 0 }
 }
 
 export async function listUnitsImportFacets(
   supabase: SupabaseClient,
-): Promise<{ categories: string[]; floors: { number: number; label: string }[] }> {
-  const { data, error } = await supabase
-    .from('units_import')
-    .select('category, floor_label, floor_number')
+): Promise<{
+  categories: string[]
+  floors: { number: number; label: string }[]
+  unitTypes: { id: string; name: string }[]
+}> {
+  const [{ data, error }, typesRes] = await Promise.all([
+    supabase.from('units').select('category, floor, floor_number').eq('tenant_id', TOUR_TENANT_ID),
+    supabase
+      .from('unit_types')
+      .select('id, name')
+      .eq('tenant_id', TOUR_TENANT_ID)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true }),
+  ])
   if (error) throw new Error(error.message)
+  if (typesRes.error) throw new Error(typesRes.error.message)
 
   const categories = [...new Set((data ?? []).map((r) => r.category).filter(Boolean))].sort()
   const floorMap = new Map<number, string>()
   for (const row of data ?? []) {
     if (row.floor_number == null) continue
-    floorMap.set(row.floor_number, row.floor_label || `Piso ${row.floor_number}`)
+    floorMap.set(row.floor_number, row.floor || `Piso ${row.floor_number}`)
   }
   const floors = [...floorMap.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([number, label]) => ({ number, label }))
 
-  return { categories, floors }
+  return {
+    categories,
+    floors,
+    unitTypes: (typesRes.data ?? []).map((row) => ({ id: row.id, name: row.name })),
+  }
 }
 
 export async function createUnitsImport(
   supabase: SupabaseClient,
   payload: UnitsImportWrite,
 ): Promise<UnitImport> {
-  const { data, error } = await supabase.from('units_import').insert(payload).select('*').single()
-  if (error) throw error
-  return mapUnitImportRow(data as UnitImport)
+  const { data, error } = await supabase
+    .from('units')
+    .insert({
+      ...toUnitsWrite(payload),
+      tenant_id: TOUR_TENANT_ID,
+      project_id: TOUR_PROJECT_ID,
+    })
+    .select(UNITS_LIST_SELECT)
+    .single()
+  if (error) throw new Error(error.message)
+  const [mapped] = await attachUnitTypes(supabase, [data as UnitTableRow])
+  if (!mapped) throw new Error('No se pudo leer la unidad creada')
+  return mapped
 }
 
 export async function updateUnitsImport(
@@ -407,18 +519,32 @@ export async function updateUnitsImport(
   id: string,
   payload: UnitsImportWrite,
 ): Promise<UnitImport> {
-  const { data, error } = await supabase.from('units_import').update(payload).eq('id', id).select('*').single()
-  if (error) throw error
-  return mapUnitImportRow(data as UnitImport)
+  const { data, error } = await supabase
+    .from('units')
+    .update(toUnitsWrite(payload))
+    .eq('id', id)
+    .select(UNITS_LIST_SELECT)
+    .single()
+  if (error) throw new Error(error.message)
+  const [mapped] = await attachUnitTypes(supabase, [data as UnitTableRow])
+  if (!mapped) throw new Error('No se pudo leer la unidad actualizada')
+  return mapped
 }
 
 export async function listTypologiesImport(supabase: SupabaseClient): Promise<TypologyImport[]> {
   const { data, error } = await supabase
-    .from('typologies_import')
-    .select('code, category, name, created_at')
-    .order('code', { ascending: true })
-  if (error) throw error
-  return (data ?? []) as TypologyImport[]
+    .from('unit_types')
+    .select('id, name, description, created_at')
+    .eq('tenant_id', TOUR_TENANT_ID)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((row) => ({
+    code: row.name,
+    category: '',
+    name: row.description || row.name,
+    created_at: row.created_at,
+  }))
 }
 
 export async function listTypologyAssets(

@@ -1,32 +1,39 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { getTypologyAssetPublicUrl } from '@/services/inmobiliaria.service'
-import type { TypologyAsset, TypologyImport } from '@/types/inmobiliaria'
+import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
+import type { TypologyAsset } from '@/types/inmobiliaria'
 
 export const runtime = 'nodejs'
 
 export async function GET() {
-  const admin = createAdminClient()
-  const [{ data: typologies, error: tErr }, { data: assets, error: aErr }, { data: units, error: uErr }] =
-    await Promise.all([
-      admin.from('typologies_import').select('code, category, name, created_at').order('code', { ascending: true }),
-      admin
-        .from('typology_assets')
-        .select('id, typology_code, kind, file_name, storage_path, sort_order, created_at')
-        .order('sort_order', { ascending: true }),
-      admin
-        .from('units_import')
-        .select(
-          'id, unit_code, typology_code, floor_label, floor_number, price, status, bedrooms, bathrooms_full, area_internal_m2',
-        )
-        .order('floor_number', { ascending: true, nullsFirst: false })
-        .order('unit_code', { ascending: true }),
-    ])
+  const admin = tryCreateAdminClient()
+  if (!admin) return NextResponse.json({ error: 'Falta SUPABASE_SERVICE_ROLE_KEY' }, { status: 500 })
+  const [{ data: typologies, error: tErr }, assetsRes, { data: units, error: uErr }] = await Promise.all([
+    admin
+      .from('unit_types')
+      .select('id, name, slug, description, bedrooms')
+      .eq('tenant_id', TOUR_TENANT_ID)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true }),
+    admin
+      .from('typology_assets')
+      .select('id, typology_code, kind, file_name, storage_path, sort_order, created_at')
+      .order('sort_order', { ascending: true }),
+    admin
+      .from('units')
+      .select(
+        'id, unit_number, unit_type_id, floor, published_commercial_price, status, bedrooms, bathrooms, area_internal_m2',
+      )
+      .eq('tenant_id', TOUR_TENANT_ID)
+      .order('unit_number', { ascending: true }),
+  ])
+  const assets = assetsRes.error ? [] : assetsRes.data
 
   if (tErr) return NextResponse.json({ error: tErr.message }, { status: 500 })
-  if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 })
   if (uErr) return NextResponse.json({ error: uErr.message }, { status: 500 })
 
+  const typeById = new Map((typologies ?? []).map((row) => [row.id, row]))
   const assetsByCode = new Map<string, TypologyAsset[]>()
   for (const row of (assets ?? []) as TypologyAsset[]) {
     const list = assetsByCode.get(row.typology_code) ?? []
@@ -35,21 +42,41 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    typologies: ((typologies ?? []) as TypologyImport[]).map((row) => {
-      const list = assetsByCode.get(row.code) ?? []
+    typologies: (typologies ?? []).map((row) => {
+      const list = assetsByCode.get(row.name) ?? assetsByCode.get(row.slug) ?? []
       const toPublic = (item: TypologyAsset) => ({
         id: item.id,
         file_name: item.file_name,
         url: getTypologyAssetPublicUrl(admin, item.storage_path),
       })
       return {
-        code: row.code,
-        name: row.name,
-        category: row.category,
+        id: row.id,
+        code: row.name,
+        name: row.description || row.name,
+        category: row.bedrooms && row.bedrooms >= 2 ? 'departamento' : 'suite',
         renders: list.filter((item) => item.kind === 'render').map(toPublic),
         planos: list.filter((item) => item.kind === 'plano').map(toPublic),
       }
     }),
-    units: units ?? [],
+    units: (units ?? []).map((row) => {
+      const type = typeById.get(row.unit_type_id)
+      return {
+        id: row.id,
+        unit_id: row.id,
+        unit_type_id: row.unit_type_id,
+        unit_code: row.unit_number,
+        unit_number: row.unit_number,
+        typology_code: type?.name ?? null,
+        floor: row.floor,
+        floor_label: row.floor,
+        floor_number: null,
+        price: row.published_commercial_price,
+        published_commercial_price: row.published_commercial_price,
+        status: row.status,
+        bedrooms: row.bedrooms,
+        bathrooms_full: row.bathrooms,
+        area_internal_m2: row.area_internal_m2,
+      }
+    }),
   })
 }

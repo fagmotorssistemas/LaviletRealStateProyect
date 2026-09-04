@@ -11,11 +11,14 @@ interface Filters {
   status: string
 }
 
+type UnitTypeOption = { id: string; name: string }
+
 type UnitsImportResponse = {
   data?: UnitImport[]
   total?: number
   categories?: string[]
   floors?: { number: number; label: string }[]
+  unitTypes?: UnitTypeOption[]
   error?: string
 }
 
@@ -23,6 +26,7 @@ export function useUnitsImport() {
   const [rows, setRows] = useState<UnitImport[]>([])
   const [floors, setFloors] = useState<{ number: number; label: string }[]>([])
   const [categories, setCategories] = useState<string[]>([])
+  const [unitTypes, setUnitTypes] = useState<UnitTypeOption[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [page, setPage] = useState(1)
   const pageSize = 10
@@ -52,6 +56,7 @@ export function useUnitsImport() {
       setTotal(json.total ?? 0)
       setCategories(json.categories ?? [])
       setFloors(json.floors ?? [])
+      setUnitTypes(json.unitTypes ?? [])
       if (json.error) toast.error(json.error)
     } catch (err) {
       console.error(err)
@@ -79,6 +84,7 @@ export function useUnitsImport() {
     rows,
     floors,
     categories,
+    unitTypes,
     isLoading,
     filters,
     updateFilter,

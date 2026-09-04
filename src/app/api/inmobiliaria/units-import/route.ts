@@ -13,12 +13,12 @@ function errorMessage(error: unknown) {
     const message = String((error as { message?: unknown }).message ?? '')
     if (message) return message
   }
-  return 'No se pudo leer units_import'
+  return 'No se pudo leer units'
 }
 
 function empty(error: string, status = 200) {
   return NextResponse.json(
-    { data: [], total: 0, categories: [], floors: [], error },
+    { data: [], total: 0, categories: [], floors: [], unitTypes: [], error },
     { status },
   )
 }
@@ -55,6 +55,7 @@ export async function GET(request: Request) {
       total: listed.total,
       categories: facets.categories,
       floors: facets.floors,
+      unitTypes: facets.unitTypes,
     })
   } catch (error) {
     console.error('GET /api/inmobiliaria/units-import', error)

@@ -17,6 +17,7 @@ export function UnitsImportTable({ rows, onSelect }: UnitsImportTableProps) {
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50/50">
             <th className="px-4 py-3 text-left font-medium text-gray-600">Unidad</th>
+            <th className="px-4 py-3 text-left font-medium text-gray-600">Tipología</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Categoría</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Grupo</th>
             <th className="px-4 py-3 text-left font-medium text-gray-600">Piso</th>
@@ -43,6 +44,7 @@ export function UnitsImportTable({ rows, onSelect }: UnitsImportTableProps) {
               }
             >
               <td className="px-4 py-3 font-medium text-gray-900">{row.unit_code}</td>
+              <td className="px-4 py-3 text-gray-600">{row.typology_code ?? '—'}</td>
               <td className="px-4 py-3 text-gray-600">{unitImportCategoryLabel(row.category)}</td>
               <td className="px-4 py-3 text-gray-600">{row.plan_group ?? '—'}</td>
               <td className="px-4 py-3 text-gray-600">{row.floor_label ?? '—'}</td>

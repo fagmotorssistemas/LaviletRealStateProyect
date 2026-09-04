@@ -21,6 +21,7 @@ export default function Inventario2Page() {
     rows,
     floors,
     categories,
+    unitTypes,
     isLoading,
     filters,
     updateFilter,
@@ -53,11 +54,11 @@ export default function Inventario2Page() {
   return (
     <div className="space-y-4">
       <PageHeader
-        eyebrow="Carga importada"
+        eyebrow="Inventario"
         title="Inventario 2"
         description={
           <>
-            Unidades desde units_import
+            Unidades desde units, enganchadas al tour por tipología
             {total > 0 && <span className="text-[#9a7d55]"> · {total} registros</span>}
           </>
         }
@@ -123,11 +124,11 @@ export default function Inventario2Page() {
       ) : total === 0 ? (
         <EmptyState
           icon={Table2}
-          title="No hay unidades importadas"
+          title="No hay unidades"
           description={
             hasActiveFilters
               ? 'Ningún registro coincide con los filtros.'
-              : 'La tabla units_import no tiene registros. Crea la primera unidad.'
+              : 'La tabla units no tiene registros. Crea la primera unidad.'
           }
         >
           {!hasActiveFilters && canWrite && (
@@ -153,6 +154,7 @@ export default function Inventario2Page() {
             onClose={() => setModalOpen(false)}
             onSaved={reload}
             row={selected}
+            unitTypes={unitTypes}
           />
           <TypologyAssetsModal isOpen={assetsOpen} onClose={() => setAssetsOpen(false)} />
         </>

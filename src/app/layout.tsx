@@ -3,6 +3,8 @@ import { Bodoni_Moda, Cormorant_Garamond } from 'next/font/google'
 import localFont from 'next/font/local'
 import { Toaster } from 'sonner'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { CookieBanner } from '@/components/marketing/CookieBanner'
+import { MetaPixel } from '@/components/marketing/MetaPixel'
 import './globals.css'
 
 const satoshi = localFont({
@@ -56,6 +58,8 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col font-sans">
         <AuthProvider>
           {children}
+          <CookieBanner />
+          <MetaPixel />
           <Toaster theme="dark" position="top-center" richColors className="!z-[200]" />
         </AuthProvider>
       </body>

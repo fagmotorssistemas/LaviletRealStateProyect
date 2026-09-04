@@ -19,9 +19,7 @@ export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const solid = scrolled || open
-  const NAV = user
-    ? [{ href: '#tour', label: 'Tour' }, ...NAV_BASE]
-    : NAV_BASE
+  const NAV = [{ href: '#tour', label: 'Tour' }, ...NAV_BASE]
   const accountHref = user ? homePathForRole(profile?.role) : '/login'
   const accountLabel = user ? (profile?.role === 'visitante' ? 'Mi cuenta' : 'Panel') : 'Acceso'
 

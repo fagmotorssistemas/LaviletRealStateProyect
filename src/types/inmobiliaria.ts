@@ -168,13 +168,15 @@ export interface Unit {
   unit_media?: UnitMedia[]
 }
 
-/** Fila de `units_import` (carga cruda, sin tenant). */
+/** Fila de `units` vista en Inventario 2 (alias de columnas nuevas). */
 export interface UnitImport {
   id: string
   category: string
   unit_code: string
+  unit_number: string
   plan_group: string | null
   floor_label: string | null
+  floor: string | null
   floor_number: number | null
   area_internal_m2: number | null
   area_exterior_m2: number | null
@@ -185,7 +187,9 @@ export interface UnitImport {
   spaces: string[]
   created_at: string
   price: number | null
+  published_commercial_price: number | null
   status: UnitStatus
+  unit_type_id: string | null
   typology_code: string | null
 }
 

@@ -7,6 +7,7 @@ import { LaviletStory } from './LaviletStory'
 import { LockupProvider } from './LaviletLockup'
 import { SiteHeader } from './SiteHeader'
 import { HomeTourSection } from './HomeTourSection'
+import { CookiePreferencesLink } from './CookiePreferencesLink'
 
 const btnDark =
   'inline-flex h-12 shrink-0 items-center justify-center rounded-lg bg-[#2B1A18] px-6 text-base font-medium text-white transition-colors hover:bg-[#3d2a24]'
@@ -157,9 +158,12 @@ export function HomeLanding() {
           <p className="text-xs text-[#2B1A18]/45">
             © {new Date().getFullYear()} Lavilet. Todos los derechos reservados.
           </p>
-          <Link href="/login" className="text-xs font-medium text-[#BDA27E] hover:text-[#2B1A18]">
-            Acceso equipo
-          </Link>
+          <div className="flex items-center gap-4">
+            <CookiePreferencesLink />
+            <Link href="/login" className="text-xs font-medium text-[#BDA27E] hover:text-[#2B1A18]">
+              Acceso equipo
+            </Link>
+          </div>
         </div>
       </footer>
     </div>
