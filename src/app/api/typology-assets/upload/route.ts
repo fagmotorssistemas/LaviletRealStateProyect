@@ -82,7 +82,13 @@ export async function POST(request: Request) {
           422,
         )
       }
-      webpBuffer = await image.webp({ quality: 86, effort: 4 }).toBuffer()
+      if (meta.width < 2048) {
+        return jsonError(
+          'El 360 queda borroso en el celular si es chico. Subí uno de al menos 2048×1024; lo ideal es 4096×2048.',
+          422,
+        )
+      }
+      webpBuffer = await image.webp({ quality: 92, effort: 5 }).toBuffer()
     } else if (kindRaw === 'ambiente') {
       webpBuffer = await image.webp({ quality: 86, effort: 4 }).toBuffer()
     } else {

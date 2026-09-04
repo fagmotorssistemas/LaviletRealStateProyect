@@ -1,6 +1,12 @@
 .tour-compass {
-  top: max(10px, env(safe-area-inset-top)) !important;
-  right: max(10px, env(safe-area-inset-right)) !important;
+  top: max(8px, env(safe-area-inset-top)) !important;
+  right: max(8px, env(safe-area-inset-right)) !important;
+}
+
+@media (max-width: 767px) {
+  .tour-compass {
+    opacity: 0.85;
+  }
 }
 
 .tour-chrome {

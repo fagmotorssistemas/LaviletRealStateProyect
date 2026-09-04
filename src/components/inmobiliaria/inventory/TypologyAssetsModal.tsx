@@ -345,7 +345,8 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             <div className="space-y-2">
               <p className="text-sm font-semibold text-[#3a3d36]">360</p>
               <p className="text-sm text-[#555850]">
-                Un solo recorrido 360 por tipología. Tiene que ser panorámico (el ancho el doble del alto).
+                Un solo recorrido 360 por tipología. Panorámico 2:1, ideal 4096×2048 — si es más chico se ve
+                borroso en el celular.
               </p>
               {(() => {
                 const pano = assets.find((row) => isTourPanoramaFileName(row.file_name))

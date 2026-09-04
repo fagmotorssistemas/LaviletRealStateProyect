@@ -14,7 +14,7 @@ export function HomeTourSection() {
             para enviarte planos y disponibilidad.
           </p>
         </div>
-        <div className="mt-10 h-[min(78vh,720px)] min-h-[420px] overflow-hidden rounded-2xl bg-black shadow-sm ring-1 ring-[#2B1A18]/8">
+        <div className="-mx-4 mt-10 h-[min(82dvh,720px)] min-h-[480px] overflow-hidden bg-black shadow-sm ring-1 ring-[#2B1A18]/8 sm:mx-0 sm:rounded-2xl">
           <TourSafeArea embedded />
         </div>
       </div>

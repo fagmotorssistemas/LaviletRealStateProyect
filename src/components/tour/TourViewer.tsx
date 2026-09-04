@@ -11,7 +11,6 @@ import { Maximize2, Minimize2, Moon, Sun } from 'lucide-react'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
 import { TourHotspotLayer } from '@/components/tour/TourHotspotLayer'
 import { TourPicker } from '@/components/tour/TourPicker'
-import { TourUnitPanel } from '@/components/tour/TourUnitPanel'
 import {
   buildTourRooms,
   roomSlugFromNode,
@@ -70,8 +69,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [loading, setLoading] = useState(false)
   const [booting, setBooting] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
-  const [selectedFloor, setSelectedFloor] = useState('')
-  const [selectedUnitId, setSelectedUnitId] = useState('')
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
@@ -145,7 +142,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           unitTypeSlug: unitTypeSlugRef.current,
           finishSlug: nextFinish,
           light: nextLight,
-          preferredWidth: 2048,
+          preferredWidth: targetWidthRef.current,
         })
         if (token !== switchTokenRef.current) return
         if (scene.nodes.length === 0) return
@@ -186,7 +183,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
 
     let cancelled = false
-    targetWidthRef.current = pickTourWidth()
+    const bootWidth = pickTourWidth()
+    targetWidthRef.current = bootWidth
 
     const boot = async () => {
       const unitTypeSlug = getTourUnitTypeSlug()
@@ -199,7 +197,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           unitTypeSlug,
           finishSlug: 'nogal',
           light: 'dia',
-          preferredWidth: 2048,
+          preferredWidth: bootWidth,
         }),
       ])
 
@@ -209,9 +207,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         return
       }
 
+      const isNarrow = window.innerWidth < 768
       const startFinish = nextCatalog.finishes[0]?.slug ?? 'nogal'
       const startNode = scene.nodes.find((n) => n.id === scene.startNodeId) ?? scene.nodes[0]
-      const startUrl = variantUrl(startNode, 2048) ?? String(startNode.panorama)
+      const startUrl = variantUrl(startNode, bootWidth) ?? String(startNode.panorama)
 
       setCatalog(nextCatalog)
       setUnits(nextUnits)
@@ -228,16 +227,22 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         navbar: false,
         canvasBackground: '#111',
         defaultZoomLvl: 0,
-        maxFov: 95,
+        maxFov: isNarrow ? 85 : 90,
+        minFov: 40,
         touchmoveTwoFingers: false,
         mousewheelCtrlKey: false,
+        rendererParameters: {
+          alpha: true,
+          antialias: !isNarrow,
+          powerPreference: 'high-performance',
+        },
         defaultYaw: startNode.data?.initialYaw ?? 0,
         defaultPitch: startNode.data?.initialPitch ?? 0,
         defaultTransition: FADE,
         plugins: [
           MarkersPlugin.withConfig({}),
           CompassPlugin.withConfig({
-            size: '48px',
+            size: isNarrow ? '32px' : '44px',
             position: 'top right',
             navigation: true,
             className: 'tour-compass',
@@ -415,40 +420,26 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     [publicCatalog],
   )
 
-  const floorOptions = useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const item of displayUnits) {
-      const key = item.floor?.trim()
-      if (!key || seen.has(key)) continue
-      seen.set(key, /^\d+$/.test(key) ? `Piso ${key}` : key)
-    }
-    return [...seen.entries()]
-      .sort((a, b) => Number(a[0]) - Number(b[0]) || a[0].localeCompare(b[0], 'es'))
-      .map(([value, label]) => ({ value, label }))
+  const typologyMeta = useMemo(() => {
+    const sample = displayUnits[0]
+    if (!sample) return undefined
+    const parts: string[] = []
+    if (sample.area_total_m2 != null) parts.push(`${sample.area_total_m2} m²`)
+    if (sample.bedrooms != null) parts.push(`${sample.bedrooms} hab.`)
+    return parts.join(' · ') || undefined
   }, [displayUnits])
 
-  const unitsOnFloor = useMemo(
-    () => displayUnits.filter((item) => (item.floor ?? '') === selectedFloor),
-    [displayUnits, selectedFloor],
-  )
-
-  const unitOptions = useMemo(
-    () => unitsOnFloor.map((item) => ({ value: item.id, label: item.unit_number })),
-    [unitsOnFloor],
-  )
-
-  const selectedUnit = displayUnits.find((item) => item.id === selectedUnitId) ?? unitsOnFloor[0] ?? null
-
   const tourRooms = useMemo(() => {
-    const fromUnit = buildTourRooms({
-      bedrooms: selectedUnit?.bedrooms,
-      bathrooms_full: selectedUnit?.bathrooms_full ?? selectedUnit?.bathrooms,
-      bathrooms_half: selectedUnit?.bathrooms_half,
-      spaces: selectedUnit?.spaces,
+    const fromCatalog = (currentTypology?.rooms ?? []).map((item) => ({ slug: item.slug, label: item.label }))
+    if (fromCatalog.length > 0) return fromCatalog
+    const sample = displayUnits[0]
+    return buildTourRooms({
+      bedrooms: sample?.bedrooms,
+      bathrooms_full: sample?.bathrooms_full ?? sample?.bathrooms,
+      bathrooms_half: sample?.bathrooms_half,
+      spaces: sample?.spaces,
     })
-    if (fromUnit.length > 0) return fromUnit
-    return (currentTypology?.rooms ?? []).map((item) => ({ slug: item.slug, label: item.label }))
-  }, [selectedUnit, currentTypology?.rooms])
+  }, [currentTypology?.rooms, displayUnits])
 
   const photoBySlug = useMemo(() => {
     const map: Record<string, string | null> = {}
@@ -540,29 +531,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (finish) void applyCombo(finish, light)
   }, [booting, finish, light, applyCombo, typologyPanoUrl, publicCatalog])
 
-  useEffect(() => {
-    if (displayUnits.length === 0) return
-    const current = displayUnits.find((item) => item.id === selectedUnitId)
-    if (current) return
-    const featured = displayUnits.find((item) => item.status === 'disponible') ?? displayUnits[0]
-    setSelectedFloor(featured.floor ?? '')
-    setSelectedUnitId(featured.id)
-  }, [displayUnits, selectedUnitId])
-
   const onTypologyChange = (code: string) => {
     setSelectedTypology(code)
-    setSelectedFloor('')
-    setSelectedUnitId('')
     setRoom(TOUR_PANO_SLUG)
     currentUrlRef.current = ''
     appliedPanoKeyRef.current = ''
-  }
-
-  const onFloorChange = (nextFloor: string) => {
-    setSelectedFloor(nextFloor)
-    const nextUnits = displayUnits.filter((item) => (item.floor ?? '') === nextFloor)
-    const keep = nextUnits.find((item) => item.id === selectedUnitId)
-    setSelectedUnitId((keep ?? nextUnits[0])?.id ?? '')
   }
 
   const finishName = catalog?.finishes.find((f) => f.slug === finish)?.name ?? finish
@@ -634,37 +607,19 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       )}
 
       <div className="tour-chrome pointer-events-none absolute inset-0 z-20">
-        <div
-          className="pointer-events-auto absolute top-0 left-0 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))]"
-        >
-          <div className="flex flex-col gap-2">
-            {(catalog || selectedUnit) && (
-              <TourUnitPanel
-                unitTypeName={currentTypology?.name ?? catalog?.unitTypeName ?? selectedTypology}
-                unit={selectedUnit}
-                unitCount={displayUnits.length}
-              />
-            )}
-            {(typologyOptions.length > 0 || floorOptions.length > 0) && (
-              <TourPicker
-                typologies={typologyOptions}
-                typology={selectedTypology}
-                floors={floorOptions}
-                units={unitOptions}
-                floor={selectedFloor}
-                unitId={selectedUnit?.id ?? ''}
-                onTypologyChange={onTypologyChange}
-                onFloorChange={onFloorChange}
-                onUnitChange={setSelectedUnitId}
-              />
-            )}
-          </div>
+        <div className="pointer-events-auto absolute top-0 left-0 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:p-3">
+          <TourPicker
+            typologies={typologyOptions}
+            typology={selectedTypology}
+            onTypologyChange={onTypologyChange}
+            meta={typologyMeta}
+          />
         </div>
 
         <div
           className={cn(
             CONSTANTS.CAPTURE_EVENTS_CLASS,
-            'pointer-events-none absolute right-0 bottom-0 left-0 flex flex-col items-end gap-2.5 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+            'pointer-events-none absolute right-0 bottom-0 left-0 flex flex-col items-end gap-2 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-2.5 sm:p-3',
           )}
         >
           <div className="pointer-events-auto flex items-end justify-end gap-2">
@@ -727,7 +682,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           )}
-          <p className="px-1 text-center text-[11px] font-medium tracking-wide text-white/55">
+          <p className="hidden px-1 text-center text-[11px] font-medium tracking-wide text-white/55 sm:block">
             {`${roomName}${
               isPanoRoom && !typologyPanoUrl && showFinish && finishName ? ` · ${finishName}` : ''
             }${isPanoRoom && !typologyPanoUrl ? ` · ${lightLabel}` : ''}`}
