@@ -2,6 +2,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createLead } from '@/services/inmobiliaria.service'
+import { knownRole } from '@/lib/inmobiliaria/roleAccess'
 import {
   interestLabel,
   isValidEmail,
@@ -27,6 +28,7 @@ type ProfileRow = {
   email: string | null
   phone: string | null
   full_name: string | null
+  role: string | null
 }
 
 function oneTimePassword() {
@@ -34,16 +36,16 @@ function oneTimePassword() {
 }
 
 async function findProfileByEmail(admin: ReturnType<typeof createAdminClient>, email: string) {
-  const { data } = await admin.from('profiles').select('id, email, phone, full_name').ilike('email', email).limit(5)
+  const { data } = await admin.from('profiles').select('id, email, phone, full_name, role').ilike('email', email).limit(5)
   return ((data ?? []) as ProfileRow[]).find((row) => normalizeEmail(row.email ?? '') === email) ?? null
 }
 
 async function findProfileByPhone(admin: ReturnType<typeof createAdminClient>, phone: string) {
-  const { data } = await admin.from('profiles').select('id, email, phone, full_name').eq('phone', phone).limit(5)
+  const { data } = await admin.from('profiles').select('id, email, phone, full_name, role').eq('phone', phone).limit(5)
   const exact = ((data ?? []) as ProfileRow[])[0]
   if (exact) return exact
 
-  const { data: listed } = await admin.from('profiles').select('id, email, phone, full_name').not('phone', 'is', null).limit(200)
+  const { data: listed } = await admin.from('profiles').select('id, email, phone, full_name, role').not('phone', 'is', null).limit(200)
   return ((listed ?? []) as ProfileRow[]).find((row) => normalizePhone(row.phone ?? '') === phone) ?? null
 }
 
@@ -111,7 +113,12 @@ export async function startTourAccessAction(payload: TourAccessPayload): Promise
     const { error } = await admin.auth.admin.updateUserById(byEmail.id, {
       password,
       email_confirm: true,
-      user_metadata: { full_name: name || byEmail.full_name, phone, interest, role: 'visitante' },
+      user_metadata: {
+        full_name: name || byEmail.full_name,
+        phone,
+        interest,
+        role: knownRole(byEmail.role) ?? 'visitante',
+      },
     })
     if (error) return { ok: false, error: error.message }
     await admin
@@ -136,12 +143,26 @@ export async function startTourAccessAction(payload: TourAccessPayload): Promise
       return { ok: false, error: created.error?.message ?? 'No se pudo crear la visita' }
     }
     userId = match.id
+    const { data: existing } = await admin.from('profiles').select('role').eq('id', userId).maybeSingle()
+    const keptRole = knownRole(existing?.role) ?? 'visitante'
     const { error } = await admin.auth.admin.updateUserById(userId, {
       password,
       email_confirm: true,
-      user_metadata: { full_name: name, phone, interest, role: 'visitante' },
+      user_metadata: { full_name: name, phone, interest, role: keptRole },
     })
     if (error) return { ok: false, error: error.message }
+    await admin.from('profiles').upsert(
+      {
+        id: userId,
+        email,
+        full_name: name,
+        phone,
+        role: keptRole,
+        is_active: true,
+      },
+      { onConflict: 'id' },
+    )
+    return { ok: true, email, password }
   }
 
   await admin.from('profiles').upsert(

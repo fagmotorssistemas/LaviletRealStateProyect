@@ -58,8 +58,8 @@ export function UnitsImportTable({ rows, onSelect }: UnitsImportTableProps) {
               <td className="px-4 py-3 text-center">
                 <StatusBadge status={row.status} type="unit" />
               </td>
-              <td className="max-w-[220px] truncate px-4 py-3 text-gray-600" title={row.spaces.join(', ')}>
-                {row.spaces.length ? row.spaces.join(' · ') : '—'}
+              <td className="max-w-[220px] truncate px-4 py-3 text-gray-600" title={(row.spaces ?? []).join(', ')}>
+                {(row.spaces ?? []).length ? row.spaces.join(' · ') : '—'}
               </td>
             </tr>
           ))}

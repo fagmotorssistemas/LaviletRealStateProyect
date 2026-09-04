@@ -2,10 +2,6 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import {
-  listUnitsImportAction,
-  listUnitsImportFacetsAction,
-} from '@/app/inmobiliaria/inventario-2/actions'
 import type { UnitImport } from '@/types/inmobiliaria'
 
 interface Filters {
@@ -13,6 +9,14 @@ interface Filters {
   category: string
   floorNumber: string
   status: string
+}
+
+type UnitsImportResponse = {
+  data?: UnitImport[]
+  total?: number
+  categories?: string[]
+  floors?: { number: number; label: string }[]
+  error?: string
 }
 
 export function useUnitsImport() {
@@ -30,45 +34,36 @@ export function useUnitsImport() {
     status: '',
   })
 
-  const loadFacets = useCallback(async () => {
-    try {
-      const facets = await listUnitsImportFacetsAction()
-      setCategories(facets.categories)
-      setFloors(facets.floors)
-      if (facets.error) toast.error(facets.error)
-    } catch (err) {
-      console.error(err)
-    }
-  }, [])
-
-  const loadRows = useCallback(async () => {
+  const load = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await listUnitsImportAction({
-        search: filters.search.trim() || undefined,
-        category: filters.category || undefined,
-        floorNumber: filters.floorNumber || undefined,
-        status: filters.status || undefined,
-        page,
-        pageSize,
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
       })
-      setRows(res.data)
-      setTotal(res.total)
-      if (res.error) toast.error(res.error)
+      if (filters.search.trim()) params.set('search', filters.search.trim())
+      if (filters.category) params.set('category', filters.category)
+      if (filters.floorNumber) params.set('floorNumber', filters.floorNumber)
+      if (filters.status) params.set('status', filters.status)
+
+      const response = await fetch(`/api/inmobiliaria/units-import?${params}`, { cache: 'no-store' })
+      const json = (await response.json()) as UnitsImportResponse
+      setRows(json.data ?? [])
+      setTotal(json.total ?? 0)
+      setCategories(json.categories ?? [])
+      setFloors(json.floors ?? [])
+      if (json.error) toast.error(json.error)
     } catch (err) {
       console.error(err)
+      toast.error('No se pudo leer el inventario 2')
     } finally {
       setIsLoading(false)
     }
   }, [filters, page, pageSize])
 
   useEffect(() => {
-    void loadFacets()
-  }, [loadFacets])
-
-  useEffect(() => {
-    void loadRows()
-  }, [loadRows])
+    void load()
+  }, [load])
 
   const updateFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -88,10 +83,7 @@ export function useUnitsImport() {
     filters,
     updateFilter,
     resetFilters,
-    reload: () => {
-      void loadFacets()
-      void loadRows()
-    },
+    reload: load,
     page,
     pageSize,
     total,

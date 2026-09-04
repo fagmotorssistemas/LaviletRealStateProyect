@@ -1,10 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useAuth } from '@/contexts/AuthContext'
-import { listUnits, listProjects } from '@/services/inmobiliaria.service'
-import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
-import type { Unit, Project, UnitStatus, InventorySortOption } from '@/types/inmobiliaria'
+import { toast } from 'sonner'
+import { listInventoryAction } from '@/app/inmobiliaria/inventario/actions'
+import type { InventorySortOption, Project, Unit } from '@/types/inmobiliaria'
 
 interface Filters {
   search: string
@@ -15,7 +14,6 @@ interface Filters {
 }
 
 export function useInventoryUnits() {
-  const { supabase } = useAuth()
   const [units, setUnits] = useState<Unit[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [tenantIds, setTenantIds] = useState<string[]>([])
@@ -33,56 +31,34 @@ export function useInventoryUnits() {
 
   const tenantId = tenantIds[0] ?? projects[0]?.tenant_id ?? ''
 
-  const loadProjects = useCallback(async () => {
-    try {
-      const tenantIds = await getAccessibleTenantIds(supabase)
-      if (tenantIds.length) {
-        setTenantIds(tenantIds)
-        const projectList = await listProjects(supabase, tenantIds[0], tenantIds)
-        setProjects(projectList)
-        return { tenantId: tenantIds[0], tenantIds }
-      }
-    } catch { /* no tenant yet */ }
-    return { tenantId: '', tenantIds: [] as string[] }
-  }, [supabase])
-
-  const loadUnits = useCallback(async (tId: string, tenantIds?: string[]) => {
-    if (!tId) { setIsLoading(false); return }
+  const load = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await listUnits(supabase, {
-        tenantId: tId,
-        tenantIds: tenantIds?.length ? tenantIds : [tId],
+      const res = await listInventoryAction({
         projectId: filters.projectId || undefined,
-        status: (filters.status || undefined) as UnitStatus | undefined,
+        status: filters.status || undefined,
         category: filters.category || undefined,
         search: filters.search.trim() || undefined,
+        sortBy: filters.sortBy,
         page,
         pageSize,
-        sort: filters.sortBy,
       })
-      setUnits(res.data)
+      setTenantIds(res.tenantIds)
+      setProjects(res.projects)
+      setUnits(res.units)
       setTotal(res.total)
+      if (res.error) toast.error(res.error)
     } catch (err) {
       console.error(err)
+      toast.error('No se pudo cargar el inventario')
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, filters, page, pageSize])
+  }, [filters, page, pageSize])
 
   useEffect(() => {
-    loadProjects().then(({ tenantId: tId }) => {
-      if (!tId) setIsLoading(false)
-    })
-  }, [loadProjects])
-
-  useEffect(() => {
-    if (tenantId) loadUnits(tenantId, tenantIds)
-  }, [tenantId, tenantIds, loadUnits])
-
-  const reload = () => {
-    if (tenantId) loadUnits(tenantId, tenantIds)
-  }
+    void load()
+  }, [load])
 
   const updateFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -102,7 +78,7 @@ export function useInventoryUnits() {
     tenantId,
     updateFilter,
     resetFilters,
-    reload,
+    reload: load,
     page,
     pageSize,
     total,
