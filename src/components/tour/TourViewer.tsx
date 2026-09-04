@@ -59,6 +59,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const switchTokenRef = useRef(0)
   const pendingRotateRef = useRef<Position | null>(null)
   const unitTypeSlugRef = useRef(getTourUnitTypeSlug())
+  const appliedPanoKeyRef = useRef('')
 
   const [catalog, setCatalog] = useState<TourCatalog | null>(null)
   const [units, setUnits] = useState<TourUnitSummary[]>([])
@@ -504,27 +505,40 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer || booting || !isPanoRoom || !typologyPanoUrl) return
-    if (currentUrlRef.current === typologyPanoUrl) return
+    if (!viewer || booting || !isPanoRoom) return
+
+    const key = `${selectedTypology}:${typologyPanoUrl ?? ''}`
+    if (!typologyPanoUrl) {
+      appliedPanoKeyRef.current = key
+      currentUrlRef.current = ''
+      return
+    }
+    if (appliedPanoKeyRef.current === key) return
+
     const token = ++switchTokenRef.current
+    appliedPanoKeyRef.current = key
     setLoading(true)
     void viewer
       .setPanorama(typologyPanoUrl, { showLoader: false, transition: FADE })
       .then((applied) => {
         if (token !== switchTokenRef.current) return
         if (applied) currentUrlRef.current = typologyPanoUrl
+        else appliedPanoKeyRef.current = ''
         setLoading(false)
       })
       .catch(() => {
-        if (token === switchTokenRef.current) setLoading(false)
+        if (token === switchTokenRef.current) {
+          appliedPanoKeyRef.current = ''
+          setLoading(false)
+        }
       })
-  }, [booting, isPanoRoom, typologyPanoUrl])
+  }, [booting, isPanoRoom, typologyPanoUrl, selectedTypology])
 
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer || booting || typologyPanoUrl) return
+    if (!viewer || booting || publicCatalog || typologyPanoUrl) return
     if (finish) void applyCombo(finish, light)
-  }, [booting, finish, light, applyCombo, typologyPanoUrl])
+  }, [booting, finish, light, applyCombo, typologyPanoUrl, publicCatalog])
 
   useEffect(() => {
     if (displayUnits.length === 0) return
@@ -539,6 +553,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     setSelectedTypology(code)
     setSelectedFloor('')
     setSelectedUnitId('')
+    setRoom(TOUR_PANO_SLUG)
+    currentUrlRef.current = ''
+    appliedPanoKeyRef.current = ''
   }
 
   const onFloorChange = (nextFloor: string) => {
