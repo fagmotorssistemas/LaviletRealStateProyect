@@ -49,13 +49,33 @@ export function pickTourWidth(params?: {
 }
 
 export function pickCatalogPanoUrl(
-  pano: { url: string; variants?: Partial<Record<string, string>> } | null | undefined,
+  pano:
+    | {
+        url: string
+        variants?: Partial<Record<string, string>>
+        scenes?: Array<{
+          finish: string | null
+          light: string
+          url: string
+          widths?: Partial<Record<string, string>>
+        }>
+      }
+    | null
+    | undefined,
   width: TourWidth,
+  finish?: string | null,
+  light?: string,
 ): string | null {
   if (!pano) return null
-  const variants = pano.variants ?? {}
+  const scene =
+    pano.scenes?.find((item) => item.finish === (finish || null) && item.light === light) ??
+    pano.scenes?.find((item) => item.finish == null && item.light === light) ??
+    pano.scenes?.find((item) => item.finish === (finish || null) && item.light === 'dia') ??
+    pano.scenes?.[0]
+  const variants = scene?.widths ?? pano.variants ?? {}
+  const fallback = scene?.url ?? pano.url
   if (width >= 8192 && variants['8192']) return variants['8192']
   if (variants['4096']) return variants['4096']
   if (variants['2048']) return variants['2048']
-  return pano.url
+  return fallback
 }

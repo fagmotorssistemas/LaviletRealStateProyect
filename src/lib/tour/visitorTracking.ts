@@ -43,29 +43,34 @@ export async function openTourSession(): Promise<TourTrackIds | null> {
   if (ids) return ids
   if (opening) return opening
   opening = (async () => {
-    const response = await fetch('/api/tour/session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        utm_source: queryParam('utm_source'),
-        utm_medium: queryParam('utm_medium'),
-        utm_campaign: queryParam('utm_campaign'),
-        salesperson_ref: queryParam('b'),
-        referrer: typeof document !== 'undefined' ? document.referrer : '',
-        landing_path: typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '',
-        screen_width: typeof window !== 'undefined' ? window.innerWidth : 0,
-        city: cookieValue('lv_city'),
-        country: cookieValue('lv_country'),
-      }),
-    })
-    if (!response.ok) {
-      console.error('openTourSession', await response.text())
+    try {
+      const response = await fetch('/api/tour/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          utm_source: queryParam('utm_source'),
+          utm_medium: queryParam('utm_medium'),
+          utm_campaign: queryParam('utm_campaign'),
+          salesperson_ref: queryParam('b'),
+          referrer: typeof document !== 'undefined' ? document.referrer : '',
+          landing_path: typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '',
+          screen_width: typeof window !== 'undefined' ? window.innerWidth : 0,
+          city: cookieValue('lv_city'),
+          country: cookieValue('lv_country'),
+        }),
+      })
+      if (!response.ok) {
+        console.error('openTourSession', await response.text())
+        return null
+      }
+      const json = (await response.json()) as TourTrackIds
+      ids = json
+      flushQueuedEvents()
+      return json
+    } catch (error) {
+      console.error('openTourSession', error)
       return null
     }
-    const json = (await response.json()) as TourTrackIds
-    ids = json
-    flushQueuedEvents()
-    return json
   })().finally(() => {
     opening = null
   })
@@ -114,20 +119,51 @@ export function logTourEvent(payload: TourEventPayload, opts?: { beacon?: boolea
   postTourEvent(payload, opts)
 }
 
+function humanApiError(value: unknown, fallback: string) {
+  const message = value instanceof Error ? value.message : typeof value === 'string' ? value : ''
+  if (
+    !message ||
+    /<!DOCTYPE|<html|__next_error__|Unexpected token|Failed to fetch|NetworkError|Load failed|AbortError/i.test(
+      message,
+    )
+  ) {
+    return fallback
+  }
+  return message.slice(0, 180)
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text()
+  if (!text || /^\s*</.test(text)) {
+    throw new Error('No se pudo guardar el contacto. Intenta de nuevo.')
+  }
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error('No se pudo guardar el contacto. Intenta de nuevo.')
+  }
+}
+
 export async function identifyTourLead(input: {
   name: string
   email: string
   phone: string
   consent: boolean
 }) {
-  const response = await fetch('/api/tour/identify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  const json = (await response.json()) as { lead_id?: string; error?: string }
+  const body = JSON.stringify({ ...input, visitor_key: getVisitorKey() })
+  let response: Response
+  try {
+    response = await fetch('/api/tour/lead', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    })
+  } catch (error) {
+    throw new Error(humanApiError(error, 'No se pudo guardar el contacto. Revisa tu conexión e inténtalo de nuevo.'))
+  }
+  const json = await readJsonResponse<{ lead_id?: string; error?: string }>(response)
   if (!response.ok || !json.lead_id) {
-    throw new Error(json.error || 'No se pudo guardar el contacto')
+    throw new Error(humanApiError(json.error, 'No se pudo guardar el contacto'))
   }
   logTourEvent({ event_type: 'lead_identificado', metadata: { lead_id: json.lead_id } })
   return json.lead_id

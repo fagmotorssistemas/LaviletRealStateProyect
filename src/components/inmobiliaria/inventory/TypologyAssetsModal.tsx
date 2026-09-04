@@ -15,11 +15,17 @@ import { TYPOLOGY_ASSET_MAX_BYTES, TYPOLOGY_PANO_MAX_BYTES } from '@/lib/typolog
 import {
   assetMatchesRoom,
   isTourPanoramaFileName,
-  TOUR_PANO_FILE,
   TOUR_PANO_SLUG,
-  typologyPanoramaAsset,
   type TourRoomDef,
 } from '@/lib/tour/tourRooms'
+import {
+  fileMatchesScene,
+  findLegacyRoomAsset,
+  isLegacySceneFile,
+  parseRoomSceneFileName,
+  sceneCombos,
+} from '@/lib/tour/roomScene'
+import type { TourLightMode } from '@/types/tour'
 import { cn } from '@/lib/utils'
 import {
   TYPOLOGY_ASSET_KIND_OPTIONS,
@@ -43,6 +49,13 @@ type Notice = {
   text: string
 }
 
+type SceneSlot = {
+  room: string
+  finish: string | null
+  light: TourLightMode
+  label: string
+}
+
 type TypologyAssetsModalProps = {
   isOpen: boolean
   onClose: () => void
@@ -57,6 +70,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [kind, setKind] = useState<TypologyAssetKind>('plano')
   const [tab, setTab] = useState<'documentos' | 'ambientes'>('ambientes')
   const [roomSlots, setRoomSlots] = useState<TourRoomDef[]>([])
+  const [finishes, setFinishes] = useState<{ slug: string; name: string }[]>([])
   const [assets, setAssets] = useState<AssetRow[]>([])
   const [uploadingRoom, setUploadingRoom] = useState<string | null>(null)
   const [jobs, setJobs] = useState<FileJob[]>([])
@@ -66,6 +80,21 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const roomFileRef = useRef<HTMLInputElement>(null)
+  const pendingSlotRef = useRef<SceneSlot | null>(null)
+  const modalScrollRef = useRef(0)
+  const combos = sceneCombos(finishes)
+
+  const pickRoomFile = (slot: SceneSlot) => {
+    if (!code || uploading) return
+    pendingSlotRef.current = slot
+    const scroller = document.querySelector('.crm-modal-panel .overflow-y-auto')
+    modalScrollRef.current = scroller instanceof HTMLElement ? scroller.scrollTop : 0
+    roomFileRef.current?.click()
+    requestAnimationFrame(() => {
+      if (scroller instanceof HTMLElement) scroller.scrollTop = modalScrollRef.current
+    })
+  }
 
   const loadTypologies = useCallback(async () => {
     try {
@@ -98,6 +127,20 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   }, [isOpen, loadTypologies])
 
   useEffect(() => {
+    if (!isOpen) return
+    const restore = () => {
+      const scroller = document.querySelector('.crm-modal-panel .overflow-y-auto')
+      if (scroller instanceof HTMLElement) scroller.scrollTop = modalScrollRef.current
+    }
+    window.addEventListener('focus', restore)
+    document.addEventListener('visibilitychange', restore)
+    return () => {
+      window.removeEventListener('focus', restore)
+      document.removeEventListener('visibilitychange', restore)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
     if (!isOpen || !code) return
     void loadAssets(code)
   }, [isOpen, code, loadAssets])
@@ -107,13 +150,24 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     let cancelled = false
     void fetch('/api/tour/catalog')
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { typologies?: { code: string; rooms?: TourRoomDef[] }[] } | null) => {
-        if (cancelled || !data) return
-        const rooms = data.typologies?.find((item) => item.code === code)?.rooms ?? []
-        setRoomSlots(rooms.map((item) => ({ slug: item.slug, label: item.label })))
-      })
+      .then(
+        (
+          data: {
+            finishes?: { slug: string; name: string }[]
+            typologies?: { code: string; rooms?: TourRoomDef[] }[]
+          } | null,
+        ) => {
+          if (cancelled || !data) return
+          setFinishes(data.finishes ?? [])
+          const rooms = data.typologies?.find((item) => item.code === code)?.rooms ?? []
+          setRoomSlots(rooms.map((item) => ({ slug: item.slug, label: item.label })))
+        },
+      )
       .catch(() => {
-        if (!cancelled) setRoomSlots([])
+        if (!cancelled) {
+          setRoomSlots([])
+          setFinishes([])
+        }
       })
     return () => {
       cancelled = true
@@ -124,24 +178,37 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     file: File,
     nextKind: TypologyAssetKind = kind,
     room?: string,
+    finish?: string | null,
+    light?: TourLightMode | null,
   ): Promise<FileJob['status']> => {
     const body = new FormData()
     body.set('typology_code', code)
     body.set('kind', nextKind)
     body.set('file', file)
     if (room) body.set('room', room)
+    if (finish) body.set('finish', finish)
+    if (light) body.set('light', light)
 
-    const res = await fetch('/api/typology-assets/upload', {
-      method: 'POST',
-      body,
-      credentials: 'same-origin',
-    })
+    let res: Response
+    try {
+      res = await fetch('/api/typology-assets/upload', {
+        method: 'POST',
+        body,
+        credentials: 'same-origin',
+      })
+    } catch {
+      throw new Error(
+        'Se cortó la subida. Si es un 360, mandalo en JPG de 8192×4096 (mejor menos de 25 MB, no PNG).',
+      )
+    }
     const raw = await res.text()
     let payload: { error?: string; code?: string } = {}
     try {
       payload = raw ? (JSON.parse(raw) as { error?: string; code?: string }) : {}
     } catch {
-      throw new Error(raw.slice(0, 180) || `El servidor respondió ${res.status}`)
+      throw new Error(
+        'El servidor no pudo procesar esa imagen. Probá JPG más liviano; el 360 ideal es 8192×4096.',
+      )
     }
 
     if (res.status === 409 || payload.code === 'duplicate') return 'duplicate'
@@ -246,30 +313,31 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     }
   }
 
-  const onRoomFile = async (room: string, file: File) => {
+  const onRoomFile = async (slot: SceneSlot, file: File) => {
     if (!code) {
       toast.error('Selecciona una tipología primero')
       return
     }
     setUploading(true)
-    setUploadingRoom(room)
+    setUploadingRoom(`${slot.room}:${slot.finish ?? ''}:${slot.light}`)
     setNotice({
       tone: 'info',
-      text: room === TOUR_PANO_SLUG ? `Subiendo el 360 de ${code}…` : `Subiendo foto de ${room} para ${code}…`,
+      text:
+        slot.room === TOUR_PANO_SLUG
+          ? `Subiendo el 360 · ${slot.label} de ${code}…`
+          : `Subiendo ${slot.room} · ${slot.label} para ${code}…`,
     })
     try {
-      const limit = room === TOUR_PANO_SLUG ? TYPOLOGY_PANO_MAX_BYTES : TYPOLOGY_ASSET_MAX_BYTES
+      const limit = slot.room === TOUR_PANO_SLUG ? TYPOLOGY_PANO_MAX_BYTES : TYPOLOGY_ASSET_MAX_BYTES
       if (file.size > limit) {
         throw new Error(`Supera ${limit / (1024 * 1024)} MB`)
       }
-      await uploadOne(file, 'ambiente', room)
-      if (room === TOUR_PANO_SLUG) {
-        toast.success('360 guardado')
-        setNotice({ tone: 'ok', text: `Listo. ${code} ya tiene su 360.` })
-      } else {
-        toast.success(`Foto de ${room} guardada`)
-        setNotice({ tone: 'ok', text: `Listo. ${code} ya usa esa foto al entrar a ${room}.` })
-      }
+      await uploadOne(file, 'ambiente', slot.room, slot.finish, slot.light)
+      toast.success(`${slot.room === TOUR_PANO_SLUG ? '360' : slot.room} · ${slot.label} guardado`)
+      setNotice({
+        tone: 'ok',
+        text: `Listo. En el showroom, ${slot.label} usa esa imagen en ${slot.room === TOUR_PANO_SLUG ? 'el 360' : slot.room}.`,
+      })
       await loadAssets(code)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'No se pudo subir'
@@ -281,14 +349,29 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     }
   }
 
+  const findSlotAsset = (room: string, finish: string | null, light: TourLightMode) => {
+    const exact = assets.find((row) => fileMatchesScene(row.file_name, room, finish, light))
+    if (exact) return exact
+    const defaultFinish = finishes[0]?.slug ?? null
+    const isDefaultSlot = light === 'dia' && (finish == null || finish === defaultFinish)
+    if (!isDefaultSlot) return undefined
+    return findLegacyRoomAsset(assets, room)
+  }
+
   const onDelete = async (id: string) => {
     setDeletingId(id)
     try {
       const target = assets.find((row) => row.id === id)
-      const toDelete =
-        target && isTourPanoramaFileName(target.file_name)
-          ? assets.filter((row) => isTourPanoramaFileName(row.file_name)).map((row) => row.id)
-          : [id]
+      const parsed = target ? parseRoomSceneFileName(target.file_name) : null
+      const siblings =
+        target && parsed?.light
+          ? assets.filter((row) =>
+              fileMatchesScene(row.file_name, parsed.room, parsed.finish, parsed.light ?? 'dia'),
+            )
+          : target
+            ? [target]
+            : []
+      const toDelete = (siblings.length > 0 ? siblings : target ? [target] : []).map((row) => row.id)
       for (const assetId of toDelete) {
         await deleteTypologyAssetAction(assetId)
       }
@@ -309,174 +392,206 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Imágenes por tipología" size="xl">
       <div className="space-y-5">
-        <div
-          className={cn(
-            'rounded-lg border px-3 py-2.5 text-sm',
-            notice?.tone === 'ok' && 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
-            notice?.tone === 'error' && 'border-[#c4a8a5] bg-[#f3eaea] text-[#8a5c58]',
-            notice?.tone === 'warn' && 'border-[#BDA27E]/50 bg-[#f7f3ee] text-[#7a6240]',
-            (!notice || notice.tone === 'info') && 'border-[#2B1A18]/10 bg-[#f7f3ee] text-[#555850]',
-          )}
-        >
-          {notice?.text ?? 'Aún no hay subida. Elige un archivo y aquí verás si se guardó o el error.'}
-        </div>
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 space-y-3 border-b border-[#2B1A18]/8 bg-white px-4 pb-3 pt-4 sm:-mx-6 sm:-mt-6 sm:px-6">
+          <div
+            className={cn(
+              'rounded-lg border px-3 py-2 text-sm',
+              notice?.tone === 'ok' && 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
+              notice?.tone === 'error' && 'border-[#c4a8a5] bg-[#f3eaea] text-[#8a5c58]',
+              notice?.tone === 'warn' && 'border-[#BDA27E]/50 bg-[#f7f3ee] text-[#7a6240]',
+              (!notice || notice.tone === 'info') && 'border-[#2B1A18]/10 bg-[#f7f3ee] text-[#555850]',
+            )}
+          >
+            {notice?.text ?? 'Aún no hay subida. Elige un archivo y aquí verás si se guardó o el error.'}
+          </div>
 
-        <div className="flex gap-1 border-b border-[#2B1A18]/10">
-          {(
-            [
-              { id: 'ambientes' as const, label: '360 y ambientes' },
-              { id: 'documentos' as const, label: 'Planos y renders' },
-            ] as const
-          ).map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setTab(item.id)}
-              className={cn(
-                'border-b-2 px-3 py-2 text-sm font-medium',
-                tab === item.id
-                  ? 'border-[#787D62] text-[#3a3d36]'
-                  : 'border-transparent text-[#8a8d87] hover:text-[#3a3d36]',
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+          <div className="flex gap-1 border-b border-[#2B1A18]/10">
+            {(
+              [
+                { id: 'ambientes' as const, label: '360 y ambientes' },
+                { id: 'documentos' as const, label: 'Planos y renders' },
+              ] as const
+            ).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                className={cn(
+                  'border-b-2 px-3 py-2 text-sm font-medium',
+                  tab === item.id
+                    ? 'border-[#787D62] text-[#3a3d36]'
+                    : 'border-transparent text-[#8a8d87] hover:text-[#3a3d36]',
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
 
-        <Select
-          label="Tipología"
-          options={typologyOptions}
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-        />
+          <Select
+            label="Tipología"
+            options={typologyOptions}
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
+        </div>
 
         {tab === 'ambientes' && (
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-sm font-semibold text-[#3a3d36]">360</p>
               <p className="text-sm text-[#555850]">
-                Un solo 360 por tipología, panorámico 2:1. Pedí 8192×4096 a producción (máx. {PANO_MAX_MB} MB).
-                En el celular se sirve 4096; en PC, 8192.
+                Un 360 por acabado y por luz, panorámico 2:1. Pedí 8192×4096 en JPG (mejor menos de 25 MB).
+                Las fotos que ya subiste aparecen en el primer acabado · Día.
               </p>
-              {(() => {
-                const pano =
-                  assets.find((row) => row.file_name === TOUR_PANO_FILE) ?? typologyPanoramaAsset(assets)
-                return (
-                  <label className="flex max-w-sm cursor-pointer flex-col overflow-hidden rounded-lg border border-[#2B1A18]/10 bg-white">
-                    <div className="relative aspect-[2/1] bg-[#f4f4ef]">
-                      {pano ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={pano.public_url} alt="360" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-xs text-[#8a8d87]">
-                          Sin 360
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between gap-2 p-2">
-                      <span className="text-sm font-semibold text-[#3a3d36]">360</span>
-                      <span className="flex items-center gap-2">
-                        <span className="text-xs text-[#787D62]">
-                          {uploadingRoom === TOUR_PANO_SLUG ? 'Subiendo…' : pano ? 'Cambiar' : 'Subir'}
-                        </span>
-                        {pano && (
-                          <button
-                            type="button"
-                            className="rounded p-1 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
-                            disabled={deletingId === pano.id}
-                            onClick={(event) => {
-                              event.preventDefault()
-                              void onDelete(pano.id)
-                            }}
-                            aria-label="Borrar 360"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </span>
-                    </div>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
-                      className="sr-only"
+              <div className="grid grid-cols-2 gap-3">
+                {combos.map((combo) => {
+                  const slot: SceneSlot = {
+                    room: TOUR_PANO_SLUG,
+                    finish: combo.finish,
+                    light: combo.light,
+                    label: combo.label,
+                  }
+                  const asset = findSlotAsset(TOUR_PANO_SLUG, combo.finish, combo.light)
+                  const fallback = Boolean(asset && isLegacySceneFile(asset.file_name, TOUR_PANO_SLUG))
+                  const busy = uploadingRoom === `${TOUR_PANO_SLUG}:${combo.finish ?? ''}:${combo.light}`
+                  return (
+                    <button
+                      key={`${combo.finish ?? 'base'}-${combo.light}`}
+                      type="button"
                       disabled={!code || uploading}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        e.target.value = ''
-                        if (file) void onRoomFile(TOUR_PANO_SLUG, file)
-                      }}
-                    />
-                  </label>
-                )
-              })()}
+                      onClick={() => pickRoomFile(slot)}
+                      className="flex cursor-pointer flex-col overflow-hidden rounded-lg border border-[#2B1A18]/10 bg-white text-left disabled:opacity-60"
+                    >
+                      <div className="relative aspect-[2/1] bg-[#f4f4ef]">
+                        {asset ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={asset.public_url} alt={`360 ${combo.label}`} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-[#8a8d87]">
+                            Sin 360
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 p-2">
+                        <span className="text-sm font-semibold text-[#3a3d36]">{combo.label}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="text-xs text-[#787D62]">
+                            {busy ? 'Subiendo…' : fallback ? 'Ya cargada' : asset ? 'Cambiar' : 'Subir'}
+                          </span>
+                          {asset && (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="rounded p-1 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
+                              onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                if (deletingId === asset.id) return
+                                void onDelete(asset.id)
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key !== 'Enter' && event.key !== ' ') return
+                                event.preventDefault()
+                                event.stopPropagation()
+                                void onDelete(asset.id)
+                              }}
+                              aria-label={`Borrar 360 ${combo.label}`}
+                            >
+                              <Trash2 size={14} />
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
-            <div className="space-y-2">
-            <p className="text-sm font-semibold text-[#3a3d36]">Ambientes</p>
-            <p className="text-sm text-[#555850]">
-              Fotos planas. Los botones salen de lo que tiene cada unidad: baño completo, baño social,
-              dormitorios y espacios.
-            </p>
+            <div className="space-y-4">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-[#3a3d36]">Ambientes</p>
+              <p className="text-sm text-[#555850]">
+                La misma grilla en cada ambiente. Las fotos anteriores se ven en el primer acabado · Día.
+              </p>
+            </div>
             {roomSlots.length === 0 ? (
               <p className="text-sm text-[#8a8d87]">
                 Esta tipología todavía no tiene unidades con espacios, habitaciones o baños cargados.
               </p>
             ) : null}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {roomSlots.map((item) => {
-                const asset = assets.find((row) => assetMatchesRoom(row.file_name, item.slug))
-                return (
-                  <label
-                    key={item.slug}
-                    className="flex cursor-pointer flex-col overflow-hidden rounded-lg border border-[#2B1A18]/10 bg-white"
-                  >
-                    <div className="relative aspect-[4/3] bg-[#f4f4ef]">
-                      {asset ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={asset.public_url} alt={item.label} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-xs text-[#8a8d87]">
-                          Sin foto
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between gap-2 p-2">
-                      <span className="text-sm font-semibold text-[#3a3d36]">{item.label}</span>
-                      <span className="flex items-center gap-2">
-                        <span className="text-xs text-[#787D62]">
-                          {uploadingRoom === item.slug ? 'Subiendo…' : asset ? 'Cambiar' : 'Subir'}
-                        </span>
-                        {asset && (
-                          <button
-                            type="button"
-                            className="rounded p-1 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
-                            disabled={deletingId === asset.id}
-                            onClick={(event) => {
-                              event.preventDefault()
-                              void onDelete(asset.id)
-                            }}
-                            aria-label={`Borrar ${item.label}`}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </span>
-                    </div>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
-                      className="sr-only"
-                      disabled={!code || uploading}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        e.target.value = ''
-                        if (file) void onRoomFile(item.slug, file)
-                      }}
-                    />
-                  </label>
-                )
-              })}
+            <div className="space-y-5">
+              {roomSlots.map((item) => (
+                <div key={item.slug} className="space-y-2">
+                  <p className="text-sm font-semibold text-[#3a3d36]">{item.label}</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {combos.map((combo) => {
+                      const slot: SceneSlot = {
+                        room: item.slug,
+                        finish: combo.finish,
+                        light: combo.light,
+                        label: combo.label,
+                      }
+                      const asset = findSlotAsset(item.slug, combo.finish, combo.light)
+                      const fallback = Boolean(asset && isLegacySceneFile(asset.file_name, item.slug))
+                      const busy = uploadingRoom === `${item.slug}:${combo.finish ?? ''}:${combo.light}`
+                      return (
+                        <button
+                          key={`${item.slug}-${combo.finish ?? 'base'}-${combo.light}`}
+                          type="button"
+                          disabled={!code || uploading}
+                          onClick={() => pickRoomFile(slot)}
+                          className="flex cursor-pointer flex-col overflow-hidden rounded-lg border border-[#2B1A18]/10 bg-white text-left disabled:opacity-60"
+                        >
+                          <div className="relative aspect-[16/10] bg-[#f4f4ef]">
+                            {asset ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={asset.public_url} alt={`${item.label} ${combo.label}`} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full items-center justify-center text-xs text-[#8a8d87]">
+                                Sin foto
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 p-2">
+                            <span className="text-xs font-semibold tracking-wide text-[#3a3d36] uppercase">
+                              {combo.label}
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span className="text-xs text-[#787D62]">
+                                {busy ? 'Subiendo…' : fallback ? 'Ya cargada' : asset ? 'Cambiar' : 'Subir'}
+                              </span>
+                              {asset && (
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  className="rounded p-1 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    if (deletingId === asset.id) return
+                                    void onDelete(asset.id)
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key !== 'Enter' && event.key !== ' ') return
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    void onDelete(asset.id)
+                                  }}
+                                  aria-label={`Borrar ${item.label} ${combo.label}`}
+                                >
+                                  <Trash2 size={14} />
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
             </div>
           </div>
@@ -520,7 +635,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
         >
           <ImagePlus size={20} className="text-[#787D62]" />
           <span className="font-medium">Planos o renders (varios a la vez)</span>
-          <span className="text-xs text-[#8a8d87]">PNG, JPG o WebP · máx. {MAX_MB} MB · se guarda como WebP lossless</span>
+          <span className="text-xs text-[#8a8d87]">PNG, JPG o WebP · máx. {MAX_MB} MB · se guarda como WebP</span>
           <input
             ref={fileInputRef}
             type="file"
@@ -616,6 +731,22 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             Cerrar
           </Button>
         </div>
+        <input
+          ref={roomFileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+          tabIndex={-1}
+          className="pointer-events-none fixed top-0 left-0 h-px w-px opacity-0"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            const slot = pendingSlotRef.current
+            e.target.value = ''
+            pendingSlotRef.current = null
+            const scroller = document.querySelector('.crm-modal-panel .overflow-y-auto')
+            if (scroller instanceof HTMLElement) scroller.scrollTop = modalScrollRef.current
+            if (file && slot) void onRoomFile(slot, file)
+          }}
+        />
       </div>
     </Modal>
   )

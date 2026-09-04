@@ -11,13 +11,9 @@ import {
   typologyAssetFileName,
   typologyAssetStoragePath,
 } from '@/lib/typology-assets'
-import {
-  isTourRoomSlug,
-  TOUR_PANO_FILE_8192,
-  TOUR_PANO_SLUG,
-  tourPanoFileName,
-  tourRoomFileName,
-} from '@/lib/tour/tourRooms'
+import { isTourRoomSlug, TOUR_PANO_SLUG, tourPanoFileName, tourRoomFileName } from '@/lib/tour/tourRooms'
+import { roomSceneFileName } from '@/lib/tour/roomScene'
+import type { TourLightMode } from '@/types/tour'
 import {
   deleteTypologyAsset,
   findTypologyAssetByKey,
@@ -32,6 +28,19 @@ function jsonError(message: string, status: number, extra?: Record<string, unkno
 }
 
 export async function POST(request: Request) {
+  try {
+    return await handleUpload(request)
+  } catch (error) {
+    console.error('POST /api/typology-assets/upload', error)
+    const message = error instanceof Error ? error.message : 'No se pudo subir la imagen'
+    if (/413|entity too large|body.*limit|size/i.test(message)) {
+      return jsonError('La imagen es demasiado pesada. Subí un JPG de menos de 25 MB.', 413)
+    }
+    return jsonError('No se pudo subir la imagen. Probá un JPG más liviano.', 500)
+  }
+}
+
+async function handleUpload(request: Request) {
   console.info('[typology-assets] POST /api/typology-assets/upload')
   const session = await getSessionProfile()
   if (!session) return jsonError('No autenticado', 401)
@@ -48,6 +57,10 @@ export async function POST(request: Request) {
   const uploaded = form.get('file')
 
   const room = String(form.get('room') ?? '').trim()
+  const finishRaw = String(form.get('finish') ?? '').trim()
+  const lightRaw = String(form.get('light') ?? '').trim()
+  const finish = finishRaw || null
+  const light: TourLightMode | null = lightRaw === 'noche' || lightRaw === 'dia' ? lightRaw : null
   if (!typologyCode) return jsonError('Falta typology_code', 400)
   if (!isTypologyAssetKind(kindRaw)) return jsonError('kind debe ser plano, render o ambiente', 400)
   const isPanoSlot = kindRaw === 'ambiente' && room === TOUR_PANO_SLUG
@@ -68,7 +81,18 @@ export async function POST(request: Request) {
   }
 
   const persistKind = kindRaw === 'ambiente' ? 'render' : kindRaw
-  const fileName = kindRaw === 'ambiente' ? tourRoomFileName(room) : typologyAssetFileName(fileNameHint)
+  const sceneKey = kindRaw === 'ambiente' && light ? { room, finish, light } : null
+  const fileName =
+    kindRaw === 'ambiente'
+      ? sceneKey
+        ? roomSceneFileName(sceneKey)
+        : tourRoomFileName(room)
+      : typologyAssetFileName(fileNameHint)
+  const desktopFileName = isPanoSlot
+    ? sceneKey
+      ? roomSceneFileName(sceneKey, 8192)
+      : tourPanoFileName(8192)
+    : null
   const admin = createAdminClient()
 
   const existing = await findTypologyAssetByKey(admin, typologyCode, persistKind, fileName)
@@ -81,12 +105,12 @@ export async function POST(request: Request) {
   }
 
   const pngBuffer = Buffer.from(await uploaded.arrayBuffer())
+  const sharpOpts = { limitInputPixels: 80_000_000, sequentialRead: true, failOn: 'none' as const }
   let webpBuffer: Buffer
   let desktopBuffer: Buffer | null = null
   try {
-    const image = sharp(pngBuffer, { limitInputPixels: 80_000_000 }).rotate().keepIccProfile()
     if (isPanoSlot) {
-      const meta = await image.clone().metadata()
+      const meta = await sharp(pngBuffer, sharpOpts).rotate().metadata()
       const ratio = meta.width && meta.height ? meta.width / meta.height : 0
       if (!meta.width || !meta.height || Math.abs(ratio - 2) > 0.15) {
         return jsonError(
@@ -101,25 +125,33 @@ export async function POST(request: Request) {
         )
       }
       const serviceWidth = Math.min(4096, meta.width)
-      webpBuffer = await image
-        .clone()
+      webpBuffer = await sharp(pngBuffer, sharpOpts)
+        .rotate()
         .resize(serviceWidth, Math.round(serviceWidth / 2), { fit: 'fill' })
-        .webp({ quality: 90, effort: 4 })
+        .webp({ quality: 88, effort: 3 })
         .toBuffer()
       if (meta.width >= 8192) {
-        desktopBuffer = await image
-          .clone()
-          .resize(8192, 4096, { fit: 'fill' })
-          .webp({ quality: 88, effort: 4 })
-          .toBuffer()
+        try {
+          desktopBuffer = await sharp(pngBuffer, sharpOpts)
+            .rotate()
+            .resize(8192, 4096, { fit: 'fill' })
+            .webp({ quality: 82, effort: 2 })
+            .toBuffer()
+        } catch (error) {
+          console.error('pano 8192 encode', error)
+          desktopBuffer = null
+        }
       }
     } else if (kindRaw === 'ambiente') {
-      webpBuffer = await image.webp({ quality: 86, effort: 4 }).toBuffer()
+      webpBuffer = await sharp(pngBuffer, sharpOpts).rotate().webp({ quality: 86, effort: 3 }).toBuffer()
     } else {
-      webpBuffer = await image.webp({ lossless: true, quality: 100, alphaQuality: 100, effort: 6 }).toBuffer()
+      webpBuffer = await sharp(pngBuffer, sharpOpts)
+        .rotate()
+        .webp({ quality: 90, effort: 3 })
+        .toBuffer()
     }
   } catch {
-    return jsonError('No se pudo convertir el PNG a WebP', 422)
+    return jsonError('No se pudo convertir la imagen. Probá JPG en vez de PNG.', 422)
   }
 
   const uploadedPaths: string[] = []
@@ -157,11 +189,11 @@ export async function POST(request: Request) {
 
   try {
     const asset = await persistFile(fileName, webpBuffer)
-    if (isPanoSlot && desktopBuffer) {
-      await persistFile(tourPanoFileName(8192), desktopBuffer)
+    if (isPanoSlot && desktopBuffer && desktopFileName) {
+      await persistFile(desktopFileName, desktopBuffer)
     }
-    if (isPanoSlot && !desktopBuffer) {
-      const extra = await findTypologyAssetByKey(admin, typologyCode, persistKind, TOUR_PANO_FILE_8192)
+    if (isPanoSlot && !desktopBuffer && desktopFileName) {
+      const extra = await findTypologyAssetByKey(admin, typologyCode, persistKind, desktopFileName)
       if (extra) await deleteTypologyAsset(admin, extra.id)
     }
     return NextResponse.json({ asset })

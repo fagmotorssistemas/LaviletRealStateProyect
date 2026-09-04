@@ -19,6 +19,7 @@ import {
   tourRoomLabel,
 } from '@/lib/tour/tourRooms'
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
+import { pickRoomScene, pickSceneUrl } from '@/lib/tour/roomScene'
 import {
   getTourUnitTypeSlug,
   loadRoomVariantUrls,
@@ -335,6 +336,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           (item) => item.panorama || item.renders.length > 0,
         )
         setSelectedTypology((prev) => prev || firstWithMedia?.code || data.typologies[0]?.code || '')
+        if (data.finishes?.length) {
+          setFinish((prev) => (prev && data.finishes.some((item) => item.slug === prev) ? prev : data.finishes[0].slug))
+        }
       })
       .catch((error) => console.error(error))
     return () => {
@@ -356,7 +360,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       finish: slug,
       light,
     })
-    void applyCombo(slug, light)
+    if (!publicCatalog) void applyCombo(slug, light)
   }
 
   const onLight = () => {
@@ -370,7 +374,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       finish,
       light: next,
     })
-    void applyCombo(finish, next)
+    if (!publicCatalog) void applyCombo(finish, next)
   }
 
   const onSelectRoom = useCallback(
@@ -446,12 +450,19 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const photoBySlug = useMemo(() => {
     const map: Record<string, string | null> = {}
     for (const item of tourRooms) {
-      map[item.slug] = currentTypology?.rooms.find((roomItem) => roomItem.slug === item.slug)?.url ?? null
+      const roomItem = currentTypology?.rooms.find((entry) => entry.slug === item.slug)
+      const scene = pickRoomScene(roomItem?.scenes, finish || null, light)
+      map[item.slug] = pickSceneUrl(scene) ?? roomItem?.url ?? null
     }
     return map
-  }, [tourRooms, currentTypology])
+  }, [tourRooms, currentTypology, finish, light])
 
-  const typologyPanoUrl = pickCatalogPanoUrl(currentTypology?.panorama, catalogWidthRef.current)
+  const typologyPanoUrl = pickCatalogPanoUrl(
+    currentTypology?.panorama,
+    catalogWidthRef.current,
+    finish || null,
+    light,
+  )
   const isPanoRoom = room === TOUR_PANO_SLUG
   const flatPhotoUrl = isPanoRoom ? null : photoBySlug[room] ?? null
   const navTargets = useMemo(
@@ -540,13 +551,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     appliedPanoKeyRef.current = ''
   }
 
-  const finishName = catalog?.finishes.find((f) => f.slug === finish)?.name ?? finish
+  const sceneFinishes = publicCatalog?.finishes?.length ? publicCatalog.finishes : catalog?.finishes ?? []
+  const finishName = sceneFinishes.find((f) => f.slug === finish)?.name ?? finish
   const currentNode = nodes.find((n) => n.id === room || roomSlugFromNode(n) === room)
   const roomName = isPanoRoom
     ? '360'
     : tourRooms.find((item) => item.slug === room)?.label ?? currentNode?.name ?? tourRoomLabel(room)
   const lightLabel = light === 'dia' ? 'Día' : 'Noche'
-  const showFinish = currentNode?.data?.finishSlug != null
+  const showSceneControls = Boolean(publicCatalog) || sceneFinishes.length > 0
 
   const tracking = useTourSceneTracking(
     {
@@ -603,13 +615,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       )}
 
       {booting && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black text-[13px] tracking-[0.16em] text-white/70 uppercase">
-          Cargando tour…
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#111] text-center">
+          <p className="text-[11px] tracking-[0.28em] text-[#BDA27E] uppercase">Showroom</p>
+          <p className="mt-2 text-[13px] tracking-[0.16em] text-white/55 uppercase">Cargando…</p>
         </div>
       )}
 
+      <div className="tour-vignette pointer-events-none absolute inset-0 z-[12]" />
+
       <div className="tour-chrome pointer-events-none absolute inset-0 z-20">
-        <div className="pointer-events-auto absolute top-0 left-0 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:p-3">
+        <div className="pointer-events-auto absolute top-0 left-0 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:p-3.5">
           <TourPicker
             typologies={typologyOptions}
             typology={selectedTypology}
@@ -621,7 +636,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         <div
           className={cn(
             CONSTANTS.CAPTURE_EVENTS_CLASS,
-            'pointer-events-none absolute right-0 bottom-0 left-0 flex flex-col items-end gap-2 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-2.5 sm:p-3',
+            'pointer-events-none absolute right-0 bottom-0 left-0 flex flex-col items-end gap-2 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-2.5 sm:p-3.5',
           )}
         >
           <div className="pointer-events-auto flex items-end justify-end gap-2">
@@ -641,53 +656,57 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   return next
                 })
               }}
-              className="mb-1 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[4px] bg-black/55 text-white ring-1 ring-white/15 backdrop-blur-sm"
+              className="mb-0.5 inline-flex h-9 w-9 cursor-pointer items-center justify-center border border-white/25 bg-[#14110e]/35 text-white/85 backdrop-blur-[10px] transition-colors hover:border-[#BDA27E]/55 hover:text-white"
               aria-label={fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
             >
-              {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              {fullscreen ? <Minimize2 size={15} strokeWidth={1.6} /> : <Maximize2 size={15} strokeWidth={1.6} />}
             </button>
           </div>
 
           {loading && (
-            <div className="self-center rounded-[4px] bg-black/65 px-3 py-1.5 text-[12px] font-medium tracking-wide text-white/90">
-              Cargando…
+            <div className="self-center border border-white/15 bg-[#14110e]/50 px-3 py-1.5 text-[10px] font-medium tracking-[0.22em] text-white/70 uppercase backdrop-blur-[10px]">
+              Cargando
             </div>
           )}
 
-          {isPanoRoom && !typologyPanoUrl && (catalog?.finishes?.length ?? 0) > 0 && (
-            <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center gap-2 rounded-[4px] bg-black/55 p-2 backdrop-blur-sm">
-              <div className="flex min-w-0 flex-1 gap-1.5">
-                {(catalog?.finishes ?? []).map((item) => (
-                  <button
-                    key={item.slug}
-                    type="button"
-                    onClick={() => onFinish(item.slug)}
-                    className={cn(
-                      'h-10 flex-1 cursor-pointer rounded-[4px] text-[12px] font-semibold tracking-[0.12em] uppercase transition-colors',
-                      finish === item.slug
-                        ? 'bg-[#787D62] text-white'
-                        : 'bg-white/10 text-white/80 hover:bg-white/16',
-                    )}
-                  >
-                    {item.name}
-                  </button>
-                ))}
-              </div>
+          {showSceneControls && (
+            <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center gap-2 border border-white/15 bg-[#14110e]/45 p-1.5 backdrop-blur-[10px]">
+              {sceneFinishes.length > 0 ? (
+                <div className="flex min-w-0 flex-1 gap-1">
+                  {sceneFinishes.map((item) => (
+                    <button
+                      key={item.slug}
+                      type="button"
+                      onClick={() => onFinish(item.slug)}
+                      className={cn(
+                        'h-9 flex-1 cursor-pointer text-[10px] font-medium tracking-[0.18em] uppercase transition-colors',
+                        finish === item.slug
+                          ? 'bg-[#BDA27E] text-[#2B1A18]'
+                          : 'text-white/70 hover:bg-white/8 hover:text-white',
+                      )}
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="min-w-0 flex-1 px-2 text-[10px] font-medium tracking-[0.18em] text-white/55 uppercase">
+                  {lightLabel}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={onLight}
-                className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[4px] bg-white/10 text-white hover:bg-white/16"
+                className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center border border-white/15 text-white/80 hover:border-[#BDA27E]/50 hover:text-white"
                 aria-label={light === 'dia' ? 'Cambiar a noche' : 'Cambiar a día'}
                 title={lightLabel}
               >
-                {light === 'dia' ? <Moon size={16} strokeWidth={1.75} /> : <Sun size={16} strokeWidth={1.75} />}
+                {light === 'dia' ? <Moon size={15} strokeWidth={1.5} /> : <Sun size={15} strokeWidth={1.5} />}
               </button>
             </div>
           )}
-          <p className="hidden px-1 text-center text-[11px] font-medium tracking-wide text-white/55 sm:block">
-            {`${roomName}${
-              isPanoRoom && !typologyPanoUrl && showFinish && finishName ? ` · ${finishName}` : ''
-            }${isPanoRoom && !typologyPanoUrl ? ` · ${lightLabel}` : ''}`}
+          <p className="hidden self-center px-1 text-center text-[10px] font-medium tracking-[0.22em] text-white/38 uppercase sm:block">
+            {`${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`}
           </p>
         </div>
       </div>

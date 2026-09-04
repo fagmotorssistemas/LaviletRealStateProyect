@@ -14,8 +14,9 @@ export function HomeTourSection() {
             para enviarte planos y disponibilidad.
           </p>
         </div>
-        <div className="-mx-4 mt-10 h-[min(82dvh,720px)] min-h-[480px] overflow-hidden bg-black shadow-sm ring-1 ring-[#2B1A18]/8 sm:mx-0 sm:rounded-2xl">
+        <div className="relative -mx-4 mt-10 h-[min(82dvh,720px)] min-h-[480px] overflow-hidden bg-[#111] shadow-[0_20px_50px_rgba(43,26,24,0.12)] ring-1 ring-[#2B1A18]/10 sm:mx-0 sm:rounded-[20px] sm:ring-[#BDA27E]/20">
           <TourSafeArea embedded />
+          <div className="pointer-events-none absolute inset-0 z-30 ring-1 ring-inset ring-white/10 sm:rounded-[20px]" />
         </div>
       </div>
     </section>

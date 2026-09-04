@@ -173,7 +173,12 @@ export function assetMatchesRoom(fileName: string, slug: string) {
   if (slug === TOUR_PANO_SLUG) return isTourPanoramaFileName(fileName)
   if (isTourPanoramaFileName(fileName)) return false
   const base = fileName.replace(/\.[^.]+$/, '')
-  return fileName === tourRoomFileName(slug) || base === slug || fileName.startsWith(`${slug}.`)
+  return (
+    fileName === tourRoomFileName(slug) ||
+    base === slug ||
+    fileName.startsWith(`${slug}.`) ||
+    base.startsWith(`${slug}_`)
+  )
 }
 
 /** El único 360 de la tipología: `tour-360.webp`, `pano.webp`, etc. */

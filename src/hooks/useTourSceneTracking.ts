@@ -29,9 +29,11 @@ export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateC
 
   useEffect(() => {
     let cancelled = false
-    void openTourSession().then((ids) => {
-      if (!cancelled && ids) setReady(true)
-    })
+    void openTourSession()
+      .then((ids) => {
+        if (!cancelled && ids) setReady(true)
+      })
+      .catch(() => undefined)
     return () => {
       cancelled = true
     }

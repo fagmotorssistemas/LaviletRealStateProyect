@@ -30,18 +30,7 @@ export function TourHotspotLayer({
             style={{ left: pos.left, bottom: pos.bottom, transform: 'translateX(-50%)' }}
             onClick={() => onSelect(item.slug)}
           >
-            <span className="tour-hotspot-disc">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M7.5 9.5 12 14.5l4.5-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
+            <span className="tour-hotspot-disc" aria-hidden="true" />
             <span className="tour-hotspot-label">{item.label}</span>
           </button>
         )

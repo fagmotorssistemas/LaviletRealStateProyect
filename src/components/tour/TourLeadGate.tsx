@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/Button'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
 
 export function TourLeadGate({
@@ -48,24 +47,32 @@ export function TourLeadGate({
       toast.success('Listo. Te escribimos con planos y disponibilidad.')
       onIdentified()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo enviar')
+      const message = error instanceof Error ? error.message : ''
+      toast.error(
+        message && !/<!DOCTYPE|<html|__next_error__/i.test(message)
+          ? message
+          : 'No se pudo enviar. Intenta de nuevo.',
+      )
     } finally {
       setPending(false)
     }
   }
 
+  const field =
+    'h-9 w-full border border-[#2B1A18]/12 bg-[#f7f3ee]/70 px-3 text-[13px] text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 focus:border-[#BDA27E]'
+
   return (
-    <div className="absolute inset-x-0 bottom-0 z-30 flex justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
+    <div className="absolute inset-x-0 bottom-0 z-30 flex justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4">
       <form
         onSubmit={(event) => void handleSubmit(event)}
-        className="w-full max-w-[22rem] rounded-xl bg-white/95 px-3 py-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.24)] ring-1 ring-black/10 backdrop-blur-sm sm:max-w-sm sm:px-3.5 sm:py-3"
+        className="w-full max-w-[22.5rem] border border-[#BDA27E]/35 bg-[#f7f3ee]/96 px-4 py-3.5 shadow-[0_18px_40px_rgba(20,12,10,0.28)] backdrop-blur-md sm:max-w-sm sm:px-5 sm:py-4"
       >
-        <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-medium tracking-[0.16em] text-[#BDA27E] uppercase">
+            <p className="text-[9px] font-medium tracking-[0.26em] text-[#BDA27E] uppercase">
               Showroom Lavilet
             </p>
-            <p className="mt-0.5 text-[12px] leading-snug text-[#2B1A18]">
+            <p className="mt-1.5 text-[13px] leading-relaxed text-[#2B1A18]/88">
               {shown
                 ? `Te gustó la tipología ${typology}. Déjanos tu WhatsApp y te enviamos los planos y el precio de las unidades disponibles.`
                 : 'Déjanos tu WhatsApp y te enviamos los planos y el precio de las unidades disponibles.'}
@@ -77,13 +84,13 @@ export function TourLeadGate({
               logTourEvent({ event_type: 'gate_cerrado', typology_code: typology, unit_type_id: unitTypeId })
               onClose()
             }}
-            className="shrink-0 pt-0.5 text-[11px] font-medium text-[#2B1A18]/75 hover:text-[#2B1A18]"
+            className="shrink-0 pt-0.5 text-[10px] font-medium tracking-[0.14em] text-[#2B1A18]/70 uppercase underline decoration-[#2B1A18]/25 underline-offset-4 hover:text-[#2B1A18]"
           >
             Seguir viendo
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-2 gap-2">
           <label className="min-w-0">
             <span className="sr-only">Nombre</span>
             <input
@@ -92,7 +99,7 @@ export function TourLeadGate({
               required
               autoComplete="name"
               placeholder="Nombre"
-              className="crm-field h-8 px-2.5 text-[13px]"
+              className={field}
             />
           </label>
           <label className="min-w-0">
@@ -104,7 +111,7 @@ export function TourLeadGate({
               required
               autoComplete="tel"
               placeholder="WhatsApp"
-              className="crm-field h-8 px-2.5 text-[13px]"
+              className={field}
             />
           </label>
           <label className="col-span-2 min-w-0">
@@ -116,12 +123,12 @@ export function TourLeadGate({
               required
               autoComplete="email"
               placeholder="Correo"
-              className="crm-field h-8 px-2.5 text-[13px]"
+              className={field}
             />
           </label>
         </div>
 
-        <label className="mt-1.5 flex items-start gap-1.5 text-[10px] leading-snug text-[#2B1A18]/60">
+        <label className="mt-2.5 flex items-start gap-2 text-[10px] leading-relaxed text-[#2B1A18]/55">
           <input
             id="gate-consent"
             name="consent"
@@ -138,15 +145,13 @@ export function TourLeadGate({
           </span>
         </label>
 
-        <Button
+        <button
           type="submit"
-          variant="gold"
-          size="sm"
-          className="mt-2 h-8 w-full tracking-[0.1em]"
           disabled={pending || !consented}
+          className="mt-3 h-10 w-full cursor-pointer bg-[#2B1A18] text-[11px] font-medium tracking-[0.22em] text-[#f7f3ee] uppercase transition-colors hover:bg-[#3d2a24] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {pending ? 'Enviando…' : 'Enviar WhatsApp'}
-        </Button>
+        </button>
       </form>
     </div>
   )

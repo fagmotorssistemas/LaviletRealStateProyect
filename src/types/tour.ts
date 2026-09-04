@@ -129,10 +129,20 @@ export interface TourUnitSummary {
   typology_code?: string | null
 }
 
+export type TourRoomScene = {
+  key: string
+  finish: string | null
+  light: TourLightMode
+  url: string
+  file_name: string
+  widths?: Partial<Record<'2048' | '4096' | '8192', string>>
+}
+
 export type TourRoomPhoto = {
   slug: string
   label: string
   url: string | null
+  scenes: TourRoomScene[]
 }
 
 export type TourAssetRef = {
@@ -140,6 +150,12 @@ export type TourAssetRef = {
   file_name: string
   url: string
   variants?: Partial<Record<'2048' | '4096' | '8192', string>>
+  scenes?: TourRoomScene[]
+}
+
+export type TourFinishOption = {
+  slug: string
+  name: string
 }
 
 export type TourTypologyOption = {
@@ -154,6 +170,8 @@ export type TourTypologyOption = {
 }
 
 export type TourPublicCatalog = {
+  finishes: TourFinishOption[]
+  lights: { slug: TourLightMode; label: string }[]
   typologies: TourTypologyOption[]
   units: Array<{
     id: string

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -24,6 +24,12 @@ const sizeClasses = {
 }
 
 export function Modal({ isOpen, onClose, title, headerActions, children, className, size = 'md' }: ModalProps) {
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (isOpen) bodyRef.current?.scrollTo({ top: 0 })
+  }, [isOpen])
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden'
@@ -72,7 +78,9 @@ export function Modal({ isOpen, onClose, title, headerActions, children, classNa
             </div>
           </div>
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none] p-4 sm:p-6">
+          {children}
+        </div>
       </div>
     </div>,
     document.body,

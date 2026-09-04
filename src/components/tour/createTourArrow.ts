@@ -15,5 +15,5 @@ function escapeHtml(value: string) {
 }
 
 export function roomHotspotHtml(label: string) {
-  return `<div class="tour-hotspot"><span class="tour-hotspot-disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 9.5 12 14.5l4.5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="tour-hotspot-label">${escapeHtml(label)}</span></div>`
+  return `<div class="tour-hotspot"><span class="tour-hotspot-disc" aria-hidden="true"></span><span class="tour-hotspot-label">${escapeHtml(label)}</span></div>`
 }
