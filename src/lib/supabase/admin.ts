@@ -1,9 +1,11 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 function readEnv(name: string) {
-  return String(process.env[name] ?? '')
+  const raw = String(process.env[name] ?? '')
     .trim()
     .replace(/^["']|["']$/g, '')
+  const jwt = raw.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/)
+  return jwt?.[0] ?? raw
 }
 
 function jwtRole(token: string) {
