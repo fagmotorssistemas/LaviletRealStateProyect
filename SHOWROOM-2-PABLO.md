@@ -2,6 +2,54 @@
 **Para: Pablo**
 **Entrega: 04-09-2026**
 
+## La Vilet — Criterios de trabajo
+
+### El punto de partida
+
+Cumplir la tarea no es el estándar. Que el código corra y la pantalla se vea bien quiere decir que terminaste de escribirlo, no que esté bien resuelto.
+
+La revisión la haces tú, antes que nadie. No que alguien más te encuentre lo que falla: que lo encuentres tú.
+
+Cuando termines algo, párate encima y búscale el error. Qué no es lógico, qué se va a caer, qué hiciste rápido porque funcionaba. Si no le encuentras nada, no lo buscaste — siempre hay algo.
+
+Eso es lo que quiero que se vuelva costumbre. Lo demás de este documento son los lugares donde suele estar.
+
+---
+
+## Casos vacíos
+
+Una unidad sin renders cargados. Una tipología sin precio. Un acabado que existe en la tabla pero no tiene imagen.
+
+Va a pasar seguido, sobre todo mientras el arquitecto entrega por partes. Que la pantalla resuelva el vacío sola, sin quedarse en blanco ni tirar error.
+
+## Móvil real
+
+Por ahí va a entrar casi todo el tráfico. Probarlo con datos móviles y no con wifi cambia bastante el resultado, sobre todo con panorámicas de 4096 px o más.
+
+Si en tu máquina vuela y en el celular tarda quince segundos, el que manda es el celular.
+
+## Escala
+
+Hoy son dos o tres imágenes de prueba. Cuando estén los renders reales son seis tipologías por varios ambientes, por dos acabados, por dos luces. Cientos de archivos.
+
+Lo que se resuelve a mano ahora, después no se puede.
+
+## Las decisiones que quedan escondidas
+
+En cada pieza hay una o dos decisiones que se toman rápido y después cuestan caro: cómo se nombran los archivos, cómo se pide una variante, dónde vive el estado de la unidad.
+
+Anótalas mientras las tomas, con el motivo. A la semana nadie se acuerda de por qué se hizo así, y ahí es cuando se rompe.
+
+## Lo que no termina de cuadrar
+
+Cuando algo te deje con la sensación de que hay una forma mejor, dilo aunque funcione. Esa sensación casi siempre tiene razón.
+
+Prefiero que llegues con algo a medias y tres dudas buenas, que con algo completo y ninguna. Lo segundo casi nunca es que esté todo bien; es que no se revisó.
+
+---
+
+Lo que estás armando sostiene lo que viene después: el tracking, los leads, la preventa. El código se corrige en una tarde. Un modelo mal planteado obliga a rehacer y a perder lo que ya se acumuló.
+
 Esta es la parte que quedó fuera del documento anterior. Ya tienes el visor andando y las tablas de inventario ordenadas, así que ahora toca lo que convierte el recorrido en una herramienta de venta y no en una demo bonita.
 
 Igual que la vez pasada: esto es por dónde arrancar, no un instructivo cerrado. Si encuentras algo mejor, dilo.
