@@ -45,8 +45,7 @@ async function handleUpload(request: Request) {
   const session = await getSessionProfile()
   if (!session) return jsonError('No autenticado', 401)
   const canManageTypologyImages =
-    canAccessPath(session.profile.role, '/inmobiliaria/inventario') ||
-    canAccessPath(session.profile.role, '/inmobiliaria/inventario-2')
+    canAccessPath(session.profile.role, '/inmobiliaria/inventario')
   if (!canManageTypologyImages || !canWriteCrm(session.profile.role)) {
     return jsonError('No tienes permiso para subir imágenes', 403)
   }

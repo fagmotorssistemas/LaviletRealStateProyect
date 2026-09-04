@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ChevronDown, LogOut, User } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -10,7 +10,6 @@ import { roleLabel } from '@/lib/inmobiliaria/roleAccess'
 
 export function InmobiliariaAccountMenu({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
   const pathname = usePathname()
-  const router = useRouter()
   const { supabase, profile } = useAuth()
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -22,7 +21,7 @@ export function InmobiliariaAccountMenu({ tone = 'light' }: { tone?: 'light' | '
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.push('/login')
+    window.location.assign('/login')
   }
 
   useEffect(() => {

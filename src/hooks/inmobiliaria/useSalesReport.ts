@@ -3,14 +3,31 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
-import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
-import { listProjects } from '@/services/inmobiliaria.service'
-import { listSalesClosingsAction } from '@/app/inmobiliaria/ventas/actions'
-import { listTeamProfilesAction } from '@/app/inmobiliaria/leads/actions'
 import type { Project, TeamProfile, UnitSalesClosing } from '@/types/inmobiliaria'
 
+type SalesPayload = {
+  tenantId?: string
+  closings?: UnitSalesClosing[]
+  projects?: Project[]
+  advisors?: TeamProfile[]
+  error?: string
+}
+
+async function fetchSales(params: URLSearchParams): Promise<SalesPayload> {
+  const res = await fetch(`/api/inmobiliaria/sales?${params}`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+    signal: AbortSignal.timeout(20_000),
+  })
+  const payload = (await res.json().catch(() => ({}))) as SalesPayload
+  if (!res.ok && !payload.error) {
+    throw new Error(payload.error || `No se pudo cargar ventas (${res.status})`)
+  }
+  return payload
+}
+
 export function useSalesReport() {
-  const { supabase, user, isLoading: authLoading } = useAuth()
+  const { user } = useAuth()
   const [closings, setClosings] = useState<UnitSalesClosing[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [advisors, setAdvisors] = useState<TeamProfile[]>([])
@@ -23,7 +40,6 @@ export function useSalesReport() {
   const [to, setTo] = useState('')
 
   const load = useCallback(async () => {
-    if (authLoading) return
     if (!user) {
       setClosings([])
       setProjects([])
@@ -33,34 +49,24 @@ export function useSalesReport() {
     }
 
     setIsLoading(true)
+    const query = new URLSearchParams()
+    if (projectId) query.set('projectId', projectId)
+    if (soldById) query.set('soldById', soldById)
+    if (from) query.set('from', from)
+    if (to) query.set('to', to)
+    if (search.trim()) query.set('search', search.trim())
+
     try {
-      const [tenantIds, profiles] = await Promise.all([
-        getAccessibleTenantIds(supabase),
-        listTeamProfilesAction().catch(() => [] as TeamProfile[]),
-      ])
-      setAdvisors(profiles)
-
-      if (!tenantIds.length) {
-        setClosings([])
-        setProjects([])
-        return
+      let payload = await fetchSales(query)
+      if (payload.error && /autenticado|acceso/i.test(payload.error)) {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        payload = await fetchSales(query)
       }
-      setTenantId(tenantIds[0])
-
-      const [projectRows, closingRows] = await Promise.all([
-        listProjects(supabase, tenantIds[0], tenantIds),
-        listSalesClosingsAction({
-          tenantIds,
-          projectId: projectId || undefined,
-          soldById: soldById || undefined,
-          from: from || undefined,
-          to: to || undefined,
-          search: search || undefined,
-        }),
-      ])
-
-      setProjects(projectRows)
-      setClosings(closingRows)
+      setTenantId(payload.tenantId ?? '')
+      setProjects(payload.projects ?? [])
+      setAdvisors(payload.advisors ?? [])
+      setClosings(payload.closings ?? [])
+      if (payload.error && !(payload.closings ?? []).length) toast.error(payload.error)
     } catch (err) {
       console.error(err)
       toast.error(err instanceof Error ? err.message : 'No se pudo cargar el reporte de ventas')
@@ -68,10 +74,10 @@ export function useSalesReport() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, user, authLoading, projectId, soldById, from, to, search])
+  }, [user, projectId, soldById, from, to, search])
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
   const summary = useMemo(() => {

@@ -7,7 +7,6 @@ import type { ReactNode } from 'react'
 
 const MODULE_HREFS = [
   '/inmobiliaria/inventario',
-  '/inmobiliaria/inventario-2',
   '/inmobiliaria/proyectos',
   '/inmobiliaria/leads',
   '/inmobiliaria/showroom',

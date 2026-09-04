@@ -3,7 +3,6 @@ import {
   Landmark,
   CalendarDays,
   LayoutGrid,
-  Table2,
   FileText,
   Layers,
   CircleDollarSign,
@@ -35,7 +34,6 @@ export const crmModules: {
     href: '/inmobiliaria/leads',
     items: [
       { label: 'Inventario', href: '/inmobiliaria/inventario', icon: LayoutGrid },
-      { label: 'Inventario 2', href: '/inmobiliaria/inventario-2', icon: Table2 },
       { label: 'Proyectos', href: '/inmobiliaria/proyectos', icon: Layers },
       { label: 'Leads', href: '/inmobiliaria/leads', icon: UserPlus },
       { label: 'Showroom', href: '/inmobiliaria/showroom', icon: Landmark },

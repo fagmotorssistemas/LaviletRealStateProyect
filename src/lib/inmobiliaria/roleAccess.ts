@@ -41,10 +41,9 @@ export function canManageUsers(role: string | null | undefined): boolean {
 
 const ROLE_PATHS: Record<UserRole, readonly string[]> = {
   visitante: [],
-  marketing: ['/inmobiliaria/inventario', '/inmobiliaria/inventario-2', '/inmobiliaria/proyectos'],
+  marketing: ['/inmobiliaria/inventario', '/inmobiliaria/proyectos'],
   asesor: [
     '/inmobiliaria/inventario',
-    '/inmobiliaria/inventario-2',
     '/inmobiliaria/proyectos',
     '/inmobiliaria/leads',
     '/inmobiliaria/showroom',
@@ -55,7 +54,6 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
   contable: ['/inmobiliaria/financiamiento', '/inmobiliaria/contratos'],
   admin: [
     '/inmobiliaria/inventario',
-    '/inmobiliaria/inventario-2',
     '/inmobiliaria/proyectos',
     '/inmobiliaria/leads',
     '/inmobiliaria/showroom',

@@ -5,17 +5,25 @@ import { usePathname } from 'next/navigation'
 import { moduleFromPath, modulesForRole } from '@/components/layout/inmobiliariaNav'
 import { InmobiliariaAccountMenu } from '@/components/layout/InmobiliariaAccountMenu'
 import { useAuth } from '@/contexts/AuthContext'
+import { knownRole } from '@/lib/inmobiliaria/roleAccess'
 import { cn } from '@/lib/utils'
 
 export function InmobiliariaTopbar() {
   const pathname = usePathname()
-  const { profile, isLoading } = useAuth()
+  const { profile, user } = useAuth()
   const activeModule = moduleFromPath(pathname)
-  const visibleModules = isLoading ? [] : modulesForRole(profile?.role)
+  const visibleModules = modulesForRole(knownRole(profile?.role))
 
   return (
     <header className="crm-topbar relative z-40 hidden h-16 shrink-0 items-center justify-between overflow-visible bg-[#fcfbf9] text-[#555850] md:flex">
       <nav className="flex h-full items-stretch gap-1 px-8" aria-label="Módulos">
+        {visibleModules.length === 0 && user
+          ? [1, 2, 3].map((key) => (
+              <span key={key} className="flex items-center px-5">
+                <span className="h-2.5 w-16 rounded-full bg-[#2B1A18]/8" />
+              </span>
+            ))
+          : null}
         {visibleModules.map((module) => {
           const isActive = module.id === activeModule
           return (

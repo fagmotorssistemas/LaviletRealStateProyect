@@ -12,17 +12,19 @@ import {
   modulesForRole,
 } from '@/components/layout/inmobiliariaNav'
 import { useAuth } from '@/contexts/AuthContext'
+import { knownRole } from '@/lib/inmobiliaria/roleAccess'
 
 const SIDEBAR_STORAGE_KEY = 'lavilet-sidebar-collapsed'
 
 export function InmobiliariaSidebar() {
   const pathname = usePathname()
-  const { profile, isLoading } = useAuth()
+  const { profile, user } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
-  const visibleModules = isLoading ? [] : modulesForRole(profile?.role)
+  const role = knownRole(profile?.role)
+  const visibleModules = modulesForRole(role)
   const activeModule = moduleFromPath(pathname)
-  const menuItems = isLoading ? [] : itemsForModule(activeModule, profile?.role)
+  const menuItems = itemsForModule(activeModule, role)
 
   useEffect(() => {
     setMobileOpen(false)
@@ -142,6 +144,17 @@ export function InmobiliariaSidebar() {
         </div>
 
         <nav className="crm-sidebar-nav relative min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4 md:pr-0">
+          {menuItems.length === 0 && user
+            ? Array.from({ length: 6 }, (_, index) => (
+                <div
+                  key={index}
+                  className={cn(
+                    'h-11 rounded-2xl bg-white/10',
+                    collapsed ? 'mx-auto w-10' : 'mx-2',
+                  )}
+                />
+              ))
+            : null}
           {menuItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
             return (

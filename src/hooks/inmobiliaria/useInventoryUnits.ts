@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { listInventoryAction } from '@/app/inmobiliaria/inventario/actions'
+import { useAuth } from '@/contexts/AuthContext'
 import type { InventorySortOption, Project, Unit } from '@/types/inmobiliaria'
 
 interface Filters {
@@ -13,7 +13,30 @@ interface Filters {
   sortBy: InventorySortOption
 }
 
+type InventoryPayload = {
+  tenantIds?: string[]
+  projects?: Project[]
+  units?: Unit[]
+  unitTypes?: { id: string; name: string }[]
+  total?: number
+  error?: string
+}
+
+async function fetchInventory(params: URLSearchParams): Promise<InventoryPayload> {
+  const res = await fetch(`/api/inmobiliaria/inventory?${params}`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+    signal: AbortSignal.timeout(20_000),
+  })
+  const payload = (await res.json().catch(() => ({}))) as InventoryPayload
+  if (!res.ok && !payload.error) {
+    throw new Error(payload.error || `No se pudo cargar el inventario (${res.status})`)
+  }
+  return payload
+}
+
 export function useInventoryUnits() {
+  const { user } = useAuth()
   const [units, setUnits] = useState<Unit[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [unitTypes, setUnitTypes] = useState<{ id: string; name: string }[]>([])
@@ -33,30 +56,47 @@ export function useInventoryUnits() {
   const tenantId = tenantIds[0] ?? projects[0]?.tenant_id ?? ''
 
   const load = useCallback(async () => {
+    if (!user) {
+      setUnits([])
+      setProjects([])
+      setUnitTypes([])
+      setTenantIds([])
+      setTotal(0)
+      setIsLoading(false)
+      return
+    }
+
     setIsLoading(true)
+    const query = new URLSearchParams()
+    if (filters.projectId) query.set('projectId', filters.projectId)
+    if (filters.status) query.set('status', filters.status)
+    if (filters.category) query.set('category', filters.category)
+    if (filters.search.trim()) query.set('search', filters.search.trim())
+    if (filters.sortBy) query.set('sortBy', filters.sortBy)
+    query.set('page', String(page))
+    query.set('pageSize', String(pageSize))
+
     try {
-      const res = await listInventoryAction({
-        projectId: filters.projectId || undefined,
-        status: filters.status || undefined,
-        category: filters.category || undefined,
-        search: filters.search.trim() || undefined,
-        sortBy: filters.sortBy,
-        page,
-        pageSize,
-      })
-      setTenantIds(res.tenantIds)
-      setProjects(res.projects)
-      setUnitTypes(res.unitTypes)
-      setUnits(res.units)
-      setTotal(res.total)
-      if (res.error) toast.error(res.error)
+      let payload = await fetchInventory(query)
+      if (payload.error && /autenticado|acceso/i.test(payload.error)) {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        payload = await fetchInventory(query)
+      }
+      setTenantIds(payload.tenantIds ?? [])
+      setProjects(payload.projects ?? [])
+      setUnitTypes(payload.unitTypes ?? [])
+      setUnits(payload.units ?? [])
+      setTotal(payload.total ?? 0)
+      if (payload.error && !(payload.units ?? []).length) toast.error(payload.error)
     } catch (err) {
       console.error(err)
       toast.error('No se pudo cargar el inventario')
+      setUnits([])
+      setTotal(0)
     } finally {
       setIsLoading(false)
     }
-  }, [filters, page, pageSize])
+  }, [user, filters, page, pageSize])
 
   useEffect(() => {
     void load()

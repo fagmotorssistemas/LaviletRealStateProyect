@@ -27,7 +27,7 @@ export async function listUnitsImportAction(params: {
   pageSize?: number
 }): Promise<{ data: UnitImport[]; total: number; error?: string }> {
   try {
-    await assertCanAccessCrmPath('/inmobiliaria/inventario-2')
+    await assertCanAccessCrmPath('/inmobiliaria/inventario')
     return await listUnitsImport(await getCrmDataClient(), params)
   } catch (error) {
     console.error('listUnitsImportAction', error)
@@ -42,7 +42,7 @@ export async function listUnitsImportFacetsAction(): Promise<{
   error?: string
 }> {
   try {
-    await assertCanAccessCrmPath('/inmobiliaria/inventario-2')
+    await assertCanAccessCrmPath('/inmobiliaria/inventario')
     return await listUnitsImportFacets(await getCrmDataClient())
   } catch (error) {
     console.error('listUnitsImportFacetsAction', error)
@@ -51,13 +51,13 @@ export async function listUnitsImportFacetsAction(): Promise<{
 }
 
 export async function createUnitsImportAction(payload: UnitsImportWrite): Promise<UnitImport> {
-  await assertCanAccessCrmPath('/inmobiliaria/inventario-2')
+  await assertCanAccessCrmPath('/inmobiliaria/inventario')
   await assertCanWriteCrm()
   return createUnitsImport(await getCrmDataClient(), payload)
 }
 
 export async function updateUnitsImportAction(id: string, payload: UnitsImportWrite): Promise<UnitImport> {
-  await assertCanAccessCrmPath('/inmobiliaria/inventario-2')
+  await assertCanAccessCrmPath('/inmobiliaria/inventario')
   await assertCanWriteCrm()
   return updateUnitsImport(await getCrmDataClient(), id, payload)
 }

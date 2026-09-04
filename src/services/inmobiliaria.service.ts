@@ -1654,6 +1654,155 @@ export async function listSalesClosings(
   return rows
 }
 
+export async function listSoldUnitsAsClosings(
+  supabase: SupabaseClient,
+  params: {
+    tenantIds: string[]
+    projectId?: string
+    from?: string
+    to?: string
+    excludeUnitIds?: string[]
+  },
+): Promise<UnitSalesClosing[]> {
+  if (!params.tenantIds.length) return []
+  let query = supabase
+    .from('units')
+    .select(
+      'id, tenant_id, unit_number, category, project_id, published_commercial_price, updated_at, created_at, project:projects(id, name)',
+    )
+    .in('tenant_id', params.tenantIds)
+    .eq('status', 'vendido')
+  if (params.projectId) query = query.eq('project_id', params.projectId)
+  const { data, error } = await query
+  if (error) throw error
+
+  const excluded = new Set(params.excludeUnitIds ?? [])
+  const fromMs = params.from ? Date.parse(`${params.from}T00:00:00-05:00`) : null
+  const toMs = params.to ? Date.parse(`${params.to}T23:59:59.999-05:00`) : null
+
+  return (data ?? [])
+    .filter((unit) => !excluded.has(unit.id))
+    .map((unit) => {
+      const saleAt = unit.updated_at || unit.created_at
+      return {
+        id: `inventario:${unit.id}`,
+        tenant_id: unit.tenant_id,
+        unit_id: unit.id,
+        lead_id: null,
+        sold_by_id: null,
+        published_price_snapshot: toNumber(unit.published_commercial_price),
+        sale_price_final: toNumber(unit.published_commercial_price) ?? 0,
+        sale_at: saleAt,
+        notes: 'Venta marcada en inventario',
+        created_at: saleAt,
+        contract_id: null,
+        unit: mapClosingUnit(unit),
+        lead: null,
+        sold_by: null,
+        contract: null,
+      } satisfies UnitSalesClosing
+    })
+    .filter((row) => {
+      const at = Date.parse(row.sale_at)
+      if (fromMs != null && at < fromMs) return false
+      if (toMs != null && at > toMs) return false
+      return true
+    })
+}
+
+export async function listSoldLeadsAsClosings(
+  supabase: SupabaseClient,
+  params: {
+    tenantIds: string[]
+    soldById?: string
+    from?: string
+    to?: string
+    excludeLeadIds?: string[]
+  },
+): Promise<UnitSalesClosing[]> {
+  if (!params.tenantIds.length) return []
+
+  let query = supabase
+    .from('leads')
+    .select('id, tenant_id, name, phone, assigned_to, updated_at, created_at')
+    .in('tenant_id', params.tenantIds)
+    .eq('status', 'vendido')
+  if (params.soldById) query = query.eq('assigned_to', params.soldById)
+
+  const { data, error } = await query
+  if (error) throw error
+
+  const excluded = new Set(params.excludeLeadIds ?? [])
+  const leads = (data ?? []).filter((lead) => !excluded.has(lead.id))
+  if (!leads.length) return []
+
+  const leadIds = leads.map((lead) => lead.id)
+  const sellerIds = [...new Set(leads.map((lead) => lead.assigned_to).filter(Boolean))] as string[]
+
+  const [linksRes, sellersRes] = await Promise.all([
+    supabase
+      .from('lead_units')
+      .select('lead_id, unit_id')
+      .in('lead_id', leadIds)
+      .then((res) => res)
+      .catch(() => ({ data: [] as Array<{ lead_id: string; unit_id: string }> })),
+    sellerIds.length
+      ? supabase.from('profiles').select('id, full_name, avatar_url').in('id', sellerIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; full_name: string | null; avatar_url: string | null }> }),
+  ])
+
+  const unitIds = [...new Set((linksRes.data ?? []).map((link) => link.unit_id).filter(Boolean))]
+  const unitsRes = unitIds.length
+    ? await supabase
+        .from('units')
+        .select('id, unit_number, category, project_id, project:projects(id, name)')
+        .in('id', unitIds)
+    : { data: [] as Array<Parameters<typeof mapClosingUnit>[0]> }
+  const unitsById = new Map((unitsRes.data ?? []).map((unit) => [unit.id, mapClosingUnit(unit)]))
+
+  const unitByLead = new Map<string, ReturnType<typeof mapClosingUnit>>()
+  for (const link of linksRes.data ?? []) {
+    const unit = unitsById.get(link.unit_id)
+    if (unit && !unitByLead.has(link.lead_id)) unitByLead.set(link.lead_id, unit)
+  }
+  const sellersById = new Map((sellersRes.data ?? []).map((row) => [row.id, row]))
+
+  const fromMs = params.from ? Date.parse(`${params.from}T00:00:00-05:00`) : null
+  const toMs = params.to ? Date.parse(`${params.to}T23:59:59.999-05:00`) : null
+
+  return leads
+    .map((lead) => {
+      const saleAt = lead.updated_at || lead.created_at
+      const seller = lead.assigned_to ? sellersById.get(lead.assigned_to) : null
+      const unit = unitByLead.get(lead.id)
+      return {
+        id: `lead:${lead.id}`,
+        tenant_id: lead.tenant_id,
+        unit_id: unit?.id ?? lead.id,
+        lead_id: lead.id,
+        sold_by_id: lead.assigned_to,
+        published_price_snapshot: null,
+        sale_price_final: 0,
+        sale_at: saleAt,
+        notes: 'Venta marcada en el lead',
+        created_at: saleAt,
+        contract_id: null,
+        unit: unit ?? undefined,
+        lead: { id: lead.id, name: lead.name, phone: lead.phone },
+        sold_by: seller
+          ? { id: seller.id, full_name: seller.full_name, avatar_url: seller.avatar_url }
+          : null,
+        contract: null,
+      } satisfies UnitSalesClosing
+    })
+    .filter((row) => {
+      const at = Date.parse(row.sale_at)
+      if (fromMs != null && at < fromMs) return false
+      if (toMs != null && at > toMs) return false
+      return true
+    })
+}
+
 export async function recordUnitClosing(
   supabase: SupabaseClient,
   payload: {
