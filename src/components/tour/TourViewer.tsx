@@ -289,7 +289,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         },
         defaultYaw: startNode.data?.initialYaw ?? 0,
         defaultPitch: startNode.data?.initialPitch ?? 0,
-        defaultTransition: false,
+        defaultTransition: { speed: 0, rotation: false },
         plugins: [
           MarkersPlugin.withConfig({}),
           VirtualTourPlugin.withConfig({
