@@ -13,9 +13,36 @@ import {
   unionTourRooms,
 } from '@/lib/tour/tourRooms'
 import { buildRoomScenes, parseRoomSceneFileName, pickRoomScene, TOUR_SCENE_LIGHTS } from '@/lib/tour/roomScene'
+import { loadTypologyHotspots } from '@/lib/tour/typologyHotspots'
 import type { TypologyAsset } from '@/types/inmobiliaria'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+type UnitTypeRow = {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  bedrooms: number | null
+  bathrooms: number | null
+}
+
+type UnitRow = {
+  id: string
+  unit_number: string
+  unit_type_id: string | null
+  floor: string | null
+  published_commercial_price: number | null
+  status: string
+  bedrooms: number | null
+  bathrooms: number | null
+  bathrooms_full: number | null
+  bathrooms_half: number | null
+  spaces: string[] | null
+  area_internal_m2: number | null
+}
 
 export async function GET() {
   const admin = tryCreateAdminClient()
@@ -67,102 +94,17 @@ export async function GET() {
     assetsByCode.set(row.typology_code, list)
   }
 
+  const catalogTypologies = await Promise.all(
+    ((typologies ?? []) as UnitTypeRow[]).map((row) =>
+      toCatalogTypology(admin, row, (units ?? []) as UnitRow[], assetsByCode, finishes),
+    ),
+  )
+
   return NextResponse.json({
     finishes,
     lights: TOUR_SCENE_LIGHTS,
-    typologies: (typologies ?? []).map((row) => {
-      const list = assetsByCode.get(row.name) ?? assetsByCode.get(row.slug) ?? []
-      const toPublic = (item: TypologyAsset) => ({
-        id: item.id,
-        file_name: item.file_name,
-        url: getTypologyAssetPublicUrl(admin, item.storage_path),
-      })
-      const publicAssets = list.map(toPublic)
-      const typeUnits = (units ?? []).filter((unit) => unit.unit_type_id === row.id)
-      const roomDefs = unionTourRooms(
-        typeUnits.map((unit) => ({
-          bedrooms: unit.bedrooms ?? row.bedrooms,
-          bathrooms_full: unit.bathrooms_full ?? unit.bathrooms,
-          bathrooms_half: unit.bathrooms_half,
-          spaces: Array.isArray(unit.spaces) ? unit.spaces : [],
-        })),
-      )
-      const rooms =
-        roomDefs.length > 0
-          ? roomDefs
-          : unionTourRooms([
-              {
-                bedrooms: row.bedrooms,
-                bathrooms_full: row.bathrooms,
-                bathrooms_half: 0,
-                spaces: ['Sala', 'Cocina'],
-              },
-            ])
-      const panoScenes = buildRoomScenes(publicAssets, TOUR_PANO_SLUG)
-      const defaultFinish = finishes[0]?.slug ?? null
-      const defaultPano = pickRoomScene(panoScenes, defaultFinish, 'dia')
-      const legacyPano = typologyPanoramaAsset(list)
-      return {
-        id: row.id,
-        code: row.name,
-        name: row.description || row.name,
-        category: row.bedrooms && row.bedrooms >= 2 ? 'departamento' : 'suite',
-        panorama: (() => {
-          const asset = defaultPano
-            ? list.find((item) => item.file_name === defaultPano.file_name) ?? legacyPano
-            : legacyPano
-          if (!asset && panoScenes.length === 0) return null
-          const variants: Partial<Record<'2048' | '4096' | '8192', string>> = {
-            ...(defaultPano?.widths ?? {}),
-          }
-          if (!defaultPano) {
-            for (const item of typologyPanoramaVariants(list)) {
-              const width = panoWidthFromFileName(item.file_name)
-              if (width) variants[String(width) as '2048' | '4096' | '8192'] = getTypologyAssetPublicUrl(admin, item.storage_path)
-            }
-          }
-          return {
-            id: asset?.id ?? defaultPano?.file_name ?? 'pano',
-            file_name: asset?.file_name ?? defaultPano?.file_name ?? '',
-            url: asset ? getTypologyAssetPublicUrl(admin, asset.storage_path) : defaultPano?.url ?? '',
-            variants,
-            scenes: panoScenes,
-          }
-        })(),
-        renders: list
-          .filter(
-            (item) =>
-              item.kind === 'render' &&
-              !isTourPanoramaFileName(item.file_name) &&
-              !parseRoomSceneFileName(item.file_name),
-          )
-          .map(toPublic),
-        planos: list.filter((item) => item.kind === 'plano').map(toPublic),
-        vistas: rooms.map((room) => {
-          const slug = vistaRoomSlug(room.slug)
-          const scenes = buildRoomScenes(publicAssets, slug)
-          const selected = pickRoomScene(scenes, defaultFinish, 'dia')
-          return {
-            slug,
-            label: room.label,
-            url: selected?.url ?? null,
-            scenes,
-          }
-        }),
-        rooms: rooms.map((room) => {
-          const scenes = buildRoomScenes(publicAssets, room.slug)
-          const selected = pickRoomScene(scenes, defaultFinish, 'dia')
-          const asset = stillAssetForRoom(list, room.slug)
-          return {
-            slug: room.slug,
-            label: room.label,
-            url: selected?.url ?? (asset ? getTypologyAssetPublicUrl(admin, asset.storage_path) : null),
-            scenes,
-          }
-        }),
-      }
-    }),
-    units: (units ?? []).map((row) => {
+    typologies: catalogTypologies,
+    units: ((units ?? []) as UnitRow[]).map((row) => {
       const type = typeById.get(row.unit_type_id)
       return {
         id: row.id,
@@ -185,6 +127,115 @@ export async function GET() {
       }
     }),
   })
+}
+
+async function toCatalogTypology(
+  admin: SupabaseClient,
+  row: UnitTypeRow,
+  units: UnitRow[],
+  assetsByCode: Map<string, TypologyAsset[]>,
+  finishes: { slug: string; name: string }[],
+) {
+  const list = assetsByCode.get(row.name) ?? assetsByCode.get(row.slug) ?? []
+  const toPublic = (item: TypologyAsset) => ({
+    id: item.id,
+    file_name: item.file_name,
+    url: getTypologyAssetPublicUrl(admin, item.storage_path, item.created_at),
+  })
+  const publicAssets = list.map(toPublic)
+  const typeUnits = units.filter((unit) => unit.unit_type_id === row.id)
+  const roomDefs = unionTourRooms(
+    typeUnits.map((unit) => ({
+      bedrooms: unit.bedrooms ?? row.bedrooms,
+      bathrooms_full: unit.bathrooms_full ?? unit.bathrooms,
+      bathrooms_half: unit.bathrooms_half,
+      spaces: Array.isArray(unit.spaces) ? unit.spaces : [],
+    })),
+  )
+  const rooms =
+    roomDefs.length > 0
+      ? roomDefs
+      : unionTourRooms([
+          {
+            bedrooms: row.bedrooms,
+            bathrooms_full: row.bathrooms,
+            bathrooms_half: 0,
+            spaces: ['Sala', 'Cocina'],
+          },
+        ])
+  const panoScenes = buildRoomScenes(publicAssets, TOUR_PANO_SLUG)
+  const defaultFinish = finishes[0]?.slug ?? null
+  const defaultPano = pickRoomScene(panoScenes, defaultFinish, 'dia')
+  const legacyPano = typologyPanoramaAsset(list)
+  const panoAsset = defaultPano
+    ? (list.find((item) => item.file_name === defaultPano.file_name) ?? legacyPano)
+    : legacyPano
+  const variants: Partial<Record<'2048' | '4096' | '8192', string>> = {
+    ...(defaultPano?.widths ?? {}),
+  }
+  if (!defaultPano) {
+    for (const item of typologyPanoramaVariants(list)) {
+      const width = panoWidthFromFileName(item.file_name)
+      if (width) {
+        variants[String(width) as '2048' | '4096' | '8192'] = getTypologyAssetPublicUrl(
+          admin,
+          item.storage_path,
+          item.created_at,
+        )
+      }
+    }
+  }
+
+  return {
+    id: row.id,
+    code: row.name,
+    name: row.description || row.name,
+    category: row.bedrooms && row.bedrooms >= 2 ? 'departamento' : 'suite',
+    panorama:
+      !panoAsset && panoScenes.length === 0
+        ? null
+        : {
+            id: panoAsset?.id ?? defaultPano?.file_name ?? 'pano',
+            file_name: panoAsset?.file_name ?? defaultPano?.file_name ?? '',
+            url: panoAsset
+              ? getTypologyAssetPublicUrl(admin, panoAsset.storage_path, panoAsset.created_at)
+              : (defaultPano?.url ?? ''),
+            variants,
+            scenes: panoScenes,
+          },
+    renders: list
+      .filter(
+        (item) =>
+          item.kind === 'render' &&
+          !isTourPanoramaFileName(item.file_name) &&
+          !parseRoomSceneFileName(item.file_name),
+      )
+      .map(toPublic),
+    planos: list.filter((item) => item.kind === 'plano').map(toPublic),
+    vistas: rooms.map((room) => {
+      const slug = vistaRoomSlug(room.slug)
+      const scenes = buildRoomScenes(publicAssets, slug)
+      const selected = pickRoomScene(scenes, defaultFinish, 'dia')
+      return {
+        slug,
+        label: room.label,
+        url: selected?.url ?? null,
+        scenes,
+      }
+    }),
+    rooms: rooms.map((room) => {
+      const scenes = buildRoomScenes(publicAssets, room.slug)
+      const selected = pickRoomScene(scenes, defaultFinish, 'dia')
+      const asset = stillAssetForRoom(list, room.slug)
+      return {
+        slug: room.slug,
+        label: room.label,
+        url: selected?.url ?? (asset ? getTypologyAssetPublicUrl(admin, asset.storage_path, asset.created_at) : null),
+        scenes,
+      }
+    }),
+    hotspots: await loadTypologyHotspots(admin, row.name),
+  }
 }
 
 function uniqueFinishes(rows: Array<{ slug: string; name: string }>) {

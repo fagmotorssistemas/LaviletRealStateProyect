@@ -8,6 +8,7 @@ import {
   listTypologiesImportAction,
   listTypologyAssetsAction,
 } from '@/app/inmobiliaria/inventario-2/actions'
+import { TypologyHotspotEditor } from '@/components/inmobiliaria/inventory/TypologyHotspotEditor'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
@@ -80,8 +81,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [typologies, setTypologies] = useState<TypologyImport[]>([])
   const [code, setCode] = useState('')
   const [kind, setKind] = useState<TypologyAssetKind>('plano')
-  const [tab, setTab] = useState<'ambientes' | 'vistas' | 'documentos'>('ambientes')
+  const [tab, setTab] = useState<'ambientes' | 'vistas' | 'documentos' | 'puntos'>('ambientes')
   const [roomSlots, setRoomSlots] = useState<TourRoomDef[]>([])
+  const [catalogPanoUrl, setCatalogPanoUrl] = useState<string | null>(null)
   const [finishes, setFinishes] = useState<{ slug: string; name: string }[]>([])
   const [assets, setAssets] = useState<AssetRow[]>([])
   const [uploadingRoom, setUploadingRoom] = useState<string | null>(null)
@@ -167,18 +169,25 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
         (
           data: {
             finishes?: { slug: string; name: string }[]
-            typologies?: { code: string; rooms?: TourRoomDef[] }[]
+            typologies?: {
+              code: string
+              rooms?: TourRoomDef[]
+              panorama?: { url?: string; scenes?: { url?: string }[] } | null
+            }[]
           } | null,
         ) => {
           if (cancelled || !data) return
           setFinishes(data.finishes ?? [])
-          const rooms = data.typologies?.find((item) => item.code === code)?.rooms ?? []
+          const typology = data.typologies?.find((item) => item.code === code)
+          const rooms = typology?.rooms ?? []
           setRoomSlots(rooms.map((item) => ({ slug: item.slug, label: item.label })))
+          setCatalogPanoUrl(typology?.panorama?.url || typology?.panorama?.scenes?.[0]?.url || null)
         },
       )
       .catch(() => {
         if (!cancelled) {
           setRoomSlots([])
+          setCatalogPanoUrl(null)
           setFinishes([])
         }
       })
@@ -425,6 +434,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
               [
                 { id: 'ambientes' as const, label: 'Ambientes' },
                 { id: 'vistas' as const, label: 'Vistas' },
+                { id: 'puntos' as const, label: 'Puntos 360' },
                 { id: 'documentos' as const, label: 'Planos' },
               ] as const
             ).map((item) => (
@@ -803,6 +813,20 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             </div>
             </div>
           </div>
+        )}
+
+        {tab === 'puntos' && (
+          <TypologyHotspotEditor
+            typologyCode={code}
+            panoUrl={
+              combos
+                .map((combo) => findSlotAsset(TOUR_PANO_SLUG, combo.finish, combo.light)?.public_url)
+                .find(Boolean) ??
+              assets.find((item) => isTourPanoramaFileName(item.file_name))?.public_url ??
+              catalogPanoUrl
+            }
+            rooms={roomSlots}
+          />
         )}
 
         {tab === 'documentos' && (

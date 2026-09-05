@@ -77,29 +77,48 @@ function CrossfadeStill({
   return (
     <div className="absolute inset-0 overflow-hidden bg-[#111]">
       {previous ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={`out-${previous}`}
-          src={previous}
-          alt=""
-          className={cn(
-            'tour-walk-out absolute inset-0 h-full w-full',
-            contain ? 'object-contain object-center' : 'object-cover',
-          )}
-        />
+        <StillFrame key={`out-${previous}`} src={previous} alt="" contain={contain} motion="out" />
       ) : null}
       {current ? (
+        <StillFrame key={`in-${current}`} src={current} alt={alt} contain={contain} motion="in" />
+      ) : null}
+    </div>
+  )
+}
+
+function StillFrame({
+  src,
+  alt,
+  contain,
+  motion,
+}: {
+  src: string
+  alt: string
+  contain: boolean
+  motion: 'in' | 'out'
+}) {
+  return (
+    <div className={cn('pointer-events-none absolute inset-0', motion === 'in' ? 'tour-walk-in' : 'tour-walk-out')}>
+      {contain ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          key={`in-${current}`}
-          src={current}
-          alt={alt}
-          className={cn(
-            'tour-walk-in absolute inset-0 h-full w-full',
-            contain ? 'object-contain object-center' : 'object-cover',
-          )}
+          src={src}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="absolute inset-0 h-full w-full scale-[1.25] object-cover blur-[22px] brightness-[0.92] saturate-150"
         />
       ) : null}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        draggable={false}
+        className={cn(
+          'absolute inset-0 h-full w-full',
+          contain ? 'object-contain object-center' : 'object-cover',
+        )}
+      />
     </div>
   )
 }
@@ -112,6 +131,44 @@ function capturePanoFrame(viewer: Viewer): string | null {
   } catch {
     return null
   }
+}
+
+function useSwipePages(enabled: boolean, count: number, onStep: (delta: -1 | 1) => void) {
+  const startRef = useRef<{ x: number; y: number } | null>(null)
+  const onStepRef = useRef(onStep)
+  onStepRef.current = onStep
+
+  useEffect(() => {
+    if (!enabled || count < 2) return
+    const finish = (event: PointerEvent) => {
+      const start = startRef.current
+      startRef.current = null
+      if (!start) return
+      const dx = event.clientX - start.x
+      const dy = event.clientY - start.y
+      if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.2) return
+      onStepRef.current(dx < 0 ? 1 : -1)
+    }
+    const cancel = () => {
+      startRef.current = null
+    }
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', cancel)
+    return () => {
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', cancel)
+    }
+  }, [count, enabled])
+
+  const onPointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      if (!enabled || count < 2 || event.button !== 0) return
+      startRef.current = { x: event.clientX, y: event.clientY }
+    },
+    [count, enabled],
+  )
+
+  return { onPointerDown }
 }
 
 function variantUrl(node: VirtualTourNode | undefined, width: TourWidth): string | undefined {
@@ -368,7 +425,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     let cancelled = false
-    void fetch('/api/tour/catalog')
+    void fetch('/api/tour/catalog', { cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: TourPublicCatalog | null) => {
         if (cancelled || !data) return
@@ -530,6 +587,17 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
     return items
   }, [currentTypology, finish, light])
+  const stepVista = useCallback(
+    (delta: -1 | 1) => {
+      setVistaIndex((index) => {
+        const total = vistaImages.length
+        if (total < 2) return index
+        return (index + delta + total) % total
+      })
+    },
+    [vistaImages.length],
+  )
+  const vistaSwipe = useSwipePages(viewMode === 'vistas', vistaImages.length, stepVista)
   const vistaUrl = vistaImages[Math.min(vistaIndex, Math.max(vistaImages.length - 1, 0))]?.url ?? null
   const stillUrl = viewMode === 'vistas' ? vistaUrl : flatPhotoUrl
   if (stillUrl) lastStillRef.current = stillUrl
@@ -560,20 +628,27 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
     if (!markers) return
 
+    const placed = currentTypology?.hotspots ?? []
     const count = Math.max(navTargets.length, 1)
-    markers.setMarkers(
-      isPanoRoom && viewMode === 'tour'
-        ? navTargets.map((item, index) => ({
-            id: `ambiente-${item.slug}`,
-            position: { yaw: (index / count) * Math.PI * 2, pitch: -0.36 },
-            html: roomHotspotHtml(item.label),
-            anchor: 'center center',
-            size: { width: 92, height: 78 },
-            tooltip: item.label,
-            data: { room: item.slug },
-          }))
-        : [],
-    )
+    const autoPins = navTargets.map((item, index) => ({
+      id: `ambiente-${item.slug}`,
+      position: { yaw: (index / count) * Math.PI * 2, pitch: -0.36 },
+      html: roomHotspotHtml(item.label),
+      anchor: 'center center' as const,
+      size: { width: 92, height: 78 },
+      tooltip: item.label,
+      data: { room: item.slug },
+    }))
+    const placedPins = placed.map((item) => ({
+      id: `ambiente-${item.slug}`,
+      position: { yaw: item.yaw, pitch: item.pitch },
+      html: roomHotspotHtml(item.label),
+      anchor: 'center center' as const,
+      size: { width: 92, height: 78 },
+      tooltip: item.label,
+      data: { room: item.slug },
+    }))
+    markers.setMarkers(isPanoRoom && viewMode === 'tour' ? (placed.length > 0 ? placedPins : autoPins) : [])
 
     const onMarker = (event: markerEvents.SelectMarkerEvent) => {
       const slug = event.marker.data?.room
@@ -583,7 +658,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     return () => {
       markers.removeEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
     }
-  }, [booting, isPanoRoom, viewMode, navTargets, onSelectRoom])
+  }, [booting, isPanoRoom, viewMode, navTargets, onSelectRoom, currentTypology?.hotspots])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -694,9 +769,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
       <div
         className={cn(
-          'tour-layer-fade tour-still-layer absolute inset-0 z-10 overflow-hidden',
+          'tour-layer-fade tour-still-layer absolute inset-0 z-10 overflow-hidden select-none',
           showStill ? 'is-on' : 'pointer-events-none is-off',
+          viewMode === 'vistas' && vistaImages.length > 1 && 'touch-pan-y',
         )}
+        onPointerDown={vistaSwipe.onPointerDown}
       >
         <CrossfadeStill
           url={overlayUrl}

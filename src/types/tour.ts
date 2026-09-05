@@ -158,6 +158,14 @@ export type TourFinishOption = {
   name: string
 }
 
+export type TourPlacedHotspot = {
+  id: string
+  slug: string
+  label: string
+  yaw: number
+  pitch: number
+}
+
 export type TourTypologyOption = {
   id: string
   code: string
@@ -168,6 +176,7 @@ export type TourTypologyOption = {
   planos: TourAssetRef[]
   rooms: TourRoomPhoto[]
   vistas: TourRoomPhoto[]
+  hotspots: TourPlacedHotspot[]
 }
 
 export type TourPublicCatalog = {

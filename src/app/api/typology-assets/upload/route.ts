@@ -128,6 +128,7 @@ async function handleUpload(request: Request) {
     const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
       upsert: kindRaw === 'ambiente',
       contentType: 'image/webp',
+      cacheControl: '0',
     })
     if (upErr) {
       if (/bucket not found/i.test(upErr.message)) {
@@ -146,7 +147,11 @@ async function handleUpload(request: Request) {
     }
     uploadedPaths.push(path)
     const row = await findTypologyAssetByKey(admin, typologyCode, persistKind, name)
-    if (row) return row
+    if (row) {
+      const stamped = new Date().toISOString()
+      await admin.from('typology_assets').update({ created_at: stamped }).eq('id', row.id)
+      return { ...row, created_at: stamped }
+    }
     return insertTypologyAsset(admin, {
       typology_code: typologyCode,
       kind: persistKind,

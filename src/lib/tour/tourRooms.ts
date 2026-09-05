@@ -179,20 +179,35 @@ export function tourRoomFileName(slug: string) {
   return `${slug}.webp`
 }
 
+export function firstRoomAlias(slug: string) {
+  return slug.replace(/-1$/, '')
+}
+
+export function roomsShareSlot(left: string, right: string) {
+  return left === right || firstRoomAlias(left) === firstRoomAlias(right)
+}
+
+export function roomSlugAliases(slug: string) {
+  const base = firstRoomAlias(slug)
+  return base === slug ? [slug, `${slug}-1`] : [slug, base]
+}
+
 export function assetMatchesRoom(fileName: string, slug: string) {
   if (slug === TOUR_PANO_SLUG) return isTourPanoramaFileName(fileName)
   if (isTourPanoramaFileName(fileName)) return false
   const base = fileName.replace(/\.[^.]+$/, '')
-  return (
-    fileName === tourRoomFileName(slug) ||
-    base === slug ||
-    fileName.startsWith(`${slug}.`) ||
-    base.startsWith(`${slug}_`)
+  return roomSlugAliases(slug).some(
+    (alias) =>
+      fileName === tourRoomFileName(alias) ||
+      base === alias ||
+      fileName.startsWith(`${alias}.`) ||
+      base.startsWith(`${alias}_`),
   )
 }
 
 /** El único 360 de la tipología: `tour-360.webp`, `pano.webp`, etc. */
 export function isTourPanoramaFileName(fileName: string) {
+  if (/hotspot|puntos/i.test(fileName)) return false
   return /(?:^|[._-])(360|pano|equirect|panorama)(?:[._-]|$)/i.test(fileName.replace(/\.[^.]+$/, ''))
 }
 

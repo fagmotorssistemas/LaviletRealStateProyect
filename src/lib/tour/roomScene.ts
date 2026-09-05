@@ -1,5 +1,6 @@
 import type { TourLightMode, TourRoomScene } from '@/types/tour'
 import type { TourWidth } from '@/lib/tour/pickTourWidth'
+import { roomsShareSlot, roomSlugAliases } from '@/lib/tour/tourRooms'
 
 export const TOUR_SCENE_LIGHTS: { slug: TourLightMode; label: string }[] = [
   { slug: 'dia', label: 'Día' },
@@ -58,28 +59,42 @@ export function parseRoomSceneFileName(fileName: string): {
   }
 }
 
+function finishesMatch(left: string | null, right: string | null) {
+  if (left === right) return true
+  if (!left || !right) return false
+  const groups = [
+    ['nogal', 'acabado-1'],
+    ['roble', 'acabado-2'],
+  ]
+  return groups.some((group) => group.includes(left) && group.includes(right))
+}
+
 export function fileMatchesRoom(fileName: string, room: string) {
   const parsed = parseRoomSceneFileName(fileName)
-  if (parsed?.room === room) return true
+  if (parsed && roomsShareSlot(parsed.room, room)) return true
   if (room === 'tour-360') {
     return /(?:^|[._-])(360|pano|equirect|panorama)(?:[._-]|$)/i.test(fileName.replace(/\.[^.]+$/, ''))
   }
   const base = fileName.replace(/\.[^.]+$/, '')
-  return base === room || base.startsWith(`${room}_`)
+  return roomSlugAliases(room).some((alias) => base === alias || base.startsWith(`${alias}_`))
 }
 
 export function isLegacySceneFile(fileName: string, room?: string) {
   if (/_8192\b/i.test(fileName)) return false
   const parsed = parseRoomSceneFileName(fileName)
   if (!parsed) return false
-  if (room && parsed.room !== room) return false
+  if (room && !roomsShareSlot(parsed.room, room)) return false
   return parsed.finish == null && parsed.light == null
 }
 
 export function findLegacyRoomAsset<T extends { file_name: string }>(assets: T[], room: string) {
-  const exact = assets.find((item) => item.file_name === (room === 'tour-360' ? 'tour-360.webp' : `${room}.webp`))
+  const exact = assets.find((item) =>
+    roomSlugAliases(room).some((alias) => item.file_name === (alias === 'tour-360' ? 'tour-360.webp' : `${alias}.webp`)),
+  )
   if (exact) return exact
-  const parsedLegacy = assets.find((item) => isLegacySceneFile(item.file_name, room))
+  const parsedLegacy = assets.find((item) =>
+    roomSlugAliases(room).some((alias) => isLegacySceneFile(item.file_name, alias)),
+  )
   if (parsedLegacy) return parsedLegacy
   if (room !== 'tour-360') return undefined
   return assets.find((item) => {
@@ -97,9 +112,9 @@ export function fileMatchesScene(
   light: TourLightMode,
 ) {
   const parsed = parseRoomSceneFileName(fileName)
-  if (!parsed || parsed.room !== room || parsed.light !== light) return false
+  if (!parsed || !roomsShareSlot(parsed.room, room) || parsed.light !== light) return false
   if (finish == null) return parsed.finish == null
-  return parsed.finish === finish
+  return finishesMatch(parsed.finish, finish)
 }
 
 export function sceneCombos(
@@ -130,8 +145,10 @@ export function pickRoomScene(
   if (!scenes?.length) return undefined
   const wanted = finish || null
   return (
+    scenes.find((item) => finishesMatch(item.finish, wanted) && item.light === light) ??
     scenes.find((item) => item.finish === wanted && item.light === light) ??
     scenes.find((item) => item.finish == null && item.light === light) ??
+    scenes.find((item) => finishesMatch(item.finish, wanted) && item.light === 'dia') ??
     scenes.find((item) => item.finish === wanted && item.light === 'dia') ??
     scenes.find((item) => item.finish == null && item.light === 'dia') ??
     scenes.find((item) => item.light === light) ??

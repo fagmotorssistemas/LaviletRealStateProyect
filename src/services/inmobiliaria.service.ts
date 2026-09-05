@@ -596,8 +596,14 @@ export async function listTypologyAssets(
   return (data ?? []) as TypologyAsset[]
 }
 
-export function getTypologyAssetPublicUrl(supabase: SupabaseClient, storagePath: string): string {
-  return supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).getPublicUrl(storagePath).data.publicUrl
+export function getTypologyAssetPublicUrl(
+  supabase: SupabaseClient,
+  storagePath: string,
+  version?: string | number | null,
+): string {
+  const url = supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).getPublicUrl(storagePath).data.publicUrl
+  if (version == null || version === '') return url
+  return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(String(version))}`
 }
 
 export async function insertTypologyAsset(

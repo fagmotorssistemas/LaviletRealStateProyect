@@ -81,7 +81,7 @@ export async function listTypologyAssetsAction(
     const rows = await listTypologyAssets(client, typologyCode)
     return rows.map((row) => ({
       ...row,
-      public_url: getTypologyAssetPublicUrl(client, row.storage_path),
+      public_url: getTypologyAssetPublicUrl(client, row.storage_path, row.created_at),
     }))
   } catch (error) {
     console.error('listTypologyAssetsAction', error)
