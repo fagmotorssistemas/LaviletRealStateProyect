@@ -109,38 +109,7 @@ async function handleUpload(request: Request) {
   let desktopBuffer: Buffer | null = null
   try {
     if (isPanoSlot) {
-      const meta = await sharp(pngBuffer, sharpOpts).rotate().metadata()
-      const ratio = meta.width && meta.height ? meta.width / meta.height : 0
-      if (!meta.width || !meta.height || Math.abs(ratio - 2) > 0.15) {
-        return jsonError(
-          'El 360 debe ser panorámico 2:1. Pedí 8192×4096 a producción.',
-          422,
-        )
-      }
-      if (meta.width < 2048) {
-        return jsonError(
-          'El 360 queda borroso en el celular si es chico. Pedí 8192×4096; el mínimo es 2048×1024.',
-          422,
-        )
-      }
-      const serviceWidth = Math.min(4096, meta.width)
-      webpBuffer = await sharp(pngBuffer, sharpOpts)
-        .rotate()
-        .resize(serviceWidth, Math.round(serviceWidth / 2), { fit: 'fill' })
-        .webp({ quality: 88, effort: 3 })
-        .toBuffer()
-      if (meta.width >= 8192) {
-        try {
-          desktopBuffer = await sharp(pngBuffer, sharpOpts)
-            .rotate()
-            .resize(8192, 4096, { fit: 'fill' })
-            .webp({ quality: 82, effort: 2 })
-            .toBuffer()
-        } catch (error) {
-          console.error('pano 8192 encode', error)
-          desktopBuffer = null
-        }
-      }
+      webpBuffer = await sharp(pngBuffer, sharpOpts).rotate().webp({ quality: 88, effort: 3 }).toBuffer()
     } else if (kindRaw === 'ambiente') {
       webpBuffer = await sharp(pngBuffer, sharpOpts).rotate().webp({ quality: 86, effort: 3 }).toBuffer()
     } else {

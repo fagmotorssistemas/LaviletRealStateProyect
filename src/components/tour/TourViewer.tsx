@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Cache, CONSTANTS, Viewer, events } from '@photo-sphere-viewer/core'
-import { CompassPlugin } from '@photo-sphere-viewer/compass-plugin'
 import { MarkersPlugin, events as markerEvents } from '@photo-sphere-viewer/markers-plugin'
 import { VirtualTourPlugin, events as tourEvents } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { VirtualTourNode } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { Position } from '@photo-sphere-viewer/core'
-import { Maximize2, Minimize2, Moon, Sun } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Moon, Sun } from 'lucide-react'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
 import { TourHotspotLayer } from '@/components/tour/TourHotspotLayer'
 import { TourPicker } from '@/components/tour/TourPicker'
@@ -36,13 +35,84 @@ import { cn } from '@/lib/utils'
 import '@photo-sphere-viewer/core/index.css'
 import '@photo-sphere-viewer/virtual-tour-plugin/index.css'
 import '@photo-sphere-viewer/markers-plugin/index.css'
-import '@photo-sphere-viewer/compass-plugin/index.css'
 import './tour-viewer.css'
 
 Cache.enabled = true
 
-const FADE = { speed: 700, rotation: false, effect: 'fade' as const }
-const UPGRADE = { speed: 400, rotation: false, effect: 'fade' as const }
+function CrossfadeStill({
+  url,
+  alt,
+  contain = false,
+}: {
+  url: string | null
+  alt: string
+  contain?: boolean
+}) {
+  const [current, setCurrent] = useState<string | null>(url)
+  const [previous, setPrevious] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!url) {
+      setCurrent(null)
+      setPrevious(null)
+      return
+    }
+    const preload = new Image()
+    preload.src = url
+    setCurrent((prev) => {
+      if (prev === url) return prev
+      setPrevious(prev)
+      return url
+    })
+  }, [url])
+
+  useEffect(() => {
+    if (!previous) return
+    const done = window.setTimeout(() => setPrevious(null), 1100)
+    return () => window.clearTimeout(done)
+  }, [previous, current])
+
+  if (!current && !previous) return null
+
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-[#111]">
+      {previous ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={`out-${previous}`}
+          src={previous}
+          alt=""
+          className={cn(
+            'tour-walk-out absolute inset-0 h-full w-full',
+            contain ? 'object-contain object-center' : 'object-cover',
+          )}
+        />
+      ) : null}
+      {current ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={`in-${current}`}
+          src={current}
+          alt={alt}
+          className={cn(
+            'tour-walk-in absolute inset-0 h-full w-full',
+            contain ? 'object-contain object-center' : 'object-cover',
+          )}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function capturePanoFrame(viewer: Viewer): string | null {
+  const canvas = viewer.container.querySelector('canvas')
+  if (!(canvas instanceof HTMLCanvasElement) || canvas.width < 2) return null
+  try {
+    return canvas.toDataURL('image/jpeg', 0.74)
+  } catch {
+    return null
+  }
+}
 
 function variantUrl(node: VirtualTourNode | undefined, width: TourWidth): string | undefined {
   const variants = node?.data?.variants as Record<string, { url?: string }> | undefined
@@ -70,10 +140,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [room, setRoom] = useState(TOUR_PANO_SLUG)
   const [loading, setLoading] = useState(false)
   const [booting, setBooting] = useState(true)
-  const [fullscreen, setFullscreen] = useState(false)
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
+  const [viewMode, setViewMode] = useState<'tour' | 'vistas'>('tour')
+  const [vistaIndex, setVistaIndex] = useState(0)
+  const [panoGhost, setPanoGhost] = useState<string | null>(null)
+  const [panoGhostKey, setPanoGhostKey] = useState(0)
+  const [panoEntering, setPanoEntering] = useState(false)
+  const lastStillRef = useRef<string | null>(null)
 
   const preloadUrls = useCallback((viewer: Viewer, urls: string[]) => {
     void Promise.all(
@@ -87,34 +162,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         }
       }),
     )
-  }, [])
-
-  const upgradeToHigh = useCallback(async (token: number) => {
-    const viewer = viewerRef.current
-    const tour = tourRef.current
-    if (!viewer || !tour || targetWidthRef.current !== 4096) return
-
-    const node = tour.getCurrentNode()
-    const highUrl = variantUrl(node, 4096)
-    if (!highUrl || currentUrlRef.current === highUrl) return
-
-    if (!preloadedRef.current.has(highUrl)) {
-      try {
-        await viewer.textureLoader.preloadPanorama(highUrl)
-        preloadedRef.current.add(highUrl)
-      } catch {
-        return
-      }
-    }
-
-    if (token !== switchTokenRef.current) return
-    const applied = await viewer.setPanorama(highUrl, {
-      caption: node?.caption,
-      showLoader: false,
-      transition: UPGRADE,
-    })
-    if (token !== switchTokenRef.current) return
-    if (applied) currentUrlRef.current = highUrl
   }, [])
 
   const preloadCurrentRoom = useCallback(
@@ -238,18 +285,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           alpha: true,
           antialias: !isNarrow,
           powerPreference: 'high-performance',
+          preserveDrawingBuffer: true,
         },
         defaultYaw: startNode.data?.initialYaw ?? 0,
         defaultPitch: startNode.data?.initialPitch ?? 0,
-        defaultTransition: FADE,
+        defaultTransition: false,
         plugins: [
           MarkersPlugin.withConfig({}),
-          CompassPlugin.withConfig({
-            size: isNarrow ? '32px' : '44px',
-            position: 'top right',
-            navigation: true,
-            className: 'tour-compass',
-          }),
           VirtualTourPlugin.withConfig({
             dataMode: 'client',
             positionMode: 'manual',
@@ -258,7 +300,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             startNodeId: scene.startNodeId,
             preload: false,
             showLinkTooltip: true,
-            linksOnCompass: true,
+            linksOnCompass: false,
             arrowStyle: {
               element: createTourArrow,
               size: { width: 36, height: 36 },
@@ -272,15 +314,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   showLoader: !preloadedRef.current.has(String(toNode.panorama)),
                   effect: 'fade',
                   rotation: false,
-                  speed: 700,
+                  speed: 900,
                   rotateTo: saved,
                 }
               }
               return {
-                showLoader: Boolean(fromNode),
+                showLoader: false,
                 effect: 'fade',
                 rotation: Boolean(fromNode),
-                speed: 700,
+                speed: 900,
               }
             },
           }),
@@ -301,7 +343,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         events.ReadyEvent.type,
         () => {
           preloadCurrentRoom(viewer, startNode.id, startUrl)
-          void upgradeToHigh(switchTokenRef.current)
         },
         { once: true },
       )
@@ -323,7 +364,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       html.style.overscrollBehavior = prevHtmlOverscroll
       body.style.overscrollBehavior = prevBodyOverscroll
     }
-  }, [embedded, preloadCurrentRoom, upgradeToHigh])
+  }, [embedded, preloadCurrentRoom])
 
   useEffect(() => {
     let cancelled = false
@@ -387,6 +428,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         typology_code: selectedTypology,
         unit_type_id: currentTypology?.id,
       })
+      setViewMode('tour')
       setRoom(slug)
     },
     [nodes, room, selectedTypology, currentTypology?.id],
@@ -465,6 +507,34 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   )
   const isPanoRoom = room === TOUR_PANO_SLUG
   const flatPhotoUrl = isPanoRoom ? null : photoBySlug[room] ?? null
+  const vistaImages = useMemo(() => {
+    const items: { id: string; label: string; url: string }[] = []
+    const seen = new Set<string>()
+    const add = (id: string, label: string, url: string | null | undefined) => {
+      if (!url || seen.has(url)) return
+      seen.add(url)
+      items.push({ id, label, url })
+    }
+    for (const item of currentTypology?.vistas ?? []) {
+      const scene = pickRoomScene(item.scenes, finish || null, light)
+      add(item.slug, item.label, pickSceneUrl(scene) ?? item.url)
+    }
+    const vistaLabels = new Set(items.map((item) => item.label))
+    for (const item of currentTypology?.rooms ?? []) {
+      if (vistaLabels.has(item.label)) continue
+      const scene = pickRoomScene(item.scenes, finish || null, light)
+      add(item.slug, item.label, pickSceneUrl(scene) ?? item.url)
+    }
+    for (const extra of currentTypology?.renders ?? []) {
+      add(extra.id, extra.file_name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '), extra.url)
+    }
+    return items
+  }, [currentTypology, finish, light])
+  const vistaUrl = vistaImages[Math.min(vistaIndex, Math.max(vistaImages.length - 1, 0))]?.url ?? null
+  const stillUrl = viewMode === 'vistas' ? vistaUrl : flatPhotoUrl
+  if (stillUrl) lastStillRef.current = stillUrl
+  const overlayUrl = stillUrl ?? lastStillRef.current
+  const showStill = Boolean(stillUrl)
   const navTargets = useMemo(
     () => [TOUR_PANO_ROOM, ...tourRooms].filter((item) => item.slug !== room),
     [tourRooms, room],
@@ -477,6 +547,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   }, [tourRooms, room])
 
   useEffect(() => {
+    if (vistaImages.length === 0) {
+      if (vistaIndex !== 0) setVistaIndex(0)
+      return
+    }
+    if (vistaIndex >= vistaImages.length) setVistaIndex(0)
+  }, [vistaImages.length, vistaIndex])
+
+  useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || booting) return
     const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
@@ -484,7 +562,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
     const count = Math.max(navTargets.length, 1)
     markers.setMarkers(
-      isPanoRoom
+      isPanoRoom && viewMode === 'tour'
         ? navTargets.map((item, index) => ({
             id: `ambiente-${item.slug}`,
             position: { yaw: (index / count) * Math.PI * 2, pitch: -0.36 },
@@ -505,38 +583,46 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     return () => {
       markers.removeEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
     }
-  }, [booting, isPanoRoom, navTargets, onSelectRoom])
+  }, [booting, isPanoRoom, viewMode, navTargets, onSelectRoom])
 
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer || booting || !isPanoRoom) return
-
-    const key = `${selectedTypology}:${typologyPanoUrl ?? ''}`
-    if (!typologyPanoUrl) {
-      appliedPanoKeyRef.current = key
-      currentUrlRef.current = ''
+    if (!viewer || booting || !isPanoRoom || !typologyPanoUrl) {
+      setPanoEntering(false)
       return
     }
-    if (appliedPanoKeyRef.current === key) return
-
+    const url = typologyPanoUrl
     const token = ++switchTokenRef.current
-    appliedPanoKeyRef.current = key
-    setLoading(true)
+    if (currentUrlRef.current && currentUrlRef.current !== url) {
+      const ghost = capturePanoFrame(viewer)
+      if (ghost) {
+        setPanoGhost(ghost)
+        setPanoGhostKey((key) => key + 1)
+      }
+      setPanoEntering(false)
+    }
     void viewer
-      .setPanorama(typologyPanoUrl, { showLoader: false, transition: FADE })
-      .then((applied) => {
+      .setPanorama(url, { showLoader: false, transition: false })
+      .catch(() => undefined)
+      .finally(() => {
         if (token !== switchTokenRef.current) return
-        if (applied) currentUrlRef.current = typologyPanoUrl
-        else appliedPanoKeyRef.current = ''
-        setLoading(false)
-      })
-      .catch(() => {
-        if (token === switchTokenRef.current) {
-          appliedPanoKeyRef.current = ''
-          setLoading(false)
-        }
+        currentUrlRef.current = url
+        appliedPanoKeyRef.current = `${selectedTypology}:${url}`
+        viewer.needsUpdate()
+        requestAnimationFrame(() => setPanoEntering(true))
+        window.setTimeout(() => {
+          if (token !== switchTokenRef.current) return
+          setPanoGhost(null)
+          setPanoEntering(false)
+        }, 1100)
       })
   }, [booting, isPanoRoom, typologyPanoUrl, selectedTypology])
+
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || booting || showStill || !isPanoRoom) return
+    viewer.needsUpdate()
+  }, [booting, showStill, isPanoRoom, viewMode])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -547,11 +633,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const onTypologyChange = (code: string) => {
     setSelectedTypology(code)
     setRoom(TOUR_PANO_SLUG)
+    setVistaIndex(0)
     currentUrlRef.current = ''
     appliedPanoKeyRef.current = ''
   }
 
-  const sceneFinishes = publicCatalog?.finishes?.length ? publicCatalog.finishes : catalog?.finishes ?? []
+  const sceneFinishes = (publicCatalog?.finishes?.length ? publicCatalog.finishes : catalog?.finishes ?? []).map(
+    (item, index) => ({ ...item, name: `Acabado ${index + 1}` }),
+  )
   const finishName = sceneFinishes.find((f) => f.slug === finish)?.name ?? finish
   const currentNode = nodes.find((n) => n.id === room || roomSlugFromNode(n) === room)
   const roomName = isPanoRoom
@@ -584,33 +673,60 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         embedded ? 'relative h-full w-full' : 'fixed inset-0 z-50 h-[100dvh] w-full',
       )}
     >
-      <div
-        ref={containerRef}
-        className={cn('h-full w-full', (!isPanoRoom || !typologyPanoUrl) && !booting && 'invisible')}
-      />
-
-      {flatPhotoUrl && (
-        <div className="absolute inset-0 z-10 bg-black">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={flatPhotoUrl} alt={roomName} className="h-full w-full object-cover" />
+      <div className="absolute inset-0 overflow-hidden">
+        <div className={cn('h-full w-full', panoEntering && !showStill && 'tour-walk-in')}>
+          <div
+            ref={containerRef}
+            className={cn('h-full w-full', showStill && 'pointer-events-none')}
+          />
         </div>
-      )}
+      </div>
 
-      {!booting && isPanoRoom && !typologyPanoUrl && (
+      {panoGhost && !showStill ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={panoGhostKey}
+          src={panoGhost}
+          alt=""
+          className="tour-walk-out pointer-events-none absolute inset-0 z-[8] h-full w-full object-cover"
+        />
+      ) : null}
+
+      <div
+        className={cn(
+          'tour-layer-fade tour-still-layer absolute inset-0 z-10 overflow-hidden',
+          showStill ? 'is-on' : 'pointer-events-none is-off',
+        )}
+      >
+        <CrossfadeStill
+          url={overlayUrl}
+          alt={viewMode === 'vistas' ? (vistaImages[vistaIndex]?.label ?? 'Vista') : roomName}
+          contain={viewMode === 'vistas'}
+        />
+      </div>
+
+      {!booting && viewMode === 'tour' && isPanoRoom && !typologyPanoUrl && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Falta el 360</p>
           <p className="mt-2 text-sm text-white/45">Subilo en Imágenes tipología → 360</p>
         </div>
       )}
 
-      {!booting && !isPanoRoom && !flatPhotoUrl && (
+      {!booting && viewMode === 'tour' && !isPanoRoom && !flatPhotoUrl && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Falta la foto</p>
           <p className="mt-2 text-sm text-white/45">{roomName}</p>
         </div>
       )}
 
-      {!booting && !isPanoRoom && (
+      {!booting && viewMode === 'vistas' && vistaImages.length === 0 && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
+          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Vistas</p>
+          <p className="mt-2 text-sm text-white/45">Aún no hay renders en esta tipología.</p>
+        </div>
+      )}
+
+      {!booting && viewMode === 'tour' && !isPanoRoom && (
         <TourHotspotLayer targets={navTargets} onSelect={onSelectRoom} />
       )}
 
@@ -632,6 +748,37 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             meta={typologyMeta}
           />
         </div>
+        <div className="pointer-events-auto absolute top-0 right-0 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:p-3.5">
+          <div className="flex w-[5.75rem] flex-col gap-1.5 sm:w-[7.5rem] sm:gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('tour')
+                setRoom(TOUR_PANO_SLUG)
+              }}
+              className={cn(
+                'tour-glass border-white/25 !bg-[#14110e]/72 px-2 py-2 text-left text-[10px] font-semibold tracking-[0.12em] uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300 sm:px-3 sm:py-3 sm:text-[12px] sm:tracking-[0.14em]',
+                viewMode === 'tour'
+                  ? 'text-white shadow-[inset_2px_0_0_#BDA27E]'
+                  : 'text-white/80 hover:text-white',
+              )}
+            >
+              Tour 360
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('vistas')}
+              className={cn(
+                'tour-glass border-white/25 !bg-[#14110e]/72 px-2 py-2 text-left text-[10px] font-semibold tracking-[0.12em] uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300 sm:px-3 sm:py-3 sm:text-[12px] sm:tracking-[0.14em]',
+                viewMode === 'vistas'
+                  ? 'text-white shadow-[inset_2px_0_0_#BDA27E]'
+                  : 'text-white/80 hover:text-white',
+              )}
+            >
+              Vistas
+            </button>
+          </div>
+        </div>
 
         <div
           className={cn(
@@ -639,65 +786,76 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             'pointer-events-none absolute right-0 bottom-0 left-0 flex flex-col items-end gap-2 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-2.5 sm:p-3.5',
           )}
         >
-          <div className="pointer-events-auto flex items-end justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                viewerRef.current?.toggleFullscreen()
-                setFullscreen((v) => {
-                  const next = !v
-                  logTourEvent({
-                    event_type: 'fullscreen',
-                    room,
-                    typology_code: selectedTypology,
-                    unit_type_id: currentTypology?.id,
-                    metadata: { on: next },
-                  })
-                  return next
-                })
-              }}
-              className="mb-0.5 inline-flex h-9 w-9 cursor-pointer items-center justify-center border border-white/25 bg-[#14110e]/35 text-white/85 backdrop-blur-[10px] transition-colors hover:border-[#BDA27E]/55 hover:text-white"
-              aria-label={fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
-            >
-              {fullscreen ? <Minimize2 size={15} strokeWidth={1.6} /> : <Maximize2 size={15} strokeWidth={1.6} />}
-            </button>
-          </div>
+          {loading && <div className="tour-glass tour-caption self-center px-3 py-1.5">Cargando</div>}
 
-          {loading && (
-            <div className="self-center border border-white/15 bg-[#14110e]/50 px-3 py-1.5 text-[10px] font-medium tracking-[0.22em] text-white/70 uppercase backdrop-blur-[10px]">
-              Cargando
+          {viewMode === 'vistas' && vistaImages.length > 0 && (
+            <div className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-1.5 sm:gap-2">
+              <div className="flex items-center justify-center gap-1.5 sm:gap-2">
+                {vistaImages.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVistaIndex((index) => (index - 1 + vistaImages.length) % vistaImages.length)
+                    }
+                    className="tour-glass tour-icon"
+                    aria-label="Vista anterior"
+                  >
+                    <ChevronLeft size={16} strokeWidth={1.5} />
+                  </button>
+                ) : null}
+                <p className="tour-caption min-w-0 truncate px-2 text-center">
+                  {vistaImages[Math.min(vistaIndex, vistaImages.length - 1)]?.label}
+                </p>
+                {vistaImages.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => setVistaIndex((index) => (index + 1) % vistaImages.length)}
+                    className="tour-glass tour-icon"
+                    aria-label="Vista siguiente"
+                  >
+                    <ChevronRight size={16} strokeWidth={1.5} />
+                  </button>
+                ) : null}
+              </div>
+              <div className="tour-thumbs">
+                {vistaImages.map((item, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setVistaIndex(index)}
+                    className={cn(
+                      'tour-thumb',
+                      index === Math.min(vistaIndex, vistaImages.length - 1) && 'is-on',
+                    )}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.url} alt={item.label} className="h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
           {showSceneControls && (
-            <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center gap-2 border border-white/15 bg-[#14110e]/45 p-1.5 backdrop-blur-[10px]">
+            <div className="tour-glass tour-finish pointer-events-auto mx-auto w-full max-w-md">
               {sceneFinishes.length > 0 ? (
-                <div className="flex min-w-0 flex-1 gap-1">
-                  {sceneFinishes.map((item) => (
-                    <button
-                      key={item.slug}
-                      type="button"
-                      onClick={() => onFinish(item.slug)}
-                      className={cn(
-                        'h-9 flex-1 cursor-pointer text-[10px] font-medium tracking-[0.18em] uppercase transition-colors',
-                        finish === item.slug
-                          ? 'bg-[#BDA27E] text-[#2B1A18]'
-                          : 'text-white/70 hover:bg-white/8 hover:text-white',
-                      )}
-                    >
-                      {item.name}
-                    </button>
-                  ))}
-                </div>
+                sceneFinishes.map((item) => (
+                  <button
+                    key={item.slug}
+                    type="button"
+                    onClick={() => onFinish(item.slug)}
+                    className={finish === item.slug ? 'is-on' : undefined}
+                  >
+                    {item.name}
+                  </button>
+                ))
               ) : (
-                <p className="min-w-0 flex-1 px-2 text-[10px] font-medium tracking-[0.18em] text-white/55 uppercase">
-                  {lightLabel}
-                </p>
+                <p className="tour-caption min-w-0 flex-1 px-2">{lightLabel}</p>
               )}
               <button
                 type="button"
                 onClick={onLight}
-                className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center border border-white/15 text-white/80 hover:border-[#BDA27E]/50 hover:text-white"
+                className="tour-icon shrink-0"
                 aria-label={light === 'dia' ? 'Cambiar a noche' : 'Cambiar a día'}
                 title={lightLabel}
               >
@@ -705,8 +863,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           )}
-          <p className="hidden self-center px-1 text-center text-[10px] font-medium tracking-[0.22em] text-white/38 uppercase sm:block">
-            {`${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`}
+          <p className="tour-caption hidden self-center px-1 text-center sm:block">
+            {viewMode === 'vistas'
+              ? `${vistaImages[Math.min(vistaIndex, Math.max(vistaImages.length - 1, 0))]?.label ?? 'Vistas'}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`
+              : `${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`}
           </p>
         </div>
       </div>

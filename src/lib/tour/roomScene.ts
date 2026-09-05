@@ -13,7 +13,7 @@ export type RoomSceneKey = {
 }
 
 const ROOM_HEAD_RE =
-  /^(tour-360|dormitorio-\d+|bano-completo-\d+|bano-social-\d+|sala|comedor|cocina|estar|estudio|lavado|despensa|terraza|balcon|bodega|dormitorio|bano-completo|bano-social)(?:_(.+))?$/
+  /^(tour-360|vista-[a-z0-9-]+|dormitorio-\d+|bano-completo-\d+|bano-social-\d+|sala|comedor|cocina|estar|estudio|lavado|despensa|terraza|balcon|bodega|dormitorio|bano-completo|bano-social)(?:_(.+))?$/
 
 export function sceneToken(finish: string | null | undefined, light: TourLightMode) {
   return finish ? `${finish}_${light}` : light

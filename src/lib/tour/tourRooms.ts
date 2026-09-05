@@ -52,6 +52,16 @@ export const TOUR_ROOMS: TourRoomDef[] = [
 
 export type TourRoomSlug = string
 
+export const VISTA_PREFIX = 'vista-'
+
+export function vistaRoomSlug(room: string) {
+  return room.startsWith(VISTA_PREFIX) ? room : `${VISTA_PREFIX}${room}`
+}
+
+export function isVistaRoomSlug(value: string) {
+  return value.startsWith(VISTA_PREFIX) && value.length > VISTA_PREFIX.length
+}
+
 export const TOUR_PANO_SLUG = 'tour-360'
 export const TOUR_PANO_LABEL = '360'
 export const TOUR_PANO_FILE = 'tour-360.webp'
@@ -147,7 +157,7 @@ export function unionTourRooms(specs: TourRoomSpec[]): TourRoomDef[] {
 }
 
 export function isTourRoomSlug(value: string): boolean {
-  return value === TOUR_PANO_SLUG || ROOM_SLUG_RE.test(value)
+  return value === TOUR_PANO_SLUG || ROOM_SLUG_RE.test(value) || isVistaRoomSlug(value)
 }
 
 export function tourRoomLabel(slug: string) {

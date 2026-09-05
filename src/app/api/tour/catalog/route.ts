@@ -7,6 +7,7 @@ import {
   panoWidthFromFileName,
   stillAssetForRoom,
   TOUR_PANO_SLUG,
+  vistaRoomSlug,
   typologyPanoramaAsset,
   typologyPanoramaVariants,
   unionTourRooms,
@@ -137,6 +138,17 @@ export async function GET() {
           )
           .map(toPublic),
         planos: list.filter((item) => item.kind === 'plano').map(toPublic),
+        vistas: rooms.map((room) => {
+          const slug = vistaRoomSlug(room.slug)
+          const scenes = buildRoomScenes(publicAssets, slug)
+          const selected = pickRoomScene(scenes, defaultFinish, 'dia')
+          return {
+            slug,
+            label: room.label,
+            url: selected?.url ?? null,
+            scenes,
+          }
+        }),
         rooms: rooms.map((room) => {
           const scenes = buildRoomScenes(publicAssets, room.slug)
           const selected = pickRoomScene(scenes, defaultFinish, 'dia')

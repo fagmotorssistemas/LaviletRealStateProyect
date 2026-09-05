@@ -167,6 +167,7 @@ export type TourTypologyOption = {
   renders: TourAssetRef[]
   planos: TourAssetRef[]
   rooms: TourRoomPhoto[]
+  vistas: TourRoomPhoto[]
 }
 
 export type TourPublicCatalog = {
