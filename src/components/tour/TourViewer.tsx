@@ -21,6 +21,7 @@ import {
   tourRoomLabel,
 } from '@/lib/tour/tourRooms'
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
+import { stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
 import { pickRoomScene, pickSceneUrl } from '@/lib/tour/roomScene'
 import {
   getTourUnitTypeSlug,
@@ -896,6 +897,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (!viewer || !root || booting) return
     const gyro = viewer.getPlugin<GyroscopePlugin>(GyroscopePlugin)
     if (!gyro) return
+    stabilizeTourGyro(gyro)
 
     if (viewMode !== 'tour' || !isPanoRoom) {
       if (gyro.isEnabled()) gyro.stop()
@@ -904,7 +906,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
     const start = () => {
       if (gyro.isEnabled()) return
-      void gyro.start().catch(() => undefined)
+      void gyro.start('smooth').catch(() => undefined)
     }
     root.addEventListener('pointerdown', start, { passive: true })
     return () => {
