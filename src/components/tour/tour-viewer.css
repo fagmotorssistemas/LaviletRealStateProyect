@@ -265,6 +265,20 @@
   opacity: 0.35;
 }
 
+.tour-root.is-fake-landscape {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 100dvh;
+  height: 100dvw;
+  transform: translate(-50%, -50%) rotate(90deg);
+  transform-origin: center center;
+}
+
+.tour-root.is-fake-landscape.is-ccw {
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+
 .psv-container {
   background: #111 !important;
 }
