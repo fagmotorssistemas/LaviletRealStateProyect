@@ -21,31 +21,34 @@ export function readScreenPx(): number {
   return css * (window.devicePixelRatio || 1)
 }
 
-/**
- * Ancho de pano a servir.
- * Celular: 2048 para que el salto entre ambientes no corte.
- * PC: 4096, o 8192 si la GPU lo admite.
- */
-export function pickTourWidth(params?: {
+/** Sirve el 360 ya recortado por Supabase (~200–600 KB) en vez del WebP original de varios MB. */
+export function tourDisplayUrl(publicUrl: string, width: TourWidth = 2048): string {
+  try {
+    const parsed = new URL(publicUrl)
+    const objectPath = '/storage/v1/object/public/'
+    const renderPath = '/storage/v1/render/image/public/'
+    if (parsed.pathname.includes(objectPath)) {
+      parsed.pathname = parsed.pathname.replace(objectPath, renderPath)
+    } else if (!parsed.pathname.includes(renderPath)) {
+      return publicUrl
+    }
+    parsed.searchParams.set('width', String(width))
+    parsed.searchParams.set('height', String(Math.round(width / 2)))
+    parsed.searchParams.set('resize', 'contain')
+    parsed.searchParams.set('quality', width <= 2048 ? '72' : '76')
+    return parsed.toString()
+  } catch {
+    return publicUrl
+  }
+}
+
+export function pickTourWidth(_params?: {
   maxTextureSize?: number
   screenPx?: number
   narrow?: boolean
   cap?: TourWidth
 }): TourWidth {
-  const maxTextureSize = params?.maxTextureSize ?? readMaxTextureSize()
-  const narrow = params?.narrow ?? (typeof window !== 'undefined' && window.innerWidth < 768)
-  const cap = params?.cap ?? SAFE_MAX
-
-  let width: TourWidth = 2048
-  if (!narrow && maxTextureSize >= 4096) width = 4096
-  if (!narrow && maxTextureSize >= 8192) width = 8192
-
-  if (width > cap) {
-    if (cap >= 8192) return 8192
-    if (cap >= 4096) return 4096
-    return 2048
-  }
-  return width
+  return 2048
 }
 
 export function pickCatalogPanoUrl(

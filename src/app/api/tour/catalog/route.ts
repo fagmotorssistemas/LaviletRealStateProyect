@@ -5,7 +5,7 @@ import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { ensureDefaultFinishPackages } from '@/lib/tour/tourRpc'
 import {
   isTourPanoramaFileName,
-  stillAssetForRoom,
+  roomsShareFamily,
   tourHomeSlug,
   vistaRoomSlug,
   unionTourRooms,
@@ -99,7 +99,8 @@ export async function GET() {
     ),
   )
 
-  return NextResponse.json({
+  return NextResponse.json(
+    {
     finishes,
     lights: TOUR_SCENE_LIGHTS,
     typologies: catalogTypologies,
@@ -125,7 +126,13 @@ export async function GET() {
         area_internal_m2: row.area_internal_m2,
       }
     }),
-  })
+    },
+    {
+      headers: {
+        'Cache-Control': 'private, no-store, no-cache, must-revalidate',
+      },
+    },
+  )
 }
 
 async function toCatalogTypology(
@@ -172,6 +179,19 @@ async function toCatalogTypology(
   const variants: Partial<Record<'2048' | '4096' | '8192', string>> = {
     ...(defaultPano?.widths ?? {}),
   }
+  const catalogRooms = rooms
+    .map((room) => {
+      const scenes = buildRoomScenes(publicAssets, room.slug)
+      const selected = pickRoomScene(scenes, defaultFinish, 'dia')
+      return {
+        slug: room.slug,
+        label: room.label,
+        url: selected?.url ?? null,
+        scenes,
+      }
+    })
+    .filter((item) => Boolean(item.url) && item.scenes.length > 0)
+  const placed = await loadTypologyHotspots(admin, row.name)
 
   return {
     id: row.id,
@@ -184,9 +204,9 @@ async function toCatalogTypology(
         : {
             id: panoAsset?.id ?? defaultPano?.file_name ?? 'pano',
             file_name: panoAsset?.file_name ?? defaultPano?.file_name ?? '',
-            url: panoAsset
+            url: defaultPano?.url ?? (panoAsset
               ? getTypologyAssetPublicUrl(admin, panoAsset.storage_path, panoAsset.created_at)
-              : (defaultPano?.url ?? ''),
+              : ''),
             variants,
             scenes: panoScenes,
           },
@@ -210,18 +230,11 @@ async function toCatalogTypology(
         scenes,
       }
     }),
-    rooms: rooms.map((room) => {
-      const scenes = buildRoomScenes(publicAssets, room.slug)
-      const selected = pickRoomScene(scenes, defaultFinish, 'dia')
-      const asset = stillAssetForRoom(list, room.slug)
-      return {
-        slug: room.slug,
-        label: room.label,
-        url: selected?.url ?? (asset ? getTypologyAssetPublicUrl(admin, asset.storage_path, asset.created_at) : null),
-        scenes,
-      }
+    rooms: catalogRooms,
+    hotspots: placed.filter((pin) => {
+      if (pin.kind === 'look') return true
+      return catalogRooms.some((room) => roomsShareFamily(room.slug, pin.slug))
     }),
-    hotspots: await loadTypologyHotspots(admin, row.name),
   }
 }
 

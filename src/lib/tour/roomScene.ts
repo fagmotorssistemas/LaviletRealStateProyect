@@ -1,5 +1,5 @@
 import type { TourLightMode, TourRoomScene } from '@/types/tour'
-import type { TourWidth } from '@/lib/tour/pickTourWidth'
+import { tourDisplayUrl, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { roomsShareSlot, roomSlugAliases } from '@/lib/tour/tourRooms'
 
 export const TOUR_SCENE_LIGHTS: { slug: TourLightMode; label: string }[] = [
@@ -193,7 +193,17 @@ export function buildRoomScenes(
     }
     groups.set(key, current)
   }
-  return [...groups.values()]
+  return [...groups.values()].map((scene) => {
+    const raw = scene.url
+    return {
+      ...scene,
+      url: tourDisplayUrl(raw, 2048),
+      widths: {
+        '2048': tourDisplayUrl(scene.widths?.['2048'] ?? raw, 2048),
+        '4096': tourDisplayUrl(scene.widths?.['4096'] ?? raw, 4096),
+      },
+    }
+  })
 }
 
 export function pickSceneUrl(

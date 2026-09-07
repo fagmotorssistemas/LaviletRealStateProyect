@@ -48,7 +48,7 @@ Aparte, pídele al arquitecto un par de renders de prueba cuanto antes, aunque s
 
 Esta es la parte que importa y la que quiero ver resuelta.
 
-**Los archivos.** Nombres en minúscula con guion bajo, siguiendo `tipologia_ambiente_acabado_luz`. Por ejemplo `tipo_a_sala_nogal_dia.jpg`. Suena a detalle y no lo es: con esa convención un script los carga solos; sin ella, alguien renombra cientos de imágenes a mano.
+**Los archivos.** Nombres en minúscula con guion bajo, siguiendo `ambiente_acabado_luz`. Por ejemplo `sala_nogal_dia.webp`. Suena a detalle y no lo es: con esa convención un script los carga solos; sin ella, alguien renombra cientos de imágenes a mano.
 
 **Las tablas ya existen en Supabase.** `unit_types`, `tour_panoramas`, `tour_transitions`, `finish_packages`. Están vacías pero con la estructura definida — revísalas antes de inventar nada, y si algo no te cuadra, dilo en vez de crear tablas nuevas.
 

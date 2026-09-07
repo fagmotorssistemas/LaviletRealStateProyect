@@ -310,6 +310,41 @@ function variantUrl(node: VirtualTourNode | undefined, width: TourWidth): string
   return variants?.[String(width)]?.url ?? (typeof node?.panorama === 'string' ? node.panorama : undefined)
 }
 
+function nodesFromPublicCatalog(
+  catalog: TourPublicCatalog | null,
+  width: TourWidth,
+  finish: string,
+  light: TourLightMode,
+): { nodes: VirtualTourNode[]; startNodeId: string | undefined } {
+  if (!catalog) return { nodes: [], startNodeId: undefined }
+  const first = catalog.typologies.find(
+    (item) => item.panorama || item.rooms.some((room) => room.url || room.scenes.length > 0),
+  )
+  if (!first) return { nodes: [], startNodeId: undefined }
+  const home =
+    first.rooms.find((room) => room.slug === TOUR_HOME_SLUG) ??
+    first.rooms.find((room) => room.url || room.scenes.length > 0)
+  const url =
+    pickCatalogPanoUrl(first.panorama, width, finish, light) ??
+    pickSceneUrl(pickRoomScene(home?.scenes, finish, light), width) ??
+    home?.url
+  if (!url) return { nodes: [], startNodeId: undefined }
+  const id = home?.slug ?? TOUR_HOME_SLUG
+  return {
+    startNodeId: id,
+    nodes: [
+      {
+        id,
+        panorama: url,
+        name: home?.label ?? 'Sala',
+        caption: home?.label ?? 'Sala',
+        links: [],
+        data: { room: id, variants: {} },
+      },
+    ],
+  }
+}
+
 export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const slotRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -441,7 +476,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       const unitTypeSlug = getTourUnitTypeSlug()
       unitTypeSlugRef.current = unitTypeSlug
 
-      const [nextCatalog, nextUnits, scene] = await Promise.all([
+      const [nextCatalog, nextUnits, dbScene, publicCat] = await Promise.all([
         loadTourCatalog(unitTypeSlug),
         loadTourUnits(unitTypeSlug),
         loadTourNodes({
@@ -450,16 +485,33 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           light: 'dia',
           preferredWidth: bootWidth,
         }),
+        fetch('/api/tour/catalog', { cache: 'no-store' })
+          .then((res) => (res.ok ? (res.json() as Promise<TourPublicCatalog>) : null))
+          .catch(() => null),
       ])
 
       if (cancelled) return
+
+      if (publicCat) {
+        setPublicCatalog(publicCat)
+        const firstWithMedia = publicCat.typologies.find(
+          (item) => item.panorama || item.renders.length > 0 || item.rooms.some((room) => room.url || room.scenes.length > 0),
+        )
+        setSelectedTypology((prev) => prev || firstWithMedia?.code || publicCat.typologies[0]?.code || '')
+      }
+
+      const startFinish =
+        publicCat?.finishes[0]?.slug ?? nextCatalog.finishes[0]?.slug ?? 'nogal'
+      const scene =
+        dbScene.nodes.length > 0
+          ? dbScene
+          : nodesFromPublicCatalog(publicCat, bootWidth, startFinish, 'dia')
       if (scene.nodes.length === 0) {
         setBooting(false)
         return
       }
 
       const isNarrow = window.innerWidth < 768
-      const startFinish = nextCatalog.finishes[0]?.slug ?? 'nogal'
       const startNode = scene.nodes.find((n) => n.id === scene.startNodeId) ?? scene.nodes[0]
       const startUrl = variantUrl(startNode, bootWidth) ?? String(startNode.panorama)
 
@@ -663,7 +715,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   }, [displayUnits])
 
   const tourRooms = useMemo(() => {
-    const fromCatalog = (currentTypology?.rooms ?? []).map((item) => ({ slug: item.slug, label: item.label }))
+    const fromCatalog = (currentTypology?.rooms ?? [])
+      .filter((item) => Boolean(item.url) || (item.scenes?.length ?? 0) > 0)
+      .map((item) => ({ slug: item.slug, label: item.label }))
     if (fromCatalog.length > 0) return fromCatalog
     const sample = displayUnits[0]
     return buildTourRooms({
@@ -680,8 +734,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     for (const item of tourRooms) {
       const roomItem =
         currentTypology?.rooms.find((entry) => entry.slug === item.slug) ??
-        currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, item.slug)) ??
-        currentTypology?.rooms.find((entry) => roomsShareFamily(entry.slug, item.slug) && entry.url)
+        currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, item.slug) && entry.url)
       const scene = pickRoomScene(roomItem?.scenes, finish || null, light)
       map[item.slug] = pickSceneUrl(scene, catalogWidthRef.current) ?? roomItem?.url ?? null
     }
@@ -729,7 +782,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     (roomId: string) => {
       const raw = roomSlugFromNode(nodes.find((node) => node.id === roomId) ?? { id: roomId })
       const slug = resolveTourRoomSlug(raw, tourRooms, (item) => Boolean(urlForRoom(item)))
-      if (slug === room) return
+      const destUrl = urlForRoom(slug)
+      if (slug === room || !destUrl) return
       const pin = (currentTypology?.hotspots ?? []).find(
         (item) =>
           item.from === room &&
@@ -749,8 +803,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           })
         }
       }
-      const destUrl = urlForRoom(slug)
-      if (viewer && destUrl && !preloadedRef.current.has(destUrl)) {
+      if (viewer && !preloadedRef.current.has(destUrl)) {
         void viewer.textureLoader
           .preloadPanorama(destUrl)
           .then(() => {

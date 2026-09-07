@@ -1,7 +1,7 @@
 /**
  * Genera WebP 4096 y 2048 a partir de un original (p. ej. 8192 del arquitecto).
  *
- *   node scripts/tour-resize.mjs public/tours/demo/tipo_a_sala_nogal_dia.png
+ *   node scripts/tour-resize.mjs path/to/sala_nogal_dia.png
  *
  * Salida junto al original:
  *   {basename}_4096.webp

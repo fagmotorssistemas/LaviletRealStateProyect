@@ -1,12 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildTourNodes, type TourNodeSource, type TourNodesResult } from '@/lib/tour/buildTourNodes'
-import {
-  getMockRoomVariantUrls,
-  getMockTourCatalog,
-  getMockTourNodes,
-  getMockTourUnits,
-  MOCK_TOUR_UNIT_TYPE_SLUG,
-} from '@/lib/tour/mockTourData'
 import type { TourWidth } from '@/lib/tour/pickTourWidth'
 import type {
   TourHotspot,
@@ -24,18 +17,8 @@ export type TourCatalog = {
   lights: { slug: TourLightMode; label: string }[]
 }
 
-export type TourSource = 'mock' | 'db'
-
-export function getTourSource(): TourSource {
-  return process.env.NEXT_PUBLIC_TOUR_SOURCE === 'db' ? 'db' : 'mock'
-}
-
 export function getTourUnitTypeSlug(): string {
-  return process.env.NEXT_PUBLIC_TOUR_UNIT_TYPE || MOCK_TOUR_UNIT_TYPE_SLUG
-}
-
-function isMockSource(): boolean {
-  return getTourSource() === 'mock'
+  return process.env.NEXT_PUBLIC_TOUR_UNIT_TYPE || ''
 }
 
 async function resolveDbContext(): Promise<{ supabase: SupabaseClient; tenantId: string }> {
@@ -45,7 +28,7 @@ async function resolveDbContext(): Promise<{ supabase: SupabaseClient; tenantId:
   const envTenant = process.env.NEXT_PUBLIC_TOUR_TENANT_ID
   const tenantIds = await getAccessibleTenantIds(supabase)
   const tenantId = envTenant || tenantIds[0]
-  if (!tenantId) throw new Error('No hay tenant para NEXT_PUBLIC_TOUR_SOURCE=db')
+  if (!tenantId) throw new Error('No hay tenant para el tour')
   return { supabase, tenantId }
 }
 
@@ -156,114 +139,136 @@ export async function getUnitsByType(
   return (data ?? []) as TourUnitSummary[]
 }
 
-/** Fachada que usa el visor. mock | db según NEXT_PUBLIC_TOUR_SOURCE. */
 export async function loadTourNodes(params: {
   unitTypeSlug: string
   finishSlug: string
   light: TourLightMode
   preferredWidth?: number
 }): Promise<TourNodesResult> {
-  const width = params.preferredWidth ?? 4096
-  if (isMockSource()) {
-    return getMockTourNodes(params.unitTypeSlug, params.finishSlug, params.light, width)
+  if (!params.unitTypeSlug) return { nodes: [], startNodeId: undefined }
+  const width = params.preferredWidth ?? 2048
+  try {
+    const { supabase, tenantId } = await resolveDbContext()
+    return getTourNodes(
+      supabase,
+      tenantId,
+      params.unitTypeSlug,
+      params.finishSlug,
+      params.light,
+      width,
+    )
+  } catch {
+    return { nodes: [], startNodeId: undefined }
   }
-  const { supabase, tenantId } = await resolveDbContext()
-  return getTourNodes(
-    supabase,
-    tenantId,
-    params.unitTypeSlug,
-    params.finishSlug,
-    params.light,
-    width,
-  )
 }
 
 export async function loadTourUnits(unitTypeSlug = getTourUnitTypeSlug()): Promise<TourUnitSummary[]> {
-  if (isMockSource()) return getMockTourUnits()
+  if (!unitTypeSlug) return []
 
-  const { supabase, tenantId } = await resolveDbContext()
-  const { data, error } = await supabase
-    .from('unit_types')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('slug', unitTypeSlug)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
+  try {
+    const { supabase, tenantId } = await resolveDbContext()
+    const { data, error } = await supabase
+      .from('unit_types')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('slug', unitTypeSlug)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle()
 
-  if (error) throw error
-  if (!data) return []
-  return getUnitsByType(supabase, tenantId, data.id)
+    if (error) throw error
+    if (!data) return []
+    return getUnitsByType(supabase, tenantId, data.id)
+  } catch {
+    return []
+  }
 }
 
 export async function loadTourCatalog(unitTypeSlug = getTourUnitTypeSlug()): Promise<TourCatalog> {
-  if (isMockSource()) return getMockTourCatalog()
-
-  const { supabase, tenantId } = await resolveDbContext()
-  const { data: utRow, error: utErr } = await supabase
-    .from('unit_types')
-    .select('id, name, slug, project_id')
-    .eq('tenant_id', tenantId)
-    .eq('slug', unitTypeSlug)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
-
-  if (utErr) throw utErr
-  if (!utRow) return getMockTourCatalog()
-
-  const { data: finishes, error: fpErr } = await supabase
-    .from('finish_packages')
-    .select('slug, name')
-    .eq('tenant_id', tenantId)
-    .eq('project_id', utRow.project_id)
-    .eq('is_active', true)
-    .order('sort_order', { ascending: true })
-
-  if (fpErr) throw fpErr
-
-  return {
-    unitTypeSlug: utRow.slug,
-    unitTypeName: utRow.name,
-    finishes: (finishes ?? []).map((f) => ({ slug: f.slug, name: f.name })),
+  const empty: TourCatalog = {
+    unitTypeSlug,
+    unitTypeName: '',
+    finishes: [],
     lights: [
       { slug: 'dia', label: 'Día' },
       { slug: 'noche', label: 'Noche' },
     ],
   }
+  if (!unitTypeSlug) return empty
+
+  try {
+    const { supabase, tenantId } = await resolveDbContext()
+    const { data: utRow, error: utErr } = await supabase
+      .from('unit_types')
+      .select('id, name, slug, project_id')
+      .eq('tenant_id', tenantId)
+      .eq('slug', unitTypeSlug)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle()
+
+    if (utErr) throw utErr
+    if (!utRow) return empty
+
+    const { data: finishes, error: fpErr } = await supabase
+      .from('finish_packages')
+      .select('slug, name')
+      .eq('tenant_id', tenantId)
+      .eq('project_id', utRow.project_id)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+
+    if (fpErr) throw fpErr
+
+    return {
+      unitTypeSlug: utRow.slug,
+      unitTypeName: utRow.name,
+      finishes: (finishes ?? []).map((f) => ({ slug: f.slug, name: f.name })),
+      lights: [
+        { slug: 'dia', label: 'Día' },
+        { slug: 'noche', label: 'Noche' },
+      ],
+    }
+  } catch {
+    return empty
+  }
 }
 
 export async function loadRoomVariantUrls(room: string, width: TourWidth): Promise<string[]> {
-  if (isMockSource()) return getMockRoomVariantUrls(room, width)
-
-  const { supabase, tenantId } = await resolveDbContext()
   const unitTypeSlug = getTourUnitTypeSlug()
-  const { data: utRow, error: utErr } = await supabase
-    .from('unit_types')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('slug', unitTypeSlug)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
+  if (!unitTypeSlug) return []
 
-  if (utErr) throw utErr
-  if (!utRow) return []
+  try {
+    const { supabase, tenantId } = await resolveDbContext()
+    const { data: utRow, error: utErr } = await supabase
+      .from('unit_types')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('slug', unitTypeSlug)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle()
 
-  const { data, error } = await supabase
-    .from('tour_panoramas')
-    .select('url, variants')
-    .eq('tenant_id', tenantId)
-    .eq('unit_type_id', utRow.id)
-    .eq('room', room)
-    .eq('is_published', true)
+    if (utErr) throw utErr
+    if (!utRow) return []
 
-  if (error) throw error
+    const { data, error } = await supabase
+      .from('tour_panoramas')
+      .select('url, variants')
+      .eq('tenant_id', tenantId)
+      .eq('unit_type_id', utRow.id)
+      .eq('room', room)
+      .eq('is_published', true)
 
-  return (data ?? [])
-    .map((row) => {
-      const variants = (row.variants ?? {}) as Record<string, { url?: string }>
-      return variants[String(width)]?.url ?? (row.url as string)
-    })
-    .filter(Boolean)
+    if (error) throw error
+
+    return (data ?? [])
+      .map((row) => {
+        const variants = (row.variants ?? {}) as Record<string, { url?: string }>
+        return variants[String(width)]?.url ?? (row.url as string)
+      })
+      .filter(Boolean)
+  } catch {
+    return []
+  }
 }
