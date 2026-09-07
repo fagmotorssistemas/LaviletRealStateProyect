@@ -193,29 +193,24 @@ export function buildRoomScenes(
     }
     groups.set(key, current)
   }
-  return [...groups.values()].map((scene) => {
-    const raw = scene.url
-    return {
-      ...scene,
-      url: tourDisplayUrl(raw, 2048),
-      widths: {
-        '2048': tourDisplayUrl(scene.widths?.['2048'] ?? raw, 2048),
-        '4096': tourDisplayUrl(scene.widths?.['4096'] ?? raw, 4096),
-      },
-    }
-  })
+  return [...groups.values()].map((scene) => ({
+    ...scene,
+    url: tourDisplayUrl(scene.url),
+    widths: Object.fromEntries(
+      Object.entries(scene.widths ?? {}).map(([key, value]) => [key, value ? tourDisplayUrl(value) : value]),
+    ),
+  }))
 }
 
 export function pickSceneUrl(
   scene: TourRoomScene | undefined,
-  width?: TourWidth,
+  _width?: TourWidth,
 ): string | null {
   if (!scene) return null
+  if (scene.url) return tourDisplayUrl(scene.url)
   const widths = scene.widths ?? {}
-  if (width && width <= 2048 && widths['2048']) return widths['2048']
-  if (width && width >= 8192 && widths['8192']) return widths['8192']
-  if (width && width >= 4096 && widths['4096']) return widths['4096']
-  if (widths['2048']) return widths['2048']
-  if (widths['4096']) return widths['4096']
-  return scene.url
+  if (widths['4096']) return tourDisplayUrl(widths['4096'])
+  if (widths['8192']) return tourDisplayUrl(widths['8192'])
+  if (widths['2048']) return tourDisplayUrl(widths['2048'])
+  return null
 }

@@ -21,21 +21,19 @@ export function readScreenPx(): number {
   return css * (window.devicePixelRatio || 1)
 }
 
-/** Sirve el 360 ya recortado por Supabase (~200–600 KB) en vez del WebP original de varios MB. */
-export function tourDisplayUrl(publicUrl: string, width: TourWidth = 2048): string {
+/** Devuelve el archivo subido, sin recorte ni recompresión de Supabase. */
+export function tourDisplayUrl(publicUrl: string, _width?: TourWidth): string {
   try {
     const parsed = new URL(publicUrl)
     const objectPath = '/storage/v1/object/public/'
     const renderPath = '/storage/v1/render/image/public/'
-    if (parsed.pathname.includes(objectPath)) {
-      parsed.pathname = parsed.pathname.replace(objectPath, renderPath)
-    } else if (!parsed.pathname.includes(renderPath)) {
-      return publicUrl
+    if (parsed.pathname.includes(renderPath)) {
+      parsed.pathname = parsed.pathname.replace(renderPath, objectPath)
+      parsed.searchParams.delete('width')
+      parsed.searchParams.delete('height')
+      parsed.searchParams.delete('resize')
+      parsed.searchParams.delete('quality')
     }
-    parsed.searchParams.set('width', String(width))
-    parsed.searchParams.set('height', String(Math.round(width / 2)))
-    parsed.searchParams.set('resize', 'contain')
-    parsed.searchParams.set('quality', width <= 2048 ? '72' : '76')
     return parsed.toString()
   } catch {
     return publicUrl
@@ -48,7 +46,7 @@ export function pickTourWidth(_params?: {
   narrow?: boolean
   cap?: TourWidth
 }): TourWidth {
-  return 2048
+  return 4096
 }
 
 export function pickCatalogPanoUrl(
@@ -75,12 +73,12 @@ export function pickCatalogPanoUrl(
     pano.scenes?.find((item) => item.finish == null && item.light === light) ??
     pano.scenes?.find((item) => item.finish === (finish || null) && item.light === 'dia') ??
     pano.scenes?.[0]
-  const variants = scene?.widths ?? pano.variants ?? {}
   const fallback = scene?.url ?? pano.url
-  if (width <= 2048 && variants['2048']) return variants['2048']
-  if (width >= 8192 && variants['8192']) return variants['8192']
-  if (width >= 4096 && variants['4096']) return variants['4096']
-  if (variants['2048']) return variants['2048']
-  if (variants['4096']) return variants['4096']
-  return fallback
+  if (fallback) return tourDisplayUrl(fallback)
+  const variants = scene?.widths ?? pano.variants ?? {}
+  if (width >= 8192 && variants['8192']) return tourDisplayUrl(variants['8192'])
+  if (variants['4096']) return tourDisplayUrl(variants['4096'])
+  if (variants['8192']) return tourDisplayUrl(variants['8192'])
+  if (variants['2048']) return tourDisplayUrl(variants['2048'])
+  return null
 }

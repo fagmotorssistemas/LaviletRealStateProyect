@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Cache, CONSTANTS, Viewer, events } from '@photo-sphere-viewer/core'
+import { GyroscopePlugin } from '@photo-sphere-viewer/gyroscope-plugin'
 import { MarkersPlugin, events as markerEvents } from '@photo-sphere-viewer/markers-plugin'
 import { VirtualTourPlugin, events as tourEvents } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { VirtualTourNode } from '@photo-sphere-viewer/virtual-tour-plugin'
@@ -179,27 +180,12 @@ function isOsLandscape() {
   return window.matchMedia('(orientation: landscape)').matches || window.innerWidth > window.innerHeight
 }
 
-async function askMotionPermission() {
-  const DOE = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & {
-    requestPermission?: () => Promise<string>
-  }
-  if (typeof DOE.requestPermission !== 'function') return true
-  try {
-    return (await DOE.requestPermission()) === 'granted'
-  } catch {
-    return false
-  }
-}
-
 function useShowroomImmersive(enabled: boolean) {
   const [osLandscape, setOsLandscape] = useState(false)
-  const [tilted, setTilted] = useState(false)
-  const [tiltSign, setTiltSign] = useState<1 | -1>(1)
 
   useEffect(() => {
     if (!enabled) {
       setOsLandscape(false)
-      setTilted(false)
       return
     }
     const syncOs = () => {
@@ -208,29 +194,13 @@ function useShowroomImmersive(enabled: boolean) {
     syncOs()
     window.addEventListener('resize', syncOs)
     window.addEventListener('orientationchange', syncOs)
-
-    let held = false
-    const onOrient = (event: DeviceOrientationEvent) => {
-      if (event.gamma == null || event.beta == null) return
-      const gamma = event.gamma
-      const abs = Math.abs(gamma)
-      if (!held && abs >= 52) held = true
-      if (held && abs < 30) held = false
-      setTilted(held && isPhoneDevice())
-      if (abs >= 18) setTiltSign(gamma >= 0 ? 1 : -1)
-    }
-    window.addEventListener('deviceorientation', onOrient)
-
     return () => {
       window.removeEventListener('resize', syncOs)
       window.removeEventListener('orientationchange', syncOs)
-      window.removeEventListener('deviceorientation', onOrient)
     }
   }, [enabled])
 
-  const want = enabled && (osLandscape || tilted)
-  const fakeRotate = want && !osLandscape
-  return { want, fakeRotate, tiltSign }
+  return { want: enabled && osLandscape }
 }
 
 async function requestTourFullscreen(el: HTMLElement) {
@@ -350,7 +320,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
-  const motionAskedRef = useRef(false)
   const [inShowroom, setInShowroom] = useState(true)
   const hold = useShowroomImmersive(inShowroom || !embedded)
   const immersive = hold.want
@@ -544,6 +513,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         defaultPitch: startNode.data?.initialPitch ?? 0,
         defaultTransition: { speed: 0, rotation: false },
         plugins: [
+          GyroscopePlugin.withConfig({
+            touchmove: true,
+            roll: false,
+            absolutePosition: false,
+            moveMode: 'smooth',
+          }),
           MarkersPlugin.withConfig({}),
           VirtualTourPlugin.withConfig({
             dataMode: 'client',
@@ -913,16 +888,26 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   }, [embedded])
 
   useEffect(() => {
+    const viewer = viewerRef.current
     const root = rootRef.current
-    if (!root) return
-    const ask = () => {
-      if (motionAskedRef.current) return
-      motionAskedRef.current = true
-      void askMotionPermission()
+    if (!viewer || !root || booting) return
+    const gyro = viewer.getPlugin<GyroscopePlugin>(GyroscopePlugin)
+    if (!gyro) return
+
+    if (viewMode !== 'tour' || !isPanoRoom) {
+      if (gyro.isEnabled()) gyro.stop()
+      return
     }
-    root.addEventListener('pointerdown', ask, { passive: true })
-    return () => root.removeEventListener('pointerdown', ask)
-  }, [])
+
+    const start = () => {
+      if (gyro.isEnabled()) return
+      void gyro.start().catch(() => undefined)
+    }
+    root.addEventListener('pointerdown', start, { passive: true })
+    return () => {
+      root.removeEventListener('pointerdown', start)
+    }
+  }, [booting, viewMode, isPanoRoom])
 
   useEffect(() => {
     const root = rootRef.current
@@ -952,7 +937,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         document.body.style.overflow = ''
       }
     }
-  }, [immersive, embedded, hold.fakeRotate])
+  }, [immersive, embedded])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -1122,12 +1107,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       className={cn(
         'tour-root overflow-hidden bg-black overscroll-none',
         immersive && 'is-immersive',
-        immersive && hold.fakeRotate && 'is-fake-landscape',
-        immersive && hold.fakeRotate && hold.tiltSign < 0 && 'is-ccw',
         immersive || !embedded
-          ? hold.fakeRotate
-            ? 'z-[80]'
-            : 'fixed inset-0 z-[80] h-[100dvh] w-full'
+          ? 'fixed inset-0 z-[80] h-[100dvh] w-full'
           : 'relative h-full w-full',
       )}
     >
