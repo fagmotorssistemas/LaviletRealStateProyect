@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Cache, CONSTANTS, Viewer, events } from '@photo-sphere-viewer/core'
+import { GyroscopePlugin } from '@photo-sphere-viewer/gyroscope-plugin'
 import { MarkersPlugin, events as markerEvents } from '@photo-sphere-viewer/markers-plugin'
 import { VirtualTourPlugin, events as tourEvents } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { VirtualTourNode } from '@photo-sphere-viewer/virtual-tour-plugin'
@@ -45,15 +46,26 @@ import './tour-viewer.css'
 
 Cache.enabled = true
 
-function roomMarkerPin(item: { slug: string; label: string; yaw: number; pitch: number }) {
+function lookAtSpot(viewer: Viewer, yaw: number, pitch: number) {
+  return viewer.animate({
+    yaw,
+    pitch,
+    zoom: 42,
+    speed: 720,
+    easing: 'inOutSine',
+  })
+}
+
+function roomMarkerPin(item: TourPlacedHotspot) {
+  const kind = item.kind === 'look' ? 'look' : 'go'
   return {
-    id: `ambiente-${item.slug}`,
+    id: `pin-${item.id}`,
     position: { yaw: item.yaw, pitch: item.pitch },
-    html: roomHotspotHtml(item.label),
+    html: roomHotspotHtml(item.label, kind),
     anchor: 'center center' as const,
     size: { width: 92, height: 78 },
     tooltip: item.label,
-    data: { room: item.slug },
+    data: { room: item.slug, kind, yaw: item.yaw, pitch: item.pitch },
   }
 }
 
@@ -65,16 +77,7 @@ function buildTourMarkers(
   _homeSlug: string,
 ) {
   if (viewMode !== 'tour') return []
-  return placed
-    .filter((item) => item.from === room)
-    .map((item) =>
-      roomMarkerPin({
-        slug: item.slug,
-        label: item.label,
-        yaw: item.yaw,
-        pitch: item.pitch,
-      }),
-    )
+  return placed.filter((item) => item.from === room).map((item) => roomMarkerPin(item))
 }
 
 function CrossfadeStill({
@@ -167,6 +170,53 @@ function sleep(ms: number) {
   })
 }
 
+function readPhoneLandscape() {
+  if (typeof window === 'undefined') return false
+  const landscape = window.matchMedia('(orientation: landscape)').matches || window.innerWidth > window.innerHeight
+  const short = window.innerHeight <= 580
+  const phone = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
+  return landscape && short && phone
+}
+
+function usePhoneLandscape() {
+  const [on, setOn] = useState(false)
+  useEffect(() => {
+    const sync = () => setOn(readPhoneLandscape())
+    sync()
+    window.addEventListener('resize', sync)
+    window.addEventListener('orientationchange', sync)
+    return () => {
+      window.removeEventListener('resize', sync)
+      window.removeEventListener('orientationchange', sync)
+    }
+  }, [])
+  return on
+}
+
+async function requestTourFullscreen(el: HTMLElement) {
+  const req =
+    el.requestFullscreen?.bind(el) ??
+    (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen?.bind(el)
+  if (!req || document.fullscreenElement) return
+  try {
+    await req()
+  } catch {
+    /* iOS often blocks this; CSS cover still applies */
+  }
+}
+
+async function leaveTourFullscreen() {
+  const exit =
+    document.exitFullscreen?.bind(document) ??
+    (document as Document & { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen?.bind(document)
+  if (!exit || !document.fullscreenElement) return
+  try {
+    await exit()
+  } catch {
+    /* ignore */
+  }
+}
+
 function capturePanoFrame(viewer: Viewer): string | null {
   const canvas = viewer.container.querySelector('canvas')
   if (!(canvas instanceof HTMLCanvasElement) || canvas.width < 2) return null
@@ -221,8 +271,11 @@ function variantUrl(node: VirtualTourNode | undefined, width: TourWidth): string
 }
 
 export function TourViewer({ embedded = false }: { embedded?: boolean }) {
+  const rootRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
+  const gyroReadyRef = useRef(false)
+  const phoneLandscape = usePhoneLandscape()
   const tourRef = useRef<VirtualTourPlugin | null>(null)
   const targetWidthRef = useRef<TourWidth>(2048)
   const catalogWidthRef = useRef<TourWidth>(4096)
@@ -397,6 +450,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         defaultTransition: { speed: 0, rotation: false },
         plugins: [
           MarkersPlugin.withConfig({}),
+          GyroscopePlugin.withConfig({
+            touchmove: true,
+            absolutePosition: false,
+            moveMode: 'smooth',
+            roll: false,
+          }),
           VirtualTourPlugin.withConfig({
             dataMode: 'client',
             positionMode: 'manual',
@@ -706,7 +765,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
 
     const onMarker = (event: markerEvents.SelectMarkerEvent) => {
-      const slug = event.marker.data?.room
+      const data = event.marker.data
+      if (data?.kind === 'look') {
+        const yaw = typeof data.yaw === 'number' ? data.yaw : null
+        const pitch = typeof data.pitch === 'number' ? data.pitch : null
+        if (yaw !== null && pitch !== null) void lookAtSpot(viewer, yaw, pitch)
+        return
+      }
+      const slug = data?.room
       if (typeof slug === 'string' && slug) onSelectRoom(slug)
     }
     markers.addEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
@@ -714,6 +780,78 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       markers.removeEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
     }
   }, [booting, isPanoRoom, viewMode, tourRooms, onSelectRoom, currentTypology?.hotspots, room, homeSlug])
+
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || booting || !isPanoRoom) return
+    const onClick = (event: events.ClickEvent) => {
+      if (event.data.rightclick || event.data.marker) return
+      if (viewMode !== 'tour') return
+      if (walkingRef.current) return
+      void lookAtSpot(viewer, event.data.yaw, event.data.pitch)
+    }
+    viewer.addEventListener(events.ClickEvent.type, onClick)
+    return () => {
+      viewer.removeEventListener(events.ClickEvent.type, onClick)
+    }
+  }, [booting, isPanoRoom, viewMode])
+
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || booting) return
+    const gyro = viewer.getPlugin<GyroscopePlugin>(GyroscopePlugin)
+    if (!gyro) return
+
+    if (viewMode !== 'tour' || !isPanoRoom) {
+      if (gyro.isEnabled()) gyro.stop()
+      return
+    }
+
+    const start = () => {
+      if (gyro.isEnabled()) return
+      void gyro.start().then(() => {
+        gyroReadyRef.current = true
+      }).catch(() => undefined)
+    }
+
+    const onPointer = () => start()
+    const root = rootRef.current
+    root?.addEventListener('pointerdown', onPointer, { passive: true })
+    if (gyroReadyRef.current || phoneLandscape) start()
+    return () => {
+      root?.removeEventListener('pointerdown', onPointer)
+    }
+  }, [booting, viewMode, isPanoRoom, phoneLandscape])
+
+  useEffect(() => {
+    const root = rootRef.current
+    const viewer = viewerRef.current
+    if (!root) return
+
+    const resize = () => {
+      window.setTimeout(() => viewer?.autoSize(), 80)
+      window.setTimeout(() => viewer?.autoSize(), 360)
+    }
+
+    if (phoneLandscape) {
+      document.documentElement.style.overflow = 'hidden'
+      document.body.style.overflow = 'hidden'
+      void requestTourFullscreen(root).finally(resize)
+    } else {
+      void leaveTourFullscreen().finally(resize)
+      if (embedded) {
+        document.documentElement.style.overflow = ''
+        document.body.style.overflow = ''
+      }
+    }
+
+    return () => {
+      if (embedded) {
+        document.documentElement.style.overflow = ''
+        document.body.style.overflow = ''
+      }
+    }
+  }, [phoneLandscape, embedded])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -816,7 +954,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     const viewer = viewerRef.current
     if (!viewer || booting || !isPanoRoom) return
     const urls = (currentTypology?.hotspots ?? [])
-      .filter((item) => item.from === room)
+      .filter((item) => item.from === room && item.kind !== 'look' && item.slug !== room)
       .map((item) => urlForRoom(item.slug))
       .filter((item): item is string => Boolean(item))
     preloadUrls(viewer, urls)
@@ -878,9 +1016,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         'overflow-hidden bg-black overscroll-none',
-        embedded ? 'relative h-full w-full' : 'fixed inset-0 z-50 h-[100dvh] w-full',
+        phoneLandscape || !embedded
+          ? 'fixed inset-0 z-[80] h-[100dvh] w-full'
+          : 'relative h-full w-full',
       )}
     >
       <div className="absolute inset-0 overflow-hidden">
@@ -945,9 +1086,19 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         </div>
       )}
 
-      <div className="tour-vignette pointer-events-none absolute inset-0 z-[12]" />
+      <div
+        className={cn(
+          'tour-vignette pointer-events-none absolute inset-0 z-[12]',
+          phoneLandscape && 'is-immersive',
+        )}
+      />
 
-      <div className="tour-chrome pointer-events-none absolute inset-0 z-20">
+      <div
+        className={cn(
+          'tour-chrome pointer-events-none absolute inset-0 z-20',
+          phoneLandscape && 'is-immersive',
+        )}
+      >
         <div className="pointer-events-auto absolute top-0 left-0 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:p-3.5">
           <TourPicker
             typologies={typologyOptions}

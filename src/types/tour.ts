@@ -165,6 +165,7 @@ export type TourPlacedHotspot = {
   yaw: number
   pitch: number
   from?: string
+  kind?: 'go' | 'look'
 }
 
 export type TourTypologyOption = {

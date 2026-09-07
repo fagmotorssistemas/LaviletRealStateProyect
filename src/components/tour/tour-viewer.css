@@ -255,6 +255,16 @@
   visibility: visible !important;
 }
 
+.tour-chrome.is-immersive {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.tour-vignette.is-immersive {
+  opacity: 0.35;
+}
+
 .psv-container {
   background: #111 !important;
 }
@@ -354,6 +364,22 @@
 
 .tour-hotspot-disc svg {
   display: none;
+}
+
+.tour-hotspot.is-look .tour-hotspot-disc::after {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 999px;
+  transform: none;
+}
+
+.tour-hotspot.is-look .tour-hotspot-disc::before {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 999px;
+  transform: none;
 }
 
 .tour-hotspot-label {

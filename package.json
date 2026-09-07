@@ -16,6 +16,7 @@
     "@photo-sphere-viewer/compass-plugin": "^5.15.1",
     "@photo-sphere-viewer/core": "^5.15.1",
     "@photo-sphere-viewer/gallery-plugin": "^5.15.1",
+    "@photo-sphere-viewer/gyroscope-plugin": "^5.15.1",
     "@photo-sphere-viewer/markers-plugin": "^5.15.1",
     "@photo-sphere-viewer/virtual-tour-plugin": "^5.15.1",
     "@supabase/ssr": "^0.9.0",

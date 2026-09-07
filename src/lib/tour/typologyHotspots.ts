@@ -20,17 +20,24 @@ export function parseTypologyHotspots(value: unknown): TourPlacedHotspot[] {
     const label = typeof item.label === 'string' ? item.label.trim() : ''
     const yaw = typeof item.yaw === 'number' ? item.yaw : Number(item.yaw)
     const pitch = typeof item.pitch === 'number' ? item.pitch : Number(item.pitch)
-    if (!slug || !from || !Number.isFinite(yaw) || !Number.isFinite(pitch)) continue
-    const id = `${from}:${slug}`
+    if (!from || !Number.isFinite(yaw) || !Number.isFinite(pitch)) continue
+    const isLook = item.kind === 'look' || slug === from || slug === 'look'
+    if (!isLook && !slug) continue
+    const resolvedSlug = isLook ? from : slug
+    const storedId = typeof item.id === 'string' ? item.id.trim() : ''
+    const id = isLook
+      ? storedId || `${from}:look:${yaw.toFixed(3)}:${pitch.toFixed(3)}`
+      : `${from}:${slug}`
     if (seen.has(id)) continue
     seen.add(id)
     items.push({
       id,
-      slug,
+      slug: resolvedSlug,
       from,
-      label: label || slug,
+      label: label || (isLook ? 'Mirar' : slug),
       yaw,
       pitch,
+      kind: isLook ? 'look' : 'go',
     })
   }
   return items

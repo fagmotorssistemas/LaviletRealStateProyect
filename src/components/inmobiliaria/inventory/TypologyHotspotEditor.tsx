@@ -144,7 +144,7 @@ export function TypologyHotspotEditor({
       herePoints.map((item) => ({
         id: item.id,
         position: { yaw: item.yaw, pitch: item.pitch },
-        html: roomHotspotHtml(item.label),
+        html: roomHotspotHtml(item.label, item.kind === 'look' ? 'look' : 'go'),
         anchor: 'center center' as const,
         size: { width: 92, height: 78 },
         tooltip: item.label,
@@ -155,7 +155,7 @@ export function TypologyHotspotEditor({
   const placeRoom = (room: RoomOption) => {
     if (!pending || !here) return
     const next = [
-      ...hotspots.filter((item) => !(item.from === here && item.slug === room.slug)),
+      ...hotspots.filter((item) => !(item.from === here && item.slug === room.slug && item.kind !== 'look')),
       {
         id: `${here}:${room.slug}`,
         from: here,
@@ -163,6 +163,26 @@ export function TypologyHotspotEditor({
         label: room.label,
         yaw: pending.yaw,
         pitch: pending.pitch,
+        kind: 'go' as const,
+      },
+    ]
+    setPending(null)
+    setHotspots(next)
+    void persist(next)
+  }
+
+  const placeLook = () => {
+    if (!pending || !here) return
+    const next = [
+      ...hotspots,
+      {
+        id: `${here}:look:${pending.yaw.toFixed(3)}:${pending.pitch.toFixed(3)}`,
+        from: here,
+        slug: here,
+        label: 'Mirar',
+        yaw: pending.yaw,
+        pitch: pending.pitch,
+        kind: 'look' as const,
       },
     ]
     setPending(null)
@@ -179,7 +199,8 @@ export function TypologyHotspotEditor({
   return (
     <div className="space-y-3">
       <p className="text-sm text-[#3a3d36]">
-        Elegí el ambiente, tocá el 360 y decí a qué ambiente va ese punto. Cada 360 tiene los suyos.
+        Elegí el ambiente, tocá el 360 y decí si ese punto va a otro ambiente o solo mira ese detalle
+        en la misma imagen.
       </p>
       <Select
         label="Ambiente"
@@ -205,13 +226,16 @@ export function TypologyHotspotEditor({
         {pending ? (
           <div className="absolute inset-x-2 bottom-2 z-10 border border-white/15 bg-[#14110e]/88 p-3 backdrop-blur-md">
             <p className="text-[10px] font-medium tracking-[0.18em] text-[#BDA27E] uppercase">
-              ¿A qué ambiente va?
+              ¿Qué hace este punto?
             </p>
-            {targets.length === 0 ? (
-              <p className="mt-2 text-xs text-white/70">
-                Esta tipología no tiene otros ambientes.
-              </p>
-            ) : (
+            <button
+              type="button"
+              onClick={placeLook}
+              className="mt-2 border border-[#BDA27E]/50 bg-[#BDA27E]/16 px-2.5 py-1 text-[11px] text-[#f7f3ee] hover:bg-[#BDA27E]/28"
+            >
+              Solo mirar aquí
+            </button>
+            {targets.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {targets.map((room) => (
                   <button
@@ -220,10 +244,14 @@ export function TypologyHotspotEditor({
                     onClick={() => placeRoom(room)}
                     className="border border-white/20 bg-white/8 px-2.5 py-1 text-[11px] text-[#f7f3ee] hover:bg-white/16"
                   >
-                    {room.label}
+                    Ir a {room.label}
                   </button>
                 ))}
               </div>
+            ) : (
+              <p className="mt-2 text-xs text-white/70">
+                No hay otros ambientes para ir. Podés dejar el punto solo para mirar.
+              </p>
             )}
             <button
               type="button"
@@ -250,7 +278,9 @@ export function TypologyHotspotEditor({
         <ul className="divide-y divide-[#2B1A18]/8 border border-[#2B1A18]/10">
           {herePoints.map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <span className="text-[#3a3d36]">→ {item.label}</span>
+              <span className="text-[#3a3d36]">
+                {item.kind === 'look' ? 'Mirar aquí' : `→ ${item.label}`}
+              </span>
               <button
                 type="button"
                 onClick={() => removePoint(item.id)}
