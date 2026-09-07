@@ -173,26 +173,35 @@ function sleep(ms: number) {
   })
 }
 
-function isPhoneDevice() {
-  if (typeof window === 'undefined') return false
-  const short = Math.min(window.innerWidth, window.innerHeight)
-  const long = Math.max(window.innerWidth, window.innerHeight)
-  if (short <= 520 && long <= 1100) return true
-  const coarse =
-    window.matchMedia('(pointer: coarse)').matches ||
-    window.matchMedia('(hover: none)').matches ||
-    'ontouchstart' in window
-  return coarse && short <= 540 && long <= 1100
+function shortestViewport() {
+  const vv = window.visualViewport
+  return Math.min(
+    window.innerWidth,
+    window.innerHeight,
+    vv?.width || window.innerWidth,
+    vv?.height || window.innerHeight,
+  )
 }
 
 function isOsLandscape() {
-  const type = window.screen?.orientation?.type
-  if (typeof type === 'string') {
-    if (type.startsWith('landscape')) return true
-    if (type.startsWith('portrait')) return false
-  }
-  if (window.matchMedia('(orientation: landscape)').matches) return true
-  return window.innerWidth > window.innerHeight
+  const type = window.screen?.orientation?.type ?? ''
+  const angle = window.screen?.orientation?.angle
+  const legacy = (window as Window & { orientation?: number }).orientation
+  const byType = type.startsWith('landscape')
+  const byMq = window.matchMedia('(orientation: landscape)').matches
+  const byBox = window.innerWidth > window.innerHeight + 24
+  const vv = window.visualViewport
+  const byVv = Boolean(vv && vv.width > vv.height + 24)
+  const byAngle =
+    (typeof angle === 'number' && (Math.abs(angle) === 90 || Math.abs(angle) === 270)) ||
+    legacy === 90 ||
+    legacy === -90
+  return byType || byMq || byBox || byVv || byAngle
+}
+
+function shouldGoImmersive() {
+  if (!isOsLandscape()) return false
+  return shortestViewport() <= 720
 }
 
 function useShowroomImmersive(enabled: boolean) {
@@ -204,21 +213,27 @@ function useShowroomImmersive(enabled: boolean) {
       return
     }
     const sync = () => {
-      setWant(isPhoneDevice() && isOsLandscape())
+      setWant(shouldGoImmersive())
     }
     sync()
+    const timers = [0, 200, 500, 900].map((ms) => window.setTimeout(sync, ms))
+    const onOrient = () => {
+      sync()
+      timers.push(window.setTimeout(sync, 200), window.setTimeout(sync, 700))
+    }
     const landscapeMq = window.matchMedia('(orientation: landscape)')
     landscapeMq.addEventListener('change', sync)
     window.addEventListener('resize', sync)
-    window.addEventListener('orientationchange', sync)
+    window.addEventListener('orientationchange', onOrient)
     window.visualViewport?.addEventListener('resize', sync)
-    window.screen?.orientation?.addEventListener('change', sync)
+    window.screen?.orientation?.addEventListener('change', onOrient)
     return () => {
+      timers.forEach((id) => window.clearTimeout(id))
       landscapeMq.removeEventListener('change', sync)
       window.removeEventListener('resize', sync)
-      window.removeEventListener('orientationchange', sync)
+      window.removeEventListener('orientationchange', onOrient)
       window.visualViewport?.removeEventListener('resize', sync)
-      window.screen?.orientation?.removeEventListener('change', sync)
+      window.screen?.orientation?.removeEventListener('change', onOrient)
     }
   }, [enabled])
 
@@ -960,13 +975,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       resize()
     }
 
+    const slot = slotRef.current
     if (immersive) {
+      if (root.parentElement !== document.body) document.body.appendChild(root)
       document.documentElement.classList.add('tour-is-immersive')
       document.documentElement.style.overflow = 'hidden'
       document.body.style.overflow = 'hidden'
       fitViewport()
       void requestTourFullscreen(root).finally(fitViewport)
     } else {
+      if (slot && root.parentElement !== slot) slot.appendChild(root)
       document.documentElement.classList.remove('tour-is-immersive')
       void leaveTourFullscreen().finally(resize)
       if (embedded) {
@@ -986,6 +1004,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       root.style.left = ''
       root.style.width = ''
       root.style.height = ''
+      const slot = slotRef.current
+      if (slot && root.parentElement !== slot) slot.appendChild(root)
       document.documentElement.classList.remove('tour-is-immersive')
       if (embedded) {
         document.documentElement.style.overflow = ''
