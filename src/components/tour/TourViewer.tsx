@@ -11,7 +11,9 @@ import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourAr
 import { TourPicker } from '@/components/tour/TourPicker'
 import {
   buildTourRooms,
+  roomsShareFamily,
   roomsShareSlot,
+  resolveTourRoomSlug,
   roomSlugFromNode,
   TOUR_HOME_SLUG,
   tourHomeSlug,
@@ -678,7 +680,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     for (const item of tourRooms) {
       const roomItem =
         currentTypology?.rooms.find((entry) => entry.slug === item.slug) ??
-        currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, item.slug))
+        currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, item.slug)) ??
+        currentTypology?.rooms.find((entry) => roomsShareFamily(entry.slug, item.slug) && entry.url)
       const scene = pickRoomScene(roomItem?.scenes, finish || null, light)
       map[item.slug] = pickSceneUrl(scene, catalogWidthRef.current) ?? roomItem?.url ?? null
     }
@@ -688,8 +691,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const urlForRoom = useCallback(
     (slug: string) => {
       if (photoBySlug[slug]) return photoBySlug[slug]
-      const alias = Object.keys(photoBySlug).find((key) => roomsShareSlot(key, slug) && photoBySlug[key])
-      return alias ? photoBySlug[alias] : null
+      const slotted = Object.keys(photoBySlug).find((key) => roomsShareSlot(key, slug) && photoBySlug[key])
+      if (slotted) return photoBySlug[slotted]
+      const family = Object.keys(photoBySlug).find((key) => roomsShareFamily(key, slug) && photoBySlug[key])
+      return family ? photoBySlug[family] : null
     },
     [photoBySlug],
   )
@@ -722,9 +727,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   const onSelectRoom = useCallback(
     (roomId: string) => {
-      const slug = roomSlugFromNode(nodes.find((node) => node.id === roomId) ?? { id: roomId })
+      const raw = roomSlugFromNode(nodes.find((node) => node.id === roomId) ?? { id: roomId })
+      const slug = resolveTourRoomSlug(raw, tourRooms, (item) => Boolean(urlForRoom(item)))
       if (slug === room) return
-      const pin = (currentTypology?.hotspots ?? []).find((item) => item.from === room && item.slug === slug)
+      const pin = (currentTypology?.hotspots ?? []).find(
+        (item) =>
+          item.from === room &&
+          (item.slug === slug || item.slug === raw || roomsShareFamily(item.slug, slug)),
+      )
       const viewer = viewerRef.current
       walkingRef.current = true
       if (pin) {
@@ -757,7 +767,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       setViewMode('tour')
       setRoom(slug)
     },
-    [nodes, room, selectedTypology, currentTypology?.id, currentTypology?.hotspots, urlForRoom],
+    [nodes, room, selectedTypology, currentTypology?.id, currentTypology?.hotspots, urlForRoom, tourRooms],
   )
 
   const stepVista = useCallback(
@@ -778,8 +788,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const showStill = Boolean(stillUrl)
   useEffect(() => {
     if (tourRooms.some((item) => item.slug === room)) return
-    setRoom(homeSlug)
-  }, [tourRooms, room, homeSlug])
+    const aliased = resolveTourRoomSlug(room, tourRooms, (slug) => Boolean(urlForRoom(slug)))
+    setRoom(aliased !== room && tourRooms.some((item) => item.slug === aliased) ? aliased : homeSlug)
+  }, [tourRooms, room, homeSlug, urlForRoom])
 
   useEffect(() => {
     if (vistaImages.length === 0) {

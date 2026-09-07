@@ -188,8 +188,30 @@ export function firstRoomAlias(slug: string) {
   return slug.replace(/-1$/, '')
 }
 
+export function roomFamily(slug: string) {
+  return slug.replace(/-\d+$/, '')
+}
+
 export function roomsShareSlot(left: string, right: string) {
   return left === right || firstRoomAlias(left) === firstRoomAlias(right)
+}
+
+export function roomsShareFamily(left: string, right: string) {
+  return roomsShareSlot(left, right) || roomFamily(left) === roomFamily(right)
+}
+
+export function resolveTourRoomSlug(
+  slug: string,
+  rooms: Array<{ slug: string }>,
+  hasPano?: (slug: string) => boolean,
+) {
+  const usable = (item: { slug: string }) => !hasPano || hasPano(item.slug)
+  const exact = rooms.find((item) => item.slug === slug && usable(item))
+  if (exact) return exact.slug
+  const slotted = rooms.find((item) => roomsShareSlot(item.slug, slug) && usable(item))
+  if (slotted) return slotted.slug
+  const family = rooms.find((item) => roomFamily(item.slug) === roomFamily(slug) && usable(item))
+  return family?.slug ?? slug
 }
 
 export function roomSlugAliases(slug: string) {
