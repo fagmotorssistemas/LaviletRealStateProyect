@@ -164,6 +164,7 @@ export type TourPlacedHotspot = {
   label: string
   yaw: number
   pitch: number
+  from?: string
 }
 
 export type TourTypologyOption = {

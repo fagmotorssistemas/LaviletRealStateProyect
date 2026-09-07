@@ -67,6 +67,11 @@ export const TOUR_PANO_LABEL = '360'
 export const TOUR_PANO_FILE = 'tour-360.webp'
 export const TOUR_PANO_FILE_8192 = 'tour-360_8192.webp'
 export const TOUR_PANO_ROOM: TourRoomDef = { slug: TOUR_PANO_SLUG, label: TOUR_PANO_LABEL }
+export const TOUR_HOME_SLUG = 'sala'
+
+export function tourHomeSlug(rooms: Array<{ slug: string }>) {
+  return rooms.find((item) => item.slug === TOUR_HOME_SLUG)?.slug ?? rooms[0]?.slug ?? TOUR_HOME_SLUG
+}
 
 export function tourPanoFileName(width: 4096 | 8192) {
   return width === 8192 ? TOUR_PANO_FILE_8192 : TOUR_PANO_FILE

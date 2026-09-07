@@ -3,7 +3,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { LV_CONSENT_COOKIE, LV_VID_COOKIE } from '@/lib/tour/trackingIds'
 import { rpcStartTourSession } from '@/lib/tour/tourRpc'
-import { applyVisitorCookie, decodeHeader } from '@/lib/tour/visitorCookie'
+import { applyGeoCookies, applyVisitorCookie } from '@/lib/tour/visitorCookie'
+import { resolveVisitorGeo } from '@/lib/tour/geo'
 
 export const runtime = 'nodejs'
 
@@ -65,17 +66,10 @@ export async function POST(request: NextRequest) {
   const landingPath =
     first(body.landing_path) || pathFromUrl(first(body.referrer) || hdrs.get('referer'))
   const landingQuery = new URLSearchParams(searchFromPath(landingPath))
-
-  const city =
-    first(decodeHeader(hdrs.get('x-vercel-ip-city'))) ||
-    first(hdrs.get('x-lv-city')) ||
-    first(jar.get('lv_city')?.value) ||
-    first(body.city)
-  const country =
-    first(decodeHeader(hdrs.get('x-vercel-ip-country'))) ||
-    first(hdrs.get('x-lv-country')) ||
-    first(jar.get('lv_country')?.value) ||
-    first(body.country)
+  const geo = await resolveVisitorGeo(hdrs, {
+    city: first(jar.get('lv_city')?.value) || first(body.city),
+    country: first(jar.get('lv_country')?.value) || first(body.country),
+  })
 
   try {
     const started = await rpcStartTourSession(admin, {
@@ -89,13 +83,24 @@ export async function POST(request: NextRequest) {
       deviceType: deviceType(userAgent, screenWidth),
       userAgent,
       screenWidth: screenWidth || null,
-      city,
-      country,
-      trackingConsent: jar.get(LV_CONSENT_COOKIE)?.value === 'full',
+      city: geo.city,
+      country: geo.country,
+      trackingConsent: ['full', '1'].includes(jar.get(LV_CONSENT_COOKIE)?.value ?? ''),
     })
     const response = NextResponse.json(started)
     request.cookies.set(LV_VID_COOKIE, visitorKey)
     applyVisitorCookie(request, response)
+    applyGeoCookies(request, response, geo)
+    if (geo.city || geo.country) {
+      await admin
+        .from('tour_sessions')
+        .update({
+          ...(geo.city ? { city: geo.city } : {}),
+          ...(geo.country ? { country: geo.country } : {}),
+        })
+        .eq('id', started.session_id)
+        .is('city', null)
+    }
     return response
   } catch (error) {
     console.error('POST /api/tour/session', error)

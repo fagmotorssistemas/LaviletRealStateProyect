@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { LEAD_STATUS_OPTIONS, LEAD_TEMPERATURE_OPTIONS } from '@/types/inmobiliaria'
+import { LEAD_SOURCE_OPTIONS, normalizeSource } from '@/lib/leads/sources'
 import type { LeadTemperature, TeamProfile } from '@/types/inmobiliaria'
 import type { Unit } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
@@ -22,19 +23,6 @@ interface CreateLeadModalProps {
   tenantId: string
   advisors: TeamProfile[]
 }
-
-const sourceOptions = [
-  { value: 'Referido', label: 'Referido' },
-  { value: 'Portal web', label: 'Portal web' },
-  { value: 'Instagram', label: 'Instagram' },
-  { value: 'Facebook Ads', label: 'Facebook Ads' },
-  { value: 'Google Ads', label: 'Google Ads' },
-  { value: 'WhatsApp', label: 'WhatsApp' },
-  { value: 'Showroom', label: 'Showroom' },
-  { value: 'Feria inmobiliaria', label: 'Feria inmobiliaria' },
-  { value: 'Evento corporativo', label: 'Evento corporativo' },
-  { value: 'Otro', label: 'Otro' },
-]
 
 export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId, advisors }: CreateLeadModalProps) {
   const { supabase, user } = useAuth()
@@ -88,7 +76,7 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId, advisors
           temperature: form.temperature,
           budget: form.budget ? Number(form.budget) : null,
           financing: form.financing,
-          source: form.source || null,
+          source: form.source ? normalizeSource(form.source) : null,
           resume: form.resume || null,
           assigned_to: form.assigned_to || user?.id || null,
         },
@@ -123,7 +111,7 @@ export function CreateLeadModal({ isOpen, onClose, onCreated, tenantId, advisors
           <Input id="name" label="Nombre *" placeholder="Nombre del prospecto" value={form.name} onChange={(e) => update('name', e.target.value)} />
           <Input id="phone" label="Teléfono" placeholder="0991234567" value={form.phone} onChange={(e) => update('phone', e.target.value)} />
         </div>
-        <Select id="source" label="Fuente" options={sourceOptions} placeholder="¿Cómo nos contactó?" value={form.source} onChange={(e) => update('source', e.target.value)} />
+        <Select id="source" label="Fuente" options={LEAD_SOURCE_OPTIONS} placeholder="¿Cómo nos contactó?" value={form.source} onChange={(e) => update('source', e.target.value)} />
         <Select
           id="assigned_to"
           label="Responsable"

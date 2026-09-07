@@ -5,39 +5,36 @@ import { Viewer, events } from '@photo-sphere-viewer/core'
 import { MarkersPlugin } from '@photo-sphere-viewer/markers-plugin'
 import { toast } from 'sonner'
 import { roomHotspotHtml } from '@/components/tour/createTourArrow'
+import { Select } from '@/components/ui/Select'
 import type { TourPlacedHotspot } from '@/types/tour'
 import { cn } from '@/lib/utils'
 import '@photo-sphere-viewer/core/index.css'
 import '@photo-sphere-viewer/markers-plugin/index.css'
 import '@/components/tour/tour-viewer.css'
 
-type RoomOption = { slug: string; label: string }
+type RoomOption = { slug: string; label: string; url: string | null }
 
 export function TypologyHotspotEditor({
   typologyCode,
-  panoUrl,
   rooms,
 }: {
   typologyCode: string
-  panoUrl: string | null
   rooms: RoomOption[]
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
   const [hotspots, setHotspots] = useState<TourPlacedHotspot[]>([])
+  const [editRoom, setEditRoom] = useState(rooms[0]?.slug ?? '')
   const [pending, setPending] = useState<{ yaw: number; pitch: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [panoError, setPanoError] = useState(false)
 
-  const roomChoices =
-    rooms.length > 0
-      ? rooms
-      : [
-          { slug: 'bano-completo', label: 'Baño' },
-          { slug: 'cocina', label: 'Cocina' },
-          { slug: 'sala', label: 'Sala' },
-        ]
+  const current = rooms.find((item) => item.slug === editRoom) ?? rooms[0]
+  const panoUrl = current?.url ?? null
+  const here = current?.slug ?? ''
+  const targets = rooms.filter((item) => item.slug !== here)
+  const herePoints = hotspots.filter((item) => item.from === here)
 
   const persist = useCallback(
     async (next: TourPlacedHotspot[]) => {
@@ -60,6 +57,12 @@ export function TypologyHotspotEditor({
     },
     [typologyCode],
   )
+
+  useEffect(() => {
+    if (!rooms.some((item) => item.slug === editRoom)) {
+      setEditRoom(rooms[0]?.slug ?? '')
+    }
+  }, [rooms, editRoom])
 
   useEffect(() => {
     if (!typologyCode) {
@@ -93,6 +96,7 @@ export function TypologyHotspotEditor({
     let cancelled = false
     let viewer: Viewer | null = null
     setPanoError(false)
+    setPending(null)
 
     const start = () => {
       if (cancelled || !container.isConnected) return
@@ -137,7 +141,7 @@ export function TypologyHotspotEditor({
     if (!viewer) return
     const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
     markers?.setMarkers(
-      hotspots.map((item) => ({
+      herePoints.map((item) => ({
         id: item.id,
         position: { yaw: item.yaw, pitch: item.pitch },
         html: roomHotspotHtml(item.label),
@@ -146,14 +150,15 @@ export function TypologyHotspotEditor({
         tooltip: item.label,
       })),
     )
-  }, [hotspots, panoUrl])
+  }, [herePoints, panoUrl])
 
   const placeRoom = (room: RoomOption) => {
-    if (!pending) return
+    if (!pending || !here) return
     const next = [
-      ...hotspots.filter((item) => item.slug !== room.slug),
+      ...hotspots.filter((item) => !(item.from === here && item.slug === room.slug)),
       {
-        id: room.slug,
+        id: `${here}:${room.slug}`,
+        from: here,
         slug: room.slug,
         label: room.label,
         yaw: pending.yaw,
@@ -165,8 +170,8 @@ export function TypologyHotspotEditor({
     void persist(next)
   }
 
-  const removeRoom = (slug: string) => {
-    const next = hotspots.filter((item) => item.slug !== slug)
+  const removePoint = (id: string) => {
+    const next = hotspots.filter((item) => item.id !== id)
     setHotspots(next)
     void persist(next)
   }
@@ -174,30 +179,41 @@ export function TypologyHotspotEditor({
   return (
     <div className="space-y-3">
       <p className="text-sm text-[#3a3d36]">
-        Tocá el lugar del 360 (la puerta del baño, la cocina…) y elegí el ambiente. El showroom usa
-        esos puntos.
+        Elegí el ambiente, tocá el 360 y decí a qué ambiente va ese punto. Cada 360 tiene los suyos.
       </p>
+      <Select
+        label="Ambiente"
+        options={rooms.map((item) => ({
+          value: item.slug,
+          label: item.url ? item.label : `${item.label} · sin 360`,
+        }))}
+        value={editRoom}
+        onChange={(event) => {
+          setEditRoom(event.target.value)
+          setPending(null)
+        }}
+      />
       <div className="relative overflow-hidden bg-[#111]" style={{ height: 380 }}>
         <div ref={containerRef} className="h-full w-full" />
         {!panoUrl || panoError ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center px-6 text-center text-sm text-white/70">
             {!panoUrl
-              ? 'No encuentro el 360 de esta tipología. Subilo en Ambientes y volvé a esta pestaña.'
-              : 'No se pudo abrir ese 360. Probá recargar o subir de nuevo el panorama en Ambientes.'}
+              ? `No hay 360 de ${current?.label ?? 'este ambiente'}. Subilo en la pestaña 360 y volvé acá.`
+              : 'No se pudo abrir ese 360. Probá recargar o subir de nuevo el panorama.'}
           </div>
         ) : null}
         {pending ? (
           <div className="absolute inset-x-2 bottom-2 z-10 border border-white/15 bg-[#14110e]/88 p-3 backdrop-blur-md">
             <p className="text-[10px] font-medium tracking-[0.18em] text-[#BDA27E] uppercase">
-              ¿Qué ambiente es?
+              ¿A qué ambiente va?
             </p>
-            {roomChoices.length === 0 ? (
+            {targets.length === 0 ? (
               <p className="mt-2 text-xs text-white/70">
-                Esta tipología no tiene ambientes. Cargá baños o espacios en la unidad.
+                Esta tipología no tiene otros ambientes.
               </p>
             ) : (
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {roomChoices.map((room) => (
+                {targets.map((room) => (
                   <button
                     key={room.slug}
                     type="button"
@@ -224,20 +240,20 @@ export function TypologyHotspotEditor({
         {saving ? <span>Guardando…</span> : null}
         {!loading && !saving ? (
           <span>
-            {hotspots.length === 0
-              ? 'Todavía no hay puntos. Si no clavás ninguno, el showroom sigue usando el círculo automático.'
-              : `${hotspots.length} punto(s) en esta tipología.`}
+            {herePoints.length === 0
+              ? `Sin puntos en ${current?.label ?? 'este ambiente'}. Tocá el 360 para clavar uno.`
+              : `${herePoints.length} punto(s) en ${current?.label ?? 'este ambiente'}.`}
           </span>
         ) : null}
       </div>
-      {hotspots.length > 0 ? (
+      {herePoints.length > 0 ? (
         <ul className="divide-y divide-[#2B1A18]/8 border border-[#2B1A18]/10">
-          {hotspots.map((item) => (
+          {herePoints.map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <span className="text-[#3a3d36]">{item.label}</span>
+              <span className="text-[#3a3d36]">→ {item.label}</span>
               <button
                 type="button"
-                onClick={() => removeRoom(item.slug)}
+                onClick={() => removePoint(item.id)}
                 className={cn('text-[11px] text-[#8a5c58] underline underline-offset-2', saving && 'opacity-50')}
                 disabled={saving}
               >

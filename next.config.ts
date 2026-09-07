@@ -5,9 +5,9 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ['localhost', '127.0.0.1', '192.168.0.111'],
   experimental: {
     serverActions: {
-      bodySizeLimit: '80mb',
+      bodySizeLimit: '250mb',
     },
-    proxyClientMaxBodySize: '80mb',
+    proxyClientMaxBodySize: '250mb',
   },
   images: {
     remotePatterns: [

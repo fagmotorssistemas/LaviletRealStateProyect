@@ -26,9 +26,9 @@ export function visitorCookieOptions(secure: boolean) {
 export function decodeHeader(value: string | null) {
   if (!value) return ''
   try {
-    return decodeURIComponent(value)
+    return decodeURIComponent(value.replace(/\+/g, ' '))
   } catch {
-    return value
+    return value.replace(/\+/g, ' ')
   }
 }
 
@@ -45,20 +45,27 @@ export function readVercelGeo(request: Request) {
   }
 }
 
+export function applyGeoCookies(
+  request: NextRequest | Request,
+  response: NextResponse,
+  geo: { city?: string | null; country?: string | null },
+) {
+  const secure = isSecureRequest(request)
+  if (geo.city) {
+    response.headers.set('x-lv-city', geo.city)
+    response.cookies.set('lv_city', geo.city, visitorCookieOptions(secure))
+  }
+  if (geo.country) {
+    response.headers.set('x-lv-country', geo.country)
+    response.cookies.set('lv_country', geo.country, visitorCookieOptions(secure))
+  }
+}
+
 /** Escribe lv_vid desde el servidor. Si ya existe, se reenvía el mismo UUID con Max-Age. */
 export function applyVisitorCookie(request: NextRequest, response: NextResponse) {
   const secure = isSecureRequest(request)
   const visitorKey = request.cookies.get(LV_VID_COOKIE)?.value?.trim() || crypto.randomUUID()
   response.cookies.set(LV_VID_COOKIE, visitorKey, visitorCookieOptions(secure))
-
-  const { city, country } = readVercelGeo(request)
-  if (city) {
-    response.headers.set('x-lv-city', city)
-    response.cookies.set('lv_city', city, visitorCookieOptions(secure))
-  }
-  if (country) {
-    response.headers.set('x-lv-country', country)
-    response.cookies.set('lv_country', country, visitorCookieOptions(secure))
-  }
+  applyGeoCookies(request, response, readVercelGeo(request))
   return visitorKey
 }

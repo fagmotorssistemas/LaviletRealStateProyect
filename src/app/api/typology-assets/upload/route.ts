@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server'
-import sharp from 'sharp'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionProfile } from '@/lib/auth/session'
 import { canAccessPath, canWriteCrm } from '@/lib/inmobiliaria/roleAccess'
 import {
   TYPOLOGY_ASSETS_BUCKET,
-  TYPOLOGY_ASSET_MAX_BYTES,
-  TYPOLOGY_PANO_MAX_BYTES,
   isTypologyAssetKind,
   typologyAssetFileName,
   typologyAssetStoragePath,
@@ -34,9 +31,9 @@ export async function POST(request: Request) {
     console.error('POST /api/typology-assets/upload', error)
     const message = error instanceof Error ? error.message : 'No se pudo subir la imagen'
     if (/413|entity too large|body.*limit|size/i.test(message)) {
-      return jsonError('La imagen es demasiado pesada. Subí un JPG de menos de 25 MB.', 413)
+      return jsonError('No se pudo recibir el archivo. Reintentá la subida.', 413)
     }
-    return jsonError('No se pudo subir la imagen. Probá un JPG más liviano.', 500)
+    return jsonError('No se pudo subir la imagen.', 500)
   }
 }
 
@@ -74,11 +71,6 @@ async function handleUpload(request: Request) {
     mime.startsWith('image/') ||
     /\.(png|jpe?g|webp|gif)$/i.test(fileNameHint)
   if (!isImage) return jsonError(`El archivo no es una imagen (${fileNameHint || mime || 'sin tipo'})`, 400)
-  const maxBytes = isPanoSlot ? TYPOLOGY_PANO_MAX_BYTES : TYPOLOGY_ASSET_MAX_BYTES
-  if (uploaded.size > maxBytes) {
-    return jsonError(`El archivo supera ${maxBytes / (1024 * 1024)} MB`, 413)
-  }
-
   const persistKind = kindRaw === 'ambiente' ? 'render' : kindRaw
   const sceneKey = kindRaw === 'ambiente' && light ? { room, finish, light } : null
   const fileName =
@@ -104,22 +96,17 @@ async function handleUpload(request: Request) {
   }
 
   const pngBuffer = Buffer.from(await uploaded.arrayBuffer())
-  const sharpOpts = { limitInputPixels: 80_000_000, sequentialRead: true, failOn: 'none' as const }
-  let webpBuffer: Buffer
+  const sharpOpts = { limitInputPixels: 0, sequentialRead: true, failOn: 'none' as const }
+  let webpBuffer: Buffer = pngBuffer
+  let contentType = mime.startsWith('image/') ? mime : 'image/jpeg'
   let desktopBuffer: Buffer | null = null
   try {
-    if (isPanoSlot) {
-      webpBuffer = await sharp(pngBuffer, sharpOpts).rotate().webp({ quality: 88, effort: 3 }).toBuffer()
-    } else if (kindRaw === 'ambiente') {
-      webpBuffer = await sharp(pngBuffer, sharpOpts).rotate().webp({ quality: 86, effort: 3 }).toBuffer()
-    } else {
-      webpBuffer = await sharp(pngBuffer, sharpOpts)
-        .rotate()
-        .webp({ quality: 90, effort: 3 })
-        .toBuffer()
-    }
-  } catch {
-    return jsonError('No se pudo convertir la imagen. Probá JPG en vez de PNG.', 422)
+    const sharp = (await import('sharp')).default
+    const quality = isPanoSlot ? 88 : kindRaw === 'ambiente' ? 86 : 90
+    webpBuffer = await sharp(pngBuffer, sharpOpts).rotate().webp({ quality, effort: 3 }).toBuffer()
+    contentType = 'image/webp'
+  } catch (error) {
+    console.error('sharp convert skipped', error)
   }
 
   const uploadedPaths: string[] = []
@@ -127,7 +114,7 @@ async function handleUpload(request: Request) {
     const path = typologyAssetStoragePath(typologyCode, persistKind, name)
     const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
       upsert: kindRaw === 'ambiente',
-      contentType: 'image/webp',
+      contentType,
       cacheControl: '0',
     })
     if (upErr) {

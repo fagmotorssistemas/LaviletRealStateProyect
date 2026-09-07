@@ -111,6 +111,26 @@ function flushQueuedEvents() {
   for (const payload of pending) postTourEvent(payload)
 }
 
+export function pingTourSession(seconds: number, extra?: Pick<TourEventPayload, 'typology_code' | 'unit_type_id'>) {
+  const current = ids
+  if (!current || seconds < 1) return
+  void fetch('/api/tour/event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: current.session_id,
+      visitor_id: current.visitor_id,
+      heartbeat: true,
+      seconds,
+      typology_code: extra?.typology_code,
+      unit_type_id: extra?.unit_type_id,
+    }),
+    keepalive: true,
+  }).catch((error) => {
+    console.error('ping_tour_session', error)
+  })
+}
+
 export function logTourEvent(payload: TourEventPayload, opts?: { beacon?: boolean }) {
   if (!ids) {
     queued.push(payload)
@@ -149,8 +169,17 @@ export async function identifyTourLead(input: {
   email: string
   phone: string
   consent: boolean
+  typology_code?: string | null
+  unit_type_id?: string | null
+  interest_room?: string | null
+  finish?: string | null
+  light?: string | null
 }) {
-  const body = JSON.stringify({ ...input, visitor_key: getVisitorKey() })
+  const body = JSON.stringify({
+    ...input,
+    visitor_key: getVisitorKey(),
+    session_id: ids?.session_id ?? null,
+  })
   let response: Response
   try {
     response = await fetch('/api/tour/lead', {
@@ -165,6 +194,14 @@ export async function identifyTourLead(input: {
   if (!response.ok || !json.lead_id) {
     throw new Error(humanApiError(json.error, 'No se pudo guardar el contacto'))
   }
-  logTourEvent({ event_type: 'lead_identificado', metadata: { lead_id: json.lead_id } })
+  logTourEvent({
+    event_type: 'lead_identificado',
+    typology_code: input.typology_code,
+    unit_type_id: input.unit_type_id,
+    finish: input.finish,
+    light: input.light,
+    room: input.interest_room,
+    metadata: { lead_id: json.lead_id, interest_room: input.interest_room ?? null },
+  })
   return json.lead_id
 }

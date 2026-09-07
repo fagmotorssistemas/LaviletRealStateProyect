@@ -3,6 +3,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createLead } from '@/services/inmobiliaria.service'
 import { knownRole } from '@/lib/inmobiliaria/roleAccess'
+import { LEAD_SOURCE } from '@/lib/leads/sources'
 import {
   interestLabel,
   isValidEmail,
@@ -189,7 +190,7 @@ export async function startTourAccessAction(payload: TourAccessPayload): Promise
       if (existingLead?.id) {
         await admin
           .from('leads')
-          .update({ name, resume: notes, source: 'web_360' })
+          .update({ name, resume: notes, source: LEAD_SOURCE.showroom_360 })
           .eq('id', existingLead.id)
       } else {
         await createLead(admin, {
@@ -198,7 +199,7 @@ export async function startTourAccessAction(payload: TourAccessPayload): Promise
           phone,
           status: 'nuevo',
           temperature: 'frio',
-          source: 'web_360',
+          source: LEAD_SOURCE.showroom_360,
           resume: notes,
         })
       }

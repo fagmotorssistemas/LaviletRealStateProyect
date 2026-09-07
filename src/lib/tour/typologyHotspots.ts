@@ -16,15 +16,18 @@ export function parseTypologyHotspots(value: unknown): TourPlacedHotspot[] {
     if (!row || typeof row !== 'object') continue
     const item = row as Partial<TourPlacedHotspot>
     const slug = typeof item.slug === 'string' ? item.slug.trim() : ''
+    const from = typeof item.from === 'string' ? item.from.trim() : ''
     const label = typeof item.label === 'string' ? item.label.trim() : ''
     const yaw = typeof item.yaw === 'number' ? item.yaw : Number(item.yaw)
     const pitch = typeof item.pitch === 'number' ? item.pitch : Number(item.pitch)
-    if (!slug || !Number.isFinite(yaw) || !Number.isFinite(pitch)) continue
-    if (seen.has(slug)) continue
-    seen.add(slug)
+    if (!slug || !from || !Number.isFinite(yaw) || !Number.isFinite(pitch)) continue
+    const id = `${from}:${slug}`
+    if (seen.has(id)) continue
+    seen.add(id)
     items.push({
-      id: typeof item.id === 'string' && item.id ? item.id : slug,
+      id,
       slug,
+      from,
       label: label || slug,
       yaw,
       pitch,

@@ -3,23 +3,13 @@
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PersonCell } from '@/components/inmobiliaria/shared/PersonCell'
 import { formatDate } from '@/lib/utils'
+import { LEAD_SOURCE_LABELS, normalizeSource } from '@/lib/leads/sources'
 import type { Lead } from '@/types/inmobiliaria'
-
-const SOURCE_LABELS: Record<string, string> = {
-  waba: 'WhatsApp',
-  whatsapp: 'WhatsApp',
-  referido: 'Referido',
-  portal_web: 'Portal web',
-  instagram: 'Instagram',
-  facebook_ads: 'Facebook Ads',
-  google_ads: 'Google Ads',
-  showroom: 'Showroom',
-}
 
 function sourceLabel(source: string | null | undefined): string {
   const raw = source?.trim()
   if (!raw) return '—'
-  return SOURCE_LABELS[raw.toLowerCase()] ?? raw
+  return LEAD_SOURCE_LABELS[normalizeSource(raw)]
 }
 
 interface LeadsListProps {

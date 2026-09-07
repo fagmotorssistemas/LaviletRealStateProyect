@@ -3,17 +3,24 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
+import { tourGateCopy } from '@/lib/tour/gateCopy'
 
 export function TourLeadGate({
   open,
   typology,
   unitTypeId,
+  roomLabel,
+  finish,
+  light,
   onClose,
   onIdentified,
 }: {
   open: boolean
   typology: string
   unitTypeId?: string | null
+  roomLabel?: string | null
+  finish?: string | null
+  light?: string | null
   onClose: () => void
   onIdentified: () => void
 }) {
@@ -24,8 +31,16 @@ export function TourLeadGate({
   useEffect(() => {
     if (!open) return
     setConsented(false)
-    logTourEvent({ event_type: 'gate_mostrado', typology_code: typology, unit_type_id: unitTypeId })
-  }, [open, typology, unitTypeId])
+    logTourEvent({
+      event_type: 'gate_mostrado',
+      typology_code: typology,
+      unit_type_id: unitTypeId,
+      room: roomLabel,
+      finish,
+      light,
+      metadata: { interest_room: roomLabel ?? null },
+    })
+  }, [open, typology, unitTypeId, roomLabel, finish, light])
 
   if (!open) return null
 
@@ -33,7 +48,7 @@ export function TourLeadGate({
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     if (data.get('consent') !== 'on') {
-      toast.error('Marca la casilla para enviarte planos y disponibilidad')
+      toast.error('Marque la casilla para enviarle planos y disponibilidad')
       return
     }
     setPending(true)
@@ -43,8 +58,13 @@ export function TourLeadGate({
         email: String(data.get('email') ?? ''),
         phone: String(data.get('phone') ?? ''),
         consent: true,
+        typology_code: typology || null,
+        unit_type_id: unitTypeId || null,
+        interest_room: roomLabel || null,
+        finish: finish || null,
+        light: light || null,
       })
-      toast.success('Listo. Te escribimos con planos y disponibilidad.')
+      toast.success('Listo. Le escribiremos con planos y disponibilidad.')
       onIdentified()
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
@@ -73,15 +93,19 @@ export function TourLeadGate({
               Showroom Lavilet
             </p>
             <p className="mt-1.5 text-[13px] leading-relaxed text-[#2B1A18]/88">
-              {shown
-                ? `Te gustó la tipología ${typology}. Déjanos tu WhatsApp y te enviamos los planos y el precio de las unidades disponibles.`
-                : 'Déjanos tu WhatsApp y te enviamos los planos y el precio de las unidades disponibles.'}
+              {tourGateCopy(shown ? typology : '', roomLabel)}
             </p>
           </div>
           <button
             type="button"
             onClick={() => {
-              logTourEvent({ event_type: 'gate_cerrado', typology_code: typology, unit_type_id: unitTypeId })
+              logTourEvent({
+                event_type: 'gate_cerrado',
+                typology_code: typology,
+                unit_type_id: unitTypeId,
+                finish,
+                light,
+              })
               onClose()
             }}
             className="shrink-0 pt-0.5 text-[10px] font-medium tracking-[0.14em] text-[#2B1A18]/70 uppercase underline decoration-[#2B1A18]/25 underline-offset-4 hover:text-[#2B1A18]"

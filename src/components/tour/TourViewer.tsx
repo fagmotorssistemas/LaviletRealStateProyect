@@ -8,13 +8,12 @@ import type { VirtualTourNode } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { Position } from '@photo-sphere-viewer/core'
 import { ChevronLeft, ChevronRight, Moon, Sun } from 'lucide-react'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
-import { TourHotspotLayer } from '@/components/tour/TourHotspotLayer'
 import { TourPicker } from '@/components/tour/TourPicker'
 import {
   buildTourRooms,
   roomSlugFromNode,
-  TOUR_PANO_ROOM,
-  TOUR_PANO_SLUG,
+  TOUR_HOME_SLUG,
+  tourHomeSlug,
   tourRoomLabel,
 } from '@/lib/tour/tourRooms'
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
@@ -30,7 +29,13 @@ import {
 import { useTourSceneTracking } from '@/hooks/useTourSceneTracking'
 import { TourLeadGate } from '@/components/tour/TourLeadGate'
 import { logTourEvent } from '@/lib/tour/visitorTracking'
-import type { TourLightMode, TourPublicCatalog, TourTypologyOption, TourUnitSummary } from '@/types/tour'
+import type {
+  TourLightMode,
+  TourPlacedHotspot,
+  TourPublicCatalog,
+  TourTypologyOption,
+  TourUnitSummary,
+} from '@/types/tour'
 import { cn } from '@/lib/utils'
 import '@photo-sphere-viewer/core/index.css'
 import '@photo-sphere-viewer/virtual-tour-plugin/index.css'
@@ -38,6 +43,38 @@ import '@photo-sphere-viewer/markers-plugin/index.css'
 import './tour-viewer.css'
 
 Cache.enabled = true
+
+function roomMarkerPin(item: { slug: string; label: string; yaw: number; pitch: number }) {
+  return {
+    id: `ambiente-${item.slug}`,
+    position: { yaw: item.yaw, pitch: item.pitch },
+    html: roomHotspotHtml(item.label),
+    anchor: 'center center' as const,
+    size: { width: 92, height: 78 },
+    tooltip: item.label,
+    data: { room: item.slug },
+  }
+}
+
+function buildTourMarkers(
+  viewMode: 'tour' | 'vistas',
+  room: string,
+  _tourRooms: { slug: string; label: string }[],
+  placed: TourPlacedHotspot[],
+  _homeSlug: string,
+) {
+  if (viewMode !== 'tour') return []
+  return placed
+    .filter((item) => item.from === room)
+    .map((item) =>
+      roomMarkerPin({
+        slug: item.slug,
+        label: item.label,
+        yaw: item.yaw,
+        pitch: item.pitch,
+      }),
+    )
+}
 
 function CrossfadeStill({
   url,
@@ -194,7 +231,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [nodes, setNodes] = useState<VirtualTourNode[]>([])
   const [finish, setFinish] = useState('')
   const [light, setLight] = useState<TourLightMode>('dia')
-  const [room, setRoom] = useState(TOUR_PANO_SLUG)
+  const [room, setRoom] = useState(TOUR_HOME_SLUG)
   const [loading, setLoading] = useState(false)
   const [booting, setBooting] = useState(true)
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
@@ -324,7 +361,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       setNodes(scene.nodes)
       setFinish(startFinish)
       setLight('dia')
-      setRoom(TOUR_PANO_SLUG)
+      setRoom(TOUR_HOME_SLUG)
       currentUrlRef.current = startUrl
       preloadedRef.current.add(startUrl)
 
@@ -475,22 +512,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (!publicCatalog) void applyCombo(finish, next)
   }
 
-  const onSelectRoom = useCallback(
-    (roomId: string) => {
-      const slug = roomSlugFromNode(nodes.find((node) => node.id === roomId) ?? { id: roomId })
-      if (slug === room) return
-      logTourEvent({
-        event_type: 'minimapa',
-        room: slug,
-        typology_code: selectedTypology,
-        unit_type_id: currentTypology?.id,
-      })
-      setViewMode('tour')
-      setRoom(slug)
-    },
-    [nodes, room, selectedTypology, currentTypology?.id],
-  )
-
   const displayUnits = useMemo<TourUnitSummary[]>(() => {
     const imported = (publicCatalog?.units ?? [])
       .filter((item) => {
@@ -545,6 +566,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       spaces: sample?.spaces,
     })
   }, [currentTypology?.rooms, displayUnits])
+  const homeSlug = tourHomeSlug(tourRooms)
 
   const photoBySlug = useMemo(() => {
     const map: Record<string, string | null> = {}
@@ -562,8 +584,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     finish || null,
     light,
   )
-  const isPanoRoom = room === TOUR_PANO_SLUG
-  const flatPhotoUrl = isPanoRoom ? null : photoBySlug[room] ?? null
+  const activePanoUrl = photoBySlug[room] ?? (room === homeSlug ? typologyPanoUrl : null)
+  const isPanoRoom = viewMode === 'tour'
   const vistaImages = useMemo(() => {
     const items: { id: string; label: string; url: string }[] = []
     const seen = new Set<string>()
@@ -576,17 +598,28 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       const scene = pickRoomScene(item.scenes, finish || null, light)
       add(item.slug, item.label, pickSceneUrl(scene) ?? item.url)
     }
-    const vistaLabels = new Set(items.map((item) => item.label))
-    for (const item of currentTypology?.rooms ?? []) {
-      if (vistaLabels.has(item.label)) continue
-      const scene = pickRoomScene(item.scenes, finish || null, light)
-      add(item.slug, item.label, pickSceneUrl(scene) ?? item.url)
-    }
     for (const extra of currentTypology?.renders ?? []) {
       add(extra.id, extra.file_name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '), extra.url)
     }
     return items
   }, [currentTypology, finish, light])
+
+  const onSelectRoom = useCallback(
+    (roomId: string) => {
+      const slug = roomSlugFromNode(nodes.find((node) => node.id === roomId) ?? { id: roomId })
+      if (slug === room) return
+      logTourEvent({
+        event_type: 'hotspot',
+        room: slug,
+        typology_code: selectedTypology,
+        unit_type_id: currentTypology?.id,
+      })
+      setViewMode('tour')
+      setRoom(slug)
+    },
+    [nodes, room, selectedTypology, currentTypology?.id],
+  )
+
   const stepVista = useCallback(
     (delta: -1 | 1) => {
       setVistaIndex((index) => {
@@ -599,20 +632,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   )
   const vistaSwipe = useSwipePages(viewMode === 'vistas', vistaImages.length, stepVista)
   const vistaUrl = vistaImages[Math.min(vistaIndex, Math.max(vistaImages.length - 1, 0))]?.url ?? null
-  const stillUrl = viewMode === 'vistas' ? vistaUrl : flatPhotoUrl
+  const stillUrl = viewMode === 'vistas' ? vistaUrl : null
   if (stillUrl) lastStillRef.current = stillUrl
   const overlayUrl = stillUrl ?? lastStillRef.current
   const showStill = Boolean(stillUrl)
-  const navTargets = useMemo(
-    () => [TOUR_PANO_ROOM, ...tourRooms].filter((item) => item.slug !== room),
-    [tourRooms, room],
-  )
-
   useEffect(() => {
-    if (room === TOUR_PANO_SLUG) return
     if (tourRooms.some((item) => item.slug === room)) return
-    setRoom(TOUR_PANO_SLUG)
-  }, [tourRooms, room])
+    setRoom(homeSlug)
+  }, [tourRooms, room, homeSlug])
 
   useEffect(() => {
     if (vistaImages.length === 0) {
@@ -628,27 +655,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
     if (!markers) return
 
-    const placed = currentTypology?.hotspots ?? []
-    const count = Math.max(navTargets.length, 1)
-    const autoPins = navTargets.map((item, index) => ({
-      id: `ambiente-${item.slug}`,
-      position: { yaw: (index / count) * Math.PI * 2, pitch: -0.36 },
-      html: roomHotspotHtml(item.label),
-      anchor: 'center center' as const,
-      size: { width: 92, height: 78 },
-      tooltip: item.label,
-      data: { room: item.slug },
-    }))
-    const placedPins = placed.map((item) => ({
-      id: `ambiente-${item.slug}`,
-      position: { yaw: item.yaw, pitch: item.pitch },
-      html: roomHotspotHtml(item.label),
-      anchor: 'center center' as const,
-      size: { width: 92, height: 78 },
-      tooltip: item.label,
-      data: { room: item.slug },
-    }))
-    markers.setMarkers(isPanoRoom && viewMode === 'tour' ? (placed.length > 0 ? placedPins : autoPins) : [])
+    const pins = buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug)
+    markers.setMarkers(pins)
 
     const onMarker = (event: markerEvents.SelectMarkerEvent) => {
       const slug = event.marker.data?.room
@@ -658,15 +666,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     return () => {
       markers.removeEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
     }
-  }, [booting, isPanoRoom, viewMode, navTargets, onSelectRoom, currentTypology?.hotspots])
+  }, [booting, isPanoRoom, viewMode, tourRooms, onSelectRoom, currentTypology?.hotspots, room, homeSlug])
 
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer || booting || !isPanoRoom || !typologyPanoUrl) {
+    if (!viewer || booting || !isPanoRoom || !activePanoUrl) {
       setPanoEntering(false)
       return
     }
-    const url = typologyPanoUrl
+    const url = activePanoUrl
     const token = ++switchTokenRef.current
     if (currentUrlRef.current && currentUrlRef.current !== url) {
       const ghost = capturePanoFrame(viewer)
@@ -684,6 +692,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         currentUrlRef.current = url
         appliedPanoKeyRef.current = `${selectedTypology}:${url}`
         viewer.needsUpdate()
+        viewer.getPlugin<MarkersPlugin>(MarkersPlugin)?.setMarkers(
+          buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug),
+        )
         requestAnimationFrame(() => setPanoEntering(true))
         window.setTimeout(() => {
           if (token !== switchTokenRef.current) return
@@ -691,7 +702,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           setPanoEntering(false)
         }, 1100)
       })
-  }, [booting, isPanoRoom, typologyPanoUrl, selectedTypology])
+  }, [booting, isPanoRoom, activePanoUrl, selectedTypology, viewMode, room, tourRooms, currentTypology?.hotspots, homeSlug])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -701,13 +712,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer || booting || publicCatalog || typologyPanoUrl) return
+    if (!viewer || booting || publicCatalog || activePanoUrl) return
     if (finish) void applyCombo(finish, light)
-  }, [booting, finish, light, applyCombo, typologyPanoUrl, publicCatalog])
+  }, [booting, finish, light, applyCombo, activePanoUrl, publicCatalog])
 
   const onTypologyChange = (code: string) => {
     setSelectedTypology(code)
-    setRoom(TOUR_PANO_SLUG)
+    setRoom(homeSlug)
     setVistaIndex(0)
     currentUrlRef.current = ''
     appliedPanoKeyRef.current = ''
@@ -718,16 +729,19 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   )
   const finishName = sceneFinishes.find((f) => f.slug === finish)?.name ?? finish
   const currentNode = nodes.find((n) => n.id === room || roomSlugFromNode(n) === room)
-  const roomName = isPanoRoom
-    ? '360'
-    : tourRooms.find((item) => item.slug === room)?.label ?? currentNode?.name ?? tourRoomLabel(room)
+  const roomName =
+    tourRooms.find((item) => item.slug === room)?.label ?? currentNode?.name ?? tourRoomLabel(room)
   const lightLabel = light === 'dia' ? 'Día' : 'Noche'
   const showSceneControls = Boolean(publicCatalog) || sceneFinishes.length > 0
 
+  const trackingScene =
+    viewMode === 'vistas'
+      ? vistaImages[Math.min(vistaIndex, Math.max(vistaImages.length - 1, 0))]
+      : null
   const tracking = useTourSceneTracking(
     {
-      room,
-      roomLabel: roomName,
+      room: trackingScene?.id ?? room,
+      roomLabel: trackingScene?.label ?? roomName,
       typologyCode: selectedTypology,
       unitTypeId: currentTypology?.id,
       finish,
@@ -782,17 +796,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         />
       </div>
 
-      {!booting && viewMode === 'tour' && isPanoRoom && !typologyPanoUrl && (
+      {!booting && viewMode === 'tour' && !activePanoUrl && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Falta el 360</p>
-          <p className="mt-2 text-sm text-white/45">Subilo en Imágenes tipología → 360</p>
-        </div>
-      )}
-
-      {!booting && viewMode === 'tour' && !isPanoRoom && !flatPhotoUrl && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
-          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Falta la foto</p>
-          <p className="mt-2 text-sm text-white/45">{roomName}</p>
+          <p className="mt-2 text-sm text-white/45">
+            {roomName}
+          </p>
         </div>
       )}
 
@@ -801,10 +810,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Vistas</p>
           <p className="mt-2 text-sm text-white/45">Aún no hay renders en esta tipología.</p>
         </div>
-      )}
-
-      {!booting && viewMode === 'tour' && !isPanoRoom && (
-        <TourHotspotLayer targets={navTargets} onSelect={onSelectRoom} />
       )}
 
       {booting && (
@@ -831,7 +836,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               type="button"
               onClick={() => {
                 setViewMode('tour')
-                setRoom(TOUR_PANO_SLUG)
+                setRoom(homeSlug)
               }}
               className={cn(
                 'tour-glass border-white/25 !bg-[#14110e]/72 px-2 py-2 text-left text-[10px] font-semibold tracking-[0.12em] uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300 sm:px-3 sm:py-3 sm:text-[12px] sm:tracking-[0.14em]',
@@ -950,8 +955,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
       <TourLeadGate
         open={gateOpen}
-        typology={selectedTypology || tracking.lastTypology}
+        typology={tracking.interestTypology || selectedTypology || tracking.lastTypology}
+        roomLabel={tracking.interestRoomLabel}
         unitTypeId={currentTypology?.id ?? tracking.lastUnitTypeId}
+        finish={finish}
+        light={light}
         onClose={() => {
           tracking.snoozeGate()
           setGateOpen(false)

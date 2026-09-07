@@ -2,14 +2,12 @@ import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { getTypologyAssetPublicUrl } from '@/services/inmobiliaria.service'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
+import { ensureDefaultFinishPackages } from '@/lib/tour/tourRpc'
 import {
   isTourPanoramaFileName,
-  panoWidthFromFileName,
   stillAssetForRoom,
-  TOUR_PANO_SLUG,
+  tourHomeSlug,
   vistaRoomSlug,
-  typologyPanoramaAsset,
-  typologyPanoramaVariants,
   unionTourRooms,
 } from '@/lib/tour/tourRooms'
 import { buildRoomScenes, parseRoomSceneFileName, pickRoomScene, TOUR_SCENE_LIGHTS } from '@/lib/tour/roomScene'
@@ -79,6 +77,7 @@ export async function GET() {
   if (uErr) return NextResponse.json({ error: uErr.message }, { status: 500 })
 
   const fromDb = uniqueFinishes(finishesRes.data ?? [])
+  if (fromDb.length === 0) await ensureDefaultFinishPackages(admin)
   const finishes =
     fromDb.length > 0
       ? fromDb
@@ -163,27 +162,15 @@ async function toCatalogTypology(
             spaces: ['Sala', 'Cocina'],
           },
         ])
-  const panoScenes = buildRoomScenes(publicAssets, TOUR_PANO_SLUG)
+  const homeSlug = tourHomeSlug(rooms)
+  const panoScenes = buildRoomScenes(publicAssets, homeSlug)
   const defaultFinish = finishes[0]?.slug ?? null
-  const defaultPano = pickRoomScene(panoScenes, defaultFinish, 'dia')
-  const legacyPano = typologyPanoramaAsset(list)
+  const defaultPano = pickRoomScene(panoScenes, defaultFinish, 'dia') ?? panoScenes[0]
   const panoAsset = defaultPano
-    ? (list.find((item) => item.file_name === defaultPano.file_name) ?? legacyPano)
-    : legacyPano
+    ? list.find((item) => item.file_name === defaultPano.file_name)
+    : undefined
   const variants: Partial<Record<'2048' | '4096' | '8192', string>> = {
     ...(defaultPano?.widths ?? {}),
-  }
-  if (!defaultPano) {
-    for (const item of typologyPanoramaVariants(list)) {
-      const width = panoWidthFromFileName(item.file_name)
-      if (width) {
-        variants[String(width) as '2048' | '4096' | '8192'] = getTypologyAssetPublicUrl(
-          admin,
-          item.storage_path,
-          item.created_at,
-        )
-      }
-    }
   }
 
   return {

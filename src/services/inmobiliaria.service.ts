@@ -11,6 +11,7 @@ import type {
 } from '@/types/inmobiliaria'
 import { UNASSIGNED_ASSIGNEE } from '@/types/inmobiliaria'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
+import { normalizeSource } from '@/lib/leads/sources'
 import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 
 /** Bucket público para fotos, planos PDF y documentos de proyecto. */
@@ -1079,7 +1080,7 @@ export async function createLead(
   payload: Partial<Lead> & { tenant_id: string; name: string },
   unitIds?: string[]
 ) {
-  const { data, error } = await supabase.from('leads').insert(payload).select().single()
+  const { data, error } = await supabase.from('leads').insert(withNormalizedLeadSource(payload)).select().single()
   if (error) throw error
   const lead = data as Lead
 
@@ -1092,6 +1093,11 @@ export async function createLead(
   return lead
 }
 
+function withNormalizedLeadSource<T extends { source?: string | null }>(payload: T): T {
+  if (payload.source == null || payload.source === '') return payload
+  return { ...payload, source: normalizeSource(payload.source) }
+}
+
 export async function updateLead(
   supabase: SupabaseClient,
   leadId: string,
@@ -1099,7 +1105,7 @@ export async function updateLead(
 ) {
   const { data, error } = await supabase
     .from('leads')
-    .update(payload)
+    .update(withNormalizedLeadSource(payload))
     .eq('id', leadId)
     .select()
     .single()
