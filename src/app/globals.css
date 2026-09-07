@@ -40,6 +40,13 @@ html {
   scroll-padding-top: 5rem;
 }
 
+html.tour-is-immersive header,
+html.tour-is-immersive [data-site-header] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

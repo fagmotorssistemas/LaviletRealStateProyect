@@ -39,6 +39,7 @@ export function SiteHeader() {
 
   return (
     <header
+      data-site-header
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-colors duration-300',
         solid

@@ -265,6 +265,38 @@
   opacity: 0.35;
 }
 
+.tour-root.is-immersive {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 200 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.tour-exit-hint {
+  position: absolute;
+  left: 50%;
+  bottom: max(0.7rem, env(safe-area-inset-bottom));
+  z-index: 40;
+  transform: translateX(-50%);
+  max-width: calc(100% - 1.5rem);
+  padding: 0.4rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(16, 13, 11, 0.55);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-align: center;
+  text-transform: uppercase;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
 .psv-container {
   background: #111 !important;
 }

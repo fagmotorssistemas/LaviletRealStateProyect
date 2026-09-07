@@ -173,34 +173,55 @@ function sleep(ms: number) {
 }
 
 function isPhoneDevice() {
-  return window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
+  if (typeof window === 'undefined') return false
+  const short = Math.min(window.innerWidth, window.innerHeight)
+  const long = Math.max(window.innerWidth, window.innerHeight)
+  if (short <= 520 && long <= 1100) return true
+  const coarse =
+    window.matchMedia('(pointer: coarse)').matches ||
+    window.matchMedia('(hover: none)').matches ||
+    'ontouchstart' in window
+  return coarse && short <= 540 && long <= 1100
 }
 
 function isOsLandscape() {
-  return window.matchMedia('(orientation: landscape)').matches || window.innerWidth > window.innerHeight
+  const type = window.screen?.orientation?.type
+  if (typeof type === 'string') {
+    if (type.startsWith('landscape')) return true
+    if (type.startsWith('portrait')) return false
+  }
+  if (window.matchMedia('(orientation: landscape)').matches) return true
+  return window.innerWidth > window.innerHeight
 }
 
 function useShowroomImmersive(enabled: boolean) {
-  const [osLandscape, setOsLandscape] = useState(false)
+  const [want, setWant] = useState(false)
 
   useEffect(() => {
     if (!enabled) {
-      setOsLandscape(false)
+      setWant(false)
       return
     }
-    const syncOs = () => {
-      setOsLandscape(isPhoneDevice() && isOsLandscape() && window.innerHeight <= 620)
+    const sync = () => {
+      setWant(isPhoneDevice() && isOsLandscape())
     }
-    syncOs()
-    window.addEventListener('resize', syncOs)
-    window.addEventListener('orientationchange', syncOs)
+    sync()
+    const landscapeMq = window.matchMedia('(orientation: landscape)')
+    landscapeMq.addEventListener('change', sync)
+    window.addEventListener('resize', sync)
+    window.addEventListener('orientationchange', sync)
+    window.visualViewport?.addEventListener('resize', sync)
+    window.screen?.orientation?.addEventListener('change', sync)
     return () => {
-      window.removeEventListener('resize', syncOs)
-      window.removeEventListener('orientationchange', syncOs)
+      landscapeMq.removeEventListener('change', sync)
+      window.removeEventListener('resize', sync)
+      window.removeEventListener('orientationchange', sync)
+      window.visualViewport?.removeEventListener('resize', sync)
+      window.screen?.orientation?.removeEventListener('change', sync)
     }
   }, [enabled])
 
-  return { want: enabled && osLandscape }
+  return { want }
 }
 
 async function requestTourFullscreen(el: HTMLElement) {
@@ -320,8 +341,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
-  const [inShowroom, setInShowroom] = useState(true)
-  const hold = useShowroomImmersive(inShowroom || !embedded)
+  const hold = useShowroomImmersive(true)
   const immersive = hold.want
   const tourRef = useRef<VirtualTourPlugin | null>(null)
   const targetWidthRef = useRef<TourWidth>(2048)
@@ -871,23 +891,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   }, [booting, isPanoRoom, viewMode])
 
   useEffect(() => {
-    if (!embedded) {
-      setInShowroom(true)
-      return
-    }
-    const slot = slotRef.current
-    if (!slot) return
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        setInShowroom(entry.isIntersecting && entry.intersectionRatio >= 0.2)
-      },
-      { threshold: [0, 0.2, 0.4, 0.7] },
-    )
-    io.observe(slot)
-    return () => io.disconnect()
-  }, [embedded])
-
-  useEffect(() => {
     const viewer = viewerRef.current
     const root = rootRef.current
     if (!viewer || !root || booting) return
@@ -919,19 +922,51 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       window.setTimeout(() => viewer?.autoSize(), 360)
     }
 
+    const fitViewport = () => {
+      if (!immersive) {
+        root.style.top = ''
+        root.style.left = ''
+        root.style.width = ''
+        root.style.height = ''
+        return
+      }
+      const vv = window.visualViewport
+      if (vv) {
+        root.style.top = `${vv.offsetTop}px`
+        root.style.left = `${vv.offsetLeft}px`
+        root.style.width = `${vv.width}px`
+        root.style.height = `${vv.height}px`
+      }
+      resize()
+    }
+
     if (immersive) {
+      document.documentElement.classList.add('tour-is-immersive')
       document.documentElement.style.overflow = 'hidden'
       document.body.style.overflow = 'hidden'
-      void requestTourFullscreen(root).finally(resize)
+      fitViewport()
+      void requestTourFullscreen(root).finally(fitViewport)
     } else {
+      document.documentElement.classList.remove('tour-is-immersive')
       void leaveTourFullscreen().finally(resize)
       if (embedded) {
         document.documentElement.style.overflow = ''
         document.body.style.overflow = ''
       }
+      fitViewport()
     }
 
+    window.visualViewport?.addEventListener('resize', fitViewport)
+    window.visualViewport?.addEventListener('scroll', fitViewport)
+
     return () => {
+      window.visualViewport?.removeEventListener('resize', fitViewport)
+      window.visualViewport?.removeEventListener('scroll', fitViewport)
+      root.style.top = ''
+      root.style.left = ''
+      root.style.width = ''
+      root.style.height = ''
+      document.documentElement.classList.remove('tour-is-immersive')
       if (embedded) {
         document.documentElement.style.overflow = ''
         document.body.style.overflow = ''
@@ -1108,7 +1143,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         'tour-root overflow-hidden bg-black overscroll-none',
         immersive && 'is-immersive',
         immersive || !embedded
-          ? 'fixed inset-0 z-[80] h-[100dvh] w-full'
+          ? 'fixed inset-0 z-[200] h-[100dvh] w-full'
           : 'relative h-full w-full',
       )}
     >
@@ -1173,6 +1208,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           <p className="mt-2 text-[13px] tracking-[0.16em] text-white/55 uppercase">Cargando…</p>
         </div>
       )}
+
+      {immersive ? (
+        <p className="tour-exit-hint" role="status">
+          Poné el celular en vertical para salir
+        </p>
+      ) : null}
 
       <div
         className={cn(
