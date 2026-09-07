@@ -297,6 +297,11 @@
   backdrop-filter: blur(10px);
 }
 
+.tour-exit-hint-top {
+  top: max(0.7rem, env(safe-area-inset-top));
+  bottom: auto;
+}
+
 .psv-container {
   background: #111 !important;
 }

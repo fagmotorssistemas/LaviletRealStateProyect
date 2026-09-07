@@ -21,7 +21,7 @@ import {
   tourRoomLabel,
 } from '@/lib/tour/tourRooms'
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
-import { stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
+import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
 import { pickRoomScene, pickSceneUrl } from '@/lib/tour/roomScene'
 import {
   getTourUnitTypeSlug,
@@ -365,6 +365,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
+  const [gyroHint, setGyroHint] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'tour' | 'vistas'>('tour')
   const [vistaIndex, setVistaIndex] = useState(0)
   const [panoGhost, setPanoGhost] = useState<string | null>(null)
@@ -904,13 +905,30 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       return
     }
 
+    let busy = false
     const start = () => {
-      if (gyro.isEnabled()) return
-      void gyro.start('smooth').catch(() => undefined)
+      if (gyro.isEnabled() || busy) return
+      busy = true
+      const permission = requestGyroPermission()
+      void permission
+        .then((granted) => {
+          if (!granted) {
+            setGyroHint('Tocá Permitir en el aviso de movimiento, o abrí el tour en Safari')
+            busy = false
+            return
+          }
+          return gyro.start('smooth').then(() => setGyroHint(null))
+        })
+        .catch(() => {
+          setGyroHint('Abrí el tour en Safari y permití el movimiento del celular')
+          busy = false
+        })
     }
-    root.addEventListener('pointerdown', start, { passive: true })
+    root.addEventListener('click', start)
+    root.addEventListener('touchend', start, { passive: true })
     return () => {
-      root.removeEventListener('pointerdown', start)
+      root.removeEventListener('click', start)
+      root.removeEventListener('touchend', start)
     }
   }, [booting, viewMode, isPanoRoom])
 
@@ -1214,6 +1232,18 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       {immersive ? (
         <p className="tour-exit-hint" role="status">
           Poné el celular en vertical para salir
+        </p>
+      ) : null}
+
+      {gyroHint && !immersive ? (
+        <p className="tour-exit-hint" role="status">
+          {gyroHint}
+        </p>
+      ) : null}
+
+      {gyroHint && immersive ? (
+        <p className="tour-exit-hint tour-exit-hint-top" role="status">
+          {gyroHint}
         </p>
       ) : null}
 

@@ -1,5 +1,18 @@
 import type { GyroscopePlugin } from '@photo-sphere-viewer/gyroscope-plugin'
 
+/** Hay que llamarlo en el mismo toque del usuario. En iOS `pointerdown` no vale. */
+export function requestGyroPermission() {
+  const DOE = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+    requestPermission?: () => Promise<string>
+  }
+  if (typeof DOE.requestPermission !== 'function') return Promise.resolve(true)
+  try {
+    return DOE.requestPermission().then((result) => result === 'granted')
+  } catch {
+    return Promise.resolve(false)
+  }
+}
+
 type Position = { yaw: number; pitch: number }
 
 const DEADZONE = 0.006
