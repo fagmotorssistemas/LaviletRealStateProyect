@@ -11,6 +11,7 @@ import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourAr
 import { TourPicker } from '@/components/tour/TourPicker'
 import {
   buildTourRooms,
+  roomsShareSlot,
   roomSlugFromNode,
   TOUR_HOME_SLUG,
   tourHomeSlug,
@@ -160,6 +161,12 @@ function StillFrame({
   )
 }
 
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
 function capturePanoFrame(viewer: Viewer): string | null {
   const canvas = viewer.container.querySelector('canvas')
   if (!(canvas instanceof HTMLCanvasElement) || canvas.width < 2) return null
@@ -242,7 +249,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [panoGhost, setPanoGhost] = useState<string | null>(null)
   const [panoGhostKey, setPanoGhostKey] = useState(0)
   const [panoEntering, setPanoEntering] = useState(false)
+  const [panoLeaving, setPanoLeaving] = useState(false)
   const lastStillRef = useRef<string | null>(null)
+  const walkToRef = useRef<Position | null>(null)
+  const walkingRef = useRef(false)
+  const lookPromiseRef = useRef<PromiseLike<boolean> | null>(null)
 
   const preloadUrls = useCallback((viewer: Viewer, urls: string[]) => {
     void Promise.all(
@@ -326,9 +337,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
 
     let cancelled = false
-    const bootWidth = pickTourWidth({ cap: 4096 })
+    const bootWidth = pickTourWidth()
     targetWidthRef.current = bootWidth
-    catalogWidthRef.current = pickTourWidth()
+    catalogWidthRef.current = bootWidth
 
     const boot = async () => {
       const unitTypeSlug = getTourUnitTypeSlug()
@@ -571,12 +582,23 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const photoBySlug = useMemo(() => {
     const map: Record<string, string | null> = {}
     for (const item of tourRooms) {
-      const roomItem = currentTypology?.rooms.find((entry) => entry.slug === item.slug)
+      const roomItem =
+        currentTypology?.rooms.find((entry) => entry.slug === item.slug) ??
+        currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, item.slug))
       const scene = pickRoomScene(roomItem?.scenes, finish || null, light)
-      map[item.slug] = pickSceneUrl(scene) ?? roomItem?.url ?? null
+      map[item.slug] = pickSceneUrl(scene, catalogWidthRef.current) ?? roomItem?.url ?? null
     }
     return map
   }, [tourRooms, currentTypology, finish, light])
+
+  const urlForRoom = useCallback(
+    (slug: string) => {
+      if (photoBySlug[slug]) return photoBySlug[slug]
+      const alias = Object.keys(photoBySlug).find((key) => roomsShareSlot(key, slug) && photoBySlug[key])
+      return alias ? photoBySlug[alias] : null
+    },
+    [photoBySlug],
+  )
 
   const typologyPanoUrl = pickCatalogPanoUrl(
     currentTypology?.panorama,
@@ -584,7 +606,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     finish || null,
     light,
   )
-  const activePanoUrl = photoBySlug[room] ?? (room === homeSlug ? typologyPanoUrl : null)
+  const activePanoUrl = urlForRoom(room) ?? (room === homeSlug ? typologyPanoUrl : null)
   const isPanoRoom = viewMode === 'tour'
   const vistaImages = useMemo(() => {
     const items: { id: string; label: string; url: string }[] = []
@@ -608,6 +630,30 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     (roomId: string) => {
       const slug = roomSlugFromNode(nodes.find((node) => node.id === roomId) ?? { id: roomId })
       if (slug === room) return
+      const pin = (currentTypology?.hotspots ?? []).find((item) => item.from === room && item.slug === slug)
+      const viewer = viewerRef.current
+      walkingRef.current = true
+      if (pin) {
+        walkToRef.current = { yaw: pin.yaw, pitch: pin.pitch }
+        if (viewer) {
+          lookPromiseRef.current = viewer.animate({
+            yaw: pin.yaw,
+            pitch: pin.pitch,
+            zoom: 48,
+            speed: 820,
+            easing: 'inOutSine',
+          })
+        }
+      }
+      const destUrl = urlForRoom(slug)
+      if (viewer && destUrl && !preloadedRef.current.has(destUrl)) {
+        void viewer.textureLoader
+          .preloadPanorama(destUrl)
+          .then(() => {
+            preloadedRef.current.add(destUrl)
+          })
+          .catch(() => undefined)
+      }
       logTourEvent({
         event_type: 'hotspot',
         room: slug,
@@ -617,7 +663,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       setViewMode('tour')
       setRoom(slug)
     },
-    [nodes, room, selectedTypology, currentTypology?.id],
+    [nodes, room, selectedTypology, currentTypology?.id, currentTypology?.hotspots, urlForRoom],
   )
 
   const stepVista = useCallback(
@@ -655,8 +701,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
     if (!markers) return
 
-    const pins = buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug)
-    markers.setMarkers(pins)
+    if (!walkingRef.current) {
+      markers.setMarkers(buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug))
+    }
 
     const onMarker = (event: markerEvents.SelectMarkerEvent) => {
       const slug = event.marker.data?.room
@@ -671,38 +718,109 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || booting || !isPanoRoom || !activePanoUrl) {
+      walkingRef.current = false
       setPanoEntering(false)
+      setPanoLeaving(false)
       return
     }
     const url = activePanoUrl
-    const token = ++switchTokenRef.current
-    if (currentUrlRef.current && currentUrlRef.current !== url) {
-      const ghost = capturePanoFrame(viewer)
-      if (ghost) {
-        setPanoGhost(ghost)
-        setPanoGhostKey((key) => key + 1)
-      }
-      setPanoEntering(false)
+    if (currentUrlRef.current === url) {
+      walkingRef.current = false
+      setPanoLeaving(false)
+      return
     }
-    void viewer
-      .setPanorama(url, { showLoader: false, transition: false })
-      .catch(() => undefined)
-      .finally(() => {
+    const token = ++switchTokenRef.current
+    const look = walkToRef.current
+    walkToRef.current = null
+    const lookPromise = lookPromiseRef.current
+    lookPromiseRef.current = null
+    const changing = Boolean(currentUrlRef.current)
+
+    const run = async () => {
+      const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
+      setPanoEntering(false)
+      setPanoGhost(null)
+      let ghost: string | null = null
+
+      if (changing) {
+        if (lookPromise) {
+          await Promise.race([Promise.resolve(lookPromise), sleep(950)]).catch(() => undefined)
+        } else if (look) {
+          await Promise.race([
+            viewer.animate({
+              yaw: look.yaw,
+              pitch: look.pitch,
+              zoom: 48,
+              speed: 820,
+              easing: 'inOutSine',
+            }),
+            sleep(950),
+          ]).catch(() => undefined)
+        }
         if (token !== switchTokenRef.current) return
-        currentUrlRef.current = url
-        appliedPanoKeyRef.current = `${selectedTypology}:${url}`
-        viewer.needsUpdate()
-        viewer.getPlugin<MarkersPlugin>(MarkersPlugin)?.setMarkers(
-          buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug),
-        )
-        requestAnimationFrame(() => setPanoEntering(true))
-        window.setTimeout(() => {
-          if (token !== switchTokenRef.current) return
-          setPanoGhost(null)
-          setPanoEntering(false)
-        }, 1100)
-      })
+        markers?.setMarkers([])
+        ghost = capturePanoFrame(viewer)
+        if (ghost) {
+          setPanoGhost(ghost)
+          setPanoGhostKey((key) => key + 1)
+          await sleep(40)
+        } else {
+          setPanoLeaving(true)
+          await sleep(500)
+        }
+      }
+
+      if (changing && ghost) setPanoEntering(true)
+
+      try {
+        await Promise.race([
+          viewer.setPanorama(url, {
+            showLoader: false,
+            transition: ghost
+              ? { speed: 900, rotation: false, effect: 'fade' }
+              : false,
+            zoom: 0,
+          }),
+          sleep(1800),
+        ])
+      } catch {
+        /* still land so the walk never freezes */
+      }
+
+      if (token !== switchTokenRef.current) {
+        walkingRef.current = false
+        setPanoLeaving(false)
+        setPanoGhost(null)
+        return
+      }
+      currentUrlRef.current = url
+      appliedPanoKeyRef.current = `${selectedTypology}:${url}`
+      preloadedRef.current.add(url)
+      viewer.needsUpdate()
+      walkingRef.current = false
+      markers?.setMarkers(buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug))
+      setPanoLeaving(false)
+      if (changing) {
+        if (!ghost) setPanoEntering(true)
+        await sleep(ghost ? 240 : 720)
+        if (token !== switchTokenRef.current) return
+        setPanoEntering(false)
+        setPanoGhost(null)
+      }
+    }
+
+    void run()
   }, [booting, isPanoRoom, activePanoUrl, selectedTypology, viewMode, room, tourRooms, currentTypology?.hotspots, homeSlug])
+
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || booting || !isPanoRoom) return
+    const urls = (currentTypology?.hotspots ?? [])
+      .filter((item) => item.from === room)
+      .map((item) => urlForRoom(item.slug))
+      .filter((item): item is string => Boolean(item))
+    preloadUrls(viewer, urls)
+  }, [booting, isPanoRoom, room, urlForRoom, currentTypology?.hotspots, preloadUrls])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -717,6 +835,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   }, [booting, finish, light, applyCombo, activePanoUrl, publicCatalog])
 
   const onTypologyChange = (code: string) => {
+    walkingRef.current = false
+    walkToRef.current = null
+    lookPromiseRef.current = null
     setSelectedTypology(code)
     setRoom(homeSlug)
     setVistaIndex(0)
@@ -763,23 +884,28 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       )}
     >
       <div className="absolute inset-0 overflow-hidden">
-        <div className={cn('h-full w-full', panoEntering && !showStill && 'tour-walk-in')}>
+        <div
+          className={cn(
+            'tour-pano-stage h-full w-full',
+            panoLeaving && !showStill && !panoGhost && 'is-leaving',
+            panoEntering && !showStill && 'is-entering',
+          )}
+        >
           <div
             ref={containerRef}
             className={cn('h-full w-full', showStill && 'pointer-events-none')}
           />
         </div>
+        {panoGhost && !showStill ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={panoGhostKey}
+            src={panoGhost}
+            alt=""
+            className="tour-walk-out pointer-events-none absolute inset-0 z-[8] h-full w-full object-cover"
+          />
+        ) : null}
       </div>
-
-      {panoGhost && !showStill ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={panoGhostKey}
-          src={panoGhost}
-          alt=""
-          className="tour-walk-out pointer-events-none absolute inset-0 z-[8] h-full w-full object-cover"
-        />
-      ) : null}
 
       <div
         className={cn(

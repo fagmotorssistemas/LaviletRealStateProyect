@@ -23,8 +23,8 @@ export function readScreenPx(): number {
 
 /**
  * Ancho de pano a servir.
- * Celular: 4096 (casi ninguna GPU móvil texturiza 8192 bien).
- * PC: 8192 si la GPU lo admite.
+ * Celular: 2048 para que el salto entre ambientes no corte.
+ * PC: 4096, o 8192 si la GPU lo admite.
  */
 export function pickTourWidth(params?: {
   maxTextureSize?: number
@@ -37,8 +37,8 @@ export function pickTourWidth(params?: {
   const cap = params?.cap ?? SAFE_MAX
 
   let width: TourWidth = 2048
-  if (maxTextureSize >= 4096) width = 4096
-  if (maxTextureSize >= 8192 && !narrow) width = 8192
+  if (!narrow && maxTextureSize >= 4096) width = 4096
+  if (!narrow && maxTextureSize >= 8192) width = 8192
 
   if (width > cap) {
     if (cap >= 8192) return 8192
@@ -74,8 +74,10 @@ export function pickCatalogPanoUrl(
     pano.scenes?.[0]
   const variants = scene?.widths ?? pano.variants ?? {}
   const fallback = scene?.url ?? pano.url
+  if (width <= 2048 && variants['2048']) return variants['2048']
   if (width >= 8192 && variants['8192']) return variants['8192']
-  if (variants['4096']) return variants['4096']
+  if (width >= 4096 && variants['4096']) return variants['4096']
   if (variants['2048']) return variants['2048']
+  if (variants['4096']) return variants['4096']
   return fallback
 }

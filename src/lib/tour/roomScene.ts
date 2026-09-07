@@ -202,8 +202,10 @@ export function pickSceneUrl(
 ): string | null {
   if (!scene) return null
   const widths = scene.widths ?? {}
+  if (width && width <= 2048 && widths['2048']) return widths['2048']
   if (width && width >= 8192 && widths['8192']) return widths['8192']
-  if (widths['4096']) return widths['4096']
+  if (width && width >= 4096 && widths['4096']) return widths['4096']
   if (widths['2048']) return widths['2048']
+  if (widths['4096']) return widths['4096']
   return scene.url
 }

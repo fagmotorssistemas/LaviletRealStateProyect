@@ -23,18 +23,30 @@
 }
 
 .tour-walk-in {
-  animation: tour-walk-in 1.05s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: tour-walk-in 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 .tour-walk-out {
-  animation: tour-walk-out 1.05s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: tour-walk-out 0.75s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.tour-pano-stage {
+  transform-origin: center 58%;
+}
+
+.tour-pano-stage.is-leaving {
+  animation: tour-dolly-out 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.tour-pano-stage.is-entering {
+  animation: tour-dolly-in 0.72s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 @keyframes tour-walk-in {
   from {
     opacity: 0;
-    transform: scale(1.12);
-    filter: blur(5px);
+    transform: scale(1.1);
+    filter: blur(4px);
   }
   to {
     opacity: 1;
@@ -46,13 +58,27 @@
 @keyframes tour-walk-out {
   from {
     opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
   }
   to {
     opacity: 0;
-    transform: scale(1.05);
-    filter: blur(3px);
+  }
+}
+
+@keyframes tour-dolly-out {
+  to {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes tour-dolly-in {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
