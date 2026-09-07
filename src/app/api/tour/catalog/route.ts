@@ -169,6 +169,9 @@ async function toCatalogTypology(
             spaces: ['Sala', 'Cocina'],
           },
         ])
+  const slots = rooms.some((room) => room.slug === 'dormitorio' || room.slug.startsWith('dormitorio-'))
+    ? rooms
+    : [...rooms, { slug: 'dormitorio', label: 'Dormitorio' }]
   const homeSlug = tourHomeSlug(rooms)
   const panoScenes = buildRoomScenes(publicAssets, homeSlug)
   const defaultFinish = finishes[0]?.slug ?? null
@@ -219,7 +222,7 @@ async function toCatalogTypology(
       )
       .map(toPublic),
     planos: list.filter((item) => item.kind === 'plano').map(toPublic),
-    vistas: rooms.map((room) => {
+    vistas: slots.map((room) => {
       const slug = vistaRoomSlug(room.slug)
       const scenes = buildRoomScenes(publicAssets, slug)
       const selected = pickRoomScene(scenes, defaultFinish, 'dia')
@@ -230,6 +233,7 @@ async function toCatalogTypology(
         scenes,
       }
     }),
+    slots: slots.map((room) => ({ slug: room.slug, label: room.label })),
     rooms: catalogRooms,
     hotspots: placed.filter((pin) => {
       if (pin.kind === 'look') return true

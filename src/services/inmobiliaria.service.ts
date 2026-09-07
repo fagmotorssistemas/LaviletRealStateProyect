@@ -9,7 +9,7 @@ import type {
   PaymentPlan, LeadFinancing, AsesoriaFinanciamiento, FinancingPartner, TeamProfile,
   UnitSalesClosing, TypologyImport, TypologyAsset, TypologyAssetKind,
 } from '@/types/inmobiliaria'
-import { UNASSIGNED_ASSIGNEE } from '@/types/inmobiliaria'
+import { unitCategoryFilterValues, UNASSIGNED_ASSIGNEE } from '@/types/inmobiliaria'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import { normalizeSource } from '@/lib/leads/sources'
 import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
@@ -208,12 +208,21 @@ function sanitizeIlikeTerm(raw: string): string {
     .slice(0, 80)
 }
 
+type UnitTypeEmbed = {
+  name?: string
+  slug?: string
+  bedrooms?: number | null
+  bathrooms?: number | null
+}
+
 function mapUnitRow(row: Unit): Unit {
   const project = unwrapEmbedded(row.project as Project | Project[] | null | undefined)
   const unitType = unwrapEmbedded(
-    (row as Unit & { unit_type?: { name?: string } | { name?: string }[] | null }).unit_type,
+    (row as Unit & { unit_type?: UnitTypeEmbed | UnitTypeEmbed[] | null }).unit_type,
   )
-  const bathroomsFull = row.bathrooms_full ?? row.bathrooms ?? null
+  const bedrooms = row.bedrooms ?? unitType?.bedrooms ?? null
+  const bathroomsFull = row.bathrooms_full ?? row.bathrooms ?? unitType?.bathrooms ?? null
+  const storedSpaces = Array.isArray(row.spaces) ? row.spaces : []
   return {
     ...row,
     project: project ?? undefined,
@@ -222,10 +231,11 @@ function mapUnitRow(row: Unit): Unit {
     plan_group: row.plan_group ?? null,
     floor_number: row.floor_number ?? null,
     area_exterior_m2: row.area_exterior_m2 ?? null,
+    bedrooms,
     bathrooms_full: bathroomsFull,
     bathrooms_half: row.bathrooms_half ?? null,
     bathrooms: bathroomsFull,
-    spaces: Array.isArray(row.spaces) ? row.spaces : [],
+    spaces: storedSpaces,
     parking_assigned: row.parking_assigned ?? 0,
   }
 }
@@ -235,7 +245,10 @@ function applyUnitsListFilters(query: any, params: ListUnitsParams, searchMode: 
   query = query.in('tenant_id', tenantIds)
   if (params.projectId) query = query.eq('project_id', params.projectId)
   if (params.status) query = query.eq('status', params.status)
-  if (params.category) query = query.eq('category', params.category)
+  if (params.category) {
+    const categories = unitCategoryFilterValues(params.category)
+    query = categories.length === 1 ? query.eq('category', categories[0]) : query.in('category', categories)
+  }
   const term = params.search ? sanitizeIlikeTerm(params.search) : ''
   if (!term) return query
   if (searchMode === 'number') {
@@ -279,7 +292,7 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
     let searchMode: UnitSearchMode = 'full'
     for (;;) {
       let q = applyUnitsListFilters(
-        supabase.from('units').select('*, project:projects(id, name), unit_type:unit_types(id, name, slug)'),
+        supabase.from('units').select('*, project:projects(id, name), unit_type:unit_types(id, name, slug, bedrooms, bathrooms)'),
         params,
         searchMode,
       )
@@ -305,7 +318,7 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
 
   const run = (searchMode: UnitSearchMode) => {
     let query = applyUnitsListFilters(
-      supabase.from('units').select('*, project:projects(id, name), unit_type:unit_types(id, name, slug)', { count: 'exact' }),
+      supabase.from('units').select('*, project:projects(id, name), unit_type:unit_types(id, name, slug, bedrooms, bathrooms)', { count: 'exact' }),
       params,
       searchMode,
     )
@@ -475,7 +488,10 @@ export async function listUnitsImport(
     .eq('tenant_id', TOUR_TENANT_ID)
     .order('unit_number', { ascending: true })
 
-  if (params.category) query = query.eq('category', params.category)
+  if (params.category) {
+    const categories = unitCategoryFilterValues(params.category)
+    query = categories.length === 1 ? query.eq('category', categories[0]) : query.in('category', categories)
+  }
   if (params.status) query = query.eq('status', params.status)
   if (params.floorNumber !== undefined && params.floorNumber !== '') {
     query = query.eq('floor_number', Number(params.floorNumber))
@@ -826,7 +842,7 @@ export async function getUnit(supabase: SupabaseClient, unitId: string) {
   const { data, error } = await supabase
     .from('units')
     .select(
-      '*, project:projects(id, name), unit_type:unit_types(id, name, slug), unit_media(id, tenant_id, unit_id, type, url, storage_path, file_name, mime_type, file_size_bytes, caption, sort_order, is_cover, created_at, updated_at)',
+      '*, project:projects(id, name), unit_type:unit_types(id, name, slug, bedrooms, bathrooms), unit_media(id, tenant_id, unit_id, type, url, storage_path, file_name, mime_type, file_size_bytes, caption, sort_order, is_cover, created_at, updated_at)',
     )
     .eq('id', unitId)
     .order('sort_order', { referencedTable: 'unit_media', ascending: true })
@@ -936,7 +952,7 @@ export async function createUnit(
   const { data, error } = await supabase
     .from('units')
     .insert(unitWriteRow(payload))
-    .select('*, project:projects(id, name), unit_type:unit_types(id, name, slug)')
+    .select('*, project:projects(id, name), unit_type:unit_types(id, name, slug, bedrooms, bathrooms)')
     .single()
   if (error) throw error
   return mapUnitRow(data as Unit)
@@ -951,7 +967,7 @@ export async function updateUnit(
     .from('units')
     .update(unitWriteRow(payload))
     .eq('id', unitId)
-    .select('*, project:projects(id, name), unit_type:unit_types(id, name, slug)')
+    .select('*, project:projects(id, name), unit_type:unit_types(id, name, slug, bedrooms, bathrooms)')
     .single()
   if (error) throw error
   return mapUnitRow(data as Unit)

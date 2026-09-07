@@ -204,8 +204,28 @@ export interface UnitImport {
 export const UNIT_IMPORT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: 'departamento', label: 'Departamento' },
   { value: 'suite', label: 'Suite' },
-  { value: 'local', label: 'Local' },
+  { value: 'local', label: 'Local comercial' },
 ]
+
+export function normalizeUnitCategory(raw?: string | null): string | undefined {
+  if (!raw?.trim()) return undefined
+  const key = raw.trim().toLowerCase()
+  if (key === 'departamento' || key === 'dept' || key === 'dpto') return 'departamento'
+  if (key === 'suite') return 'suite'
+  if (key === 'local' || key === 'local comercial' || key === 'comercial') return 'local'
+  if (key === 'oficina') return 'oficina'
+  if (key === 'parqueadero') return 'parqueadero'
+  return raw.trim()
+}
+
+export function unitCategoryFilterValues(raw?: string | null): string[] {
+  const canonical = normalizeUnitCategory(raw)
+  if (!canonical) return raw?.trim() ? [raw.trim()] : []
+  if (canonical === 'departamento') return ['departamento', 'Departamento']
+  if (canonical === 'local') return ['local', 'Local', 'Local Comercial']
+  if (canonical === 'suite') return ['suite', 'Suite']
+  return [canonical]
+}
 
 export function unitImportCategoryLabel(category: string): string {
   return UNIT_IMPORT_CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? category

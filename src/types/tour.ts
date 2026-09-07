@@ -177,6 +177,8 @@ export type TourTypologyOption = {
   renders: TourAssetRef[]
   planos: TourAssetRef[]
   rooms: TourRoomPhoto[]
+  /** Todos los ambientes de la tipología, con o sin 360. El CRM usa esto para subir. */
+  slots: { slug: string; label: string }[]
   vistas: TourRoomPhoto[]
   hotspots: TourPlacedHotspot[]
 }

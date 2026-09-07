@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
-import { UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
+import { normalizeUnitCategory, UNIT_IMPORT_CATEGORY_OPTIONS, UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
 import type { Project } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
 import { createUnit, uploadUnitMedia } from '@/services/inmobiliaria.service'
@@ -15,11 +15,9 @@ import { toast } from 'sonner'
 import { ImagePlus, X, BedDouble, Bath } from 'lucide-react'
 
 const categoryOptions = [
-  { value: 'Departamento', label: 'Departamento' },
-  { value: 'Local Comercial', label: 'Local Comercial' },
-  { value: 'Suite', label: 'Suite' },
-  { value: 'Oficina', label: 'Oficina' },
-  { value: 'Parqueadero', label: 'Parqueadero' },
+  ...UNIT_IMPORT_CATEGORY_OPTIONS,
+  { value: 'oficina', label: 'Oficina' },
+  { value: 'parqueadero', label: 'Parqueadero' },
 ]
 
 const subtypeOptions = [
@@ -48,7 +46,7 @@ function spacesFromInput(value: string): string[] {
 const emptyForm = {
   project_id: '',
   unit_number: '',
-  category: 'Departamento',
+  category: 'departamento',
   unit_subtype: '',
   unit_type_id: '',
   plan_group: '',
@@ -100,7 +98,7 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, unitType
         tenant_id: tenantId,
         project_id: form.project_id,
         unit_number: form.unit_number,
-        category: form.category,
+        category: normalizeUnitCategory(form.category) ?? form.category,
         unit_subtype: form.unit_subtype || null,
         unit_type_id: form.unit_type_id || null,
         plan_group: form.plan_group.trim() || null,

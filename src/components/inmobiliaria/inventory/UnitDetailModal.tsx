@@ -8,7 +8,7 @@ import { Select } from '@/components/ui/Select'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
-import { UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
+import { normalizeUnitCategory, UNIT_IMPORT_CATEGORY_OPTIONS, UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
 import type { Unit, UnitMedia, UnitStatus, Project } from '@/types/inmobiliaria'
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -47,11 +47,9 @@ import {
 type UnitDetailTab = 'ficha' | 'imagenes'
 
 const categoryOptions = [
-  { value: 'Departamento', label: 'Departamento' },
-  { value: 'Local Comercial', label: 'Local Comercial' },
-  { value: 'Suite', label: 'Suite' },
-  { value: 'Oficina', label: 'Oficina' },
-  { value: 'Parqueadero', label: 'Parqueadero' },
+  ...UNIT_IMPORT_CATEGORY_OPTIONS,
+  { value: 'oficina', label: 'Oficina' },
+  { value: 'parqueadero', label: 'Parqueadero' },
 ]
 
 const subtypeOptions = [
@@ -80,7 +78,7 @@ function spacesFromInput(value: string): string[] {
 const defaultEditForm = {
   project_id: '',
   unit_number: '',
-  category: 'Departamento',
+  category: 'departamento',
   unit_subtype: '',
   unit_type_id: '',
   plan_group: '',
@@ -106,7 +104,7 @@ function unitToFormFields(unit: Unit) {
   return {
     project_id: unit.project_id,
     unit_number: unit.unit_number,
-    category: unit.category,
+    category: normalizeUnitCategory(unit.category) ?? unit.category,
     unit_subtype: unit.unit_subtype ?? '',
     unit_type_id: unit.unit_type_id ?? '',
     plan_group: unit.plan_group ?? '',
@@ -231,7 +229,7 @@ export function UnitDetailModal({
       await updateUnit(supabase, unit.id, {
         project_id: form.project_id,
         unit_number: form.unit_number.trim(),
-        category: form.category,
+        category: normalizeUnitCategory(form.category) ?? form.category,
         unit_subtype: form.unit_subtype || null,
         unit_type_id: form.unit_type_id || null,
         plan_group: form.plan_group.trim() || null,

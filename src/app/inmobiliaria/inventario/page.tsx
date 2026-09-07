@@ -24,19 +24,13 @@ import { Pagination } from '@/components/ui/Pagination'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import type { InventorySortOption, Unit, UnitStatus } from '@/types/inmobiliaria'
-import { INVENTORY_SORT_OPTIONS, UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
+import { INVENTORY_SORT_OPTIONS, UNIT_IMPORT_CATEGORY_OPTIONS, UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
 import { toast } from 'sonner'
 
 export default function InventarioPage() {
   const { supabase } = useAuth()
   const { canWrite } = useRoleAccess()
-  const categoryOptions = [
-    { value: 'Departamento', label: 'Departamento' },
-    { value: 'Local Comercial', label: 'Local Comercial' },
-    // { value: 'Suite', label: 'Suite' },
-    // { value: 'Oficina', label: 'Oficina' },
-    // { value: 'Parqueadero', label: 'Parqueadero' },
-  ]
+  const categoryOptions = UNIT_IMPORT_CATEGORY_OPTIONS
 
   const {
     units,

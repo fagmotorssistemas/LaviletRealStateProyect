@@ -169,6 +169,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             typologies?: {
               code: string
               rooms?: TourRoomDef[]
+              slots?: TourRoomDef[]
               panorama?: { url?: string; scenes?: { url?: string }[] } | null
             }[]
           } | null,
@@ -176,7 +177,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           if (cancelled || !data) return
           setFinishes(data.finishes ?? [])
           const typology = data.typologies?.find((item) => item.code === code)
-          const rooms = typology?.rooms ?? []
+          const rooms = typology?.slots?.length ? typology.slots : typology?.rooms ?? []
           setRoomSlots(rooms.map((item) => ({ slug: item.slug, label: item.label })))
           setCatalogPanoUrl(typology?.panorama?.url || typology?.panorama?.scenes?.[0]?.url || null)
         },
