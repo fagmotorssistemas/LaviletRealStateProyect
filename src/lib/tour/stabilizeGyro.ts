@@ -1,12 +1,33 @@
 import type { GyroscopePlugin } from '@photo-sphere-viewer/gyroscope-plugin'
 
-type Dir = { x: number; y: number; z: number }
 type Position = { yaw: number; pitch: number }
 
-const direction: Dir = { x: 0, y: 0, z: 0 }
-const DEADZONE = 0.018
-const FOLLOW = 0.08
-const STEP = 1.15
+const DEADZONE = 0.006
+const FOLLOW = 0.22
+const STEP = 2.4
+
+class Dir {
+  x = 0
+  y = 0
+  z = 0
+
+  set(x: number, y: number, z: number) {
+    this.x = x
+    this.y = y
+    this.z = z
+    return this
+  }
+
+  normalize() {
+    const length = Math.hypot(this.x, this.y, this.z) || 1
+    this.x /= length
+    this.y /= length
+    this.z /= length
+    return this
+  }
+}
+
+const direction = new Dir()
 
 type GyroInternals = {
   __onBeforeRender: () => void
@@ -15,7 +36,7 @@ type GyroInternals = {
   state: { alphaOffset: number | null }
   controls?: {
     update: () => boolean
-    object: { getWorldDirection: (v: Dir) => void }
+    object: { getWorldDirection: (v: Dir) => Dir }
     alphaOffset: number
     deviceOrientation?: unknown
   }
@@ -46,7 +67,7 @@ export function stabilizeTourGyro(gyro: GyroscopePlugin) {
   let pitch = Number.NaN
 
   plugin.__onBeforeRender = () => {
-    if (!plugin.isEnabled() || !plugin.controls?.deviceOrientation) return
+    if (!plugin.isEnabled() || !plugin.controls) return
 
     const position = plugin.viewer.getPosition()
     if (plugin.state.alphaOffset === null) {
