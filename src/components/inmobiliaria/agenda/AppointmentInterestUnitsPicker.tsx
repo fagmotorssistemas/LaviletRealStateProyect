@@ -26,8 +26,8 @@ export function AppointmentInterestUnitsPicker({
   projectId,
   selectedUnits,
   onChange,
-  sectionLabel = 'Unidad(es) de interés *',
-  helperText = 'Busca por número de unidad. Selecciona al menos una para guardar la cita.',
+  sectionLabel = 'Unidad(es) de interés',
+  helperText = 'Opcional en una visita general al proyecto. Busca por número si ya hay una unidad concreta.',
   emptyProjectMessage = 'Selecciona un proyecto para buscar y añadir unidades de interés.',
 }: AppointmentInterestUnitsPickerProps) {
   const [unitSearchOpen, setUnitSearchOpen] = useState(false)

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "tour:resize": "node scripts/tour-resize.mjs"
+    "tour:resize": "node scripts/tour-resize.mjs",
+    "test:automation": "node --experimental-strip-types --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

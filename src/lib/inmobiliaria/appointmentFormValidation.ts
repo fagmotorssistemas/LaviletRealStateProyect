@@ -1,4 +1,4 @@
-/** Validación compartida: nueva cita y edición de cita (campos obligatorios + unidades). */
+/** Validación compartida: nueva cita y confirmación. Unidades opcionales. */
 
 export interface AppointmentFormValues {
   title: string
@@ -6,8 +6,11 @@ export interface AppointmentFormValues {
   project_id: string
   start_time: string
   end_time: string
-  notes: string
-  selectedUnitCount: number
+  notes?: string
+  responsible_id?: string
+  meeting_place?: string
+  requireNotes?: boolean
+  requireResponsible?: boolean
 }
 
 export function validateAppointmentForm(values: AppointmentFormValues): {
@@ -16,12 +19,13 @@ export function validateAppointmentForm(values: AppointmentFormValues): {
 } {
   const missing: string[] = []
   if (!values.title.trim()) missing.push('Título')
-  if (!values.lead_id) missing.push('Lead')
+  if (!values.lead_id) missing.push('Cliente')
   if (!values.project_id) missing.push('Proyecto')
   if (!values.start_time) missing.push('Fecha y hora de inicio')
   if (!values.end_time) missing.push('Fecha y hora de fin')
-  if (!values.notes?.trim()) missing.push('Notas')
-  if (values.selectedUnitCount < 1) missing.push('Al menos una unidad de interés')
+  if (values.requireNotes === true && !values.notes?.trim()) missing.push('Notas')
+  if (values.requireResponsible && !values.responsible_id) missing.push('Asesor responsable')
+  if (values.requireResponsible && !values.meeting_place?.trim()) missing.push('Lugar de encuentro')
 
   const endBeforeOrEqualStart = Boolean(
     values.start_time

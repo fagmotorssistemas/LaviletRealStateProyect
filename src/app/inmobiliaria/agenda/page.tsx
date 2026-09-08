@@ -1,10 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { CalendarDays, Plus } from 'lucide-react'
 import { useAgenda } from '@/hooks/inmobiliaria/useAgenda'
-import { updateAppointmentStatus } from '@/services/inmobiliaria.service'
-import { useAuth } from '@/contexts/AuthContext'
 import { AppointmentCard } from '@/components/inmobiliaria/agenda/AppointmentCard'
 import { AppointmentDetailModal } from '@/components/inmobiliaria/agenda/AppointmentDetailModal'
 import { CreateAppointmentModal } from '@/components/inmobiliaria/agenda/CreateAppointmentModal'
@@ -15,18 +14,54 @@ import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { Pagination } from '@/components/ui/Pagination'
 import { Select } from '@/components/ui/Select'
-import type { Appointment, AppointmentStatus } from '@/types/inmobiliaria'
-import { toast } from 'sonner'
+import type { AgendaCoordinationStats, AgendaTab, Appointment } from '@/types/inmobiliaria'
 import { AgendaAppointmentsTable } from '@/components/inmobiliaria/agenda/AgendaAppointmentsTable'
+import {
+  lastDaysPresetRange,
+  nextDaysPresetRange,
+  todayPresetRange,
+} from '@/lib/inmobiliaria/agendaTime'
+import { useAuth } from '@/contexts/AuthContext'
+import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
+import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
+import { countAgendaCoordinationStats } from '@/services/inmobiliaria.service'
+
+const TABS: { id: AgendaTab; label: string; short: string }[] = [
+  { id: 'solicitudes', label: 'Solicitudes', short: 'Solicitudes' },
+  { id: 'esperando', label: 'Esperando al cliente', short: 'Esperando' },
+  { id: 'proximas', label: 'Confirmadas', short: 'Confirmadas' },
+  { id: 'historial', label: 'Historial', short: 'Historial' },
+]
+
+const EMPTY: Record<AgendaTab, { title: string; description: string }> = {
+  solicitudes: {
+    title: 'Sin solicitudes pendientes',
+    description: 'Visitas nuevas y reprogramaciones que esperan revisión del asesor, incluida coordinación si no hay responsable.',
+  },
+  esperando: {
+    title: 'Nada esperando al cliente',
+    description: 'Aquí aparecen propuestas de horario enviadas al cliente que todavía no acepta.',
+  },
+  proximas: {
+    title: 'Sin citas confirmadas',
+    description: 'Las citas aceptadas o reprogramadas pendientes de atención aparecen aquí, incluidas las vencidas.',
+  },
+  historial: {
+    title: 'Sin historial',
+    description: 'Atendidas, canceladas e inasistencias registradas.',
+  },
+}
 
 export default function AgendaPage() {
-  const { supabase } = useAuth()
+  const searchParams = useSearchParams()
   const {
     appointments,
     isLoading,
     tenantId,
+    tenantIds,
     tab,
     setTab,
+    counts,
     search,
     updateSearch,
     dateFrom,
@@ -39,64 +74,86 @@ export default function AgendaPage() {
     total,
     setPage,
   } = useAgenda()
+  const { supabase, user, profile } = useAuth()
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
-  const [datePreset, setDatePreset] = useState<'all' | 'today' | '7' | '30' | 'exact' | 'custom'>('all')
+  const [startInConfirm, setStartInConfirm] = useState(false)
+  const [datePreset, setDatePreset] = useState<'all' | 'today' | '7' | 'next7' | '30' | 'exact' | 'custom'>('all')
+  const [stats, setStats] = useState<AgendaCoordinationStats | null>(null)
 
-  const toInputDate = (d: Date) => d.toISOString().slice(0, 10)
-  const shiftDays = (d: Date, deltaDays: number) => new Date(d.getTime() + deltaDays * 86400000)
+  useEffect(() => {
+    const appointmentId = searchParams.get('appointment')
+    if (!appointmentId) return
+    const match = appointments.find((row) => row.id === appointmentId)
+    setSelectedAppt(match ?? ({ id: appointmentId } as Appointment))
+    setDetailOpen(true)
+  }, [appointments, searchParams])
+
+  useEffect(() => {
+    if (!user) return
+    const scope = getDataAccessScope(user.id, profile?.role)
+    if (!scope) return
+    void getAccessibleTenantIds(supabase)
+      .then((ids) => {
+        if (!ids.length) return
+        return countAgendaCoordinationStats(supabase, {
+          tenantIds: ids,
+          userId: scope.userId,
+          isAdmin: scope.isAdmin,
+        }).then(setStats)
+      })
+      .catch(console.error)
+  }, [profile?.role, supabase, user])
+
+  const dateFilterLabel =
+    tab === 'solicitudes'
+      ? 'Fecha de recepción'
+      : tab === 'proximas'
+        ? 'Fecha de la visita'
+        : 'Fecha de visita o recepción'
 
   const applyDatePreset = (preset: typeof datePreset) => {
-    const now = new Date()
     if (preset === 'all') {
       updateDateFrom('')
       updateDateTo('')
       return
     }
     if (preset === 'today') {
-      const t = toInputDate(now)
-      updateDateFrom(t)
-      updateDateTo(t)
+      const range = todayPresetRange()
+      updateDateFrom(range.from)
+      updateDateTo(range.to)
       return
     }
     if (preset === '7') {
-      const to = toInputDate(now)
-      const from = toInputDate(shiftDays(now, -6))
-      updateDateFrom(from)
-      updateDateTo(to)
+      const range = lastDaysPresetRange(7)
+      updateDateFrom(range.from)
+      updateDateTo(range.to)
+      return
+    }
+    if (preset === 'next7') {
+      const range = nextDaysPresetRange(7)
+      updateDateFrom(range.from)
+      updateDateTo(range.to)
       return
     }
     if (preset === '30') {
-      const to = toInputDate(now)
-      const from = toInputDate(shiftDays(now, -29))
-      updateDateFrom(from)
-      updateDateTo(to)
+      const range = lastDaysPresetRange(30)
+      updateDateFrom(range.from)
+      updateDateTo(range.to)
       return
     }
     if (preset === 'exact') {
-      const t = dateFrom || toInputDate(now)
+      const t = dateFrom || todayPresetRange().from
       updateDateFrom(t)
       updateDateTo(t)
-      return
     }
-    // custom: no fuerza el rango, solo muestra inputs
   }
 
-  const handleSelect = (appt: Appointment) => {
+  const openDetail = (appt: Appointment, confirm = false) => {
     setSelectedAppt(appt)
+    setStartInConfirm(confirm)
     setDetailOpen(true)
-  }
-
-  const handleStatusChange = async (id: string, status: AppointmentStatus) => {
-    try {
-      await updateAppointmentStatus(supabase, id, status)
-      toast.success('Estado actualizado')
-      setDetailOpen(false)
-      reload()
-    } catch {
-      toast.error('Error al actualizar')
-    }
   }
 
   return (
@@ -106,8 +163,8 @@ export default function AgendaPage() {
         title="Agenda"
         description={
           <>
-            Agendamientos con clientes
-            {total > 0 && <span className="text-[#9a7d55]"> · {total} citas</span>}
+            Solicitudes de visita, confirmación y asistencia
+            {total > 0 && <span className="text-[#9a7d55]"> · {total} en esta vista</span>}
           </>
         }
         actions={
@@ -118,10 +175,43 @@ export default function AgendaPage() {
         }
       />
 
+      <div className="crm-tabs">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            data-active={tab === item.id}
+            onClick={() => setTab(item.id)}
+            className="crm-tab"
+          >
+            <span className="sm:hidden">{item.short}</span>
+            <span className="hidden sm:inline">{item.label}</span>
+            <span className="ml-1 text-[11px] opacity-70">({counts[item.id] ?? 0})</span>
+          </button>
+        ))}
+      </div>
+
+      {stats ? (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {[
+            { label: 'Citas recibidas del bot', value: stats.botReceived },
+            { label: 'Solicitudes pendientes', value: stats.pendingReview },
+            { label: 'Esperando al cliente', value: stats.waitingClient },
+            { label: 'Citas confirmadas', value: stats.confirmed },
+            { label: 'Citas canceladas', value: stats.cancelled },
+          ].map((item) => (
+            <div key={item.label} className="rounded-lg border border-[#e2e4dc] bg-[#f7f7f3] px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wider text-[#7a7e70]">{item.label}</p>
+              <p className="mt-1 text-lg font-semibold text-[#3a3d36]">{item.value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <InmobiliariaFiltersToolbar
         searchValue={search}
         onSearchChange={updateSearch}
-        searchPlaceholder="Buscar por título o nota..."
+        searchPlaceholder="Buscar por cliente, teléfono, título o nota..."
         resultsTotal={total}
         hasActiveFilters={Boolean(search || dateFrom || dateTo)}
         onReset={() => {
@@ -133,26 +223,27 @@ export default function AgendaPage() {
       >
         <Select
           options={[
-            { value: 'all', label: 'Fecha: Todo' },
-            { value: 'today', label: 'Fecha: Hoy' },
-            { value: '7', label: 'Fecha: Últimos 7 días' },
-            { value: '30', label: 'Fecha: Últimos 30 días' },
-            { value: 'exact', label: 'Fecha: Exacta' },
-            { value: 'custom', label: 'Fecha: Rango' },
+            { value: 'all', label: `${dateFilterLabel}: Todo` },
+            { value: 'today', label: `${dateFilterLabel}: Hoy` },
+            { value: '7', label: `${dateFilterLabel}: Últimos 7 días` },
+            { value: 'next7', label: `${dateFilterLabel}: Próximos 7 días` },
+            { value: '30', label: `${dateFilterLabel}: Últimos 30 días` },
+            { value: 'exact', label: `${dateFilterLabel}: Exacta` },
+            { value: 'custom', label: `${dateFilterLabel}: Rango` },
           ]}
           placeholder="Fecha"
           value={datePreset}
           onChange={(e) => {
-            const v = e.target.value as typeof datePreset
-            setDatePreset(v)
-            applyDatePreset(v)
+            const value = e.target.value as typeof datePreset
+            setDatePreset(value)
+            applyDatePreset(value)
           }}
           className="w-full"
         />
 
         {(datePreset === 'exact' || datePreset === 'custom') && (
           <>
-            <div className="flex min-w-0 w-full flex-col gap-1.5">
+            <div className="flex w-full min-w-0 flex-col gap-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">
                 {datePreset === 'exact' ? 'Fecha exacta' : 'Desde'}
               </label>
@@ -167,7 +258,7 @@ export default function AgendaPage() {
               />
             </div>
             {datePreset === 'custom' && (
-              <div className="flex min-w-0 w-full flex-col gap-1.5">
+              <div className="flex w-full min-w-0 flex-col gap-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">Hasta</label>
                 <input
                   type="date"
@@ -185,48 +276,35 @@ export default function AgendaPage() {
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : (
         <>
-          <div className="grid w-full grid-cols-2 gap-1">
-              <Button
-                variant={tab === 'pending' ? 'secondary' : 'outline'}
-                size="sm"
-                className="w-full px-2 text-xs sm:text-sm"
-                onClick={() => setTab('pending')}
-              >
-                <span className="sm:hidden">Pendientes{tab === 'pending' ? ` (${total})` : ''}</span>
-                <span className="hidden sm:inline">Por atender{tab === 'pending' ? ` (${total})` : ''}</span>
-              </Button>
-              <Button
-                variant={tab === 'history' ? 'secondary' : 'outline'}
-                size="sm"
-                className="w-full px-2 text-xs sm:text-sm"
-                onClick={() => setTab('history')}
-              >
-                <span className="sm:hidden">Historial{tab === 'history' ? ` (${total})` : ''}</span>
-                <span className="hidden sm:inline">Atendidas / Canceladas{tab === 'history' ? ` (${total})` : ''}</span>
-              </Button>
-            </div>
-
           {appointments.length === 0 ? (
             <EmptyState
               icon={CalendarDays}
-              title={tab === 'pending' ? 'Sin citas por atender' : 'Sin citas atendidas/canceladas'}
-              description="Aún no hay registros para esta vista. Ajusta filtros o crea una nueva cita."
+              title={EMPTY[tab].title}
+              description={EMPTY[tab].description}
             />
-          ) : tab === 'history' ? (
+          ) : tab === 'historial' ? (
             <>
               <div className="hidden min-w-0 md:block">
-                <AgendaAppointmentsTable appointments={appointments} onSelect={handleSelect} />
+                <AgendaAppointmentsTable
+                  appointments={appointments}
+                  onSelect={(appt) => openDetail(appt)}
+                />
               </div>
               <div className="grid grid-cols-1 gap-3 md:hidden">
                 {appointments.map((appt) => (
-                  <AppointmentCard key={appt.id} appointment={appt} onSelect={handleSelect} />
+                  <AppointmentCard key={appt.id} appointment={appt} onSelect={(item) => openDetail(item)} />
                 ))}
               </div>
             </>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {appointments.map((appt) => (
-                <AppointmentCard key={appt.id} appointment={appt} onSelect={handleSelect} />
+                <AppointmentCard
+                  key={appt.id}
+                  appointment={appt}
+                  onSelect={(item) => openDetail(item)}
+                  onConfirm={(item) => openDetail(item, true)}
+                />
               ))}
             </div>
           )}
@@ -242,11 +320,12 @@ export default function AgendaPage() {
       <AppointmentDetailModal
         appointment={selectedAppt}
         isOpen={detailOpen}
+        startInConfirm={startInConfirm}
         onClose={() => {
           setDetailOpen(false)
           setSelectedAppt(null)
+          setStartInConfirm(false)
         }}
-        onStatusChange={handleStatusChange}
         tenantId={tenantId}
         onAppointmentUpdated={reload}
       />
@@ -256,6 +335,7 @@ export default function AgendaPage() {
         onClose={() => setCreateOpen(false)}
         onCreated={reload}
         tenantId={tenantId}
+        tenantIds={tenantIds}
       />
     </div>
   )

@@ -26,6 +26,7 @@ const leadStatusColors: Record<string, string> = {
 
 const appointmentStatusColors: Record<string, string> = {
   pendiente: 'border-[#8b917c] bg-[#e2e4dc] text-[#5c6156]',
+  solicitada: 'border-[#8b917c] bg-[#e8e9e3] text-[#3a3d36]',
   aceptado: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
   reprogramado: 'border-[#8b917c] bg-[#e8e9e3] text-[#3a3d36]',
   atendido: 'border-[#c5c8bc] bg-[#f4f4ef] text-[#3a3d36]',
@@ -58,7 +59,17 @@ const leadTemperatureLabels: Record<string, string> = {
   caliente: 'Caliente',
 }
 
-type BadgeType = 'unit' | 'lead' | 'appointment' | 'contract' | 'financing' | 'temperature'
+type BadgeType =
+  | 'unit'
+  | 'lead'
+  | 'appointment'
+  | 'contract'
+  | 'financing'
+  | 'temperature'
+  | 'stage'
+  | 'handoff'
+  | 'bot'
+  | 'sla'
 
 const colorMaps: Record<BadgeType, Record<string, string>> = {
   unit: unitStatusColors,
@@ -67,6 +78,14 @@ const colorMaps: Record<BadgeType, Record<string, string>> = {
   contract: contractStatusColors,
   financing: financingStatusColors,
   temperature: leadTemperatureColors,
+
+  stage: {},
+  handoff: {},
+  bot: {
+    activo: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
+    desactivado: 'border-[#c5c8bc] bg-[#e8e9e3] text-[#7a7e70]',
+  },
+  sla: {},
 }
 
 interface StatusBadgeProps {

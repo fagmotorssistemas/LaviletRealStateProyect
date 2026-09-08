@@ -5,15 +5,18 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
-import type { Lead, Project, Unit } from '@/types/inmobiliaria'
+import type { AppointmentLocationType, Lead, Project, TeamProfile, Unit } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
-import { createAppointment } from '@/services/inmobiliaria.service'
+import { listProjectAdvisors } from '@/services/inmobiliaria.service'
 import { toast } from 'sonner'
 import {
   validateAppointmentForm,
   toastAppointmentValidationError,
 } from '@/lib/inmobiliaria/appointmentFormValidation'
 import { AppointmentInterestUnitsPicker } from '@/components/inmobiliaria/agenda/AppointmentInterestUnitsPicker'
+import { AgendaVisitFields, addOneHour, type AgendaVisitFieldValues } from '@/components/inmobiliaria/agenda/AgendaVisitFields'
+import { ecuadorLocalToIso } from '@/lib/inmobiliaria/agendaTime'
+import { createConfirmedAppointmentAction } from '@/app/inmobiliaria/agenda/actions'
 
 interface LeadDetailAgendaTabProps {
   lead: Lead
@@ -21,41 +24,66 @@ interface LeadDetailAgendaTabProps {
   projects: Project[]
 }
 
+const emptyVisit = (): AgendaVisitFieldValues => ({
+  visitDate: '',
+  startHm: '',
+  endHm: '',
+  responsibleId: '',
+  meetingPlace: '',
+  locationType: 'proyecto',
+})
+
 export function LeadDetailAgendaTab({ lead, tenantId, projects }: LeadDetailAgendaTabProps) {
-  const { supabase, user } = useAuth()
+  const { supabase } = useAuth()
   const [loading, setLoading] = useState(false)
   const [selectedUnits, setSelectedUnits] = useState<Unit[]>([])
-  const [form, setForm] = useState({
-    title: '',
-    project_id: '',
-    start_time: '',
-    end_time: '',
-    notes: '',
-  })
-
-  const update = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
+  const [advisors, setAdvisors] = useState<TeamProfile[]>([])
+  const [title, setTitle] = useState('')
+  const [projectId, setProjectId] = useState('')
+  const [notes, setNotes] = useState('')
+  const [visit, setVisit] = useState<AgendaVisitFieldValues>(emptyVisit)
+  const selectedProject = projects.find((project) => project.id === projectId)
 
   useEffect(() => {
-    setForm({
-      title: '',
-      project_id: '',
-      start_time: '',
-      end_time: '',
-      notes: '',
-    })
+    setTitle('')
+    setProjectId('')
+    setNotes('')
+    setVisit(emptyVisit())
     setSelectedUnits([])
   }, [lead.id])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  useEffect(() => {
+    if (!projectId) {
+      setAdvisors([])
+      return
+    }
+    listProjectAdvisors(supabase, projectId)
+      .then(setAdvisors)
+      .catch(console.error)
+  }, [projectId, supabase])
+
+  const patchVisit = (patch: Partial<AgendaVisitFieldValues>) => {
+    setVisit((prev) => {
+      const next = { ...prev, ...patch }
+      if (patch.startHm && !prev.endHm) next.endHm = addOneHour(patch.startHm)
+      return next
+    })
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const startIso = ecuadorLocalToIso(visit.visitDate, visit.startHm)
+    const endIso = ecuadorLocalToIso(visit.visitDate, visit.endHm)
     const { missing, endBeforeOrEqualStart } = validateAppointmentForm({
-      title: form.title,
+      title,
       lead_id: lead.id,
-      project_id: form.project_id,
-      start_time: form.start_time,
-      end_time: form.end_time,
-      notes: form.notes,
-      selectedUnitCount: selectedUnits.length,
+      project_id: projectId,
+      start_time: startIso,
+      end_time: endIso,
+      notes,
+      responsible_id: visit.responsibleId,
+      meeting_place: visit.meetingPlace,
+      requireResponsible: true,
     })
     const errMsg = toastAppointmentValidationError(missing, endBeforeOrEqualStart)
     if (errMsg) {
@@ -65,99 +93,79 @@ export function LeadDetailAgendaTab({ lead, tenantId, projects }: LeadDetailAgen
 
     setLoading(true)
     try {
-      await createAppointment(
-        supabase,
-        {
-          tenant_id: tenantId,
-          title: form.title.trim(),
-          lead_id: lead.id,
-          project_id: form.project_id,
-          start_time: new Date(form.start_time).toISOString(),
-          end_time: new Date(form.end_time).toISOString(),
-          responsible_id: user?.id ?? null,
-          notes: form.notes.trim(),
-        },
-        selectedUnits.map((u) => u.id),
-      )
-      toast.success('Cita creada exitosamente')
-      setForm({
-        title: '',
-        project_id: '',
-        start_time: '',
-        end_time: '',
-        notes: '',
+      await createConfirmedAppointmentAction({
+        tenantId: selectedProject?.tenant_id ?? tenantId,
+        leadId: lead.id,
+        projectId,
+        title: title.trim(),
+        startTime: startIso,
+        endTime: endIso,
+        responsibleId: visit.responsibleId,
+        meetingPlace: visit.meetingPlace.trim(),
+        locationType: visit.locationType as AppointmentLocationType,
+        notes: notes.trim(),
+        unitIds: selectedUnits.map((unit) => unit.id),
       })
+      toast.success('Cita creada')
+      setTitle('')
+      setProjectId('')
+      setNotes('')
+      setVisit(emptyVisit())
       setSelectedUnits([])
-    } catch {
-      toast.error('Error al crear la cita')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Error al crear la cita')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 max-w-2xl">
+    <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
       <p className="text-xs text-slate-500">
-        Agenda una cita para <span className="font-semibold text-slate-700">{lead.name}</span>. Los datos del lead ya están vinculados.
+        Agenda una cita para <span className="font-semibold text-slate-700">{lead.name}</span>. Elige el asesor que
+        atenderá; no se asigna automáticamente a quien crea el registro.
       </p>
 
       <Input
         id="lead-agenda-title"
         label="Título *"
-        placeholder="Ej: Visita proyecto con cliente"
-        value={form.title}
+        placeholder="Ej: Visita al proyecto"
+        value={title}
         required
-        onChange={(e) => update('title', e.target.value)}
+        onChange={(e) => setTitle(e.target.value)}
       />
 
       <Select
         id="lead-agenda-project"
         label="Proyecto *"
-        options={projects.map((p) => ({ value: p.id, label: p.name }))}
+        options={projects.map((project) => ({ value: project.id, label: project.name }))}
         placeholder="Seleccionar proyecto"
-        value={form.project_id}
+        value={projectId}
         required
         onChange={(e) => {
-          update('project_id', e.target.value)
+          setProjectId(e.target.value)
           setSelectedUnits([])
+          setVisit((prev) => ({ ...prev, responsibleId: '', meetingPlace: '' }))
         }}
       />
 
+      <AgendaVisitFields values={visit} advisors={advisors} onChange={patchVisit} disabled={loading} />
+
       <div className="border border-[#2B1A18]/12 bg-[#fcfbf9] p-4">
         <AppointmentInterestUnitsPicker
-          tenantId={tenantId}
-          projectId={form.project_id}
+          tenantId={selectedProject?.tenant_id ?? tenantId}
+          projectId={projectId}
           selectedUnits={selectedUnits}
           onChange={setSelectedUnits}
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Input
-          id="lead-agenda-start"
-          label="Inicio *"
-          type="datetime-local"
-          value={form.start_time}
-          required
-          onChange={(e) => update('start_time', e.target.value)}
-        />
-        <Input
-          id="lead-agenda-end"
-          label="Fin *"
-          type="datetime-local"
-          value={form.end_time}
-          required
-          onChange={(e) => update('end_time', e.target.value)}
-        />
-      </div>
-
       <Textarea
         id="lead-agenda-notes"
-        label="Notas *"
-        placeholder="Observaciones de la cita..."
-        value={form.notes}
-        required
-        onChange={(e) => update('notes', e.target.value)}
+        label="Observaciones"
+        placeholder="Opcional"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
       />
 
       <div className="flex justify-end pt-2">

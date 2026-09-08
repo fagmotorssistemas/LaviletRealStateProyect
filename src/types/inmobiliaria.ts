@@ -24,11 +24,35 @@ export type LeadStatus =
 export type LeadTemperature = 'frio' | 'tibio' | 'caliente'
 
 export type AppointmentStatus =
+  | 'solicitada'
   | 'pendiente'
   | 'aceptado'
   | 'reprogramado'
   | 'atendido'
   | 'cancelado'
+
+export type AppointmentLocationType = 'oficina' | 'proyecto' | 'mixto'
+
+export type AgendaTab = 'solicitudes' | 'esperando' | 'proximas' | 'historial'
+
+export type AgendaCoordinationStats = {
+  botReceived: number
+  pendingReview: number
+  waitingClient: number
+  confirmed: number
+  cancelled: number
+}
+
+export type AppointmentRequestStatus =
+  | 'awaiting_advisor'
+  | 'awaiting_client'
+  | 'confirmed'
+  | 'rejected'
+  | 'superseded'
+  | 'cancelled'
+  | 'expired'
+
+export type AppointmentRequestType = 'new_appointment' | 'reschedule'
 
 export type InteractionType =
   | 'llamada'
@@ -308,28 +332,82 @@ export interface LeadInteraction {
   responsible?: { full_name: string | null }
 }
 
+export interface AppointmentRescheduleRequest {
+  id: string
+  tenant_id: string
+  project_id: string
+  appointment_id: string
+  lead_id: string
+  request_type: AppointmentRequestType
+  proposed_by: 'client' | 'advisor'
+  previous_request_id: string | null
+  status: AppointmentRequestStatus
+  previous_start_time: string | null
+  previous_end_time: string | null
+  proposed_start_time: string | null
+  proposed_end_time: string | null
+  preferred_time_text: string | null
+  source_message_text: string | null
+  source_channel: string | null
+  source_message_id: string | null
+  assigned_advisor_id: string | null
+  assigned_at: string | null
+  reviewed_at: string | null
+  client_accepted_at: string | null
+  advisor_accepted_at: string | null
+  client_acceptance_message_id: string | null
+  expires_at: string | null
+  escalation_due_at: string | null
+  escalated_at: string | null
+  resolution_notes: string | null
+  created_at: string
+  resolved_at: string | null
+  resolved_by: string | null
+  assigned_advisor?: { full_name: string | null }
+  lead?: { id: string; name: string | null; phone: string | null } | null
+  project?: { id: string; name: string } | null
+  appointment?: { id: string; status: AppointmentStatus; meeting_place: string | null } | null
+}
+
+export type VisitInboxItem = AppointmentRescheduleRequest
+
 export interface Appointment {
   id: string
   tenant_id: string
   lead_id: string | null
   responsible_id: string | null
   title: string | null
-  start_time: string
+  start_time: string | null
   end_time: string | null
   status: AppointmentStatus
+  location_type: AppointmentLocationType | null
+  meeting_place: string | null
   office_id: string | null
   project_id: string | null
   notes: string | null
+  preferred_time_text: string | null
+  requested_at: string | null
+  confirmed_by_client: boolean
+  confirmed_by: string | null
+  confirmed_at: string | null
+  no_show: boolean
+  result_notes: string | null
   created_at: string
   updated_at: string
   lead?: Lead
   responsible?: { full_name: string | null }
   project?: Project
+  openReschedule?: AppointmentRescheduleRequest | null
+  remindersPaused?: boolean
+  botReceivedCount?: number
 }
 
 /** Cita con unidades vinculadas (`appointment_units`). */
 export interface AppointmentWithUnits extends Appointment {
   units: Unit[]
+  visitedUnitIds?: string[]
+  changeLog?: { id: string; action: string; created_at: string; detail: Record<string, unknown> }[]
+  rescheduleHistory?: AppointmentRescheduleRequest[]
 }
 
 export interface ShowroomVisit {
@@ -441,11 +519,18 @@ export const LEAD_TEMPERATURE_OPTIONS: { value: LeadTemperature; label: string }
 ]
 
 export const APPOINTMENT_STATUS_OPTIONS: { value: AppointmentStatus; label: string }[] = [
+  { value: 'solicitada', label: 'Solicitada' },
   { value: 'pendiente', label: 'Pendiente' },
   { value: 'aceptado', label: 'Aceptado' },
   { value: 'reprogramado', label: 'Reprogramado' },
   { value: 'atendido', label: 'Atendido' },
   { value: 'cancelado', label: 'Cancelado' },
+]
+
+export const APPOINTMENT_LOCATION_OPTIONS: { value: AppointmentLocationType; label: string }[] = [
+  { value: 'proyecto', label: 'Proyecto' },
+  { value: 'oficina', label: 'Oficina / sala de ventas' },
+  { value: 'mixto', label: 'Otro punto de encuentro' },
 ]
 
 export const INTERACTION_TYPE_OPTIONS: { value: InteractionType; label: string }[] = [

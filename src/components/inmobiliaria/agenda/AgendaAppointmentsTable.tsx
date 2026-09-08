@@ -2,7 +2,7 @@
 
 import type { Appointment } from '@/types/inmobiliaria'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
-import { formatDateTime } from '@/lib/utils'
+import { appointmentIsOverdue, formatAgendaDateTime } from '@/lib/inmobiliaria/agendaTime'
 import { MapPin, User } from 'lucide-react'
 
 interface AgendaAppointmentsTableProps {
@@ -33,7 +33,12 @@ export function AgendaAppointmentsTable({ appointments, onSelect }: AgendaAppoin
             >
               <td className="px-4 py-3 font-medium text-gray-900">{a.title ?? '—'}</td>
               <td className="px-4 py-3">
-                <StatusBadge status={a.status} type="appointment" />
+                <div className="flex flex-col items-start gap-1">
+                  <StatusBadge status={a.status} type="appointment" />
+                  {a.openReschedule ? (
+                    <span className="text-[10px] uppercase text-[#5c6156]">Cambio pendiente</span>
+                  ) : null}
+                </div>
               </td>
               <td className="px-4 py-3 text-gray-600">{a.lead?.name ?? '—'}</td>
               <td className="px-4 py-3 text-gray-600">
@@ -52,7 +57,13 @@ export function AgendaAppointmentsTable({ appointments, onSelect }: AgendaAppoin
                   </span>
                 )}
               </td>
-              <td className="px-4 py-3 text-gray-600">{formatDateTime(a.start_time)}</td>
+              <td className="px-4 py-3 text-gray-600">
+                {formatAgendaDateTime(a.start_time)}
+                {a.no_show ? <span className="ml-2 text-[10px] uppercase text-[#8a5c58]">No asistió</span> : null}
+                {appointmentIsOverdue(a.start_time) && (a.status === 'aceptado' || a.status === 'reprogramado') ? (
+                  <span className="ml-2 text-[10px] uppercase text-[#8a5c58]">Vencida</span>
+                ) : null}
+              </td>
             </tr>
           ))}
         </tbody>
