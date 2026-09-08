@@ -1,9 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { compareUnitsByUnitNumber } from '@/lib/inmobiliaria/sortUnits'
 import { type DataAccessScope } from '@/lib/inmobiliaria/dataScope'
+import { ecuadorInclusiveRange } from '@/lib/inmobiliaria/agendaTime'
+import { sanitizeSearch } from '@/lib/inmobiliaria/slaStatus'
 import type {
-  Unit, UnitImport, UnitMedia, Lead, Appointment, AppointmentWithUnits, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
-  UnitStatus, LeadStatus, LeadTemperature, AppointmentStatus, InteractionType,
+  Unit, UnitImport, UnitMedia, Lead, Appointment, AppointmentWithUnits, AppointmentStatus, AppointmentRescheduleRequest, AgendaTab, AgendaCoordinationStats, VisitInboxItem, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
+  UnitStatus, LeadStatus, LeadTemperature, InteractionType,
   ShowroomVisitSource,
   Project, ProjectAsset, ProjectAssetKind, ProjectDetail, ContractStatus, InventorySortOption,
   PaymentPlan, LeadFinancing, AsesoriaFinanciamiento, FinancingPartner, TeamProfile,
@@ -1191,9 +1193,10 @@ export async function addLeadInteraction(
 }
 
 // ─── Appointments ───────────────────────────────────────────
-interface ListAppointmentsParams {
+export interface ListAppointmentsParams {
   tenantId: string
   tenantIds?: string[]
+  projectId?: string
   responsibleId?: string
   status?: AppointmentStatus
   statuses?: AppointmentStatus[]
@@ -1202,7 +1205,93 @@ interface ListAppointmentsParams {
   page?: number
   pageSize?: number
   search?: string
+  tab?: AgendaTab
   scope?: DataAccessScope | null
+}
+
+const APPOINTMENT_SELECT =
+  '*, lead:leads(id, name, phone), responsible:profiles!appointments_responsible_id_fkey(full_name), project:projects(id, name)'
+
+function openRescheduleOf(rows: AppointmentRescheduleRequest[] | AppointmentRescheduleRequest | null | undefined) {
+  const list = Array.isArray(rows) ? rows : rows ? [rows] : []
+  return list.find((row) => row.status === 'awaiting_advisor' || row.status === 'awaiting_client') ?? null
+}
+
+const OPEN_REQUEST_STATUSES = ['awaiting_advisor', 'awaiting_client'] as const
+
+function isMissingRelation(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false
+  const message = error.message ?? ''
+  return (
+    error.code === 'PGRST205'
+    || error.code === 'PGRST202'
+    || error.code === '42P01'
+    || /Could not find the (table|function)/i.test(message)
+    || /schema cache/i.test(message)
+    || /does not exist/i.test(message)
+  )
+}
+
+let rescheduleTableAvailable: boolean | null = null
+let changeLogTableAvailable: boolean | null = null
+
+async function listOpenRescheduleAppointmentIds(
+  supabase: SupabaseClient,
+  statuses: readonly string[] = OPEN_REQUEST_STATUSES,
+): Promise<string[]> {
+  if (rescheduleTableAvailable === false) return []
+  const { data, error } = await supabase
+    .from('appointment_reschedule_requests')
+    .select('appointment_id')
+    .in('status', [...statuses])
+  if (error) {
+    if (isMissingRelation(error)) {
+      rescheduleTableAvailable = false
+      return []
+    }
+    throw error
+  }
+  rescheduleTableAvailable = true
+  return (data ?? []).map((row) => row.appointment_id as string)
+}
+
+async function listOpenReschedulesForAppointments(supabase: SupabaseClient, appointmentIds: string[]) {
+  if (!appointmentIds.length || rescheduleTableAvailable === false) return [] as AppointmentRescheduleRequest[]
+  const { data, error } = await supabase
+    .from('appointment_reschedule_requests')
+    .select('*')
+    .in('appointment_id', appointmentIds)
+    .in('status', [...OPEN_REQUEST_STATUSES])
+  if (error) {
+    if (isMissingRelation(error)) {
+      rescheduleTableAvailable = false
+      return []
+    }
+    throw error
+  }
+  rescheduleTableAvailable = true
+  return (data ?? []) as AppointmentRescheduleRequest[]
+}
+
+export async function listProjectAdvisors(supabase: SupabaseClient, projectId: string): Promise<TeamProfile[]> {
+  if (!projectId) return listTeamProfiles(supabase)
+  const { data, error } = await supabase
+    .from('project_salespeople')
+    .select('salesperson_id, profiles:profiles!project_salespeople_salesperson_id_fkey(id, full_name, role, avatar_url, is_active)')
+    .eq('project_id', projectId)
+  if (error) {
+    return listTeamProfiles(supabase)
+  }
+  const mapped = (data ?? [])
+    .map((row) => {
+      const profile = unwrapEmbedded(
+        (row as { profiles?: TeamProfile | TeamProfile[] | null }).profiles,
+      )
+      return profile
+    })
+    .filter((row): row is TeamProfile => Boolean(row && row.is_active !== false))
+  if (!mapped.length) return listTeamProfiles(supabase)
+  return mapped
 }
 
 export async function listAppointments(supabase: SupabaseClient, params: ListAppointmentsParams) {
@@ -1211,67 +1300,199 @@ export async function listAppointments(supabase: SupabaseClient, params: ListApp
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
   const tenantIds = params.tenantIds?.length ? params.tenantIds : [params.tenantId]
+  const search = params.search ? sanitizeSearch(params.search) : ''
+  const range = params.dateFrom && params.dateTo
+    ? ecuadorInclusiveRange(params.dateFrom, params.dateTo)
+    : null
+
+  let leadIds: string[] = []
+  if (search) {
+    const { data: leads } = await supabase
+      .from('leads')
+      .select('id')
+      .in('tenant_id', tenantIds)
+      .or(`name.ilike.%${search}%,phone.ilike.%${search}%`)
+    leadIds = (leads ?? []).map((row) => row.id)
+  }
+
+  const awaitingAdvisorIds =
+    params.tab === 'solicitudes' || params.tab === 'proximas'
+      ? await listOpenRescheduleAppointmentIds(supabase, ['awaiting_advisor'])
+      : []
+  const awaitingClientIds =
+    params.tab === 'esperando' || params.tab === 'proximas'
+      ? await listOpenRescheduleAppointmentIds(supabase, ['awaiting_client'])
+      : []
+  const anyOpenIds =
+    params.tab === 'proximas' ? [...new Set([...awaitingAdvisorIds, ...awaitingClientIds])] : []
 
   let query = supabase
     .from('appointments')
-    .select('*, lead:leads(id, name, phone), responsible:profiles!appointments_responsible_id_fkey(full_name), project:projects(id, name)', {
-      count: 'exact',
-    })
+    .select(APPOINTMENT_SELECT, { count: 'exact' })
     .in('tenant_id', tenantIds)
-    .order('start_time', { ascending: true })
 
+  if (params.projectId) query = query.eq('project_id', params.projectId)
+  if (params.responsibleId) query = query.eq('responsible_id', params.responsibleId)
   if (params.statuses?.length) query = query.in('status', params.statuses)
   else if (params.status) query = query.eq('status', params.status)
-  if (params.responsibleId) query = query.eq('responsible_id', params.responsibleId)
-  if (params.dateFrom) query = query.gte('start_time', params.dateFrom)
-  if (params.dateTo) query = query.lte('start_time', params.dateTo)
-  if (params.search) {
-    const q = params.search.trim()
-    if (q) query = query.or(`title.ilike.%${q}%,notes.ilike.%${q}%`)
+
+  if (params.tab === 'solicitudes') {
+    if (awaitingAdvisorIds.length) {
+      query = query.or(`status.in.(solicitada,pendiente),id.in.(${awaitingAdvisorIds.join(',')})`)
+    } else {
+      query = query.in('status', ['solicitada', 'pendiente'])
+    }
+    if (range) query = query.gte('requested_at', range.fromIso).lt('requested_at', range.toExclusiveIso)
+    query = query.order('requested_at', { ascending: false })
+  } else if (params.tab === 'esperando') {
+    if (awaitingClientIds.length) query = query.in('id', awaitingClientIds)
+    else query = query.eq('id', '00000000-0000-0000-0000-000000000000')
+    query = query.order('updated_at', { ascending: false })
+  } else if (params.tab === 'proximas') {
+    query = query.in('status', ['aceptado', 'reprogramado'])
+    if (anyOpenIds.length) query = query.not('id', 'in', `(${anyOpenIds.join(',')})`)
+    if (range) query = query.gte('start_time', range.fromIso).lt('start_time', range.toExclusiveIso)
+    query = query.order('start_time', { ascending: true, nullsFirst: false })
+  } else if (params.tab === 'historial') {
+    query = query.in('status', ['atendido', 'cancelado'])
+    if (range) {
+      query = query.or(
+        `and(start_time.gte.${range.fromIso},start_time.lt.${range.toExclusiveIso}),and(start_time.is.null,requested_at.gte.${range.fromIso},requested_at.lt.${range.toExclusiveIso})`,
+      )
+    }
+    query = query.order('updated_at', { ascending: false })
+  } else {
+    if (range) query = query.gte('start_time', range.fromIso).lt('start_time', range.toExclusiveIso)
+    query = query.order('start_time', { ascending: true, nullsFirst: true })
   }
 
-  let { data, error, count } = await query.range(from, to)
-  if (error) {
-    let fallback = supabase
-      .from('appointments')
-      .select('*', { count: 'exact' })
-      .in('tenant_id', tenantIds)
-      .order('start_time', { ascending: true })
-    if (params.statuses?.length) fallback = fallback.in('status', params.statuses)
-    else if (params.status) fallback = fallback.eq('status', params.status)
-    if (params.responsibleId) fallback = fallback.eq('responsible_id', params.responsibleId)
-    if (params.dateFrom) fallback = fallback.gte('start_time', params.dateFrom)
-    if (params.dateTo) fallback = fallback.lte('start_time', params.dateTo)
-    const retry = await fallback.range(from, to)
-    if (retry.error) throw retry.error
-    data = retry.data
-    count = retry.count
+  if (params.scope && !params.scope.isAdmin) {
+    const assignedToMe = await listOpenRescheduleAppointmentIds(supabase, ['awaiting_advisor', 'awaiting_client'])
+    if (assignedToMe.length) {
+      query = query.or(`responsible_id.eq.${params.scope.userId},id.in.(${assignedToMe.join(',')})`)
+    } else {
+      query = query.eq('responsible_id', params.scope.userId)
+    }
   }
-  return { data: (data ?? []) as Appointment[], total: count ?? 0 }
+
+  if (search) {
+    const leadClause = leadIds.length ? `,lead_id.in.(${leadIds.join(',')})` : ''
+    query = query.or(`title.ilike.%${search}%,notes.ilike.%${search}%,preferred_time_text.ilike.%${search}%${leadClause}`)
+  }
+
+  const { data, error, count } = await query.range(from, to)
+  if (error) throw error
+
+  const appointments = (data ?? []) as Appointment[]
+  const ids = appointments.map((row) => row.id)
+  if (ids.length) {
+    const requestRows = await listOpenReschedulesForAppointments(supabase, ids)
+    const byAppointment = new Map<string, AppointmentRescheduleRequest>()
+    for (const row of requestRows) {
+      byAppointment.set(row.appointment_id, row)
+    }
+    for (const row of appointments) {
+      row.openReschedule = byAppointment.get(row.id) ?? null
+      row.remindersPaused = Boolean(row.openReschedule)
+    }
+  }
+
+  return { data: appointments, total: count ?? 0 }
+}
+
+export async function countAgendaTabs(
+  supabase: SupabaseClient,
+  params: Pick<ListAppointmentsParams, 'tenantId' | 'tenantIds' | 'scope' | 'projectId' | 'search' | 'dateFrom' | 'dateTo'>,
+) {
+  const [solicitudes, esperando, proximas, historial] = await Promise.all([
+    listAppointments(supabase, { ...params, tab: 'solicitudes', page: 1, pageSize: 1 }),
+    listAppointments(supabase, { ...params, tab: 'esperando', page: 1, pageSize: 1 }),
+    listAppointments(supabase, { ...params, tab: 'proximas', page: 1, pageSize: 1 }),
+    listAppointments(supabase, { ...params, tab: 'historial', page: 1, pageSize: 1 }),
+  ])
+  return {
+    solicitudes: solicitudes.total,
+    esperando: esperando.total,
+    proximas: proximas.total,
+    historial: historial.total,
+  }
 }
 
 export async function getAppointment(
   supabase: SupabaseClient,
   appointmentId: string,
-  _scope?: DataAccessScope | null,
+  scope?: DataAccessScope | null,
 ): Promise<AppointmentWithUnits> {
   const { data: appt, error } = await supabase
     .from('appointments')
-    .select(
-      '*, lead:leads(id, name, phone), responsible:profiles!appointments_responsible_id_fkey(full_name), project:projects(id, name)',
-    )
+    .select(APPOINTMENT_SELECT)
     .eq('id', appointmentId)
     .single()
   if (error) throw error
 
   const row = appt as Appointment
+  if (scope && !scope.isAdmin && row.responsible_id !== scope.userId) {
+    const { data: assignedOpen } = await supabase
+      .from('appointment_reschedule_requests')
+      .select('id')
+      .eq('appointment_id', appointmentId)
+      .eq('assigned_advisor_id', scope.userId)
+      .in('status', ['awaiting_advisor', 'awaiting_client'])
+      .limit(1)
+    if (!assignedOpen?.length) throw new Error('No tienes acceso a esta cita')
+  }
 
-  const { data: linkRows } = await supabase
+  let linkRows: { unit_id: string; visited?: boolean }[] | null = null
+  const unitsResult = await supabase
     .from('appointment_units')
-    .select('unit_id')
+    .select('unit_id, visited')
     .eq('appointment_id', appointmentId)
+  if (unitsResult.error && /visited/i.test(unitsResult.error.message)) {
+    const retry = await supabase.from('appointment_units').select('unit_id').eq('appointment_id', appointmentId)
+    if (retry.error) throw retry.error
+    linkRows = retry.data
+  } else if (unitsResult.error) {
+    throw unitsResult.error
+  } else {
+    linkRows = unitsResult.data
+  }
+
+  let requests: AppointmentRescheduleRequest[] = []
+  if (rescheduleTableAvailable !== false) {
+    const rescheduleResult = await supabase
+      .from('appointment_reschedule_requests')
+      .select('*')
+      .eq('appointment_id', appointmentId)
+      .order('created_at', { ascending: false })
+    if (rescheduleResult.error) {
+      if (!isMissingRelation(rescheduleResult.error)) throw rescheduleResult.error
+      rescheduleTableAvailable = false
+    } else {
+      rescheduleTableAvailable = true
+      requests = (rescheduleResult.data ?? []) as AppointmentRescheduleRequest[]
+    }
+  }
+
+  let logRows: AppointmentWithUnits['changeLog'] = []
+  if (changeLogTableAvailable !== false) {
+    const logResult = await supabase
+      .from('appointment_change_log')
+      .select('id, action, created_at, detail')
+      .eq('appointment_id', appointmentId)
+      .order('created_at', { ascending: false })
+    if (logResult.error) {
+      if (!isMissingRelation(logResult.error)) throw logResult.error
+      changeLogTableAvailable = false
+    } else {
+      changeLogTableAvailable = true
+      logRows = (logResult.data ?? []) as AppointmentWithUnits['changeLog']
+    }
+  }
 
   const unitIds = (linkRows ?? []).map((r) => r.unit_id)
+  const visitedUnitIds = (linkRows ?? [])
+    .filter((rowLink) => Boolean((rowLink as { visited?: boolean }).visited))
+    .map((rowLink) => rowLink.unit_id)
   let units: Unit[] = []
   if (unitIds.length) {
     const { data: unitsData, error: uErr } = await supabase
@@ -1282,64 +1503,397 @@ export async function getAppointment(
     units = (unitsData ?? []) as Unit[]
   }
 
-  return { ...row, units }
+  const history = (requests ?? []) as AppointmentRescheduleRequest[]
+  return {
+    ...row,
+    units,
+    visitedUnitIds,
+    openReschedule: openRescheduleOf(history),
+    remindersPaused: Boolean(openRescheduleOf(history)),
+    rescheduleHistory: history,
+    changeLog: (logRows ?? []) as AppointmentWithUnits['changeLog'],
+  }
+}
+
+type RpcError = { message?: string; code?: string } | null
+
+function throwRpc(error: RpcError) {
+  if (error) throw new Error(error.message || 'No se pudo completar la operación')
+}
+
+function isMissingRpc(error: RpcError) {
+  return isMissingRelation(error)
+}
+
+async function replaceAppointmentUnitsFallback(
+  supabase: SupabaseClient,
+  appointmentId: string,
+  unitIds: string[],
+) {
+  const { error: delError } = await supabase.from('appointment_units').delete().eq('appointment_id', appointmentId)
+  if (delError) throw delError
+  if (!unitIds.length) return
+  const { error: insError } = await supabase
+    .from('appointment_units')
+    .insert(unitIds.map((unit_id) => ({ appointment_id: appointmentId, unit_id })))
+  if (insError) throw insError
+}
+
+export async function confirmAppointment(
+  supabase: SupabaseClient,
+  payload: {
+    appointmentId: string
+    startTime: string
+    endTime: string
+    responsibleId: string
+    meetingPlace: string
+    locationType: string
+    notes: string
+    unitIds: string[]
+  },
+) {
+  const { data, error } = await supabase.rpc('confirm_appointment', {
+    p_appointment_id: payload.appointmentId,
+    p_start: payload.startTime,
+    p_end: payload.endTime,
+    p_responsible_id: payload.responsibleId,
+    p_meeting_place: payload.meetingPlace,
+    p_location_type: payload.locationType,
+    p_notes: payload.notes,
+    p_unit_ids: payload.unitIds,
+  })
+  if (!error) return data as Appointment
+  if (!isMissingRpc(error)) throwRpc(error)
+
+  const notes = [payload.meetingPlace ? `Lugar: ${payload.meetingPlace.trim()}` : '', payload.notes.trim()]
+    .filter(Boolean)
+    .join('\n')
+  const { data: updated, error: updateError } = await supabase
+    .from('appointments')
+    .update({
+      status: 'aceptado',
+      start_time: payload.startTime,
+      end_time: payload.endTime,
+      scheduled_at: payload.startTime,
+      responsible_id: payload.responsibleId,
+      location_type: payload.locationType,
+      notes: notes || null,
+      scheduled_by: 'asesor',
+      confirmed_by_client: false,
+    })
+    .eq('id', payload.appointmentId)
+    .in('status', ['solicitada', 'pendiente'])
+    .select()
+    .maybeSingle()
+  if (updateError) throw updateError
+  if (!updated) throw new Error('La solicitud ya fue confirmada o no admite confirmación')
+  await replaceAppointmentUnitsFallback(supabase, payload.appointmentId, payload.unitIds)
+  return updated as Appointment
 }
 
 export async function createAppointment(
   supabase: SupabaseClient,
-  payload: Partial<Appointment> & { tenant_id: string; start_time: string },
-  unitIds?: string[]
+  payload: {
+    tenant_id: string
+    lead_id: string
+    project_id: string
+    title: string
+    start_time: string
+    end_time: string
+    responsible_id: string
+    meeting_place: string
+    location_type?: string
+    notes: string
+  },
+  unitIds?: string[],
 ) {
-  const { data, error } = await supabase.from('appointments').insert(payload).select().single()
-  if (error) throw error
-  const appt = data as Appointment
+  const { data, error } = await supabase.rpc('create_confirmed_appointment', {
+    p_tenant_id: payload.tenant_id,
+    p_lead_id: payload.lead_id,
+    p_project_id: payload.project_id,
+    p_title: payload.title,
+    p_start: payload.start_time,
+    p_end: payload.end_time,
+    p_responsible_id: payload.responsible_id,
+    p_meeting_place: payload.meeting_place,
+    p_location_type: payload.location_type ?? 'proyecto',
+    p_notes: payload.notes,
+    p_unit_ids: unitIds ?? [],
+  })
+  if (!error) return data as Appointment
+  if (!isMissingRpc(error)) throwRpc(error)
 
-  if (unitIds?.length) {
-    const rows = unitIds.map((unit_id) => ({ appointment_id: appt.id, unit_id }))
-    const { error: linkError } = await supabase.from('appointment_units').insert(rows)
-    if (linkError) throw linkError
-  }
-
-  return appt
+  const notes = [payload.meeting_place ? `Lugar: ${payload.meeting_place.trim()}` : '', payload.notes.trim()]
+    .filter(Boolean)
+    .join('\n')
+  const { data: created, error: insertError } = await supabase
+    .from('appointments')
+    .insert({
+      tenant_id: payload.tenant_id,
+      lead_id: payload.lead_id,
+      project_id: payload.project_id,
+      title: payload.title,
+      start_time: payload.start_time,
+      end_time: payload.end_time,
+      scheduled_at: payload.start_time,
+      responsible_id: payload.responsible_id,
+      status: 'aceptado',
+      location_type: payload.location_type ?? 'proyecto',
+      notes: notes || null,
+      scheduled_by: 'asesor',
+      channel: 'web',
+      confirmed_by_client: false,
+    })
+    .select()
+    .single()
+  if (insertError) throw insertError
+  await replaceAppointmentUnitsFallback(supabase, created.id, unitIds ?? [])
+  return created as Appointment
 }
 
-export async function updateAppointment(
+export async function resolveRescheduleRequest(
+  supabase: SupabaseClient,
+  payload: {
+    requestId: string
+    decision: 'aprobar' | 'rechazar' | 'proponer'
+    startTime?: string | null
+    endTime?: string | null
+    notes?: string
+  },
+) {
+  const { data, error } = await supabase.rpc('resolve_reschedule_request', {
+    p_request_id: payload.requestId,
+    p_decision: payload.decision,
+    p_start: payload.startTime ?? null,
+    p_end: payload.endTime ?? null,
+    p_notes: payload.notes ?? null,
+  })
+  throwRpc(error)
+  return data as AppointmentRescheduleRequest
+}
+
+export async function markRequestReviewed(supabase: SupabaseClient, requestId: string) {
+  const { error } = await supabase.rpc('lv_mark_request_reviewed', { p_request_id: requestId })
+  if (error && !isMissingRpc(error)) throwRpc(error)
+}
+
+export async function advisorAcceptRequest(supabase: SupabaseClient, requestId: string) {
+  const { data, error } = await supabase.rpc('lv_advisor_accept_request', { p_request_id: requestId })
+  throwRpc(error)
+  return data as AppointmentRescheduleRequest
+}
+
+export async function advisorProposeRequest(
+  supabase: SupabaseClient,
+  payload: { requestId: string; startTime: string; endTime: string; notes?: string },
+) {
+  const { data, error } = await supabase.rpc('lv_advisor_propose_request', {
+    p_request_id: payload.requestId,
+    p_start: payload.startTime,
+    p_end: payload.endTime,
+    p_notes: payload.notes ?? null,
+  })
+  throwRpc(error)
+  return data as AppointmentRescheduleRequest
+}
+
+export async function requestReassignment(
+  supabase: SupabaseClient,
+  payload: { requestId: string; reason: string },
+) {
+  const { error } = await supabase.rpc('lv_request_reassignment', {
+    p_request_id: payload.requestId,
+    p_reason: payload.reason,
+  })
+  throwRpc(error)
+}
+
+export async function rejectVisitRequest(
+  supabase: SupabaseClient,
+  payload: { requestId: string; notes?: string },
+) {
+  const { data, error } = await supabase.rpc('lv_reject_request', {
+    p_request_id: payload.requestId,
+    p_notes: payload.notes ?? null,
+  })
+  throwRpc(error)
+  return data as AppointmentRescheduleRequest
+}
+
+export async function reassignVisitRequest(
+  supabase: SupabaseClient,
+  payload: { requestId: string; reason: string },
+) {
+  const { data, error } = await supabase.rpc('lv_reassign_bot_appointment', {
+    p_request_id: payload.requestId,
+    p_reason: payload.reason,
+    p_candidate_advisor_ids: null,
+  })
+  throwRpc(error)
+  return data as string | null
+}
+
+const INBOX_SELECT =
+  '*, lead:leads(id, name, phone), assigned_advisor:profiles!appointment_reschedule_requests_assigned_advisor_id_fkey(full_name), project:projects(id, name), appointment:appointments(id, status, meeting_place)'
+
+export async function listVisitInbox(
+  supabase: SupabaseClient,
+  params: { isAdmin: boolean; userId: string },
+): Promise<VisitInboxItem[]> {
+  if (rescheduleTableAvailable === false) return []
+  let query = supabase
+    .from('appointment_reschedule_requests')
+    .select(INBOX_SELECT)
+    .in('status', ['awaiting_advisor', 'awaiting_client'])
+    .order('created_at', { ascending: false })
+    .limit(20)
+  if (!params.isAdmin) {
+    query = query.eq('assigned_advisor_id', params.userId)
+  }
+  const { data, error } = await query
+  if (error) {
+    if (isMissingRelation(error)) {
+      rescheduleTableAvailable = false
+      return []
+    }
+    const fallback = await supabase
+      .from('appointment_reschedule_requests')
+      .select('*')
+      .in('status', ['awaiting_advisor', 'awaiting_client'])
+      .order('created_at', { ascending: false })
+      .limit(20)
+    if (fallback.error) {
+      if (isMissingRelation(fallback.error)) {
+        rescheduleTableAvailable = false
+        return []
+      }
+      throw fallback.error
+    }
+    return (fallback.data ?? []) as VisitInboxItem[]
+  }
+  return (data ?? []) as VisitInboxItem[]
+}
+
+export async function countAgendaCoordinationStats(
+  supabase: SupabaseClient,
+  params: { tenantIds: string[]; userId: string; isAdmin: boolean },
+): Promise<AgendaCoordinationStats> {
+  const empty: AgendaCoordinationStats = {
+    botReceived: 0,
+    pendingReview: 0,
+    waitingClient: 0,
+    confirmed: 0,
+    cancelled: 0,
+  }
+  const tenantIds = params.tenantIds
+  if (!tenantIds.length) return empty
+
+  let historyQuery = supabase
+    .from('lv_appointment_bot_assignment_history')
+    .select('id', { count: 'exact', head: true })
+    .in('tenant_id', tenantIds)
+  if (!params.isAdmin) historyQuery = historyQuery.eq('advisor_id', params.userId)
+
+  const [history, pending, waiting, confirmed, cancelled] = await Promise.all([
+    historyQuery,
+    supabase
+      .from('appointment_reschedule_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'awaiting_advisor')
+      .in('tenant_id', tenantIds),
+    supabase
+      .from('appointment_reschedule_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'awaiting_client')
+      .in('tenant_id', tenantIds),
+    supabase
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['aceptado', 'reprogramado', 'atendido'])
+      .in('tenant_id', tenantIds),
+    supabase
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'cancelado')
+      .in('tenant_id', tenantIds),
+  ])
+
+  const missing =
+    isMissingRelation(history.error)
+    || isMissingRelation(pending.error)
+    || isMissingRelation(waiting.error)
+  if (missing) return empty
+
+  return {
+    botReceived: history.count ?? 0,
+    pendingReview: pending.count ?? 0,
+    waitingClient: waiting.count ?? 0,
+    confirmed: confirmed.count ?? 0,
+    cancelled: cancelled.count ?? 0,
+  }
+}
+
+export async function markAppointmentAttendance(
+  supabase: SupabaseClient,
+  payload: { appointmentId: string; attended: boolean; notes?: string; visitedUnitIds?: string[] },
+) {
+  const { data, error } = await supabase.rpc('mark_appointment_attendance', {
+    p_appointment_id: payload.appointmentId,
+    p_attended: payload.attended,
+    p_notes: payload.notes ?? null,
+    p_visited_unit_ids: payload.visitedUnitIds ?? [],
+  })
+  if (!error) return data as Appointment
+  if (!isMissingRpc(error)) throwRpc(error)
+
+  const { data: updated, error: updateError } = await supabase
+    .from('appointments')
+    .update({
+      status: 'atendido',
+      no_show: !payload.attended,
+      result_notes: payload.notes?.trim() || null,
+    })
+    .eq('id', payload.appointmentId)
+    .in('status', ['aceptado', 'reprogramado', 'atendido'])
+    .select()
+    .maybeSingle()
+  if (updateError) throw updateError
+  if (!updated) throw new Error('Solo se registra asistencia de citas confirmadas')
+  return updated as Appointment
+}
+
+export async function cancelAppointment(
   supabase: SupabaseClient,
   appointmentId: string,
-  payload: Partial<Appointment>,
-  unitIds?: string[]
+  notes?: string,
 ) {
-  const { data, error } = await supabase
+  const { data, error } = await supabase.rpc('cancel_appointment', {
+    p_appointment_id: appointmentId,
+    p_notes: notes ?? null,
+  })
+  if (!error) return data as Appointment
+  if (!isMissingRpc(error)) throwRpc(error)
+
+  const { data: updated, error: updateError } = await supabase
     .from('appointments')
-    .update(payload)
+    .update({
+      status: 'cancelado',
+      notes: notes?.trim() || undefined,
+    })
     .eq('id', appointmentId)
     .select()
-    .single()
-  if (error) throw error
-  const row = data as Appointment
-
-  if (unitIds !== undefined) {
-    const { error: delErr } = await supabase.from('appointment_units').delete().eq('appointment_id', appointmentId)
-    if (delErr) throw delErr
-    if (unitIds.length) {
-      const rows = unitIds.map((unit_id) => ({ appointment_id: appointmentId, unit_id }))
-      const { error: linkError } = await supabase.from('appointment_units').insert(rows)
-      if (linkError) throw linkError
-    }
-  }
-
-  return row
+    .maybeSingle()
+  if (updateError) throw updateError
+  if (!updated) throw new Error('No se pudo cancelar esta cita')
+  return updated as Appointment
 }
 
-export async function updateAppointmentStatus(supabase: SupabaseClient, appointmentId: string, status: AppointmentStatus) {
-  const { data, error } = await supabase
-    .from('appointments')
-    .update({ status })
-    .eq('id', appointmentId)
-    .select()
-    .single()
-  if (error) throw error
-  return data as Appointment
+export async function updateAppointmentStatus(
+  _supabase: SupabaseClient,
+  _appointmentId: string,
+  _status: AppointmentStatus,
+): Promise<Appointment> {
+  throw new Error('El estado no se cambia a mano. Usa confirmar, reprogramar, asistencia o cancelar.')
 }
 
 // ─── Showroom Visits ────────────────────────────────────────

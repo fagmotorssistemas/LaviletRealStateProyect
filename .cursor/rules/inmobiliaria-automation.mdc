@@ -1,0 +1,14 @@
+---
+description: Estado y límites del módulo Automatización (Lavilet CRM)
+alwaysApply: true
+---
+
+# Automatización — no mezclar capas
+
+Fuente de verdad del estado (2026-09-05): `docs/AUTOMATION_APP_STATE.md`.
+
+- **Monitoreo** (`/inmobiliaria/automatizacion`): solo lectura. Asesor y admin.
+- **Reglas** (`/inmobiliaria/automatizacion/reglas`): horario, rotación, puntaje, nutrición. Solo admin. No edita prompts.
+- **Guion** (`/inmobiliaria/automatizacion/guion`): preguntas y respuestas del bot. Solo admin. No va en el menú Ventas.
+
+No metas el editor de prompts en Reglas ni en el drawer del lead. No edites en la UI los agentes `respuesta_comercial`, `clasificador_intenciones`, `extractor_eventos` ni `resumen_conversacion`. n8n lee por nombre con `get_active_prompt`. Las acciones de reglas/guion usan la sesión del admin, no `SUPABASE_SERVICE_ROLE_KEY`.

@@ -2,6 +2,7 @@ import { CrmRoleGate } from '@/components/layout/CrmRoleGate'
 import { InmobiliariaSidebar } from '@/components/layout/InmobiliariaSidebar'
 import { InmobiliariaTopbar } from '@/components/layout/InmobiliariaTopbar'
 import { InmobiliariaRouteKey } from '@/components/layout/InmobiliariaRouteKey'
+import { AppointmentInboxBanner } from '@/components/layout/AppointmentInboxBanner'
 
 export default function InmobiliariaLayout({
   children,
@@ -14,6 +15,7 @@ export default function InmobiliariaLayout({
         <InmobiliariaSidebar />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <InmobiliariaTopbar />
+          <AppointmentInboxBanner />
           <div className="crm-app-canvas min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 pt-[calc(3.5rem+2rem)] sm:px-8 md:pt-8 lg:px-12">
             <InmobiliariaRouteKey>{children}</InmobiliariaRouteKey>
           </div>
