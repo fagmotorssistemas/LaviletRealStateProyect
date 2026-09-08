@@ -28,6 +28,7 @@ import {
 } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import { cn } from '@/lib/utils'
+import { matchesPlanoVariant } from '@/lib/typology-assets'
 import {
   unitImportCategoryLabel,
   type TypologyAsset,
@@ -79,6 +80,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [code, setCode] = useState('')
   const [kind, setKind] = useState<TypologyAssetKind>('plano')
   const [tab, setTab] = useState<'ambientes' | 'vistas' | 'documentos' | 'puntos'>('ambientes')
+  const [planoVariant, setPlanoVariant] = useState<'2d' | '3d'>('2d')
   const [roomSlots, setRoomSlots] = useState<TourRoomDef[]>([])
   const [catalogPanoUrl, setCatalogPanoUrl] = useState<string | null>(null)
   const [finishes, setFinishes] = useState<{ slug: string; name: string }[]>([])
@@ -200,6 +202,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     room?: string,
     finish?: string | null,
     light?: TourLightMode | null,
+    nextPlanoVariant?: '2d' | '3d',
   ): Promise<FileJob['status']> => {
     const body = new FormData()
     body.set('typology_code', code)
@@ -208,6 +211,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     if (room) body.set('room', room)
     if (finish) body.set('finish', finish)
     if (light) body.set('light', light)
+    if (nextKind === 'plano') body.set('plano_variant', nextPlanoVariant ?? planoVariant)
 
     let res: Response
     try {
@@ -279,7 +283,14 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
       const file = pngs[i]
       setJobs((prev) => prev.map((job, idx) => (idx === i ? { ...job, status: 'uploading' } : job)))
       try {
-        const status = await uploadOne(file, nextKind)
+        const status = await uploadOne(
+          file,
+          nextKind,
+          undefined,
+          undefined,
+          undefined,
+          nextKind === 'plano' ? planoVariant : undefined,
+        )
         if (status === 'done') ok += 1
         else dup += 1
         setJobs((prev) =>
@@ -444,6 +455,17 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             value={code}
             onChange={(e) => setCode(e.target.value)}
           />
+          {tab === 'documentos' ? (
+            <Select
+              label="Planos"
+              options={[
+                { value: '2d', label: '2D' },
+                { value: '3d', label: '3D' },
+              ]}
+              value={planoVariant}
+              onChange={(e) => setPlanoVariant(e.target.value === '3d' ? '3d' : '2d')}
+            />
+          ) : null}
         </div>
 
         {tab === 'ambientes' && (
@@ -747,9 +769,11 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           />
         )}
 
-        {tab === 'documentos' && (
+        {tab === 'documentos' ? (
         <div className="space-y-4">
-        <p className="text-xs text-[#8a8d87]">Planos de la tipología.</p>
+        <p className="text-xs text-[#8a8d87]">
+          Planos {planoVariant.toUpperCase()} de la tipología.
+        </p>
         <div
           className={cn(
             'flex flex-col items-center gap-2 rounded-md border border-dashed px-4 py-5 text-center text-sm',
@@ -824,12 +848,20 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           <p className="crm-field-label mb-2">Cargadas en {code || '—'}</p>
           {loadingList ? (
             <p className="text-sm text-[#8a8d87]">Cargando imágenes…</p>
-          ) : assets.length === 0 ? (
-            <p className="text-sm text-[#8a8d87]">Aún no hay imágenes para esta tipología.</p>
+          ) : assets.filter(
+              (asset) =>
+                asset.kind === 'plano' && matchesPlanoVariant(asset.file_name, planoVariant),
+            ).length === 0 ? (
+            <p className="text-sm text-[#8a8d87]">
+              Aún no hay planos {planoVariant.toUpperCase()} para esta tipología.
+            </p>
           ) : (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {assets
-                .filter((asset) => asset.kind === 'plano')
+                .filter(
+                  (asset) =>
+                    asset.kind === 'plano' && matchesPlanoVariant(asset.file_name, planoVariant),
+                )
                 .map((asset) => (
                 <li key={asset.id} className="overflow-hidden rounded-lg border border-[#2B1A18]/8 bg-white">
                   <div className="relative aspect-[4/3] bg-[#f4f4ef]">
@@ -843,7 +875,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                   <div className="flex items-start justify-between gap-2 p-2">
                     <div className="min-w-0">
                       <p className="truncate text-xs font-medium text-[#3a3d36]">{asset.file_name}</p>
-                      <p className="text-[10px] tracking-wide text-[#8a8d87] uppercase">{asset.kind}</p>
+                      <p className="text-[10px] tracking-wide text-[#8a8d87] uppercase">
+                        plano {planoVariant}
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -861,7 +895,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           )}
         </div>
         </div>
-        )}
+        ) : null}
 
         <div className="flex justify-end">
           <Button type="button" variant="outline" onClick={onClose}>

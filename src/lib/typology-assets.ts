@@ -27,3 +27,16 @@ export function typologyAssetStoragePath(
 ): string {
   return `${typologyCode}/${kind}/${fileName}`
 }
+
+export type PlanoVariant = '2d' | '3d'
+
+/** Prefijo en file_name: `2d-…` / `3d-…`. Sin prefijo → 2D (legado). */
+export function planoVariantFromFileName(fileName: string): PlanoVariant {
+  const base = fileName.replace(/\.[^.]+$/, '').toLowerCase()
+  if (base.startsWith('3d-') || base.startsWith('3d_')) return '3d'
+  return '2d'
+}
+
+export function matchesPlanoVariant(fileName: string, variant: PlanoVariant): boolean {
+  return planoVariantFromFileName(fileName) === variant
+}

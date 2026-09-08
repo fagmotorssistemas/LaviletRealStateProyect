@@ -16,11 +16,67 @@ import { Select } from '@/components/ui/Select'
 import type { Lead } from '@/types/inmobiliaria'
 import { LEAD_STATUS_OPTIONS, LEAD_TEMPERATURE_OPTIONS, UNASSIGNED_ASSIGNEE } from '@/types/inmobiliaria'
 
+type DatePreset = 'all' | 'today' | 'yesterday' | '7' | 'month' | 'exact' | 'custom'
+
+function toInputDate(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function shiftDays(d: Date, deltaDays: number) {
+  const next = new Date(d)
+  next.setDate(next.getDate() + deltaDays)
+  return next
+}
+
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1)
+}
+
 export default function LeadsPage() {
   const { leads, advisors, isLoading, tenantId, filters, updateFilter, resetFilters, reload, page, pageSize, total, setPage } = useLeads()
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [datePreset, setDatePreset] = useState<DatePreset>('all')
+
+  const applyDatePreset = (preset: DatePreset) => {
+    const now = new Date()
+    if (preset === 'all') {
+      updateFilter('dateFrom', '')
+      updateFilter('dateTo', '')
+      return
+    }
+    if (preset === 'today') {
+      const t = toInputDate(now)
+      updateFilter('dateFrom', t)
+      updateFilter('dateTo', t)
+      return
+    }
+    if (preset === 'yesterday') {
+      const y = toInputDate(shiftDays(now, -1))
+      updateFilter('dateFrom', y)
+      updateFilter('dateTo', y)
+      return
+    }
+    if (preset === '7') {
+      updateFilter('dateFrom', toInputDate(shiftDays(now, -6)))
+      updateFilter('dateTo', toInputDate(now))
+      return
+    }
+    if (preset === 'month') {
+      updateFilter('dateFrom', toInputDate(startOfMonth(now)))
+      updateFilter('dateTo', toInputDate(now))
+      return
+    }
+    if (preset === 'exact') {
+      const t = filters.dateFrom || toInputDate(now)
+      updateFilter('dateFrom', t)
+      updateFilter('dateTo', t)
+    }
+  }
 
   const handleSelect = (lead: Lead) => {
     setSelectedLeadId(lead.id)
@@ -52,9 +108,69 @@ export default function LeadsPage() {
           onSearchChange={(value) => updateFilter('search', value)}
           searchPlaceholder="Buscar lead..."
           resultsTotal={total}
-          hasActiveFilters={Boolean(filters.search || filters.status || filters.temperature || filters.assignedTo)}
-          onReset={resetFilters}
+          hasActiveFilters={Boolean(
+            filters.search
+            || filters.status
+            || filters.temperature
+            || filters.assignedTo
+            || filters.dateFrom
+            || filters.dateTo,
+          )}
+          onReset={() => {
+            resetFilters()
+            setDatePreset('all')
+          }}
         >
+          <Select
+            label="Fecha"
+            options={[
+              { value: 'all', label: 'Todo' },
+              { value: 'today', label: 'Hoy' },
+              { value: 'yesterday', label: 'Ayer' },
+              { value: '7', label: 'Últimos 7 días' },
+              { value: 'month', label: 'Este mes' },
+              { value: 'exact', label: 'Fecha exacta' },
+              { value: 'custom', label: 'Intervalo' },
+            ]}
+            placeholder="Fecha"
+            value={datePreset}
+            onChange={(e) => {
+              const next = e.target.value as DatePreset
+              setDatePreset(next)
+              applyDatePreset(next)
+            }}
+          />
+          {(datePreset === 'exact' || datePreset === 'custom') && (
+            <>
+              <div className="flex min-w-0 w-full flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">
+                  {datePreset === 'exact' ? 'Fecha exacta' : 'Desde'}
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => {
+                    updateFilter('dateFrom', e.target.value)
+                    if (datePreset === 'exact') updateFilter('dateTo', e.target.value)
+                  }}
+                  className="crm-field"
+                />
+              </div>
+              {datePreset === 'custom' && (
+                <div className="flex min-w-0 w-full flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">
+                    Hasta
+                  </label>
+                  <input
+                    type="date"
+                    value={filters.dateTo}
+                    onChange={(e) => updateFilter('dateTo', e.target.value)}
+                    className="crm-field"
+                  />
+                </div>
+              )}
+            </>
+          )}
           <Select
             label="Estado"
             options={LEAD_STATUS_OPTIONS}

@@ -3,8 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import {
   canAccessPath,
   canManageUsers,
+  canWriteCrm,
   isAdminRole,
   knownRole,
+  normalizeCrmPaths,
 } from '@/lib/inmobiliaria/roleAccess'
 import type { UserRole } from '@/types/inmobiliaria'
 
@@ -13,6 +15,7 @@ export type SessionProfile = {
   role: UserRole | null
   full_name: string | null
   email: string | null
+  crm_paths: string[] | null
 }
 
 export type SessionProfileRow = {
@@ -22,6 +25,7 @@ export type SessionProfileRow = {
   role: UserRole | null
   phone: string | null
   email: string | null
+  crm_paths: string[] | null
 }
 
 type ProfileQueryRow = {
@@ -42,17 +46,26 @@ export async function getSessionUser() {
   return { supabase, user }
 }
 
+function crmPathsFromUser(
+  user: NonNullable<Awaited<ReturnType<typeof getSessionUser>>['user']>,
+): string[] | null {
+  const paths = normalizeCrmPaths(user.app_metadata?.crm_paths)
+  return paths.length > 0 ? paths : null
+}
+
 function mapOwnProfile(
   user: NonNullable<Awaited<ReturnType<typeof getSessionUser>>['user']>,
   row: ProfileQueryRow | null,
 ): SessionProfileRow {
+  // Autorización solo desde profiles.role en DB; metadata no otorga CRM.
   return {
     id: user.id,
     full_name: row?.full_name ?? user.user_metadata?.full_name ?? null,
     avatar_url: row?.avatar_url ?? null,
-    role: knownRole(row?.role) ?? knownRole(user.user_metadata?.role),
+    role: knownRole(row?.role),
     phone: row?.phone ?? user.user_metadata?.phone ?? null,
     email: user.email ?? null,
+    crm_paths: crmPathsFromUser(user),
   }
 }
 
@@ -106,9 +119,10 @@ export async function getSessionProfile(): Promise<{
     user,
     profile: {
       id: user.id,
-      role: row?.role ?? knownRole(user.user_metadata?.role),
+      role: row?.role ?? null,
       full_name: row?.full_name ?? user.user_metadata?.full_name ?? null,
       email: row?.email ?? user.email ?? null,
+      crm_paths: row?.crm_paths ?? crmPathsFromUser(user),
     },
   }
 }
@@ -121,7 +135,7 @@ export async function assertLoggedIn() {
 
 export async function assertCanWriteCrm() {
   const session = await assertLoggedIn()
-  if (knownRole(session.profile.role) === 'visitante') {
+  if (!canWriteCrm(session.profile.role)) {
     throw new Error('Tu rol solo permite consultar información')
   }
   return session
@@ -129,8 +143,7 @@ export async function assertCanWriteCrm() {
 
 export async function assertCanAccessCrmPath(pathname: string) {
   const session = await assertLoggedIn()
-  const role = knownRole(session.profile.role)
-  if (role === 'visitante' || (role && !canAccessPath(role, pathname))) {
+  if (!canAccessPath(session.profile.role, pathname, session.profile.crm_paths)) {
     throw new Error('No tienes acceso a esta sección')
   }
   return session

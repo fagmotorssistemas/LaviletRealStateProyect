@@ -44,7 +44,7 @@ export function TourPicker({ typologies, typology, onTypologyChange, meta }: Tou
   if (typologies.length === 0) return null
 
   return (
-    <div ref={rootRef} className="relative w-[min(9.25rem,calc(100vw-8.25rem))] sm:w-[min(11.5rem,calc(100vw-10rem))]">
+    <div ref={rootRef} className="relative w-[min(7.75rem,calc(100vw-6.25rem))] sm:w-[min(11.5rem,calc(100vw-10rem))]">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}

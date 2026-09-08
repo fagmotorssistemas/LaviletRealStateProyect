@@ -17,7 +17,7 @@ export function CrmRoleGate({ children }: { children: React.ReactNode }) {
     if (!user || isVisitante) router.replace(isVisitante ? '/cuenta' : '/login')
   }, [isLoading, user, isVisitante, router])
 
-  if (!user || isVisitante) {
+  if (isLoading || !user || isVisitante) {
     return (
       <div className="flex min-h-[100dvh] flex-1 items-center justify-center bg-[#fcfbf9]">
         <Spinner size="lg" />

@@ -437,7 +437,7 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
           >
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/LogoHorizontal.png" alt="Lavilet" className="h-10 w-auto object-contain" />
+              <img src="/LogoHorizontal.png" alt="Lavilet" className="h-14 w-auto object-contain" />
               <div className="text-right">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   Asesor responsable

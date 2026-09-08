@@ -23,6 +23,7 @@ import {
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
 import { pickRoomScene, pickSceneUrl } from '@/lib/tour/roomScene'
+import { matchesPlanoVariant } from '@/lib/typology-assets'
 import {
   getTourUnitTypeSlug,
   loadRoomVariantUrls,
@@ -73,7 +74,7 @@ function roomMarkerPin(item: TourPlacedHotspot) {
 }
 
 function buildTourMarkers(
-  viewMode: 'tour' | 'vistas',
+  viewMode: string,
   room: string,
   _tourRooms: { slug: string; label: string }[],
   placed: TourPlacedHotspot[],
@@ -87,10 +88,12 @@ function CrossfadeStill({
   url,
   alt,
   contain = false,
+  fit = 'vistas',
 }: {
   url: string | null
   alt: string
   contain?: boolean
+  fit?: 'vistas' | 'planos'
 }) {
   const [current, setCurrent] = useState<string | null>(url)
   const [previous, setPrevious] = useState<string | null>(null)
@@ -121,10 +124,10 @@ function CrossfadeStill({
   return (
     <div className="absolute inset-0 overflow-hidden bg-[#111]">
       {previous ? (
-        <StillFrame key={`out-${previous}`} src={previous} alt="" contain={contain} motion="out" />
+        <StillFrame key={`out-${previous}`} src={previous} alt="" contain={contain} fit={fit} motion="out" />
       ) : null}
       {current ? (
-        <StillFrame key={`in-${current}`} src={current} alt={alt} contain={contain} motion="in" />
+        <StillFrame key={`in-${current}`} src={current} alt={alt} contain={contain} fit={fit} motion="in" />
       ) : null}
     </div>
   )
@@ -134,11 +137,13 @@ function StillFrame({
   src,
   alt,
   contain,
+  fit,
   motion,
 }: {
   src: string
   alt: string
   contain: boolean
+  fit: 'vistas' | 'planos'
   motion: 'in' | 'out'
 }) {
   return (
@@ -153,16 +158,203 @@ function StillFrame({
           className="absolute inset-0 h-full w-full scale-[1.25] object-cover blur-[22px] brightness-[0.92] saturate-150"
         />
       ) : null}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt={alt}
-        draggable={false}
+      <div
         className={cn(
-          'absolute inset-0 h-full w-full',
-          contain ? 'object-contain object-center' : 'object-cover',
+          'absolute inset-0',
+          contain && 'tour-still-fit',
+          contain && fit === 'planos' && 'tour-still-fit--planos',
         )}
-      />
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt}
+          draggable={false}
+          className={cn(
+            contain
+              ? 'h-full w-full object-contain object-center'
+              : 'absolute inset-0 h-full w-full object-cover',
+          )}
+        />
+      </div>
+    </div>
+  )
+}
+
+type TourViewMode = 'tour' | 'vistas' | 'planos-2d' | 'planos-3d'
+type StillItem = { id: string; label: string; url: string }
+
+function stillLabelFromFile(fileName: string) {
+  return fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/^(2d|3d)[-_]/i, '')
+    .replace(/[-_]/g, ' ')
+    .trim()
+}
+
+function isPlanosMode(mode: TourViewMode): mode is 'planos-2d' | 'planos-3d' {
+  return mode === 'planos-2d' || mode === 'planos-3d'
+}
+
+function ModeButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean
+  children: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'tour-mode-btn tour-glass border-white/25 !bg-[#14110e]/72 text-left font-semibold uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300',
+        active ? 'text-white shadow-[inset_2px_0_0_#BDA27E]' : 'text-white/80 hover:text-white',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function PlanosModePicker({
+  viewMode,
+  onSelect,
+}: {
+  viewMode: TourViewMode
+  onSelect: (mode: 'planos-2d' | 'planos-3d') => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const active = isPlanosMode(viewMode)
+  const current = viewMode === 'planos-3d' ? '3d' : '2d'
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className={cn(
+          'tour-mode-btn tour-glass flex w-full items-center justify-between gap-1 border-white/25 !bg-[#14110e]/72 text-left font-semibold uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300',
+          active ? 'text-white shadow-[inset_2px_0_0_#BDA27E]' : 'text-white/80 hover:text-white',
+        )}
+      >
+        <span>Planos</span>
+        <span className="text-[8px] font-medium tracking-normal text-white/50 sm:text-[10px]">
+          {active ? current.toUpperCase() : open ? '▴' : '▾'}
+        </span>
+      </button>
+      {open ? (
+        <ul
+          role="listbox"
+          className="tour-glass absolute top-[calc(100%+4px)] right-0 z-30 w-full min-w-[4.6rem] overflow-hidden py-1 sm:min-w-[7.5rem]"
+        >
+          {(
+            [
+              { value: 'planos-2d' as const, label: '2D' },
+              { value: 'planos-3d' as const, label: '3D' },
+            ] as const
+          ).map((opt) => {
+            const selected = viewMode === opt.value
+            return (
+              <li key={opt.value}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onSelect(opt.value)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'w-full px-2.5 py-1.5 text-left text-[9px] font-semibold tracking-[0.1em] uppercase sm:px-3 sm:py-2 sm:text-[12px] sm:tracking-[0.14em]',
+                    selected ? 'bg-white/12 text-white' : 'text-white/75 hover:bg-white/8 hover:text-white',
+                  )}
+                >
+                  {opt.label}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+function StillGalleryBar({
+  items,
+  index,
+  onIndex,
+  showThumbs = true,
+}: {
+  items: StillItem[]
+  index: number
+  onIndex: (next: number) => void
+  showThumbs?: boolean
+}) {
+  if (items.length === 0) return null
+  const safe = Math.min(index, Math.max(items.length - 1, 0))
+  return (
+    <div className="pointer-events-auto mx-auto flex w-full min-w-0 max-w-2xl flex-col items-center gap-1 sm:gap-2">
+      <div className="flex w-full min-w-0 items-center justify-center gap-1 sm:gap-2">
+        {items.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => onIndex((safe - 1 + items.length) % items.length)}
+            className="tour-glass tour-icon"
+            aria-label="Anterior"
+          >
+            <ChevronLeft size={16} strokeWidth={1.5} />
+          </button>
+        ) : null}
+        <p className="tour-caption min-w-0 flex-1 truncate px-2 text-center">{items[safe]?.label}</p>
+        {items.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => onIndex((safe + 1) % items.length)}
+            className="tour-glass tour-icon"
+            aria-label="Siguiente"
+          >
+            <ChevronRight size={16} strokeWidth={1.5} />
+          </button>
+        ) : null}
+      </div>
+      {showThumbs ? (
+        <div className="tour-thumbs">
+          {items.map((item, itemIndex) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onIndex(itemIndex)}
+              className={cn('tour-thumb', itemIndex === safe && 'is-on')}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={item.url} alt={item.label} className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -381,8 +573,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
   const [gyroHint, setGyroHint] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'tour' | 'vistas'>('tour')
+  const [viewMode, setViewMode] = useState<TourViewMode>('tour')
   const [vistaIndex, setVistaIndex] = useState(0)
+  const [planoIndex, setPlanoIndex] = useState(0)
   const [panoGhost, setPanoGhost] = useState<string | null>(null)
   const [panoGhostKey, setPanoGhostKey] = useState(0)
   const [panoEntering, setPanoEntering] = useState(false)
@@ -785,10 +978,27 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       add(item.slug, item.label, pickSceneUrl(scene) ?? item.url)
     }
     for (const extra of currentTypology?.renders ?? []) {
-      add(extra.id, extra.file_name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '), extra.url)
+      add(extra.id, stillLabelFromFile(extra.file_name), extra.url)
     }
     return items
   }, [currentTypology, finish, light])
+
+  const planoImages = useMemo<StillItem[]>(() => {
+    const variant = viewMode === 'planos-3d' ? '3d' : '2d'
+    const items: StillItem[] = []
+    const seen = new Set<string>()
+    for (const item of currentTypology?.planos ?? []) {
+      if (!item.url || seen.has(item.url)) continue
+      if (!matchesPlanoVariant(item.file_name, variant)) continue
+      seen.add(item.url)
+      items.push({
+        id: item.id,
+        label: stillLabelFromFile(item.file_name) || `Plano ${variant.toUpperCase()}`,
+        url: item.url,
+      })
+    }
+    return items
+  }, [currentTypology, viewMode])
 
   const onSelectRoom = useCallback(
     (roomId: string) => {
@@ -835,19 +1045,21 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     [nodes, room, selectedTypology, currentTypology?.id, currentTypology?.hotspots, urlForRoom, tourRooms],
   )
 
-  const stepVista = useCallback(
+  const stillItems = isPlanosMode(viewMode) ? planoImages : viewMode === 'vistas' ? vistaImages : []
+  const stillIndex = isPlanosMode(viewMode) ? planoIndex : vistaIndex
+  const setStillIndex = isPlanosMode(viewMode) ? setPlanoIndex : setVistaIndex
+  const stepStill = useCallback(
     (delta: -1 | 1) => {
-      setVistaIndex((index) => {
-        const total = vistaImages.length
+      setStillIndex((index) => {
+        const total = stillItems.length
         if (total < 2) return index
         return (index + delta + total) % total
       })
     },
-    [vistaImages.length],
+    [setStillIndex, stillItems.length],
   )
-  const vistaSwipe = useSwipePages(viewMode === 'vistas', vistaImages.length, stepVista)
-  const vistaUrl = vistaImages[Math.min(vistaIndex, Math.max(vistaImages.length - 1, 0))]?.url ?? null
-  const stillUrl = viewMode === 'vistas' ? vistaUrl : null
+  const stillSwipe = useSwipePages(viewMode !== 'tour', stillItems.length, stepStill)
+  const stillUrl = stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.url ?? null
   if (stillUrl) lastStillRef.current = stillUrl
   const overlayUrl = stillUrl ?? lastStillRef.current
   const showStill = Boolean(stillUrl)
@@ -864,6 +1076,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
     if (vistaIndex >= vistaImages.length) setVistaIndex(0)
   }, [vistaImages.length, vistaIndex])
+
+  useEffect(() => {
+    if (planoImages.length === 0) {
+      if (planoIndex !== 0) setPlanoIndex(0)
+      return
+    }
+    if (planoIndex >= planoImages.length) setPlanoIndex(0)
+  }, [planoImages.length, planoIndex])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -1140,6 +1360,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     setSelectedTypology(code)
     setRoom(homeSlug)
     setVistaIndex(0)
+    setPlanoIndex(0)
     currentUrlRef.current = ''
     appliedPanoKeyRef.current = ''
   }
@@ -1155,9 +1376,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const showSceneControls = Boolean(publicCatalog) || sceneFinishes.length > 0
 
   const trackingScene =
-    viewMode === 'vistas'
-      ? vistaImages[Math.min(vistaIndex, Math.max(vistaImages.length - 1, 0))]
-      : null
+    viewMode === 'tour' ? null : stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))] ?? null
   const tracking = useTourSceneTracking(
     {
       room: trackingScene?.id ?? room,
@@ -1215,14 +1434,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         className={cn(
           'tour-layer-fade tour-still-layer absolute inset-0 z-10 overflow-hidden select-none',
           showStill ? 'is-on' : 'pointer-events-none is-off',
-          viewMode === 'vistas' && vistaImages.length > 1 && 'touch-pan-y',
+          viewMode !== 'tour' && stillItems.length > 1 && 'touch-pan-y',
         )}
-        onPointerDown={vistaSwipe.onPointerDown}
+        onPointerDown={stillSwipe.onPointerDown}
       >
         <CrossfadeStill
           url={overlayUrl}
-          alt={viewMode === 'vistas' ? (vistaImages[vistaIndex]?.label ?? 'Vista') : roomName}
-          contain={viewMode === 'vistas'}
+          alt={viewMode === 'tour' ? roomName : (stillItems[stillIndex]?.label ?? (isPlanosMode(viewMode) ? 'Plano' : 'Vista'))}
+          contain={viewMode !== 'tour'}
+          fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
         />
       </div>
 
@@ -1239,6 +1459,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Vistas</p>
           <p className="mt-2 text-sm text-white/45">Aún no hay renders en esta tipología.</p>
+        </div>
+      )}
+
+      {!booting && isPlanosMode(viewMode) && planoImages.length === 0 && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
+          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">
+            {viewMode === 'planos-3d' ? 'Planos 3D' : 'Planos 2D'}
+          </p>
+          <p className="mt-2 text-sm text-white/45">Aún no hay planos en esta tipología.</p>
         </div>
       )}
 
@@ -1289,95 +1518,42 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           />
         </div>
         <div className="pointer-events-auto absolute top-0 right-0 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:p-3.5">
-          <div className="flex w-[5.75rem] flex-col gap-1.5 sm:w-[7.5rem] sm:gap-2">
-            <button
-              type="button"
+          <div className="flex w-[4.6rem] flex-col gap-1 sm:w-[7.5rem] sm:gap-2">
+            <ModeButton
+              active={viewMode === 'tour'}
               onClick={() => {
                 setViewMode('tour')
                 setRoom(homeSlug)
               }}
-              className={cn(
-                'tour-glass border-white/25 !bg-[#14110e]/72 px-2 py-2 text-left text-[10px] font-semibold tracking-[0.12em] uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300 sm:px-3 sm:py-3 sm:text-[12px] sm:tracking-[0.14em]',
-                viewMode === 'tour'
-                  ? 'text-white shadow-[inset_2px_0_0_#BDA27E]'
-                  : 'text-white/80 hover:text-white',
-              )}
             >
               Tour 360
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('vistas')}
-              className={cn(
-                'tour-glass border-white/25 !bg-[#14110e]/72 px-2 py-2 text-left text-[10px] font-semibold tracking-[0.12em] uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300 sm:px-3 sm:py-3 sm:text-[12px] sm:tracking-[0.14em]',
-                viewMode === 'vistas'
-                  ? 'text-white shadow-[inset_2px_0_0_#BDA27E]'
-                  : 'text-white/80 hover:text-white',
-              )}
-            >
+            </ModeButton>
+            <ModeButton active={viewMode === 'vistas'} onClick={() => setViewMode('vistas')}>
               Vistas
-            </button>
+            </ModeButton>
+            <PlanosModePicker viewMode={viewMode} onSelect={setViewMode} />
           </div>
         </div>
 
         <div
           className={cn(
             CONSTANTS.CAPTURE_EVENTS_CLASS,
-            'pointer-events-none absolute right-0 bottom-0 left-0 flex flex-col items-end gap-2 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-2.5 sm:p-3.5',
+            'pointer-events-none absolute inset-x-0 bottom-0 flex w-full min-w-0 flex-col items-center gap-1.5 p-2 pb-[max(0.45rem,env(safe-area-inset-bottom))] sm:gap-2.5 sm:p-3.5',
           )}
         >
           {loading && <div className="tour-glass tour-caption self-center px-3 py-1.5">Cargando</div>}
 
-          {viewMode === 'vistas' && vistaImages.length > 0 && (
-            <div className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-1.5 sm:gap-2">
-              <div className="flex items-center justify-center gap-1.5 sm:gap-2">
-                {vistaImages.length > 1 ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setVistaIndex((index) => (index - 1 + vistaImages.length) % vistaImages.length)
-                    }
-                    className="tour-glass tour-icon"
-                    aria-label="Vista anterior"
-                  >
-                    <ChevronLeft size={16} strokeWidth={1.5} />
-                  </button>
-                ) : null}
-                <p className="tour-caption min-w-0 truncate px-2 text-center">
-                  {vistaImages[Math.min(vistaIndex, vistaImages.length - 1)]?.label}
-                </p>
-                {vistaImages.length > 1 ? (
-                  <button
-                    type="button"
-                    onClick={() => setVistaIndex((index) => (index + 1) % vistaImages.length)}
-                    className="tour-glass tour-icon"
-                    aria-label="Vista siguiente"
-                  >
-                    <ChevronRight size={16} strokeWidth={1.5} />
-                  </button>
-                ) : null}
-              </div>
-              <div className="tour-thumbs">
-                {vistaImages.map((item, index) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setVistaIndex(index)}
-                    className={cn(
-                      'tour-thumb',
-                      index === Math.min(vistaIndex, vistaImages.length - 1) && 'is-on',
-                    )}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={item.url} alt={item.label} className="h-full w-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            </div>
+          {viewMode !== 'tour' && stillItems.length > 0 && (
+            <StillGalleryBar
+              items={stillItems}
+              index={stillIndex}
+              onIndex={setStillIndex}
+              showThumbs={!isPlanosMode(viewMode)}
+            />
           )}
 
-          {showSceneControls && (
-            <div className="tour-glass tour-finish pointer-events-auto mx-auto w-full max-w-md">
+          {showSceneControls && !isPlanosMode(viewMode) && (
+            <div className="tour-glass tour-finish pointer-events-auto mx-auto w-full min-w-0 max-w-md">
               {sceneFinishes.length > 0 ? (
                 sceneFinishes.map((item) => (
                   <button
@@ -1403,11 +1579,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           )}
+          {!isPlanosMode(viewMode) ? (
           <p className="tour-caption hidden self-center px-1 text-center sm:block">
-            {viewMode === 'vistas'
-              ? `${vistaImages[Math.min(vistaIndex, Math.max(vistaImages.length - 1, 0))]?.label ?? 'Vistas'}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`
-              : `${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`}
+            {viewMode === 'tour'
+              ? `${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`
+              : `${stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.label ?? 'Vistas'}${viewMode === 'vistas' && finishName ? ` · ${finishName}` : ''}${viewMode === 'vistas' ? ` · ${lightLabel}` : ''}`}
           </p>
+          ) : null}
         </div>
       </div>
 

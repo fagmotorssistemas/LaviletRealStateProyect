@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { BarChart3, Plus } from 'lucide-react'
+import { BarChart3, Eye, EyeOff, Plus } from 'lucide-react'
 import { useSalesReport } from '@/hooks/inmobiliaria/useSalesReport'
 import { SalesClosingsTable } from '@/components/inmobiliaria/sales/SalesClosingsTable'
 import { CreateClosingModal } from '@/components/inmobiliaria/sales/CreateClosingModal'
@@ -36,6 +36,8 @@ export default function VentasPage() {
     reload,
   } = useSalesReport()
   const [createOpen, setCreateOpen] = useState(false)
+  const [amountsVisible, setAmountsVisible] = useState(false)
+  const masked = !amountsVisible
 
   const hasFilters = Boolean(search || projectId || soldById || from || to)
 
@@ -53,10 +55,24 @@ export default function VentasPage() {
           </>
         }
         actions={
-          <Button onClick={() => setCreateOpen(true)} className="shrink-0">
-            <Plus size={16} className="mr-2" />
-            Registrar cierre
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAmountsVisible((value) => !value)}
+              className="shrink-0 gap-2"
+              aria-pressed={amountsVisible}
+              aria-label={amountsVisible ? 'Ocultar montos' : 'Mostrar montos'}
+              title={amountsVisible ? 'Ocultar montos' : 'Mostrar montos'}
+            >
+              {amountsVisible ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
+              <span className="hidden sm:inline">{amountsVisible ? 'Ocultar' : 'Mostrar'}</span>
+            </Button>
+            <Button onClick={() => setCreateOpen(true)} className="shrink-0">
+              <Plus size={16} className="mr-2" />
+              Registrar cierre
+            </Button>
+          </>
         }
       />
 
@@ -64,7 +80,7 @@ export default function VentasPage() {
         <div className="crm-stat">
           <p className="crm-stat-label">Total vendido</p>
           <div className="crm-stat-value">
-            <PriceText value={summary.total} size="lg" />
+            <PriceText value={summary.total} size="lg" masked={masked} />
           </div>
         </div>
         <div className="crm-stat">
@@ -74,13 +90,13 @@ export default function VentasPage() {
         <div className="crm-stat">
           <p className="crm-stat-label">Ticket promedio</p>
           <div className="crm-stat-value">
-            <PriceText value={summary.avg} size="lg" />
+            <PriceText value={summary.avg} size="lg" masked={masked} />
           </div>
         </div>
         <div className="crm-stat">
           <p className="crm-stat-label">Descuento vs lista</p>
           <p className="crm-stat-value">
-            <PriceText value={summary.discount} size="lg" />
+            <PriceText value={summary.discount} size="lg" masked={masked} />
           </p>
         </div>
       </div>
@@ -134,7 +150,7 @@ export default function VentasPage() {
           description="Registra un cierre para que entre al reporte: unidad, asesor, precio final y fecha."
         />
       ) : (
-        <SalesClosingsTable closings={closings} />
+        <SalesClosingsTable closings={closings} amountsVisible={amountsVisible} />
       )}
 
       <CreateClosingModal

@@ -21,6 +21,8 @@ export function useShowroom() {
   const [isLoading, setIsLoading] = useState(true)
   const [tenantId, setTenantId] = useState('')
   const [search, setSearch] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
   const pageSize = 25
   const [total, setTotal] = useState(0)
@@ -62,6 +64,8 @@ export function useShowroom() {
         salespersonId: filters.salespersonId || undefined,
         source: filters.source ? filters.source : undefined,
         search: search || undefined,
+        dateFrom: dateFrom ? new Date(`${dateFrom}T00:00:00.000`).toISOString() : undefined,
+        dateTo: dateTo ? new Date(`${dateTo}T23:59:59.999`).toISOString() : undefined,
         page,
         pageSize,
       })
@@ -86,7 +90,7 @@ export function useShowroom() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, filters, page, pageSize, search, authLoading, user])
+  }, [supabase, filters, page, pageSize, search, dateFrom, dateTo, authLoading, user])
 
   useEffect(() => { loadVisits() }, [loadVisits])
 
@@ -95,8 +99,20 @@ export function useShowroom() {
     setPage(1)
   }
 
+  const updateDateFrom = (value: string) => {
+    setDateFrom(value)
+    setPage(1)
+  }
+
+  const updateDateTo = (value: string) => {
+    setDateTo(value)
+    setPage(1)
+  }
+
   const reset = () => {
     setSearch('')
+    setDateFrom('')
+    setDateTo('')
     setFilters({ projectId: '', salespersonId: '', source: '' })
     setPage(1)
   }
@@ -113,7 +129,11 @@ export function useShowroom() {
     tenantId,
     filters,
     search,
+    dateFrom,
+    dateTo,
     updateSearch,
+    updateDateFrom,
+    updateDateTo,
     updateFilter,
     reset,
     reload: loadVisits,

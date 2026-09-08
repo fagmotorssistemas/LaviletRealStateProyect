@@ -12,7 +12,7 @@ export function InmobiliariaTopbar() {
   const pathname = usePathname()
   const { profile, user } = useAuth()
   const activeModule = moduleFromPath(pathname)
-  const visibleModules = modulesForRole(knownRole(profile?.role))
+  const visibleModules = modulesForRole(knownRole(profile?.role), profile?.crm_paths)
 
   return (
     <header className="crm-topbar relative z-40 hidden h-16 shrink-0 items-center justify-between overflow-visible bg-[#fcfbf9] text-[#555850] md:flex">

@@ -13,6 +13,8 @@ interface Filters {
   temperature: string
   search: string
   assignedTo: string
+  dateFrom: string
+  dateTo: string
 }
 
 export function useLeads() {
@@ -29,6 +31,8 @@ export function useLeads() {
     temperature: '',
     search: '',
     assignedTo: '',
+    dateFrom: '',
+    dateTo: '',
   })
 
   const loadLeads = useCallback(async () => {
@@ -63,6 +67,12 @@ export function useLeads() {
         temperature: (filters.temperature || undefined) as LeadTemperature | undefined,
         search: filters.search || undefined,
         assignedTo: filters.assignedTo || undefined,
+        dateFrom: filters.dateFrom
+          ? new Date(`${filters.dateFrom}T00:00:00.000`).toISOString()
+          : undefined,
+        dateTo: filters.dateTo
+          ? new Date(`${filters.dateTo}T23:59:59.999`).toISOString()
+          : undefined,
         page,
         pageSize,
       })
@@ -100,7 +110,7 @@ export function useLeads() {
   }
 
   const resetFilters = () => {
-    setFilters({ status: '', temperature: '', search: '', assignedTo: '' })
+    setFilters({ status: '', temperature: '', search: '', assignedTo: '', dateFrom: '', dateTo: '' })
     setPage(1)
   }
 

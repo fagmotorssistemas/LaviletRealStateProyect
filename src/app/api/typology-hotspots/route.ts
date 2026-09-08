@@ -14,7 +14,8 @@ async function assertEditor() {
   const session = await getSessionProfile()
   if (!session) return jsonError('No autenticado', 401)
   const canEdit =
-    canAccessPath(session.profile.role, '/inmobiliaria/inventario') && canWriteCrm(session.profile.role)
+    canAccessPath(session.profile.role, '/inmobiliaria/inventario', session.profile.crm_paths) &&
+      canWriteCrm(session.profile.role)
   if (!canEdit) return jsonError('No tienes permiso para editar puntos 360', 403)
   return null
 }

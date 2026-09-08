@@ -41,8 +41,11 @@ async function handleUpload(request: Request) {
   console.info('[typology-assets] POST /api/typology-assets/upload')
   const session = await getSessionProfile()
   if (!session) return jsonError('No autenticado', 401)
-  const canManageTypologyImages =
-    canAccessPath(session.profile.role, '/inmobiliaria/inventario')
+  const canManageTypologyImages = canAccessPath(
+    session.profile.role,
+    '/inmobiliaria/inventario',
+    session.profile.crm_paths,
+  )
   if (!canManageTypologyImages || !canWriteCrm(session.profile.role)) {
     return jsonError('No tienes permiso para subir imágenes', 403)
   }
@@ -64,6 +67,10 @@ async function handleUpload(request: Request) {
     return jsonError('Falta el ambiente o el 360 de la tipología', 400)
   }
   if (!(uploaded instanceof Blob) || uploaded.size === 0) return jsonError('Falta el archivo', 400)
+  const maxBytes = 40 * 1024 * 1024
+  if (uploaded.size > maxBytes) {
+    return jsonError('La imagen supera el máximo de 40 MB', 413)
+  }
 
   const fileNameHint = uploaded instanceof File ? uploaded.name : 'archivo.png'
   const mime = uploaded.type || ''
@@ -73,12 +80,17 @@ async function handleUpload(request: Request) {
   if (!isImage) return jsonError(`El archivo no es una imagen (${fileNameHint || mime || 'sin tipo'})`, 400)
   const persistKind = kindRaw === 'ambiente' ? 'render' : kindRaw
   const sceneKey = kindRaw === 'ambiente' && light ? { room, finish, light } : null
-  const fileName =
+  const planoVariantRaw = String(form.get('plano_variant') ?? '').trim().toLowerCase()
+  const planoVariant = planoVariantRaw === '2d' || planoVariantRaw === '3d' ? planoVariantRaw : null
+  let fileName =
     kindRaw === 'ambiente'
       ? sceneKey
         ? roomSceneFileName(sceneKey)
         : tourRoomFileName(room)
       : typologyAssetFileName(fileNameHint)
+  if (persistKind === 'plano' && planoVariant && !fileName.startsWith(`${planoVariant}-`)) {
+    fileName = `${planoVariant}-${fileName}`
+  }
   const desktopFileName = isPanoSlot
     ? sceneKey
       ? roomSceneFileName(sceneKey, 8192)
@@ -96,7 +108,7 @@ async function handleUpload(request: Request) {
   }
 
   const pngBuffer = Buffer.from(await uploaded.arrayBuffer())
-  const sharpOpts = { limitInputPixels: 0, sequentialRead: true, failOn: 'none' as const }
+  const sharpOpts = { limitInputPixels: 268_402_689, sequentialRead: true, failOn: 'none' as const }
   let webpBuffer: Buffer = pngBuffer
   let contentType = mime.startsWith('image/') ? mime : 'image/jpeg'
   let desktopBuffer: Buffer | null = null

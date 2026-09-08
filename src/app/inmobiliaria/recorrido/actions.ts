@@ -135,6 +135,7 @@ export async function listTourRecorridosAction(params?: {
   page?: number
   pageSize?: number
   identified?: 'all' | 'yes' | 'no'
+  search?: string
 }): Promise<{ data: TourRecorridoRow[]; total: number; error?: string }> {
   try {
     await assertCanAccessCrmPath('/inmobiliaria/recorrido')
@@ -143,6 +144,18 @@ export async function listTourRecorridosAction(params?: {
     const pageSize = params?.pageSize ?? 15
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
+    const search = params?.search?.replace(/[%(),]/g, '').trim() ?? ''
+
+    let matchedLeadIds: string[] | null = null
+    if (search) {
+      const { data: matchedLeads, error: leadSearchError } = await client
+        .from('leads')
+        .select('id')
+        .eq('tenant_id', TOUR_TENANT_ID)
+        .or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`)
+      if (leadSearchError) throw new Error(leadSearchError.message)
+      matchedLeadIds = (matchedLeads ?? []).map((row) => row.id as string)
+    }
 
     let query = client
       .from('tour_sessions')
@@ -155,6 +168,15 @@ export async function listTourRecorridosAction(params?: {
 
     if (params?.identified === 'yes') query = query.not('lead_id', 'is', null)
     if (params?.identified === 'no') query = query.is('lead_id', null)
+
+    if (search) {
+      const leadClause =
+        matchedLeadIds && matchedLeadIds.length > 0
+          ? `lead_id.in.(${matchedLeadIds.join(',')})`
+          : null
+      const textClause = `city.ilike.%${search}%,country.ilike.%${search}%,utm_source.ilike.%${search}%,landing_path.ilike.%${search}%,salesperson_ref.ilike.%${search}%`
+      query = query.or(leadClause ? `${leadClause},${textClause}` : textClause)
+    }
 
     const { data, error, count } = await query.range(from, to)
     if (error) throw new Error(error.message)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Landmark } from 'lucide-react'
+import { Landmark, Plus } from 'lucide-react'
 import { useShowroom } from '@/hooks/inmobiliaria/useShowroom'
 import { useAuth } from '@/contexts/AuthContext'
 import { listProjects } from '@/services/inmobiliaria.service'
@@ -16,16 +16,54 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Pagination } from '@/components/ui/Pagination'
 import type { Project, ShowroomVisit } from '@/types/inmobiliaria'
-import { Plus } from 'lucide-react'
+
+type DatePreset = 'all' | 'today' | 'yesterday' | '7' | 'month' | 'exact' | 'custom'
+
+function toInputDate(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function shiftDays(d: Date, deltaDays: number) {
+  const next = new Date(d)
+  next.setDate(next.getDate() + deltaDays)
+  return next
+}
+
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1)
+}
 
 export default function ShowroomPage() {
   const { supabase } = useAuth()
-  const { visits, advisors, isLoading, tenantId, filters, updateFilter, reload, page, pageSize, total, search, updateSearch, reset, setPage } = useShowroom()
+  const {
+    visits,
+    advisors,
+    isLoading,
+    tenantId,
+    filters,
+    updateFilter,
+    reload,
+    page,
+    pageSize,
+    total,
+    search,
+    updateSearch,
+    dateFrom,
+    dateTo,
+    updateDateFrom,
+    updateDateTo,
+    reset,
+    setPage,
+  } = useShowroom()
   const [projects, setProjects] = useState<Project[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedVisit, setSelectedVisit] = useState<ShowroomVisit | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [startInEdit, setStartInEdit] = useState(false)
+  const [datePreset, setDatePreset] = useState<DatePreset>('all')
 
   const sourceOptions = [
     { value: 'organica', label: 'Showroom' },
@@ -37,6 +75,43 @@ export default function ShowroomPage() {
     { value: 'proyecto', label: 'Proyecto (histórico)' },
     { value: 'mixto', label: 'Mixto (histórico)' },
   ]
+
+  const applyDatePreset = (preset: DatePreset) => {
+    const now = new Date()
+    if (preset === 'all') {
+      updateDateFrom('')
+      updateDateTo('')
+      return
+    }
+    if (preset === 'today') {
+      const t = toInputDate(now)
+      updateDateFrom(t)
+      updateDateTo(t)
+      return
+    }
+    if (preset === 'yesterday') {
+      const y = toInputDate(shiftDays(now, -1))
+      updateDateFrom(y)
+      updateDateTo(y)
+      return
+    }
+    if (preset === '7') {
+      updateDateFrom(toInputDate(shiftDays(now, -6)))
+      updateDateTo(toInputDate(now))
+      return
+    }
+    if (preset === 'month') {
+      updateDateFrom(toInputDate(startOfMonth(now)))
+      updateDateTo(toInputDate(now))
+      return
+    }
+    if (preset === 'exact') {
+      const t = dateFrom || toInputDate(now)
+      updateDateFrom(t)
+      updateDateTo(t)
+      return
+    }
+  }
 
   useEffect(() => {
     if (tenantId) {
@@ -68,9 +143,64 @@ export default function ShowroomPage() {
         onSearchChange={updateSearch}
         searchPlaceholder="Buscar cliente o nota..."
         resultsTotal={total}
-        hasActiveFilters={Boolean(search || filters.projectId || filters.source || filters.salespersonId)}
-        onReset={reset}
+        hasActiveFilters={Boolean(
+          search || filters.projectId || filters.source || filters.salespersonId || dateFrom || dateTo,
+        )}
+        onReset={() => {
+          reset()
+          setDatePreset('all')
+        }}
       >
+        <Select
+          label="Fecha"
+          options={[
+            { value: 'all', label: 'Todo' },
+            { value: 'today', label: 'Hoy' },
+            { value: 'yesterday', label: 'Ayer' },
+            { value: '7', label: 'Últimos 7 días' },
+            { value: 'month', label: 'Este mes' },
+            { value: 'exact', label: 'Fecha exacta' },
+            { value: 'custom', label: 'Intervalo' },
+          ]}
+          placeholder="Fecha"
+          value={datePreset}
+          onChange={(e) => {
+            const next = e.target.value as DatePreset
+            setDatePreset(next)
+            applyDatePreset(next)
+          }}
+        />
+        {(datePreset === 'exact' || datePreset === 'custom') && (
+          <>
+            <div className="flex min-w-0 w-full flex-col gap-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">
+                {datePreset === 'exact' ? 'Fecha exacta' : 'Desde'}
+              </label>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => {
+                  updateDateFrom(e.target.value)
+                  if (datePreset === 'exact') updateDateTo(e.target.value)
+                }}
+                className="crm-field"
+              />
+            </div>
+            {datePreset === 'custom' && (
+              <div className="flex min-w-0 w-full flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a7e70]">
+                  Hasta
+                </label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => updateDateTo(e.target.value)}
+                  className="crm-field"
+                />
+              </div>
+            )}
+          </>
+        )}
         <Select
           label="Proyecto"
           options={projects.map((p) => ({ value: p.id, label: p.name }))}

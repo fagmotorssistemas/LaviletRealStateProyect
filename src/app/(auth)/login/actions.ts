@@ -1,15 +1,22 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { canAccessPath, homePathForRole, knownRole } from '@/lib/inmobiliaria/roleAccess'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { ACCESS_PENDING_PATH, isAccessPending } from '@/lib/auth/accessPending'
+import { canAccessPath, homePathForRole, knownRole, normalizeCrmPaths } from '@/lib/inmobiliaria/roleAccess'
+import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 
-function safeNextPath(raw: FormDataEntryValue | null, role: string | null) {
+function safeNextPath(
+  raw: FormDataEntryValue | null,
+  role: string | null,
+  crmPaths?: string[] | null,
+  accessPending?: boolean,
+) {
+  if (accessPending) return ACCESS_PENDING_PATH
   const value = String(raw ?? '').trim()
   if (!value.startsWith('/') || value.startsWith('//')) return null
-  if (value.startsWith('/inmobiliaria') && !canAccessPath(role, value)) return null
+  if (value.startsWith('/inmobiliaria') && !canAccessPath(role, value, crmPaths)) return null
+  if (value === ACCESS_PENDING_PATH) return null
   return value
 }
 
@@ -44,11 +51,28 @@ export async function login(_prev: AuthFormState, formData: FormData): Promise<A
     data: { user },
   } = await supabase.auth.getUser()
   let role: string | null = null
+  let crmPaths: string[] | null = null
+  let accessPending = false
   if (user) {
-    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+    accessPending = isAccessPending(user)
+    const paths = normalizeCrmPaths(user.app_metadata?.crm_paths)
+    crmPaths = paths.length > 0 ? paths : null
+    const admin = tryCreateAdminClient()
+    const reader = admin ?? supabase
+    const { data: profile } = await reader
+      .from('profiles')
+      .select('role, is_active')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (profile && profile.is_active === false) {
+      await supabase.auth.signOut()
+      return { error: 'Tu cuenta está desactivada. Contactá al administrador.' }
+    }
+
     role = profile?.role ?? null
-    if (!knownRole(role)) {
-      const { data: adminProfile } = await createAdminClient()
+    if (!knownRole(role) && admin) {
+      const { data: adminProfile } = await admin
         .from('profiles')
         .select('role')
         .eq('id', user.id)
@@ -57,6 +81,8 @@ export async function login(_prev: AuthFormState, formData: FormData): Promise<A
     }
   }
 
-  revalidatePath('/', 'layout')
-  redirect(safeNextPath(formData.get('next'), role) ?? homePathForRole(role))
+  redirect(
+    safeNextPath(formData.get('next'), role, crmPaths, accessPending) ??
+      (accessPending ? ACCESS_PENDING_PATH : homePathForRole(role, crmPaths)),
+  )
 }

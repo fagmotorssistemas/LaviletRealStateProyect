@@ -483,6 +483,14 @@ textarea.crm-field {
   .crm-filters-search {
     grid-column: 1 / -1;
   }
+
+  .crm-filters-compact {
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  }
+
+  .crm-filters-compact .crm-filters-meta {
+    grid-column: 1 / -1;
+  }
 }
 
 @container filters (min-width: 64rem) {
@@ -492,6 +500,10 @@ textarea.crm-field {
 
   .crm-filters-search {
     grid-column: auto;
+  }
+
+  .crm-filters-compact {
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   }
 }
 
@@ -525,9 +537,9 @@ textarea.crm-field {
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: "tnum" 1, "lnum" 1;
   font-size: 1.45rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
-  color: var(--ink-strong);
+  color: #555850;
 }
 
 .crm-tabs {
@@ -773,10 +785,18 @@ textarea.crm-field {
     width: 100%;
     justify-content: stretch;
     margin-left: 0;
+    gap: 0.5rem;
   }
 
   .crm-page-actions > * {
-    flex: 1 1 auto;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  @media (min-width: 420px) {
+    .crm-page-actions > * {
+      flex: 1 1 calc(50% - 0.25rem);
+    }
   }
 
   .crm-ornament {

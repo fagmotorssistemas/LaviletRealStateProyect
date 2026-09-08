@@ -3,6 +3,7 @@
 import { Search, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
+import { cn } from '@/lib/utils'
 
 interface InmobiliariaFiltersToolbarProps {
   showSearch?: boolean
@@ -27,28 +28,32 @@ export function InmobiliariaFiltersToolbar({
 }: InmobiliariaFiltersToolbarProps) {
   const totalText = resultsTotal == null ? null : `${resultsTotal} resultados`
 
+  const meta = (
+    <div className="flex items-center gap-2">
+      {totalText && (
+        <span className="text-[11px] font-medium tabular-nums tracking-wide text-[#6e716b]">
+          {totalText}
+        </span>
+      )}
+      {hasActiveFilters && (
+        <Button variant="ghost" size="sm" onClick={onReset} className="h-6 px-2 text-[11px]">
+          <X size={12} className="mr-1" />
+          Limpiar
+        </Button>
+      )}
+    </div>
+  )
+
   return (
     <div className="crm-filters-panel">
-      <div className="crm-filters">
+      <div className={cn('crm-filters', !showSearch && 'crm-filters-compact')}>
         {showSearch ? (
           <div className="crm-filters-search flex min-w-0 flex-col gap-1.5">
             <div className="flex h-4 items-center justify-between gap-2">
               <label className="text-[10px] font-semibold tracking-[0.22em] text-[#6e716b] uppercase">
                 Buscar
               </label>
-              <div className="flex items-center gap-2">
-                {totalText && (
-                  <span className="text-[11px] font-medium tabular-nums tracking-wide text-[#6e716b]">
-                    {totalText}
-                  </span>
-                )}
-                {hasActiveFilters && (
-                  <Button variant="ghost" size="sm" onClick={onReset} className="h-6 px-2 text-[11px]">
-                    <X size={12} className="mr-1" />
-                    Limpiar
-                  </Button>
-                )}
-              </div>
+              {meta}
             </div>
             <div className="relative min-w-0">
               <div className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#787D62]">
@@ -74,18 +79,11 @@ export function InmobiliariaFiltersToolbar({
             </div>
           </div>
         ) : (
-          <div className="flex h-4 items-center justify-end gap-2">
-            {totalText && (
-              <span className="text-[11px] font-medium tabular-nums tracking-wide text-[#6e716b]">
-                {totalText}
-              </span>
-            )}
-            {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={onReset} className="h-6 px-2 text-[11px]">
-                <X size={12} className="mr-1" />
-                Limpiar
-              </Button>
-            )}
+          <div className="crm-filters-meta flex h-4 items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold tracking-[0.22em] text-[#6e716b] uppercase">
+              Filtros
+            </span>
+            {meta}
           </div>
         )}
 

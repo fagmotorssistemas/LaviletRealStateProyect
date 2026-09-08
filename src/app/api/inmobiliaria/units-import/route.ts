@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSessionProfile } from '@/lib/auth/session'
-import { knownRole } from '@/lib/inmobiliaria/roleAccess'
+import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { listUnitsImport, listUnitsImportFacets } from '@/services/inmobiliaria.service'
 
@@ -28,8 +28,9 @@ export async function GET(request: Request) {
     const session = await getSessionProfile()
     if (!session?.user) return empty('No autenticado', 401)
 
-    const role = knownRole(session.profile.role)
-    if (role === 'visitante') return empty('No tienes acceso a esta sección', 403)
+    if (!canAccessPath(session.profile.role, '/inmobiliaria/inventario', session.profile.crm_paths)) {
+      return empty('No tienes acceso a esta sección', 403)
+    }
 
     const admin = tryCreateAdminClient()
     if (!admin) {

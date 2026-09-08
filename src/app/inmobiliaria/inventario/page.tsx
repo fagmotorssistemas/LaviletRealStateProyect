@@ -82,8 +82,8 @@ export default function InventarioPage() {
         }
         actions={
           canWrite ? (
-            <div className="flex shrink-0 flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setAssetsOpen(true)} className="gap-2">
+            <>
+              <Button type="button" variant="outline" onClick={() => setAssetsOpen(true)} className="w-full justify-center gap-2 sm:w-auto">
                 <ImagePlus size={16} aria-hidden />
                 Imágenes tipología
               </Button>
@@ -91,18 +91,18 @@ export default function InventarioPage() {
                 type="button"
                 variant="outline"
                 onClick={() => setExportOpen(true)}
-                className="gap-2"
+                className="w-full justify-center gap-2 sm:w-auto"
                 disabled={!tenantId}
                 title={!tenantId ? 'Carga un proyecto para exportar' : undefined}
               >
                 <Download size={16} aria-hidden />
                 Exportar
               </Button>
-              <Button onClick={() => setCreateOpen(true)} className="gap-2">
+              <Button onClick={() => setCreateOpen(true)} className="w-full justify-center gap-2 sm:w-auto">
                 <Plus size={16} aria-hidden />
                 Nueva unidad
               </Button>
-            </div>
+            </>
           ) : undefined
         }
       />

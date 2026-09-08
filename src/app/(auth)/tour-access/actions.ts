@@ -57,6 +57,18 @@ async function signInEmailFor(admin: ReturnType<typeof createAdminClient>, profi
   return normalizeEmail(data.user?.email ?? '')
 }
 
+/** El acceso por celular del tour solo aplica a visitantes; nunca resetea cuentas de staff. */
+function rejectStaffTourAccess(profile: ProfileRow): TourAccessResult | null {
+  const role = knownRole(profile.role)
+  if (role && role !== 'visitante') {
+    return {
+      ok: false,
+      error: 'Este celular pertenece a una cuenta interna. Entrá con correo y contraseña en el login.',
+    }
+  }
+  return null
+}
+
 export async function startTourAccessAction(payload: TourAccessPayload): Promise<TourAccessResult> {
   const mode = payload.mode === 'returning' ? 'returning' : 'first'
   const email = normalizeEmail(payload.email ?? '')
@@ -80,6 +92,8 @@ export async function startTourAccessAction(payload: TourAccessPayload): Promise
         error: 'No encontramos una visita con ese celular. Completa el formulario por primera vez.',
       }
     }
+    const blocked = rejectStaffTourAccess(byPhone)
+    if (blocked) return blocked
 
     const signInEmail = await signInEmailFor(admin, byPhone)
     if (!signInEmail) {
@@ -111,21 +125,25 @@ export async function startTourAccessAction(payload: TourAccessPayload): Promise
         error: 'Ese correo o celular ya tiene una visita. Entra solo con tu celular para seguir el showroom.',
       }
     }
-    const { error } = await admin.auth.admin.updateUserById(byEmail.id, {
+    const existing = byEmail ?? byPhone
+    const blocked = rejectStaffTourAccess(existing)
+    if (blocked) return blocked
+
+    const { error } = await admin.auth.admin.updateUserById(existing.id, {
       password,
       email_confirm: true,
       user_metadata: {
-        full_name: name || byEmail.full_name,
+        full_name: name || existing.full_name,
         phone,
         interest,
-        role: knownRole(byEmail.role) ?? 'visitante',
+        role: 'visitante',
       },
     })
     if (error) return { ok: false, error: error.message }
     await admin
       .from('profiles')
-      .update({ full_name: name || byEmail.full_name, phone, email })
-      .eq('id', byEmail.id)
+      .update({ full_name: name || existing.full_name, phone, email, role: 'visitante' })
+      .eq('id', existing.id)
     return { ok: true, email, password }
   }
 
@@ -145,11 +163,17 @@ export async function startTourAccessAction(payload: TourAccessPayload): Promise
     }
     userId = match.id
     const { data: existing } = await admin.from('profiles').select('role').eq('id', userId).maybeSingle()
-    const keptRole = knownRole(existing?.role) ?? 'visitante'
+    const existingRole = knownRole(existing?.role)
+    if (existingRole && existingRole !== 'visitante') {
+      return {
+        ok: false,
+        error: 'Este correo pertenece a una cuenta interna. Entrá con correo y contraseña en el login.',
+      }
+    }
     const { error } = await admin.auth.admin.updateUserById(userId, {
       password,
       email_confirm: true,
-      user_metadata: { full_name: name, phone, interest, role: keptRole },
+      user_metadata: { full_name: name, phone, interest, role: 'visitante' },
     })
     if (error) return { ok: false, error: error.message }
     await admin.from('profiles').upsert(
@@ -158,7 +182,7 @@ export async function startTourAccessAction(payload: TourAccessPayload): Promise
         email,
         full_name: name,
         phone,
-        role: keptRole,
+        role: 'visitante',
         is_active: true,
       },
       { onConflict: 'id' },

@@ -22,6 +22,7 @@ export function LoginForm({ registered, next }: { registered: boolean; next?: st
               width={120}
               height={120}
               className="h-24 w-auto"
+              unoptimized
               preload
             />
           </div>
@@ -34,8 +35,9 @@ export function LoginForm({ registered, next }: { registered: boolean; next?: st
           <div className="mt-2 mb-8 h-px bg-gradient-to-r from-transparent via-[#BDA27E]/40 to-transparent" />
 
           {registered && (
-            <p className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-              Cuenta creada. Revisa tu correo para confirmar e inicia sesión.
+            <p className="mb-4 text-sm text-[#555850] bg-[#f7f3ee] border border-[#2B1A18]/10 rounded-lg px-3 py-2">
+              Cuenta creada. Revisá tu correo y confirmá el enlace. Después iniciá sesión: el
+              administrador te asignará las funciones para entrar al CRM.
             </p>
           )}
 

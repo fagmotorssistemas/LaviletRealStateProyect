@@ -123,7 +123,7 @@ export function ShowroomVisitsTable({ visits, onSelect, onEdit }: ShowroomVisits
                 </td>
                 <td className="px-4 py-4">
                   <span
-                    className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                    className={`inline-flex h-7 w-[9.25rem] shrink-0 items-center justify-center rounded-full border px-2 text-[11px] font-semibold leading-none tracking-wide whitespace-nowrap ${
                       sourceStyles[sourceKey] ?? 'border-slate-200 bg-slate-50 text-slate-600'
                     }`}
                   >
@@ -132,18 +132,18 @@ export function ShowroomVisitsTable({ visits, onSelect, onEdit }: ShowroomVisits
                 </td>
                 <td className="px-4 py-4">
                   {credit === 'aplica' ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                      <CreditCard size={12} />
+                    <span className="inline-flex h-7 w-[9.25rem] shrink-0 items-center justify-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold leading-none text-emerald-700 whitespace-nowrap">
+                      <CreditCard size={12} className="shrink-0" />
                       Aplica
                     </span>
                   ) : credit === 'no' ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                      <CreditCard size={12} />
+                    <span className="inline-flex h-7 w-[9.25rem] shrink-0 items-center justify-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 text-[11px] font-semibold leading-none text-slate-600 whitespace-nowrap">
+                      <CreditCard size={12} className="shrink-0" />
                       No aplica
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-700">
-                      <CreditCard size={12} />
+                    <span className="inline-flex h-7 w-[9.25rem] shrink-0 items-center justify-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 text-[11px] font-semibold leading-none text-orange-700 whitespace-nowrap">
+                      <CreditCard size={12} className="shrink-0" />
                       Pendiente
                     </span>
                   )}

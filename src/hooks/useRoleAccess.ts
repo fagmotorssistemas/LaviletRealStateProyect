@@ -13,6 +13,7 @@ import {
 export function useRoleAccess() {
   const { profile, isLoading } = useAuth()
   const role = normalizeRole(profile?.role)
+  const crmPaths = profile?.crm_paths ?? null
 
   return useMemo(
     () => ({
@@ -21,8 +22,8 @@ export function useRoleAccess() {
       isAdmin: isAdminRole(role),
       canWrite: canWriteCrm(role),
       canManageUsers: canManageUsers(role),
-      canAccess: (pathname: string) => canAccessPath(role, pathname),
+      canAccess: (pathname: string) => canAccessPath(role, pathname, crmPaths),
     }),
-    [role, isLoading],
+    [role, crmPaths, isLoading],
   )
 }

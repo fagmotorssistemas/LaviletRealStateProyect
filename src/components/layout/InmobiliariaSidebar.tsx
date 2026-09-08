@@ -22,9 +22,10 @@ export function InmobiliariaSidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const role = knownRole(profile?.role)
-  const visibleModules = modulesForRole(role)
+  const crmPaths = profile?.crm_paths ?? null
+  const visibleModules = modulesForRole(role, crmPaths)
   const activeModule = moduleFromPath(pathname)
-  const menuItems = itemsForModule(activeModule, role)
+  const menuItems = itemsForModule(activeModule, role, crmPaths)
 
   useEffect(() => {
     setMobileOpen(false)

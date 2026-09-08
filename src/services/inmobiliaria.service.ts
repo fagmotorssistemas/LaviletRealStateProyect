@@ -1002,6 +1002,8 @@ interface ListLeadsParams {
   search?: string
   assignedTo?: string
   financing?: boolean
+  dateFrom?: string
+  dateTo?: string
   page?: number
   pageSize?: number
   /** Reservado: el listado muestra todos los leads del tenant. */
@@ -1028,6 +1030,8 @@ export async function listLeads(supabase: SupabaseClient, params: ListLeadsParam
   if (params.temperature) query = query.eq('temperature', params.temperature)
   if (params.financing === true) query = query.eq('financing', true)
   if (params.financing === false) query = query.eq('financing', false)
+  if (params.dateFrom) query = query.gte('created_at', params.dateFrom)
+  if (params.dateTo) query = query.lte('created_at', params.dateTo)
   if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`)
 
   const { data, error, count } = await query.range(from, to)
@@ -1348,6 +1352,8 @@ interface ListShowroomParams {
   pageSize?: number
   search?: string
   source?: ShowroomVisitSource
+  dateFrom?: string
+  dateTo?: string
   scope?: DataAccessScope | null
 }
 
@@ -1405,6 +1411,8 @@ export async function listShowroomVisits(supabase: SupabaseClient, params: ListS
   if (params.projectId) query = query.eq('project_id', params.projectId)
   if (params.salespersonId) query = query.eq('salesperson_id', params.salespersonId)
   if (params.source) query = query.eq('source', params.source)
+  if (params.dateFrom) query = query.gte('visit_start', params.dateFrom)
+  if (params.dateTo) query = query.lte('visit_start', params.dateTo)
   if (params.search) {
     const q = params.search.trim()
     if (q) query = query.or(`client_name.ilike.%${q}%,notes.ilike.%${q}%,phone.ilike.%${q}%`)
@@ -1420,6 +1428,12 @@ export async function listShowroomVisits(supabase: SupabaseClient, params: ListS
     if (params.projectId) fallback = fallback.eq('project_id', params.projectId)
     if (params.salespersonId) fallback = fallback.eq('salesperson_id', params.salespersonId)
     if (params.source) fallback = fallback.eq('source', params.source)
+    if (params.dateFrom) fallback = fallback.gte('visit_start', params.dateFrom)
+    if (params.dateTo) fallback = fallback.lte('visit_start', params.dateTo)
+    if (params.search) {
+      const q = params.search.trim()
+      if (q) fallback = fallback.or(`client_name.ilike.%${q}%,notes.ilike.%${q}%,phone.ilike.%${q}%`)
+    }
     const retry = await fallback.range(from, to)
     if (retry.error) throw retry.error
     data = retry.data

@@ -7,6 +7,7 @@ import type { UnitSalesClosing } from '@/types/inmobiliaria'
 
 interface SalesClosingsTableProps {
   closings: UnitSalesClosing[]
+  amountsVisible?: boolean
 }
 
 function discountLabel(row: UnitSalesClosing): { text: string; className: string } | null {
@@ -26,7 +27,9 @@ function discountLabel(row: UnitSalesClosing): { text: string; className: string
   }
 }
 
-export function SalesClosingsTable({ closings }: SalesClosingsTableProps) {
+export function SalesClosingsTable({ closings, amountsVisible = true }: SalesClosingsTableProps) {
+  const masked = !amountsVisible
+
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
       <table className="w-full text-sm">
@@ -63,17 +66,24 @@ export function SalesClosingsTable({ closings }: SalesClosingsTableProps) {
                 </td>
                 <td className="px-4 py-3 text-right">
                   {row.published_price_snapshot != null ? (
-                    <PriceText value={row.published_price_snapshot} size="sm" className="font-normal text-slate-500" />
+                    <PriceText
+                      value={row.published_price_snapshot}
+                      size="sm"
+                      masked={masked}
+                      className="font-normal text-slate-500"
+                    />
                   ) : (
                     <span className="text-slate-400">—</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <PriceText value={row.sale_price_final} size="sm" />
+                  <PriceText value={row.sale_price_final} size="sm" masked={masked} />
                 </td>
                 <td className="px-4 py-3 text-right">
                   {discount ? (
-                    <span className={`text-xs font-medium ${discount.className}`}>{discount.text}</span>
+                    <span className={`text-xs font-normal ${discount.className}`}>
+                      {masked ? '***%' : discount.text}
+                    </span>
                   ) : (
                     <span className="text-slate-400">—</span>
                   )}

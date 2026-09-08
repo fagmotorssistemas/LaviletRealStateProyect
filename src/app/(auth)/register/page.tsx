@@ -24,6 +24,7 @@ export default function RegisterPage() {
               width={120}
               height={120}
               className="h-24 w-auto"
+              unoptimized
               preload
             />
           </div>
