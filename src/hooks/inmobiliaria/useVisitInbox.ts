@@ -45,7 +45,14 @@ export function useVisitInbox() {
     const interval = window.setInterval(() => {
       void reload()
     }, POLL_MS)
-    return () => window.clearInterval(interval)
+    const refresh = () => { void reload() }
+    window.addEventListener('visit-inbox-updated', refresh)
+    window.addEventListener('focus', refresh)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('visit-inbox-updated', refresh)
+      window.removeEventListener('focus', refresh)
+    }
   }, [reload])
 
   useEffect(() => {

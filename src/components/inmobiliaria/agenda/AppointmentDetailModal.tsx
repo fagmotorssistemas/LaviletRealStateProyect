@@ -66,7 +66,7 @@ function visitFromAppointment(detail: AppointmentWithUnits): AgendaVisitFieldVal
 }
 
 interface AppointmentDetailModalProps {
-  appointment: Appointment | null
+  appointment: Pick<Appointment, 'id' | 'title'> | null
   isOpen: boolean
   onClose: () => void
   tenantId: string
@@ -161,6 +161,7 @@ export function AppointmentDetailModal({
   const refreshAfter = async (message: string) => {
     if (!appointment?.id) return
     toast.success(message)
+    window.dispatchEvent(new Event('visit-inbox-updated'))
     onAppointmentUpdated?.()
     const next = await loadDetail(appointment.id)
     if (next) setPanel('view')
@@ -716,5 +717,8 @@ export function AppointmentDetailModal({
     </Modal>
   )
 }
+
+
+
 
 
