@@ -1,5 +1,9 @@
 import { SITE } from '@/lib/marketing/site'
 
+/** Mensaje desde el plano de pisos (showroom embebido). */
+export const FLOOR_PLAN_WHATSAPP_MESSAGE =
+  'Hola! Estuve viendo el emprendimiento Pocito desde el Showroom Virtual y me gustaría conversar con un asesor comercial'
+
 export function buildTourWhatsAppMessage(args: {
   typologyCode: string
   roomLabel: string

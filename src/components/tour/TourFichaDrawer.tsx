@@ -42,6 +42,7 @@ type TourFichaDrawerProps = {
   onVerFicha?: (unit: TourUnitSummary) => void
   onTour360?: (unit: TourUnitSummary) => void
   onRequestInfo?: (unit: TourUnitSummary) => void
+  onBack?: () => void
   onSelectGalleryImage?: (index: number) => void
 }
 
@@ -91,14 +92,14 @@ function SpecRow({
   value: string
 }) {
   return (
-    <div className="flex items-center gap-2.5 border-b border-[#eceff3] py-2 last:border-b-0">
+    <div className="flex items-center gap-2 border-b border-[#eceff3] py-1.5 last:border-b-0">
       {icon ? (
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center text-[#6b7280]">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#6b7280]">
           {icon}
         </span>
       ) : null}
-      <p className="min-w-0 flex-1 text-[13px] text-[#4b5563]">{label}</p>
-      <p className="max-w-[55%] shrink-0 text-right text-[13px] font-semibold text-[#1a2744] tabular-nums">
+      <p className="min-w-0 flex-1 text-[12px] text-[#4b5563]">{label}</p>
+      <p className="max-w-[55%] shrink-0 text-right text-[12px] font-semibold text-[#1a2744] tabular-nums">
         {value}
       </p>
     </div>
@@ -136,6 +137,7 @@ export function TourFichaDrawer({
   onVerFicha,
   onTour360,
   onRequestInfo,
+  onBack,
   onSelectGalleryImage,
 }: TourFichaDrawerProps) {
   const reduceMotion = useReducedMotion()
@@ -268,16 +270,25 @@ export function TourFichaDrawer({
 
   const onShare = async () => {
     if (!unit) return
-    const text = `${typologyCode} · Unidad ${unit.unit_number} · ${formatPrice(unit.published_commercial_price)}`
+    const { buildUnitShareUrl } = await import('@/lib/tour/unitDeepLink')
+    const url = buildUnitShareUrl(unit.unit_number)
+    const title = `La Vilet · Unidad ${unit.unit_number}`
     try {
-      if (navigator.share) {
-        await navigator.share({ title: `La Vilet · Unidad ${unit.unit_number}`, text, url: window.location.href })
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share({ title, url, text: url })
         return
       }
-      await navigator.clipboard.writeText(`${text}\n${window.location.href}`)
-      toast.success('Enlace copiado')
-    } catch {
-      // usuario canceló share
+      await navigator.clipboard.writeText(url)
+      toast.success(`Enlace de la unidad ${unit.unit_number} copiado`)
+    } catch (error) {
+      // Cancelar share no es error; si clipboard falla, avisar.
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      try {
+        await navigator.clipboard.writeText(url)
+        toast.success(`Enlace de la unidad ${unit.unit_number} copiado`)
+      } catch {
+        toast.error('No se pudo copiar el enlace')
+      }
     }
   }
 
@@ -308,8 +319,12 @@ export function TourFichaDrawer({
                 ? 'w-[min(100%-1.25rem,22.5rem)]'
                 : 'w-[min(100%-1.25rem,21rem)]',
               contained
-                ? 'absolute top-3 bottom-3 left-3 max-h-[calc(100%-1.5rem)] sm:top-4 sm:bottom-4 sm:left-4'
-                : 'fixed top-3 bottom-3 left-3 max-h-[calc(100dvh-1.5rem)] sm:top-5 sm:bottom-5 sm:left-5',
+                ? expanded
+                  ? 'absolute top-3 bottom-3 left-3 max-h-[calc(100%-1.5rem)] sm:top-4 sm:bottom-4 sm:left-4'
+                  : 'absolute top-3 left-3 max-h-[calc(100%-1.5rem)] sm:top-4 sm:left-4'
+                : expanded
+                  ? 'fixed top-3 bottom-3 left-3 max-h-[calc(100dvh-1.5rem)] sm:top-5 sm:bottom-5 sm:left-5'
+                  : 'fixed top-3 left-3 max-h-[calc(100dvh-1.5rem)] sm:top-5 sm:left-5',
             )}
             initial={reduceMotion ? false : { x: -28, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
@@ -319,7 +334,9 @@ export function TourFichaDrawer({
             <div
               className={cn(
                 'relative shrink-0 bg-[#dfe3ea]',
-                expanded ? 'aspect-[16/10] max-h-[32%] min-h-[7.5rem]' : 'aspect-[16/9] max-h-[38%] min-h-[8.5rem]',
+                expanded
+                  ? 'aspect-[16/10] max-h-[32%] min-h-[7.5rem]'
+                  : 'aspect-[16/10] max-h-[11rem] min-h-[7rem]',
               )}
             >
               {displayUrl ? (
@@ -346,6 +363,18 @@ export function TourFichaDrawer({
               >
                 <X size={16} strokeWidth={2.25} />
               </button>
+
+              {onBack ? (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="absolute top-2.5 left-2.5 z-10 flex h-8 items-center gap-1 rounded-full bg-white px-2.5 text-[11px] font-semibold tracking-[0.08em] text-[#1a2744] uppercase shadow-md"
+                  aria-label="Volver"
+                >
+                  <ChevronLeft size={16} strokeWidth={2.25} />
+                  Volver
+                </button>
+              ) : null}
 
               {carousel.length > 1 ? (
                 <>
@@ -388,7 +417,12 @@ export function TourFichaDrawer({
                 Todavía no hay unidades publicadas para esta tipología.
               </div>
             ) : unit ? (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div
+                className={cn(
+                  'flex min-h-0 flex-col overflow-hidden',
+                  expanded ? 'flex-1' : 'shrink-0',
+                )}
+              >
                 {sorted.length > 1 ? (
                   <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-[#eceff3] px-3 py-1.5">
                     {sorted.map((item) => {
@@ -412,9 +446,14 @@ export function TourFichaDrawer({
                   </div>
                 ) : null}
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-2">
+                <div
+                  className={cn(
+                    'overflow-y-auto px-4 pt-2.5 pb-1.5',
+                    expanded ? 'min-h-0 flex-1' : 'shrink-0',
+                  )}
+                >
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-[1.25rem] leading-none font-bold tracking-tight text-[#1a2744]">
+                    <h2 className="text-[1.15rem] leading-none font-bold tracking-tight text-[#1a2744]">
                       Unidad {unit.unit_number}
                     </h2>
                     <span
@@ -432,11 +471,11 @@ export function TourFichaDrawer({
                       {typologyName ? ` · ${typologyName}` : ''}
                     </p>
                   ) : null}
-                  <p className="mt-1.5 text-[1.35rem] font-bold tracking-tight text-[#1a2744] tabular-nums">
+                  <p className="mt-1 text-[1.2rem] font-bold tracking-tight text-[#1a2744] tabular-nums">
                     {formatPrice(unit.published_commercial_price)}
                   </p>
 
-                  {onRequestInfo ? (
+                  {onRequestInfo && expanded ? (
                     <button
                       type="button"
                       onClick={() => onRequestInfo(unit)}
@@ -453,7 +492,7 @@ export function TourFichaDrawer({
                     </p>
                   ) : null}
 
-                  <div className={expanded ? 'mt-0' : 'mt-1'}>
+                  <div className={expanded ? 'mt-0' : 'mt-0.5'}>
                     {displayRows.map((row) => (
                       <SpecRow
                         key={row.label}
@@ -533,13 +572,13 @@ export function TourFichaDrawer({
                     </button>
                   </div>
                 ) : (
-                  <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-[#eceff3] p-3">
+                  <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-[#eceff3] px-3 py-2.5">
                     <button
                       type="button"
                       onClick={() => {
                         if (onVerFicha) onVerFicha(unit)
                       }}
-                      className="tour-glass flex h-10 items-center justify-center rounded-full border border-[#2B1A18]/15 !bg-[#14110e] text-[11px] font-semibold tracking-[0.1em] text-white uppercase"
+                      className="tour-glass flex h-9 items-center justify-center rounded-full border border-[#2B1A18]/15 !bg-[#14110e] text-[11px] font-semibold tracking-[0.1em] text-white uppercase"
                     >
                       Ver Ficha
                     </button>
@@ -549,7 +588,7 @@ export function TourFichaDrawer({
                         onTour360?.(unit)
                         onClose()
                       }}
-                      className="tour-glass flex h-10 items-center justify-center gap-1.5 rounded-full border border-[#2B1A18]/12 !bg-white text-[11px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase"
+                      className="tour-glass flex h-9 items-center justify-center gap-1.5 rounded-full border border-[#2B1A18]/12 !bg-white text-[11px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase"
                     >
                       <Rotate3d size={15} strokeWidth={1.75} />
                       Tour 360°

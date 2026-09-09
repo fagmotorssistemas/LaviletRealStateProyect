@@ -10,10 +10,17 @@ export const metadata: Metadata = {
     'Departamentos y locales comerciales. Agenda una visita al showroom y recibe asesoría hasta la entrega.',
 }
 
-export default function InicioPage() {
+export default async function InicioPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ unidad?: string }>
+}) {
+  const params = await searchParams
+  const unitDeepLink = Boolean(params.unidad?.trim())
+
   return (
     <MarketingShell>
-      <FullLanding />
+      <FullLanding unitDeepLink={unitDeepLink} />
     </MarketingShell>
   )
 }

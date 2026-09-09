@@ -14,7 +14,6 @@ import {
   FileText,
   Images,
   Layers,
-  Map,
   Bookmark,
   PanelsTopLeft,
   Rotate3d,
@@ -29,6 +28,8 @@ import { TourFinishCompareOverlay } from '@/components/tour/TourFinishCompareOve
 import type { ComparePanoPose } from '@/components/tour/CompareSidePano'
 import { TourSaveUnitModal } from '@/components/tour/TourSaveUnitModal'
 import { TourTerminacionesPanel } from '@/components/tour/TourTerminacionesPanel'
+import { TourInfoRequestModal } from '@/components/tour/TourInfoRequestModal'
+import { TourFloorLocationPeek } from '@/components/tour/TourFloorLocationPeek'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import {
@@ -56,6 +57,12 @@ import {
 import { useTourSceneTracking } from '@/hooks/useTourSceneTracking'
 import { TourLeadGate } from '@/components/tour/TourLeadGate'
 import { logTourEvent } from '@/lib/tour/visitorTracking'
+import {
+  findUnitByNumber,
+  readUnitQueryParam,
+  writeUnitQueryParam,
+} from '@/lib/tour/unitDeepLink'
+import { unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import type {
   TourLightMode,
   TourPlacedHotspot,
@@ -620,10 +627,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
-  const [fichaOpen, setFichaOpen] = useState(false)
-  const [fichaExpanded, setFichaExpanded] = useState(false)
+  const [fichaOpen, setFichaOpen] = useState(() => Boolean(readUnitQueryParam()))
+  const [fichaExpanded, setFichaExpanded] = useState(() => Boolean(readUnitQueryParam()))
   const [saveUnitOpen, setSaveUnitOpen] = useState(false)
-  const [shellMode, setShellMode] = useState<'plan' | 'unit'>(embedded ? 'plan' : 'unit')
+  const [infoRequestOpen, setInfoRequestOpen] = useState(false)
+  const [shellMode, setShellMode] = useState<'plan' | 'unit'>(() => {
+    if (readUnitQueryParam()) return 'unit'
+    return embedded ? 'plan' : 'unit'
+  })
   const [planFloor, setPlanFloor] = useState(1)
   const [terminacionesFocus, setTerminacionesFocus] = useState(false)
   const [finishCompareOpen, setFinishCompareOpen] = useState(false)
@@ -638,7 +649,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [compareSplit, setCompareSplit] = useState(50)
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const [gyroHint, setGyroHint] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<TourViewMode>('tour')
+  const [viewMode, setViewMode] = useState<TourViewMode>(() =>
+    readUnitQueryParam() ? 'galeria' : 'tour',
+  )
   const [vistaIndex, setVistaIndex] = useState(0)
   const [galeriaIndex, setGaleriaIndex] = useState(0)
   const [planoIndex, setPlanoIndex] = useState(0)
@@ -985,6 +998,34 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     () => allUnits.find((item) => item.id === selectedUnitId) ?? null,
     [allUnits, selectedUnitId],
   )
+
+  const deepLinkAppliedRef = useRef(false)
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || allUnits.length === 0) return
+    const code = readUnitQueryParam()
+    if (!code) {
+      deepLinkAppliedRef.current = true
+      return
+    }
+    const match = findUnitByNumber(allUnits, code)
+    if (!match) return
+    deepLinkAppliedRef.current = true
+    setSelectedUnitId(match.id)
+    if (match.typology_code) setSelectedTypology(match.typology_code)
+    const floor = unitFloorNumber(match)
+    if (floor) setPlanFloor(floor)
+    setShellMode('unit')
+    setViewMode('galeria')
+    setGaleriaIndex(0)
+    setFichaExpanded(true)
+    setFichaOpen(true)
+    writeUnitQueryParam(match.unit_number)
+  }, [allUnits])
+
+  useEffect(() => {
+    if (!selectedUnit) return
+    writeUnitQueryParam(selectedUnit.unit_number)
+  }, [selectedUnit])
 
   const compareUnitB = useMemo(
     () => allUnits.find((item) => item.id === compareUnitBId) ?? null,
@@ -2013,6 +2054,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
             setFichaExpanded(false)
             setFichaOpen(true)
+            writeUnitQueryParam(unit.unit_number)
+          }}
+          onWhatsAppClick={() => {
+            logTourEvent({
+              event_type: 'whatsapp_interest',
+              room: `piso-${planFloor}`,
+              typology_code: selectedTypology,
+              unit_type_id: currentTypology?.id,
+            })
           }}
         />
       ) : null}
@@ -2025,18 +2075,20 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         )}
       >
         <div className="pointer-events-auto absolute top-0 left-0 flex flex-col items-start gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:gap-2.5 sm:p-3.5">
-          {embedded ? (
+          {embedded && showUnitChrome ? (
             <button
               type="button"
               onClick={() => {
                 setShellMode('plan')
                 setFichaOpen(false)
                 setTerminacionesFocus(false)
+                setCompareOpen(false)
+                setFinishCompareOpen(false)
               }}
               className="tour-glass inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:px-3 sm:py-2 sm:text-[11px]"
             >
-              <Map size={13} strokeWidth={1.75} />
-              Plano
+              <Layers size={13} strokeWidth={1.75} />
+              Volver a los pisos
             </button>
           ) : null}
           {showUnitChrome && !isComparador && !terminacionesUiOpen ? (
@@ -2274,6 +2326,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               <WhatsAppIcon size={16} />
             </a>
           ) : null}
+          {selectedUnit ? (
+            <TourFloorLocationPeek unit={selectedUnit} units={allUnits} />
+          ) : null}
         </div>
       ) : null}
 
@@ -2312,12 +2367,17 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           onVerFicha={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            const floor = unitFloorNumber(unit)
+            if (floor) setPlanFloor(floor)
             setTerminacionesFocus(false)
             setCompareOpen(false)
+            setFinishCompareOpen(false)
+            setShellMode('unit')
             setViewMode('galeria')
             setGaleriaIndex(0)
             setFichaExpanded(true)
             setFichaOpen(true)
+            writeUnitQueryParam(unit.unit_number)
           }}
           onTour360={(unit) => {
             setSelectedUnitId(unit.id)
@@ -2326,33 +2386,39 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setShellMode('unit')
             setViewMode('tour')
             setRoom(homeSlug)
+            writeUnitQueryParam(unit.unit_number)
           }}
           onSelectGalleryImage={(index) => {
             if (viewMode === 'galeria') setGaleriaIndex(index)
           }}
-          onRequestInfo={
-            SITE.whatsapp
-              ? (unit) => {
-                  logTourEvent({
-                    event_type: 'whatsapp_interest',
-                    room,
-                    typology_code: selectedTypology,
-                    unit_type_id: currentTypology?.id,
-                  })
-                  const href = tourWhatsAppHref(
-                    buildTourWhatsAppMessage({
-                      typologyCode: selectedTypology,
-                      roomLabel: roomName,
-                      viewMode: 'tour',
-                      unitNumber: unit.unit_number,
-                    }),
-                  )
-                  if (href) window.open(href, '_blank', 'noopener,noreferrer')
-                }
-              : undefined
-          }
+          onBack={() => {
+            setFichaOpen(false)
+            setFichaExpanded(false)
+            setShellMode('plan')
+            setViewMode('tour')
+          }}
+          onRequestInfo={(unit) => {
+            setSelectedUnitId(unit.id)
+            if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            setInfoRequestOpen(true)
+          }}
         />
       ) : null}
+
+      <TourInfoRequestModal
+        open={infoRequestOpen && !immersive}
+        contained={embedded && !immersive}
+        onClose={() => setInfoRequestOpen(false)}
+        onIdentified={() => tracking.markIdentified()}
+        typologyCode={selectedTypology}
+        typologyName={currentTypology?.name}
+        unitNumber={selectedUnit?.unit_number}
+        unitId={selectedUnit?.id}
+        unitTypeId={currentTypology?.id}
+        floorLabel={selectedUnit?.floor}
+        finish={finish}
+        light={light}
+      />
 
       <TourLeadGate
         open={gateOpen}
