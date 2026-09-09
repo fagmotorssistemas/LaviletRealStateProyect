@@ -10,10 +10,7 @@ import {
   BarChart3,
   Compass,
   Activity,
-<<<<<<< Updated upstream
   ScanLine,
-=======
->>>>>>> Stashed changes
   type LucideIcon,
 } from 'lucide-react'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'

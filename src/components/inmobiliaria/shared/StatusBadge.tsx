@@ -25,7 +25,6 @@ const leadStatusColors: Record<string, string> = {
 }
 
 const appointmentStatusColors: Record<string, string> = {
-  solicitada: 'border-[#8b917c] bg-[#e2e4dc] text-[#5c6156]',
   pendiente: 'border-[#8b917c] bg-[#e2e4dc] text-[#5c6156]',
   solicitada: 'border-[#8b917c] bg-[#e8e9e3] text-[#3a3d36]',
   aceptado: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
@@ -60,19 +59,6 @@ const leadTemperatureLabels: Record<string, string> = {
   caliente: 'Caliente',
 }
 
-<<<<<<< Updated upstream
-type BadgeType =
-  | 'unit'
-  | 'lead'
-  | 'appointment'
-  | 'contract'
-  | 'financing'
-  | 'temperature'
-  | 'stage'
-  | 'handoff'
-  | 'bot'
-  | 'sla'
-=======
 const stageColors: Record<string, string> = {
   lanzamiento: 'border-[#8b917c] bg-[#e8e9e3] text-[#3a3d36]',
   precalificacion: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
@@ -130,7 +116,6 @@ const handoffLabels: Record<string, string> = {
 }
 
 type BadgeType = 'unit' | 'lead' | 'appointment' | 'contract' | 'financing' | 'temperature' | 'stage' | 'sla' | 'bot' | 'handoff'
->>>>>>> Stashed changes
 
 const colorMaps: Record<BadgeType, Record<string, string>> = {
   unit: unitStatusColors,
@@ -139,21 +124,10 @@ const colorMaps: Record<BadgeType, Record<string, string>> = {
   contract: contractStatusColors,
   financing: financingStatusColors,
   temperature: leadTemperatureColors,
-<<<<<<< Updated upstream
-
-  stage: {},
-  handoff: {},
-  bot: {
-    activo: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
-    desactivado: 'border-[#c5c8bc] bg-[#e8e9e3] text-[#7a7e70]',
-  },
-  sla: {},
-=======
   stage: stageColors,
   sla: slaColors,
   bot: botColors,
   handoff: handoffColors,
->>>>>>> Stashed changes
 }
 
 interface StatusBadgeProps {
