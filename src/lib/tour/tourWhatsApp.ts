@@ -3,7 +3,7 @@ import { SITE } from '@/lib/marketing/site'
 export function buildTourWhatsAppMessage(args: {
   typologyCode: string
   roomLabel: string
-  viewMode: 'tour' | 'vistas' | 'planos-2d' | 'planos-3d'
+  viewMode: 'tour' | 'vistas' | 'galeria' | 'planos-2d' | 'planos-3d'
   unitNumber?: string
 }): string {
   const typology = args.typologyCode.trim() || 'esta tipología'
@@ -27,11 +27,12 @@ export function buildTourWhatsAppMessage(args: {
     ].join(' ')
   }
 
-  if (args.viewMode === 'vistas') {
+  if (args.viewMode === 'vistas' || args.viewMode === 'galeria') {
+    const kind = args.viewMode === 'galeria' ? 'la galería' : 'una vista'
     return [
       `Hola, estoy en el showroom 360° de ${SITE.name}.`,
       `Me interesa el departamento ${typology}.`,
-      `Estoy viendo una vista (${room}) y me llamó la atención.`,
+      `Estoy viendo ${kind} (${room}) y me llamó la atención.`,
       '¿Me pueden dar más información?',
     ].join(' ')
   }
