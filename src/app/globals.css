@@ -354,6 +354,36 @@ textarea.crm-field {
   display: none;
 }
 
+@keyframes appointment-notice-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes appointment-notice-ring {
+  0%, 24%, 100% { transform: rotate(0); }
+  4%, 12% { transform: rotate(16deg); }
+  8%, 16% { transform: rotate(-16deg); }
+  20% { transform: rotate(8deg); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .appointment-notice {
+    animation: appointment-notice-float 2.8s ease-in-out infinite;
+  }
+
+  .appointment-notice-bell {
+    transform-origin: top center;
+    animation: appointment-notice-ring 3.5s ease-in-out infinite;
+  }
+
+  .appointment-notice:hover,
+  .appointment-notice:focus-visible,
+  .appointment-notice:hover .appointment-notice-bell,
+  .appointment-notice:focus-visible .appointment-notice-bell {
+    animation-play-state: paused;
+  }
+}
+
 .crm-app table {
   border-collapse: collapse;
 }

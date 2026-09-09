@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "tour:resize": "node scripts/tour-resize.mjs",
+    "test:integrations": "node --test scripts/integrations.test.cjs",
+    "automation:tick": "node scripts/automation-cron.mjs",
+    "automation:watch": "node scripts/automation-cron.mjs --watch",
     "test:automation": "node --experimental-strip-types --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts"
   },
   "dependencies": {
