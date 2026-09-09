@@ -59,17 +59,63 @@ const leadTemperatureLabels: Record<string, string> = {
   caliente: 'Caliente',
 }
 
-type BadgeType =
-  | 'unit'
-  | 'lead'
-  | 'appointment'
-  | 'contract'
-  | 'financing'
-  | 'temperature'
-  | 'stage'
-  | 'handoff'
-  | 'bot'
-  | 'sla'
+const stageColors: Record<string, string> = {
+  lanzamiento: 'border-[#8b917c] bg-[#e8e9e3] text-[#3a3d36]',
+  precalificacion: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
+  nutricion: 'border-[#8b917c] bg-[#e2e4dc] text-[#5c6156]',
+  preventa: 'border-[#BDA27E]/50 bg-[#f7f3ee] text-[#7a6548]',
+  reserva_venta: 'border-[#2B1A18] bg-[#2B1A18] text-[#f7f3ee]',
+}
+
+const slaColors: Record<string, string> = {
+  no_aplica: 'border-[#c5c8bc] bg-[#f4f4ef] text-[#7a7e70]',
+  pendiente: 'border-[#e07a5f]/40 bg-[#fdeee8] text-[#c45c3e]',
+  vencido: 'border-[#c45c4a]/45 bg-[#f8e6e4] text-[#b42318]',
+  respondido: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
+}
+
+const botColors: Record<string, string> = {
+  activo: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
+  desactivado: 'border-[#c5c8bc] bg-[#e8e9e3] text-[#7a7e70]',
+}
+
+const handoffColors: Record<string, string> = {
+  none: 'border-[#c5c8bc] bg-[#f4f4ef] text-[#7a7e70]',
+  queued: 'border-[#e07a5f]/40 bg-[#fdeee8] text-[#c45c3e]',
+  assigned: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
+  acknowledged: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
+  resolved: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
+}
+
+const stageLabels: Record<string, string> = {
+  lanzamiento: 'Lanzamiento',
+  precalificacion: 'Precalificación',
+  nutricion: 'Nutrición',
+  preventa: 'Preventa',
+  reserva_venta: 'Reserva / venta',
+}
+
+const slaLabels: Record<string, string> = {
+  no_aplica: 'No aplica',
+  pendiente: 'Pendiente',
+  vencido: 'Vencido',
+  respondido: 'Respondido',
+}
+
+const botLabels: Record<string, string> = {
+  activo: 'Bot activo',
+  desactivado: 'Bot desactivado',
+}
+
+const handoffLabels: Record<string, string> = {
+  none: 'Sin traspaso',
+  queued: 'En cola',
+  assigned: 'Asignado',
+  acknowledged: 'Reconocido',
+  resolved: 'Resuelto',
+}
+
+type BadgeType = 'unit' | 'lead' | 'appointment' | 'contract' | 'financing' | 'temperature' | 'stage' | 'sla' | 'bot' | 'handoff'
 
 const colorMaps: Record<BadgeType, Record<string, string>> = {
   unit: unitStatusColors,
@@ -78,14 +124,10 @@ const colorMaps: Record<BadgeType, Record<string, string>> = {
   contract: contractStatusColors,
   financing: financingStatusColors,
   temperature: leadTemperatureColors,
-
-  stage: {},
-  handoff: {},
-  bot: {
-    activo: 'border-[#8aa090] bg-[#e8eee8] text-[#4d5c50]',
-    desactivado: 'border-[#c5c8bc] bg-[#e8e9e3] text-[#7a7e70]',
-  },
-  sla: {},
+  stage: stageColors,
+  sla: slaColors,
+  bot: botColors,
+  handoff: handoffColors,
 }
 
 interface StatusBadgeProps {
@@ -96,8 +138,14 @@ interface StatusBadgeProps {
 
 export function StatusBadge({ status, type, className }: StatusBadgeProps) {
   const colors = colorMaps[type]?.[status] ?? 'border-[#c5c8bc] bg-[#f4f4ef] text-[#5c6156]'
-  const label =
-    type === 'temperature' ? (leadTemperatureLabels[status] ?? status) : status.replace(/_/g, ' ')
+  const extraLabels: Partial<Record<BadgeType, Record<string, string>>> = {
+    temperature: leadTemperatureLabels,
+    stage: stageLabels,
+    sla: slaLabels,
+    bot: botLabels,
+    handoff: handoffLabels,
+  }
+  const label = extraLabels[type]?.[status] ?? status.replace(/_/g, ' ')
   const isTemperature = type === 'temperature'
 
   return (

@@ -147,9 +147,9 @@ function conversationHarness(options = {}) {
         return {}
       },
     },
-    './ai': { activePrompt: async name => name, draftReply: async () => 'Hola, ¿en qué puedo ayudarle?', mediaText: async event => event.text,
+    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ?En qu? podemos ayudarle?' : name, draftReply: async () => 'Hola, ¿en qué puedo ayudarle?', mediaText: async event => event.text,
       aiJson: async prompt => prompt === 'extractor_eventos' ? { events: [], opt_out: options.optOut === true }
-        : prompt.startsWith('Revise la respuesta') ? { aprobada: true } : {} },
+        : prompt === 'revisor_respuesta' ? { aprobada: true } : {} },
     './kommo': {
       getKommoLead: async () => ({ id: 123, _embedded: { contacts: [{ id: 456 }] } }),
       getKommoContact: async () => ({ id: 456, custom_fields_values: [{ field_code: 'PHONE', values: [{ value: '+593000000000' }] }] }),
@@ -188,3 +188,11 @@ test('a failed conversation send is not recorded as accepted', async t => {
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
   assert.equal(h.calls.filter(c => c.name === 'register_outbound_message').length, 0)
 })
+
+test('isolated greeting uses editable welcome without scoring or financing', async t => {
+  live(t); const h = conversationHarness();
+  await h.process([h.rows[0]], async () => {});
+  assert.equal(h.calls.filter(c => c.name === 'apply_lead_events').length, 0);
+  assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length, 0);
+  assert.ok(JSON.stringify(h.calls.find(c => c.name === 'patch')).includes('bienvenido a La Vilet'));
+});

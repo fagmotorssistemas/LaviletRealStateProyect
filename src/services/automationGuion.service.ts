@@ -24,13 +24,15 @@ export async function loadAutomationGuion(
     supabase
       .from('agent_prompts')
       .select('id, name, load_when, content, is_active, mode, version, notes')
+      .eq('tenant_id', params.tenantId)
+      .eq('project_id', params.projectId)
       .order('name', { ascending: true }),
   ])
   throwIf(questionsRes.error)
   throwIf(topicsRes.error)
 
   const topics = ((topicsRes.data ?? []) as TopicPromptRow[]).filter(
-    (row) => row.load_when !== 'always' && !isEngineerPrompt(row.name),
+    (row) => row.name !== 'guion_preguntas',
   )
 
   return {
@@ -111,14 +113,18 @@ export async function saveTopicPrompt(
   supabase: SupabaseClient,
   params: { id: number; content: string; load_when: string; is_active: boolean; version: number; userId: string },
 ) {
+  if (!params.content.trim()) throw new Error('El prompt no puede estar vacío')
   const { data, error } = await supabase
     .from('agent_prompts')
     .select('name')
     .eq('id', params.id)
     .maybeSingle()
   throwIf(error)
-  if (!data?.name || isEngineerPrompt(data.name)) {
+  if (!data?.name || data.name === 'guion_preguntas') {
     throw new Error('Ese texto del agente no se edita aquí')
+  }
+  if (data.name === 'saludo_inicial' && params.content.trim().length > 1500) {
+    throw new Error('El saludo debe tener como máximo 1500 caracteres')
   }
 
   const { error: updateError } = await supabase
