@@ -10,6 +10,7 @@ import {
   BarChart3,
   Compass,
   Activity,
+  ScanLine,
   type LucideIcon,
 } from 'lucide-react'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
@@ -40,6 +41,7 @@ export const crmModules: {
       { label: 'Automatización', href: '/inmobiliaria/automatizacion', icon: Activity },
       { label: 'Showroom', href: '/inmobiliaria/showroom', icon: Landmark },
       { label: 'Recorrido 360°', href: '/inmobiliaria/recorrido', icon: Compass },
+      { label: 'Análisis de planos', href: '/inmobiliaria/analisis-planos', icon: ScanLine },
       { label: 'Agenda', href: '/inmobiliaria/agenda', icon: CalendarDays },
       { label: 'Ventas', href: '/inmobiliaria/ventas', icon: BarChart3 },
       { label: 'Usuarios', href: '/inmobiliaria/usuarios', icon: Users },

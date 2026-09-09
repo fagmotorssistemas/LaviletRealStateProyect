@@ -80,7 +80,7 @@ export function LaviletStory() {
   const docked = useLockupDocked()
 
   return (
-    <section id="nosotros" className="relative scroll-mt-24 py-20 lg:py-28">
+    <section id="nosotros" className="relative scroll-mt-28 py-20 lg:py-28">
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_min(42vw,36rem)] lg:items-start">
         <div className="relative mx-auto max-w-5xl px-5 sm:px-8 lg:mx-0 lg:max-w-none lg:pr-10 lg:pl-[max(1.25rem,calc((100vw-64rem)/2))]">
           <div className="grid items-start gap-10 sm:grid-cols-[auto_1fr] sm:gap-12 lg:gap-16">
@@ -114,7 +114,7 @@ export function LaviletStory() {
             </footer>
           </blockquote>
 
-          <div className="hidden h-[70vh] lg:block" aria-hidden="true" />
+          <div className="hidden h-16 lg:block" aria-hidden="true" />
         </div>
 
         <div className="lg:sticky lg:top-28 lg:z-10 lg:self-start">

@@ -833,3 +833,112 @@ input[type='time'] {
     outline: none !important;
   }
 }
+
+/* Mapa Ubícanos — limpio pero con referencias visibles */
+.lavilet-map .leaflet-tile-pane {
+  filter: sepia(0.06) saturate(1.02) brightness(1.02) contrast(1.03);
+}
+
+.lavilet-map .leaflet-control-zoom a {
+  color: #2b1a18 !important;
+  border-color: rgba(43, 26, 24, 0.12) !important;
+  background: #f7f3ee !important;
+}
+
+.lavilet-map .leaflet-control-attribution {
+  background: rgba(247, 243, 238, 0.9) !important;
+  color: rgba(43, 26, 24, 0.45);
+  font-size: 9px;
+}
+
+.lavilet-map-marker {
+  background: transparent;
+  border: 0;
+}
+
+.lavilet-map-pin-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translate(-50%, -50%);
+}
+
+.lavilet-map-pulse-wrap {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.lavilet-map-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  border-radius: 999px;
+  border: 1.5px solid #c45c3e;
+  opacity: 0;
+  z-index: 0;
+  pointer-events: none;
+  animation: lavilet-radar 2.4s ease-out infinite;
+}
+
+.lavilet-map-ring-1 { animation-delay: 0s; }
+.lavilet-map-ring-2 { animation-delay: 0.8s; }
+.lavilet-map-ring-3 { animation-delay: 1.6s; }
+
+@keyframes lavilet-radar {
+  0%   { width: 16px; height: 16px; opacity: 0.75; }
+  100% { width: 78px; height: 78px; opacity: 0; }
+}
+
+.lavilet-map-site {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #2b1a18;
+  border: 2px solid #c45c3e;
+  z-index: 2;
+}
+
+.lavilet-map-label {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(247, 243, 238, 0.96);
+  color: #2b1a18;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(43, 26, 24, 0.14);
+  position: relative;
+  z-index: 3;
+}
+
+/* Carrusel auto de lo cercano */
+.nearby-marquee-track {
+  animation: nearby-marquee 42s linear infinite;
+}
+
+.nearby-marquee:hover .nearby-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes nearby-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nearby-marquee-track {
+    animation: none;
+  }
+}

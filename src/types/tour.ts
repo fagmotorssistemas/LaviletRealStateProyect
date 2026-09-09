@@ -120,6 +120,11 @@ export interface TourUnitSummary {
   published_commercial_price: number | null
   status: UnitStatus
   area_total_m2: number | null
+  /** Cubierta / interna (si difiere del total). */
+  area_internal_m2?: number | null
+  area_exterior_m2?: number | null
+  area_terrace_covered_m2?: number | null
+  area_terrace_open_m2?: number | null
   bedrooms: number | null
   bathrooms: number | null
   bathrooms_full?: number | null
@@ -201,5 +206,8 @@ export type TourPublicCatalog = {
     bathrooms_half: number | null
     spaces: string[]
     area_internal_m2: number | null
+    area_exterior_m2?: number | null
+    area_terrace_covered_m2?: number | null
+    area_terrace_open_m2?: number | null
   }>
 }

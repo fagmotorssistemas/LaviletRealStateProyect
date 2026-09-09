@@ -1,0 +1,51 @@
+import { SITE } from '@/lib/marketing/site'
+
+export function buildTourWhatsAppMessage(args: {
+  typologyCode: string
+  roomLabel: string
+  viewMode: 'tour' | 'vistas' | 'planos-2d' | 'planos-3d'
+  unitNumber?: string
+}): string {
+  const typology = args.typologyCode.trim() || 'esta tipología'
+  const room = args.roomLabel.trim() || 'este ambiente'
+  const unit = args.unitNumber?.trim()
+
+  if (unit) {
+    return [
+      `Hola, estoy en el showroom 360° de ${SITE.name}.`,
+      `Me interesa la unidad ${unit} (${typology}).`,
+      '¿Me pueden dar más información o agendar una visita?',
+    ].join(' ')
+  }
+
+  if (args.viewMode === 'tour') {
+    return [
+      `Hola, estoy en el showroom 360° de ${SITE.name}.`,
+      `Me interesa el departamento ${typology}.`,
+      `Estoy viendo ${room.toLowerCase()} y me llamó la atención.`,
+      '¿Me pueden dar más información?',
+    ].join(' ')
+  }
+
+  if (args.viewMode === 'vistas') {
+    return [
+      `Hola, estoy en el showroom 360° de ${SITE.name}.`,
+      `Me interesa el departamento ${typology}.`,
+      `Estoy viendo una vista (${room}) y me llamó la atención.`,
+      '¿Me pueden dar más información?',
+    ].join(' ')
+  }
+
+  const planoKind = args.viewMode === 'planos-3d' ? 'planos 3D' : 'planos 2D'
+  return [
+    `Hola, estoy en el showroom 360° de ${SITE.name}.`,
+    `Me interesa el departamento ${typology}.`,
+    `Estoy viendo los ${planoKind}${room ? ` (${room})` : ''} y me llamó la atención.`,
+    '¿Me pueden dar más información?',
+  ].join(' ')
+}
+
+export function tourWhatsAppHref(message: string) {
+  if (!SITE.whatsapp) return null
+  return `https://wa.me/${SITE.whatsapp}?text=${encodeURIComponent(message)}`
+}

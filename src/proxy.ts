@@ -34,9 +34,15 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isPublicPath =
     pathname === '/' ||
+    pathname.startsWith('/inicio') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/register') ||
     pathname.startsWith('/tour') ||
+    pathname.startsWith('/proyectos') ||
+    pathname.startsWith('/nosotros') ||
+    pathname.startsWith('/proceso') ||
+    pathname.startsWith('/ubicanos') ||
+    pathname.startsWith('/contacto') ||
     pathname.startsWith('/privacidad') ||
     pathname.startsWith('/seguimiento')
 

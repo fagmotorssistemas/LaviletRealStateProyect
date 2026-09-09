@@ -18,6 +18,8 @@ export const TOUR_EVENT_TYPES = [
   'gate_mostrado',
   'gate_cerrado',
   'lead_identificado',
+  'whatsapp_interest',
+  'guardar_unidad',
 ] as const
 
 export type TourEventType = (typeof TOUR_EVENT_TYPES)[number]

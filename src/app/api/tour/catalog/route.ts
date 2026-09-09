@@ -40,6 +40,9 @@ type UnitRow = {
   bathrooms_half: number | null
   spaces: string[] | null
   area_internal_m2: number | null
+  area_exterior_m2: number | null
+  area_terrace_covered_m2: number | null
+  area_terrace_open_m2: number | null
 }
 
 export async function GET() {
@@ -60,7 +63,7 @@ export async function GET() {
       admin
         .from('units')
         .select(
-          'id, unit_number, unit_type_id, floor, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_internal_m2',
+          'id, unit_number, unit_type_id, floor, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2',
         )
         .eq('tenant_id', TOUR_TENANT_ID)
         .order('unit_number', { ascending: true }),
@@ -124,6 +127,9 @@ export async function GET() {
         bathrooms_half: row.bathrooms_half ?? 0,
         spaces: Array.isArray(row.spaces) ? row.spaces : [],
         area_internal_m2: row.area_internal_m2,
+        area_exterior_m2: row.area_exterior_m2,
+        area_terrace_covered_m2: row.area_terrace_covered_m2,
+        area_terrace_open_m2: row.area_terrace_open_m2,
       }
     }),
     },

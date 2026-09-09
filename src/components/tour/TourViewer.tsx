@@ -1,15 +1,36 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Cache, CONSTANTS, Viewer, events } from '@photo-sphere-viewer/core'
 import { GyroscopePlugin } from '@photo-sphere-viewer/gyroscope-plugin'
 import { MarkersPlugin, events as markerEvents } from '@photo-sphere-viewer/markers-plugin'
 import { VirtualTourPlugin, events as tourEvents } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { VirtualTourNode } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { Position } from '@photo-sphere-viewer/core'
-import { ChevronLeft, ChevronRight, Moon, Sun } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Columns2,
+  FileText,
+  Images,
+  Layers,
+  Map,
+  Bookmark,
+  PanelsTopLeft,
+  Rotate3d,
+  SwatchBook,
+} from 'lucide-react'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
 import { TourPicker } from '@/components/tour/TourPicker'
+import { TourFichaDrawer } from '@/components/tour/TourFichaDrawer'
+import { TourFloorPlan } from '@/components/tour/TourFloorPlan'
+import { TourComparador } from '@/components/tour/TourComparador'
+import { TourFinishCompareOverlay } from '@/components/tour/TourFinishCompareOverlay'
+import type { ComparePanoPose } from '@/components/tour/CompareSidePano'
+import { TourSaveUnitModal } from '@/components/tour/TourSaveUnitModal'
+import { TourTerminacionesPanel } from '@/components/tour/TourTerminacionesPanel'
+import { SITE } from '@/lib/marketing/site'
+import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import {
   buildTourRooms,
   roomsShareFamily,
@@ -22,7 +43,7 @@ import {
 } from '@/lib/tour/tourRooms'
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
-import { pickRoomScene, pickSceneUrl } from '@/lib/tour/roomScene'
+import { pickRoomScene, pickSceneUrl, finishesMatch } from '@/lib/tour/roomScene'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
 import {
   getTourUnitTypeSlug,
@@ -181,7 +202,7 @@ function StillFrame({
   )
 }
 
-type TourViewMode = 'tour' | 'vistas' | 'planos-2d' | 'planos-3d'
+type TourViewMode = 'tour' | 'vistas' | 'galeria' | 'planos-2d' | 'planos-3d'
 type StillItem = { id: string; label: string; url: string }
 
 function stillLabelFromFile(fileName: string) {
@@ -196,25 +217,45 @@ function isPlanosMode(mode: TourViewMode): mode is 'planos-2d' | 'planos-3d' {
   return mode === 'planos-2d' || mode === 'planos-3d'
 }
 
+function WhatsAppIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+    </svg>
+  )
+}
+
 function ModeButton({
   active,
   children,
+  icon,
   onClick,
+  disabled,
+  title,
 }: {
   active: boolean
   children: string
+  icon: ReactNode
   onClick: () => void
+  disabled?: boolean
+  title?: string
 }) {
   return (
     <button
       type="button"
+      title={title ?? children}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         'tour-mode-btn tour-glass border-white/25 !bg-[#14110e]/72 text-left font-semibold uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300',
         active ? 'text-white shadow-[inset_2px_0_0_#BDA27E]' : 'text-white/80 hover:text-white',
+        disabled && 'cursor-not-allowed opacity-40 hover:text-white/80',
       )}
     >
-      {children}
+      <span className="tour-mode-btn__icon" aria-hidden>
+        {icon}
+      </span>
+      <span className="tour-mode-btn__label">{children}</span>
     </button>
   )
 }
@@ -230,6 +271,7 @@ function PlanosModePicker({
   const rootRef = useRef<HTMLDivElement>(null)
   const active = isPlanosMode(viewMode)
   const current = viewMode === 'planos-3d' ? '3d' : '2d'
+  const label = active ? (current === '3d' ? 'Plano 3D' : 'Plano 2D') : 'Plano 3D'
 
   useEffect(() => {
     if (!open) return
@@ -251,28 +293,34 @@ function PlanosModePicker({
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (!active) {
+            onSelect('planos-3d')
+            return
+          }
+          setOpen((value) => !value)
+        }}
         aria-expanded={open}
         aria-haspopup="listbox"
         className={cn(
-          'tour-mode-btn tour-glass flex w-full items-center justify-between gap-1 border-white/25 !bg-[#14110e]/72 text-left font-semibold uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300',
+          'tour-mode-btn tour-glass border-white/25 !bg-[#14110e]/72 text-left font-semibold uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300',
           active ? 'text-white shadow-[inset_2px_0_0_#BDA27E]' : 'text-white/80 hover:text-white',
         )}
       >
-        <span>Planos</span>
-        <span className="text-[8px] font-medium tracking-normal text-white/50 sm:text-[10px]">
-          {active ? current.toUpperCase() : open ? '▴' : '▾'}
+        <span className="tour-mode-btn__icon" aria-hidden>
+          <Layers size={14} strokeWidth={1.75} />
         </span>
+        <span className="tour-mode-btn__label">{label}</span>
       </button>
       {open ? (
         <ul
           role="listbox"
-          className="tour-glass absolute top-[calc(100%+4px)] right-0 z-30 w-full min-w-[4.6rem] overflow-hidden py-1 sm:min-w-[7.5rem]"
+          className="tour-glass absolute top-[calc(100%+4px)] right-0 z-30 w-full min-w-[7.5rem] overflow-hidden rounded-xl py-1"
         >
           {(
             [
-              { value: 'planos-2d' as const, label: '2D' },
-              { value: 'planos-3d' as const, label: '3D' },
+              { value: 'planos-3d' as const, label: 'Plano 3D' },
+              { value: 'planos-2d' as const, label: 'Plano 2D' },
             ] as const
           ).map((opt) => {
             const selected = viewMode === opt.value
@@ -287,7 +335,7 @@ function PlanosModePicker({
                     setOpen(false)
                   }}
                   className={cn(
-                    'w-full px-2.5 py-1.5 text-left text-[9px] font-semibold tracking-[0.1em] uppercase sm:px-3 sm:py-2 sm:text-[12px] sm:tracking-[0.14em]',
+                    'w-full px-3 py-2 text-left text-[10px] font-semibold tracking-[0.12em] uppercase sm:text-[11px]',
                     selected ? 'bg-white/12 text-white' : 'text-white/75 hover:bg-white/8 hover:text-white',
                   )}
                 >
@@ -572,9 +620,27 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
+  const [fichaOpen, setFichaOpen] = useState(false)
+  const [fichaExpanded, setFichaExpanded] = useState(false)
+  const [saveUnitOpen, setSaveUnitOpen] = useState(false)
+  const [shellMode, setShellMode] = useState<'plan' | 'unit'>(embedded ? 'plan' : 'unit')
+  const [planFloor, setPlanFloor] = useState(1)
+  const [terminacionesFocus, setTerminacionesFocus] = useState(false)
+  const [finishCompareOpen, setFinishCompareOpen] = useState(false)
+  const [finishRight, setFinishRight] = useState('')
+  const [finishCompareSplit, setFinishCompareSplit] = useState(50)
+  const [comparePose, setComparePose] = useState<ComparePanoPose | null>(null)
+  const comparePoseLockRef = useRef<'main' | 'side' | null>(null)
+  const comparePoseRafRef = useRef(0)
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [compareUnitBId, setCompareUnitBId] = useState<string | null>(null)
+  const [comparePreviewIndex, setComparePreviewIndex] = useState(0)
+  const [compareSplit, setCompareSplit] = useState(50)
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const [gyroHint, setGyroHint] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<TourViewMode>('tour')
   const [vistaIndex, setVistaIndex] = useState(0)
+  const [galeriaIndex, setGaleriaIndex] = useState(0)
   const [planoIndex, setPlanoIndex] = useState(0)
   const [panoGhost, setPanoGhost] = useState<string | null>(null)
   const [panoGhostKey, setPanoGhostKey] = useState(0)
@@ -601,7 +667,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   const preloadCurrentRoom = useCallback(
     (viewer: Viewer, roomId: string, currentUrl?: string) => {
-      void loadRoomVariantUrls(roomId, 2048).then((urls) => {
+      void loadRoomVariantUrls(roomId, targetWidthRef.current).then((urls) => {
         preloadUrls(
           viewer,
           urls.filter((url) => url !== currentUrl),
@@ -876,20 +942,28 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (!publicCatalog) void applyCombo(finish, next)
   }
 
-  const displayUnits = useMemo<TourUnitSummary[]>(() => {
-    const imported = (publicCatalog?.units ?? [])
-      .filter((item) => {
-        if (!selectedTypology) return true
-        if (currentTypology?.id && item.unit_type_id) return item.unit_type_id === currentTypology.id
-        return item.typology_code === selectedTypology
-      })
-      .map((item) => ({
+  const allUnits = useMemo<TourUnitSummary[]>(() => {
+    const imported = (publicCatalog?.units ?? []).map((item) => {
+      const internal = item.area_internal_m2
+      const exterior = item.area_exterior_m2 ?? null
+      const terraceCov = item.area_terrace_covered_m2 ?? null
+      const terraceOpen = item.area_terrace_open_m2 ?? null
+      const parts = [internal, exterior, terraceCov, terraceOpen].filter(
+        (n): n is number => n != null && n > 0,
+      )
+      const total =
+        parts.length > 1 ? parts.reduce((a, b) => a + b, 0) : (internal ?? null)
+      return {
         id: item.id,
         unit_number: item.unit_code,
         floor: item.floor_label || (item.floor_number == null ? null : String(item.floor_number)),
         published_commercial_price: item.price,
         status: item.status,
-        area_total_m2: item.area_internal_m2,
+        area_total_m2: total,
+        area_internal_m2: internal,
+        area_exterior_m2: exterior,
+        area_terrace_covered_m2: terraceCov,
+        area_terrace_open_m2: terraceOpen,
         bedrooms: item.bedrooms,
         bathrooms: item.bathrooms_full,
         bathrooms_full: item.bathrooms_full,
@@ -897,9 +971,76 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         spaces: item.spaces ?? [],
         slug: item.unit_code,
         typology_code: item.typology_code,
-      }))
+      }
+    })
     return imported.length > 0 ? imported : units
-  }, [publicCatalog, selectedTypology, currentTypology?.id, units])
+  }, [publicCatalog, units])
+
+  const displayUnits = useMemo<TourUnitSummary[]>(() => {
+    if (!selectedTypology) return allUnits
+    return allUnits.filter((item) => item.typology_code === selectedTypology)
+  }, [allUnits, selectedTypology])
+
+  const selectedUnit = useMemo(
+    () => allUnits.find((item) => item.id === selectedUnitId) ?? null,
+    [allUnits, selectedUnitId],
+  )
+
+  const compareUnitB = useMemo(
+    () => allUnits.find((item) => item.id === compareUnitBId) ?? null,
+    [allUnits, compareUnitBId],
+  )
+
+  const comparePreviewsB = useMemo(() => {
+    if (!compareUnitB) return []
+    const code = compareUnitB.typology_code || selectedTypology
+    const typ =
+      publicCatalog?.typologies?.find((item) => item.code === code) ??
+      (code === selectedTypology ? currentTypology : null)
+    const items: { id: string; label: string; url: string }[] = []
+    const seen = new Set<string>()
+    const add = (id: string, label: string, url: string | null | undefined) => {
+      if (!url || seen.has(url)) return
+      seen.add(url)
+      items.push({ id, label, url })
+    }
+    for (const roomItem of typ?.rooms ?? []) {
+      const scene = pickRoomScene(roomItem.scenes, finish || null, light)
+      add(`room-${roomItem.slug}`, roomItem.label, pickSceneUrl(scene) ?? roomItem.url)
+    }
+    for (const item of typ?.vistas ?? []) {
+      const scene = pickRoomScene(item.scenes, finish || null, light)
+      add(item.slug, item.label, pickSceneUrl(scene) ?? item.url)
+    }
+    for (const extra of typ?.renders ?? []) {
+      add(extra.id, stillLabelFromFile(extra.file_name), extra.url)
+    }
+    return items
+  }, [compareUnitB, publicCatalog, currentTypology, selectedTypology, finish, light])
+
+  const comparePanoBUrl = useMemo(() => {
+    if (!compareUnitB) return null
+    const code = compareUnitB.typology_code || selectedTypology
+    const typ =
+      publicCatalog?.typologies?.find((item) => item.code === code) ??
+      (code === selectedTypology ? currentTypology : null)
+    if (!typ) return null
+    const fromPano = pickCatalogPanoUrl(typ.panorama, catalogWidthRef.current, finish || null, light)
+    if (fromPano) return fromPano
+    const home =
+      typ.rooms.find((item) => item.slug === 'home' || item.slug.includes('living')) ?? typ.rooms[0]
+    if (!home) return null
+    const scene = pickRoomScene(home.scenes, finish || null, light)
+    return pickSceneUrl(scene, catalogWidthRef.current) ?? home.url
+  }, [compareUnitB, publicCatalog, currentTypology, selectedTypology, finish, light])
+
+  const fichaUnits = useMemo(() => {
+    if (selectedUnit) return [selectedUnit]
+    return displayUnits
+  }, [selectedUnit, displayUnits])
+
+  const showPlanShell = embedded && shellMode === 'plan'
+  const showUnitChrome = !embedded || shellMode === 'unit'
 
   const typologyOptions = useMemo(
     () =>
@@ -965,6 +1106,62 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   )
   const activePanoUrl = urlForRoom(room) ?? (room === homeSlug ? typologyPanoUrl : null)
   const isPanoRoom = viewMode === 'tour'
+  const isComparador = compareOpen
+  const isFinishCompare = finishCompareOpen
+  const terminacionesUiOpen = (terminacionesFocus || isFinishCompare) && !immersive
+  const compareContentMode =
+    viewMode === 'galeria' || viewMode === 'vistas' ? viewMode : 'tour'
+  const syncCompareCameras =
+    isFinishCompare || (isComparador && Boolean(compareUnitB) && compareContentMode === 'tour')
+
+  useEffect(() => {
+    if (!syncCompareCameras) return
+    const viewer = viewerRef.current
+    if (!viewer) return
+
+    const publish = () => {
+      if (comparePoseLockRef.current === 'side') return
+      comparePoseLockRef.current = 'main'
+      const pos = viewer.getPosition()
+      const next: ComparePanoPose = {
+        yaw: pos.yaw,
+        pitch: pos.pitch,
+        zoom: viewer.getZoomLevel(),
+      }
+      if (comparePoseRafRef.current) cancelAnimationFrame(comparePoseRafRef.current)
+      comparePoseRafRef.current = requestAnimationFrame(() => {
+        setComparePose(next)
+        if (comparePoseLockRef.current === 'main') comparePoseLockRef.current = null
+      })
+    }
+
+    viewer.addEventListener('position-updated', publish)
+    viewer.addEventListener('zoom-updated', publish)
+    publish()
+    return () => {
+      viewer.removeEventListener('position-updated', publish)
+      viewer.removeEventListener('zoom-updated', publish)
+      if (comparePoseRafRef.current) cancelAnimationFrame(comparePoseRafRef.current)
+    }
+  }, [syncCompareCameras, compareUnitB, viewMode, room, finish, finishRight])
+
+  const onCompareSidePoseChange = useCallback((pose: ComparePanoPose) => {
+    if (comparePoseLockRef.current === 'main') return
+    comparePoseLockRef.current = 'side'
+    setComparePose(pose)
+    const viewer = viewerRef.current
+    if (viewer) {
+      try {
+        viewer.rotate({ yaw: pose.yaw, pitch: pose.pitch })
+        viewer.zoom(pose.zoom)
+      } catch {
+        /* ignore */
+      }
+    }
+    requestAnimationFrame(() => {
+      if (comparePoseLockRef.current === 'side') comparePoseLockRef.current = null
+    })
+  }, [])
   const vistaImages = useMemo(() => {
     const items: { id: string; label: string; url: string }[] = []
     const seen = new Set<string>()
@@ -979,6 +1176,31 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
     for (const extra of currentTypology?.renders ?? []) {
       add(extra.id, stillLabelFromFile(extra.file_name), extra.url)
+    }
+    return items
+  }, [currentTypology, finish, light])
+
+  const galeriaImages = useMemo(() => {
+    const items: StillItem[] = []
+    const seen = new Set<string>()
+    for (const roomItem of currentTypology?.rooms ?? []) {
+      const scene = pickRoomScene(roomItem.scenes, finish || null, light)
+      const url = pickSceneUrl(scene) ?? roomItem.url
+      if (!url || seen.has(url)) continue
+      seen.add(url)
+      items.push({ id: `room-${roomItem.slug}`, label: roomItem.label, url })
+    }
+    // Fallback: renders tipología si no hay ambientes
+    if (items.length === 0) {
+      for (const extra of currentTypology?.renders ?? []) {
+        if (!extra.url || seen.has(extra.url)) continue
+        seen.add(extra.url)
+        items.push({
+          id: extra.id,
+          label: stillLabelFromFile(extra.file_name),
+          url: extra.url,
+        })
+      }
     }
     return items
   }, [currentTypology, finish, light])
@@ -999,6 +1221,48 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
     return items
   }, [currentTypology, viewMode])
+
+  const fichaImages = useMemo(() => {
+    const items: { id: string; label: string; url: string; kind: 'vista' | 'plano' | 'ambiente' }[] = []
+    const seen = new Set<string>()
+    const add = (
+      id: string,
+      label: string,
+      url: string | null | undefined,
+      kind: 'vista' | 'plano' | 'ambiente',
+    ) => {
+      if (!url || seen.has(url)) return
+      seen.add(url)
+      items.push({ id, label, url, kind })
+    }
+    for (const item of currentTypology?.planos ?? []) {
+      const label = stillLabelFromFile(item.file_name) || 'Plano'
+      if (matchesPlanoVariant(item.file_name, '2d')) {
+        add(item.id, label.includes('2') ? label : `${label} 2D`, item.url, 'plano')
+      } else if (matchesPlanoVariant(item.file_name, '3d')) {
+        add(item.id, label.includes('3') ? label : `${label} 3D`, item.url, 'plano')
+      } else {
+        add(item.id, label, item.url, 'plano')
+      }
+    }
+    for (const item of currentTypology?.vistas ?? []) {
+      const scene = pickRoomScene(item.scenes, finish || null, light)
+      add(item.slug, item.label, pickSceneUrl(scene) ?? item.url, 'vista')
+    }
+    for (const extra of currentTypology?.renders ?? []) {
+      add(extra.id, stillLabelFromFile(extra.file_name), extra.url, 'vista')
+    }
+    for (const roomItem of currentTypology?.rooms ?? []) {
+      const scene = pickRoomScene(roomItem.scenes, finish || null, light)
+      add(
+        `room-${roomItem.slug}`,
+        roomItem.label,
+        pickSceneUrl(scene) ?? roomItem.url,
+        'ambiente',
+      )
+    }
+    return items
+  }, [currentTypology, finish, light])
 
   const onSelectRoom = useCallback(
     (roomId: string) => {
@@ -1045,9 +1309,25 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     [nodes, room, selectedTypology, currentTypology?.id, currentTypology?.hotspots, urlForRoom, tourRooms],
   )
 
-  const stillItems = isPlanosMode(viewMode) ? planoImages : viewMode === 'vistas' ? vistaImages : []
-  const stillIndex = isPlanosMode(viewMode) ? planoIndex : vistaIndex
-  const setStillIndex = isPlanosMode(viewMode) ? setPlanoIndex : setVistaIndex
+  const stillItems = isPlanosMode(viewMode)
+    ? planoImages
+    : viewMode === 'galeria'
+      ? fichaExpanded
+        ? fichaImages.map((item) => ({ id: item.id, label: item.label, url: item.url }))
+        : galeriaImages
+      : viewMode === 'vistas'
+        ? vistaImages
+        : []
+  const stillIndex = isPlanosMode(viewMode)
+    ? planoIndex
+    : viewMode === 'galeria'
+      ? galeriaIndex
+      : vistaIndex
+  const setStillIndex = isPlanosMode(viewMode)
+    ? setPlanoIndex
+    : viewMode === 'galeria'
+      ? setGaleriaIndex
+      : setVistaIndex
   const stepStill = useCallback(
     (delta: -1 | 1) => {
       setStillIndex((index) => {
@@ -1076,6 +1356,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
     if (vistaIndex >= vistaImages.length) setVistaIndex(0)
   }, [vistaImages.length, vistaIndex])
+
+  useEffect(() => {
+    if (galeriaImages.length === 0) {
+      if (galeriaIndex !== 0) setGaleriaIndex(0)
+      return
+    }
+    if (galeriaIndex >= galeriaImages.length) setGaleriaIndex(0)
+  }, [galeriaImages.length, galeriaIndex])
 
   useEffect(() => {
     if (planoImages.length === 0) {
@@ -1166,6 +1454,17 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       root.removeEventListener('touchend', start)
     }
   }, [booting, viewMode, isPanoRoom])
+
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || booting) return
+    const t1 = window.setTimeout(() => viewer.autoSize(), 80)
+    const t2 = window.setTimeout(() => viewer.autoSize(), 320)
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
+  }, [booting, isComparador])
 
   useEffect(() => {
     const root = rootRef.current
@@ -1358,22 +1657,118 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     walkToRef.current = null
     lookPromiseRef.current = null
     setSelectedTypology(code)
+    setFichaOpen(false)
     setRoom(homeSlug)
     setVistaIndex(0)
+    setGaleriaIndex(0)
     setPlanoIndex(0)
+    setTerminacionesFocus(false)
+    setCompareOpen(false)
+    setCompareUnitBId(null)
+    setComparePreviewIndex(0)
+    setCompareSplit(50)
     currentUrlRef.current = ''
     appliedPanoKeyRef.current = ''
   }
 
-  const sceneFinishes = (publicCatalog?.finishes?.length ? publicCatalog.finishes : catalog?.finishes ?? []).map(
-    (item, index) => ({ ...item, name: `Acabado ${index + 1}` }),
-  )
+  const sceneFinishes = publicCatalog?.finishes?.length
+    ? publicCatalog.finishes
+    : catalog?.finishes ?? []
   const finishName = sceneFinishes.find((f) => f.slug === finish)?.name ?? finish
+  const finishLeftOption = sceneFinishes.find((f) => f.slug === finish) ?? null
+  const finishRightOption =
+    sceneFinishes.find((f) => f.slug === finishRight) ??
+    sceneFinishes.find((f) => f.slug !== finish) ??
+    sceneFinishes[0] ??
+    null
+
+  const finishRightPanoUrl = useMemo(() => {
+    if (!isFinishCompare || !finishRightOption) return null
+    const finishSlug = finishRightOption.slug
+    const leftSlug = finish || null
+    // Textura más liviana en el lado B → carga más rápida / menos WebGL
+    const sideWidth = 2048 as const
+
+    const resolveFromScenes = (
+      scenes: NonNullable<typeof currentTypology>['rooms'][number]['scenes'] | undefined,
+    ) => {
+      if (!scenes?.length) return null
+      const exact =
+        scenes.find(
+          (item) => finishesMatch(item.finish, finishSlug) && item.light === light,
+        ) ??
+        scenes.find(
+          (item) => finishesMatch(item.finish, finishSlug) && item.light === 'dia',
+        ) ??
+        scenes.find((item) => item.finish === finishSlug)
+      if (exact) {
+        return pickSceneUrl(exact, sideWidth) ?? pickSceneUrl(exact, catalogWidthRef.current)
+      }
+      const matched = pickRoomScene(scenes, finishSlug, light)
+      if (!matched) return null
+      if (leftSlug && finishesMatch(matched.finish, leftSlug)) {
+        const other =
+          scenes.find(
+            (item) =>
+              item.finish &&
+              !finishesMatch(item.finish, leftSlug) &&
+              item.light === light,
+          ) ??
+          scenes.find((item) => item.finish && !finishesMatch(item.finish, leftSlug))
+        if (other) {
+          return pickSceneUrl(other, sideWidth) ?? pickSceneUrl(other, catalogWidthRef.current)
+        }
+      }
+      return pickSceneUrl(matched, sideWidth) ?? pickSceneUrl(matched, catalogWidthRef.current)
+    }
+
+    const roomItem =
+      currentTypology?.rooms.find((entry) => entry.slug === room) ??
+      currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, room) && entry.url) ??
+      currentTypology?.rooms.find((entry) => roomsShareFamily(entry.slug, room) && entry.url)
+
+    const fromRoom = resolveFromScenes(roomItem?.scenes)
+    if (fromRoom) return fromRoom
+
+    // Buscar en todos los rooms de la tipología (misma familia)
+    for (const entry of currentTypology?.rooms ?? []) {
+      if (!roomsShareFamily(entry.slug, room) && entry.slug !== room) continue
+      const found = resolveFromScenes(entry.scenes)
+      if (found) return found
+    }
+
+    const home = currentTypology?.rooms.find((entry) => entry.slug === homeSlug)
+    const fromHome = resolveFromScenes(home?.scenes)
+    if (fromHome) return fromHome
+
+    const fromPano = pickCatalogPanoUrl(
+      currentTypology?.panorama,
+      sideWidth,
+      finishSlug,
+      light,
+    )
+    if (fromPano) return fromPano
+
+    // Último recurso: cualquier escena de la tipología con ese acabado
+    for (const entry of currentTypology?.rooms ?? []) {
+      const found = resolveFromScenes(entry.scenes)
+      if (found) return found
+    }
+    return null
+  }, [isFinishCompare, finishRightOption, currentTypology, room, light, homeSlug, finish])
+
+  useEffect(() => {
+    if (!sceneFinishes.length) return
+    setFinishRight((prev) => {
+      if (prev && sceneFinishes.some((item) => item.slug === prev) && prev !== finish) return prev
+      const other = sceneFinishes.find((item) => item.slug !== finish)
+      return other?.slug ?? sceneFinishes[0]?.slug ?? ''
+    })
+  }, [sceneFinishes, finish])
   const currentNode = nodes.find((n) => n.id === room || roomSlugFromNode(n) === room)
   const roomName =
     tourRooms.find((item) => item.slug === room)?.label ?? currentNode?.name ?? tourRoomLabel(room)
   const lightLabel = light === 'dia' ? 'Día' : 'Noche'
-  const showSceneControls = Boolean(publicCatalog) || sceneFinishes.length > 0
 
   const trackingScene =
     viewMode === 'tour' ? null : stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))] ?? null
@@ -1406,7 +1801,19 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           : 'relative h-full w-full',
       )}
     >
-      <div className="absolute inset-0 overflow-hidden">
+      <div
+        className="absolute inset-0 overflow-hidden"
+        style={
+          (isComparador && compareUnitB) || isFinishCompare
+            ? {
+                clipPath: `inset(0 ${Math.max(
+                  12,
+                  Math.min(88, 100 - (isFinishCompare ? finishCompareSplit : compareSplit)),
+                )}% 0 0)`,
+              }
+            : undefined
+        }
+      >
         <div
           className={cn(
             'tour-pano-stage h-full w-full',
@@ -1428,7 +1835,79 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             className="tour-walk-out pointer-events-none absolute inset-0 z-[8] h-full w-full object-cover"
           />
         ) : null}
+
+        {isComparador ? (
+          <p className="pointer-events-none absolute inset-x-0 bottom-16 z-[9] mx-auto hidden max-w-[90%] text-center text-[10px] font-medium tracking-[0.14em] text-white/80 uppercase sm:bottom-20 sm:block sm:text-[11px]">
+            Hacé clic y arrastrá para mirar alrededor
+          </p>
+        ) : null}
       </div>
+
+      {isComparador ? (
+        <TourComparador
+          unitA={selectedUnit}
+          unitB={compareUnitB}
+          units={allUnits}
+          contentMode={compareContentMode}
+          panoBUrl={comparePanoBUrl}
+          previewsB={comparePreviewsB}
+          previewIndexB={comparePreviewIndex}
+          onPreviewIndexB={setComparePreviewIndex}
+          split={compareSplit}
+          onSplitChange={setCompareSplit}
+          onSelectUnitB={(unit) => {
+            setCompareUnitBId(unit.id)
+            setComparePreviewIndex(0)
+          }}
+          onClearUnitB={() => {
+            setCompareUnitBId(null)
+            setComparePreviewIndex(0)
+          }}
+          onSwap={() => {
+            if (!compareUnitB) return
+            const prevA = selectedUnitId
+            setSelectedUnitId(compareUnitB.id)
+            if (compareUnitB.typology_code) setSelectedTypology(compareUnitB.typology_code)
+            setCompareUnitBId(prevA)
+            setComparePreviewIndex(0)
+            setCompareSplit(50)
+          }}
+          onClose={() => {
+            setCompareOpen(false)
+            setCompareUnitBId(null)
+            setComparePreviewIndex(0)
+            setCompareSplit(50)
+          }}
+          syncPose={syncCompareCameras ? comparePose : null}
+          onPoseChange={onCompareSidePoseChange}
+        />
+      ) : null}
+
+      {isFinishCompare && finishLeftOption && finishRightOption ? (
+        <TourFinishCompareOverlay
+          left={{
+            slug: finishLeftOption.slug,
+            name: finishLeftOption.name,
+            swatchUrl: null,
+          }}
+          right={{
+            slug: finishRightOption.slug,
+            name: finishRightOption.name,
+            swatchUrl: null,
+          }}
+          rightPanoUrl={finishRightPanoUrl}
+          split={finishCompareSplit}
+          onSplitChange={setFinishCompareSplit}
+          onClose={() => {
+            setFinishCompareOpen(false)
+            setTerminacionesFocus(false)
+            setFinishCompareSplit(50)
+            setViewMode('tour')
+          }}
+          syncPose={comparePose}
+          onPoseChange={onCompareSidePoseChange}
+        />
+      ) : null}
 
       <div
         className={cn(
@@ -1436,6 +1915,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           showStill ? 'is-on' : 'pointer-events-none is-off',
           viewMode !== 'tour' && stillItems.length > 1 && 'touch-pan-y',
         )}
+        style={
+          (isComparador && compareUnitB) || isFinishCompare
+            ? {
+                clipPath: `inset(0 ${Math.max(
+                  12,
+                  Math.min(88, 100 - (isFinishCompare ? finishCompareSplit : compareSplit)),
+                )}% 0 0)`,
+              }
+            : undefined
+        }
         onPointerDown={stillSwipe.onPointerDown}
       >
         <CrossfadeStill
@@ -1459,6 +1948,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Vistas</p>
           <p className="mt-2 text-sm text-white/45">Aún no hay renders en esta tipología.</p>
+        </div>
+      )}
+
+      {!booting && viewMode === 'galeria' && galeriaImages.length === 0 && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
+          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Galería</p>
+          <p className="mt-2 text-sm text-white/45">Aún no hay ambientes en esta tipología.</p>
         </div>
       )}
 
@@ -1503,38 +1999,205 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         )}
       />
 
+      {showPlanShell ? (
+        <TourFloorPlan
+          units={allUnits}
+          floor={planFloor}
+          onFloorChange={(next) => {
+            setPlanFloor(next)
+            setSelectedUnitId(null)
+          }}
+          selectedUnitId={selectedUnitId}
+          onSelectUnit={(unit) => {
+            setSelectedUnitId(unit.id)
+            if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            setFichaExpanded(false)
+            setFichaOpen(true)
+          }}
+        />
+      ) : null}
+
       <div
         className={cn(
           'tour-chrome pointer-events-none absolute inset-0 z-20',
           immersive && 'is-immersive',
+          showPlanShell && 'invisible pointer-events-none',
         )}
       >
-        <div className="pointer-events-auto absolute top-0 left-0 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:p-3.5">
-          <TourPicker
-            typologies={typologyOptions}
-            typology={selectedTypology}
-            onTypologyChange={onTypologyChange}
-            meta={typologyMeta}
-          />
+        <div className="pointer-events-auto absolute top-0 left-0 flex flex-col items-start gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:gap-2.5 sm:p-3.5">
+          {embedded ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShellMode('plan')
+                setFichaOpen(false)
+                setTerminacionesFocus(false)
+              }}
+              className="tour-glass inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:px-3 sm:py-2 sm:text-[11px]"
+            >
+              <Map size={13} strokeWidth={1.75} />
+              Plano
+            </button>
+          ) : null}
+          {showUnitChrome && !isComparador && !terminacionesUiOpen ? (
+            <>
+              <TourPicker
+                typologies={typologyOptions}
+                typology={selectedTypology}
+                onTypologyChange={onTypologyChange}
+                meta={typologyMeta}
+              />
+              {selectedTypology && embedded ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFichaExpanded(false)
+                    setFichaOpen(true)
+                  }}
+                  className="tour-glass inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:px-3 sm:py-2 sm:text-[11px]"
+                >
+                  <FileText size={13} strokeWidth={1.75} />
+                  Ficha técnica
+                  {selectedUnit ? ` · ${selectedUnit.unit_number}` : ''}
+                </button>
+              ) : null}
+            </>
+          ) : null}
         </div>
-        <div className="pointer-events-auto absolute top-0 right-0 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:p-3.5">
-          <div className="flex w-[4.6rem] flex-col gap-1 sm:w-[7.5rem] sm:gap-2">
+        {showUnitChrome && !isComparador && !terminacionesUiOpen ? (
+        <div className="pointer-events-auto absolute top-0 right-0 z-[36] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:p-3.5">
+          <div className="flex w-[8.25rem] flex-col gap-1.5 sm:w-[9.25rem] sm:gap-2">
+            <ModeButton
+              active={viewMode === 'galeria'}
+              icon={<Images size={14} strokeWidth={1.75} />}
+              onClick={() => {
+                setTerminacionesFocus(false)
+                setFinishCompareOpen(false)
+                setViewMode('galeria')
+              }}
+            >
+              Galería
+            </ModeButton>
+            <ModeButton
+              active={viewMode === 'vistas'}
+              icon={<PanelsTopLeft size={14} strokeWidth={1.75} />}
+              onClick={() => {
+                setTerminacionesFocus(false)
+                setFinishCompareOpen(false)
+                setViewMode('vistas')
+              }}
+            >
+              Vistas
+            </ModeButton>
+            <PlanosModePicker
+              viewMode={viewMode}
+              onSelect={(mode) => {
+                setTerminacionesFocus(false)
+                setFinishCompareOpen(false)
+                setCompareOpen(false)
+                setViewMode(mode)
+              }}
+            />
             <ModeButton
               active={viewMode === 'tour'}
+              icon={<Rotate3d size={14} strokeWidth={1.75} />}
               onClick={() => {
                 setViewMode('tour')
                 setRoom(homeSlug)
+                setTerminacionesFocus(false)
+                setFinishCompareOpen(false)
               }}
             >
-              Tour 360
+              Tour 360°
             </ModeButton>
-            <ModeButton active={viewMode === 'vistas'} onClick={() => setViewMode('vistas')}>
-              Vistas
+            <ModeButton
+              active={terminacionesFocus || isFinishCompare}
+              icon={<SwatchBook size={14} strokeWidth={1.75} />}
+              onClick={() => {
+                setFichaOpen(false)
+                setFichaExpanded(false)
+                setCompareOpen(false)
+                setViewMode('tour')
+                setTerminacionesFocus(true)
+              }}
+            >
+              Terminaciones
             </ModeButton>
-            <PlanosModePicker viewMode={viewMode} onSelect={setViewMode} />
+            <ModeButton
+              active={isComparador}
+              icon={<Columns2 size={14} strokeWidth={1.75} />}
+              onClick={() => {
+                setTerminacionesFocus(false)
+                setFinishCompareOpen(false)
+                setCompareOpen(true)
+                setComparePreviewIndex(0)
+                setCompareSplit(50)
+                if (isPlanosMode(viewMode)) setViewMode('tour')
+              }}
+            >
+              Comparador
+            </ModeButton>
           </div>
         </div>
+        ) : null}
 
+        {showUnitChrome ? (
+          <TourTerminacionesPanel
+            open={terminacionesUiOpen}
+            onClose={() => {
+              setTerminacionesFocus(false)
+              setFinishCompareOpen(false)
+            }}
+            contained={embedded && !immersive}
+            rooms={tourRooms}
+            room={room}
+            onRoomChange={(slug) => {
+              setViewMode('tour')
+              setRoom(slug)
+            }}
+            finishes={sceneFinishes}
+            finish={finish}
+            onFinishChange={(slug) => {
+              setViewMode('tour')
+              onFinish(slug)
+            }}
+            compare={isFinishCompare}
+            onCompareChange={(value) => {
+              if (value) {
+                setCompareOpen(false)
+                setCompareUnitBId(null)
+                setViewMode('tour')
+                setFinishCompareSplit(50)
+                const other = sceneFinishes.find((item) => item.slug !== finish)
+                if (other) setFinishRight(other.slug)
+                else if (sceneFinishes[0]) setFinishRight(sceneFinishes[0].slug)
+                setFinishCompareOpen(true)
+                setTerminacionesFocus(true)
+              } else {
+                setFinishCompareOpen(false)
+              }
+            }}
+            finishLeft={finish}
+            finishRight={finishRight || finishRightOption?.slug || finish}
+            onFinishLeftChange={(slug) => {
+              setViewMode('tour')
+              onFinish(slug)
+              if (slug === finishRight) {
+                const other = sceneFinishes.find((item) => item.slug !== slug)
+                if (other) setFinishRight(other.slug)
+              }
+            }}
+            onFinishRightChange={(slug) => {
+              setFinishRight(slug)
+              if (slug === finish) {
+                const other = sceneFinishes.find((item) => item.slug !== slug)
+                if (other) onFinish(other.slug)
+              }
+            }}
+          />
+        ) : null}
+
+        {showUnitChrome && !isComparador && !terminacionesUiOpen ? (
         <div
           className={cn(
             CONSTANTS.CAPTURE_EVENTS_CLASS,
@@ -1552,42 +2215,144 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             />
           )}
 
-          {showSceneControls && !isPlanosMode(viewMode) && (
-            <div className="tour-glass tour-finish pointer-events-auto mx-auto w-full min-w-0 max-w-md">
-              {sceneFinishes.length > 0 ? (
-                sceneFinishes.map((item) => (
-                  <button
-                    key={item.slug}
-                    type="button"
-                    onClick={() => onFinish(item.slug)}
-                    className={finish === item.slug ? 'is-on' : undefined}
-                  >
-                    {item.name}
-                  </button>
-                ))
-              ) : (
-                <p className="tour-caption min-w-0 flex-1 px-2">{lightLabel}</p>
-              )}
-              <button
-                type="button"
-                onClick={onLight}
-                className="tour-icon shrink-0"
-                aria-label={light === 'dia' ? 'Cambiar a noche' : 'Cambiar a día'}
-                title={lightLabel}
-              >
-                {light === 'dia' ? <Moon size={15} strokeWidth={1.5} /> : <Sun size={15} strokeWidth={1.5} />}
-              </button>
-            </div>
-          )}
           {!isPlanosMode(viewMode) ? (
           <p className="tour-caption hidden self-center px-1 text-center sm:block">
             {viewMode === 'tour'
-              ? `${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`
+              ? `${selectedUnit ? `Unidad ${selectedUnit.unit_number} · ` : ''}${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`
               : `${stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.label ?? 'Vistas'}${viewMode === 'vistas' && finishName ? ` · ${finishName}` : ''}${viewMode === 'vistas' ? ` · ${lightLabel}` : ''}`}
           </p>
           ) : null}
         </div>
+        ) : null}
       </div>
+
+      {!immersive && showUnitChrome ? (
+        <div className="absolute right-[max(0.75rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSaveUnitOpen(true)
+            }}
+            className="tour-glass inline-flex h-11 items-center gap-2 rounded-full px-3.5 text-[11px] font-semibold tracking-[0.1em] text-[#f7f3ee] uppercase"
+            aria-label="Guardar departamento"
+            title="Guardar departamento"
+          >
+            <Bookmark size={15} strokeWidth={2} />
+            <span className="hidden sm:inline">Guardar</span>
+          </button>
+          {SITE.whatsapp ? (
+            <a
+              href={tourWhatsAppHref(
+                buildTourWhatsAppMessage({
+                  typologyCode: selectedTypology,
+                  roomLabel:
+                    viewMode === 'tour'
+                      ? roomName
+                      : stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]
+                          ?.label ?? roomName,
+                  viewMode,
+                }),
+              )!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="tour-whatsapp-btn tour-glass"
+              aria-label="Consultar por WhatsApp"
+              title="Consultar por WhatsApp"
+              onClick={() => {
+                logTourEvent({
+                  event_type: 'whatsapp_interest',
+                  room:
+                    viewMode === 'tour'
+                      ? room
+                      : stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.id ??
+                        room,
+                  typology_code: selectedTypology,
+                  unit_type_id: currentTypology?.id,
+                })
+              }}
+            >
+              <WhatsAppIcon size={16} />
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
+      {embedded || showUnitChrome ? (
+        <TourSaveUnitModal
+          open={saveUnitOpen && !immersive}
+          contained={embedded && !immersive}
+          onClose={() => setSaveUnitOpen(false)}
+          onIdentified={() => tracking.markIdentified()}
+          context={{
+            typologyCode: selectedTypology,
+            unitTypeId: currentTypology?.id,
+            unitId: selectedUnit?.id ?? null,
+            unitNumber: selectedUnit?.unit_number ?? null,
+            roomLabel: roomName,
+            finish,
+            light,
+          }}
+        />
+      ) : null}
+
+      {embedded ? (
+        <TourFichaDrawer
+          open={fichaOpen && !immersive}
+          onClose={() => {
+            setFichaOpen(false)
+            setFichaExpanded(false)
+          }}
+          contained
+          expanded={fichaExpanded}
+          typologyCode={selectedTypology}
+          typologyName={currentTypology?.name}
+          units={fichaUnits}
+          images={fichaImages}
+          initialUnitId={selectedUnitId}
+          onVerFicha={(unit) => {
+            setSelectedUnitId(unit.id)
+            if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            setTerminacionesFocus(false)
+            setCompareOpen(false)
+            setViewMode('galeria')
+            setGaleriaIndex(0)
+            setFichaExpanded(true)
+            setFichaOpen(true)
+          }}
+          onTour360={(unit) => {
+            setSelectedUnitId(unit.id)
+            if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            setFichaExpanded(false)
+            setShellMode('unit')
+            setViewMode('tour')
+            setRoom(homeSlug)
+          }}
+          onSelectGalleryImage={(index) => {
+            if (viewMode === 'galeria') setGaleriaIndex(index)
+          }}
+          onRequestInfo={
+            SITE.whatsapp
+              ? (unit) => {
+                  logTourEvent({
+                    event_type: 'whatsapp_interest',
+                    room,
+                    typology_code: selectedTypology,
+                    unit_type_id: currentTypology?.id,
+                  })
+                  const href = tourWhatsAppHref(
+                    buildTourWhatsAppMessage({
+                      typologyCode: selectedTypology,
+                      roomLabel: roomName,
+                      viewMode: 'tour',
+                      unitNumber: unit.unit_number,
+                    }),
+                  )
+                  if (href) window.open(href, '_blank', 'noopener,noreferrer')
+                }
+              : undefined
+          }
+        />
+      ) : null}
 
       <TourLeadGate
         open={gateOpen}

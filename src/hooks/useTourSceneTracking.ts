@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { logTourEvent, openTourSession, pingTourSession } from '@/lib/tour/visitorTracking'
+import { isShowroomIdentified } from '@/lib/tour/showroomIdentity'
 import { dwellSectionKey, isGenericTourSection } from '@/lib/tour/gateCopy'
 import { TOUR_PANO_SLUG } from '@/lib/tour/tourRooms'
 
@@ -18,6 +19,8 @@ type DwellRow = { seconds: number; label: string; typology: string }
 
 const GATE_SECONDS = 40
 const INTEREST_MIN_SECONDS = 8
+/** Temporal: el popup de contacto a los 40s molesta en pruebas. Reactivar después. */
+const TOUR_LEAD_GATE_ENABLED = false
 
 function addDwell(store: Map<string, DwellRow>, target: SceneTarget, seconds: number) {
   if (seconds < 1 || !target.room) return
@@ -65,6 +68,10 @@ export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateC
   const pauseGateClock = options?.pauseGateClock ?? false
   const readyRef = useRef(ready)
   readyRef.current = ready
+
+  useEffect(() => {
+    if (isShowroomIdentified()) setIdentified(true)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -196,7 +203,7 @@ export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateC
   }, [])
 
   useEffect(() => {
-    if (!ready || !target.room || identified || pauseGateClock) return
+    if (!TOUR_LEAD_GATE_ENABLED || !ready || !target.room || identified || pauseGateClock) return
     const id = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
       setGateSeconds((value) => value + 1)
@@ -205,12 +212,14 @@ export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateC
   }, [ready, target.room, identified, pauseGateClock])
 
   useEffect(() => {
+    if (!TOUR_LEAD_GATE_ENABLED) return
     if (sceneNudgeRef.current || uniqueScenes < 3) return
     sceneNudgeRef.current = true
     setGateSeconds((value) => Math.max(value, GATE_SECONDS))
   }, [uniqueScenes])
 
-  const shouldOfferGate = ready && !identified && gateSeconds >= GATE_SECONDS
+  const shouldOfferGate =
+    TOUR_LEAD_GATE_ENABLED && ready && !identified && gateSeconds >= GATE_SECONDS
 
   useEffect(() => {
     if (shouldOfferGate && !interestRef.current) {

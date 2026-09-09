@@ -165,15 +165,18 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function identifyTourLead(input: {
-  name: string
-  email: string
+  name?: string
+  email?: string
   phone: string
   consent: boolean
+  mode?: 'full' | 'phone'
   typology_code?: string | null
   unit_type_id?: string | null
   interest_room?: string | null
   finish?: string | null
   light?: string | null
+  unit_id?: string | null
+  unit_number?: string | null
 }) {
   const body = JSON.stringify({
     ...input,
@@ -201,7 +204,13 @@ export async function identifyTourLead(input: {
     finish: input.finish,
     light: input.light,
     room: input.interest_room,
-    metadata: { lead_id: json.lead_id, interest_room: input.interest_room ?? null },
+    metadata: {
+      lead_id: json.lead_id,
+      interest_room: input.interest_room ?? null,
+      mode: input.mode ?? 'full',
+      unit_id: input.unit_id ?? null,
+      unit_number: input.unit_number ?? null,
+    },
   })
   return json.lead_id
 }

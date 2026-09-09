@@ -73,8 +73,9 @@ export function tourHomeSlug(rooms: Array<{ slug: string }>) {
   return rooms.find((item) => item.slug === TOUR_HOME_SLUG)?.slug ?? rooms[0]?.slug ?? TOUR_HOME_SLUG
 }
 
-export function tourPanoFileName(width: 4096 | 8192) {
-  return width === 8192 ? TOUR_PANO_FILE_8192 : TOUR_PANO_FILE
+export function tourPanoFileName(width: 4096 | 8192, ext: string = 'webp') {
+  const safeExt = (ext.replace(/^\./, '').toLowerCase() || 'webp').replace(/jpeg/, 'jpg')
+  return width === 8192 ? `tour-360_8192.${safeExt}` : `tour-360.${safeExt}`
 }
 
 function slugifySpace(value: string) {
@@ -179,9 +180,10 @@ export function tourRoomLabel(slug: string) {
   return SPACE_ALIASES[slug]?.label ?? TOUR_ROOMS.find((room) => room.slug === slug)?.label ?? slug
 }
 
-export function tourRoomFileName(slug: string) {
-  if (slug === TOUR_PANO_SLUG) return TOUR_PANO_FILE
-  return `${slug}.webp`
+export function tourRoomFileName(slug: string, ext: string = 'webp') {
+  const safeExt = (ext.replace(/^\./, '').toLowerCase() || 'webp').replace(/jpeg/, 'jpg')
+  if (slug === TOUR_PANO_SLUG) return `tour-360.${safeExt}`
+  return `${slug}.${safeExt}`
 }
 
 export function firstRoomAlias(slug: string) {

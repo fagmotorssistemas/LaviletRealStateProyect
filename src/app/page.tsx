@@ -3,10 +3,10 @@ import { HomeLanding } from '@/components/marketing/HomeLanding'
 
 export const metadata: Metadata = {
   title: {
-    absolute: 'Lavilet | Proyectos inmobiliarios',
+    absolute: 'Lavilet | Showroom 360°',
   },
   description:
-    'Departamentos y locales comerciales. Agenda una visita al showroom y recibe asesoría hasta la entrega.',
+    'Recorre el showroom virtual de Lavilet en 360°. Tipologías, ambientes y disponibilidad.',
 }
 
 export default function Home() {

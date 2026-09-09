@@ -20,10 +20,15 @@ export function sceneToken(finish: string | null | undefined, light: TourLightMo
   return finish ? `${finish}_${light}` : light
 }
 
-export function roomSceneFileName(key: RoomSceneKey, width?: 4096 | 8192) {
+export function roomSceneFileName(
+  key: RoomSceneKey,
+  width?: 4096 | 8192,
+  ext: string = 'webp',
+) {
+  const safeExt = (ext.replace(/^\./, '').toLowerCase() || 'webp').replace(/jpeg/, 'jpg')
   const base = `${key.room}_${sceneToken(key.finish, key.light)}`
-  if (width === 8192) return `${base}_8192.webp`
-  return `${base}.webp`
+  if (width === 8192) return `${base}_8192.${safeExt}`
+  return `${base}.${safeExt}`
 }
 
 export function parseRoomSceneFileName(fileName: string): {
@@ -59,7 +64,7 @@ export function parseRoomSceneFileName(fileName: string): {
   }
 }
 
-function finishesMatch(left: string | null, right: string | null) {
+export function finishesMatch(left: string | null, right: string | null) {
   if (left === right) return true
   if (!left || !right) return false
   const groups = [
@@ -89,7 +94,10 @@ export function isLegacySceneFile(fileName: string, room?: string) {
 
 export function findLegacyRoomAsset<T extends { file_name: string }>(assets: T[], room: string) {
   const exact = assets.find((item) =>
-    roomSlugAliases(room).some((alias) => item.file_name === (alias === 'tour-360' ? 'tour-360.webp' : `${alias}.webp`)),
+    roomSlugAliases(room).some((alias) => {
+      const base = item.file_name.replace(/\.[^.]+$/, '')
+      return alias === 'tour-360' ? base === 'tour-360' : base === alias
+    }),
   )
   if (exact) return exact
   const parsedLegacy = assets.find((item) =>
@@ -204,13 +212,16 @@ export function buildRoomScenes(
 
 export function pickSceneUrl(
   scene: TourRoomScene | undefined,
-  _width?: TourWidth,
+  width?: TourWidth,
 ): string | null {
   if (!scene) return null
-  if (scene.url) return tourDisplayUrl(scene.url)
   const widths = scene.widths ?? {}
-  if (widths['4096']) return tourDisplayUrl(widths['4096'])
-  if (widths['8192']) return tourDisplayUrl(widths['8192'])
+  const prefer = width ?? 8192
+  if (prefer >= 8192 && widths['8192']) return tourDisplayUrl(widths['8192'])
+  if (prefer >= 4096 && (widths['4096'] || widths['8192'])) {
+    return tourDisplayUrl(widths['4096'] ?? widths['8192']!)
+  }
   if (widths['2048']) return tourDisplayUrl(widths['2048'])
+  if (scene.url) return tourDisplayUrl(scene.url)
   return null
 }

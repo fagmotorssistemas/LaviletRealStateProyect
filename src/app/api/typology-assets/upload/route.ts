@@ -8,13 +8,14 @@ import {
   typologyAssetFileName,
   typologyAssetStoragePath,
 } from '@/lib/typology-assets'
-import { isTourRoomSlug, TOUR_PANO_SLUG, tourPanoFileName, tourRoomFileName } from '@/lib/tour/tourRooms'
+import { isTourRoomSlug, tourRoomFileName } from '@/lib/tour/tourRooms'
 import { roomSceneFileName } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import {
   deleteTypologyAsset,
   findTypologyAssetByKey,
   insertTypologyAsset,
+  listTypologyAssets,
 } from '@/services/inmobiliaria.service'
 
 export const runtime = 'nodejs'
@@ -62,7 +63,6 @@ async function handleUpload(request: Request) {
   const light: TourLightMode | null = lightRaw === 'noche' || lightRaw === 'dia' ? lightRaw : null
   if (!typologyCode) return jsonError('Falta typology_code', 400)
   if (!isTypologyAssetKind(kindRaw)) return jsonError('kind debe ser plano, render o ambiente', 400)
-  const isPanoSlot = kindRaw === 'ambiente' && room === TOUR_PANO_SLUG
   if (kindRaw === 'ambiente' && !isTourRoomSlug(room)) {
     return jsonError('Falta el ambiente o el 360 de la tipología', 400)
   }
@@ -78,6 +78,18 @@ async function handleUpload(request: Request) {
     mime.startsWith('image/') ||
     /\.(png|jpe?g|webp|gif)$/i.test(fileNameHint)
   if (!isImage) return jsonError(`El archivo no es una imagen (${fileNameHint || mime || 'sin tipo'})`, 400)
+
+  const hintExt = (fileNameHint.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
+  const mimeExt =
+    mime === 'image/png'
+      ? 'png'
+      : mime === 'image/webp'
+        ? 'webp'
+        : mime === 'image/jpeg' || mime === 'image/jpg'
+          ? 'jpg'
+          : ''
+  const sourceExt = (mimeExt || hintExt || 'jpg').replace(/jpeg/, 'jpg')
+
   const persistKind = kindRaw === 'ambiente' ? 'render' : kindRaw
   const sceneKey = kindRaw === 'ambiente' && light ? { room, finish, light } : null
   const planoVariantRaw = String(form.get('plano_variant') ?? '').trim().toLowerCase()
@@ -85,17 +97,12 @@ async function handleUpload(request: Request) {
   let fileName =
     kindRaw === 'ambiente'
       ? sceneKey
-        ? roomSceneFileName(sceneKey)
-        : tourRoomFileName(room)
+        ? roomSceneFileName(sceneKey, undefined, sourceExt)
+        : tourRoomFileName(room, sourceExt)
       : typologyAssetFileName(fileNameHint)
   if (persistKind === 'plano' && planoVariant && !fileName.startsWith(`${planoVariant}-`)) {
     fileName = `${planoVariant}-${fileName}`
   }
-  const desktopFileName = isPanoSlot
-    ? sceneKey
-      ? roomSceneFileName(sceneKey, 8192)
-      : tourPanoFileName(8192)
-    : null
   const admin = createAdminClient()
 
   const existing = await findTypologyAssetByKey(admin, typologyCode, persistKind, fileName)
@@ -107,26 +114,48 @@ async function handleUpload(request: Request) {
     )
   }
 
-  const pngBuffer = Buffer.from(await uploaded.arrayBuffer())
+  const sourceBuffer = Buffer.from(await uploaded.arrayBuffer())
   const sharpOpts = { limitInputPixels: 268_402_689, sequentialRead: true, failOn: 'none' as const }
-  let webpBuffer: Buffer = pngBuffer
-  let contentType = mime.startsWith('image/') ? mime : 'image/jpeg'
-  let desktopBuffer: Buffer | null = null
-  try {
-    const sharp = (await import('sharp')).default
-    const quality = isPanoSlot ? 88 : kindRaw === 'ambiente' ? 86 : 90
-    webpBuffer = await sharp(pngBuffer, sharpOpts).rotate().webp({ quality, effort: 3 }).toBuffer()
-    contentType = 'image/webp'
-  } catch (error) {
-    console.error('sharp convert skipped', error)
+  let outBuffer: Buffer = sourceBuffer
+  let contentType = mime.startsWith('image/') ? mime : `image/${sourceExt === 'jpg' ? 'jpeg' : sourceExt}`
+  const isTour360 = kindRaw === 'ambiente'
+
+  if (isTour360) {
+    // Showroom 360: cero re-encode. Se guarda el archivo original byte a byte.
+    outBuffer = sourceBuffer
+    contentType = mime.startsWith('image/')
+      ? mime
+      : sourceExt === 'png'
+        ? 'image/png'
+        : sourceExt === 'webp'
+          ? 'image/webp'
+          : 'image/jpeg'
+    console.info('[typology-assets] ambiente upload original (no sharp)', {
+      typologyCode,
+      fileName,
+      bytes: sourceBuffer.byteLength,
+      contentType,
+    })
+  } else {
+    // Planos / renders: compresión con pérdida aceptable.
+    try {
+      const sharpMod = await import('sharp')
+      const sharp = sharpMod.default
+      if (typeof sharp !== 'function') throw new Error('sharp module unavailable')
+      outBuffer = await sharp(sourceBuffer, sharpOpts).rotate().webp({ quality: 90, effort: 3 }).toBuffer()
+      contentType = 'image/webp'
+    } catch (error) {
+      console.error('sharp convert skipped; uploading original', error)
+      outBuffer = sourceBuffer
+    }
   }
 
   const uploadedPaths: string[] = []
-  const persistFile = async (name: string, buffer: Buffer) => {
+  const persistFile = async (name: string, buffer: Buffer, type: string) => {
     const path = typologyAssetStoragePath(typologyCode, persistKind, name)
     const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
       upsert: kindRaw === 'ambiente',
-      contentType,
+      contentType: type,
       cacheControl: '0',
     })
     if (upErr) {
@@ -160,14 +189,28 @@ async function handleUpload(request: Request) {
   }
 
   try {
-    const asset = await persistFile(fileName, webpBuffer)
-    if (isPanoSlot && desktopBuffer && desktopFileName) {
-      await persistFile(desktopFileName, desktopBuffer)
+    const asset = await persistFile(fileName, outBuffer, contentType)
+
+    // Si había un .webp con pérdida (u otra extensión) de la misma escena, lo limpiamos
+    // para que el showroom no siga sirviendo la versión vieja.
+    if (isTour360 && sceneKey) {
+      const stem = `${sceneKey.room}_${sceneKey.finish ? `${sceneKey.finish}_` : ''}${sceneKey.light}`
+      const all = await listTypologyAssets(admin, typologyCode)
+      const stale = all.filter((row) => {
+        if (row.id === asset.id) return false
+        if (row.kind !== persistKind) return false
+        const base = row.file_name.replace(/\.[^.]+$/, '').replace(/_(2048|4096|8192)$/i, '')
+        return base === stem
+      })
+      for (const row of stale) {
+        try {
+          await deleteTypologyAsset(admin, row.id)
+        } catch (error) {
+          console.error('cleanup stale ambiente asset', row.file_name, error)
+        }
+      }
     }
-    if (isPanoSlot && !desktopBuffer && desktopFileName) {
-      const extra = await findTypologyAssetByKey(admin, typologyCode, persistKind, desktopFileName)
-      if (extra) await deleteTypologyAsset(admin, extra.id)
-    }
+
     return NextResponse.json({ asset })
   } catch (err) {
     if (uploadedPaths.length > 0) {

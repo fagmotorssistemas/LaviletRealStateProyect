@@ -1,14 +1,22 @@
 'use client'
 
 import { TourSafeArea } from '@/components/tour/TourSafeArea'
+import { cn } from '@/lib/utils'
 
-export function HomeTourSection() {
+export function HomeTourSection({ embedded = false }: { embedded?: boolean }) {
   return (
-    <section id="tour" className="relative z-20 scroll-mt-20 bg-[#f7f3ee] py-10 sm:scroll-mt-24 sm:py-20 lg:py-28">
+    <section
+      className={cn(
+        'relative z-20 bg-[#f7f3ee]',
+        embedded ? 'py-16 sm:py-20 lg:py-28' : 'pt-24 pb-16 sm:pt-28 sm:pb-20 lg:pb-28',
+      )}
+    >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center lg:mx-0 lg:text-left">
           <p className="text-xs font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Tour virtual</p>
-          <h2 className="mt-3 text-[1.75rem] leading-tight font-bold sm:text-4xl">Recorre el showroom en 360°</h2>
+          <h1 className="mt-3 text-[1.75rem] leading-tight font-bold sm:text-4xl">
+            Recorre el showroom en 360°
+          </h1>
           <p className="mt-4 text-[#2B1A18]/65">
             Entra a las unidades y cambia de ambiente. Si te interesa una tipología, te pedimos WhatsApp
             para enviarte planos y disponibilidad.

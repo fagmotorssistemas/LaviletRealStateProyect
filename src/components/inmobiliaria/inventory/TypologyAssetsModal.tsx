@@ -9,6 +9,7 @@ import {
   listTypologyAssetsAction,
 } from '@/app/inmobiliaria/inventario-2/actions'
 import { TypologyHotspotEditor } from '@/components/inmobiliaria/inventory/TypologyHotspotEditor'
+import { TypologyFloorZonesPanel } from '@/components/inmobiliaria/inventory/TypologyFloorZonesPanel'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
@@ -79,7 +80,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [typologies, setTypologies] = useState<TypologyImport[]>([])
   const [code, setCode] = useState('')
   const [kind, setKind] = useState<TypologyAssetKind>('plano')
-  const [tab, setTab] = useState<'ambientes' | 'vistas' | 'documentos' | 'puntos'>('ambientes')
+  const [tab, setTab] = useState<'ambientes' | 'vistas' | 'documentos' | 'puntos' | 'pisos'>('ambientes')
   const [planoVariant, setPlanoVariant] = useState<'2d' | '3d'>('2d')
   const [roomSlots, setRoomSlots] = useState<TourRoomDef[]>([])
   const [catalogPanoUrl, setCatalogPanoUrl] = useState<string | null>(null)
@@ -402,7 +403,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   }))
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Imágenes por tipología" size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} title="Imágenes por tipología" size="wide">
       <div className="space-y-5">
         <div className="sticky top-0 z-10 -mx-4 -mt-4 space-y-3 border-b border-[#2B1A18]/8 bg-white px-4 pb-3 pt-4 sm:-mx-6 sm:-mt-6 sm:px-6">
           {notice ? (
@@ -426,6 +427,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 { id: 'vistas' as const, label: 'Vistas' },
                 { id: 'puntos' as const, label: 'Puntos 360' },
                 { id: 'documentos' as const, label: 'Planos' },
+                { id: 'pisos' as const, label: 'Pisos' },
               ] as const
             ).map((item) => (
               <button
@@ -475,6 +477,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 <p className="text-sm text-[#3a3d36]">360</p>
                 <p className="text-xs text-[#8a8d87]">
                   La sala es la vista principal del tour. Un 360 por ambiente, acabado 1 y 2, día y noche.
+                  Se guarda el archivo original sin recomprimir (PNG/JPG/WebP tal cual).
                 </p>
               </div>
               {roomSlots.length === 0 ? (
@@ -768,6 +771,10 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             }))}
           />
         )}
+
+        {tab === 'pisos' && code ? (
+          <TypologyFloorZonesPanel typologyCode={code} assets={assets} />
+        ) : null}
 
         {tab === 'documentos' ? (
         <div className="space-y-4">

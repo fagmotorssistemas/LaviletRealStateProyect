@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 import { LaviletLockup, useLockupDocked } from './LaviletLockup'
@@ -41,7 +42,7 @@ export function HeroStage() {
   }
 
   return (
-    <section id="inicio" className="relative min-h-svh">
+    <section id="inicio" className="relative min-h-svh scroll-mt-0">
       <div className="absolute inset-0 overflow-hidden">
         <video
           ref={videoRef}
@@ -152,19 +153,19 @@ export function HeroStage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 1.2, duration: 0.5 }}
                 >
-                  <a
-                    href="#contacto"
+                  <Link
+                    href="/contacto"
                     className="inline-flex h-10 items-center bg-white px-5 text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#f7f3ee]"
                   >
                     Agendar visita
-                  </a>
-                  <a
-                    href="#proyectos"
+                  </Link>
+                  <Link
+                    href="/proyectos"
                     className="inline-flex items-center text-[11px] font-medium tracking-[0.16em] text-white uppercase transition-colors hover:text-[#BDA27E]"
                   >
                     Ver proyectos
                     <ArrowRight size={14} className="ml-2" />
-                  </a>
+                  </Link>
                 </motion.div>
               </div>
             </motion.div>

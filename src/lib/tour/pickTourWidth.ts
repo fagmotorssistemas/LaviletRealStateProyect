@@ -40,13 +40,18 @@ export function tourDisplayUrl(publicUrl: string, _width?: TourWidth): string {
   }
 }
 
+/** Elige el mejor ancho disponible según GPU; por defecto prioriza nitidez. */
 export function pickTourWidth(_params?: {
   maxTextureSize?: number
   screenPx?: number
   narrow?: boolean
   cap?: TourWidth
 }): TourWidth {
-  return 4096
+  const max = _params?.maxTextureSize ?? readMaxTextureSize()
+  const cap = _params?.cap
+  let width: TourWidth = max >= 8192 ? 8192 : max >= 4096 ? 4096 : 2048
+  if (cap && width > cap) width = cap
+  return width
 }
 
 export function pickCatalogPanoUrl(
@@ -73,12 +78,12 @@ export function pickCatalogPanoUrl(
     pano.scenes?.find((item) => item.finish == null && item.light === light) ??
     pano.scenes?.find((item) => item.finish === (finish || null) && item.light === 'dia') ??
     pano.scenes?.[0]
-  const fallback = scene?.url ?? pano.url
-  if (fallback) return tourDisplayUrl(fallback)
   const variants = scene?.widths ?? pano.variants ?? {}
   if (width >= 8192 && variants['8192']) return tourDisplayUrl(variants['8192'])
-  if (variants['4096']) return tourDisplayUrl(variants['4096'])
+  if (width >= 4096 && variants['4096']) return tourDisplayUrl(variants['4096'])
   if (variants['8192']) return tourDisplayUrl(variants['8192'])
+  if (variants['4096']) return tourDisplayUrl(variants['4096'])
   if (variants['2048']) return tourDisplayUrl(variants['2048'])
-  return null
+  const fallback = scene?.url ?? pano.url
+  return fallback ? tourDisplayUrl(fallback) : null
 }

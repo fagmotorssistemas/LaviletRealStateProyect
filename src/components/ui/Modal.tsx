@@ -12,7 +12,7 @@ interface ModalProps {
   headerActions?: ReactNode
   children: ReactNode
   className?: string
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full' | 'wide'
 }
 
 const sizeClasses = {
@@ -21,6 +21,7 @@ const sizeClasses = {
   lg: 'sm:max-w-2xl',
   xl: 'sm:max-w-4xl',
   full: 'sm:max-w-6xl',
+  wide: 'sm:max-w-[min(96vw,1280px)] sm:max-h-[94vh]',
 }
 
 export function Modal({ isOpen, onClose, title, headerActions, children, className, size = 'md' }: ModalProps) {
