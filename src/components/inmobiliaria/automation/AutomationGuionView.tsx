@@ -401,7 +401,7 @@ export function AutomationGuionView() {
 
           <GuionCard
             title="Cómo responde"
-            description="Temas que n8n ya pide por nombre (precio, ubicación, visita…). Apagar un tema evita que se inyecte. Un tema nuevo solo sale en WhatsApp si n8n lo solicita."
+            description="Edite los prompts de respuesta comercial, saludo, revisi?n, resumen y extracci?n. Los cambios guardados se leen en la siguiente conversaci?n. Los temas adicionales requieren que el ejecutor los consulte; crearlos no los activa por s? solo."
             action={null}
           >
             <div className="space-y-2">
