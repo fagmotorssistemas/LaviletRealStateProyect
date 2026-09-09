@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "tour:resize": "node scripts/tour-resize.mjs",
+<<<<<<< Updated upstream
     "tour:segment-floor": "node scripts/segment-floor-plan.mjs",
     "plan:analyzer": "cd python && .venv\\Scripts\\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8001",
     "test:integrations": "node --test scripts/integrations.test.cjs",
@@ -17,6 +18,9 @@
   },
   "engines": {
     "node": "20.x"
+=======
+    "test:automation": "node --experimental-strip-types --test src/lib/inmobiliaria/slaStatus.test.ts"
+>>>>>>> Stashed changes
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
