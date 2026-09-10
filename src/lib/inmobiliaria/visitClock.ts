@@ -55,15 +55,37 @@ export function formatVisitWhen(iso: string | Date): string {
   return `${formatVisitDate(iso)} ${formatVisitClock(iso)}`
 }
 
-export function buildVisitConfirmMessage(params: {
-  leadName: string
-  advisorName: string
-  startIso: string
-  locationUrl?: string | null
+export function buildVisitMessage(params: {
+  kind: 'visit_propose' | 'visit_confirm' | 'visit_reschedule_confirm' | 'visit_2h'
+  leadName: string; advisorName?: string; startIso: string; locationUrl?: string | null
 }): string {
-  const first = params.leadName.trim().split(/\s+/)[0] || 'cliente'
-  const advisor = params.advisorName.trim() || 'nuestro equipo'
-  const url = params.locationUrl?.trim()
-  const location = url ? ` Aquí puede ver nuestra ubicación:\n${url}` : ''
-  return `Perfecto, ${first}. Le esperamos ${formatVisitWhen(params.startIso)} con ${advisor}, de nuestro equipo. Será un gusto recibirle y mostrarle el proyecto.${location}\nSi necesita alguna indicación, puede escribirnos por aquí. ¡Muchas gracias!`
+  const first = params.leadName.trim().split(/\s+/)[0] || ''
+  const advisor = params.advisorName?.trim() || ''
+  const location = params.locationUrl?.trim()
+  const suffix = location ? '\nUbicación:\n' + location : ''
+  const when = formatVisitWhen(params.startIso)
+  let result: string
+  if (params.kind === 'visit_propose') {
+    result = 'Con gusto podemos recibirle ' + when + ' para conocer La Vilet. ¿Le queda bien o prefiere otro horario?'
+  } else if (params.kind === 'visit_2h') {
+    result = 'Le esperamos hoy ' + formatVisitClock(params.startIso) + ' en La Vilet. Será un gusto recibirle. Si necesita cambiar el horario, cuéntenos por aquí.' + suffix
+  } else {
+    result = 'Perfecto' + (first ? ', ' + first : '') + '. Confirmamos su cita ' + when
+      + (advisor ? ' con nuestro asesor ' + advisor : ' con nuestro equipo') + '. Será un gusto recibirle.' + suffix
+  }
+  // El campo de Salesbot admite 256 caracteres. Acortar el texto, nunca cortar el enlace o la hora.
+  if (result.length > 256) {
+    const day = new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', day: 'numeric', month: 'numeric', year: 'numeric' }).format(new Date(params.startIso))
+    result = result.replace(when, 'el ' + day + ' ' + formatVisitClock(params.startIso))
+  }
+  if (result.length > 256 && first) result = result.replace('Perfecto, ' + first + '.', 'Perfecto.')
+  if (result.length > 256 && advisor) result = result.replace('nuestro asesor ' + advisor, 'nuestro equipo')
+  if (result.length > 256) throw new Error('El enlace de ubicación es demasiado largo para el mensaje de visita')
+  return result
+}
+
+export function buildVisitConfirmMessage(params: {
+  leadName: string; advisorName: string; startIso: string; locationUrl?: string | null
+}) {
+  return buildVisitMessage({ ...params, kind: 'visit_confirm' })
 }

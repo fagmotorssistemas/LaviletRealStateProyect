@@ -65,7 +65,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
         {/* Mapa */}
         <div className="relative mt-10 overflow-hidden bg-[#ebe4da] ring-1 ring-[#2B1A18]/8 lg:mt-12">
           <div className="relative h-[min(68vh,580px)] min-h-[400px] w-full lg:h-[min(72vh,640px)]">
-            <LaviletMap className="absolute inset-0" zoom={16} />
+            <LaviletMap className="absolute inset-0" zoom={16} latitude={project?.latitude ?? undefined} longitude={project?.longitude ?? undefined} />
           </div>
           <div className="flex flex-col gap-3 border-t border-[#2B1A18]/10 bg-[#f7f3ee]/90 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div>
@@ -75,7 +75,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
               <p className="mt-0.5 text-sm text-[#2B1A18]/55">{lines.join(' · ')}</p>
             </div>
             <a
-              href={SITE.location.mapsUrl}
+              href={project?.mapsUrl || SITE.location.mapsUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-11 items-center justify-center rounded-lg bg-[#2B1A18] px-5 text-sm font-medium text-white transition-colors hover:bg-[#3d2a24]"

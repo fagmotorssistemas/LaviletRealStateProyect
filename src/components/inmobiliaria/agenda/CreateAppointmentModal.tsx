@@ -19,6 +19,7 @@ import { AppointmentInterestUnitsPicker } from '@/components/inmobiliaria/agenda
 import { AgendaVisitFields, addOneHour, type AgendaVisitFieldValues } from '@/components/inmobiliaria/agenda/AgendaVisitFields'
 import { ecuadorLocalToIso } from '@/lib/inmobiliaria/agendaTime'
 import { createConfirmedAppointmentAction } from '@/app/inmobiliaria/agenda/actions'
+import { KommoChatLink } from './KommoChatLink'
 
 interface CreateAppointmentModalProps {
   isOpen: boolean
@@ -149,6 +150,7 @@ export function CreateAppointmentModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Nueva cita" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {leadId && <div className="flex justify-end"><KommoChatLink kommoId={leads.find(lead => lead.id === leadId)?.kommo_id} /></div>}
         <Input
           id="title"
           label="Título *"

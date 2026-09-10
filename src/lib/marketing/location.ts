@@ -3,6 +3,7 @@ import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { SITE } from '@/lib/marketing/site'
 import type { MarketingProjectLocation } from '@/lib/marketing/projectLocationTypes'
+import { googleMapsUrl, validCoordinates } from '@/lib/inmobiliaria/projectLocation'
 
 export type { MarketingProjectLocation }
 
@@ -13,7 +14,7 @@ export async function getMarketingProjectLocation(): Promise<MarketingProjectLoc
   const { data, error } = await admin
     .from('projects')
     .select(
-      'name, address, city, country, short_description, description, contact_phone, contact_email, construction_phase, developer_name',
+      'id, tenant_id, name, address, city, country, short_description, description, contact_phone, contact_email, construction_phase, developer_name',
     )
     .eq('id', TOUR_PROJECT_ID)
     .eq('tenant_id', TOUR_TENANT_ID)
@@ -23,7 +24,7 @@ export async function getMarketingProjectLocation(): Promise<MarketingProjectLoc
     const { data: fallback } = await admin
       .from('projects')
       .select(
-        'name, address, city, country, short_description, description, contact_phone, contact_email, construction_phase, developer_name',
+        'id, tenant_id, name, address, city, country, short_description, description, contact_phone, contact_email, construction_phase, developer_name',
       )
       .ilike('name', '%vilet%')
       .order('created_at', { ascending: false })
@@ -31,10 +32,20 @@ export async function getMarketingProjectLocation(): Promise<MarketingProjectLoc
       .maybeSingle()
 
     if (!fallback) return null
-    return mapProject(fallback)
+    return withMap(fallback)
   }
 
-  return mapProject(data)
+  return withMap(data)
+
+  async function withMap(row: Parameters<typeof mapProject>[0] & { id: string; tenant_id: string }) {
+    const { data: location } = await admin!.from('project_automation_config')
+      .select('visit_latitude,visit_longitude').eq('project_id', row.id).eq('tenant_id', row.tenant_id).maybeSingle()
+    const point = location?.visit_latitude != null && location?.visit_longitude != null
+      ? { latitude: Number(location.visit_latitude), longitude: Number(location.visit_longitude) } : null
+    return { ...mapProject(row), ...(point && validCoordinates(point.latitude, point.longitude) ? {
+      latitude: point.latitude, longitude: point.longitude, mapsUrl: googleMapsUrl(point),
+    } : {}) }
+  }
 }
 
 function mapProject(row: {

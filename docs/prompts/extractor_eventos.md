@@ -219,5 +219,5 @@ ACTUALIZACIÓN SDR LA VILET
 - Nunca conviertas un precio del catálogo, un ingreso o una cuota en presupuesto de compra.
 - requested_visit solo cuando pide o acepta VISITAR presencialmente. «Quiero información» o «quiero conocer más del proyecto» no basta. «Sí» solo lo activa si responde a una invitación explícita de visita. Una llamada no es una visita.
 - Cuando la última pregunta del bot solicita día/horario de visita y responde «mañana a las diez», activa requested_visit y conserva esa frase en preferred_visit_time_text. Una hora sin contexto de visita NO activa el evento.
-- Si pide visita pero no indica horario, preferred_visit_time_text=null: el sistema preguntará por su preferencia antes de crear la solicitud.
+- Si pide visita pero no indica horario, preferred_visit_time_text=null: el sistema abrirá la coordinación pendiente y preguntará únicamente el día o la hora que falte. Un agradecimiento sin otra petición no genera requested_visit.
 - Una petición explícita de llamada se deriva como requested_advisor=true; no confirmes agenda de llamadas.

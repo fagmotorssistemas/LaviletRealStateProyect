@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 
-export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'reglas' | 'guion' }) {
+export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'reglas' | 'guion' | 'ubicacion' }) {
   const { isAdmin } = useRoleAccess()
 
   return (
@@ -21,6 +21,7 @@ export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'regla
           Guion
         </Link>
       ) : null}
+      {isAdmin && <Link href="/inmobiliaria/automatizacion/ubicacion" data-active={active === 'ubicacion'} className="crm-tab no-underline">Ubicación</Link>}
     </div>
   )
 }

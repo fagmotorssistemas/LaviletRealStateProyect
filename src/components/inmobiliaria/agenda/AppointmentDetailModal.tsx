@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
-import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
@@ -12,12 +11,17 @@ import type {
   AppointmentWithUnits,
   TeamProfile,
   Unit,
+  VisitTimeSlot,
 } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
 import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { getAppointment, listProjectAdvisors } from '@/services/inmobiliaria.service'
 import { toast } from 'sonner'
-import { Building2, Clock, FileText, MapPin, User } from 'lucide-react'
+import { ArrowLeft, Send } from 'lucide-react'
+import { AppointmentSummary, AppointmentExpandedDetails } from './AppointmentSummary'
+import { KommoChatLink } from './KommoChatLink'
+import { VisitRecommendations } from './VisitRecommendations'
+import { useVisitScheduling } from '@/hooks/inmobiliaria/useVisitScheduling'
 import { AppointmentInterestUnitsPicker } from '@/components/inmobiliaria/agenda/AppointmentInterestUnitsPicker'
 import { AgendaVisitFields, addOneHour, type AgendaVisitFieldValues } from '@/components/inmobiliaria/agenda/AgendaVisitFields'
 import {
@@ -26,11 +30,11 @@ import {
 } from '@/lib/inmobiliaria/appointmentFormValidation'
 import {
   ecuadorLocalToIso,
-  formatAgendaDateTime,
   isoToEcuadorParts,
 } from '@/lib/inmobiliaria/agendaTime'
 import {
   advisorAcceptRequestAction,
+  acceptClientVisitTimeAction,
   advisorProposeRequestAction,
   cancelAppointmentAction,
   confirmAppointmentAction,
@@ -41,7 +45,7 @@ import {
   requestReassignmentAction,
 } from '@/app/inmobiliaria/agenda/actions'
 
-type Panel = 'view' | 'confirm' | 'attendance' | 'propose' | 'cancel' | 'reassign'
+type Panel = 'view' | 'details' | 'confirm' | 'attendance' | 'propose' | 'cancel' | 'reassign'
 
 const emptyVisit: AgendaVisitFieldValues = {
   visitDate: '',
@@ -85,6 +89,8 @@ export function AppointmentDetailModal({
   const { supabase, user, profile } = useAuth()
   const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [detail, setDetail] = useState<AppointmentWithUnits | null>(null)
+  const detailSequence = useRef(0)
+  const loadedRequestId = useRef<string | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [panel, setPanel] = useState<Panel>('view')
@@ -94,24 +100,40 @@ export function AppointmentDetailModal({
   const [selectedUnits, setSelectedUnits] = useState<Unit[]>([])
   const [visitedUnitIds, setVisitedUnitIds] = useState<string[]>([])
   const [notes, setNotes] = useState('')
+  const canActOnRequest = Boolean(detail?.openReschedule)
+    && Boolean(scope?.isAdmin || detail?.openReschedule?.assigned_advisor_id === user?.id)
+  const scheduling = useVisitScheduling(supabase, isOpen && canActOnRequest ? detail?.openReschedule?.id : undefined)
 
-  const loadDetail = async (id: string) => {
-    setLoadingDetail(true)
-    setLoadError(false)
+  const selectRecommendation = (slot: VisitTimeSlot) => {
+    const start = isoToEcuadorParts(slot.start_time)
+    const end = isoToEcuadorParts(slot.end_time)
+    if (!start || !end) return
+    setVisit(prev => ({ ...prev, visitDate: start.date, startHm: start.time, endHm: end.time }))
+  }
+
+  const loadDetail = async (id: string, background = false) => {
+    const current = ++detailSequence.current
+    if (!background) { setLoadingDetail(true); setLoadError(false) }
     try {
       const next = await getAppointment(supabase, id, scope)
+      if (current !== detailSequence.current) return null
+      const requestChanged = loadedRequestId.current !== (next.openReschedule?.id ?? null)
+      loadedRequestId.current = next.openReschedule?.id ?? null
       setDetail(next)
-      setVisit(visitFromAppointment(next))
-      setSelectedUnits([...next.units])
-      setVisitedUnitIds(next.visitedUnitIds ?? [])
-      setNotes('')
+      if (!background || requestChanged) {
+        setVisit(visitFromAppointment(next))
+        setSelectedUnits([...next.units])
+        setVisitedUnitIds(next.visitedUnitIds ?? [])
+        setNotes('')
+        if (background) setPanel('view')
+      }
       return next
     } catch {
-      setLoadError(true)
-      toast.error('No se pudo cargar el detalle de la cita')
+      if (current !== detailSequence.current) return null
+      if (!background) { setLoadError(true); toast.error('No se pudo cargar el detalle de la cita') }
       return null
     } finally {
-      setLoadingDetail(false)
+      if (!background && current === detailSequence.current) setLoadingDetail(false)
     }
   }
 
@@ -123,6 +145,9 @@ export function AppointmentDetailModal({
       return
     }
     if (!appointment?.id) return
+    setPanel('view')
+    setDetail(null)
+    const guard = detailSequence
     let cancelled = false
     void loadDetail(appointment.id).then((next) => {
       if (cancelled || !next) return
@@ -135,9 +160,23 @@ export function AppointmentDetailModal({
     })
     return () => {
       cancelled = true
+      guard.current++
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when opening a different appointment
   }, [isOpen, appointment?.id, startInConfirm, supabase, scope])
+
+  useEffect(() => {
+    if (!isOpen || !appointment?.id || saving || loadingDetail) return
+    const id = appointment.id
+    const refresh = () => { void loadDetail(id, true) }
+    const channel = supabase.channel('visit-detail-' + id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointment_reschedule_requests', filter: 'appointment_id=eq.' + id }, refresh)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'appointments', filter: 'id=eq.' + id }, refresh)
+      .subscribe()
+    const timer = window.setInterval(refresh, 15000)
+    return () => { window.clearInterval(timer); void supabase.removeChannel(channel) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the active appointment is reloaded without replacing an unchanged draft
+  }, [isOpen, appointment?.id, saving, loadingDetail, supabase, scope])
 
   useEffect(() => {
     const projectId = detail?.project_id
@@ -212,10 +251,17 @@ export function AppointmentDetailModal({
     if (!detail?.openReschedule) return
     setSaving(true)
     try {
-      await advisorAcceptRequestAction(detail.openReschedule.id)
-      await refreshAfter('Horario aceptado')
+      const requested = scheduling.options?.requested
+      if (detail.openReschedule.proposed_by === 'client' && (!scheduling.options?.can_accept || !requested?.start_time || !requested.end_time || !requested.source_message_id)) {
+        throw new Error('Actualiza la disponibilidad antes de aceptar el horario del cliente.')
+      }
+      const result = scheduling.options?.can_accept && requested?.start_time && requested.end_time && requested.source_message_id
+        ? await acceptClientVisitTimeAction({ requestId: detail.openReschedule.id, startTime: requested.start_time, endTime: requested.end_time, sourceMessageId: requested.source_message_id })
+        : await advisorAcceptRequestAction(detail.openReschedule.id)
+      await refreshAfter(result.status === 'confirmed' ? 'Cita confirmada. Se enviará la confirmación al cliente.' : 'Horario aceptado. Se enviará la propuesta al cliente.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo aceptar el horario')
+      void scheduling.reload()
     } finally {
       setSaving(false)
     }
@@ -238,9 +284,10 @@ export function AppointmentDetailModal({
         endTime: endIso,
         notes: notes.trim(),
       })
-      await refreshAfter('Se envió la propuesta al cliente')
+      await refreshAfter('Propuesta registrada. Se enviará al cliente.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo proponer el horario')
+      void scheduling.reload()
     } finally {
       setSaving(false)
     }
@@ -316,20 +363,23 @@ export function AppointmentDetailModal({
 
   if (!appointment) return null
 
-  const titleLabel = detail?.title || appointment.title || 'Cita'
-  const canActOnRequest =
-    Boolean(detail?.openReschedule)
-    && Boolean(scope?.isAdmin || detail?.openReschedule?.assigned_advisor_id === user?.id)
-  const needsConfirm = (detail?.status === 'solicitada' || detail?.status === 'pendiente') && !detail?.openReschedule
-  const canAttend = detail?.status === 'aceptado' || detail?.status === 'reprogramado' || detail?.status === 'atendido'
-  const canCancel = detail && !['atendido', 'cancelado'].includes(detail.status)
-  const requestHistory = (detail?.rescheduleHistory ?? []).filter((row) => row.id !== detail?.openReschedule?.id)
+  const panelTitle: Record<Panel, string> = {
+    view: detail?.openReschedule ? 'Cita pendiente' : 'Visita a La Vilet',
+    details: 'Detalles de la visita', confirm: 'Confirmar cita', attendance: 'Registrar asistencia',
+    propose: 'Proponer otro horario', cancel: 'Cancelar cita', reassign: 'Solicitar reasignación',
+  }
+  const openProposal = () => {
+    setVisit(prev => ({ ...prev, visitDate: scheduling.options?.requested.requested_date ?? '', startHm: '', endHm: '' }))
+    setNotes('')
+    setPanel('propose')
+    void scheduling.reload()
+  }
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={panel === 'confirm' ? `Confirmar cita — ${titleLabel}` : `Cita — ${titleLabel}`}
+      title={panelTitle[panel]}
       size="lg"
     >
       {loadingDetail && (
@@ -347,213 +397,28 @@ export function AppointmentDetailModal({
         </div>
       )}
 
+      {!loadingDetail && !loadError && detail && (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+          {panel !== 'view' ? <button type="button" disabled={saving} onClick={() => setPanel('view')} className="inline-flex items-center gap-1.5 rounded-lg py-2 pr-3 text-xs font-medium text-[#858a7c] hover:text-[#526247]"><ArrowLeft size={14} />Resumen de la cita</button>
+            : <span className="text-xs text-[#959b8b]">{detail.project?.name || 'La Vilet'}</span>}
+          <KommoChatLink kommoId={detail.lead?.kommo_id} />
+        </div>
+      )}
       {!loadingDetail && !loadError && detail && panel === 'view' && (
+        <AppointmentSummary
+          detail={detail} options={scheduling.options} scheduleLoading={scheduling.loading} scheduleError={scheduling.error}
+          canManage={canActOnRequest} saving={saving} onAccept={() => void handleAcceptRequest()}
+          onPropose={openProposal} onReassign={() => { setNotes(''); setPanel('reassign') }}
+          onDetails={() => setPanel('details')} onConfirm={() => setPanel('confirm')}
+          onAttendance={() => setPanel('attendance')} onCancel={() => setPanel('cancel')}
+        />
+      )}
+      {!loadingDetail && !loadError && detail && panel === 'details' && (
         <div className="space-y-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={detail.status} type="appointment" />
-            {detail.no_show ? (
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8a5c58]">No asistió</span>
-            ) : null}
-            {detail.openReschedule ? (
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#5c6156]">Cambio pendiente</span>
-            ) : null}
-            {detail.remindersPaused ? (
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#7a7e70]">
-                Recordatorios en pausa
-              </span>
-            ) : null}
-            {detail.confirmed_by_client ? (
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#4d5c50]">
-                Confirmada por el cliente
-              </span>
-            ) : null}
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex items-start gap-2 text-sm text-gray-600">
-              <Clock size={14} className="mt-0.5 shrink-0 text-gray-400" />
-              <div>
-                <p className="text-xs text-gray-400">Horario actual</p>
-                <p className="font-medium text-gray-900">{formatAgendaDateTime(detail.start_time)}</p>
-                {detail.end_time ? (
-                  <p className="text-xs text-gray-500">Hasta {formatAgendaDateTime(detail.end_time)}</p>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex items-start gap-2 text-sm text-gray-600">
-              <Clock size={14} className="mt-0.5 shrink-0 text-gray-400" />
-              <div>
-                <p className="text-xs text-gray-400">Solicitud recibida</p>
-                <p className="font-medium text-gray-900">{formatAgendaDateTime(detail.requested_at)}</p>
-              </div>
-            </div>
-          </div>
-
-          {detail.preferred_time_text ? (
-            <div className="rounded-lg border border-[#e2e4dc] bg-[#f7f7f3] p-3 text-sm">
-              <p className="text-xs uppercase tracking-wider text-[#7a7e70]">Preferencia original del cliente</p>
-              <p className="mt-1 text-[#3a3d36]">{detail.preferred_time_text}</p>
-            </div>
-          ) : null}
-
-          <div className="flex items-start gap-2 text-sm">
-            <User size={14} className="mt-0.5 shrink-0 text-gray-400" />
-            <div>
-              <p className="text-xs text-gray-400">Cliente</p>
-              {detail.lead ? (
-                <p className="text-gray-800">
-                  <strong>{detail.lead.name}</strong>
-                  {detail.lead.phone ? <span className="text-gray-500"> • {detail.lead.phone}</span> : null}
-                </p>
-              ) : (
-                <p className="text-gray-500">—</p>
-              )}
-            </div>
-          </div>
-
-          {detail.project ? (
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <MapPin size={14} className="text-gray-400" />
-              <span>{detail.project.name}</span>
-            </div>
-          ) : null}
-
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <User size={14} className="text-gray-400" />
-            <span>Asesor: {detail.responsible?.full_name ?? 'Sin asignar'}</span>
-          </div>
-
-          {detail.meeting_place ? (
-            <p className="text-sm text-gray-600">Lugar: {detail.meeting_place}</p>
-          ) : null}
-
-          <div className="rounded-lg bg-gray-50 p-3">
-            <div className="mb-1 flex items-center gap-2 text-xs text-gray-400">
-              <FileText size={12} /> Notas
-            </div>
-            <p className="whitespace-pre-wrap text-sm text-gray-700">
-              {detail.notes?.trim() ? detail.notes : 'Sin notas.'}
-            </p>
-            {detail.result_notes ? (
-              <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">Resultado: {detail.result_notes}</p>
-            ) : null}
-          </div>
-
-          <div>
-            <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Unidad(es) de interés</h4>
-            {detail.units.length > 0 ? (
-              <div className="space-y-2">
-                {detail.units.map((unit) => (
-                  <div
-                    key={unit.id}
-                    className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                  >
-                    <Building2 className="h-4 w-4 shrink-0 text-gray-400" />
-                    <span className="font-medium text-gray-900">{unit.unit_number}</span>
-                    <span className="text-gray-500">{unit.category}</span>
-                    {detail.visitedUnitIds?.includes(unit.id) ? (
-                      <span className="ml-auto text-[10px] uppercase text-[#4d5c50]">Visitada</span>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm italic text-gray-400">Visita general al proyecto, sin unidad concreta.</p>
-            )}
-          </div>
-
-          {detail.openReschedule ? (
-            <div className="space-y-3 rounded-lg border border-[#c5c8bc] bg-[#f7f7f3] p-4">
-              <p className="text-sm font-semibold text-[#3a3d36]">
-                {detail.openReschedule.request_type === 'reschedule' ? 'Reprogramación' : 'Cita nueva'}
-                {detail.openReschedule.previous_request_id ? ' · Hubo propuesta anterior' : ''}
-              </p>
-              <p className="text-sm text-[#5c6156]">
-                Propuesta vigente:{' '}
-                {detail.openReschedule.proposed_start_time
-                  ? formatAgendaDateTime(detail.openReschedule.proposed_start_time)
-                  : detail.openReschedule.preferred_time_text || 'Consulta disponibilidad'}
-              </p>
-              {detail.openReschedule.source_message_text ? (
-                <p className="text-sm text-[#3a3d36]">
-                  Mensaje del cliente: {detail.openReschedule.source_message_text}
-                </p>
-              ) : null}
-              <p className="text-xs text-[#7a7e70]">
-                Asesor: {detail.responsible?.full_name ?? 'Sin asignar'}
-                {detail.openReschedule.status === 'awaiting_advisor' ? ' · Pendiente de revisión' : ' · Esperando al cliente'}
-              </p>
-              <p className="text-xs text-[#7a7e70]">
-                Aceptación cliente: {detail.openReschedule.client_accepted_at ? formatAgendaDateTime(detail.openReschedule.client_accepted_at) : 'No'}
-                {' · '}
-                Aceptación asesor: {detail.openReschedule.advisor_accepted_at ? formatAgendaDateTime(detail.openReschedule.advisor_accepted_at) : 'No'}
-              </p>
-              {canActOnRequest ? (
-                <>
-                  <Textarea
-                    id="reschedule-notes"
-                    label="Observaciones o motivo"
-                    placeholder="Opcional, salvo al pedir reasignación"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                  />
-                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                    {detail.openReschedule.proposed_start_time ? (
-                      <Button type="button" disabled={saving} onClick={() => void handleAcceptRequest()}>
-                        Aceptar horario
-                      </Button>
-                    ) : null}
-                    <Button type="button" variant="outline" disabled={saving} onClick={() => setPanel('propose')}>
-                      Proponer otro horario
-                    </Button>
-                    <Button type="button" variant="outline" disabled={saving} onClick={() => setPanel('reassign')}>
-                      Solicitar reasignación
-                    </Button>
-                    {detail.openReschedule.request_type === 'reschedule' ? (
-                      <Button type="button" variant="outline" disabled={saving} onClick={() => void handleRejectRequest()}>
-                        Rechazar cambio
-                      </Button>
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <p className="text-xs text-[#8a5c58]">No puedes confirmar la solicitud de otro asesor.</p>
-              )}
-            </div>
-          ) : null}
-
-          {requestHistory.length > 0 ? (
-            <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                Historial de propuestas
-              </h4>
-              <ul className="space-y-2 text-sm text-gray-600">
-                {requestHistory.map((row) => (
-                  <li key={row.id} className="rounded border border-gray-100 px-3 py-2">
-                    {row.status} · {formatAgendaDateTime(row.proposed_start_time ?? row.created_at)}
-                    {row.resolution_notes ? ` · ${row.resolution_notes}` : ''}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          <div className="flex flex-col gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:flex-wrap">
-            {needsConfirm ? (
-              <Button type="button" onClick={() => setPanel('confirm')}>
-                Confirmar cita
-              </Button>
-            ) : null}
-            {canAttend ? (
-              <Button type="button" variant="outline" onClick={() => setPanel('attendance')}>
-                Registrar asistencia
-              </Button>
-            ) : null}
-            {canCancel ? (
-              <Button type="button" variant="outline" onClick={() => setPanel('cancel')}>
-                Cancelar cita
-              </Button>
-            ) : null}
+          <AppointmentExpandedDetails detail={detail} />
+          <div className="flex flex-wrap gap-2 border-t border-[#eceee6] pt-4">
+            {canActOnRequest && detail.openReschedule?.request_type === 'reschedule' && <Button type="button" variant="outline" className="tracking-normal" disabled={saving} onClick={() => void handleRejectRequest()}>Rechazar cambio</Button>}
+            {!['atendido','cancelado'].includes(detail.status) && <Button type="button" variant="ghost" className="tracking-normal text-[#966543]" disabled={saving} onClick={() => setPanel('cancel')}>Cancelar cita</Button>}
           </div>
         </div>
       )}
@@ -597,13 +462,14 @@ export function AppointmentDetailModal({
 
       {!loadingDetail && !loadError && detail && panel === 'propose' && (
         <form className="space-y-4" onSubmit={handleProposeRequest}>
-          <p className="text-sm text-[#5c6156]">
-            Propón un intervalo disponible. Eso registra tu aceptación de esa propuesta y la envía al cliente.
-          </p>
+          <VisitRecommendations options={scheduling.options} loading={scheduling.loading} error={scheduling.error}
+            disabled={saving} selectedStart={ecuadorLocalToIso(visit.visitDate, visit.startHm)}
+            onSelect={selectRecommendation} onReload={() => void scheduling.reload(visit.visitDate || undefined)} />
+          <p className="text-xs text-[#858a7c]">También puedes ajustar la fecha y la hora. El cliente recibirá el mensaje cuando pulses «Enviar propuesta».</p>
           <AgendaVisitFields
             values={visit}
             advisors={advisors}
-            onChange={patchVisit}
+            onChange={(patch) => { patchVisit(patch); if (patch.visitDate) void scheduling.reload(patch.visitDate) }}
             disabled={saving}
             showAssignment={false}
           />
@@ -619,7 +485,7 @@ export function AppointmentDetailModal({
               Volver
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? 'Guardando...' : 'Proponer horario'}
+              <Send size={14} className="mr-2" />{saving ? 'Guardando…' : 'Enviar propuesta'}
             </Button>
           </div>
         </form>
@@ -674,8 +540,8 @@ export function AppointmentDetailModal({
         <form className="space-y-4" onSubmit={handleReassign}>
           <p className="text-sm text-[#5c6156]">
             {scope?.isAdmin
-              ? 'Coordinación reasigna de forma equitativa entre los asesores elegibles. No se reutiliza la aceptación del asesor anterior.'
-              : 'Se registra el motivo. Coordinación aplica la reasignación o la regla automática de plazo.'}
+              ? 'La solicitud pasará a otro asesor disponible del equipo.'
+              : 'Indica el motivo para que coordinación asigne la solicitud a otro asesor.'}
           </p>
           <Textarea
             id="reassign-reason"
@@ -696,7 +562,7 @@ export function AppointmentDetailModal({
       )}
       {!loadingDetail && !loadError && detail && panel === 'cancel' && (
         <form onSubmit={handleCancel} className="space-y-4">
-          <p className="text-sm text-[#5c6156]">Cancelar invalida recordatorios pendientes del horario actual.</p>
+          <p className="text-sm text-[#5c6156]">Se cancelará la visita de {detail.lead?.name || 'este cliente'} y sus recordatorios.</p>
           <Textarea
             id="cancel-notes"
             label="Motivo"

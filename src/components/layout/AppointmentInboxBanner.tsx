@@ -27,7 +27,10 @@ export function AppointmentInboxBanner() {
               className="appointment-notice inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 shadow-lg transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
             >
               <BellRing size={16} aria-hidden="true" className="appointment-notice-bell text-amber-700" />
-              Cita pendiente
+              <span className="flex min-w-0 flex-col items-start leading-tight">
+                <span>{item.status === 'awaiting_client' ? 'Esperando al cliente' : 'Cita pendiente'}</span>
+                <span className="max-w-40 truncate text-[11px] font-normal text-amber-800">{item.lead?.name || 'Ver solicitud'}</span>
+              </span>
             </button>
           ))}
         </section>

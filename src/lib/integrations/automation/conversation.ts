@@ -8,8 +8,9 @@ import { inboundFromRow, type Inbound } from './webhook'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply } from './sdr'
+import { greetingForTurn, isCourtesyOnly, naturalConversationReply, visitCoordinationReply } from './conversation-style'
 
-const intentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
+export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
 accept: aceptación inequívoca y sin condiciones de la propuesta enviada y vigente, status=awaiting_client.
 Un sí/ok solo acepta si responde directamente a esa propuesta o a una aclaración explícita de confirmación.
@@ -18,6 +19,7 @@ counterproposal: pide otro día/hora. reject: rechaza ese horario. cancel: pide 
 question: pregunta sobre visita u otro tema. unclear: ambiguo, varias citas o falta evidencia.
 opt_out: pide no recibir mensajes. Con propuesta null no asigne accept/cancel/reject/counterproposal.
 Un saludo, una consulta comercial o cambiar de tema son question, aunque exista una cita pendiente. unclear se limita a respuestas ambiguas SOBRE la cita. Con status=awaiting_advisor, dar el horario solicitado es counterproposal, no accept. No confunda una solicitud de llamada con una visita.
+Evalúe el turno completo, no solo su última frase. Si primero dice cancelar y después aclara que prefiere otro día, es counterproposal. «No puedo a esa hora, mejor a las 3» es counterproposal y conserva el día de la propuesta. «No puedo asistir» sin alternativa es cancel; «no puedo a esa hora» es reject. Un agradecimiento sin consulta ni decisión pendiente es question. Use los mensajes previos del cliente para entender respuestas parciales como «a las 4» después de «hoy».
 No invente intervalos ni acciones ejecutadas.`
 
 async function register(events: Inbound[], guard: Guard) {
@@ -100,7 +102,14 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
   const previousSummary = object(conversationBefore.summary)
   const state = sdrState(lead, context.historial)
-  if (greeting && !state.ya_saludamos) {
+  const turnGreeting = greetingForTurn(current, context.historial, lead.last_bot_message_at, activeLast.sentAt)
+  const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
+  if (!inbound.mediaFailed && isCourtesyOnly(current) && !proposals.some(p => p.status === 'awaiting_client')) {
+    if (isCourtesyOnly(text(state.ultima_respuesta))) return { action: 'courtesy_already_acknowledged' }
+    reply = 'Con mucho gusto.'
+    audit = { source: 'courtesy' }
+  }
+  if (!reply && greeting && !state.ya_saludamos) {
     reply = (await activePrompt('saludo_inicial')).trim()
     greetingTemplate = true
   }
@@ -109,11 +118,10 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const generated = await commercialReply(await commercialContext(lead, context.historial), current, previousSummary, guard)
     reply = generated.reply; audit = generated.audit
   }
-  const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
   if (!reply && !greeting && proposals.length) {
     await guard()
     const proposal: Row | null = proposals.length === 1 ? { ...proposals[0], source_sent_at: activeLast.sentAt } : null
-    const classification = await aiJson(intentPrompt, { mensaje_cliente: activeLast.text, propuesta: proposal, historial: context.historial })
+    const classification = await aiJson(visitIntentPrompt, { mensaje_cliente: current, propuesta: proposal, historial: context.historial })
     const intent = validateIntent(classification, proposal, activeLast.sentAt, text(context.mensaje_actual_at))
     if (intent === 'opt_out') {
       await guard(); await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
@@ -126,7 +134,9 @@ export async function processConversation(rows: Row[], guard: Guard) {
       if (!['reply', 'stale', 'conversation'].includes(text(applied.action))) throw new Error('VISIT_INTENT_RPC_CONTRACT_MISMATCH')
       reply = text(applied.mensaje)
       if (applied.action === 'reply' && applied.request_id && intent === 'counterproposal') {
-        reply = 'Perfecto, registramos su preferencia para la visita. Revisaremos ese horario y le enviaremos la propuesta para que pueda confirmarla.'
+        const preference = object(await rpc('lv_app_visit_preference', { p_request_id: applied.request_id }))
+        reply = visitCoordinationReply(preference, true)
+        audit = { source: 'visit_coordination', preference }
       }
     } else if (!proposal && intent === 'unclear') reply = '¿A qué día y horario de visita se refiere?'
   }
@@ -179,20 +189,18 @@ export async function processConversation(rows: Row[], guard: Guard) {
         finalNotice = true
       } else if ((extracted.events as string[]).includes('requested_visit')) {
         const preference = text(extracted.preferred_visit_time_text).trim()
-        if (!preference) {
-          reply = 'Con gusto coordinamos una visita a La Vilet. ¿Qué día y horario le vendrían bien?'
-        } else {
+        {
           await guard()
           const appointmentId = await rpc('lv_intake_visit_once', { p_lead_id: lead.id, p_project_id: scope.project_id,
-            p_preferred_time_text: preference, p_start_time: null, p_end_time: null,
+            p_preferred_time_text: preference || null, p_start_time: null, p_end_time: null,
             p_source_message_id: activeLast.externalId, p_source_message_text: current })
           const { data: requests, error: requestError } = await db().from('appointment_reschedule_requests').select('id,source_message_id')
             .match(scope).eq('lead_id', lead.id).eq('appointment_id', appointmentId).limit(10)
           if (requestError || !requests?.length) throw new Error('VISIT_REQUEST_NOT_RECORDED')
-          const recorded = requests.some(r => r.source_message_id === activeLast.externalId)
-          reply = recorded
-            ? 'Perfecto, registramos su preferencia para la visita. Revisaremos ese horario y le enviaremos una propuesta para que pueda confirmarla.'
-            : 'Ya hay una visita en coordinación. ¿Desea cambiar el horario solicitado?'
+          const recorded = requests.find(r => r.source_message_id === activeLast.externalId)
+          const resolved = recorded ? object(await rpc('lv_app_visit_preference', { p_request_id: recorded.id })) : {}
+          reply = recorded ? visitCoordinationReply(resolved) : 'Ya estamos coordinando su visita. ¿Qué le gustaría ajustar?'
+          audit = { source: 'visit_coordination', preference: resolved }
         }
       } else if (fin.active === true) reply = await financingReply(fin)
       else {
@@ -202,6 +210,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
       }
     }
   }
+  reply = naturalConversationReply(reply, text(lead.name), turnGreeting)
   if (!reply.trim() || reply.length > 1500) throw new Error('EMPTY_OR_LONG_REPLY')
   const conversationId = text(inbound.registration.conversation_id)
   async function authorized() {
