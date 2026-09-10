@@ -1,5 +1,7 @@
 # SDR de La Vilet: guion y funcionamiento
 
+**Actualización de infraestructura:** el disparador periódico ya funciona en Supabase Cron y el proceso local fue detenido. Consulte [Ejecutor en la nube](EJECUTOR_EN_NUBE.md). Las referencias al ejecutor local en la validación histórica de este documento describen el estado anterior.
+
 El editor está en **Inmobiliaria → Automatización → Guion → Cómo responde**, ruta `/inmobiliaria/automatizacion/guion`, con acceso de administrador. Abra **Conversación y orientación comercial** para editar el tono, los ejemplos y las preguntas de venta. Guardar actualiza `agent_prompts`; el ejecutor lee los cambios en los siguientes mensajes. Los cambios en la lógica del código sí requieren desplegar.
 
 La pantalla abre primero el prompt comercial. Distingue los cinco prompts que utiliza el SDR de las plantillas antiguas de referencia; añadir un tema independiente no lo conecta automáticamente al ejecutor. El guardado comprueba la versión para evitar sobrescribir una edición más reciente.

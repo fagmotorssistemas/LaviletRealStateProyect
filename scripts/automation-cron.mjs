@@ -9,6 +9,10 @@ if (origin.username || origin.password) throw new Error('No incluir credenciales
 const secret = process.env.AUTOMATION_CRON_SECRET || process.env.CRON_SECRET
 if (!secret || secret.length < 32) throw new Error('Falta AUTOMATION_CRON_SECRET')
 const watch = process.argv.includes('--watch')
+if (watch && ['www.lavilett.com', 'lavilett.com'].includes(origin.hostname)
+  && !process.argv.includes('--allow-production-watch')) {
+  throw new Error('Produccion usa Supabase Cron. El modo local continuo requiere --allow-production-watch y pausar primero el cron de la nube.')
+}
 do {
   const started = Date.now()
   try {
