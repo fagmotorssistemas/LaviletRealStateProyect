@@ -1,15 +1,26 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import { Minus, Plus } from 'lucide-react'
 import {
   FLOOR_PLAN_FLOORS,
   FLOOR_PLAN_IMAGE,
+  FLOOR_PLAN_SCOPE,
   FLOOR_PLAN_SLOTS,
+  floorPlanLevelLabel,
+  floorPlanLevelShort,
   unitFloorNumber,
 } from '@/lib/tour/floorPlanHotspots'
 import { FLOOR_PLAN_WHATSAPP_MESSAGE, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
+import {
+  applyOverlayAlign,
+  getFloorPlanOverlayAlign,
+  getFloorPlanVariantMedia,
+  withFloorPlanVariants,
+  type FloorPlanVariant,
+  type FloorPlanZonesDoc,
+} from '@/lib/tour/floorPlanZones'
 import { SITE } from '@/lib/marketing/site'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
@@ -23,11 +34,17 @@ type TourFloorPlanProps = {
   onWhatsAppClick?: () => void
 }
 
-const ZOOM_MIN = 1
+type DisplaySlot = {
+  id: string
+  label: string
+  points: string
+  unit: TourUnitSummary | null
+}
+
+const ZOOM_MIN = 0.4
 const ZOOM_MAX = 2.5
 const ZOOM_STEP = 0.2
 
-/** Verde disponible / rojo no disponible — estilo referencia showroom */
 function statusDotClass(status: TourUnitSummary['status']) {
   if (status === 'disponible' || status === 'en_preventa') return 'bg-[#2f9e44]'
   if (status === 'reservado' || status === 'en_proceso' || status === 'bajo_contrato') {
@@ -54,6 +71,16 @@ function WhatsAppIcon({ size = 16 }: { size?: number }) {
   )
 }
 
+function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: string) {
+  const needle = (zoneId || zoneLabel).trim().toLowerCase()
+  if (!needle) return null
+  return (
+    units.find((item) => item.unit_number.trim().toLowerCase() === needle) ??
+    units.find((item) => item.id === zoneId) ??
+    null
+  )
+}
+
 export function TourFloorPlan({
   units,
   floor,
@@ -64,7 +91,72 @@ export function TourFloorPlan({
 }: TourFloorPlanProps) {
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
   const [scale, setScale] = useState(1)
+  const [planDoc, setPlanDoc] = useState<FloorPlanZonesDoc | null>(null)
+  const [planLoading, setPlanLoading] = useState(false)
+  const [planVariant, setPlanVariant] = useState<FloorPlanVariant>('2d')
   const whatsappHref = tourWhatsAppHref(FLOOR_PLAN_WHATSAPP_MESSAGE)
+
+  useEffect(() => {
+    let cancelled = false
+    setPlanLoading(true)
+    void fetch(
+      `/api/tour/floor-plans?typology_code=${encodeURIComponent(FLOOR_PLAN_SCOPE)}&floor=${floor}`,
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { doc?: FloorPlanZonesDoc | null } | null) => {
+        if (cancelled) return
+        const doc = json?.doc ? withFloorPlanVariants(json.doc) : null
+        setPlanDoc(doc)
+        const nextVariant: FloorPlanVariant = doc?.variants['2d'].imageUrl
+          ? '2d'
+          : doc?.variants['3d'].imageUrl
+            ? '3d'
+            : '2d'
+        setPlanVariant(nextVariant)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlanDoc(null)
+          setPlanVariant('2d')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPlanLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [floor])
+
+  const has2d = Boolean(planDoc?.variants?.['2d']?.imageUrl)
+  const has3d = Boolean(planDoc?.variants?.['3d']?.imageUrl)
+  const canToggleVariant = has2d || has3d
+
+  const planMedia = useMemo(
+    () => getFloorPlanVariantMedia(planDoc, planVariant),
+    [planDoc, planVariant],
+  )
+
+  const planImageUrl = useMemo(() => {
+    if (planMedia.imageUrl) return planMedia.imageUrl
+    const fallback = getFloorPlanVariantMedia(planDoc, planVariant === '2d' ? '3d' : '2d')
+    return fallback.imageUrl || planDoc?.imageUrl || FLOOR_PLAN_IMAGE
+  }, [planDoc, planVariant, planMedia.imageUrl])
+
+  const planAspect = useMemo(() => {
+    const w = planMedia.imageWidth > 1 ? planMedia.imageWidth : 1024
+    const h = planMedia.imageHeight > 1 ? planMedia.imageHeight : 499
+    return `${w} / ${h}`
+  }, [planMedia.imageWidth, planMedia.imageHeight])
+
+  const overlayAlign = useMemo(
+    () => getFloorPlanOverlayAlign(planDoc, planVariant),
+    [planDoc, planVariant],
+  )
+
+  useEffect(() => {
+    setScale(1)
+  }, [floor, planImageUrl])
 
   const unitsOnFloor = useMemo(() => {
     const matched = units.filter((unit) => unitFloorNumber(unit) === floor)
@@ -74,34 +166,47 @@ export function TourFloorPlan({
     )
   }, [units, floor])
 
-  const slotUnits = useMemo(() => {
-    const map = new Map<string, TourUnitSummary | null>()
-    for (const slot of FLOOR_PLAN_SLOTS) {
-      map.set(slot.id, unitsOnFloor[slot.order] ?? null)
+  const displaySlots = useMemo<DisplaySlot[]>(() => {
+    if (planDoc?.zones?.length) {
+      return [...planDoc.zones]
+        .sort((a, b) => a.order - b.order)
+        .filter((zone) => zone.pointsPercent.trim())
+        .map((zone) => ({
+          id: zone.id,
+          label: zone.label || zone.id,
+          points: applyOverlayAlign(zone.pointsPercent, overlayAlign),
+          unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
+        }))
     }
-    return map
-  }, [unitsOnFloor])
+    return FLOOR_PLAN_SLOTS.map((slot) => ({
+      id: slot.id,
+      label: slot.label,
+      points: slot.points,
+      unit: unitsOnFloor[slot.order] ?? null,
+    }))
+  }, [planDoc, unitsOnFloor, overlayAlign])
 
   const zoomOut = () => setScale((value) => Math.max(ZOOM_MIN, Number((value - ZOOM_STEP).toFixed(2))))
   const zoomIn = () => setScale((value) => Math.min(ZOOM_MAX, Number((value + ZOOM_STEP).toFixed(2))))
 
   return (
     <div className="absolute inset-0 z-[18] flex bg-[#14110e]">
-      {/* Plano */}
       <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-2 sm:p-3">
         <div
           className="relative w-full max-h-full overflow-hidden rounded-xl bg-[#1a1714] ring-1 ring-white/10"
-          style={{ aspectRatio: '1024 / 499' }}
+          style={{ aspectRatio: planAspect }}
         >
           <div
             className="absolute inset-0 origin-center transition-transform duration-200 ease-out"
             style={{ transform: `scale(${scale})` }}
           >
             <Image
-              src={FLOOR_PLAN_IMAGE}
-              alt={`Plano del piso ${floor}`}
+              key={planImageUrl}
+              src={planImageUrl}
+              alt={`Plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)}`}
               fill
               priority
+              unoptimized={planImageUrl.startsWith('http')}
               className="object-fill"
               sizes="(max-width: 1024px) 100vw, 1100px"
             />
@@ -113,9 +218,8 @@ export function TourFloorPlan({
               role="img"
               aria-label="Departamentos del piso"
             >
-              {FLOOR_PLAN_SLOTS.map((slot) => {
-                const unit = slotUnits.get(slot.id) ?? null
-                const selected = Boolean(unit && unit.id === selectedUnitId)
+              {displaySlots.map((slot) => {
+                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
                 const hovered = hoverSlot === slot.id
                 return (
                   <polygon
@@ -123,19 +227,19 @@ export function TourFloorPlan({
                     points={slot.points}
                     className={cn(
                       'cursor-pointer transition-[fill,stroke] duration-200',
-                      !unit && 'cursor-not-allowed',
+                      !slot.unit && 'cursor-not-allowed',
                     )}
                     fill={
                       selected
                         ? 'rgba(61,155,74,0.38)'
-                        : hovered && unit
+                        : hovered && slot.unit
                           ? 'rgba(61,155,74,0.18)'
                           : 'rgba(255,255,255,0.02)'
                     }
                     stroke={
                       selected
                         ? 'rgba(61,155,74,0.95)'
-                        : hovered && unit
+                        : hovered && slot.unit
                           ? 'rgba(255,255,255,0.55)'
                           : 'rgba(255,255,255,0.12)'
                     }
@@ -144,49 +248,47 @@ export function TourFloorPlan({
                     onMouseEnter={() => setHoverSlot(slot.id)}
                     onMouseLeave={() => setHoverSlot(null)}
                     onClick={() => {
-                      if (!unit) return
-                      onSelectUnit(unit, slot.id)
+                      if (!slot.unit) return
+                      onSelectUnit(slot.unit, slot.id)
                     }}
                   />
                 )
               })}
             </svg>
 
-            {/* Botones de departamento — pill blanca + dot */}
             <div className="absolute inset-0">
-              {FLOOR_PLAN_SLOTS.map((slot) => {
-                const unit = slotUnits.get(slot.id) ?? null
+              {displaySlots.map((slot) => {
                 const { cx, cy } = slotCentroid(slot.points)
-                const selected = Boolean(unit && unit.id === selectedUnitId)
+                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
                 const hovered = hoverSlot === slot.id
-                const label = unit?.unit_number ?? slot.label
+                const label = slot.unit?.unit_number ?? slot.label
 
                 return (
                   <button
                     key={`label-${slot.id}`}
                     type="button"
-                    disabled={!unit}
+                    disabled={!slot.unit}
                     onMouseEnter={() => setHoverSlot(slot.id)}
                     onMouseLeave={() => setHoverSlot(null)}
                     onClick={() => {
-                      if (!unit) return
-                      onSelectUnit(unit, slot.id)
+                      if (!slot.unit) return
+                      onSelectUnit(slot.unit, slot.id)
                     }}
                     className={cn(
                       'absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-md bg-white px-2 py-1 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)] transition-[transform,box-shadow] duration-150',
                       'sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1.5',
-                      unit
+                      slot.unit
                         ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
                         : 'cursor-not-allowed opacity-55',
-                      (selected || hovered) && unit && 'ring-2 ring-[#3d9b4a]/45',
+                      (selected || hovered) && slot.unit && 'ring-2 ring-[#3d9b4a]/45',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
-                    aria-label={unit ? `Departamento ${label}` : `Zona ${label}`}
+                    aria-label={slot.unit ? `Departamento ${label}` : `Zona ${label}`}
                   >
                     <span
                       className={cn(
                         'h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5',
-                        unit ? statusDotClass(unit.status) : 'bg-[#c4c4c4]',
+                        slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
                       )}
                     />
                     <span className="text-[10px] font-semibold tracking-wide text-[#2b2f36] sm:text-[11px]">
@@ -197,6 +299,45 @@ export function TourFloorPlan({
               })}
             </div>
           </div>
+
+          {canToggleVariant ? (
+            <div className="pointer-events-auto absolute left-3 top-3 z-20 flex rounded-lg bg-white/95 p-0.5 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-1 ring-black/10 sm:left-4 sm:top-4">
+              {(['2d', '3d'] as const).map((item) => {
+                const available = item === '2d' ? has2d : has3d
+                const active = planVariant === item
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    disabled={!available}
+                    onClick={() => setPlanVariant(item)}
+                    className={cn(
+                      'rounded-md px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors sm:px-3 sm:text-[12px]',
+                      active
+                        ? 'bg-[#1a2744] text-white shadow-sm'
+                        : available
+                          ? 'text-[#3a4050] hover:bg-[#eef1f6]'
+                          : 'cursor-not-allowed text-[#9ca3af] opacity-50',
+                    )}
+                    aria-pressed={active}
+                    title={
+                      available
+                        ? `Ver plano ${item.toUpperCase()}`
+                        : `Todavía no hay plano ${item.toUpperCase()}`
+                    }
+                  >
+                    {item}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+
+          {planLoading ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/40 text-xs text-white/70">
+              Cargando plano…
+            </div>
+          ) : null}
         </div>
 
         <div className="pointer-events-auto absolute bottom-3 left-3 z-20 flex flex-col gap-1.5 sm:bottom-4 sm:left-4">
@@ -223,12 +364,12 @@ export function TourFloorPlan({
         </div>
       </div>
 
-      {/* Selector de piso + WhatsApp */}
       <div className="pointer-events-auto flex shrink-0 flex-col items-center justify-between gap-2 py-2 pr-2 sm:gap-2.5 sm:pr-3">
         <div className="flex min-h-0 flex-1 flex-col justify-center">
           <div className="flex max-h-full flex-col gap-1 overflow-y-auto rounded-xl bg-white/92 p-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.18)] backdrop-blur-sm sm:gap-1.5 sm:p-2">
             {FLOOR_PLAN_FLOORS.map((item) => {
               const active = item === floor
+              const short = floorPlanLevelShort(item)
               return (
                 <button
                   key={item}
@@ -241,9 +382,10 @@ export function TourFloorPlan({
                       : 'bg-white text-[#3a4050] hover:bg-[#eef1f6]',
                   )}
                   aria-pressed={active}
-                  aria-label={`Piso ${item}`}
+                  aria-label={floorPlanLevelLabel(item)}
+                  title={floorPlanLevelLabel(item)}
                 >
-                  {item}°
+                  {short}
                 </button>
               )
             })}

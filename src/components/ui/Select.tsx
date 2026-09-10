@@ -76,7 +76,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
           data-select-menu
           role="listbox"
           style={{ top: coords.top, left: coords.left, width: coords.width }}
-          className="fixed z-[80] max-h-64 overflow-y-auto border border-[#2B1A18]/12 bg-white py-1 shadow-[0_18px_40px_rgba(43,26,24,0.14)]"
+          className="fixed z-[130] max-h-64 overflow-y-auto border border-[#2B1A18]/12 bg-white py-1 shadow-[0_18px_40px_rgba(43,26,24,0.14)]"
         >
           {placeholder && (
             <li>

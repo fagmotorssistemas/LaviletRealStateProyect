@@ -62,7 +62,7 @@ import {
   readUnitQueryParam,
   writeUnitQueryParam,
 } from '@/lib/tour/unitDeepLink'
-import { unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
+import { FLOOR_PLAN_DEFAULT_FLOOR, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import type {
   TourLightMode,
   TourPlacedHotspot,
@@ -635,7 +635,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (readUnitQueryParam()) return 'unit'
     return embedded ? 'plan' : 'unit'
   })
-  const [planFloor, setPlanFloor] = useState(1)
+  const [planFloor, setPlanFloor] = useState(FLOOR_PLAN_DEFAULT_FLOOR)
   const [terminacionesFocus, setTerminacionesFocus] = useState(false)
   const [finishCompareOpen, setFinishCompareOpen] = useState(false)
   const [finishRight, setFinishRight] = useState('')
@@ -1013,7 +1013,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     setSelectedUnitId(match.id)
     if (match.typology_code) setSelectedTypology(match.typology_code)
     const floor = unitFloorNumber(match)
-    if (floor) setPlanFloor(floor)
+    if (floor != null) setPlanFloor(floor)
     setShellMode('unit')
     setViewMode('galeria')
     setGaleriaIndex(0)
@@ -2368,7 +2368,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
             const floor = unitFloorNumber(unit)
-            if (floor) setPlanFloor(floor)
+            if (floor != null) setPlanFloor(floor)
             setTerminacionesFocus(false)
             setCompareOpen(false)
             setFinishCompareOpen(false)

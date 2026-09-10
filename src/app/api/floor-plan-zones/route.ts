@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionProfile } from '@/lib/auth/session'
 import { canAccessPath, canWriteCrm } from '@/lib/inmobiliaria/roleAccess'
-import { FLOOR_PLAN_FLOORS } from '@/lib/tour/floorPlanHotspots'
+import { FLOOR_PLAN_FLOORS, isFloorPlanLevel } from '@/lib/tour/floorPlanHotspots'
 import {
   deleteFloorPlanFloor,
   deleteFloorPlanImage,
@@ -11,6 +11,8 @@ import {
   parseFloorPlanZonesDoc,
   saveFloorPlanZones,
   uploadFloorPlanImage,
+  withFloorPlanVariants,
+  type FloorPlanVariant,
   type FloorPlanZonesDoc,
 } from '@/lib/tour/floorPlanZones'
 
@@ -48,7 +50,7 @@ export async function GET(request: Request) {
   }
 
   const floor = Number(url.searchParams.get('floor') ?? '')
-  if (!Number.isFinite(floor) || floor < 1) return jsonError('Falta floor válido', 400)
+  if (!isFloorPlanLevel(floor)) return jsonError('Falta floor válido', 400)
   const doc = await loadFloorPlanZones(createAdminClient(), typologyCode, floor)
   return NextResponse.json({ doc })
 }
@@ -74,17 +76,19 @@ export async function DELETE(request: Request) {
   const typologyCode = url.searchParams.get('typology_code')?.trim() ?? ''
   const floor = Number(url.searchParams.get('floor') ?? '')
   const scope = url.searchParams.get('scope')?.trim() || 'image'
+  const variantRaw = url.searchParams.get('variant')?.trim() || '2d'
+  const variant: FloorPlanVariant = variantRaw === '3d' ? '3d' : '2d'
   if (!typologyCode) return jsonError('Falta typology_code', 400)
-  if (!Number.isFinite(floor) || floor < 1) return jsonError('Falta floor válido', 400)
+  if (!isFloorPlanLevel(floor)) return jsonError('Falta floor válido', 400)
 
   try {
     const admin = createAdminClient()
     if (scope === 'all') {
       await deleteFloorPlanFloor(admin, typologyCode, floor)
     } else {
-      await deleteFloorPlanImage(admin, typologyCode, floor)
+      await deleteFloorPlanImage(admin, typologyCode, floor, variant)
     }
-    return NextResponse.json({ ok: true, floor, scope })
+    return NextResponse.json({ ok: true, floor, scope, variant })
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : 'No se pudo eliminar', 500)
   }
@@ -100,10 +104,12 @@ export async function POST(request: Request) {
 
   const typologyCode = String(form.get('typology_code') ?? '').trim()
   const floor = Number(form.get('floor') ?? '')
+  const variantRaw = String(form.get('variant') ?? '2d').trim()
+  const variant: FloorPlanVariant = variantRaw === '3d' ? '3d' : '2d'
   const uploaded = form.get('file')
 
   if (!typologyCode) return jsonError('Falta typology_code', 400)
-  if (!Number.isFinite(floor) || floor < 1) return jsonError('Falta floor válido', 400)
+  if (!isFloorPlanLevel(floor)) return jsonError('Falta floor válido', 400)
   if (!(uploaded instanceof Blob) || uploaded.size === 0) return jsonError('Falta el archivo', 400)
 
   const maxBytes = 40 * 1024 * 1024
@@ -155,16 +161,44 @@ export async function POST(request: Request) {
       outBuffer,
       contentType,
       ext,
+      variant,
     )
 
     const existing = await loadFloorPlanZones(admin, typologyCode, floor)
-    const doc = await saveFloorPlanZones(admin, {
-      floor,
-      typologyCode,
+    const base = existing
+      ? withFloorPlanVariants(existing)
+      : withFloorPlanVariants({
+          floor,
+          typologyCode,
+          imageUrl: null,
+          imageWidth: 1,
+          imageHeight: 1,
+          variants: {
+            '2d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
+            '3d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
+          },
+          zones: [],
+          updatedAt: new Date().toISOString(),
+        })
+
+    const media = {
       imageUrl: uploadedImage.publicUrl,
-      imageWidth: imageWidth > 1 ? imageWidth : existing?.imageWidth || 1,
-      imageHeight: imageHeight > 1 ? imageHeight : existing?.imageHeight || 1,
-      zones: existing?.zones ?? [],
+      imageWidth: imageWidth > 1 ? imageWidth : base.variants[variant].imageWidth || 1,
+      imageHeight: imageHeight > 1 ? imageHeight : base.variants[variant].imageHeight || 1,
+    }
+    const variants = {
+      ...base.variants,
+      [variant]: media,
+    }
+    const preferred = variants['2d'].imageUrl ? variants['2d'] : variants['3d']
+
+    const doc = await saveFloorPlanZones(admin, {
+      ...base,
+      variants,
+      imageUrl: preferred.imageUrl,
+      imageWidth: preferred.imageWidth || 1,
+      imageHeight: preferred.imageHeight || 1,
+      zones: base.zones,
       updatedAt: new Date().toISOString(),
     })
 
@@ -173,6 +207,7 @@ export async function POST(request: Request) {
       path: uploadedImage.path,
       floor,
       typologyCode,
+      variant,
       doc,
     })
   } catch (error) {

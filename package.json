@@ -9,7 +9,6 @@
     "lint": "eslint",
     "tour:resize": "node scripts/tour-resize.mjs",
     "tour:segment-floor": "node scripts/segment-floor-plan.mjs",
-    "plan:analyzer": "cd python && .venv\\Scripts\\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8001",
     "test:integrations": "node --test scripts/integrations.test.cjs",
     "automation:tick": "node scripts/automation-cron.mjs",
     "automation:watch": "node scripts/automation-cron.mjs --watch",

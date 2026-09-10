@@ -397,10 +397,14 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     }
   }
 
-  const typologyOptions = typologies.map((row) => ({
-    value: row.code,
-    label: `${row.code} · ${row.name} (${unitImportCategoryLabel(row.category)})`,
-  }))
+  const typologyOptions = typologies.map((row) => {
+    const category = unitImportCategoryLabel(row.category).trim()
+    const base = row.name && row.name !== row.code ? `${row.code} · ${row.name}` : row.code
+    return {
+      value: row.code,
+      label: category ? `${base} (${category})` : base,
+    }
+  })
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Imágenes por tipología" size="wide">
@@ -451,12 +455,19 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             ))}
           </div>
 
-          <Select
-            label="Tipología"
-            options={typologyOptions}
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-          />
+          {tab !== 'pisos' ? (
+            <Select
+              label="Tipología"
+              options={typologyOptions}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+          ) : (
+            <p className="text-xs text-[#8a8d87]">
+              Planos del edificio: en cada piso marcá los departamentos con el número de unidad
+              (ej. 208). El showroom usa esa etiqueta para abrir la unidad.
+            </p>
+          )}
           {tab === 'documentos' ? (
             <Select
               label="Planos"
@@ -772,8 +783,8 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           />
         )}
 
-        {tab === 'pisos' && code ? (
-          <TypologyFloorZonesPanel typologyCode={code} assets={assets} />
+        {tab === 'pisos' ? (
+          <TypologyFloorZonesPanel />
         ) : null}
 
         {tab === 'documentos' ? (
