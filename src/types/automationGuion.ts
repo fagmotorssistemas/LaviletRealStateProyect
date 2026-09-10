@@ -40,32 +40,50 @@ export const ENGINEER_PROMPT_NAMES = [
   'extractor_eventos',
   'resumen_conversacion',
   'guion_preguntas',
+  'saludo_inicial',
+  'revisor_respuesta',
 ] as const
+
+export const SDR_PROMPT_ORDER = ['respuesta_comercial', 'saludo_inicial', 'revisor_respuesta', 'resumen_conversacion', 'extractor_eventos']
+export function topicPromptHelp(name: string) {
+  if (name === 'respuesta_comercial') return 'Edite aquí el tono, la orientación de venta y los ejemplos de conversación. El catálogo y las reglas de citas determinan qué puede ofrecer.'
+  if (name === 'saludo_inicial') return 'Texto literal para el primer saludo breve del cliente. En los siguientes saludos se retoma la conversación.'
+  if (name === 'revisor_respuesta') return 'Revisa el borrador antes de enviarlo. Conserve el formato JSON con aprobada y motivos.'
+  if (name === 'resumen_conversacion') return 'Conserva el contexto y los datos respondidos. Mantenga el formato JSON indicado en el texto.'
+  if (name === 'extractor_eventos') return 'Detecta preferencias y solicitudes. Mantenga las propiedades JSON y las reglas de evidencia y consentimiento.'
+  return 'Plantilla de referencia guardada. El SDR actual no la consulta por separado; incorpore las instrucciones necesarias en Conversación y orientación comercial.'
+}
 
 export const DEFAULT_SCRIPT_QUESTIONS: { stage: ScriptStage; sort_order: number; question_text: string }[] = [
   {
     stage: 'lanzamiento',
     sort_order: 10,
-    question_text: '¿Me permite su nombre para atenderle de forma personalizada?',
+    question_text: '¿Está buscando una vivienda o un local comercial?',
   },
   {
     stage: 'lanzamiento',
     sort_order: 20,
-    question_text: '¿Le interesa un departamento o una suite?',
+    question_text: '¿Lo busca para uso propio o como inversión?',
   },
   {
     stage: 'lanzamiento',
     sort_order: 30,
-    question_text: '¿Lo busca para vivir o como inversión?',
+    question_text: '¿Qué característica sería la más importante al elegir?',
   },
   {
     stage: 'lanzamiento',
     sort_order: 40,
-    question_text: '¿Nos autoriza a mantenerle informado sobre el proyecto por este medio?',
+    question_text: '¿Tiene un presupuesto aproximado en mente?',
   },
 ]
 
 const TOPIC_LABELS: Record<string, string> = {
+  respuesta_comercial: 'Conversación y orientación comercial',
+  saludo_inicial: 'Primera bienvenida (solo una vez)',
+  revisor_respuesta: 'Revisión antes del envío',
+  resumen_conversacion: 'Memoria y continuidad',
+  extractor_eventos: 'Datos y solicitudes del cliente',
+  clasificador_intenciones: 'Clasificador heredado (no utilizado por el nuevo SDR)',
   rol: 'Identidad y tono',
   bienvenida: 'Bienvenida',
   ubicacion: 'Ubicación',

@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { normalized } from './sdr-rules'
 const events = new Set(['declared_unit_type', 'declared_purchase_purpose', 'asked_location_features', 'asked_delivery_date',
   'asked_price', 'asked_financing', 'requested_visit', 'asked_reservation', 'nutrition_response'])
 export function normalizeEvents(raw: unknown, message: string): Row {
@@ -9,10 +10,18 @@ export function normalizeEvents(raw: unknown, message: string): Row {
   const digitsInMessage = message.replace(/[\s-]/g, '')
   const nationalId = text(data.national_id).replace(/\D/g, '')
   const ruc = text(data.ruc).replace(/\D/g, '')
+  const evidence = object(data.declaration_evidence)
+  const supported = (key: string) => {
+    const quote = normalized(text(evidence[key]))
+    return quote.length > 0 && quote.length <= 180 && normalized(message).includes(quote)
+  }
+  const category = supported('preferred_category') && ['departamento', 'suite', 'local'].includes(text(data.preferred_category)) ? data.preferred_category : null
+  const purpose = supported('purchase_purpose') && ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(text(data.purchase_purpose)) ? data.purchase_purpose : null
   return {
-    events: chosenEvents,
-    preferred_category: ['departamento', 'suite'].includes(text(data.preferred_category)) ? data.preferred_category : null,
-    purchase_purpose: ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(text(data.purchase_purpose)) ? data.purchase_purpose : null,
+    events: chosenEvents.filter(e => (e !== 'declared_unit_type' || category) && (e !== 'declared_purchase_purpose' || purpose)),
+    preferred_category: category,
+    qualification: object(data.qualification),
+    purchase_purpose: purpose,
     unit_id: /^[a-f0-9-]{36}$/i.test(text(data.unit_id)) ? data.unit_id : null,
     preferred_visit_time_text: nullableText('preferred_visit_time_text'),
     tracking_consent: data.consent_granted === true || data.tracking_consent === true,

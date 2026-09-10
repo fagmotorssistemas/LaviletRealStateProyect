@@ -27,6 +27,8 @@ import {
 } from '@/app/inmobiliaria/automatizacion/guion/actions'
 import {
   SCRIPT_STAGE_OPTIONS,
+  SDR_PROMPT_ORDER,
+  topicPromptHelp,
   topicPromptLabel,
   type ScriptQuestionRow,
   type ScriptStage,
@@ -121,8 +123,11 @@ export function AutomationGuionView() {
     try {
       const payload = await loadAutomationGuionAction(id)
       setQuestions(payload.questions)
-      setTopics(payload.topics)
-      setOpenTopicId(null)
+      setTopics([...payload.topics].sort((a, b) => {
+        const rank = (name: string) => { const index = SDR_PROMPT_ORDER.indexOf(name); return index < 0 ? 99 : index }
+        return rank(a.name) - rank(b.name)
+      }))
+      setOpenTopicId(payload.topics.find(row => row.name === 'respuesta_comercial')?.id ?? null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo cargar el guion')
     } finally {
@@ -384,7 +389,7 @@ export function AutomationGuionView() {
               <Input
                 label="Nueva pregunta"
                 value={newQuestion}
-                placeholder="Texto que el bot debe enviar"
+                placeholder="Pregunta que el bot puede adaptar a la conversación"
                 onChange={(event) => setNewQuestion(event.target.value)}
               />
               <Select
@@ -401,9 +406,15 @@ export function AutomationGuionView() {
 
           <GuionCard
             title="Cómo responde"
-            description="Edite los prompts de respuesta comercial, saludo, revisi?n, resumen y extracci?n. Los cambios guardados se leen en la siguiente conversaci?n. Los temas adicionales requieren que el ejecutor los consulte; crearlos no los activa por s? solo."
+            description="La bienvenida se usa solo en la primera respuesta. El prompt comercial orienta la conversación y descubre necesidades; el revisor comprueba hechos y continuidad. Los cambios guardados se leen en los siguientes mensajes."
             action={null}
           >
+            <p className="text-sm text-[#5c6156]">
+              Responda primero la consulta y avance con una pregunta pertinente: tipo de inmueble, uso,
+              características, presupuesto o visita. Las citas solo se confirman con una propuesta aprobada.
+              Las preguntas del guion son orientativas; no deben repetirse si el cliente ya respondió.
+              Los precios dependen del modo comercial del proyecto y de valores publicados.
+            </p>
             <div className="space-y-2">
               {topics.map((row) => {
                 const open = openTopicId === row.id
@@ -418,12 +429,13 @@ export function AutomationGuionView() {
                         <span className="font-medium text-[#3a3d36]">{topicPromptLabel(row.name)}</span>
                         <span className="ml-2 text-xs text-[#7a7e70]">{row.load_when || 'Sin disparador'}</span>
                       </span>
-                      <span className="text-xs text-[#7a7e70]">{row.is_active ? 'Activo' : 'Apagado'}</span>
+                      <span className="text-xs text-[#7a7e70]">{!SDR_PROMPT_ORDER.includes(row.name) ? 'Referencia' : row.is_active ? 'Activo' : 'Apagado'}</span>
                     </button>
                     {open ? (
                       <div className="space-y-3 border-t border-gray-100 px-4 py-3">
+                        <p className="text-sm text-[#5c6156]">{topicPromptHelp(row.name)}</p>
                         <Input
-                          label="Cuándo usarlo"
+                          label="Descripción del uso"
                           value={row.load_when ?? ''}
                           onChange={(event) =>
                             setTopics((current) =>
@@ -473,6 +485,7 @@ export function AutomationGuionView() {
             </div>
             <div className="grid gap-3 border-t border-gray-100 pt-4">
               <p className="text-sm font-medium text-[#3a3d36]">Añadir un tema</p>
+              <p className="text-sm text-[#7a7e70]">Los temas nuevos se guardan como referencia. Para cambiar las respuestas actuales, edite Conversación y orientación comercial.</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
                   label="Nombre"
