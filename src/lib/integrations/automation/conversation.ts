@@ -1,11 +1,13 @@
 import 'server-only'
-import { activePrompt, aiJson, draftReply, mediaText } from './ai'
+import { activePrompt, aiJson, mediaText } from './ai'
 import { assertLive, automationSettings } from './config'
 import { normalizeEvents, validateIntent } from './conversation-rules'
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
 import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { inboundFromRow, type Inbound } from './webhook'
 import type { Guard } from './visits'
+import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
+import { commercialContext, commercialReply } from './sdr'
 
 const intentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -15,21 +17,8 @@ Si hay otra pregunta posterior, dudas, condiciones, cambio de horario o una preg
 counterproposal: pide otro día/hora. reject: rechaza ese horario. cancel: pide cancelar la visita completa.
 question: pregunta sobre visita u otro tema. unclear: ambiguo, varias citas o falta evidencia.
 opt_out: pide no recibir mensajes. Con propuesta null no asigne accept/cancel/reject/counterproposal.
+Un saludo, una consulta comercial o cambiar de tema son question, aunque exista una cita pendiente. unclear se limita a respuestas ambiguas SOBRE la cita. Con status=awaiting_advisor, dar el horario solicitado es counterproposal, no accept. No confunda una solicitud de llamada con una visita.
 No invente intervalos ni acciones ejecutadas.`
-
-async function commercialContext(lead: Row, history: unknown) {
-  const [units, amenities, places] = await Promise.all([
-    db().from('units').select('id,category,unit_number,bedrooms,bathrooms_full,area_total_m2,published_commercial_price,description,spaces')
-      .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('location_pois').select('poi_name,poi_category').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
-  ])
-  if (units.error || amenities.error || places.error) throw new Error('COMMERCIAL_CONTEXT_FAILED')
-  return { lead: { name: lead.name, preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
-    preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage }, historial: history,
-    catalogo: units.data, amenidades: amenities.data, lugares_cercanos: places.data,
-    fecha: new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', dateStyle: 'full' }).format(new Date()) }
-}
 
 async function register(events: Inbound[], guard: Guard) {
   const latest = events[events.length - 1]
@@ -106,12 +95,22 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
   let reply = '', finalNotice = false
-  if (!inbound.mediaFailed && /^(hola|buenos dias|buenas tardes|buenas noches|buen dia|buenas|hola buenos dias|hola buenas tardes|hola buenas noches)$/.test(current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[?!??.,]/g, '').trim())) {
+  let summary: Row = {}, audit: Row = {}, greetingTemplate = false
+  const greeting = !inbound.mediaFailed && isGreetingOnly(current)
+  const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
+  const previousSummary = object(conversationBefore.summary)
+  const state = sdrState(lead, context.historial)
+  if (greeting && !state.ya_saludamos) {
     reply = (await activePrompt('saludo_inicial')).trim()
+    greetingTemplate = true
   }
   if (inbound.mediaFailed) reply = 'No pude interpretar el archivo. ¿Puede escribir su consulta por aquí?'
+  if (!reply && greeting) {
+    const generated = await commercialReply(await commercialContext(lead, context.historial), current, previousSummary, guard)
+    reply = generated.reply; audit = generated.audit
+  }
   const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
-  if (!reply && proposals.length) {
+  if (!reply && !greeting && proposals.length) {
     await guard()
     const proposal: Row | null = proposals.length === 1 ? { ...proposals[0], source_sent_at: activeLast.sentAt } : null
     const classification = await aiJson(intentPrompt, { mensaje_cliente: activeLast.text, propuesta: proposal, historial: context.historial })
@@ -126,11 +125,14 @@ export async function processConversation(rows: Row[], guard: Guard) {
       if (['confirmed', 'duplicate'].includes(text(applied.action))) return { action: applied.action }
       if (!['reply', 'stale', 'conversation'].includes(text(applied.action))) throw new Error('VISIT_INTENT_RPC_CONTRACT_MISMATCH')
       reply = text(applied.mensaje)
+      if (applied.action === 'reply' && applied.request_id && intent === 'counterproposal') {
+        reply = 'Perfecto, registramos su preferencia para la visita. Revisaremos ese horario y le enviaremos la propuesta para que pueda confirmarla.'
+      }
     } else if (!proposal && intent === 'unclear') reply = '¿A qué día y horario de visita se refiere?'
   }
   if (!reply) {
     await guard()
-    const summary = await aiJson(await activePrompt('resumen_conversacion'), { historial: context.historial, mensaje_actual: current })
+    summary = await aiJson(await activePrompt('resumen_conversacion'), { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current })
     const extracted = normalizeEvents(await aiJson(await activePrompt('extractor_eventos'), { resumen: summary, mensaje_actual: current }), current)
     await guard()
     if (extracted.opt_out) {
@@ -144,8 +146,22 @@ export async function processConversation(rows: Row[], guard: Guard) {
         const unit = await one('units', text(unitId))
         if (unit.is_published !== true) unitId = null
       }
-      await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
-        p_purchase_purpose: extracted.purchase_purpose, p_unit_id: unitId })
+      const previousCategory = lead.preferred_category
+      const declarations = object(await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
+        p_purchase_purpose: extracted.purchase_purpose, p_unit_id: unitId }))
+      lead = { ...lead, ...declarations }
+      const facts = qualifiedFacts(object(extracted.qualification), current)
+      const categoryChanged = previousCategory && lead.preferred_category !== previousCategory
+      if (Object.keys(facts).length || categoryChanged) {
+        const previousFacts = object(object(lead.behavior_signals).sdr)
+        // A switch from housing to commercial property starts a different search.
+        const signals = { ...object(lead.behavior_signals), sdr: { ...(categoryChanged ? {} : previousFacts), ...facts } }
+        const crossUse = categoryChanged && (previousCategory === 'local' || lead.preferred_category === 'local')
+        const resetSearch = crossUse ? { preferred_bedrooms: null, ...(!extracted.purchase_purpose ? { purchase_purpose: null } : {}) } : {}
+        const { error } = await db().from('leads').update({ behavior_signals: signals, ...resetSearch }).match(scope).eq('id', lead.id)
+        if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
+        lead = { ...lead, ...resetSearch, behavior_signals: signals }
+      }
       const fin = object(await rpc('process_financing_message_v2', { p_lead_id: lead.id,
         p_asked_financing: (extracted.events as string[]).includes('asked_financing'),
         ...Object.fromEntries(['financing_consent', 'financing_partner', 'full_name', 'applicant_type', 'national_id',
@@ -162,22 +178,27 @@ export async function processConversation(rows: Row[], guard: Guard) {
         reply = lead.handoff_status === 'queued' ? 'Su solicitud quedó en espera de un asesor de nuestro equipo.' : 'Un asesor de nuestro equipo continuará con su atención.'
         finalNotice = true
       } else if ((extracted.events as string[]).includes('requested_visit')) {
-        await guard()
-        await rpc('lv_intake_visit_once', { p_lead_id: lead.id, p_project_id: scope.project_id,
-          p_preferred_time_text: extracted.preferred_visit_time_text, p_start_time: null, p_end_time: null,
-          p_source_message_id: activeLast.externalId, p_source_message_text: current })
-        const { data: requests, error: requestError } = await db().from('appointment_reschedule_requests').select('id')
-          .match(scope).eq('lead_id', lead.id).eq('source_message_id', activeLast.externalId).limit(1)
-        if (requestError || !requests?.length) throw new Error('VISIT_REQUEST_NOT_RECORDED')
-        reply = 'Su solicitud de visita está registrada. Coordinaremos la disponibilidad y le enviaremos una propuesta de horario.'
+        const preference = text(extracted.preferred_visit_time_text).trim()
+        if (!preference) {
+          reply = 'Con gusto coordinamos una visita a La Vilet. ¿Qué día y horario le vendrían bien?'
+        } else {
+          await guard()
+          const appointmentId = await rpc('lv_intake_visit_once', { p_lead_id: lead.id, p_project_id: scope.project_id,
+            p_preferred_time_text: preference, p_start_time: null, p_end_time: null,
+            p_source_message_id: activeLast.externalId, p_source_message_text: current })
+          const { data: requests, error: requestError } = await db().from('appointment_reschedule_requests').select('id,source_message_id')
+            .match(scope).eq('lead_id', lead.id).eq('appointment_id', appointmentId).limit(10)
+          if (requestError || !requests?.length) throw new Error('VISIT_REQUEST_NOT_RECORDED')
+          const recorded = requests.some(r => r.source_message_id === activeLast.externalId)
+          reply = recorded
+            ? 'Perfecto, registramos su preferencia para la visita. Revisaremos ese horario y le enviaremos una propuesta para que pueda confirmarla.'
+            : 'Ya hay una visita en coordinación. ¿Desea cambiar el horario solicitado?'
+        }
       } else if (fin.active === true) reply = await financingReply(fin)
       else {
-        const intents = await aiJson(await activePrompt('clasificador_intenciones'), { resumen_previo: summary, solicitud_actual: current })
         const info = await commercialContext(lead, context.historial)
-        reply = await draftReply(await activePrompt('respuesta_comercial'), { ...info, resumen: summary, intenciones: intents, mensaje_actual: current })
-        await guard()
-        const reviewed = await aiJson(await activePrompt('revisor_respuesta'), { ...info, mensaje_actual: current, respuesta: reply })
-        if (reviewed.aprobada !== true) reply = '¿Puede contarme un poco más sobre lo que necesita para orientarle mejor?'
+        const generated = await commercialReply(info, current, summary, guard)
+        reply = generated.reply; audit = generated.audit
       }
     }
   }
@@ -209,6 +230,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!await authorized()) return { action: 'paused_before_salesbot' }
   await launchSalesbot(last.kommoId, 15578)
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
-    p_model: process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted' } })
-  return { action: 'accepted', leadId: lead.id }
+    p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', ...audit } })
+  const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(Object.keys(summary).length ? summary : previousSummary) }).match(scope).eq('id', conversationId)
+  return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError }
 }

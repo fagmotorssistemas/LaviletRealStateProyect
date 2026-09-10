@@ -129,26 +129,41 @@ test('cron and webhook refuse missing credentials without doing work', async () 
   assert.equal((await hook.POST(new Request('https://example.test/hook', { method: 'POST', body: '{}' }))).status, 401)
 })
 
+test('OpenAI billing errors retain a safe diagnostic code that the worker can record', async t => {
+  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL']) {
+    const previous = process.env[key]; process.env[key] = 'synthetic'
+    t.after(() => previous === undefined ? delete process.env[key] : process.env[key] = previous)
+  }
+  t.mock.method(global, 'fetch', async () => new Response(JSON.stringify({ error: { code: 'credit_balance_exhausted', message: 'Provider details must not be copied' } }), { status: 429 }))
+  const { aiJson } = require('../src/lib/integrations/automation/ai.ts')
+  await assert.rejects(() => aiJson('Return JSON', {}), error => error.message === 'OPENAI_HTTP_429_CREDIT_BALANCE_EXHAUSTED')
+})
+
 function conversationHarness(options = {}) {
-  const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true }, config = { ...scope, enabled: true, dry_run: false, test_only: false }
-  const query = () => {
-    const q = { then(resolve) { return Promise.resolve({ data: [], error: null, count: 0 }).then(resolve) } }
+  const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false }
+  const query = table => {
+    const q = { then(resolve) { return Promise.resolve({ data: table === 'appointment_reschedule_requests' ? options.requests || [] : [], error: null, count: 0 }).then(resolve) } }
     for (const name of ['update', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal']) q[name] = () => q
+    q.update = values => { calls.push({ name: 'update:' + table, args: values }); return q }
     return q
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
-    './data': { ...data, db: () => ({ from: () => query() }), autoConfig: async () => config,
+    './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
       one: async table => table === 'conversations' ? { ...scope, lead_id: 'lead' } : lead,
       rpc: async (name, args) => {
         calls.push({ name, args })
         if (name === 'register_inbound_message') return { lead_id: 'lead', conversation_id: 'conv', is_duplicate: options.duplicate === true }
-        if (name === 'lv_app_conversation_context') return { propuestas: [], historial: [] }
+        if (name === 'lv_app_conversation_context') return { propuestas: [], historial: options.history || [] }
+        if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose }).filter(([, v]) => v != null))); return lead }
+        if (name === 'lv_intake_visit_once') return 'appointment'
         if (name === 'process_financing_message_v2') return { active: false }
         return {}
       },
     },
-    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ?En qu? podemos ayudarle?' : name, draftReply: async () => 'Hola, ¿en qué puedo ayudarle?', mediaText: async event => event.text,
-      aiJson: async prompt => prompt === 'extractor_eventos' ? { events: [], opt_out: options.optOut === true }
+    './sdr': { commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
+      commercialReply: async () => ({ reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) },
+    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => event.text,
+      aiJson: async prompt => prompt === 'extractor_eventos' ? { events: [], opt_out: options.optOut === true, ...options.extracted }
         : prompt === 'revisor_respuesta' ? { aprobada: true } : {} },
     './kommo': {
       getKommoLead: async () => ({ id: 123, _embedded: { contacts: [{ id: 456 }] } }),
@@ -196,3 +211,102 @@ test('isolated greeting uses editable welcome without scoring or financing', asy
   assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length, 0);
   assert.ok(JSON.stringify(h.calls.find(c => c.name === 'patch')).includes('bienvenido a La Vilet'));
 });
+
+test('a second greeting continues discovery without welcoming again or re-extracting events', async t => {
+  live(t)
+  const h = conversationHarness({ history: [{ role: 'bot', content: 'Hola, bienvenido a La Vilet.' }] })
+  h.rows[0].payload.text = 'Buenas tardes'
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(c => c.name === 'patch').args[2]
+  assert.doesNotMatch(sent, /hola|bienvenido|buenas tardes/i)
+  assert.equal(h.calls.filter(c => c.name === 'apply_lead_events').length, 0)
+})
+
+test('commercial reply receives the category and qualification declared in this same turn', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { preferred_category: 'local', purchase_purpose: 'negocio', declaration_evidence: { preferred_category: 'local', purchase_purpose: 'para una cafetería' }, qualification: { actividad_comercial: 'cafetería', area_buscada: '90 metros' } } })
+  h.rows[0].payload.text = 'Quiero un local para una cafetería'
+  await h.process([h.rows[0]], async () => {})
+  const known = h.calls.find(c => c.name === 'commercialContext').args
+  assert.equal(known.preferred_category, 'local')
+  assert.deepEqual(known.behavior_signals.sdr, { actividad_comercial: 'cafetería' })
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 0)
+})
+
+test('requesting a visit without a time asks for preference before creating an appointment', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { events: ['requested_visit'] } })
+  h.rows[0].payload.text = 'Quiero ir a verlo'
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.filter(c => c.name === 'lv_intake_visit_once').length, 0)
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /día y horario/)
+})
+
+test('switching from a home to a local does not keep asking about bedrooms or assume residential use', async t => {
+  live(t)
+  const h = conversationHarness({ lead: { preferred_category: 'departamento', purchase_purpose: 'vivir', preferred_bedrooms: 2, behavior_signals: { sdr: { prioridad: 'terraza' } } },
+    extracted: { preferred_category: 'local', declaration_evidence: { preferred_category: 'local' } } })
+  h.rows[0].payload.text = 'Ahora prefiero un local'
+  await h.process([h.rows[0]], async () => {})
+  const known = h.calls.find(c => c.name === 'commercialContext').args
+  assert.equal(known.preferred_category, 'local')
+  assert.equal(known.purchase_purpose, null)
+  assert.equal(known.preferred_bedrooms, null)
+  assert.deepEqual(known.behavior_signals.sdr, {})
+})
+
+test('a preferred visit time records a request but never claims the appointment is confirmed', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'one' }] })
+  h.rows[0].payload.text = 'Mañana a las diez'
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.find(c => c.name === 'lv_intake_visit_once').args.p_start_time, null)
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /registramos su preferencia/)
+  assert.doesNotMatch(h.calls.find(c => c.name === 'patch').args[2], /agendad[oa]|confirmad[oa]/)
+})
+
+test('an existing visit cannot be described as a newly recorded preference', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'older' }] })
+  h.rows[0].payload.text = 'Mañana a las diez'
+  await h.process([h.rows[0]], async () => {})
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /Ya hay una visita/)
+})
+
+const sdrRules = require('../src/lib/integrations/automation/sdr-rules.ts')
+test('old summary declarations cannot overwrite a new search without current text evidence', () => {
+  const events = normalizeEvents({ preferred_category: 'suite', purchase_purpose: 'vivir', events: ['declared_unit_type'], declaration_evidence: { preferred_category: 'suite', purchase_purpose: 'vivir' } }, 'Unos 60 metros')
+  assert.equal(events.preferred_category, null)
+  assert.equal(events.purchase_purpose, null)
+  assert.equal(events.events.includes('declared_unit_type'), false)
+})
+test('discovery uses known facts and never asks bedroom count for commercial property', () => {
+  const lead = { preferred_category: 'local', purchase_purpose: 'negocio', behavior_signals: { sdr: { actividad_comercial: 'cafetería' } } }
+  assert.equal(sdrRules.nextDiscoveryQuestion(lead).key, 'area_buscada')
+  assert.equal(sdrRules.sdrState({ last_bot_message_at: '2026-09-09' }, []).ya_saludamos, true)
+  assert.equal(sdrRules.isGreetingOnly('¡Buenas tardes!'), true)
+  assert.equal(sdrRules.isGreetingOnly('Hola, quiero saber el precio'), false)
+})
+
+test('a rejected draft is rewritten and reviewed before it can be sent', async () => {
+  let drafts = 0, reviews = 0
+  const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
+    activePrompt: async name => name,
+    draftReply: async () => ++drafts === 1 ? 'Hola de nuevo, somos La Vilet.' : 'Claro, ¿lo busca para su negocio o como inversión?',
+    aiJson: async () => ({ aprobada: ++reviews > 1, motivos: reviews === 1 ? ['repeated_greeting'] : [] }),
+  } })
+  const result = await commercialReply({ conversacion: { ya_saludamos: true } }, 'Quiero algo comercial', {}, async () => {})
+  assert.equal(drafts, 2); assert.equal(reviews, 2)
+  assert.equal(result.audit.fallback, false)
+  assert.doesNotMatch(result.reply, /Hola/)
+})
+
+test('two rejected drafts fall back to the relevant discovery question without copying claims', async () => {
+  const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
+    activePrompt: async name => name, draftReply: async () => 'Su cafetería tendrá rentabilidad garantizada.',
+    aiJson: async () => ({ aprobada: false, motivos: ['unsupported_fact'] }),
+  } })
+  const result = await commercialReply({ siguiente_pregunta: { question: '¿Qué tamaño aproximado busca?' } }, 'Una cafetería', {}, async () => {})
+  assert.equal(result.audit.fallback, true)
+  assert.equal(result.reply, '¿Qué tamaño aproximado busca?')
+})

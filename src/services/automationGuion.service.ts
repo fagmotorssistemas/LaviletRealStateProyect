@@ -127,7 +127,7 @@ export async function saveTopicPrompt(
     throw new Error('El saludo debe tener como máximo 1500 caracteres')
   }
 
-  const { error: updateError } = await supabase
+  const { data: updated, error: updateError } = await supabase
     .from('agent_prompts')
     .update({
       content: params.content.trim(),
@@ -138,7 +138,11 @@ export async function saveTopicPrompt(
       updated_by: params.userId,
     })
     .eq('id', params.id)
+    .eq('version', params.version)
+    .select('id')
+    .maybeSingle()
   throwIf(updateError)
+  if (!updated) throw new Error('El prompt cambió desde que abrió esta pantalla. Recargue para conservar la versión más reciente.')
 }
 
 export async function addTopicPrompt(

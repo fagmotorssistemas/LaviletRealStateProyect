@@ -7,6 +7,8 @@ const ENGINEER_PROMPT_NAMES = new Set([
   'extractor_eventos',
   'resumen_conversacion',
   'guion_preguntas',
+  'saludo_inicial',
+  'revisor_respuesta',
 ])
 
 export function isEngineerPrompt(name: string) {
@@ -19,12 +21,13 @@ export function buildGuionBlock(questions: { question_text: string }[]) {
     .filter(Boolean)
   const lines = items.length
     ? items.map((text, index) => `${index + 1}. ${text}`)
-    : ['No hay preguntas de captura activas. No indagues datos adicionales por tu cuenta.']
+    : ['No hay preguntas adicionales. Sigue el descubrimiento comercial del prompt principal.']
 
   return [
     GUION_START,
-    'Si falta alguno de estos datos, pregunta UNA sola por mensaje, en este orden.',
-    'No insistas si el cliente ya respondió. En lanzamiento no preguntes precio, cuotas ni disponibilidad.',
+    'Estas preguntas son una guía adicional. Contesta primero la consulta y adapta una sola pregunta al interés actual.',
+    'Omite datos conocidos, preguntas ajenas al tipo de inmueble y preguntas que el cliente no desee responder. No es necesario completar el guion para coordinar una visita.',
+    'Puedes preguntar el presupuesto del comprador; los precios y las condiciones del proyecto dependen del modo comercial y los datos autorizados.',
     ...lines,
     GUION_END,
   ].join('\n')

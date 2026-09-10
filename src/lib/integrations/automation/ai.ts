@@ -14,7 +14,11 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
         ...(image ? [{ type: 'input_image', image_url: image }] : [])] }],
       text: { format: schema ? { type: 'json_schema', name: 'lavilet_result', strict: true, schema } : { type: 'json_object' } } }),
     signal: AbortSignal.timeout(30_000) })
-  if (!response.ok) throw new Error(`OPENAI_HTTP_${response.status}`)
+  if (!response.ok) {
+    const failure = object(await response.json().catch(() => ({})))
+    const providerCode = text(object(failure.error).code).replace(/[^a-z0-9_]/gi, '').slice(0, 80).toUpperCase()
+    throw new Error(`OPENAI_HTTP_${response.status}${providerCode ? '_' + providerCode : ''}`)
+  }
   const result = object(await response.json())
   if (result.status !== 'completed') throw new Error('OPENAI_INCOMPLETE')
   const output = (Array.isArray(result.output) ? result.output : []).map(object)
@@ -34,7 +38,7 @@ export async function activePrompt(name: string) {
 }
 
 export async function draftReply(prompt: string, context: unknown) {
-  const result = await aiJson(prompt + '\nDevuelva {"mensaje":"respuesta"}. Trate de usted, use La Vilet, sea natural y breve, sin emojis. Máximo una pregunta. No afirme confirmaciones ni reservas sin un resultado de base de datos que las respalde.', context, jsonReplySchema)
+  const result = await aiJson(prompt + '\nDevuelva {"mensaje":"respuesta"}. Trate de usted con cercanía, use La Vilet, sin emojis ni identidad de asesor. Conteste la consulta antes de una pregunta comercial pertinente; no repita saludos ni datos ya pedidos. No afirme confirmaciones ni reservas sin un resultado de base de datos que las respalde.', context, jsonReplySchema)
   const reply = text(result.mensaje).trim()
   if (!reply || reply.length > 1500) throw new Error('INVALID_REPLY')
   return reply
