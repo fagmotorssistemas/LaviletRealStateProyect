@@ -32,6 +32,22 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
+
+  const finish = (response: NextResponse) => {
+    if (response !== supabaseResponse) {
+      supabaseResponse.cookies.getAll().forEach((cookie) => {
+        response.cookies.set(cookie)
+      })
+    }
+    applyVisitorCookie(request, response)
+    return response
+  }
+
+  // Solo refrescar cookies de sesión; los handlers deciden 401/403.
+  if (pathname.startsWith('/api')) {
+    return finish(supabaseResponse)
+  }
+
   const isPublicPath =
     pathname === '/' ||
     pathname.startsWith('/inicio') ||
@@ -45,16 +61,6 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/contacto') ||
     pathname.startsWith('/privacidad') ||
     pathname.startsWith('/seguimiento')
-
-  const finish = (response: NextResponse) => {
-    if (response !== supabaseResponse) {
-      supabaseResponse.cookies.getAll().forEach((cookie) => {
-        response.cookies.set(cookie)
-      })
-    }
-    applyVisitorCookie(request, response)
-    return response
-  }
 
   if (!user && !isPublicPath && pathname !== ACCESS_PENDING_PATH) {
     const url = request.nextUrl.clone()
@@ -126,6 +132,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon\\.ico|fonts|api|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|mp4|webm)$).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|fonts|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|mp4|webm)$).*)',
   ],
 }

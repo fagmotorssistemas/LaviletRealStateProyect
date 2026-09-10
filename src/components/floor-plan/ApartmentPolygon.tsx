@@ -1,8 +1,12 @@
 'use client'
 
+import type { CSSProperties } from 'react'
 import type { Apartment } from '@/lib/floor-plan/types'
 import { polygonToSvgPoints } from '@/lib/floor-plan/api'
-import { circleRadiusFromApartment } from '@/lib/floor-plan/geometry'
+import {
+  circleRadiusFromApartment,
+  polygonToSvgPath,
+} from '@/lib/floor-plan/geometry'
 import { cn } from '@/lib/utils'
 
 type ApartmentPolygonProps = {
@@ -10,6 +14,8 @@ type ApartmentPolygonProps = {
   selected: boolean
   hovered: boolean
   editing: boolean
+  /** Apaga hits para poder arrastrar puntos encima de zonas vecinas. */
+  suppressHits?: boolean
   onHover: (id: string | null) => void
   onSelect: (id: string) => void
 }
@@ -19,23 +25,37 @@ export function ApartmentPolygon({
   selected,
   hovered,
   editing,
+  suppressHits = false,
   onHover,
   onSelect,
 }: ApartmentPolygonProps) {
   const stroke = selected
-    ? 'rgba(26, 39, 68, 0.95)'
+    ? 'rgba(26, 39, 68, 0.55)'
     : hovered
-      ? 'rgba(26, 39, 68, 0.7)'
-      : 'transparent'
-  const strokeWidth = selected ? 3 : hovered ? 2 : 0
-  const className = cn('cursor-pointer', editing && selected && 'pointer-events-none')
+      ? 'rgba(120, 125, 98, 0.7)'
+      : 'rgba(26, 39, 68, 0.28)'
+  // Si está en edición, el editor dibuja el contorno: acá casi no trazar para no engrosar.
+  const strokeWidth = editing && selected ? 0 : selected ? 0.7 : hovered ? 0.6 : 0.5
+  const fill = selected
+    ? 'rgba(26, 39, 68, 0.16)'
+    : hovered
+      ? 'rgba(120, 125, 98, 0.14)'
+      : 'rgba(26, 39, 68, 0.06)'
+  // Clickeable en el plano; la zona seleccionada cede eventos a los handles de edición.
+  const className = cn('cursor-pointer')
   const handlers = {
     onMouseEnter: () => onHover(apartment.id),
     onMouseLeave: () => onHover(null),
-    onClick: (event: React.MouseEvent) => {
+    onPointerDown: (event: React.PointerEvent) => {
+      if (editing && selected) return
       event.stopPropagation()
       onSelect(apartment.id)
     },
+  }
+  const shapeStyle: CSSProperties = {
+    // Mientras se edita / arrastra, las otras zonas no deben robar el pointer.
+    pointerEvents: suppressHits || (editing && selected) ? 'none' : 'all',
+    cursor: 'pointer',
   }
 
   if (apartment.kind === 'circle') {
@@ -46,10 +66,29 @@ export function ApartmentPolygon({
         cx={cx}
         cy={cy}
         r={r}
-        fill={selected || hovered ? 'rgba(26, 39, 68, 0.14)' : 'transparent'}
+        fill={fill}
         stroke={stroke}
         strokeWidth={strokeWidth}
         vectorEffect="non-scaling-stroke"
+        style={shapeStyle}
+        data-zone-id={apartment.id}
+        className={className}
+        {...handlers}
+      />
+    )
+  }
+
+  const hasCurves = apartment.curves?.some(Boolean)
+  if (hasCurves) {
+    return (
+      <path
+        d={polygonToSvgPath(apartment.polygon, apartment.curves)}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+        vectorEffect="non-scaling-stroke"
+        style={shapeStyle}
+        data-zone-id={apartment.id}
         className={className}
         {...handlers}
       />
@@ -59,10 +98,12 @@ export function ApartmentPolygon({
   return (
     <polygon
       points={polygonToSvgPoints(apartment.polygon)}
-      fill={selected || hovered ? 'rgba(26, 39, 68, 0.1)' : 'transparent'}
+      fill={fill}
       stroke={stroke}
       strokeWidth={strokeWidth}
       vectorEffect="non-scaling-stroke"
+      style={shapeStyle}
+      data-zone-id={apartment.id}
       className={className}
       {...handlers}
     />

@@ -32,6 +32,7 @@ type UnitRow = {
   unit_number: string
   unit_type_id: string | null
   floor: string | null
+  floor_number: number | null
   published_commercial_price: number | null
   status: string
   bedrooms: number | null
@@ -63,7 +64,7 @@ export async function GET() {
       admin
         .from('units')
         .select(
-          'id, unit_number, unit_type_id, floor, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2',
+          'id, unit_number, unit_type_id, floor, floor_number, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2',
         )
         .eq('tenant_id', TOUR_TENANT_ID)
         .order('unit_number', { ascending: true }),
@@ -118,7 +119,7 @@ export async function GET() {
         typology_code: type?.name ?? null,
         floor: row.floor,
         floor_label: row.floor,
-        floor_number: null,
+        floor_number: row.floor_number ?? null,
         price: row.published_commercial_price,
         published_commercial_price: row.published_commercial_price,
         status: row.status,

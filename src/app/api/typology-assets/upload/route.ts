@@ -115,40 +115,26 @@ async function handleUpload(request: Request) {
   }
 
   const sourceBuffer = Buffer.from(await uploaded.arrayBuffer())
-  const sharpOpts = { limitInputPixels: 268_402_689, sequentialRead: true, failOn: 'none' as const }
-  let outBuffer: Buffer = sourceBuffer
-  let contentType = mime.startsWith('image/') ? mime : `image/${sourceExt === 'jpg' ? 'jpeg' : sourceExt}`
+  // Cero re-encode: se guarda el archivo original (sin WebP con pérdida).
+  const outBuffer: Buffer = sourceBuffer
+  const contentType = mime.startsWith('image/')
+    ? mime
+    : sourceExt === 'png'
+      ? 'image/png'
+      : sourceExt === 'webp'
+        ? 'image/webp'
+        : sourceExt === 'gif'
+          ? 'image/gif'
+          : 'image/jpeg'
   const isTour360 = kindRaw === 'ambiente'
 
-  if (isTour360) {
-    // Showroom 360: cero re-encode. Se guarda el archivo original byte a byte.
-    outBuffer = sourceBuffer
-    contentType = mime.startsWith('image/')
-      ? mime
-      : sourceExt === 'png'
-        ? 'image/png'
-        : sourceExt === 'webp'
-          ? 'image/webp'
-          : 'image/jpeg'
-    console.info('[typology-assets] ambiente upload original (no sharp)', {
-      typologyCode,
-      fileName,
-      bytes: sourceBuffer.byteLength,
-      contentType,
-    })
-  } else {
-    // Planos / renders: compresión con pérdida aceptable.
-    try {
-      const sharpMod = await import('sharp')
-      const sharp = sharpMod.default
-      if (typeof sharp !== 'function') throw new Error('sharp module unavailable')
-      outBuffer = await sharp(sourceBuffer, sharpOpts).rotate().webp({ quality: 90, effort: 3 }).toBuffer()
-      contentType = 'image/webp'
-    } catch (error) {
-      console.error('sharp convert skipped; uploading original', error)
-      outBuffer = sourceBuffer
-    }
-  }
+  console.info('[typology-assets] upload original (no sharp)', {
+    typologyCode,
+    kind: kindRaw,
+    fileName,
+    bytes: sourceBuffer.byteLength,
+    contentType,
+  })
 
   const uploadedPaths: string[] = []
   const persistFile = async (name: string, buffer: Buffer, type: string) => {

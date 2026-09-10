@@ -62,13 +62,16 @@ export async function updateUnitsImportAction(id: string, payload: UnitsImportWr
   return updateUnitsImport(await getCrmDataClient(), id, payload)
 }
 
-export async function listTypologiesImportAction(): Promise<TypologyImport[]> {
+export async function listTypologiesImportAction(): Promise<{
+  data: TypologyImport[]
+  error?: string
+}> {
   try {
     await assertCanAccessCrmPath('/inmobiliaria/inventario')
-    return await listTypologiesImport(await getCrmDataClient())
+    return { data: await listTypologiesImport(await getCrmDataClient()) }
   } catch (error) {
     console.error('listTypologiesImportAction', error)
-    return []
+    return { data: [], error: actionError(error) }
   }
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type UIEvent } from 'react'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -93,10 +93,13 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [toolbarHidden, setToolbarHidden] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const roomFileRef = useRef<HTMLInputElement>(null)
   const pendingSlotRef = useRef<SceneSlot | null>(null)
   const modalScrollRef = useRef(0)
+  const lastScrollYRef = useRef(0)
+  const scrollRafRef = useRef(0)
   const displayFinishes = labeledFinishes(finishes)
   const combos = sceneCombos(displayFinishes)
 
@@ -112,12 +115,27 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   }
 
   const loadTypologies = useCallback(async () => {
+    const attempt = async () => {
+      const res = await listTypologiesImportAction()
+      // Compat: builds viejos devolvían el array directo.
+      const rows = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : []
+      const error = Array.isArray(res) ? undefined : res?.error
+      if (error) throw new Error(error)
+      return rows
+    }
     try {
-      const rows = await listTypologiesImportAction()
+      let rows: TypologyImport[]
+      try {
+        rows = await attempt()
+      } catch {
+        // Reintento: tras HMR el Server Action a veces falla una vez.
+        rows = await attempt()
+      }
       setTypologies(rows)
       setCode((prev) => prev || rows[0]?.code || '')
-    } catch {
-      toast.error('No se pudieron cargar las tipologías')
+    } catch (error) {
+      console.error('loadTypologies', error)
+      toast.error(error instanceof Error ? error.message : 'No se pudieron cargar las tipologías')
     }
   }, [])
 
@@ -139,7 +157,31 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   useEffect(() => {
     if (!isOpen) return
     void loadTypologies()
+    setToolbarHidden(false)
+    lastScrollYRef.current = 0
   }, [isOpen, loadTypologies])
+
+  useEffect(() => {
+    setToolbarHidden(false)
+    lastScrollYRef.current = 0
+  }, [tab, code])
+
+  const onBodyScroll = (event: UIEvent<HTMLDivElement>) => {
+    const y = event.currentTarget.scrollTop
+    modalScrollRef.current = y
+    const dy = y - lastScrollYRef.current
+    lastScrollYRef.current = y
+    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current)
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0
+      if (y < 48) {
+        setToolbarHidden(false)
+        return
+      }
+      if (dy > 12) setToolbarHidden(true)
+      else if (dy < -12) setToolbarHidden(false)
+    })
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -407,9 +449,15 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   })
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Imágenes por tipología" size="wide">
-      <div className="space-y-5">
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 space-y-3 border-b border-[#2B1A18]/8 bg-white px-4 pb-3 pt-4 sm:-mx-6 sm:-mt-6 sm:px-6">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Imágenes por tipología"
+      size="wide"
+      toolbarHidden={toolbarHidden}
+      onBodyScroll={onBodyScroll}
+      toolbar={
+        <div className="space-y-3">
           {notice ? (
             <div
               className={cn(
@@ -424,7 +472,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             </div>
           ) : null}
 
-          <div className="flex gap-1 border-b border-[#2B1A18]/10">
+          <div className="flex gap-1 overflow-x-auto border-b border-[#2B1A18]/10">
             {(
               [
                 { id: 'ambientes' as const, label: '360' },
@@ -444,7 +492,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                   if (item.id === 'documentos') setKind('plano')
                 }}
                 className={cn(
-                  'border-b-2 px-3 py-1.5 text-sm',
+                  'shrink-0 border-b-2 px-3 py-1.5 text-sm',
                   tab === item.id
                     ? 'border-[#2B1A18]/40 text-[#3a3d36]'
                     : 'border-transparent text-[#8a8d87] hover:text-[#3a3d36]',
@@ -480,7 +528,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             />
           ) : null}
         </div>
-
+      }
+    >
+      <div className="space-y-5">
         {tab === 'ambientes' && (
           <div className="space-y-5">
             <div className="space-y-4">

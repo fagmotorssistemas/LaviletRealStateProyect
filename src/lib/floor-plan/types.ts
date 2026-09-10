@@ -20,4 +20,9 @@ export type Apartment = {
   labelConfidence?: number
   /** Zona circular (polígono aproximado para el showroom). */
   kind?: ApartmentKind
+  /**
+   * Control de curva cuadrática por arista (mismo índice que el vértice de inicio).
+   * `null` / ausente = lado recto. Longitud = polygon.length.
+   */
+  curves?: (Point | null)[]
 }

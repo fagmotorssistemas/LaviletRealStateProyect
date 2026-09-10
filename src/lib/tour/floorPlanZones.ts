@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { floorPlanStorageKey } from '@/lib/tour/floorPlanHotspots'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import type { Apartment, Point } from '@/lib/floor-plan/types'
+import { densifyPolygon, normalizeCurves } from '@/lib/floor-plan/geometry'
 
 export type FloorPlanVariant = '2d' | '3d'
 
@@ -41,6 +42,11 @@ export type FloorPlanZone = {
   polygon: Point[]
   /** Polígono 0–100 — fuente de verdad compartida 2D/3D. */
   pointsPercent: string
+  /**
+   * Controles de curva por arista en % (mismo orden que vértices).
+   * Token `-` = lado recto. Ej: `- 42.1,10.5 -`.
+   */
+  curvesPercent?: string
   kind?: 'polygon' | 'circle'
 }
 
@@ -303,19 +309,74 @@ export function percentPointsToPolygon(
     .filter((p): p is Point => Boolean(p))
 }
 
+export function curvesToPercent(
+  curves: (Point | null)[] | undefined,
+  width: number,
+  height: number,
+): string {
+  if (!curves?.length || !width || !height) return ''
+  return curves
+    .map((point) => {
+      if (!point) return '-'
+      const px = Math.min(100, Math.max(0, (point[0] / width) * 100))
+      const py = Math.min(100, Math.max(0, (point[1] / height) * 100))
+      return `${px.toFixed(2)},${py.toFixed(2)}`
+    })
+    .join(' ')
+}
+
+export function percentCurvesToPoints(
+  curvesPercent: string | undefined,
+  width: number,
+  height: number,
+  edgeCount: number,
+): (Point | null)[] {
+  const empty = Array.from({ length: edgeCount }, () => null as Point | null)
+  if (!curvesPercent?.trim() || !width || !height || edgeCount < 1) return empty
+  const tokens = curvesPercent.trim().split(/\s+/)
+  return Array.from({ length: edgeCount }, (_, i) => {
+    const token = tokens[i]
+    if (!token || token === '-') return null
+    const [px, py] = token.split(',').map(Number)
+    if (!Number.isFinite(px) || !Number.isFinite(py)) return null
+    return [
+      Math.round((Math.min(100, Math.max(0, px)) / 100) * width),
+      Math.round((Math.min(100, Math.max(0, py)) / 100) * height),
+    ] as Point
+  })
+}
+
+/** pointsPercent denso (con curvas muestreadas) para el showroom. */
+export function zoneDisplayPointsPercent(zone: FloorPlanZone): string {
+  if (!zone.curvesPercent?.trim() || !zone.curvesPercent.includes(',')) {
+    return zone.pointsPercent
+  }
+  // Reconstruye en un espacio 0–100 y densifica.
+  const verts = percentPointsToPolygon(zone.pointsPercent, 1000, 1000)
+  if (verts.length < 3) return zone.pointsPercent
+  const curves = percentCurvesToPoints(zone.curvesPercent, 1000, 1000, verts.length)
+  if (!curves.some(Boolean)) return zone.pointsPercent
+  return polygonToPercentPoints(densifyPolygon(verts, curves), 1000, 1000)
+}
+
 export function apartmentsToZones(
   apartments: Apartment[],
   width: number,
   height: number,
 ): FloorPlanZone[] {
-  return apartments.map((item, index) => ({
-    id: item.id,
-    label: item.id,
-    order: index,
-    polygon: item.polygon,
-    pointsPercent: polygonToPercentPoints(item.polygon, width, height),
-    kind: item.kind === 'circle' ? 'circle' : 'polygon',
-  }))
+  return apartments.map((item, index) => {
+    const curves = normalizeCurves(item.polygon, item.curves)
+    const hasCurves = curves.some(Boolean)
+    return {
+      id: item.id,
+      label: item.id,
+      order: index,
+      polygon: item.polygon,
+      pointsPercent: polygonToPercentPoints(item.polygon, width, height),
+      curvesPercent: hasCurves ? curvesToPercent(curves, width, height) : undefined,
+      kind: item.kind === 'circle' ? 'circle' : 'polygon',
+    }
+  })
 }
 
 /** Reconstruye zonas en px de la imagen actual a partir de % (sirve para pasar 2D ↔ 3D). */
@@ -325,13 +386,17 @@ export function zonesToApartments(
   height?: number,
 ): Apartment[] {
   return zones.map((zone) => {
+    const w = width || 1000
+    const h = height || 1000
     const polygon =
       width && height && zone.pointsPercent
         ? percentPointsToPolygon(zone.pointsPercent, width, height)
         : zone.polygon
     const usable = polygon.length >= 3 ? polygon : zone.polygon
-    const xs = usable.map((p) => p[0])
-    const ys = usable.map((p) => p[1])
+    const curves = percentCurvesToPoints(zone.curvesPercent, w, h, usable.length)
+    const dense = densifyPolygon(usable, curves)
+    const xs = dense.map((p) => p[0])
+    const ys = dense.map((p) => p[1])
     const x0 = Math.min(...xs)
     const y0 = Math.min(...ys)
     const x1 = Math.max(...xs)
@@ -340,6 +405,7 @@ export function zonesToApartments(
       id: zone.id,
       kind: zone.kind === 'circle' ? 'circle' : 'polygon',
       polygon: usable,
+      curves: curves.some(Boolean) ? curves : undefined,
       bbox: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
       center: [(x0 + x1) / 2, (y0 + y1) / 2],
       confidence: 1,
@@ -378,6 +444,10 @@ export function parseFloorPlanZonesDoc(value: unknown): FloorPlanZonesDoc | null
         typeof z.pointsPercent === 'string' && z.pointsPercent.trim()
           ? z.pointsPercent
           : polygonToPercentPoints(polygon, imageWidth, imageHeight)
+      const curvesPercent =
+        typeof z.curvesPercent === 'string' && z.curvesPercent.trim()
+          ? z.curvesPercent.trim()
+          : undefined
       if (!id) continue
       if (polygon.length < 3 && percentPointsToPolygon(pointsPercent, imageWidth || 100, imageHeight || 100).length < 3) {
         continue
@@ -392,6 +462,7 @@ export function parseFloorPlanZonesDoc(value: unknown): FloorPlanZonesDoc | null
             : percentPointsToPolygon(pointsPercent, imageWidth || 100, imageHeight || 100),
         kind: z.kind === 'circle' ? 'circle' : 'polygon',
         pointsPercent,
+        curvesPercent,
       })
     }
   }

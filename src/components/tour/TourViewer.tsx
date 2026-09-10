@@ -193,12 +193,12 @@ function StillFrame({
           contain && fit === 'planos' && 'tour-still-fit--planos',
         )}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={alt}
-          draggable={false}
-          className={cn(
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        draggable={false}
+        className={cn(
             contain
               ? 'h-full w-full object-contain object-center'
               : 'absolute inset-0 h-full w-full object-cover',
@@ -2093,16 +2093,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           ) : null}
           {showUnitChrome && !isComparador && !terminacionesUiOpen ? (
             <>
-              <TourPicker
-                typologies={typologyOptions}
-                typology={selectedTypology}
-                onTypologyChange={onTypologyChange}
-                meta={typologyMeta}
-              />
+          <TourPicker
+            typologies={typologyOptions}
+            typology={selectedTypology}
+            onTypologyChange={onTypologyChange}
+            meta={typologyMeta}
+          />
               {selectedTypology && embedded ? (
-                <button
-                  type="button"
-                  onClick={() => {
+            <button
+              type="button"
+              onClick={() => {
                     setFichaExpanded(false)
                     setFichaOpen(true)
                   }}
@@ -2111,7 +2111,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   <FileText size={13} strokeWidth={1.75} />
                   Ficha técnica
                   {selectedUnit ? ` · ${selectedUnit.unit_number}` : ''}
-                </button>
+            </button>
               ) : null}
             </>
           ) : null}
@@ -2273,15 +2273,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               ? `${selectedUnit ? `Unidad ${selectedUnit.unit_number} · ` : ''}${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`
               : `${stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.label ?? 'Vistas'}${viewMode === 'vistas' && finishName ? ` · ${finishName}` : ''}${viewMode === 'vistas' ? ` · ${lightLabel}` : ''}`}
           </p>
-          ) : null}
-        </div>
+                ) : null}
+              </div>
         ) : null}
-      </div>
+              </div>
 
       {!immersive && showUnitChrome ? (
         <div className="absolute right-[max(0.75rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-2">
-          <button
-            type="button"
+                  <button
+                    type="button"
             onClick={() => {
               setSaveUnitOpen(true)
             }}
@@ -2291,7 +2291,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           >
             <Bookmark size={15} strokeWidth={2} />
             <span className="hidden sm:inline">Guardar</span>
-          </button>
+                  </button>
           {SITE.whatsapp ? (
             <a
               href={tourWhatsAppHref(
@@ -2329,7 +2329,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           {selectedUnit ? (
             <TourFloorLocationPeek unit={selectedUnit} units={allUnits} />
           ) : null}
-        </div>
+            </div>
       ) : null}
 
       {embedded || showUnitChrome ? (

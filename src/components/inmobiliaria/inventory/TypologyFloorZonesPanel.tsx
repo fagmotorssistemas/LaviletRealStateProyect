@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Circle, ImagePlus, Maximize2, Minimize2, Minus, PenLine, Plus, Save, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ImagePlus, Maximize2, Minimize2, Minus, PenLine, Plus, Save, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { listUnitsImportAction } from '@/app/inmobiliaria/inventario-2/actions'
 import { FloorPlanViewer } from '@/components/floor-plan/FloorPlanViewer'
@@ -22,14 +22,25 @@ import {
   type FloorPlanVariant,
   type FloorPlanZonesDoc,
 } from '@/lib/tour/floorPlanZones'
-import { apartmentFromCircle } from '@/lib/floor-plan/geometry'
 import type { Apartment, Point } from '@/lib/floor-plan/types'
 import type { UnitImport } from '@/types/inmobiliaria'
 import { cn } from '@/lib/utils'
+import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
 
 type TypologyFloorZonesPanelProps = {
   /** @deprecated Los planos son del edificio; se ignora. */
   typologyCode?: string
+}
+
+/** Refresca cookies de sesión antes de mutaciones a /api (el proxy a veces llega tarde). */
+async function ensureAuthCookies() {
+  const supabase = createBrowserSupabase()
+  const { data, error } = await supabase.auth.getUser()
+  if (data.user && !error) return
+  const refreshed = await supabase.auth.refreshSession()
+  if (refreshed.error || !refreshed.data.session) {
+    throw new Error('Sesión vencida. Volvé a iniciar sesión.')
+  }
 }
 
 function loadImageSize(url: string): Promise<{ width: number; height: number }> {
@@ -43,7 +54,7 @@ function loadImageSize(url: string): Promise<{ width: number; height: number }> 
 
 function fitScaleForView(naturalW: number, naturalH: number, viewW: number, viewH: number) {
   if (!naturalW || !naturalH || !viewW || !viewH) return 1
-  const next = Math.min((viewW - 40) / naturalW, (viewH - 40) / naturalH)
+  const next = Math.min(viewW / naturalW, viewH / naturalH)
   return Math.min(8, Math.max(0.05, Number(next.toFixed(4))))
 }
 
@@ -150,7 +161,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       setNatural(null)
       setScale(1)
       setOffset({ x: 0, y: 0 })
-      return
+      return null as { width: number; height: number } | null
     }
     const size = await loadImageSize(url)
     const box = viewerBoxRef.current?.getBoundingClientRect()
@@ -161,11 +172,25 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     setNatural(size)
     setScale(fitted)
     setOffset({ x: 0, y: 0 })
+    return size
   }, [])
 
+  const minScaleForView = useCallback(() => {
+    if (!natural) return 0.05
+    const box = viewerBoxRef.current?.getBoundingClientRect()
+    if (!box) return 0.05
+    return fitScaleForView(natural.width, natural.height, box.width, box.height)
+  }, [natural])
+
   const zoomBy = (factor: number) => {
-    setScale((value) => Math.min(8, Math.max(0.05, Number((value * factor).toFixed(4)))))
+    const min = minScaleForView()
+    setScale((value) => Math.min(8, Math.max(min, Number((value * factor).toFixed(4)))))
   }
+
+  const clampScale = useCallback(
+    (next: number) => Math.min(8, Math.max(minScaleForView(), Number(next.toFixed(4)))),
+    [minScaleForView],
+  )
 
   const resetView = () => {
     if (!natural) return
@@ -212,11 +237,15 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       const media = getFloorPlanVariantMedia(doc, nextVariant)
       if (media.imageUrl) {
         const bust = `${media.imageUrl}${media.imageUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
-        await applyImage(bust)
+        const size = await applyImage(bust)
         if (gen !== loadGenRef.current) return
         setApartments(
           doc?.zones
-            ? zonesToApartments(doc.zones, media.imageWidth || undefined, media.imageHeight || undefined)
+            ? zonesToApartments(
+                doc.zones,
+                size?.width || media.imageWidth || undefined,
+                size?.height || media.imageHeight || undefined,
+              )
             : [],
         )
       } else {
@@ -268,6 +297,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     // Persistí las zonas al cambiar de variante para que 2D/3D queden sincronizadas.
     if (natural && imageUrl && flushedZones.length > 0) {
       try {
+        await ensureAuthCookies()
         const variants = {
           ...nextDoc.variants,
           [planVariant]: {
@@ -344,6 +374,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     setUploading(true)
     loadGenRef.current += 1
     try {
+      await ensureAuthCookies()
       const body = new FormData()
       body.set('typology_code', typologyCode)
       body.set('floor', String(floor))
@@ -506,20 +537,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     toast.success('Zona creada — elegí la unidad de la lista')
   }
 
-  const addCircleApartment = () => {
-    if (!natural) return
-    setDraftPoints(null)
-    const id = `D${String(apartments.length + 1).padStart(2, '0')}`
-    const cx = Math.round(natural.width * 0.45)
-    const cy = Math.round(natural.height * 0.4)
-    const radius = Math.round(Math.min(natural.width, natural.height) * 0.06)
-    const apt = apartmentFromCircle(id, cx, cy, radius)
-    setApartments((prev) => [...prev, apt])
-    setSelectedId(id)
-    setEditMode(false)
-    setAssignOpen(true)
-    toast.success('Zona redonda creada — elegí la unidad de la lista')
-  }
+  const draftPointsRef = useRef<Point[] | null>(null)
+  draftPointsRef.current = draftPoints
 
   useEffect(() => {
     if (draftPoints == null) return
@@ -527,6 +546,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return
       }
+      const points = draftPointsRef.current
+      if (points == null) return
       if (event.key === 'Escape') {
         event.preventDefault()
         setDraftPoints(null)
@@ -534,7 +555,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       }
       if (event.key === 'Enter') {
         event.preventDefault()
-        if (draftPoints.length >= 3) completeDraft(draftPoints)
+        if (points.length >= 3) completeDraft(points)
         return
       }
       if (event.key === 'Backspace') {
@@ -544,22 +565,33 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [draftPoints, apartments.length])
+    // completeDraft es estable en la práctica para este flujo; no re-suscribir en cada punto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftPoints == null])
 
   useEffect(() => {
     if (!fullscreen) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && draftPoints == null) setFullscreen(false)
+      if (event.key === 'Escape' && draftPointsRef.current == null) setFullscreen(false)
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    // Solo al entrar a pantalla completa — no al agregar cada punto.
     requestAnimationFrame(() => resetView())
     return () => {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [fullscreen, draftPoints]) // eslint-disable-line react-hooks/exhaustive-deps — resetView al entrar
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullscreen])
+
+  const selectZone = (id: string, openEditor = true) => {
+    setSelectedId(id)
+    setDraftPoints(null)
+    setAssignOpen(false)
+    if (openEditor) setEditMode(true)
+  }
 
   const renameSelected = (nextId: string) => {
     if (!selected) return
@@ -631,6 +663,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     }
     setSaving(true)
     try {
+      await ensureAuthCookies()
       const zones = apartmentsToZones(apartments, natural.width, natural.height)
       const base =
         zonesDoc ??
@@ -682,8 +715,21 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         body: JSON.stringify({ doc }),
       })
       const json = (await res.json()) as { doc?: FloorPlanZonesDoc; error?: string }
-      if (!res.ok) throw new Error(json.error || 'No se pudo guardar')
-      if (json.doc) setZonesDoc(withFloorPlanVariants(json.doc))
+      if (!res.ok && res.status === 401) {
+        await ensureAuthCookies()
+        const retry = await fetch('/api/floor-plan-zones', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ doc }),
+        })
+        const retryJson = (await retry.json()) as { doc?: FloorPlanZonesDoc; error?: string }
+        if (!retry.ok) throw new Error(retryJson.error || 'No se pudo guardar')
+        if (retryJson.doc) setZonesDoc(withFloorPlanVariants(retryJson.doc))
+      } else {
+        if (!res.ok) throw new Error(json.error || 'No se pudo guardar')
+        if (json.doc) setZonesDoc(withFloorPlanVariants(json.doc))
+      }
       await refreshSummaries()
       toast.success(
         `${floorPlanLevelLabel(floor)}: ${apartments.length} zona(s) guardada(s) · valen para 2D y 3D`,
@@ -940,20 +986,20 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
             <Button
               type="button"
               variant="secondary"
-              onClick={addCircleApartment}
-              disabled={!natural || !imageUrl || loading}
-            >
-              <Circle size={14} className="mr-1.5" />
-              Zona redonda
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
               disabled={!selected}
-              onClick={() => setEditMode((v) => !v)}
+              onClick={() => {
+                setSelectedId(null)
+                setEditMode(false)
+              }}
             >
-              {editMode ? 'Listo' : 'Editar zona'}
+              Listo
             </Button>
+            {selected ? (
+              <p className="w-full text-xs text-[#555850] sm:w-auto">
+                Clic zona → puntos · arrastrar “+” = curva · doble clic “+” = agregar punto · clic
+                derecho en curva = recta · clic derecho en punto = borrar · Guardar al terminar
+              </p>
+            ) : null}
             <Button type="button" variant="secondary" disabled={!selected} onClick={deleteSelected}>
               <Trash2 size={14} className="mr-1.5" />
               Quitar zona
@@ -1120,13 +1166,17 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
             onDraftPointsChange={setDraftPoints}
             onDraftComplete={completeDraft}
             onSelect={(id) => {
+              if (draftPoints != null) return
               setSelectedId(id)
-              if (id) setAssignOpen(false)
+              if (id) {
+                setAssignOpen(false)
+                setEditMode(true)
+              }
             }}
             onApartmentsChange={setApartments}
             scale={scale}
             offset={offset}
-            onScaleChange={setScale}
+            onScaleChange={(next) => setScale(clampScale(next))}
             onOffsetChange={setOffset}
             overlayAlign={overlayAlign}
           />
@@ -1146,7 +1196,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           <li key={item.id}>
             <button
               type="button"
-              onClick={() => setSelectedId(item.id)}
+              onClick={() => selectZone(item.id, true)}
               className={cn(
                 'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm',
                 selectedId === item.id
@@ -1157,13 +1207,14 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
               <span className="font-medium">{item.id}</span>
               <span className="text-xs text-[#8a8d87]">
                 {item.kind === 'circle' ? 'redonda' : `${item.polygon.length} pts`}
+                {item.curves?.some(Boolean) ? ' · curvas' : ''}
               </span>
             </button>
           </li>
         ))}
         {apartments.length === 0 && !loading ? (
           <li className="text-xs text-[#8a8d87] sm:col-span-2 lg:col-span-3">
-            Todavía no hay zonas. Usá “Dibujar punto a punto” (N vértices) o “Zona redonda”.
+            Todavía no hay zonas. Usá “Dibujar punto a punto”. Arrastrá “+” para curvar; doble clic en “+” para agregar puntos.
           </li>
         ) : null}
       </ul>
@@ -1189,20 +1240,19 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                     <Button
                       type="button"
                       variant="secondary"
-                      onClick={addCircleApartment}
-                      disabled={!natural || !imageUrl || loading}
-                    >
-                      <Circle size={14} className="mr-1.5" />
-                      Redonda
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
                       disabled={!selected}
-                      onClick={() => setEditMode((v) => !v)}
+                      onClick={() => {
+                        setSelectedId(null)
+                        setEditMode(false)
+                      }}
                     >
-                      {editMode ? 'Listo' : 'Editar'}
+                      Listo
                     </Button>
+                    {selected ? (
+                      <span className="text-xs text-[#555850]">
+                        Arrastrar “+” = curva · doble clic “+” = punto
+                      </span>
+                    ) : null}
                     <Button
                       type="button"
                       variant="secondary"
@@ -1313,13 +1363,17 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                     onDraftPointsChange={setDraftPoints}
                     onDraftComplete={completeDraft}
                     onSelect={(id) => {
-              setSelectedId(id)
-              if (id) setAssignOpen(false)
-            }}
+                      if (draftPoints != null) return
+                      setSelectedId(id)
+                      if (id) {
+                        setAssignOpen(false)
+                        setEditMode(true)
+                      }
+                    }}
                     onApartmentsChange={setApartments}
                     scale={scale}
                     offset={offset}
-                    onScaleChange={setScale}
+                    onScaleChange={(next) => setScale(clampScale(next))}
                     onOffsetChange={setOffset}
                     overlayAlign={overlayAlign}
                   />

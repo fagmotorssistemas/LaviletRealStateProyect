@@ -18,6 +18,7 @@ import {
   getFloorPlanOverlayAlign,
   getFloorPlanVariantMedia,
   withFloorPlanVariants,
+  zoneDisplayPointsPercent,
   type FloorPlanVariant,
   type FloorPlanZonesDoc,
 } from '@/lib/tour/floorPlanZones'
@@ -71,13 +72,23 @@ function WhatsAppIcon({ size = 16 }: { size?: number }) {
   )
 }
 
+function normalizeUnitCode(value: string) {
+  return value.trim().toLowerCase().replace(/^lc[-\s]?/i, '').replace(/^0+/, '') || value.trim().toLowerCase()
+}
+
 function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: string) {
-  const needle = (zoneId || zoneLabel).trim().toLowerCase()
-  if (!needle) return null
-  return (
-    units.find((item) => item.unit_number.trim().toLowerCase() === needle) ??
+  const needles = [zoneId, zoneLabel]
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+  if (needles.length === 0) return null
+  const byExact =
+    units.find((item) => needles.includes(item.unit_number.trim().toLowerCase())) ??
     units.find((item) => item.id === zoneId) ??
     null
+  if (byExact) return byExact
+  const normalizedNeedles = new Set(needles.map(normalizeUnitCode))
+  return (
+    units.find((item) => normalizedNeedles.has(normalizeUnitCode(item.unit_number))) ?? null
   )
 }
 
@@ -174,7 +185,7 @@ export function TourFloorPlan({
         .map((zone) => ({
           id: zone.id,
           label: zone.label || zone.id,
-          points: applyOverlayAlign(zone.pointsPercent, overlayAlign),
+          points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
           unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
         }))
     }

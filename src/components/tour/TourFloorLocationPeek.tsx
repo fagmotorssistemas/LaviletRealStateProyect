@@ -10,6 +10,7 @@ import {
   unitFloorNumber,
 } from '@/lib/tour/floorPlanHotspots'
 import type { FloorPlanZonesDoc } from '@/lib/tour/floorPlanZones'
+import { zoneDisplayPointsPercent } from '@/lib/tour/floorPlanZones'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
 
@@ -24,13 +25,23 @@ type DisplaySlot = {
   points: string
 }
 
+function normalizeUnitCode(value: string) {
+  return value.trim().toLowerCase().replace(/^lc[-\s]?/i, '').replace(/^0+/, '') || value.trim().toLowerCase()
+}
+
 function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: string) {
-  const needle = (zoneId || zoneLabel).trim().toLowerCase()
-  if (!needle) return null
-  return (
-    units.find((item) => item.unit_number.trim().toLowerCase() === needle) ??
+  const needles = [zoneId, zoneLabel]
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+  if (needles.length === 0) return null
+  const byExact =
+    units.find((item) => needles.includes(item.unit_number.trim().toLowerCase())) ??
     units.find((item) => item.id === zoneId) ??
     null
+  if (byExact) return byExact
+  const normalizedNeedles = new Set(needles.map(normalizeUnitCode))
+  return (
+    units.find((item) => normalizedNeedles.has(normalizeUnitCode(item.unit_number))) ?? null
   )
 }
 
@@ -92,7 +103,7 @@ export function TourFloorLocationPeek({
         .map((zone) => ({
           id: zone.id,
           label: zone.label || zone.id,
-          points: zone.pointsPercent,
+          points: zoneDisplayPointsPercent(zone),
         }))
     }
     return FLOOR_PLAN_SLOTS.map((slot) => ({

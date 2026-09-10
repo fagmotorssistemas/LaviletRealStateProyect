@@ -7,8 +7,11 @@ export function isTypologyAssetKind(value: string): value is TypologyAssetKind {
   return TYPOLOGY_ASSET_KINDS.includes(value as TypologyAssetKind)
 }
 
-/** Nombre WebP: minúsculas, sin espacios ni tildes. */
+/** Nombre de archivo en storage: minúsculas, sin espacios ni tildes; conserva la extensión original. */
 export function typologyAssetFileName(originalName: string): string {
+  const extMatch = originalName.match(/\.([a-z0-9]+)$/i)
+  const rawExt = (extMatch?.[1] || 'jpg').toLowerCase().replace(/jpeg/, 'jpg')
+  const ext = ['png', 'jpg', 'webp', 'gif'].includes(rawExt) ? rawExt : 'jpg'
   const base = originalName.replace(/\.[^.]+$/, '')
   const slug =
     base
@@ -17,7 +20,7 @@ export function typologyAssetFileName(originalName: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'archivo'
-  return `${slug}.webp`
+  return `${slug}.${ext}`
 }
 
 export function typologyAssetStoragePath(

@@ -17,6 +17,7 @@ import {
 } from '@/lib/tour/floorPlanZones'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
 function jsonError(message: string, status: number) {
@@ -124,9 +125,30 @@ export async function POST(request: Request) {
   }
 
   const sourceBuffer = Buffer.from(await uploaded.arrayBuffer())
-  let outBuffer: Buffer = sourceBuffer
-  let contentType = mime.startsWith('image/') ? mime : 'image/jpeg'
-  let ext = 'jpg'
+  // NUNCA re-encodear planos del editor de zonas (ni WebP, ni resize, ni quality).
+  // El archivo se guarda byte a byte; sharp solo lee metadata de tamaño.
+  const outBuffer: Buffer = sourceBuffer
+  const hintExt = (fileNameHint.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
+  const mimeExt =
+    mime === 'image/png'
+      ? 'png'
+      : mime === 'image/webp'
+        ? 'webp'
+        : mime === 'image/gif'
+          ? 'gif'
+          : mime === 'image/jpeg' || mime === 'image/jpg'
+            ? 'jpg'
+            : ''
+  const ext = (mimeExt || (hintExt === 'jpeg' ? 'jpg' : hintExt) || 'jpg').replace(/jpeg/, 'jpg')
+  const contentType = mime.startsWith('image/')
+    ? mime
+    : ext === 'png'
+      ? 'image/png'
+      : ext === 'webp'
+        ? 'image/webp'
+        : ext === 'gif'
+          ? 'image/gif'
+          : 'image/jpeg'
   let imageWidth = 1
   let imageHeight = 1
 
@@ -134,22 +156,16 @@ export async function POST(request: Request) {
     const sharpMod = await import('sharp')
     const sharp = sharpMod.default
     if (typeof sharp === 'function') {
-      const sharpOpts = {
+      const meta = await sharp(sourceBuffer, {
         limitInputPixels: 268_402_689,
         sequentialRead: true,
-        failOn: 'none' as const,
-      }
-      const meta = await sharp(sourceBuffer, sharpOpts).rotate().metadata()
+        failOn: 'none',
+      }).metadata()
       imageWidth = meta.width || 1
       imageHeight = meta.height || 1
-      outBuffer = await sharp(sourceBuffer, sharpOpts).rotate().webp({ quality: 90, effort: 3 }).toBuffer()
-      contentType = 'image/webp'
-      ext = 'webp'
     }
   } catch (error) {
-    console.error('floor-plan-zones image sharp skipped', error)
-    const hintExt = (fileNameHint.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
-    ext = (hintExt === 'jpeg' ? 'jpg' : hintExt) || 'jpg'
+    console.error('floor-plan-zones image metadata skipped', error)
   }
 
   try {

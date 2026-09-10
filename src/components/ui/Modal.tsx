@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode, type UIEventHandler } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -10,6 +10,10 @@ interface ModalProps {
   onClose: () => void
   title?: string
   headerActions?: ReactNode
+  /** Barra fija bajo el título (fuera del scroll). */
+  toolbar?: ReactNode
+  toolbarHidden?: boolean
+  onBodyScroll?: UIEventHandler<HTMLDivElement>
   children: ReactNode
   className?: string
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full' | 'wide'
@@ -21,10 +25,21 @@ const sizeClasses = {
   lg: 'sm:max-w-2xl',
   xl: 'sm:max-w-4xl',
   full: 'sm:max-w-6xl',
-  wide: 'sm:max-w-[min(96vw,1280px)] sm:max-h-[94vh]',
+  wide: 'sm:max-w-[min(98vw,1680px)] sm:max-h-[96vh]',
 }
 
-export function Modal({ isOpen, onClose, title, headerActions, children, className, size = 'md' }: ModalProps) {
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  headerActions,
+  toolbar,
+  toolbarHidden = false,
+  onBodyScroll,
+  children,
+  className,
+  size = 'md',
+}: ModalProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -79,7 +94,28 @@ export function Modal({ isOpen, onClose, title, headerActions, children, classNa
             </div>
           </div>
         )}
-        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none] p-4 sm:p-6">
+
+        {toolbar ? (
+          <div
+            className={cn(
+              'grid shrink-0 transition-[grid-template-rows] duration-200 ease-out',
+              toolbarHidden ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]',
+            )}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div className="border-b border-[#2B1A18]/8 bg-white px-4 py-3 sm:px-6">
+                {toolbar}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div
+          ref={bodyRef}
+          onScroll={onBodyScroll}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] p-4 sm:p-6"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
           {children}
         </div>
       </div>
