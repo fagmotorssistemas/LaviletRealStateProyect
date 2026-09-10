@@ -5,6 +5,11 @@ import { FLOOR_PLAN_FLOORS, isFloorPlanLevel } from '@/lib/tour/floorPlanHotspot
 
 export const runtime = 'nodejs'
 
+const CACHE_HEADERS = {
+  // Planos cambian poco; stale-while-revalidate mantiene el showroom rápido.
+  'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=600',
+}
+
 /** Lectura pública para el showroom (sin sesión CRM). */
 export async function GET(request: Request) {
   const admin = tryCreateAdminClient()
@@ -20,7 +25,7 @@ export async function GET(request: Request) {
 
   if (url.searchParams.get('list') === '1') {
     const floors = await listFloorPlanFloorSummaries(admin, typologyCode, FLOOR_PLAN_FLOORS)
-    return NextResponse.json({ floors })
+    return NextResponse.json({ floors }, { headers: CACHE_HEADERS })
   }
 
   const floor = Number(url.searchParams.get('floor') ?? '')
@@ -29,5 +34,5 @@ export async function GET(request: Request) {
   }
 
   const doc = await loadFloorPlanZones(admin, typologyCode, floor)
-  return NextResponse.json({ doc })
+  return NextResponse.json({ doc }, { headers: CACHE_HEADERS })
 }

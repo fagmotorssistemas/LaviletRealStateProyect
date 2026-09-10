@@ -5,19 +5,16 @@ import Image from 'next/image'
 import { Minus, Plus } from 'lucide-react'
 import {
   FLOOR_PLAN_FLOORS,
-  FLOOR_PLAN_IMAGE,
-  FLOOR_PLAN_SCOPE,
-  FLOOR_PLAN_SLOTS,
   floorPlanLevelLabel,
   floorPlanLevelShort,
   unitFloorNumber,
 } from '@/lib/tour/floorPlanHotspots'
+import { fetchFloorPlanDoc, prefetchFloorPlans, versionedFloorPlanUrl } from '@/lib/tour/floorPlanClientCache'
 import { FLOOR_PLAN_WHATSAPP_MESSAGE, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import {
   applyOverlayAlign,
   getFloorPlanOverlayAlign,
   getFloorPlanVariantMedia,
-  withFloorPlanVariants,
   zoneDisplayPointsPercent,
   type FloorPlanVariant,
   type FloorPlanZonesDoc,
@@ -42,9 +39,10 @@ type DisplaySlot = {
   unit: TourUnitSummary | null
 }
 
-const ZOOM_MIN = 0.4
-const ZOOM_MAX = 2.5
-const ZOOM_STEP = 0.2
+/** 1 = plano completo en el marco; solo se puede acercar desde ahí. */
+const ZOOM_MIN = 1
+const ZOOM_MAX = 3
+const ZOOM_STEP = 0.25
 
 function statusDotClass(status: TourUnitSummary['status']) {
   if (status === 'disponible' || status === 'en_preventa') return 'bg-[#2f9e44]'
@@ -101,7 +99,7 @@ export function TourFloorPlan({
   onWhatsAppClick,
 }: TourFloorPlanProps) {
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
-  const [scale, setScale] = useState(1)
+  const [scale, setScale] = useState(ZOOM_MIN)
   const [planDoc, setPlanDoc] = useState<FloorPlanZonesDoc | null>(null)
   const [planLoading, setPlanLoading] = useState(false)
   const [planVariant, setPlanVariant] = useState<FloorPlanVariant>('2d')
@@ -110,13 +108,9 @@ export function TourFloorPlan({
   useEffect(() => {
     let cancelled = false
     setPlanLoading(true)
-    void fetch(
-      `/api/tour/floor-plans?typology_code=${encodeURIComponent(FLOOR_PLAN_SCOPE)}&floor=${floor}`,
-    )
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json: { doc?: FloorPlanZonesDoc | null } | null) => {
+    void fetchFloorPlanDoc(floor)
+      .then((doc) => {
         if (cancelled) return
-        const doc = json?.doc ? withFloorPlanVariants(json.doc) : null
         setPlanDoc(doc)
         const nextVariant: FloorPlanVariant = doc?.variants['2d'].imageUrl
           ? '2d'
@@ -134,6 +128,13 @@ export function TourFloorPlan({
       .finally(() => {
         if (!cancelled) setPlanLoading(false)
       })
+
+    const floorIndex = FLOOR_PLAN_FLOORS.indexOf(floor)
+    const neighbors = [FLOOR_PLAN_FLOORS[floorIndex - 1], FLOOR_PLAN_FLOORS[floorIndex + 1]].filter(
+      (item): item is number => typeof item === 'number',
+    )
+    prefetchFloorPlans(neighbors)
+
     return () => {
       cancelled = true
     }
@@ -149,9 +150,10 @@ export function TourFloorPlan({
   )
 
   const planImageUrl = useMemo(() => {
-    if (planMedia.imageUrl) return planMedia.imageUrl
-    const fallback = getFloorPlanVariantMedia(planDoc, planVariant === '2d' ? '3d' : '2d')
-    return fallback.imageUrl || planDoc?.imageUrl || FLOOR_PLAN_IMAGE
+    const primary = planMedia.imageUrl
+    const fallback = getFloorPlanVariantMedia(planDoc, planVariant === '2d' ? '3d' : '2d').imageUrl
+    const raw = primary || fallback || planDoc?.imageUrl || null
+    return versionedFloorPlanUrl(raw, planDoc?.updatedAt)
   }, [planDoc, planVariant, planMedia.imageUrl])
 
   const planAspect = useMemo(() => {
@@ -166,7 +168,7 @@ export function TourFloorPlan({
   )
 
   useEffect(() => {
-    setScale(1)
+    setScale(ZOOM_MIN)
   }, [floor, planImageUrl])
 
   const unitsOnFloor = useMemo(() => {
@@ -178,27 +180,22 @@ export function TourFloorPlan({
   }, [units, floor])
 
   const displaySlots = useMemo<DisplaySlot[]>(() => {
-    if (planDoc?.zones?.length) {
-      return [...planDoc.zones]
-        .sort((a, b) => a.order - b.order)
-        .filter((zone) => zone.pointsPercent.trim())
-        .map((zone) => ({
-          id: zone.id,
-          label: zone.label || zone.id,
-          points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
-          unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
-        }))
-    }
-    return FLOOR_PLAN_SLOTS.map((slot) => ({
-      id: slot.id,
-      label: slot.label,
-      points: slot.points,
-      unit: unitsOnFloor[slot.order] ?? null,
-    }))
+    if (!planDoc?.zones?.length) return []
+    return [...planDoc.zones]
+      .sort((a, b) => a.order - b.order)
+      .filter((zone) => zone.pointsPercent.trim())
+      .map((zone) => ({
+        id: zone.id,
+        label: zone.label || zone.id,
+        points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
+        unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
+      }))
   }, [planDoc, unitsOnFloor, overlayAlign])
 
-  const zoomOut = () => setScale((value) => Math.max(ZOOM_MIN, Number((value - ZOOM_STEP).toFixed(2))))
-  const zoomIn = () => setScale((value) => Math.min(ZOOM_MAX, Number((value + ZOOM_STEP).toFixed(2))))
+  const zoomOut = () =>
+    setScale((value) => Math.max(ZOOM_MIN, Number((value - ZOOM_STEP).toFixed(2))))
+  const zoomIn = () =>
+    setScale((value) => Math.min(ZOOM_MAX, Number((value + ZOOM_STEP).toFixed(2))))
 
   return (
     <div className="absolute inset-0 z-[18] flex bg-[#14110e]">
@@ -211,16 +208,20 @@ export function TourFloorPlan({
             className="absolute inset-0 origin-center transition-transform duration-200 ease-out"
             style={{ transform: `scale(${scale})` }}
           >
-            <Image
-              key={planImageUrl}
-              src={planImageUrl}
-              alt={`Plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)}`}
-              fill
-              priority
-              unoptimized={planImageUrl.startsWith('http')}
-              className="object-fill"
-              sizes="(max-width: 1024px) 100vw, 1100px"
-            />
+            {planImageUrl ? (
+              <Image
+                key={planImageUrl}
+                src={planImageUrl}
+                alt={`Plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)}`}
+                fill
+                priority
+                unoptimized={planImageUrl.startsWith('http')}
+                className="object-fill"
+                sizes="(max-width: 1024px) 100vw, 1100px"
+              />
+            ) : (
+              <div className="absolute inset-0 bg-[#1a1714]" />
+            )}
 
             <svg
               viewBox="0 0 100 100"
@@ -347,6 +348,10 @@ export function TourFloorPlan({
           {planLoading ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/40 text-xs text-white/70">
               Cargando plano…
+            </div>
+          ) : !planImageUrl ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/55 px-4 text-center text-xs text-white/70">
+              Todavía no hay plano para {floorPlanLevelLabel(floor)}
             </div>
           ) : null}
         </div>

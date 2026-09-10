@@ -1,8 +1,3 @@
-import { GENERATED_FLOOR_PLAN_SLOTS } from '@/lib/tour/floorPlanSlots.generated'
-
-/** Plano típico del showroom: zonas en % del ancho/alto de la imagen. */
-export const FLOOR_PLAN_IMAGE = '/plano-piso.jpg'
-
 /**
  * Alcance de storage de planos por piso (edificio completo, no por tipología/suite).
  * Las zonas se relacionan al showroom por número de unidad.
@@ -22,7 +17,7 @@ export type FloorPlanLevel = {
 
 /**
  * Orden de planos del edificio:
- * Subsuelo 1 → Subsuelo 2 → Planta baja → Plantas 1–5 → Terraza
+ * Subsuelo 1 → Subsuelo 2 → Planta baja → Plantas 1–6 → Terraza
  */
 export const FLOOR_PLAN_LEVELS: readonly FloorPlanLevel[] = [
   { id: -1, label: 'Subsuelo 1', shortLabel: 'S1', storageKey: 's1' },
@@ -33,7 +28,8 @@ export const FLOOR_PLAN_LEVELS: readonly FloorPlanLevel[] = [
   { id: 3, label: 'Tercera planta alta', shortLabel: '3', storageKey: '3' },
   { id: 4, label: 'Cuarta planta alta', shortLabel: '4', storageKey: '4' },
   { id: 5, label: 'Quinta planta alta', shortLabel: '5', storageKey: '5' },
-  { id: 6, label: 'Terraza', shortLabel: 'T', storageKey: 'terraza' },
+  { id: 6, label: 'Sexta planta alta', shortLabel: '6', storageKey: '6' },
+  { id: 7, label: 'Terraza', shortLabel: 'T', storageKey: 'terraza' },
 ] as const
 
 export const FLOOR_PLAN_FLOORS = FLOOR_PLAN_LEVELS.map((level) => level.id)
@@ -60,27 +56,6 @@ export function floorPlanStorageKey(floor: number): string {
   return floorPlanLevelById(floor)?.storageKey ?? String(floor)
 }
 
-export type FloorPlanSlot = {
-  id: string
-  /** Etiqueta corta sobre el plano */
-  label: string
-  /** Orden de mapeo a unidades del piso (0-based) */
-  order: number
-  /** Polígono en coordenadas 0–100 (viewBox porcentual) */
-  points: string
-}
-
-/**
- * Contornos generados por `npm run tour:segment-floor`
- * (medianeras del plano + flood-fill hasta el muro real de cada depto).
- */
-export const FLOOR_PLAN_SLOTS: FloorPlanSlot[] = GENERATED_FLOOR_PLAN_SLOTS.map((slot) => ({
-  id: slot.id,
-  label: slot.label,
-  order: slot.order,
-  points: slot.points,
-}))
-
 function normalizeFloorText(raw: string) {
   return raw
     .trim()
@@ -94,7 +69,7 @@ export function parseFloorNumber(raw: string | null | undefined): number | null 
   const s = normalizeFloorText(String(raw))
   if (!s) return null
 
-  if (/^(terraza|terrasa|t)$/.test(s) || s.includes('terraza')) return 6
+  if (/^(terraza|terrasa|t)$/.test(s) || s.includes('terraza')) return 7
   if (/^(planta\s*baja|pb|p\.?\s*b\.?|0)$/.test(s) || s.includes('planta baja')) return 0
   if (/subsuelo\s*2|s\.?\s*2|ss\s*2|^-2$/.test(s)) return -2
   if (/subsuelo\s*1|s\.?\s*1|ss\s*1|^-1$/.test(s)) return -1
@@ -124,7 +99,7 @@ export function parseFloorNumber(raw: string | null | undefined): number | null 
   const planta = s.match(/planta\s*(alta\s*)?(\d{1,2})/)
   if (planta) {
     const n = Number(planta[2])
-    return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null
+    return Number.isFinite(n) && n >= 1 && n <= 6 ? n : null
   }
 
   const piso = s.match(/piso\s*(\d{1,2})/)

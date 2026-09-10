@@ -752,7 +752,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
         {floorSummaries.map((item) => {
           const active = item.floor === floor
           const label = floorPlanLevelLabel(item.floor)

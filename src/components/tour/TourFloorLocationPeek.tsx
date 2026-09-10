@@ -2,15 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
-import {
-  FLOOR_PLAN_IMAGE,
-  FLOOR_PLAN_SCOPE,
-  FLOOR_PLAN_SLOTS,
-  floorPlanLevelLabel,
-  unitFloorNumber,
-} from '@/lib/tour/floorPlanHotspots'
+import { floorPlanLevelLabel, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
+import { fetchFloorPlanDoc, versionedFloorPlanUrl } from '@/lib/tour/floorPlanClientCache'
 import type { FloorPlanZonesDoc } from '@/lib/tour/floorPlanZones'
-import { zoneDisplayPointsPercent } from '@/lib/tour/floorPlanZones'
+import { getFloorPlanVariantMedia, zoneDisplayPointsPercent } from '@/lib/tour/floorPlanZones'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
 
@@ -45,19 +40,8 @@ function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: st
   )
 }
 
-function resolveFallbackSlotId(unit: TourUnitSummary, unitsOnFloor: TourUnitSummary[]) {
-  const byLabel = FLOOR_PLAN_SLOTS.find(
-    (slot) => slot.label.trim().toLowerCase() === unit.unit_number.trim().toLowerCase(),
-  )
-  if (byLabel) return byLabel.id
-  const index = unitsOnFloor.findIndex((item) => item.id === unit.id)
-  if (index < 0) return null
-  return FLOOR_PLAN_SLOTS.find((slot) => slot.order === index)?.id ?? null
-}
-
 export function TourFloorLocationPeek({
   unit,
-  units,
 }: TourFloorLocationPeekProps) {
   const [expanded, setExpanded] = useState(false)
   const [planDoc, setPlanDoc] = useState<FloorPlanZonesDoc | null>(null)
@@ -70,12 +54,9 @@ export function TourFloorLocationPeek({
       setPlanDoc(null)
       return
     }
-    void fetch(
-      `/api/tour/floor-plans?typology_code=${encodeURIComponent(FLOOR_PLAN_SCOPE)}&floor=${floor}`,
-    )
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json: { doc?: FloorPlanZonesDoc | null } | null) => {
-        if (!cancelled) setPlanDoc(json?.doc ?? null)
+    void fetchFloorPlanDoc(floor)
+      .then((doc) => {
+        if (!cancelled) setPlanDoc(doc)
       })
       .catch(() => {
         if (!cancelled) setPlanDoc(null)
@@ -85,53 +66,41 @@ export function TourFloorLocationPeek({
     }
   }, [floor])
 
-  const unitsOnFloor = useMemo(() => {
-    if (!unit) return []
-    const matched =
-      floor != null ? units.filter((item) => unitFloorNumber(item) === floor) : units
-    const list = matched.length > 0 ? matched : units
-    return [...list].sort((a, b) =>
-      a.unit_number.localeCompare(b.unit_number, 'es', { numeric: true }),
-    )
-  }, [unit, units, floor])
-
   const displaySlots = useMemo<DisplaySlot[]>(() => {
-    if (planDoc?.zones?.length) {
-      return [...planDoc.zones]
-        .sort((a, b) => a.order - b.order)
-        .filter((zone) => zone.pointsPercent.trim())
-        .map((zone) => ({
-          id: zone.id,
-          label: zone.label || zone.id,
-          points: zoneDisplayPointsPercent(zone),
-        }))
-    }
-    return FLOOR_PLAN_SLOTS.map((slot) => ({
-      id: slot.id,
-      label: slot.label,
-      points: slot.points,
-    }))
+    if (!planDoc?.zones?.length) return []
+    return [...planDoc.zones]
+      .sort((a, b) => a.order - b.order)
+      .filter((zone) => zone.pointsPercent.trim())
+      .map((zone) => ({
+        id: zone.id,
+        label: zone.label || zone.id,
+        points: zoneDisplayPointsPercent(zone),
+      }))
   }, [planDoc])
 
   const activeSlotId = useMemo(() => {
-    if (!unit) return null
-    if (planDoc?.zones?.length) {
-      const match = planDoc.zones.find((zone) => findUnitForZone([unit], zone.id, zone.label))
-      if (match) return match.id
-      return (
-        planDoc.zones.find(
-          (zone) =>
-            zone.label.trim().toLowerCase() === unit.unit_number.trim().toLowerCase() ||
-            zone.id.trim().toLowerCase() === unit.unit_number.trim().toLowerCase(),
-        )?.id ?? null
-      )
-    }
-    return resolveFallbackSlotId(unit, unitsOnFloor)
-  }, [unit, planDoc, unitsOnFloor])
+    if (!unit || !planDoc?.zones?.length) return null
+    const match = planDoc.zones.find((zone) => findUnitForZone([unit], zone.id, zone.label))
+    if (match) return match.id
+    return (
+      planDoc.zones.find(
+        (zone) =>
+          zone.label.trim().toLowerCase() === unit.unit_number.trim().toLowerCase() ||
+          zone.id.trim().toLowerCase() === unit.unit_number.trim().toLowerCase(),
+      )?.id ?? null
+    )
+  }, [unit, planDoc])
 
   if (!unit) return null
 
-  const planImageUrl = planDoc?.imageUrl || FLOOR_PLAN_IMAGE
+  const media = getFloorPlanVariantMedia(planDoc, '2d')
+  const planImageUrl = versionedFloorPlanUrl(
+    media.imageUrl || planDoc?.imageUrl,
+    planDoc?.updatedAt,
+  )
+
+  // Sin plano real no mostramos el peek del ejemplo viejo.
+  if (!planImageUrl) return null
 
   return (
     <div

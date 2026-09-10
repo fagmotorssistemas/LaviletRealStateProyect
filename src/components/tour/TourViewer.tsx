@@ -62,7 +62,8 @@ import {
   readUnitQueryParam,
   writeUnitQueryParam,
 } from '@/lib/tour/unitDeepLink'
-import { FLOOR_PLAN_DEFAULT_FLOOR, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
+import { FLOOR_PLAN_DEFAULT_FLOOR, FLOOR_PLAN_FLOORS, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
+import { prefetchFloorPlans } from '@/lib/tour/floorPlanClientCache'
 import type {
   TourLightMode,
   TourPlacedHotspot,
@@ -636,6 +637,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     return embedded ? 'plan' : 'unit'
   })
   const [planFloor, setPlanFloor] = useState(FLOOR_PLAN_DEFAULT_FLOOR)
+
+  useEffect(() => {
+    if (!embedded) return
+    const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
+    const neighbors = [FLOOR_PLAN_FLOORS[idx - 1], FLOOR_PLAN_FLOORS[idx + 1]].filter(
+      (item): item is number => typeof item === 'number',
+    )
+    prefetchFloorPlans([planFloor, ...neighbors])
+  }, [embedded, planFloor])
+
   const [terminacionesFocus, setTerminacionesFocus] = useState(false)
   const [finishCompareOpen, setFinishCompareOpen] = useState(false)
   const [finishRight, setFinishRight] = useState('')

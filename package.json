@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "eslint",
     "tour:resize": "node scripts/tour-resize.mjs",
-    "tour:segment-floor": "node scripts/segment-floor-plan.mjs",
     "test:integrations": "node --test scripts/integrations.test.cjs",
     "automation:tick": "node scripts/automation-cron.mjs",
     "automation:watch": "node scripts/automation-cron.mjs --watch",

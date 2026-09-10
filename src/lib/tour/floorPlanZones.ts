@@ -210,7 +210,8 @@ export async function uploadFloorPlanImage(
   const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
     upsert: true,
     contentType,
-    cacheControl: '0',
+    // Cache en CDN/browser; el showroom bustea con ?v=updatedAt al cambiar el doc.
+    cacheControl: '86400',
   })
   if (error) throw new Error(error.message || 'No se pudo subir el plano del piso')
   const { data } = supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).getPublicUrl(path)
@@ -531,7 +532,7 @@ export async function saveFloorPlanZones(
     floorPlanZonesPath(doc.typologyCode, doc.floor),
     JSON.stringify(next),
     // El bucket typology-assets solo admite imágenes; mismo truco que hotspots.
-    { upsert: true, contentType: 'image/webp', cacheControl: '0' },
+    { upsert: true, contentType: 'image/webp', cacheControl: '300' },
   )
   if (error) throw new Error(error.message || 'No se pudieron guardar las zonas del piso')
   return next
