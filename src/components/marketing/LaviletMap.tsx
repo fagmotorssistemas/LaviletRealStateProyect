@@ -9,9 +9,11 @@ import { cn } from '@/lib/utils'
 type LaviletMapProps = {
   className?: string
   zoom?: number
+  latitude?: number
+  longitude?: number
 }
 
-export function LaviletMap({ className, zoom = 17 }: LaviletMapProps) {
+export function LaviletMap({ className, zoom = 17, latitude = SITE.location.lat, longitude = SITE.location.lng }: LaviletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const reactId = useId().replace(/:/g, '')
@@ -20,7 +22,8 @@ export function LaviletMap({ className, zoom = 17 }: LaviletMapProps) {
     const el = containerRef.current
     if (!el || mapRef.current) return
 
-    const { lat, lng, label } = SITE.location
+    const { label } = SITE.location
+    const lat = latitude, lng = longitude
     const map = L.map(el, {
       center: [lat, lng],
       zoom,
@@ -69,7 +72,7 @@ export function LaviletMap({ className, zoom = 17 }: LaviletMapProps) {
       map.remove()
       mapRef.current = null
     }
-  }, [zoom, reactId])
+  }, [zoom, reactId, latitude, longitude])
 
   return (
     <div className={cn('lavilet-map relative h-full w-full overflow-hidden bg-[#ebe4da]', className)}>

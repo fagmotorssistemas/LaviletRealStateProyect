@@ -285,6 +285,9 @@ export interface Lead {
   tenant_id: string
   name: string
   phone: string | null
+  kommo_id?: number | null
+  preferred_category?: string | null
+  purchase_purpose?: string | null
   status: LeadStatus
   temperature: LeadTemperature
   temperature_score: number
@@ -363,6 +366,7 @@ export interface AppointmentRescheduleRequest {
   created_at: string
   resolved_at: string | null
   resolved_by: string | null
+  updated_at?: string
   assigned_advisor?: { full_name: string | null }
   lead?: { id: string; name: string | null; phone: string | null } | null
   project?: { id: string; name: string } | null
@@ -370,6 +374,32 @@ export interface AppointmentRescheduleRequest {
 }
 
 export type VisitInboxItem = AppointmentRescheduleRequest
+
+export interface VisitTimeSlot {
+  start_time: string
+  end_time: string
+}
+
+export interface VisitSchedulingOptions {
+  request_id: string
+  advisor_id: string | null
+  requested: Partial<VisitTimeSlot> & {
+    confidence: 'exact' | 'date_only' | 'time_only' | 'ambiguous' | 'unknown'
+    requested_date?: string
+    has_time?: boolean
+    inferred_meridiem?: boolean
+    source_messages?: { id: string; external_id?: string | null; text: string; sent_at: string }[]
+    source_at: string
+    source_verified: boolean
+    source_message_id: string | null
+    source_text: string | null
+    timezone: string
+  }
+  available: boolean
+  can_accept: boolean
+  reason: 'advisor_unavailable' | 'needs_time' | 'past' | 'outside_hours' | 'busy' | 'expired' | null
+  slots: VisitTimeSlot[]
+}
 
 export interface Appointment {
   id: string

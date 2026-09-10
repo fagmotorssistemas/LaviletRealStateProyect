@@ -163,7 +163,6 @@ export function AutomationRulesView() {
   const patchConfig = <K extends keyof ProjectAutomationConfig>(key: K, value: ProjectAutomationConfig[K]) => {
     setConfig((current) => (current ? { ...current, [key]: value } : current))
   }
-  const selectedProject = projects.find((project) => project.id === projectId)
 
   const saveConfig = async () => {
     if (!config) return
@@ -361,14 +360,11 @@ export function AutomationRulesView() {
                 value={config.max_auto_reassignments}
                 onChange={(event) => patchConfig('max_auto_reassignments', Number(event.target.value) || 3)}
               />
-              {selectedProject?.name.toUpperCase().includes('LA VILET') ? (
-                <Input
-                  id="visit-location-url"
-                  label="Enlace de ubicación (solo este proyecto)"
-                  value={config.visit_location_url ?? ''}
-                  onChange={(event) => patchConfig('visit_location_url', event.target.value || null)}
-                />
-              ) : null}
+              <div className="rounded-xl border border-[#e3e6dc] p-3 text-sm">
+                <p className="font-medium text-[#535c48]">Ubicación de las visitas</p>
+                <p className="mt-1 text-xs text-[#858a7c]">Selecciona el punto del proyecto en el mapa. Se compartirá al confirmar la cita.</p>
+                <a className="mt-2 inline-block font-medium text-[#667253] underline underline-offset-4" href="/inmobiliaria/automatizacion/ubicacion">Editar ubicación en el mapa</a>
+              </div>
               <div className="flex items-end pb-2">
                 <Toggle
                   checked={config.is_active}

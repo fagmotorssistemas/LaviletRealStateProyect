@@ -3,6 +3,7 @@
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { addOneHour } from '@/lib/inmobiliaria/visitClock'
+import { addYmd, ecuadorYmd } from '@/lib/inmobiliaria/agendaTime'
 import { APPOINTMENT_LOCATION_OPTIONS } from '@/types/inmobiliaria'
 import type { AppointmentLocationType, TeamProfile } from '@/types/inmobiliaria'
 
@@ -30,19 +31,30 @@ export function AgendaVisitFields({
   disabled,
   showAssignment = true,
 }: AgendaVisitFieldsProps) {
+  const today = ecuadorYmd()
   return (
     <div className="space-y-4">
-      <p className="text-xs text-[#7a7e70]">Horario en Ecuador (America/Guayaquil). No se usa la zona del navegador.</p>
-      <Input
-        id="agenda-visit-date"
-        label="Fecha *"
-        type="date"
-        value={values.visitDate}
-        required
-        disabled={disabled}
-        onChange={(e) => onChange({ visitDate: e.target.value })}
-      />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="flex items-center gap-2">
+        {[{ label: 'Hoy', day: today }, { label: 'Mañana', day: addYmd(today, 1) }].map(({ label, day }) => (
+          <button key={day} type="button" disabled={disabled} aria-pressed={values.visitDate === day}
+            onClick={() => onChange({ visitDate: day })}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${values.visitDate === day ? 'border-[#787d62] bg-[#edf2e7] text-[#526247]' : 'border-[#e3e6dc] text-[#7b8170] hover:bg-[#f8f9f5]'}`}>
+            {label}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-[#858a7c]">Hora de Ecuador</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Input
+          id="agenda-visit-date"
+          label="Fecha *"
+          type="date"
+          min={today}
+          value={values.visitDate}
+          required
+          disabled={disabled}
+          onChange={(e) => onChange({ visitDate: e.target.value })}
+        />
         <Input
           id="agenda-visit-start"
           label="Hora de inicio *"
@@ -57,16 +69,8 @@ export function AgendaVisitFields({
             })
           }
         />
-        <Input
-          id="agenda-visit-end"
-          label="Hora de fin (60 min)"
-          type="time"
-          value={values.endHm}
-          required
-          disabled
-          onChange={() => undefined}
-        />
       </div>
+      <p className="text-xs text-[#858a7c]">Duración: 60 minutos{values.endHm ? ` · Finaliza a las ${values.endHm}` : ''}</p>
       {showAssignment ? (
         <>
           <Select

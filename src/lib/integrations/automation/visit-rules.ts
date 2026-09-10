@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { buildVisitMessage } from '@/lib/inmobiliaria/visitClock'
 import { LAVILET_MESSAGE_ROUTES, LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '../lavilet'
 
 const HOUR = 3_600_000
@@ -62,12 +63,10 @@ export function routeSignature(route: Row) {
 }
 export function prepareVisit(context: Row): Row {
   const j = object(context.job), a = object(context.appointment), p = object(j.payload)
-  const when = new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', day: '2-digit', month: '2-digit',
-    year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(text(p.start_time || a.start_time)))
-  const prefix = j.kind === 'visit_propose' ? 'Le proponemos una visita el ' : j.kind === 'visit_2h'
-    ? 'Le recordamos su visita el ' : 'Su visita está confirmada para el '
-  const location = text(p.location), advisor = text(context.advisor_name)
-  const detail = `${prefix}${when}${advisor ? `, con ${advisor}` : ''}.${location ? ` Ubicación: ${location}.` : ''}${j.kind === 'visit_propose' ? ' ¿Confirma ese horario?' : ''}`
+  const location = !a.location_type || a.location_type === 'proyecto' ? context.location || p.location : p.location
+  const detail = buildVisitMessage({ kind: j.kind as 'visit_propose' | 'visit_confirm' | 'visit_reschedule_confirm' | 'visit_2h',
+    startIso: text(p.start_time || a.start_time), leadName: text(object(context.lead).name),
+    advisorName: text(context.advisor_name), locationUrl: text(location) })
   // Conservar hechos exactos. La redacción opcional no puede alterar fecha, asesor o ubicación.
   return { ...context, job: { ...j, payload: { ...p, detail } } }
 }

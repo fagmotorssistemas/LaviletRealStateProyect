@@ -13,6 +13,7 @@ import {
   rejectVisitRequest,
   requestReassignment,
   reassignVisitRequest,
+  acceptClientVisitTime,
 } from '@/services/inmobiliaria.service'
 import type { AppointmentLocationType } from '@/types/inmobiliaria'
 
@@ -109,6 +110,12 @@ export async function markRequestReviewedAction(requestId: string) {
 
 export async function advisorAcceptRequestAction(requestId: string) {
   return withAgendaWrite((client) => advisorAcceptRequest(client, requestId))
+}
+
+export async function acceptClientVisitTimeAction(input: {
+  requestId: string; startTime: string; endTime: string; sourceMessageId: string
+}) {
+  return withAgendaWrite((client) => acceptClientVisitTime(client, input))
 }
 
 export async function advisorProposeRequestAction(input: {

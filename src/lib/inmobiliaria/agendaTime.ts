@@ -35,8 +35,11 @@ export function ecuadorInclusiveRange(fromYmd: string, toYmd: string): {
 }
 
 export function ecuadorLocalToIso(ymd: string, timeHm: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || !/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(timeHm)) return ''
   const time = timeHm.length === 5 ? `${timeHm}:00` : timeHm
-  return new Date(`${ymd}T${time}${AGENDA_OFFSET}`).toISOString()
+  const parsed = new Date(`${ymd}T${time}${AGENDA_OFFSET}`)
+  if (Number.isNaN(parsed.getTime()) || isoToEcuadorParts(parsed.toISOString())?.date !== ymd) return ''
+  return parsed.toISOString()
 }
 
 export function isoToEcuadorParts(iso: string | null | undefined): { date: string; time: string } | null {

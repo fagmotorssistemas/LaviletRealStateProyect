@@ -5,6 +5,7 @@ import {
   datetimeLocalToIso,
   ecuadorInclusiveRange,
   ecuadorYmd,
+  ecuadorLocalToIso,
   formatAgendaDateTime,
   isoToDatetimeLocal,
   lastDaysPresetRange,
@@ -12,6 +13,12 @@ import {
 } from './agendaTime.ts'
 
 describe('agenda ecuador range', () => {
+  it('allows incomplete forms without throwing and rejects invalid calendar dates', () => {
+    for (const [day, time] of [['', ''], ['2026-09-10', ''], ['2026-02-30', '10:00'], ['2026-09-10', '25:00']]) {
+      assert.equal(ecuadorLocalToIso(day, time), '')
+    }
+    assert.equal(ecuadorLocalToIso('2026-09-11', '10:00'), '2026-09-11T15:00:00.000Z')
+  })
   it('uses exclusive next-day bound at UTC-5', () => {
     const range = ecuadorInclusiveRange('2026-09-07', '2026-09-07')
     assert.equal(range.fromIso, '2026-09-07T05:00:00.000Z')

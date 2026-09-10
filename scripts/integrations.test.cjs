@@ -142,7 +142,7 @@ test('OpenAI billing errors retain a safe diagnostic code that the worker can re
 function conversationHarness(options = {}) {
   const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false }
   const query = table => {
-    const q = { then(resolve) { return Promise.resolve({ data: table === 'appointment_reschedule_requests' ? options.requests || [] : [], error: null, count: 0 }).then(resolve) } }
+    const q = { then(resolve) { return Promise.resolve({ data: table === 'appointment_reschedule_requests' ? options.requests || [{ id: 'request', source_message_id: 'one' }] : [], error: null, count: 0 }).then(resolve) } }
     for (const name of ['update', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal']) q[name] = () => q
     q.update = values => { calls.push({ name: 'update:' + table, args: values }); return q }
     return q
@@ -153,7 +153,9 @@ function conversationHarness(options = {}) {
       rpc: async (name, args) => {
         calls.push({ name, args })
         if (name === 'register_inbound_message') return { lead_id: 'lead', conversation_id: 'conv', is_duplicate: options.duplicate === true }
-        if (name === 'lv_app_conversation_context') return { propuestas: [], historial: options.history || [] }
+        if (name === 'lv_app_conversation_context') return { propuestas: options.proposals || [], historial: options.history || [], mensaje_actual_at: new Date().toISOString() }
+        if (name === 'lv_app_visit_preference') return options.slot || {}
+        if (name === 'lv_apply_client_visit_intent') return options.applied || { action: 'reply', request_id: 'request', mensaje: 'Texto anterior que debe sustituirse' }
         if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose }).filter(([, v]) => v != null))); return lead }
         if (name === 'lv_intake_visit_once') return 'appointment'
         if (name === 'process_financing_message_v2') return { active: false }
@@ -163,8 +165,12 @@ function conversationHarness(options = {}) {
     './sdr': { commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
       commercialReply: async () => ({ reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => event.text,
-      aiJson: async prompt => prompt === 'extractor_eventos' ? { events: [], opt_out: options.optOut === true, ...options.extracted }
-        : prompt === 'revisor_respuesta' ? { aprobada: true } : {} },
+      aiJson: async (prompt, input) => {
+        calls.push({ name: 'ai', args: { prompt, input } })
+        return prompt === 'extractor_eventos' ? { events: [], opt_out: options.optOut === true, ...options.extracted }
+          : prompt.startsWith('Clasifique') ? { intent: options.intent || 'question' }
+            : prompt === 'revisor_respuesta' ? { aprobada: true } : {}
+      } },
     './kommo': {
       getKommoLead: async () => ({ id: 123, _embedded: { contacts: [{ id: 456 }] } }),
       getKommoContact: async () => ({ id: 456, custom_fields_values: [{ field_code: 'PHONE', values: [{ value: '+593000000000' }] }] }),
@@ -214,7 +220,7 @@ test('isolated greeting uses editable welcome without scoring or financing', asy
 
 test('a second greeting continues discovery without welcoming again or re-extracting events', async t => {
   live(t)
-  const h = conversationHarness({ history: [{ role: 'bot', content: 'Hola, bienvenido a La Vilet.' }] })
+  const h = conversationHarness({ history: [{ role: 'bot', content: 'Hola, bienvenido a La Vilet.', sent_at: new Date(Date.now() - 60_000).toISOString() }] })
   h.rows[0].payload.text = 'Buenas tardes'
   await h.process([h.rows[0]], async () => {})
   const sent = h.calls.find(c => c.name === 'patch').args[2]
@@ -233,13 +239,14 @@ test('commercial reply receives the category and qualification declared in this 
   assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 0)
 })
 
-test('requesting a visit without a time asks for preference before creating an appointment', async t => {
+test('requesting a visit opens a pending coordination and asks for the missing preference', async t => {
   live(t)
   const h = conversationHarness({ extracted: { events: ['requested_visit'] } })
   h.rows[0].payload.text = 'Quiero ir a verlo'
   await h.process([h.rows[0]], async () => {})
-  assert.equal(h.calls.filter(c => c.name === 'lv_intake_visit_once').length, 0)
-  assert.match(h.calls.find(c => c.name === 'patch').args[2], /día y horario/)
+  assert.equal(h.calls.filter(c => c.name === 'lv_intake_visit_once').length, 1)
+  assert.equal(h.calls.find(c => c.name === 'lv_intake_visit_once').args.p_start_time, null)
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /día y a qué hora/)
 })
 
 test('switching from a home to a local does not keep asking about bedrooms or assume residential use', async t => {
@@ -257,11 +264,11 @@ test('switching from a home to a local does not keep asking about bedrooms or as
 
 test('a preferred visit time records a request but never claims the appointment is confirmed', async t => {
   live(t)
-  const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'one' }] })
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'one' }], slot: { confidence: 'exact', start_time: '2026-09-11T15:00:00Z' } })
   h.rows[0].payload.text = 'Mañana a las diez'
   await h.process([h.rows[0]], async () => {})
   assert.equal(h.calls.find(c => c.name === 'lv_intake_visit_once').args.p_start_time, null)
-  assert.match(h.calls.find(c => c.name === 'patch').args[2], /registramos su preferencia/)
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /revisaremos la disponibilidad.*a las 10 a\. m\./)
   assert.doesNotMatch(h.calls.find(c => c.name === 'patch').args[2], /agendad[oa]|confirmad[oa]/)
 })
 
@@ -270,10 +277,89 @@ test('an existing visit cannot be described as a newly recorded preference', asy
   const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'older' }] })
   h.rows[0].payload.text = 'Mañana a las diez'
   await h.process([h.rows[0]], async () => {})
-  assert.match(h.calls.find(c => c.name === 'patch').args[2], /Ya hay una visita/)
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /Ya estamos coordinando su visita/)
 })
 
 const sdrRules = require('../src/lib/integrations/automation/sdr-rules.ts')
+const natural = require('../src/lib/integrations/automation/conversation-style.ts')
+test('thanks after a recorded preference closes briefly without scoring, repeating or asking again', async t => {
+  live(t)
+  const h = conversationHarness({ lead: { name: 'Carlos Fabián' }, proposals: [{ id: 'request', status: 'awaiting_advisor' }],
+    history: [{ role: 'bot', content: 'Revisaremos el horario para mañana a las 10.', sent_at: new Date().toISOString() }] })
+  h.rows[0].payload.text = 'Perfecto, muchas gracias'
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Con mucho gusto.')
+  assert.equal(h.calls.filter(c => ['ai', 'lv_intake_visit_once', 'apply_lead_events'].includes(c.name)).length, 0)
+})
+test('a second courtesy cannot generate an endless acknowledgement loop', async t => {
+  live(t)
+  const h = conversationHarness({ history: [{ role: 'bot', content: 'Con mucho gusto.' }] })
+  h.rows[0].payload.text = 'Gracias'
+  assert.equal((await h.process([h.rows[0]], async () => {})).action, 'courtesy_already_acknowledged')
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 0)
+})
+test('thanks with a pending decision is classified rather than swallowed as a closing', async t => {
+  live(t)
+  const h = conversationHarness({ proposals: [{ id: 'request', status: 'awaiting_client', advisor_accepted_at: new Date(Date.now() - 120000).toISOString(), propuesta_enviada_at: new Date(Date.now() - 60000).toISOString() }],
+    intent: 'accept', applied: { action: 'confirmed' } })
+  h.rows[0].payload.text = 'Perfecto, gracias'
+  assert.equal((await h.process([h.rows[0]], async () => {})).action, 'confirmed')
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 0, 'Only the transactional visit outbox sends confirmation')
+})
+test('a new-day greeting with visit intent is returned before the coordination question', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { events: ['requested_visit'] }, history: [{ role: 'bot', content: 'Hasta pronto.', sent_at: new Date(Date.now() - 86_400_000).toISOString() }] })
+  h.rows[0].payload.text = 'Buenos días, quiero agendar una cita'
+  await h.process([h.rows[0]], async () => {})
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /^Buenos días\. Con gusto/)
+})
+test('a counterproposal uses the resolved day and time instead of a generic registered-preference reply', async t => {
+  live(t)
+  const h = conversationHarness({ proposals: [{ id: 'request', status: 'awaiting_client' }], intent: 'counterproposal',
+    slot: { confidence: 'exact', start_time: '2026-09-10T20:00:00Z', requested_date: '2026-09-10', has_time: true } })
+  h.rows[0].payload.text = 'no puedo a esa hora, mejor a las 3'
+  await h.process([h.rows[0]], async () => {})
+  const reply = h.calls.find(c => c.name === 'patch').args[2]
+  assert.match(reply, /jueves 10 de septiembre a las 3 p\. m\./)
+  assert.doesNotMatch(reply, /\?|registramos|Texto anterior/)
+})
+test('cancel followed by reschedule in the same turn is classified using both messages and only asks the missing hour', async t => {
+  live(t)
+  const h = conversationHarness({ proposals: [{ id: 'request', status: 'awaiting_advisor' }], intent: 'counterproposal',
+    slot: { confidence: 'date_only', requested_date: '2026-09-10', has_time: false } })
+  h.rows[0].payload.text = 'Quiero cancelar mi cita'
+  h.rows[1].payload.text = 'Bueno mejor quiero reagendar para hoy'
+  await h.process(h.rows, async () => {})
+  const classification = h.calls.find(c => c.name === 'ai' && c.args.prompt.startsWith('Clasifique'))
+  assert.equal(classification.args.input.mensaje_cliente, 'Quiero cancelar mi cita\nBueno mejor quiero reagendar para hoy')
+  const reply = h.calls.find(c => c.name === 'patch').args[2]
+  assert.match(reply, /A qué hora/i)
+  assert.doesNotMatch(reply, /Qué día|registramos|cancelad/)
+})
+test('style preserves decisions, answers and only the first name', () => {
+  assert.equal(natural.isCourtesyOnly('De acuerdo'), false)
+  assert.equal(natural.isCourtesyOnly('Gracias, pero mejor a las 4'), false)
+  assert.equal(natural.naturalConversationReply('Claro, Carlos Fabián. ¿Qué día le queda bien?', 'Carlos Fabián', ''), 'Claro, Carlos. ¿Qué día le queda bien?')
+  assert.match(natural.visitCoordinationReply({ has_time: true }), /Qué día/)
+  assert.doesNotMatch(natural.visitCoordinationReply({ has_time: true }), /qué hora/)
+})
+test('prepared visits use the current project location, not a stale queued link', () => {
+  const { prepareVisit } = require('../src/lib/integrations/automation/visit-rules.ts')
+  const c = fixture()
+  c.location = 'https://www.google.com/maps/search/?api=1&query=-2.892340%2C-79.030352'
+  c.job.payload.location = 'https://kommo.cc/stale'
+  const prepared = prepareVisit(c).job.payload.detail
+  assert.ok(prepared.endsWith(c.location))
+  assert.doesNotMatch(prepared, /kommo\.cc/)
+})
+test('an office visit keeps its meeting point when the project map changes', () => {
+  const { prepareVisit } = require('../src/lib/integrations/automation/visit-rules.ts')
+  const c = fixture()
+  c.appointment.location_type = 'oficina'
+  c.job.payload.location = 'https://www.google.com/maps/search/?api=1&query=-2.91%2C-79.02'
+  c.location = 'https://www.google.com/maps/search/?api=1&query=-2.892340%2C-79.030352'
+  assert.ok(prepareVisit(c).job.payload.detail.endsWith(c.job.payload.location))
+})
 test('old summary declarations cannot overwrite a new search without current text evidence', () => {
   const events = normalizeEvents({ preferred_category: 'suite', purchase_purpose: 'vivir', events: ['declared_unit_type'], declaration_evidence: { preferred_category: 'suite', purchase_purpose: 'vivir' } }, 'Unos 60 metros')
   assert.equal(events.preferred_category, null)
@@ -283,7 +369,8 @@ test('old summary declarations cannot overwrite a new search without current tex
 test('discovery uses known facts and never asks bedroom count for commercial property', () => {
   const lead = { preferred_category: 'local', purchase_purpose: 'negocio', behavior_signals: { sdr: { actividad_comercial: 'cafetería' } } }
   assert.equal(sdrRules.nextDiscoveryQuestion(lead).key, 'area_buscada')
-  assert.equal(sdrRules.sdrState({ last_bot_message_at: '2026-09-09' }, []).ya_saludamos, true)
+  assert.equal(sdrRules.sdrState({ last_bot_message_at: new Date(Date.now() - 60_000).toISOString() }, []).ya_saludamos, true)
+  assert.equal(sdrRules.sdrState({ last_bot_message_at: new Date(Date.now() - 86_400_000).toISOString() }, []).ya_saludamos, false)
   assert.equal(sdrRules.isGreetingOnly('¡Buenas tardes!'), true)
   assert.equal(sdrRules.isGreetingOnly('Hola, quiero saber el precio'), false)
 })

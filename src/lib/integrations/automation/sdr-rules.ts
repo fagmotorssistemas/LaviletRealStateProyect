@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { ecuadorYmd } from '@/lib/inmobiliaria/agendaTime'
 
 export const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
 export function isGreetingOnly(message: string) {
@@ -10,7 +11,10 @@ export function sdrState(lead: Row, history: unknown, excludedIds: string[] = []
   const replies = rows.filter(r => ['bot', 'asesor'].includes(text(r.role)))
   const lastReply = text(replies[replies.length - 1]?.content)
   const sdr = object(object(lead.behavior_signals).sdr)
-  return { ya_saludamos: replies.length > 0 || !!lead.last_bot_message_at, ultima_respuesta: lastReply,
+  const lastAt = Math.max(0, Date.parse(text(lead.last_bot_message_at)) || 0, ...replies.map(r => Date.parse(text(r.sent_at)) || 0))
+  const now = new Date()
+  const activeSession = lastAt > 0 && ecuadorYmd(new Date(lastAt)) === ecuadorYmd(now) && now.getTime() - lastAt < 15 * 60_000
+  return { ya_saludamos: activeSession, ultima_respuesta: lastReply,
     datos_conocidos: { categoria: lead.preferred_category || null, proposito: lead.purchase_purpose || null,
       dormitorios: lead.preferred_bedrooms || null, presupuesto: lead.budget_max || lead.budget || null, ...sdr } }
 }

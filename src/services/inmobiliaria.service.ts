@@ -6,7 +6,7 @@ import { sanitizeSearch } from '@/lib/inmobiliaria/slaStatus'
 import type {
   Unit, UnitImport, UnitMedia, Lead, Appointment, AppointmentWithUnits, AppointmentStatus, AppointmentRescheduleRequest, AgendaTab, AgendaCoordinationStats, VisitInboxItem, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
   UnitStatus, LeadStatus, LeadTemperature, InteractionType,
-  ShowroomVisitSource,
+  ShowroomVisitSource, VisitSchedulingOptions,
   Project, ProjectAsset, ProjectAssetKind, ProjectDetail, ContractStatus, InventorySortOption,
   PaymentPlan, LeadFinancing, AsesoriaFinanciamiento, FinancingPartner, TeamProfile,
   UnitSalesClosing, TypologyImport, TypologyAsset, TypologyAssetKind,
@@ -1212,6 +1212,9 @@ export interface ListAppointmentsParams {
 const APPOINTMENT_SELECT =
   '*, lead:leads(id, name, phone), responsible:profiles!appointments_responsible_id_fkey(full_name), project:projects(id, name)'
 
+const APPOINTMENT_DETAIL_SELECT =
+  '*, lead:leads(id,name,phone,kommo_id,preferred_category,purchase_purpose,resume,budget,lead_units(unit_id,priority,unit:units(id,unit_number,category))), responsible:profiles!appointments_responsible_id_fkey(full_name), project:projects(id,name)'
+
 function openRescheduleOf(rows: AppointmentRescheduleRequest[] | AppointmentRescheduleRequest | null | undefined) {
   const list = Array.isArray(rows) ? rows : rows ? [rows] : []
   return list.find((row) => row.status === 'awaiting_advisor' || row.status === 'awaiting_client') ?? null
@@ -1425,7 +1428,7 @@ export async function getAppointment(
 ): Promise<AppointmentWithUnits> {
   const { data: appt, error } = await supabase
     .from('appointments')
-    .select(APPOINTMENT_SELECT)
+    .select(APPOINTMENT_DETAIL_SELECT)
     .eq('id', appointmentId)
     .single()
   if (error) throw error
@@ -1462,7 +1465,9 @@ export async function getAppointment(
     const rescheduleResult = await supabase
       .from('appointment_reschedule_requests')
       .select('*')
-      .eq('appointment_id', appointmentId)
+      .eq(row.lead_id ? 'lead_id' : 'appointment_id', row.lead_id ?? appointmentId)
+      .eq('tenant_id', row.tenant_id)
+      .eq('project_id', row.project_id)
       .order('created_at', { ascending: false })
     if (rescheduleResult.error) {
       if (!isMissingRelation(rescheduleResult.error)) throw rescheduleResult.error
@@ -1508,8 +1513,8 @@ export async function getAppointment(
     ...row,
     units,
     visitedUnitIds,
-    openReschedule: openRescheduleOf(history),
-    remindersPaused: Boolean(openRescheduleOf(history)),
+    openReschedule: openRescheduleOf(history.filter(request => request.appointment_id === appointmentId)),
+    remindersPaused: Boolean(openRescheduleOf(history.filter(request => request.appointment_id === appointmentId))),
     rescheduleHistory: history,
     changeLog: (logRows ?? []) as AppointmentWithUnits['changeLog'],
   }
@@ -1679,6 +1684,23 @@ export async function markRequestReviewed(supabase: SupabaseClient, requestId: s
 
 export async function advisorAcceptRequest(supabase: SupabaseClient, requestId: string) {
   const { data, error } = await supabase.rpc('lv_advisor_accept_request', { p_request_id: requestId })
+  throwRpc(error)
+  return data as AppointmentRescheduleRequest
+}
+
+export async function getVisitSchedulingOptions(supabase: SupabaseClient, requestId: string, day?: string) {
+  const { data, error } = await supabase.rpc('lv_visit_scheduling_options', { p_request_id: requestId, p_day: day || null })
+  throwRpc(error)
+  return data as VisitSchedulingOptions
+}
+
+export async function acceptClientVisitTime(supabase: SupabaseClient, input: {
+  requestId: string; startTime: string; endTime: string; sourceMessageId: string
+}) {
+  const { data, error } = await supabase.rpc('lv_accept_client_visit_time', {
+    p_request_id: input.requestId, p_expected_start: input.startTime,
+    p_expected_end: input.endTime, p_source_message_id: input.sourceMessageId,
+  })
   throwRpc(error)
   return data as AppointmentRescheduleRequest
 }

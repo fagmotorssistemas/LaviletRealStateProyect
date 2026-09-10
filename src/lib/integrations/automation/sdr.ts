@@ -3,6 +3,7 @@ import { activePrompt, aiJson, draftReply } from './ai'
 import { db, object, scope, text, type Row } from './data'
 import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
 import type { Guard } from './visits'
+import { NATURAL_CONVERSATION_RULES, conversationalFirstName } from './conversation-style'
 
 export async function commercialContext(lead: Row, history: unknown) {
   const [units, amenities, places, project, config] = await Promise.all([
@@ -17,7 +18,7 @@ export async function commercialContext(lead: Row, history: unknown) {
   const settings = object(config.data), mode = text(settings.mode) || 'lanzamiento'
   const pricesAllowed = mode === 'preventa'
   const catalog = (units.data || []).map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
-  return { lead: { name: lead.name, preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
+  return { lead: { name: conversationalFirstName(text(lead.name)), preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
     preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage }, historial: history,
     conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: project.data, modo_comercial: mode,
@@ -32,17 +33,17 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
   const input = { ...info, resumen: summary, mensaje_actual: current }
   const reasons: string[] = []
-  let reply = await draftReply(prompt, input)
+  let reply = await draftReply(prompt + NATURAL_CONVERSATION_RULES, input)
   // One bounded rewrite; rejected drafts never reach Kommo.
   for (let attempt = 0; attempt < 2; attempt++) {
     await guard()
-    const review = await aiJson(reviewer, { ...input, respuesta: reply }, reviewSchema)
+    const review = await aiJson(reviewer + NATURAL_CONVERSATION_RULES, { ...input, respuesta: reply }, reviewSchema)
     const issues = styleIssues(reply, object(info.conversacion).ya_saludamos === true)
     if (review.aprobada === true && !issues.length) return { reply, audit: { rewritten: attempt > 0, review_reasons: reasons, fallback: false } }
     reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number])) as string[] : []))
     if (!attempt) {
       await guard()
-      reply = await draftReply(prompt, { ...input, borrador_rechazado: reply, correcciones_requeridas: reasons,
+      reply = await draftReply(prompt + NATURAL_CONVERSATION_RULES, { ...input, borrador_rechazado: reply, correcciones_requeridas: reasons,
         tarea: 'Reescriba resolviendo estos motivos, conteste la consulta y avance con una sola pregunta útil sin inventar hechos.' })
     }
   }
