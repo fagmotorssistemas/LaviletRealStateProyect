@@ -100,6 +100,8 @@ export function AppointmentDetailModal({
   const [selectedUnits, setSelectedUnits] = useState<Unit[]>([])
   const [visitedUnitIds, setVisitedUnitIds] = useState<string[]>([])
   const [notes, setNotes] = useState('')
+  const [attendanceReason, setAttendanceReason] = useState('')
+  const [attendanceVersion, setAttendanceVersion] = useState('')
   const canActOnRequest = Boolean(detail?.openReschedule)
     && Boolean(scope?.isAdmin || detail?.openReschedule?.assigned_advisor_id === user?.id)
   const scheduling = useVisitScheduling(supabase, isOpen && canActOnRequest ? detail?.openReschedule?.id : undefined)
@@ -331,11 +333,14 @@ export function AppointmentDetailModal({
 
   const handleAttendance = async (attended: boolean) => {
     if (!detail) return
+    if (detail.status === 'atendido' && !attendanceReason.trim()) { toast.error('Indica el motivo de la edición'); return }
     setSaving(true)
     try {
       await markAppointmentAttendanceAction({
         appointmentId: detail.id,
         attended,
+        expectedUpdatedAt: attendanceVersion,
+        editReason: attendanceReason.trim(),
         notes: notes.trim(),
         visitedUnitIds,
       })
@@ -365,8 +370,8 @@ export function AppointmentDetailModal({
 
   const panelTitle: Record<Panel, string> = {
     view: detail?.openReschedule ? 'Cita pendiente' : 'Visita a La Vilet',
-    details: 'Detalles de la visita', confirm: 'Confirmar cita', attendance: 'Registrar asistencia',
-    propose: 'Proponer otro horario', cancel: 'Cancelar cita', reassign: 'Solicitar reasignación',
+    details: 'Detalles de la visita', confirm: 'Confirmar cita', attendance: detail?.status === 'atendido' ? 'Editar asistencia' : 'Registrar asistencia',
+    propose: 'Proponer horario', cancel: 'Cancelar cita', reassign: 'Solicitar reasignación',
   }
   const openProposal = () => {
     setVisit(prev => ({ ...prev, visitDate: scheduling.options?.requested.requested_date ?? '', startHm: '', endHm: '' }))
@@ -410,7 +415,7 @@ export function AppointmentDetailModal({
           canManage={canActOnRequest} saving={saving} onAccept={() => void handleAcceptRequest()}
           onPropose={openProposal} onReassign={() => { setNotes(''); setPanel('reassign') }}
           onDetails={() => setPanel('details')} onConfirm={() => setPanel('confirm')}
-          onAttendance={() => setPanel('attendance')} onCancel={() => setPanel('cancel')}
+          onAttendance={() => { setNotes(detail.result_notes ?? ''); setAttendanceReason(''); setAttendanceVersion(detail.updated_at); setPanel('attendance') }} onCancel={() => setPanel('cancel')}
         />
       )}
       {!loadingDetail && !loadError && detail && panel === 'details' && (
@@ -494,7 +499,7 @@ export function AppointmentDetailModal({
       {!loadingDetail && !loadError && detail && panel === 'attendance' && (
         <div className="space-y-4">
           <p className="text-sm text-[#5c6156]">
-            No se marca inasistencia por vencimiento. Elige el resultado real de la visita.
+            {detail.status === 'atendido' ? `Resultado guardado: ${detail.no_show ? 'No asistió' : 'Asistió'}. La edición conservará el registro anterior y quién lo cambió.` : 'Elige el resultado real de la visita.'}
           </p>
           <Textarea
             id="attendance-notes"
@@ -503,6 +508,7 @@ export function AppointmentDetailModal({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
+          {detail.status === 'atendido' && <Textarea id="attendance-reason" label="Motivo de la edición (obligatorio)" value={attendanceReason} onChange={e => setAttendanceReason(e.target.value)} required />}
           {detail.units.length > 0 ? (
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Unidades visitadas</p>

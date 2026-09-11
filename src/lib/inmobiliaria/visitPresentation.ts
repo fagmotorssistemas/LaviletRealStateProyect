@@ -36,10 +36,10 @@ export function visitTimeline(detail: AppointmentWithUnits) {
     label: visitRequestLabel(row.status),
     description: row.proposed_start_time ? formatAgendaDateTime(row.proposed_start_time) : row.preferred_time_text,
   }))
-  const actions: Record<string, string> = { confirmada: 'Cita confirmada', cancelada: 'Cita cancelada', reprogramada: 'Cita reprogramada', attended: 'Visita realizada', no_show: 'No asistió a la visita', asistencia: 'Asistencia registrada' }
+  const actions: Record<string, string> = { confirmada: 'Cita confirmada', cancelada: 'Cita cancelada', reprogramada: 'Cita reprogramada', attended: 'Visita realizada', no_show: 'No asistió a la visita', asistencia: 'Asistencia registrada', asistio: 'Asistió', no_asistio: 'No asistió', asistencia_editada: 'Asistencia editada' }
   for (const event of detail.changeLog ?? []) {
     if (requests.some(row => event.detail?.request_id === row.id)) continue
-    items.push({ id: event.id, at: event.created_at, label: actions[event.action] ?? 'Cita actualizada', description: null })
+    items.push({ id: event.id, at: event.created_at, label: actions[event.action] ?? 'Cita actualizada', description: event.action === 'asistencia_editada' ? `${event.detail?.previous_no_show ? 'No asistió' : 'Asistió'} → ${event.detail?.no_show ? 'No asistió' : 'Asistió'}. Editado por ${event.detail?.actor_name || 'Usuario registrado'}. Motivo: ${event.detail?.edit_reason || '—'}` : null })
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
 }

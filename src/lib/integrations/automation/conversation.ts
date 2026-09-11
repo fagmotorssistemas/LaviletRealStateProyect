@@ -8,7 +8,10 @@ import { inboundFromRow, type Inbound } from './webhook'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply } from './sdr'
-import { greetingForTurn, isCourtesyOnly, naturalConversationReply, visitCoordinationReply } from './conversation-style'
+import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
+
+import { financingContext, financingInputs, financingReply } from './financing'
+import { intakeReply, isVisitDetail, needsVisitHelp } from './visit-intake'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -61,22 +64,6 @@ async function register(events: Inbound[], guard: Guard) {
   return { registration, hasNew, mediaFailed, normalized, stopped: botStopped(kommo) }
 }
 
-async function financingReply(fin: Row) {
-  const state = text(fin.state || fin.financing_state)
-  const messages: Record<string, string> = {
-    entidad_pendiente: `¿Con cuál entidad le gustaría realizar la revisión${text(fin.options_text) ? ': ' + text(fin.options_text) : ''}?`,
-    identificacion_pendiente: '¿Me confirma su nombre completo y su número de cédula, por favor?',
-    nombre_pendiente: '¿Me confirma su nombre completo, por favor?', cedula_pendiente: '¿Me indica su número de cédula, por favor?',
-    tipo_solicitante_pendiente: '¿Trabaja bajo relación de dependencia o de manera independiente?',
-    estabilidad_pendiente: '¿Cuánto tiempo lleva trabajando en su empleo actual?', cargo_pendiente: '¿Cuál es su cargo actual?',
-    ingreso_pendiente: '¿Cuál es su ingreso mensual aproximado?', ruc_pendiente: '¿Me indica su número de RUC, por favor?',
-    lista_para_revision: 'Ya tenemos la información inicial necesaria para continuar con la revisión.',
-    continuacion_pendiente: 'Podemos orientarle con una revisión preliminar de financiamiento. ¿Desea continuar?',
-  }
-  if (!messages[state]) throw new Error('UNKNOWN_FINANCING_STATE')
-  return messages[state]
-}
-
 export async function processConversation(rows: Row[], guard: Guard) {
   assertLive()
   const events = rows.map(row => inboundFromRow(row.payload)).sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.externalId.localeCompare(b.externalId))
@@ -95,6 +82,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!permitted(initialConfig, lead, settings.testLeadId) || lead.bot_enabled !== true || inbound.stopped) return { action: 'bot_paused' }
   const activeLast = inbound.normalized[inbound.normalized.length - 1]
   const current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
+  const processingStarted = Date.now()
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
   let reply = '', finalNotice = false
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
@@ -104,28 +92,41 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const state = sdrState(lead, context.historial)
   const turnGreeting = greetingForTurn(current, context.historial, lead.last_bot_message_at, activeLast.sentAt)
   const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
+  const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
+  if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
   if (!inbound.mediaFailed && isCourtesyOnly(current) && !proposals.some(p => p.status === 'awaiting_client')) {
-    if (isCourtesyOnly(text(state.ultima_respuesta))) return { action: 'courtesy_already_acknowledged' }
-    reply = 'Con mucho gusto.'
+    if (isCourtesyOnly(text(state.ultima_respuesta)) || /^Con mucho gusto, ¡le esperamos!$/i.test(text(state.ultima_respuesta))) return { action: 'courtesy_already_acknowledged' }
+    reply = visitDraft?.status !== 'collecting' && proposals.some(p => p.status === 'confirmed') ? 'Con mucho gusto, ¡le esperamos!' : 'Con mucho gusto.'
     audit = { source: 'courtesy' }
   }
-  if (!reply && greeting && !state.ya_saludamos) {
-    reply = (await activePrompt('saludo_inicial')).trim()
-    greetingTemplate = true
+  if (!reply && greeting) {
+    const welcome = (await activePrompt('saludo_inicial')).trim()
+    reply = state.ya_saludamos ? 'Cuénteme, ¿en qué podemos ayudarle?'
+      : welcome.length <= 140 && !/la\s*vilet|proyecto|vivienda|invertir|local comercial/i.test(welcome)
+        ? welcome : minimalGreeting(turnGreeting)
+    greetingTemplate = true; audit = { source: 'minimal_greeting' }
   }
   if (inbound.mediaFailed) reply = 'No pude interpretar el archivo. ¿Puede escribir su consulta por aquí?'
-  if (!reply && greeting) {
-    const generated = await commercialReply(await commercialContext(lead, context.historial), current, previousSummary, guard)
-    reply = generated.reply; audit = generated.audit
-  }
   if (!reply && !greeting && proposals.length) {
     await guard()
     const proposal: Row | null = proposals.length === 1 ? { ...proposals[0], source_sent_at: activeLast.sentAt } : null
-    const classification = await aiJson(visitIntentPrompt, { mensaje_cliente: current, propuesta: proposal, historial: context.historial })
+    const classification = await aiJson(visitIntentPrompt, { mensaje_cliente: current,
+      propuesta: proposal && visitDraft?.status === 'collecting' ? { ...proposal, status: 'awaiting_advisor' } : proposal,
+      historial: context.historial })
     const intent = validateIntent(classification, proposal, activeLast.sentAt, text(context.mensaje_actual_at))
     if (intent === 'opt_out') {
       await guard(); await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
       reply = 'Hemos registrado su solicitud de no recibir más mensajes.'; finalNotice = true
+    } else if (proposal && (intent === 'counterproposal' || intent === 'reject' || (intent === 'unclear' && visitDraft?.status === 'collecting'))) {
+      await guard()
+      const result = object(await rpc('lv_collect_visit_intake', { p_lead: lead.id, p_message: activeLast.externalId,
+        p_needs_help: needsVisitHelp(current), p_previous_request: proposal.request_id || proposal.id, p_snapshot: proposal }))
+      reply = intakeReply(result)
+      audit = { source: 'visit_intake', action: result.action, preference: result.slot }
+    } else if (proposal && intent === 'unclear') {
+      reply = proposal.status === 'awaiting_advisor'
+        ? 'El equipo todavía está revisando el horario. Le confirmaremos por aquí en cuanto esté listo.'
+        : 'Para evitar una confusión, ¿le queda bien el horario de la propuesta que le enviamos?'
     } else if (proposal && intent !== 'question') {
       await guard()
       const applied = object(await rpc('lv_apply_client_visit_intent', { p_tenant: scope.tenant_id, p_project: scope.project_id,
@@ -133,17 +134,26 @@ export async function processConversation(rows: Row[], guard: Guard) {
       if (['confirmed', 'duplicate'].includes(text(applied.action))) return { action: applied.action }
       if (!['reply', 'stale', 'conversation'].includes(text(applied.action))) throw new Error('VISIT_INTENT_RPC_CONTRACT_MISMATCH')
       reply = text(applied.mensaje)
-      if (applied.action === 'reply' && applied.request_id && intent === 'counterproposal') {
-        const preference = object(await rpc('lv_app_visit_preference', { p_request_id: applied.request_id }))
-        reply = visitCoordinationReply(preference, true)
-        audit = { source: 'visit_coordination', preference }
+      if (intent === 'cancel' && applied.action === 'reply') {
+        const { error } = await db().from('lv_visit_intakes').delete().eq('conversation_id', inbound.registration.conversation_id)
+        if (error) throw new Error('VISIT_DRAFT_CANCEL_FAILED')
       }
     } else if (!proposal && intent === 'unclear') reply = '¿A qué día y horario de visita se refiere?'
   }
   if (!reply) {
     await guard()
-    summary = await aiJson(await activePrompt('resumen_conversacion'), { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current })
-    const extracted = normalizeEvents(await aiJson(await activePrompt('extractor_eventos'), { resumen: summary, mensaje_actual: current }), current)
+    const finance = await financingContext(lead)
+    const [summaryPrompt, extractorPrompt] = await Promise.all([activePrompt('resumen_conversacion'), activePrompt('extractor_eventos')])
+    const [newSummary, rawEvents] = await Promise.all([
+      aiJson(summaryPrompt, { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current }),
+      aiJson(extractorPrompt + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
+        { resumen: previousSummary, historial: context.historial, ultima_pregunta: state.ultima_respuesta, coordinacion_visita: visitDraft, financiamiento: finance, mensaje_actual: current })
+    ])
+    summary = newSummary
+    const extracted = normalizeEvents(rawEvents, current)
+    const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance)
+    extracted.financing_consent = financeInput.consent
+    extracted.financing_partner = financeInput.partner
     await guard()
     if (extracted.opt_out) {
       await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
@@ -177,7 +187,10 @@ export async function processConversation(rows: Row[], guard: Guard) {
         ...Object.fromEntries(['financing_consent', 'financing_partner', 'full_name', 'applicant_type', 'national_id',
           'employment_stability_months', 'job_title', 'monthly_income', 'ruc'].map(key => ['p_' + key, extracted[key]])),
         p_source_message_id: activeLast.externalId, p_current_message: current }))
-      if (extracted.requested_advisor || fin.ready_for_handoff === true) {
+      const visitRequested = (extracted.events as string[]).includes('requested_visit')
+        || (visitDraft?.status === 'collecting' && !(extracted.events as string[]).includes('asked_financing')
+          && (isVisitDetail(current) || needsVisitHelp(current)))
+      if (!visitRequested && (extracted.requested_advisor || fin.ready_for_handoff === true)) {
         await guard()
         await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: extracted.requested_advisor ? 'pidió hablar con un asesor' : 'información lista para revisión' })
         lead = await one('leads', text(lead.id))
@@ -187,22 +200,13 @@ export async function processConversation(rows: Row[], guard: Guard) {
         await setKommoField(last.kommoId, 451530, 'true')
         reply = lead.handoff_status === 'queued' ? 'Su solicitud quedó en espera de un asesor de nuestro equipo.' : 'Un asesor de nuestro equipo continuará con su atención.'
         finalNotice = true
-      } else if ((extracted.events as string[]).includes('requested_visit')) {
-        const preference = text(extracted.preferred_visit_time_text).trim()
-        {
-          await guard()
-          const appointmentId = await rpc('lv_intake_visit_once', { p_lead_id: lead.id, p_project_id: scope.project_id,
-            p_preferred_time_text: preference || null, p_start_time: null, p_end_time: null,
-            p_source_message_id: activeLast.externalId, p_source_message_text: current })
-          const { data: requests, error: requestError } = await db().from('appointment_reschedule_requests').select('id,source_message_id')
-            .match(scope).eq('lead_id', lead.id).eq('appointment_id', appointmentId).limit(10)
-          if (requestError || !requests?.length) throw new Error('VISIT_REQUEST_NOT_RECORDED')
-          const recorded = requests.find(r => r.source_message_id === activeLast.externalId)
-          const resolved = recorded ? object(await rpc('lv_app_visit_preference', { p_request_id: recorded.id })) : {}
-          reply = recorded ? visitCoordinationReply(resolved) : 'Ya estamos coordinando su visita. ¿Qué le gustaría ajustar?'
-          audit = { source: 'visit_coordination', preference: resolved }
-        }
-      } else if (fin.active === true) reply = await financingReply(fin)
+      } else if (visitRequested) {
+        await guard()
+        const result = object(await rpc('lv_collect_visit_intake', { p_lead: lead.id, p_message: activeLast.externalId,
+          p_needs_help: extracted.visit_needs_help === true || needsVisitHelp(current) }))
+        reply = intakeReply(result)
+        audit = { source: 'visit_intake', action: result.action, preference: result.slot }
+      } else if (fin.active === true) reply = financingReply(fin, finance.partners, financeInput.unsupported)
       else {
         const info = await commercialContext(lead, context.historial)
         const generated = await commercialReply(info, current, summary, guard)
@@ -210,7 +214,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
       }
     }
   }
-  reply = naturalConversationReply(reply, text(lead.name), turnGreeting)
+  reply = naturalConversationReply(reply, text(lead.name), turnGreeting, activeLast.sentAt)
   if (!reply.trim() || reply.length > 1500) throw new Error('EMPTY_OR_LONG_REPLY')
   const conversationId = text(inbound.registration.conversation_id)
   async function authorized() {
@@ -239,7 +243,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!await authorized()) return { action: 'paused_before_salesbot' }
   await launchSalesbot(last.kommoId, 15578)
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
-    p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', ...audit } })
+    p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
   const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(Object.keys(summary).length ? summary : previousSummary) }).match(scope).eq('id', conversationId)
   return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError }
 }

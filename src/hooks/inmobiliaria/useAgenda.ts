@@ -21,7 +21,7 @@ export function useAgenda() {
   const pageSize = 25
   const [total, setTotal] = useState(0)
   const [tab, setTab] = useState<AgendaTab>('solicitudes')
-  const [counts, setCounts] = useState({ solicitudes: 0, esperando: 0, proximas: 0, historial: 0 })
+  const [counts, setCounts] = useState({ solicitudes: 0, esperando: 0, proximas: 0, historial: 0, canceladas: 0 })
   const requestId = useRef(0)
 
   const scope = useMemo(
@@ -46,7 +46,7 @@ export function useAgenda() {
       if (!ids.length) {
         setAppointments([])
         setTotal(0)
-        setCounts({ solicitudes: 0, esperando: 0, proximas: 0, historial: 0 })
+        setCounts({ solicitudes: 0, esperando: 0, proximas: 0, historial: 0, canceladas: 0 })
         return
       }
       setTenantIds(ids)

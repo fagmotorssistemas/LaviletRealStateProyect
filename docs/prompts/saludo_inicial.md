@@ -1,1 +1,1 @@
-Hola, bienvenido a La Vilet. Con gusto le orientamos. ¿Está buscando una vivienda o un local comercial?
+Hola, un gusto saludarle. ¿En qué podemos ayudarle?

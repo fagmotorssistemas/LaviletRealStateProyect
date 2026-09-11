@@ -12,7 +12,7 @@ export async function commercialContext(lead: Row, history: unknown) {
     db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
     db().from('location_pois').select('poi_name,poi_category').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
     db().from('projects').select('name,address,description').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
-    db().from('project_automation_config').select('mode,timezone,business_hours').match(scope).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
+    db().from('project_automation_config').select('mode,timezone,business_hours,visit_location_url').match(scope).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
   ])
   if ([units, amenities, places, project, config].some(r => r.error)) throw new Error('COMMERCIAL_CONTEXT_FAILED')
   const settings = object(config.data), mode = text(settings.mode) || 'lanzamiento'
@@ -24,8 +24,9 @@ export async function commercialContext(lead: Row, history: unknown) {
     proyecto: project.data, modo_comercial: mode,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       confirmar_disponibilidad: false, confirmar_visita_sin_resultado: false, agendar_llamadas: false },
-    catalogo: catalog, amenidades: amenities.data, lugares_cercanos: places.data,
+    catalogo: catalog, instalaciones: amenities.data, lugares_cercanos: places.data,
     horario_atencion: settings.business_hours,
+    ubicacion: settings.visit_location_url,
     fecha: new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', dateStyle: 'full', timeStyle: 'short' }).format(new Date()) }
 }
 

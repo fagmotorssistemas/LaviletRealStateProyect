@@ -142,8 +142,8 @@ test('OpenAI billing errors retain a safe diagnostic code that the worker can re
 function conversationHarness(options = {}) {
   const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false }
   const query = table => {
-    const q = { then(resolve) { return Promise.resolve({ data: table === 'appointment_reschedule_requests' ? options.requests || [{ id: 'request', source_message_id: 'one' }] : [], error: null, count: 0 }).then(resolve) } }
-    for (const name of ['update', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal']) q[name] = () => q
+    const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointment_reschedule_requests' ? options.requests || [{ id: 'request', source_message_id: 'one' }] : [], error: null, count: 0 }).then(resolve) } }
+    for (const name of ['update', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
     q.update = values => { calls.push({ name: 'update:' + table, args: values }); return q }
     return q
   }
@@ -157,17 +157,19 @@ function conversationHarness(options = {}) {
         if (name === 'lv_app_visit_preference') return options.slot || {}
         if (name === 'lv_apply_client_visit_intent') return options.applied || { action: 'reply', request_id: 'request', mensaje: 'Texto anterior que debe sustituirse' }
         if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose }).filter(([, v]) => v != null))); return lead }
+        if (name === 'lv_collect_visit_intake') return options.intake || { action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
         if (name === 'lv_intake_visit_once') return 'appointment'
         if (name === 'process_financing_message_v2') return { active: false }
         return {}
       },
     },
+    './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => ({ partners: ['Banco Pichincha'], current: {} }) },
     './sdr': { commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
       commercialReply: async () => ({ reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => event.text,
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
-        return prompt === 'extractor_eventos' ? { events: [], opt_out: options.optOut === true, ...options.extracted }
+        return prompt.startsWith('extractor_eventos') ? { events: [], opt_out: options.optOut === true, ...options.extracted }
           : prompt.startsWith('Clasifique') ? { intent: options.intent || 'question' }
             : prompt === 'revisor_respuesta' ? { aprobada: true } : {}
       } },
@@ -210,21 +212,21 @@ test('a failed conversation send is not recorded as accepted', async t => {
   assert.equal(h.calls.filter(c => c.name === 'register_outbound_message').length, 0)
 })
 
-test('isolated greeting uses editable welcome without scoring or financing', async t => {
+test('isolated greeting offers help without inventing commercial interest', async t => {
   live(t); const h = conversationHarness();
   await h.process([h.rows[0]], async () => {});
   assert.equal(h.calls.filter(c => c.name === 'apply_lead_events').length, 0);
   assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length, 0);
-  assert.ok(JSON.stringify(h.calls.find(c => c.name === 'patch')).includes('bienvenido a La Vilet'));
+  assert.ok(JSON.stringify(h.calls.find(c => c.name === 'patch')).includes('En qué podemos ayudarle'));
 });
 
-test('a second greeting continues discovery without welcoming again or re-extracting events', async t => {
+test('a second greeting stays generic without scoring or assuming a category', async t => {
   live(t)
   const h = conversationHarness({ history: [{ role: 'bot', content: 'Hola, bienvenido a La Vilet.', sent_at: new Date(Date.now() - 60_000).toISOString() }] })
   h.rows[0].payload.text = 'Buenas tardes'
   await h.process([h.rows[0]], async () => {})
   const sent = h.calls.find(c => c.name === 'patch').args[2]
-  assert.doesNotMatch(sent, /hola|bienvenido|buenas tardes/i)
+  assert.doesNotMatch(sent, /La Vilet|vivienda|local comercial/i)
   assert.equal(h.calls.filter(c => c.name === 'apply_lead_events').length, 0)
 })
 
@@ -239,13 +241,13 @@ test('commercial reply receives the category and qualification declared in this 
   assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 0)
 })
 
-test('requesting a visit opens a pending coordination and asks for the missing preference', async t => {
+test('requesting a visit collects preferences before advisor notification', async t => {
   live(t)
   const h = conversationHarness({ extracted: { events: ['requested_visit'] } })
   h.rows[0].payload.text = 'Quiero ir a verlo'
   await h.process([h.rows[0]], async () => {})
-  assert.equal(h.calls.filter(c => c.name === 'lv_intake_visit_once').length, 1)
-  assert.equal(h.calls.find(c => c.name === 'lv_intake_visit_once').args.p_start_time, null)
+  assert.equal(h.calls.filter(c => c.name === 'lv_intake_visit_once').length, 0)
+  assert.equal(h.calls.find(c => c.name === 'lv_collect_visit_intake').args.p_needs_help, false)
   assert.match(h.calls.find(c => c.name === 'patch').args[2], /día y a qué hora/)
 })
 
@@ -267,21 +269,119 @@ test('a preferred visit time records a request but never claims the appointment 
   const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'one' }], slot: { confidence: 'exact', start_time: '2026-09-11T15:00:00Z' } })
   h.rows[0].payload.text = 'Mañana a las diez'
   await h.process([h.rows[0]], async () => {})
-  assert.equal(h.calls.find(c => c.name === 'lv_intake_visit_once').args.p_start_time, null)
+  assert.equal(h.calls.find(c => c.name === 'lv_collect_visit_intake').args.p_message, 'one')
   assert.match(h.calls.find(c => c.name === 'patch').args[2], /revisaremos la disponibilidad.*a las 10 a\. m\./)
   assert.doesNotMatch(h.calls.find(c => c.name === 'patch').args[2], /agendad[oa]|confirmad[oa]/)
 })
 
 test('an existing visit cannot be described as a newly recorded preference', async t => {
   live(t)
-  const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'older' }] })
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, intake: { action: 'collecting', slot: { requested_date: '2026-09-11', has_time: false } } })
   h.rows[0].payload.text = 'Mañana a las diez'
   await h.process([h.rows[0]], async () => {})
-  assert.match(h.calls.find(c => c.name === 'patch').args[2], /Ya estamos coordinando su visita/)
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /A qué hora/i)
 })
 
 const sdrRules = require('../src/lib/integrations/automation/sdr-rules.ts')
 const natural = require('../src/lib/integrations/automation/conversation-style.ts')
+const intakeRules = require('../src/lib/integrations/automation/visit-intake.ts')
+const financeRules = require('../src/lib/integrations/automation/financing.ts')
+
+test('punctuation alone is an invitation to talk, never a product pitch', async t => {
+  live(t)
+  const h = conversationHarness()
+  h.rows[0].payload.text = '.'
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?')
+  assert.equal(h.calls.some(c => c.name === 'ai'), false)
+})
+
+test('uncertainty requests advisor help once instead of another scheduling question', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { events: ['requested_visit'] }, intake: { action: 'submitted', needs_help: true, preferred_period: 'afternoon', slot: { requested_date: '2026-09-11' } } })
+  h.rows[0].payload.text = 'No estoy seguro, pero mañana por la tarde'
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.find(c => c.name === 'lv_collect_visit_intake').args.p_needs_help, true)
+  const reply = h.calls.find(c => c.name === 'patch').args[2]
+  assert.match(reply, /viernes 11.*tarde/)
+  assert.doesNotMatch(reply, /\?|confirmamos|a las/)
+})
+
+test('closed days and partial dates never claim a registered appointment', () => {
+  const closed = intakeRules.intakeReply({ action: 'closed_day', slot: { requested_date: '2026-09-13' } })
+  assert.match(closed, /domingo.*no atendemos/)
+  assert.doesNotMatch(closed, /registrad|confirmad/)
+  assert.match(intakeRules.intakeReply({ action: 'collecting', slot: { requested_date: '2026-09-11' } }), /viernes.*A qué hora/)
+})
+
+test('financing interprets consent using the real last question and explains unsupported lenders', () => {
+  const context = { partners: ['Banco Pichincha'], current: {} }
+  assert.equal(financeRules.financingInputs({}, 'si claro', '¿Le gustaría que iniciemos una revisión de su caso?', context).consent, true)
+  assert.notEqual(financeRules.financingInputs({}, 'si claro', '¿Le interesa un departamento?', context).consent, true)
+  const answer = financeRules.financingInputs({}, 'con jardin zauayo', '¿Qué entidad prefiere?', context)
+  assert.equal(answer.unsupported, 'Jardín Azuayo')
+  assert.equal(answer.partner, null)
+  const reply = financeRules.financingReply({ state: 'entidad_pendiente' }, context.partners, answer.unsupported)
+  assert.match(reply, /no tenemos.*Jardín Azuayo.*Banco Pichincha/)
+  assert.doesNotMatch(reply, /Con cuál entidad/)
+  const twoPartners = { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {} }
+  assert.equal(financeRules.financingInputs({}, 'con Pichincha', '', twoPartners).partner, 'Banco Pichincha')
+  assert.equal(financeRules.financingInputs({ financing_partner: 'JEP' }, 'Pichincha no, prefiero JEP', '', twoPartners).partner, 'Cooperativa JEP')
+  assert.equal(financeRules.financingInputs({ financing_partner: 'Jardín Azuayo' }, 'No con Pichincha, con Jardín Azuayo', '', twoPartners).unsupported, 'Jardín Azuayo')
+})
+
+test('financing only offers project agreements enabled for the current lead', async () => {
+  const partners = [
+    { test_only: true, test_phone: '+593987110032', financing_options: [{ name: 'Banco Pichincha' }, { name: 'Cooperativa JEP' }] },
+    { test_only: false, financing_options: [{ name: 'Otra entidad' }] },
+  ]
+  const { financingContext } = load('src/lib/integrations/automation/financing.ts', {
+    './data': { ...data, db: () => ({ from: table => {
+      const query = { then: resolve => Promise.resolve({ data: table === 'project_financing_partners' ? partners : [], error: null }).then(resolve) }
+      for (const method of ['select', 'match', 'eq', 'order', 'limit']) query[method] = () => query
+      return query
+    } }) },
+  })
+  assert.deepEqual((await financingContext({ id: 'one', phone: '+593 987110032' })).partners, ['Banco Pichincha', 'Cooperativa JEP', 'Otra entidad'])
+  assert.deepEqual((await financingContext({ id: 'two', phone: '+593999999999' })).partners, ['Otra entidad'])
+})
+
+test('a request for scheduling help cannot pause the bot as a general advisor handoff', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], requested_advisor: true, visit_needs_help: true },
+    intake: { action: 'submitted', needs_help: true, slot: { requested_date: '2026-09-11' } } })
+  h.rows[0].payload.text = 'Quiero visitar mañana, que el asesor me sugiera una hora'
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 0)
+  assert.equal(h.calls.filter(c => c.name === 'lv_collect_visit_intake').length, 1)
+})
+
+test('Ecuador 17:45 is afternoon, not night, and names remain conversational', () => {
+  assert.equal(natural.localGreeting('2026-09-10T22:45:00Z'), 'Buenas tardes')
+  assert.match(natural.naturalConversationReply('Hola, buenas noches, Carlos Fabián.', 'Carlos Fabián', '', '2026-09-10T22:45:00Z'), /^Hola, Buenas tardes, Carlos\./)
+})
+
+test('courtesy after confirmation welcomes the visitor without restating the schedule', async t => {
+  live(t)
+  const h = conversationHarness({ proposals: [{ status: 'confirmed' }] })
+  h.rows[0].payload.text = 'gracias'
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Con mucho gusto, ¡le esperamos!')
+  const changing = conversationHarness({ proposals: [{ status: 'confirmed' }], visitDraft: { status: 'collecting' } })
+  changing.rows[0].payload.text = 'gracias'
+  await changing.process([changing.rows[0]], async () => {})
+  assert.equal(changing.calls.find(c => c.name === 'patch').args[2], 'Con mucho gusto.')
+})
+
+test('ambiguous input during a change asks the missing detail without offering the old proposal again', async t => {
+  live(t)
+  const h = conversationHarness({ proposals: [{ id: 'old', status: 'superseded' }], visitDraft: { status: 'collecting' }, intent: 'unclear',
+    intake: { action: 'collecting', slot: { requested_date: '2026-09-11', has_time: false } } })
+  h.rows[0].payload.text = 'sí'
+  await h.process([h.rows[0]], async () => {})
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /viernes.*A qué hora/)
+  assert.equal(h.calls.filter(c => c.name === 'lv_apply_client_visit_intent').length, 0)
+})
 test('thanks after a recorded preference closes briefly without scoring, repeating or asking again', async t => {
   live(t)
   const h = conversationHarness({ lead: { name: 'Carlos Fabián' }, proposals: [{ id: 'request', status: 'awaiting_advisor' }],
@@ -297,6 +397,10 @@ test('a second courtesy cannot generate an endless acknowledgement loop', async 
   h.rows[0].payload.text = 'Gracias'
   assert.equal((await h.process([h.rows[0]], async () => {})).action, 'courtesy_already_acknowledged')
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 0)
+  const welcomed = conversationHarness({ history: [{ role: 'bot', content: 'Con mucho gusto, ¡le esperamos!' }] })
+  welcomed.rows[0].payload.text = 'Gracias'
+  assert.equal((await welcomed.process([welcomed.rows[0]], async () => {})).action, 'courtesy_already_acknowledged')
+  assert.equal(welcomed.calls.filter(c => c.name === 'launch').length, 0)
 })
 test('thanks with a pending decision is classified rather than swallowed as a closing', async t => {
   live(t)
@@ -311,7 +415,7 @@ test('a new-day greeting with visit intent is returned before the coordination q
   const h = conversationHarness({ extracted: { events: ['requested_visit'] }, history: [{ role: 'bot', content: 'Hasta pronto.', sent_at: new Date(Date.now() - 86_400_000).toISOString() }] })
   h.rows[0].payload.text = 'Buenos días, quiero agendar una cita'
   await h.process([h.rows[0]], async () => {})
-  assert.match(h.calls.find(c => c.name === 'patch').args[2], /^Buenos días\. Con gusto/)
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /^(?:Buenos días|Buenas tardes|Buenas noches)\. Con gusto/)
 })
 test('a counterproposal uses the resolved day and time instead of a generic registered-preference reply', async t => {
   live(t)

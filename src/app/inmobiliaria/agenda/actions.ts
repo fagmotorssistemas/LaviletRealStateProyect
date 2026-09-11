@@ -147,6 +147,8 @@ export async function rejectVisitRequestAction(input: { requestId: string; notes
 }
 
 export type MarkAttendanceInput = {
+  expectedUpdatedAt: string
+  editReason?: string
   appointmentId: string
   attended: boolean
   notes?: string
@@ -158,6 +160,8 @@ export async function markAppointmentAttendanceAction(input: MarkAttendanceInput
     markAppointmentAttendance(client, {
       appointmentId: input.appointmentId,
       attended: input.attended,
+      expectedUpdatedAt: input.expectedUpdatedAt,
+      editReason: input.editReason,
       notes: input.notes,
       visitedUnitIds: input.visitedUnitIds,
     }),
