@@ -159,11 +159,11 @@ function conversationHarness(options = {}) {
         if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose }).filter(([, v]) => v != null))); return lead }
         if (name === 'lv_collect_visit_intake') return options.intake || { action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
         if (name === 'lv_intake_visit_once') return 'appointment'
-        if (name === 'process_financing_message_v2') return { active: false }
+        if (name === 'process_financing_message_v2') return typeof options.financing === 'function' ? options.financing(args) : options.financing || { active: false }
         return {}
       },
     },
-    './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => ({ partners: ['Banco Pichincha'], current: {} }) },
+    './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
     './sdr': { commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
       commercialReply: async () => ({ reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => event.text,
@@ -500,4 +500,101 @@ test('two rejected drafts fall back to the relevant discovery question without c
   const result = await commercialReply({ siguiente_pregunta: { question: '¿Qué tamaño aproximado busca?' } }, 'Una cafetería', {}, async () => {})
   assert.equal(result.audit.fallback, true)
   assert.equal(result.reply, '¿Qué tamaño aproximado busca?')
+})
+
+
+test('confirmed appointment thanks and status questions cannot restart intake, even with a wrong extractor', async t => {
+  live(t)
+  for (const message of ['Muchas gracias, estaré puntual', 'Gracias, allí estaré', 'Ya quedamos en una cita o no?', 'Pero si ya dije\nYa quedamos en una cita o no?']) {
+    const h = conversationHarness({ proposals: [{ status: 'confirmed', appointment_start_time: '2026-09-12T16:00:00Z' }],
+      history: [{ role: 'bot', content: 'Su cita está confirmada.' }],
+      extracted: { events: ['requested_visit', 'asked_financing'] }, financing: { active: true, state: 'continuacion_pendiente' } })
+    h.rows[0].payload.text = message
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.filter(c => ['lv_collect_visit_intake','process_financing_message_v2','lv_apply_client_visit_intent'].includes(c.name)).length, 0, message)
+    assert.match(h.calls.find(c => c.name === 'patch').args[2], /le esperamos|Le esperamos/)
+  }
+  assert.equal(natural.isCourtesyOnly('Muchas gracias, pero no podré asistir'), false)
+  assert.equal(natural.isCourtesyOnly('Estaré puntual, ¿dónde queda?'), false)
+})
+
+test('No after cancellation closes the visit and never resumes saved financing', async t => {
+  live(t)
+  const h = conversationHarness({ history: [{ role: 'bot', content: 'No se preocupe, hemos cancelado la cita. ¿Le gustaría visitarnos más tarde o prefiere otro día?' }],
+    financing: { active: true, state: 'continuacion_pendiente' }, extracted: { events: ['asked_financing', 'requested_visit'], financing_consent: false } })
+  h.rows[0].payload.text = 'No'
+  await h.process([h.rows[0]], async () => {})
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /dejamos la cita cancelada/)
+  assert.equal(h.calls.filter(c => ['lv_collect_visit_intake','process_financing_message_v2','set_tracking_preference'].includes(c.name)).length,0)
+})
+
+test('a saved financial form does not intercept commercial questions or unrelated No', async t => {
+  live(t)
+  for (const message of ['¿Dónde está el edificio?', 'No']) {
+    const h = conversationHarness({ financing: { active: true, state: 'continuacion_pendiente' },
+      history: [{ role: 'bot', content: '¿Desea conocer el departamento?' }], extracted: { events: ['asked_financing'], financing_consent: true } })
+    h.rows[0].payload.text = message
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length,0)
+    assert.equal(h.calls.filter(c => c.name === 'commercialContext').length,1)
+  }
+})
+
+test('JEP choice is acknowledged and next consent advances the saved form', async t => {
+  live(t)
+  const context = { partners: ['Banco Pichincha','Cooperativa JEP'], current: { explicit_consent: false } }
+  const history = [{ role:'bot', content:'Por el momento no tenemos una alianza registrada con Jardín Azuayo. ¿Le gustaría revisar esa opción?' }]
+  const options = { financeContext: context, history, extracted: {}, financing(args) {
+    if(args.p_financing_partner) context.current.selected_partner_name=args.p_financing_partner
+    if(args.p_financing_consent === true) context.current.explicit_consent=true
+    return { active:true, state: context.current.explicit_consent ? 'cedula_pendiente' : 'continuacion_pendiente', selected_partner_name:context.current.selected_partner_name }
+  } }
+  const h=conversationHarness(options)
+  h.rows[0].payload.text='Con la jep'
+  await h.process([h.rows[0]],async()=>{})
+  let reply=h.calls.filter(c=>c.name==='patch').at(-1).args[2]
+  assert.match(reply,/continuar con Cooperativa JEP/)
+  assert.doesNotMatch(reply,/Pichincha/)
+  assert.equal(context.current.explicit_consent,false,'Choosing a bank alone is not blanket consent')
+  history.push({role:'cliente',content:'Con la jep'},{role:'bot',content:reply})
+  h.rows[1].payload.text='Sí claro'
+  await h.process([h.rows[1]],async()=>{})
+  reply=h.calls.filter(c=>c.name==='patch').at(-1).args[2]
+  assert.match(reply,/cédula/)
+  assert.equal(context.current.explicit_consent,true)
+})
+
+test('asking whether only those banks are offered answers the question without repeating consent', async t => {
+  live(t)
+  const h=conversationHarness({ financeContext:{partners:['Banco Pichincha','Cooperativa JEP'],current:{}}, financing:{active:true,state:'continuacion_pendiente'}, extracted:{events:['asked_financing']} })
+  h.rows[0].payload.text='Si está bien, pero sólo con esas entidades?'
+  await h.process([h.rows[0]],async()=>{})
+  assert.match(h.calls.find(c=>c.name==='patch').args[2],/alianzas registradas/)
+  assert.doesNotMatch(h.calls.find(c=>c.name==='patch').args[2],/iniciemos/)
+})
+
+test('complaints and question marks recover the selected bank without reopening the form or greeting', async t => {
+  live(t)
+  for(const message of ['??','Ya te dije','Por qué repites?','pero eso no fue lo que yo pregunte']) {
+    const h=conversationHarness({financeContext:{partners:['Banco Pichincha','Cooperativa JEP'],current:{selected_partner_name:'Cooperativa JEP',explicit_consent:false}},
+      history:[{role:'bot',content:'¿Le gustaría que iniciemos una revisión de su caso?'}], extracted:{events:['asked_financing','requested_visit']} })
+    h.rows[0].payload.text=message
+    await h.process([h.rows[0]],async()=>{})
+    assert.match(h.calls.find(c=>c.name==='patch').args[2],/Ya tengo registrada su elección de Cooperativa JEP/)
+    assert.equal(h.calls.filter(c=>['process_financing_message_v2','lv_collect_visit_intake'].includes(c.name)).length,0)
+  }
+})
+
+test('a stale extracted lender is not accepted as a new choice',()=>{
+  const context={partners:['Banco Pichincha','Cooperativa JEP'],current:{}}
+  assert.equal(financeRules.financingInputs({financing_partner:'Cooperativa JEP'},'quiero una cita','',context).partner,null)
+  assert.equal(financeRules.financingInputs({financing_partner:'Banco Pichincha'},'con la JEP','',context).partner,'Cooperativa JEP')
+})
+
+test('advisor handoff stays paused and never sends an automatic thanks afterwards',async t=>{
+  live(t)
+  const h=conversationHarness({lead:{bot_enabled:false,handoff_status:'assigned'}})
+  h.rows[0].payload.text='muchas gracias'
+  assert.equal((await h.process([h.rows[0]],async()=>{})).action,'bot_paused')
+  assert.equal(h.calls.filter(c=>c.name==='launch').length,0)
 })

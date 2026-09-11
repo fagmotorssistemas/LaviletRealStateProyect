@@ -8,7 +8,7 @@ export function conversationalFirstName(name: string) {
 }
 export function isCourtesyOnly(message: string) {
   // «Está bien», «de acuerdo» u «ok» también pueden autorizar una propuesta.
-  return /^(?:(?:perfecto|muchas gracias|muchisimas gracias|gracias|con mucho gusto|muy amable|muy bien|excelente|entendido|hasta luego|igualmente)\s*)+$/.test(normalized(message))
+  return /^(?:(?:perfecto|muchas gracias|muchisimas gracias|gracias|con mucho gusto|muy amable|muy bien|excelente|entendido|hasta luego|igualmente|estare puntual|ahi estare|alli estare|nos vemos|le esperamos|hasta entonces)\s*)+$/.test(normalized(message))
 }
 export function greetingForTurn(current: string, history: unknown, lastBotAt: unknown, at: string) {
   const match = current.trim().match(/^(hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas tardes\b|buenas noches\b|buenas\b)/i)
