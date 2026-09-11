@@ -15,6 +15,7 @@ const availabilityMessages: Record<string, string> = {
 const appointmentLabels: Record<string, string> = { aceptado: 'Cita confirmada', reprogramado: 'Cita reprogramada', cancelado: 'Cita cancelada', atendido: 'Visita realizada' }
 
 function requestedLabel(detail: AppointmentWithUnits, options: VisitSchedulingOptions | null) {
+  if (detail.collectingVisit) return 'Horario en coordinación'
   const request = detail.openReschedule
   if (!request && detail.start_time) return formatAgendaDateTime(detail.start_time)
   const date = options?.requested.start_time ?? request?.proposed_start_time
@@ -38,7 +39,8 @@ export function AppointmentSummary({ detail, options, scheduleLoading, scheduleE
   const canAccept = Boolean(options?.can_accept || (request?.proposed_by === 'advisor' && request.status === 'awaiting_advisor' && options?.available))
   const pending = Boolean(request || ['solicitada', 'pendiente'].includes(detail.status))
   const availabilityMessage = options?.reason === 'needs_time'
-    ? options.requested.confidence === 'time_only' ? 'Falta concretar el día de la visita.'
+    ? options.requested.needs_help ? 'El cliente pidió ayuda para elegir el horario. Revisa las recomendaciones y envíale una propuesta.'
+      : options.requested.confidence === 'time_only' ? 'Falta concretar el día de la visita.'
       : options.requested.requested_date && options.requested.has_time ? 'Falta confirmar si el horario es por la mañana o por la tarde.'
         : options.requested.requested_date ? 'Falta concretar la hora de la visita.' : 'Falta concretar la fecha y la hora de la visita.'
     : availabilityMessages[options?.reason ?? '']
@@ -46,7 +48,7 @@ export function AppointmentSummary({ detail, options, scheduleLoading, scheduleE
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${waitingClient ? 'bg-sky-50 text-sky-800' : pending ? 'bg-amber-50 text-amber-800' : 'bg-[#edf2e7] text-[#526247]'}`}>
-          {request ? visitRequestLabel(request.status) : (appointmentLabels[detail.status] ?? 'Cita pendiente')}
+          {detail.collectingVisit ? 'Definiendo horario con el cliente' : request ? visitRequestLabel(request.status) : detail.status === 'atendido' && detail.no_show ? 'No asistió' : (appointmentLabels[detail.status] ?? 'Cita pendiente')}
         </span>
         {request?.previous_request_id && <span className="text-xs text-[#858a7c]">{request.proposed_by === 'client' ? 'Nueva preferencia del cliente' : 'Nueva propuesta de horario'}</span>}
       </div>
@@ -61,6 +63,7 @@ export function AppointmentSummary({ detail, options, scheduleLoading, scheduleE
           <p className="text-xs text-[#7b8170]">{waitingClient ? 'Horario propuesto' : pending ? 'Fecha y hora solicitadas' : 'Fecha y hora de la visita'}</p>
           <p className="mt-1 text-2xl font-semibold leading-snug tracking-tight text-[#3e4735]">{scheduleLoading ? 'Consultando horario…' : requestedLabel(detail, options)}</p>
           <p className="mt-1 text-xs text-[#858a7c]">Hora de Ecuador · duración de 60 minutos</p>
+          {options?.requested.preferred_period && <p className="mt-1 text-sm text-[#667253]">Prefiere {options.requested.preferred_period === 'afternoon' ? 'por la tarde' : 'por la mañana'}</p>}
         </div>
       </div>
       <div className="flex items-start gap-3 border-t border-[#e3e6dc] bg-white/60 px-4 py-3 sm:px-5">
@@ -86,16 +89,17 @@ export function AppointmentSummary({ detail, options, scheduleLoading, scheduleE
         <Check size={17} />{saving ? 'Guardando…' : 'Aceptar cita'}
       </Button>}
       <div className="grid gap-2 sm:grid-cols-2">
-        <Button type="button" variant="outline" className="h-auto min-h-10 gap-2 py-2.5 tracking-normal" disabled={saving} onClick={onPropose}><Clock3 size={15} />Proponer otro horario</Button>
+        <Button type="button" variant="outline" className="h-auto min-h-10 gap-2 py-2.5 tracking-normal" disabled={saving} onClick={onPropose}><Clock3 size={15} />Proponer horario</Button>
         <Button type="button" variant="ghost" className="h-auto min-h-10 gap-2 py-2.5 tracking-normal" disabled={saving} onClick={onReassign}><RefreshCw size={14} />Solicitar reasignación</Button>
       </div>
       {waitingClient && <p className="text-xs text-[#858a7c]">La cita se confirmará cuando el cliente acepte esta propuesta.</p>}
     </div>}
     {request && !canManage && <p className="text-sm text-[#7b8170]">Esta solicitud está a cargo de {detail.responsible?.full_name || 'otro asesor'}.</p>}
 
-    {!request && <div className="flex flex-wrap gap-2">
+    {detail.collectingVisit && <p className="text-sm text-[#7b8170]">Estamos completando el día y la hora con el cliente. Se avisará cuando responda o pida una recomendación.</p>}
+    {!request && !detail.collectingVisit && <div className="flex flex-wrap gap-2">
       {['solicitada', 'pendiente'].includes(detail.status) && <Button type="button" className="tracking-normal" disabled={saving} onClick={onConfirm}>Confirmar cita</Button>}
-      {['aceptado', 'reprogramado', 'atendido'].includes(detail.status) && <Button type="button" variant="outline" className="tracking-normal" onClick={onAttendance}>Registrar asistencia</Button>}
+      {['aceptado', 'reprogramado', 'atendido'].includes(detail.status) && <Button type="button" variant="outline" className="tracking-normal" onClick={onAttendance}>{detail.status === 'atendido' ? 'Editar asistencia' : 'Registrar asistencia'}</Button>}
       {!['atendido', 'cancelado'].includes(detail.status) && <Button type="button" variant="ghost" className="tracking-normal" onClick={onCancel}>Cancelar cita</Button>}
     </div>}
 

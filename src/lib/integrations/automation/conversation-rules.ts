@@ -24,6 +24,7 @@ export function normalizeEvents(raw: unknown, message: string): Row {
     purchase_purpose: purpose,
     unit_id: /^[a-f0-9-]{36}$/i.test(text(data.unit_id)) ? data.unit_id : null,
     preferred_visit_time_text: nullableText('preferred_visit_time_text'),
+    visit_needs_help: data.visit_needs_help === true,
     tracking_consent: data.consent_granted === true || data.tracking_consent === true,
     opt_out: data.opt_out === true,
     requested_advisor: data.requested_advisor === true,

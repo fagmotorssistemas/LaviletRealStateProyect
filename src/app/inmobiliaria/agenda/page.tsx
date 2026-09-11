@@ -30,6 +30,7 @@ const TABS: { id: AgendaTab; label: string; short: string }[] = [
   { id: 'solicitudes', label: 'Solicitudes', short: 'Solicitudes' },
   { id: 'esperando', label: 'Esperando al cliente', short: 'Esperando' },
   { id: 'proximas', label: 'Confirmadas', short: 'Confirmadas' },
+  { id: 'canceladas', label: 'Canceladas', short: 'Canceladas' },
   { id: 'historial', label: 'Historial', short: 'Historial' },
 ]
 
@@ -46,9 +47,10 @@ const EMPTY: Record<AgendaTab, { title: string; description: string }> = {
     title: 'Sin citas confirmadas',
     description: 'Las citas aceptadas o reprogramadas pendientes de atención aparecen aquí, incluidas las vencidas.',
   },
+  canceladas: { title: 'Sin citas canceladas', description: 'Las visitas canceladas aparecen aquí con su historial.' },
   historial: {
     title: 'Sin historial',
-    description: 'Atendidas, canceladas e inasistencias registradas.',
+    description: 'Visitas realizadas e inasistencias registradas.',
   },
 }
 
@@ -282,7 +284,7 @@ export default function AgendaPage() {
               title={EMPTY[tab].title}
               description={EMPTY[tab].description}
             />
-          ) : tab === 'historial' ? (
+          ) : ['historial', 'canceladas'].includes(tab) ? (
             <>
               <div className="hidden min-w-0 md:block">
                 <AgendaAppointmentsTable

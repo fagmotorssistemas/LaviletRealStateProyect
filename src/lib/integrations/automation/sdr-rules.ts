@@ -3,7 +3,7 @@ import { ecuadorYmd } from '@/lib/inmobiliaria/agendaTime'
 
 export const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
 export function isGreetingOnly(message: string) {
-  return /^(hola|buenos dias|buenas tardes|buenas noches|buen dia|buenas|hola buenos dias|hola buenas tardes|hola buenas noches)$/.test(normalized(message))
+  return !normalized(message) || /^(hola|buenos dias|buenas tardes|buenas noches|buen dia|buenas|hola buenos dias|hola buenas tardes|hola buenas noches)$/.test(normalized(message))
 }
 
 export function sdrState(lead: Row, history: unknown, excludedIds: string[] = []) {
@@ -51,9 +51,11 @@ export const reviewReasons = ['unsupported_fact', 'unsupported_action', 'ignored
 export const reviewSchema = { type: 'object', properties: { aprobada: { type: 'boolean' }, motivos: { type: 'array', items: { type: 'string', enum: reviewReasons } } }, required: ['aprobada', 'motivos'], additionalProperties: false }
 export function styleIssues(reply: string, alreadyWelcomed: boolean): string[] {
   const issues: string[] = []
+  if (/no todos(?: los (?:departamentos|inmuebles|locales|espacios))? (?:tienen|cuentan|incluyen)|(?:el|la) (?:unidad )?\d+ no (?:lo )?(?:incluye|tiene|cuenta)|otros como (?:el|la) \d+ no/i.test(reply)) issues.push('unsupported_fact')
   if (alreadyWelcomed && /^(hola\b|buenos d[ií]as\b|buenas (tardes|noches)\b|bienvenid[oa]\b)/i.test(reply.trim())) issues.push('repeated_greeting')
   if ((reply.match(/\?/g) || []).length > 1 || /\p{Extended_Pictographic}/u.test(reply)
     || /soy (?:su|tu|el|la) asesor|mi nombre es/i.test(reply)
-    || /gracias por compartir|entiendo que busca|as[ií] podr[eé] orientarle|acompa[nñ]arle en el proceso/i.test(reply)) issues.push('style')
+    || /amenidades|gracias por (?:compartir|comentarlo|aclararlo)|entiendo que busca|as[ií] podr[eé] orientarle|acompa[nñ]arle en el proceso/i.test(reply)
+    || (reply.match(/la\s*vilet/gi) || []).length > 1) issues.push('style')
   return issues
 }

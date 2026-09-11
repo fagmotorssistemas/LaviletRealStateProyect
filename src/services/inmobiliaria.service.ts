@@ -1356,8 +1356,8 @@ export async function listAppointments(supabase: SupabaseClient, params: ListApp
     if (anyOpenIds.length) query = query.not('id', 'in', `(${anyOpenIds.join(',')})`)
     if (range) query = query.gte('start_time', range.fromIso).lt('start_time', range.toExclusiveIso)
     query = query.order('start_time', { ascending: true, nullsFirst: false })
-  } else if (params.tab === 'historial') {
-    query = query.in('status', ['atendido', 'cancelado'])
+  } else if (['historial', 'canceladas'].includes(params.tab ?? '')) {
+    query = query.eq('status', params.tab === 'canceladas' ? 'cancelado' : 'atendido')
     if (range) {
       query = query.or(
         `and(start_time.gte.${range.fromIso},start_time.lt.${range.toExclusiveIso}),and(start_time.is.null,requested_at.gte.${range.fromIso},requested_at.lt.${range.toExclusiveIso})`,
@@ -1407,17 +1407,19 @@ export async function countAgendaTabs(
   supabase: SupabaseClient,
   params: Pick<ListAppointmentsParams, 'tenantId' | 'tenantIds' | 'scope' | 'projectId' | 'search' | 'dateFrom' | 'dateTo'>,
 ) {
-  const [solicitudes, esperando, proximas, historial] = await Promise.all([
+  const [solicitudes, esperando, proximas, historial, canceladas] = await Promise.all([
     listAppointments(supabase, { ...params, tab: 'solicitudes', page: 1, pageSize: 1 }),
     listAppointments(supabase, { ...params, tab: 'esperando', page: 1, pageSize: 1 }),
     listAppointments(supabase, { ...params, tab: 'proximas', page: 1, pageSize: 1 }),
     listAppointments(supabase, { ...params, tab: 'historial', page: 1, pageSize: 1 }),
+    listAppointments(supabase, { ...params, tab: 'canceladas', page: 1, pageSize: 1 }),
   ])
   return {
     solicitudes: solicitudes.total,
     esperando: esperando.total,
     proximas: proximas.total,
     historial: historial.total,
+    canceladas: canceladas.total,
   }
 }
 
@@ -1509,12 +1511,15 @@ export async function getAppointment(
   }
 
   const history = (requests ?? []) as AppointmentRescheduleRequest[]
+  const intake = await supabase.rpc('lv_visit_is_collecting', { p_appointment: appointmentId })
+  if (intake.error) throw intake.error
   return {
     ...row,
     units,
     visitedUnitIds,
+    collectingVisit: intake.data === true,
     openReschedule: openRescheduleOf(history.filter(request => request.appointment_id === appointmentId)),
-    remindersPaused: Boolean(openRescheduleOf(history.filter(request => request.appointment_id === appointmentId))),
+    remindersPaused: intake.data === true || Boolean(openRescheduleOf(history.filter(request => request.appointment_id === appointmentId))),
     rescheduleHistory: history,
     changeLog: (logRows ?? []) as AppointmentWithUnits['changeLog'],
   }
@@ -1857,31 +1862,19 @@ export async function countAgendaCoordinationStats(
 
 export async function markAppointmentAttendance(
   supabase: SupabaseClient,
-  payload: { appointmentId: string; attended: boolean; notes?: string; visitedUnitIds?: string[] },
+  payload: { appointmentId: string; attended: boolean; notes?: string; visitedUnitIds?: string[]; expectedUpdatedAt: string; editReason?: string },
 ) {
-  const { data, error } = await supabase.rpc('mark_appointment_attendance', {
+  const { data, error } = await supabase.rpc('lv_record_appointment_attendance', {
+    p_expected_updated_at: payload.expectedUpdatedAt,
+    p_edit_reason: payload.editReason || null,
     p_appointment_id: payload.appointmentId,
     p_attended: payload.attended,
     p_notes: payload.notes ?? null,
     p_visited_unit_ids: payload.visitedUnitIds ?? [],
   })
   if (!error) return data as Appointment
-  if (!isMissingRpc(error)) throwRpc(error)
-
-  const { data: updated, error: updateError } = await supabase
-    .from('appointments')
-    .update({
-      status: 'atendido',
-      no_show: !payload.attended,
-      result_notes: payload.notes?.trim() || null,
-    })
-    .eq('id', payload.appointmentId)
-    .in('status', ['aceptado', 'reprogramado', 'atendido'])
-    .select()
-    .maybeSingle()
-  if (updateError) throw updateError
-  if (!updated) throw new Error('Solo se registra asistencia de citas confirmadas')
-  return updated as Appointment
+  if (isMissingRpc(error)) throw new Error('Falta aplicar la migración de asistencia antes de guardar')
+  throwRpc(error)
 }
 
 export async function cancelAppointment(

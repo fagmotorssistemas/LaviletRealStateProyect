@@ -38,7 +38,7 @@ export async function activePrompt(name: string) {
 }
 
 export async function draftReply(prompt: string, context: unknown) {
-  const result = await aiJson(prompt + '\nDevuelva {"mensaje":"respuesta"}. Trate de usted con cercanía, use La Vilet, sin emojis ni identidad de asesor. Conteste la consulta antes de una pregunta comercial pertinente; no repita saludos ni datos ya pedidos. No afirme confirmaciones ni reservas sin un resultado de base de datos que las respalde.', context, jsonReplySchema)
+  const result = await aiJson(prompt + '\nDevuelva {"mensaje":"respuesta"}. Trate de usted con cercanía, sin emojis ni identidad de asesor. Conteste la consulta antes de una pregunta comercial pertinente; no repita saludos ni datos ya pedidos. No afirme confirmaciones ni reservas sin un resultado de base de datos que las respalde.', context, jsonReplySchema)
   const reply = text(result.mensaje).trim()
   if (!reply || reply.length > 1500) throw new Error('INVALID_REPLY')
   return reply

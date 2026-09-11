@@ -33,7 +33,7 @@ export type AppointmentStatus =
 
 export type AppointmentLocationType = 'oficina' | 'proyecto' | 'mixto'
 
-export type AgendaTab = 'solicitudes' | 'esperando' | 'proximas' | 'historial'
+export type AgendaTab = 'solicitudes' | 'esperando' | 'proximas' | 'historial' | 'canceladas'
 
 export type AgendaCoordinationStats = {
   botReceived: number
@@ -387,6 +387,8 @@ export interface VisitSchedulingOptions {
     confidence: 'exact' | 'date_only' | 'time_only' | 'ambiguous' | 'unknown'
     requested_date?: string
     has_time?: boolean
+    needs_help?: boolean
+    preferred_period?: 'afternoon' | 'morning' | null
     inferred_meridiem?: boolean
     source_messages?: { id: string; external_id?: string | null; text: string; sent_at: string }[]
     source_at: string
@@ -434,6 +436,7 @@ export interface Appointment {
 
 /** Cita con unidades vinculadas (`appointment_units`). */
 export interface AppointmentWithUnits extends Appointment {
+  collectingVisit?: boolean
   units: Unit[]
   visitedUnitIds?: string[]
   changeLog?: { id: string; action: string; created_at: string; detail: Record<string, unknown> }[]
