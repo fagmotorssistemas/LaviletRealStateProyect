@@ -7,7 +7,7 @@ import { NATURAL_CONVERSATION_RULES, conversationalFirstName } from './conversat
 
 export async function commercialContext(lead: Row, history: unknown) {
   const [units, amenities, places, project, config] = await Promise.all([
-    db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_total_m2,published_commercial_price,description,spaces')
+    db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces')
       .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000)),
     db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
     db().from('location_pois').select('poi_name,poi_category').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
