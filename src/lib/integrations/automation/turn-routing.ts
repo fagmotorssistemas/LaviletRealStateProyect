@@ -3,6 +3,7 @@ import { normalized } from './sdr-rules'
 import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 
 export function isConversationRepair(current: string) {
+  if (/que significa|a que se refiere|que quiere decir|explic|no entiendo (?:el|la|los|las|eso de)\b/.test(normalized(current))) return false
   return /^[¿?\s]+$/.test(current.trim()) || /ya (?:te |le |lo |se lo |les |si )?(?:dije|respondi)|(?:por que )?repites|repite lo mismo|eso no (?:fue|es) lo que|no (?:me )?entend/.test(normalized(current))
 }
 export function asksVisitStatus(current: string) {

@@ -13,6 +13,7 @@ import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationRe
 import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn } from './financing'
 import { intakeReply, isVisitDetail, needsVisitHelp } from './visit-intake'
 import { asksVisitStatus, declinedFollowup, explicitlyRequestsVisit, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
+import { commercialMemory, rememberCommercialReply } from './commercial-experience'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -90,6 +91,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   let greeting = !inbound.mediaFailed && isGreetingOnly(current)
   const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
   const previousSummary = object(conversationBefore.summary)
+  const memory = commercialMemory(previousSummary._commercial_memory, context.historial, current)
   const state = sdrState(lead, context.historial)
   const repair = isConversationRepair(current) && !!state.ultima_respuesta
   if (repair) greeting = false
@@ -206,7 +208,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
         // A switch from housing to commercial property starts a different search.
         const signals = { ...object(lead.behavior_signals), sdr: { ...(categoryChanged ? {} : previousFacts), ...facts } }
         const crossUse = categoryChanged && (previousCategory === 'local' || lead.preferred_category === 'local')
-        const resetSearch = crossUse ? { preferred_bedrooms: null, ...(!extracted.purchase_purpose ? { purchase_purpose: null } : {}) } : {}
+        const resetSearch = crossUse ? { preferred_bedrooms: null, ...(!extracted.purchase_purpose && lead.purchase_purpose !== 'invertir' ? { purchase_purpose: null } : {}) } : {}
         const { error } = await db().from('leads').update({ behavior_signals: signals, ...resetSearch }).match(scope).eq('id', lead.id)
         if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
         lead = { ...lead, ...resetSearch, behavior_signals: signals }
@@ -241,7 +243,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
       }
       else {
         const info = { ...await commercialContext(lead, context.historial), propuestas: proposals,
-          coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES }
+          coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory }
         const generated = await commercialReply(info, current, summary, guard)
         reply = generated.reply; audit = generated.audit
       }
@@ -277,6 +279,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   await launchSalesbot(last.kommoId, 15578)
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
     p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
-  const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(Object.keys(summary).length ? summary : previousSummary) }).match(scope).eq('id', conversationId)
+  const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply) }
+  const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)
   return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError }
 }

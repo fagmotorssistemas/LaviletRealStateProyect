@@ -149,7 +149,7 @@ function conversationHarness(options = {}) {
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
-      one: async table => table === 'conversations' ? { ...scope, lead_id: 'lead' } : lead,
+      one: async table => table === 'conversations' ? { ...scope, lead_id: 'lead', summary: options.summary } : lead,
       rpc: async (name, args) => {
         calls.push({ name, args })
         if (name === 'register_inbound_message') return { lead_id: 'lead', conversation_id: 'conv', is_duplicate: options.duplicate === true }
@@ -472,7 +472,7 @@ test('old summary declarations cannot overwrite a new search without current tex
 })
 test('discovery uses known facts and never asks bedroom count for commercial property', () => {
   const lead = { preferred_category: 'local', purchase_purpose: 'negocio', behavior_signals: { sdr: { actividad_comercial: 'cafetería' } } }
-  assert.equal(sdrRules.nextDiscoveryQuestion(lead).key, 'area_buscada')
+  assert.equal(sdrRules.nextDiscoveryQuestion(lead).key, 'prioridad')
   assert.equal(sdrRules.sdrState({ last_bot_message_at: new Date(Date.now() - 60_000).toISOString() }, []).ya_saludamos, true)
   assert.equal(sdrRules.sdrState({ last_bot_message_at: new Date(Date.now() - 86_400_000).toISOString() }, []).ya_saludamos, false)
   assert.equal(sdrRules.isGreetingOnly('¡Buenas tardes!'), true)
@@ -492,14 +492,15 @@ test('a rejected draft is rewritten and reviewed before it can be sent', async (
   assert.doesNotMatch(result.reply, /Hola/)
 })
 
-test('two rejected drafts fall back to the relevant discovery question without copying claims', async () => {
+test('two rejected drafts offer clarification without copying claims or an unrelated form question', async () => {
   const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
     activePrompt: async name => name, draftReply: async () => 'Su cafetería tendrá rentabilidad garantizada.',
     aiJson: async () => ({ aprobada: false, motivos: ['unsupported_fact'] }),
   } })
   const result = await commercialReply({ siguiente_pregunta: { question: '¿Qué tamaño aproximado busca?' } }, 'Una cafetería', {}, async () => {})
   assert.equal(result.audit.fallback, true)
-  assert.equal(result.reply, '¿Qué tamaño aproximado busca?')
+  assert.match(result.reply, /asesor.*aclarar/)
+  assert.doesNotMatch(result.reply, /tamaño|garantizada/)
 })
 
 
@@ -597,4 +598,92 @@ test('advisor handoff stays paused and never sends an automatic thanks afterward
   h.rows[0].payload.text='muchas gracias'
   assert.equal((await h.process([h.rows[0]],async()=>{})).action,'bot_paused')
   assert.equal(h.calls.filter(c=>c.name==='launch').length,0)
+})
+
+
+const experience = require('../src/lib/integrations/automation/commercial-experience.ts')
+test('benefit memory survives a summary rewrite and history truncation, but never records a failed send',async t=>{
+  live(t)
+  const h=conversationHarness({summary:JSON.stringify({_commercial_memory:{mentioned_benefits:['piscina','gimnasio'],deferred_fields:[]}})})
+  h.rows[0].payload.text='Quisiera conocer las suites'
+  await h.process([h.rows[0]],async()=>{})
+  const update=h.calls.find(c=>c.name==='update:conversations')
+  assert.deepEqual(JSON.parse(update.args.summary)._commercial_memory.mentioned_benefits,['piscina','gimnasio'])
+  const failed=conversationHarness({sendFails:true,summary:JSON.stringify({_commercial_memory:{mentioned_benefits:[],deferred_fields:[]}})})
+  await assert.rejects(()=>failed.process([failed.rows[0]],async()=>{}))
+  assert.equal(failed.calls.filter(c=>c.name==='update:conversations').length,0)
+})
+
+test('a client unable to choose size gets actual examples, not the same question after rejected drafts',async()=>{
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{
+    activePrompt:async name=>name,draftReply:async()=> '¿Qué tamaño aproximado tiene en mente para el local?',
+    aiJson:async()=>({aprobada:true,motivos:[]}),
+  }})
+  const result=await commercialReply({lead:{preferred_category:'local'},historial:[{role:'bot',content:'¿Qué tamaño busca?'}],catalogo:[
+    {unit_number:'LC-03',category:'local',area_internal_m2:52.16},{unit_number:'LC-02',category:'local',area_internal_m2:95.37}],
+    siguiente_pregunta:{question:'¿Qué tamaño busca?'}},'No tengo idea, ¿de qué tamaño son?',{},async()=>{})
+  assert.equal(result.audit.fallback,true)
+  assert.match(result.reply,/52[.,]16.*95[.,]37/)
+  assert.doesNotMatch(result.reply,/qué tamaño.*(?:busca|mente)/i)
+})
+
+test('memory distinguishes explaining a requested benefit from repeating a sales pitch',()=>{
+  const memory=experience.commercialMemory({},[{role:'bot',content:'Hay piscina y gimnasio.'}])
+  assert.ok(experience.experienceIssues('Las suites tienen piscina y gimnasio.','Quiero conocer suites',{},memory).length)
+  assert.deepEqual(experience.experienceIssues('La piscina es para residentes.','¿Quién puede usar la piscina?',{},memory),[])
+  assert.deepEqual(experience.experienceIssues('Cuenta con piscina y gimnasio.','¿Qué instalaciones tienen?',{},memory),[])
+  assert.deepEqual(experience.commercialMemory(memory,[],''),memory)
+})
+
+test('explicit pool questions are answered even after it was presented earlier',async()=>{
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{
+    activePrompt:async name=>name,draftReply:async()=> 'Las suites tienen un dormitorio. ¿Lo busca para vivir?',
+    aiJson:async()=>({aprobada:true,motivos:[]}),
+  }})
+  const result=await commercialReply({historial:[{role:'bot',content:'Hay piscina y gimnasio.'}],
+    instalaciones:[{amenity_name:'Piscina exclusiva para residentes'}]},'¿La piscina es para residentes?',{},async()=>{})
+  assert.match(result.reply,/piscina.*residentes/)
+  assert.ok(result.audit.review_reasons.includes('ignored_question'))
+})
+
+test('investment guarantee questions do not fall through to unrelated discovery',async()=>{
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{}})
+  const result=await commercialReply({posicionamiento_proyecto:experience.PROJECT_POSITIONING},'¿Garantizan que suba de precio?',{},async()=>{})
+  assert.match(result.reply,/no podemos garantizar/)
+  assert.match(result.reply,/ubicación/)
+})
+
+test('clarification fallback explains access, parking and size without making up visitor parking',()=>{
+  const result=experience.commercialFallback({lead:{preferred_category:'local'},instalaciones:[{amenity_name:'Acceso independiente residencial y comercial'},{amenity_name:'Parqueaderos en subsuelos'}],catalogo:[{unit_number:'LC-03',category:'local',area_internal_m2:52.16}]},'No entiendo la circulación ni parqueaderos. ¿Qué tamaño tienen?',{mentioned_benefits:[],deferred_fields:['area_buscada']})
+  assert.match(result,/entradas separadas/);assert.match(result,/pisos bajo tierra/);assert.match(result,/52[.,]16/)
+  assert.doesNotMatch(result,/circulación|garantiz|visitantes/)
+})
+
+test('sales style rejects long prose, jargon and guarantees',()=>{
+  const memory={mentioned_benefits:[],deferred_fields:[]}
+  assert.ok(experience.experienceIssues('La circulación comercial independiente mejora su expectativa de renta.','Quiero invertir',{},memory).includes('style'))
+  assert.ok(experience.experienceIssues('Es totalmente seguro y tiene plusvalía garantizada.','Quiero invertir',{},memory).includes('unsupported_fact'))
+  assert.ok(experience.experienceIssues('Una explicación '.repeat(60),'Más información',{},memory).includes('style'))
+  assert.ok(experience.experienceIssues('Hay supermercados a pocas cuadras.','¿Qué hay cerca?',{},memory).includes('unsupported_fact'))
+})
+
+test('an investor switching from local to suite keeps the investment purpose',async t=>{
+  live(t)
+  const h=conversationHarness({lead:{preferred_category:'local',purchase_purpose:'invertir'},extracted:{preferred_category:'suite',declaration_evidence:{preferred_category:'suites'},events:['declared_unit_type']}})
+  h.rows[0].payload.text='Quiero saber más de suites'
+  await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.find(c=>c.name==='commercialContext').args.purchase_purpose,'invertir')
+  assert.equal(h.calls.find(c=>c.name==='commercialContext').args.preferred_category,'suite')
+})
+
+test('commercial context retains measurements on demand and does not repeat facilities in a presentation',()=>{
+  const info={instalaciones:[{amenity_name:'Piscina'},{amenity_name:'Gimnasio'},{amenity_name:'Seguridad 24h'}],catalogo:[{unit_number:'LC-02',area_internal_m2:95.37,area_exterior_m2:46.74}]}
+  const memory={mentioned_benefits:['piscina','gimnasio'],deferred_fields:[]}
+  const intro=experience.experienceContext(info,'Quiero información de suites',memory)
+  assert.equal(intro.instalaciones.length,1);assert.equal(intro.catalogo[0].area_internal_m2,undefined)
+  const sizes=experience.experienceContext(info,'¿Qué área tiene LC-02?',memory)
+  assert.equal(sizes.catalogo[0].area_internal_m2,95.37)
+  const pool=experience.experienceContext(info,'¿Quién usa la piscina?',memory)
+  assert.ok(pool.instalaciones.some(f=>f.amenity_name==='Piscina'))
+  assert.equal(info.catalogo[0].area_internal_m2,95.37,'The inventory is never mutated')
 })
