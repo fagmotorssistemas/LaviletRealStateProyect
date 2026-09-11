@@ -20,6 +20,7 @@ import type { TourUnitSummary } from '@/types/tour'
 import { buildFichaSpecRows, formatAreaM2 } from '@/lib/tour/fichaSpecs'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import './tour-viewer.css'
 
 export type FichaGalleryImage = {
   id: string
@@ -34,6 +35,8 @@ type TourFichaDrawerProps = {
   typologyCode: string
   typologyName?: string
   units: TourUnitSummary[]
+  /** Pool para sugerencias (todas las unidades del showroom). */
+  suggestionUnits?: TourUnitSummary[]
   images?: FichaGalleryImage[]
   initialUnitId?: string | null
   contained?: boolean
@@ -42,6 +45,7 @@ type TourFichaDrawerProps = {
   onVerFicha?: (unit: TourUnitSummary) => void
   onTour360?: (unit: TourUnitSummary) => void
   onRequestInfo?: (unit: TourUnitSummary) => void
+  onSelectUnit?: (unit: TourUnitSummary) => void
   onBack?: () => void
   onSelectGalleryImage?: (index: number) => void
 }
@@ -80,6 +84,46 @@ function formatPrice(value: number | null) {
   if (value == null) return 'Consultar'
   const amount = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(value)
   return `USD ${amount}`
+}
+
+function isUnitOfferable(status: UnitStatus) {
+  return status === 'disponible' || status === 'en_preventa'
+}
+
+function suggestionScore(base: TourUnitSummary, candidate: TourUnitSummary) {
+  let score = 0
+  if (base.typology_code && candidate.typology_code === base.typology_code) score += 4
+  if (base.bedrooms != null && candidate.bedrooms === base.bedrooms) score += 3
+  if (base.bathrooms != null && candidate.bathrooms === base.bathrooms) score += 2
+  if (
+    base.bathrooms_full != null &&
+    candidate.bathrooms_full != null &&
+    base.bathrooms_full === candidate.bathrooms_full
+  ) {
+    score += 1
+  }
+  const baseArea = base.area_total_m2 ?? base.area_internal_m2
+  const candArea = candidate.area_total_m2 ?? candidate.area_internal_m2
+  if (baseArea != null && candArea != null && baseArea > 0) {
+    const delta = Math.abs(candArea - baseArea) / baseArea
+    if (delta <= 0.12) score += 2
+    else if (delta <= 0.25) score += 1
+  }
+  return score
+}
+
+function findSimilarUnits(base: TourUnitSummary, pool: TourUnitSummary[], limit = 6) {
+  const offerable = pool.filter((item) => item.id !== base.id && isUnitOfferable(item.status))
+  const ranked = offerable
+    .map((item) => ({ item, score: suggestionScore(base, item) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return a.item.unit_number.localeCompare(b.item.unit_number, 'es', { numeric: true })
+    })
+
+  const preferred = ranked.filter((row) => row.score > 0)
+  const list = (preferred.length > 0 ? preferred : ranked).slice(0, limit)
+  return list.map((row) => row.item)
 }
 
 function SpecRow({
@@ -130,6 +174,7 @@ export function TourFichaDrawer({
   typologyCode,
   typologyName,
   units,
+  suggestionUnits,
   images = [],
   initialUnitId = null,
   contained = false,
@@ -137,6 +182,7 @@ export function TourFichaDrawer({
   onVerFicha,
   onTour360,
   onRequestInfo,
+  onSelectUnit,
   onBack,
   onSelectGalleryImage,
 }: TourFichaDrawerProps) {
@@ -145,6 +191,7 @@ export function TourFichaDrawer({
   const [pdfBusy, setPdfBusy] = useState(false)
   const [slide, setSlide] = useState(0)
   const [displayUrl, setDisplayUrl] = useState<string | null>(null)
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const busyRef = useRef(false)
 
   const sorted = useMemo(
@@ -167,6 +214,7 @@ export function TourFichaDrawer({
     if (!open) {
       setSlide(0)
       setDisplayUrl(null)
+      setShowSuggestions(false)
       busyRef.current = false
       return
     }
@@ -178,6 +226,7 @@ export function TourFichaDrawer({
       return sorted[0]?.id ?? null
     })
     setSlide(0)
+    setShowSuggestions(false)
   }, [open, sorted, initialUnitId])
 
   useEffect(() => {
@@ -248,6 +297,15 @@ export function TourFichaDrawer({
       ]
     : []
   const displayRows = expanded ? detailRows : compactRows
+  const unitAvailable = unit ? isUnitOfferable(unit.status) : false
+  const suggestionPool = suggestionUnits?.length ? suggestionUnits : units
+  const similarUnits = unit ? findSimilarUnits(unit, suggestionPool) : []
+
+  const pickUnit = (next: TourUnitSummary) => {
+    setUnitId(next.id)
+    setShowSuggestions(false)
+    onSelectUnit?.(next)
+  }
 
   const onDownloadPdf = async () => {
     if (!unit || pdfBusy) return
@@ -300,13 +358,15 @@ export function TourFichaDrawer({
             type="button"
             aria-label="Cerrar ficha técnica"
             className={cn(
-              'z-[60] bg-transparent',
+              'z-[60]',
               contained ? 'absolute inset-0' : 'fixed inset-0',
+              // Expandida: no cerrar al tocar el fondo (así no se pierden las imágenes).
+              expanded ? 'pointer-events-none bg-transparent' : 'bg-transparent',
             )}
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0 }}
-            onClick={onClose}
+            onClick={expanded ? undefined : onClose}
           />
 
           <motion.aside
@@ -315,28 +375,67 @@ export function TourFichaDrawer({
             aria-label="Ficha técnica"
             className={cn(
               'z-[70] flex flex-col overflow-hidden rounded-2xl bg-white shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
-              expanded
-                ? 'w-[min(100%-1.25rem,22.5rem)]'
-                : 'w-[min(100%-1.25rem,21rem)]',
+              'w-[min(100%-1.25rem,22.5rem)]',
               contained
-                ? expanded
-                  ? 'absolute top-3 bottom-3 left-3 max-h-[calc(100%-1.5rem)] sm:top-4 sm:bottom-4 sm:left-4'
-                  : 'absolute top-3 left-3 max-h-[calc(100%-1.5rem)] sm:top-4 sm:left-4'
-                : expanded
-                  ? 'fixed top-3 bottom-3 left-3 max-h-[calc(100dvh-1.5rem)] sm:top-5 sm:bottom-5 sm:left-5'
-                  : 'fixed top-3 left-3 max-h-[calc(100dvh-1.5rem)] sm:top-5 sm:left-5',
+                ? cn(
+                    'absolute left-3 sm:left-4',
+                    'top-3 bottom-3 max-h-[calc(100%-1.5rem)] sm:top-4 sm:bottom-4',
+                  )
+                : cn(
+                    'fixed left-3 sm:left-5',
+                    // Altura definida (top+bottom) → scroll interno funciona en móvil
+                    'top-3 bottom-3 max-h-[calc(100dvh-1.5rem)]',
+                    expanded
+                      ? 'sm:top-5 sm:bottom-5 sm:h-auto sm:max-h-[calc(100dvh-2.5rem)]'
+                      : 'sm:top-5 sm:bottom-auto sm:h-[min(36rem,calc(100dvh-2.5rem))] sm:max-h-[calc(100dvh-2.5rem)]',
+                    // Landscape móvil: ocupar alto útil aunque el ancho sea “sm”
+                    '[@media(max-height:520px)]:left-[max(0.5rem,env(safe-area-inset-left))]',
+                    '[@media(max-height:520px)]:top-[max(0.5rem,env(safe-area-inset-top))]',
+                    '[@media(max-height:520px)]:bottom-[max(0.5rem,env(safe-area-inset-bottom))]',
+                    '[@media(max-height:520px)]:h-auto',
+                    '[@media(max-height:520px)]:max-h-none',
+                    '[@media(max-height:520px)]:w-[min(20rem,calc(100vw-1rem))]',
+                  ),
             )}
             initial={reduceMotion ? false : { x: -28, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={reduceMotion ? undefined : { x: -20, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+            onWheel={(event) => event.stopPropagation()}
           >
+            {/* Header compacto en celular (sin imágenes). */}
+            <div className="tour-ficha-chrome-mobile shrink-0 items-center justify-between gap-2 border-b border-[#eceff3] bg-white px-3 py-2.5">
+              {onBack ? (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="flex h-8 items-center gap-1 rounded-full bg-[#f3f4f6] px-2.5 text-[11px] font-semibold tracking-[0.08em] text-[#1a2744] uppercase"
+                  aria-label={expanded ? 'Volver a ficha resumida' : 'Volver'}
+                >
+                  <ChevronLeft size={16} strokeWidth={2.25} />
+                  {expanded ? 'Resumen' : 'Volver'}
+                </button>
+              ) : (
+                <p className="text-[11px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
+                  {expanded ? 'Ficha completa' : 'Ficha técnica'}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f3f4f6] text-[#1a2744]"
+                aria-label="Cerrar"
+              >
+                <X size={16} strokeWidth={2.25} />
+              </button>
+            </div>
+
             <div
               className={cn(
-                'relative shrink-0 bg-[#dfe3ea]',
+                'tour-ficha-media relative shrink-0 bg-[#dfe3ea]',
                 expanded
-                  ? 'aspect-[16/10] max-h-[32%] min-h-[7.5rem]'
-                  : 'aspect-[16/10] max-h-[11rem] min-h-[7rem]',
+                  ? 'aspect-[16/10] max-h-[28%] min-h-[6.5rem]'
+                  : 'aspect-[16/10] max-h-[10rem] min-h-[6rem]',
               )}
             >
               {displayUrl ? (
@@ -417,12 +516,7 @@ export function TourFichaDrawer({
                 Todavía no hay unidades publicadas para esta tipología.
               </div>
             ) : unit ? (
-              <div
-                className={cn(
-                  'flex min-h-0 flex-col overflow-hidden',
-                  expanded ? 'flex-1' : 'shrink-0',
-                )}
-              >
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 {sorted.length > 1 ? (
                   <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-[#eceff3] px-3 py-1.5">
                     {sorted.map((item) => {
@@ -431,11 +525,11 @@ export function TourFichaDrawer({
                         <button
                           key={item.id}
                           type="button"
-                          onClick={() => setUnitId(item.id)}
+                          onClick={() => pickUnit(item)}
                           className={cn(
                             'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium',
                             active
-                              ? 'bg-[#14110e] text-white'
+                              ? 'bg-[#2B1A18] text-white'
                               : 'bg-[#f3f4f6] text-[#4b5563]',
                           )}
                         >
@@ -446,12 +540,7 @@ export function TourFichaDrawer({
                   </div>
                 ) : null}
 
-                <div
-                  className={cn(
-                    'overflow-y-auto px-4 pt-2.5 pb-1.5',
-                    expanded ? 'min-h-0 flex-1' : 'shrink-0',
-                  )}
-                >
+                <div className="tour-ficha-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-2.5 pb-1.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-[1.15rem] leading-none font-bold tracking-tight text-[#1a2744]">
                       Unidad {unit.unit_number}
@@ -471,19 +560,76 @@ export function TourFichaDrawer({
                       {typologyName ? ` · ${typologyName}` : ''}
                     </p>
                   ) : null}
-                  <p className="mt-1 text-[1.2rem] font-bold tracking-tight text-[#1a2744] tabular-nums">
+                  <p className="mt-1 text-[1.2rem] font-bold tracking-tight text-[#2B1A18] tabular-nums">
                     {formatPrice(unit.published_commercial_price)}
                   </p>
 
-                  {onRequestInfo && expanded ? (
+                  {onRequestInfo ? (
                     <button
                       type="button"
                       onClick={() => onRequestInfo(unit)}
-                      className="tour-glass mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[#2B1A18]/15 !bg-[#14110e] text-[12px] font-semibold tracking-[0.08em] text-white uppercase"
+                      className="mt-3 flex h-10 w-full items-center justify-center gap-2 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
                     >
                       <Mail size={15} strokeWidth={2} />
                       Solicitar información
                     </button>
+                  ) : null}
+
+                  {!unitAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowSuggestions((value) => !value)}
+                      className="mt-2 flex h-10 w-full items-center justify-center gap-2 border border-[#2B1A18]/15 bg-white text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
+                    >
+                      {showSuggestions ? 'Ocultar sugerencias' : 'Ver sugerencias'}
+                    </button>
+                  ) : null}
+
+                  {showSuggestions && !unitAvailable ? (
+                    <div className="mt-3 rounded-xl border border-[#2B1A18]/10 bg-[#f7f3ee]/80 p-3">
+                      <p className="text-[10px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
+                        Unidades similares disponibles
+                      </p>
+                      {similarUnits.length === 0 ? (
+                        <p className="mt-2 text-[12px] leading-relaxed text-[#2B1A18]/60">
+                          No encontramos alternativas con las mismas características ahora. Pedí
+                          información y te ayudamos a buscar.
+                        </p>
+                      ) : (
+                        <ul className="mt-2 space-y-1.5">
+                          {similarUnits.map((item) => (
+                            <li key={item.id}>
+                              <button
+                                type="button"
+                                onClick={() => pickUnit(item)}
+                                className="flex w-full items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-2 text-left ring-1 ring-[#2B1A18]/8 transition-colors hover:ring-[#BDA27E]/50"
+                              >
+                                <span className="min-w-0">
+                                  <span className="block text-[12px] font-semibold text-[#2B1A18]">
+                                    Unidad {item.unit_number}
+                                  </span>
+                                  <span className="mt-0.5 block text-[11px] text-[#2B1A18]/55">
+                                    {[
+                                      item.typology_code,
+                                      item.bedrooms != null ? `${item.bedrooms} dorm.` : null,
+                                      item.area_total_m2 != null
+                                        ? formatAreaM2(item.area_total_m2)
+                                        : null,
+                                      item.floor?.trim() || null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' · ')}
+                                  </span>
+                                </span>
+                                <span className="shrink-0 text-[11px] font-semibold text-[#2B1A18] tabular-nums">
+                                  {formatPrice(item.published_commercial_price)}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   ) : null}
 
                   {expanded ? (
@@ -522,7 +668,7 @@ export function TourFichaDrawer({
                   ) : null}
 
                   {expanded && carousel.length > 0 ? (
-                    <div className="mt-4">
+                    <div className="tour-ficha-gallery-grid mt-4 pb-1">
                       <p className="mb-1.5 text-[10px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
                         Galería ({carousel.length})
                       </p>
@@ -552,12 +698,12 @@ export function TourFichaDrawer({
                 </div>
 
                 {expanded ? (
-                  <div className="grid shrink-0 grid-cols-[1fr_auto] gap-2 border-t border-[#eceff3] p-3">
+                  <div className="grid shrink-0 grid-cols-[1fr_auto] gap-2 border-t border-[#2B1A18]/8 bg-white p-3">
                     <button
                       type="button"
                       disabled={pdfBusy}
                       onClick={() => void onDownloadPdf()}
-                      className="tour-glass flex h-10 items-center justify-center gap-1.5 rounded-full border border-[#2B1A18]/15 !bg-[#14110e] text-[11px] font-semibold tracking-[0.08em] text-white uppercase disabled:opacity-60"
+                      className="flex h-10 items-center justify-center gap-1.5 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
                     >
                       <Download size={14} strokeWidth={2} />
                       {pdfBusy ? 'Generando…' : 'Descargar PDF'}
@@ -565,20 +711,20 @@ export function TourFichaDrawer({
                     <button
                       type="button"
                       onClick={() => void onShare()}
-                      className="tour-glass flex h-10 w-10 items-center justify-center rounded-full border border-[#2B1A18]/12 !bg-[#f3f4f6] text-[#1a2744]"
+                      className="flex h-10 w-10 items-center justify-center border border-[#2B1A18]/12 bg-white text-[#2B1A18] transition-colors hover:bg-[#2B1A18]/5"
                       aria-label="Compartir"
                     >
                       <Share2 size={15} strokeWidth={1.75} />
                     </button>
                   </div>
                 ) : (
-                  <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-[#eceff3] px-3 py-2.5">
+                  <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-[#2B1A18]/8 bg-white px-3 py-2.5">
                     <button
                       type="button"
                       onClick={() => {
                         if (onVerFicha) onVerFicha(unit)
                       }}
-                      className="tour-glass flex h-9 items-center justify-center rounded-full border border-[#2B1A18]/15 !bg-[#14110e] text-[11px] font-semibold tracking-[0.1em] text-white uppercase"
+                      className="flex h-9 items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
                     >
                       Ver Ficha
                     </button>
@@ -586,9 +732,8 @@ export function TourFichaDrawer({
                       type="button"
                       onClick={() => {
                         onTour360?.(unit)
-                        onClose()
                       }}
-                      className="tour-glass flex h-9 items-center justify-center gap-1.5 rounded-full border border-[#2B1A18]/12 !bg-white text-[11px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase"
+                      className="flex h-9 items-center justify-center gap-1.5 border border-[#2B1A18]/15 bg-white text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
                     >
                       <Rotate3d size={15} strokeWidth={1.75} />
                       Tour 360°

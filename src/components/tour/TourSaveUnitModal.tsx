@@ -14,6 +14,9 @@ import {
   normalizeShowroomPhone,
   setShowroomIdentity,
 } from '@/lib/tour/showroomIdentity'
+import {
+  addTourFavorite,
+} from '@/lib/tour/tourFavorites'
 import { cn } from '@/lib/utils'
 
 export type TourSaveContext = {
@@ -22,6 +25,7 @@ export type TourSaveContext = {
   unitId?: string | null
   unitNumber?: string | null
   roomLabel?: string | null
+  floor?: string | null
   finish?: string | null
   light?: string | null
 }
@@ -58,6 +62,15 @@ export async function saveTourUnit(context: TourSaveContext, phone?: string) {
     setShowroomIdentity(normalized, leadId)
   }
 
+  if (context.unitId && context.unitNumber) {
+    addTourFavorite({
+      unitId: context.unitId,
+      unitNumber: context.unitNumber,
+      typologyCode: context.typologyCode || null,
+      floor: context.floor ?? null,
+    })
+  }
+
   logTourEvent({
     event_type: 'guardar_unidad',
     typology_code: context.typologyCode || null,
@@ -66,6 +79,7 @@ export async function saveTourUnit(context: TourSaveContext, phone?: string) {
     finish: context.finish || null,
     light: context.light || null,
     metadata: {
+      action: 'save',
       unit_id: context.unitId ?? null,
       unit_number: context.unitNumber ?? null,
       phone_tail: (getShowroomPhone() || phone || '').replace(/\D/g, '').slice(-4) || null,

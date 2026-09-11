@@ -44,29 +44,19 @@ export function TourPicker({ typologies, typology, onTypologyChange, meta }: Tou
   if (typologies.length === 0) return null
 
   return (
-    <div ref={rootRef} className="relative w-[min(7.75rem,calc(100vw-6.25rem))] sm:w-[min(11.5rem,calc(100vw-10rem))]">
+    <div ref={rootRef} className="relative w-full">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="tour-glass flex w-full flex-col items-start px-2.5 py-1.5 text-left sm:px-3 sm:py-2"
+        className="tour-glass flex h-10 w-full items-center gap-1.5 px-3 text-left"
         aria-expanded={open}
         aria-haspopup="listbox"
+        title={[shown.name, meta].filter(Boolean).join(' · ') || undefined}
       >
-        <span className="text-[9px] font-medium tracking-[0.2em] text-white/50 uppercase">Tipología</span>
-        <span className="mt-0.5 flex w-full items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-[13px] font-medium text-[#f7f3ee]">{shown.code}</span>
-          <span className="text-[9px] text-white/45">{open ? '▴' : '▾'}</span>
+        <span className="min-w-0 flex-1 truncate text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]">
+          Tipología {shown.code}
         </span>
-        {shown.name ? (
-          <span className="mt-0.5 hidden w-full truncate text-[10px] tracking-[0.04em] text-white/50 sm:block">
-            {shown.name}
-          </span>
-        ) : null}
-        {meta ? (
-          <span className="mt-1 hidden w-full border-t border-white/10 pt-1.5 text-[10px] tracking-[0.12em] text-white/40 sm:block">
-            {meta}
-          </span>
-        ) : null}
+        <span className="shrink-0 text-[9px] text-white/45">{open ? '▴' : '▾'}</span>
       </button>
       {open ? (
         <ul

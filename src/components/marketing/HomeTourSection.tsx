@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { TourSafeArea } from '@/components/tour/TourSafeArea'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
 const HEADER_OFFSET_PX = 72
@@ -9,10 +9,13 @@ const HEADER_OFFSET_PX = 72
 export function HomeTourSection({
   embedded = false,
   scrollToShowroom = false,
+  tourHref = '/tour',
 }: {
   embedded?: boolean
   /** Con ?unidad= hace scroll al título del showroom dentro de /inicio. */
   scrollToShowroom?: boolean
+  /** Entrada al showroom en pantalla completa. */
+  tourHref?: string
 }) {
   const titleRef = useRef<HTMLParagraphElement>(null)
 
@@ -29,7 +32,6 @@ export function HomeTourSection({
       window.scrollTo({ top: Math.max(0, top), behavior: 'auto' })
     }
 
-    // Varios intentos: fonts/hero/tour pueden mover el layout.
     scrollToTitle()
     const t1 = window.setTimeout(scrollToTitle, 50)
     const t2 = window.setTimeout(scrollToTitle, 300)
@@ -65,13 +67,23 @@ export function HomeTourSection({
             Recorre el showroom en 360°
           </h1>
           <p className="mt-4 text-[#2B1A18]/65">
-            Entra a las unidades y cambia de ambiente. Si te interesa una tipología, te pedimos WhatsApp
-            para enviarte planos y disponibilidad.
+            Entrá a las unidades, cambiá de ambiente y mirá los pisos en pantalla completa. Si te
+            interesa una tipología, te pedimos WhatsApp para enviarte planos y disponibilidad.
           </p>
-        </div>
-        <div className="relative mx-auto mt-8 h-[min(78dvh,580px)] min-h-[400px] w-full max-w-6xl overflow-hidden rounded-[16px] bg-[#111] shadow-[0_20px_50px_rgba(43,26,24,0.12)] ring-1 ring-[#2B1A18]/10 sm:mt-10 sm:h-[min(82dvh,720px)] sm:min-h-[480px] sm:rounded-[20px] sm:ring-[#BDA27E]/20 lg:h-[min(84dvh,760px)]">
-          <TourSafeArea embedded />
-          <div className="pointer-events-none absolute inset-0 z-30 rounded-[16px] ring-1 ring-inset ring-white/10 sm:rounded-[20px]" />
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
+            <Link
+              href={tourHref}
+              className="inline-flex h-12 items-center rounded-lg bg-[#2B1A18] px-6 text-[11px] font-semibold tracking-[0.16em] text-white uppercase transition-colors hover:bg-[#3d2a24]"
+            >
+              Abrir showroom 360°
+            </Link>
+            <Link
+              href="/contacto"
+              className="inline-flex h-12 items-center rounded-lg px-5 text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase ring-1 ring-[#2B1A18]/20 transition-colors hover:bg-[#2B1A18]/5"
+            >
+              Agendar visita
+            </Link>
+          </div>
         </div>
       </div>
     </section>

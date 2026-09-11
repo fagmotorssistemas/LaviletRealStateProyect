@@ -3,7 +3,7 @@ import { LaviletStory } from './LaviletStory'
 import { LockupProvider } from './LaviletLockup'
 import { HomeTourSection } from './HomeTourSection'
 
-/** Landing Lavilet: hero, nosotros y showroom. */
+/** Landing Lavilet: hero, nosotros y entrada al showroom 360°. */
 export function FullLanding({ unitDeepLink = false }: { unitDeepLink?: boolean }) {
   return (
     <>
@@ -11,7 +11,7 @@ export function FullLanding({ unitDeepLink = false }: { unitDeepLink?: boolean }
         <HeroStage />
         <LaviletStory />
       </LockupProvider>
-      <HomeTourSection embedded scrollToShowroom={unitDeepLink} />
+      <HomeTourSection embedded scrollToShowroom={unitDeepLink} tourHref="/tour" />
     </>
   )
 }

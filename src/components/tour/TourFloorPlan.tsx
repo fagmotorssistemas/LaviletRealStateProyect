@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import Image from 'next/image'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import {
   FLOOR_PLAN_FLOORS,
@@ -9,7 +8,17 @@ import {
   floorPlanLevelShort,
   unitFloorNumber,
 } from '@/lib/tour/floorPlanHotspots'
-import { fetchFloorPlanDoc, prefetchFloorPlans, versionedFloorPlanUrl } from '@/lib/tour/floorPlanClientCache'
+import {
+  fetchFloorPlanDoc,
+  getCachedFloorView,
+  getReadyFloorView,
+  planDocImageUrl,
+  preferredFloorVariant,
+  prefetchFloorPlans,
+  preloadFloorPlanImage,
+  warmFloorPlans,
+  type ReadyFloorView,
+} from '@/lib/tour/floorPlanClientCache'
 import { FLOOR_PLAN_WHATSAPP_MESSAGE, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import {
   applyOverlayAlign,
@@ -17,7 +26,6 @@ import {
   getFloorPlanVariantMedia,
   zoneDisplayPointsPercent,
   type FloorPlanVariant,
-  type FloorPlanZonesDoc,
 } from '@/lib/tour/floorPlanZones'
 import { SITE } from '@/lib/marketing/site'
 import type { TourUnitSummary } from '@/types/tour'
@@ -37,6 +45,11 @@ type DisplaySlot = {
   label: string
   points: string
   unit: TourUnitSummary | null
+}
+
+type FloorLayer = ReadyFloorView & {
+  width: number
+  height: number
 }
 
 /** 1 = plano completo en el marco; solo se puede acercar desde ahí. */
@@ -90,6 +103,33 @@ function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: st
   )
 }
 
+function toLayer(view: ReadyFloorView): FloorLayer | null {
+  if (!view.url) return null
+  const media = getFloorPlanVariantMedia(view.doc, view.variant)
+  return {
+    ...view,
+    width: media.imageWidth > 1 ? media.imageWidth : view.doc.imageWidth || 1024,
+    height: media.imageHeight > 1 ? media.imageHeight : view.doc.imageHeight || 499,
+  }
+}
+
+function neighborFloors(current: number, radius = 2) {
+  const idx = FLOOR_PLAN_FLOORS.indexOf(current)
+  if (idx < 0) return [current]
+  const out = new Set<number>([current])
+  for (let d = 1; d <= radius; d += 1) {
+    if (FLOOR_PLAN_FLOORS[idx - d] != null) out.add(FLOOR_PLAN_FLOORS[idx - d])
+    if (FLOOR_PLAN_FLOORS[idx + d] != null) out.add(FLOOR_PLAN_FLOORS[idx + d])
+  }
+  return [...out]
+}
+
+function alternateImageUrl(url: string) {
+  if (/\.webp(\?|$)/i.test(url)) return url.replace(/\.webp(\?|$)/i, '.jpg$1')
+  if (/\.jpe?g(\?|$)/i.test(url)) return url.replace(/\.jpe?g(\?|$)/i, '.webp$1')
+  return null
+}
+
 export function TourFloorPlan({
   units,
   floor,
@@ -100,88 +140,143 @@ export function TourFloorPlan({
 }: TourFloorPlanProps) {
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
   const [scale, setScale] = useState(ZOOM_MIN)
-  const [planDoc, setPlanDoc] = useState<FloorPlanZonesDoc | null>(null)
-  const [planLoading, setPlanLoading] = useState(false)
-  const [planVariant, setPlanVariant] = useState<FloorPlanVariant>('2d')
+  /** Capas montadas: se quedan en DOM y el cambio es solo visibility. */
+  const [layers, setLayers] = useState<Partial<Record<number, FloorLayer>>>({})
+  const [variantByFloor, setVariantByFloor] = useState<Partial<Record<number, FloorPlanVariant>>>({})
+  const [failedFloors, setFailedFloors] = useState<Partial<Record<number, boolean>>>({})
+  const [readyFloors, setReadyFloors] = useState<Partial<Record<number, boolean>>>({})
+  const stickyFloorRef = useRef<number | null>(null)
   const whatsappHref = tourWhatsAppHref(FLOOR_PLAN_WHATSAPP_MESSAGE)
 
-  useEffect(() => {
-    let cancelled = false
-    setPlanLoading(true)
-    void fetchFloorPlanDoc(floor)
-      .then((doc) => {
-        if (cancelled) return
-        setPlanDoc(doc)
-        const nextVariant: FloorPlanVariant = doc?.variants['2d'].imageUrl
-          ? '2d'
-          : doc?.variants['3d'].imageUrl
-            ? '3d'
-            : '2d'
-        setPlanVariant(nextVariant)
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPlanDoc(null)
-          setPlanVariant('2d')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setPlanLoading(false)
-      })
-
-    const floorIndex = FLOOR_PLAN_FLOORS.indexOf(floor)
-    const neighbors = [FLOOR_PLAN_FLOORS[floorIndex - 1], FLOOR_PLAN_FLOORS[floorIndex + 1]].filter(
-      (item): item is number => typeof item === 'number',
+  const upsertLayer = (view: ReadyFloorView) => {
+    const layer = toLayer(view)
+    if (!layer) return
+    setFailedFloors((prev) => {
+      if (!prev[view.floor]) return prev
+      const next = { ...prev }
+      delete next[view.floor]
+      return next
+    })
+    setLayers((prev) => {
+      const current = prev[view.floor]
+      if (current && current.url === layer.url && current.variant === layer.variant) return prev
+      return { ...prev, [view.floor]: layer }
+    })
+    setVariantByFloor((prev) =>
+      prev[view.floor] === view.variant ? prev : { ...prev, [view.floor]: view.variant },
     )
-    prefetchFloorPlans(neighbors)
+  }
 
-    return () => {
-      cancelled = true
+  const ensureFloor = (item: number) => {
+    const preferred = variantByFloor[item]
+    const ready = getReadyFloorView(item, preferred)
+    if (ready) {
+      upsertLayer(ready)
+      setReadyFloors((prev) => (prev[item] ? prev : { ...prev, [item]: true }))
+      return Promise.resolve(ready)
     }
-  }, [floor])
+    const cached = getCachedFloorView(item, preferred)
+    if (cached) {
+      upsertLayer(cached)
+      return preloadFloorPlanImage(cached.url).then(() => {
+        setReadyFloors((prev) => ({ ...prev, [item]: true }))
+        return cached
+      })
+    }
+    return fetchFloorPlanDoc(item).then((doc) => {
+      if (!doc) {
+        setFailedFloors((prev) => ({ ...prev, [item]: true }))
+        return null
+      }
+      const variant = preferred ?? preferredFloorVariant(doc)
+      const url = planDocImageUrl(doc, variant)
+      if (!url) {
+        setFailedFloors((prev) => ({ ...prev, [item]: true }))
+        return null
+      }
+      const view: ReadyFloorView = {
+        floor: item,
+        doc: { ...doc, floor: item },
+        variant,
+        url,
+      }
+      upsertLayer(view)
+      return preloadFloorPlanImage(url).then(() => {
+        setReadyFloors((prev) => ({ ...prev, [item]: true }))
+        return view
+      })
+    })
+  }
 
-  const has2d = Boolean(planDoc?.variants?.['2d']?.imageUrl)
-  const has3d = Boolean(planDoc?.variants?.['3d']?.imageUrl)
-  const canToggleVariant = has2d || has3d
-
-  const planMedia = useMemo(
-    () => getFloorPlanVariantMedia(planDoc, planVariant),
-    [planDoc, planVariant],
-  )
-
-  const planImageUrl = useMemo(() => {
-    const primary = planMedia.imageUrl
-    const fallback = getFloorPlanVariantMedia(planDoc, planVariant === '2d' ? '3d' : '2d').imageUrl
-    const raw = primary || fallback || planDoc?.imageUrl || null
-    return versionedFloorPlanUrl(raw, planDoc?.updatedAt)
-  }, [planDoc, planVariant, planMedia.imageUrl])
-
-  const planAspect = useMemo(() => {
-    const w = planMedia.imageWidth > 1 ? planMedia.imageWidth : 1024
-    const h = planMedia.imageHeight > 1 ? planMedia.imageHeight : 499
-    return `${w} / ${h}`
-  }, [planMedia.imageWidth, planMedia.imageHeight])
-
-  const overlayAlign = useMemo(
-    () => getFloorPlanOverlayAlign(planDoc, planVariant),
-    [planDoc, planVariant],
-  )
+  // Calienta TODOS los pisos (calidad intacta); prioridad al activo y vecinos.
+  useEffect(() => {
+    prefetchFloorPlans([...FLOOR_PLAN_FLOORS])
+    void warmFloorPlans([...FLOOR_PLAN_FLOORS], neighborFloors(floor, 2)).then(() => {
+      for (const item of FLOOR_PLAN_FLOORS) {
+        const ready = getReadyFloorView(item)
+        if (ready) {
+          upsertLayer(ready)
+          setReadyFloors((prev) => (prev[item] ? prev : { ...prev, [item]: true }))
+        }
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     setScale(ZOOM_MIN)
-  }, [floor, planImageUrl])
+    void ensureFloor(floor)
+    for (const item of neighborFloors(floor, 2)) {
+      if (item !== floor) void ensureFloor(item)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [floor])
+
+  const targetReady = Boolean(layers[floor] && readyFloors[floor])
+
+  useEffect(() => {
+    if (targetReady) stickyFloorRef.current = floor
+  }, [targetReady, floor])
+
+  const paintFloor =
+    targetReady
+      ? floor
+      : stickyFloorRef.current != null && layers[stickyFloorRef.current]
+        ? stickyFloorRef.current
+        : floor
+
+  const shown = layers[paintFloor] ?? layers[floor] ?? null
+  const planVariant = shown?.variant ?? '2d'
+  const waiting = !shown && !failedFloors[floor]
+  const missing = !shown && Boolean(failedFloors[floor])
+  const has2d = Boolean(shown?.doc.variants?.['2d']?.imageUrl)
+  const has3d = Boolean(shown?.doc.variants?.['3d']?.imageUrl)
+  const canToggleVariant = has2d || has3d
+
+  const planAspect = useMemo(() => {
+    const w = shown?.width || 1024
+    const h = shown?.height || 499
+    return `${w} / ${h}`
+  }, [shown?.width, shown?.height])
+
+  const overlayAlign = useMemo(
+    () => getFloorPlanOverlayAlign(shown?.doc ?? null, planVariant),
+    [shown?.doc, planVariant],
+  )
 
   const unitsOnFloor = useMemo(() => {
-    const matched = units.filter((unit) => unitFloorNumber(unit) === floor)
+    const docFloor = shown?.floor ?? paintFloor
+    const matched = units.filter((unit) => unitFloorNumber(unit) === docFloor)
     const list = matched.length > 0 ? matched : units
     return [...list].sort((a, b) =>
       a.unit_number.localeCompare(b.unit_number, 'es', { numeric: true }),
     )
-  }, [units, floor])
+  }, [units, paintFloor, shown?.floor])
 
   const displaySlots = useMemo<DisplaySlot[]>(() => {
-    if (!planDoc?.zones?.length) return []
-    return [...planDoc.zones]
+    const zones = shown?.doc.zones
+    if (!zones?.length) return []
+    return [...zones]
       .sort((a, b) => a.order - b.order)
       .filter((zone) => zone.pointsPercent.trim())
       .map((zone) => ({
@@ -190,43 +285,97 @@ export function TourFloorPlan({
         points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
         unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
       }))
-  }, [planDoc, unitsOnFloor, overlayAlign])
+  }, [shown?.doc, unitsOnFloor, overlayAlign])
 
   const zoomOut = () =>
     setScale((value) => Math.max(ZOOM_MIN, Number((value - ZOOM_STEP).toFixed(2))))
   const zoomIn = () =>
     setScale((value) => Math.min(ZOOM_MAX, Number((value + ZOOM_STEP).toFixed(2))))
 
+  const switchVariant = (next: FloorPlanVariant) => {
+    const doc = layers[floor]?.doc ?? shown?.doc
+    if (!doc) return
+    const url = planDocImageUrl(doc, next)
+    if (!url) return
+    void preloadFloorPlanImage(url).then(() => {
+      upsertLayer({ floor, doc: { ...doc, floor }, variant: next, url })
+      setReadyFloors((prev) => ({ ...prev, [floor]: true }))
+    })
+  }
+
+  const handleImageError = (layerFloor: number, url: string) => {
+    const alt = alternateImageUrl(url)
+    const layer = layers[layerFloor]
+    if (alt && layer && layer.url === url) {
+      upsertLayer({ ...layer, url: alt })
+      void preloadFloorPlanImage(alt).then(() => {
+        setReadyFloors((prev) => ({ ...prev, [layerFloor]: true }))
+      })
+      return
+    }
+    setFailedFloors((prev) => ({ ...prev, [layerFloor]: true }))
+  }
+
+  const warmOnIntent = (item: number) => {
+    prefetchFloorPlans([item])
+    void ensureFloor(item)
+  }
+
+  // Montar todas las capas ya cargadas: el swap es visibility (sin remount).
+  const layerEntries = useMemo(
+    () => Object.values(layers).filter((layer): layer is FloorLayer => Boolean(layer?.url)),
+    [layers],
+  )
+
   return (
-    <div className="absolute inset-0 z-[18] flex bg-[#14110e]">
-      <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-2 sm:p-3">
+    <div className="absolute inset-0 z-[18] flex bg-[#14110e] pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]">
+      <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-1.5 sm:p-3 [@media(max-height:520px)]:p-1">
         <div
-          className="relative w-full max-h-full overflow-hidden rounded-xl bg-[#1a1714] ring-1 ring-white/10"
+          className="relative w-full max-h-full overflow-hidden rounded-xl bg-[#1a1714] ring-1 ring-white/10 [@media(max-height:520px)]:rounded-lg"
           style={{ aspectRatio: planAspect }}
         >
           <div
-            className="absolute inset-0 origin-center transition-transform duration-200 ease-out"
+            className="absolute inset-0 origin-center transition-transform duration-150 ease-out"
             style={{ transform: `scale(${scale})` }}
           >
-            {planImageUrl ? (
-              <Image
-                key={planImageUrl}
-                src={planImageUrl}
-                alt={`Plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)}`}
-                fill
-                priority
-                unoptimized={planImageUrl.startsWith('http')}
-                className="object-fill"
-                sizes="(max-width: 1024px) 100vw, 1100px"
-              />
-            ) : (
-              <div className="absolute inset-0 bg-[#1a1714]" />
-            )}
+            {layerEntries.map((layer) => {
+              const active = layer.floor === paintFloor
+              return (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={`floor-${layer.floor}`}
+                  src={layer.url}
+                  alt=""
+                  draggable={false}
+                  decoding="async"
+                  fetchPriority={active ? 'high' : 'low'}
+                  loading="eager"
+                  ref={(node) => {
+                    if (node?.complete && node.naturalWidth > 0) {
+                      setReadyFloors((prev) =>
+                        prev[layer.floor] ? prev : { ...prev, [layer.floor]: true },
+                      )
+                    }
+                  }}
+                  onLoad={() => setReadyFloors((prev) => ({ ...prev, [layer.floor]: true }))}
+                  onError={() => handleImageError(layer.floor, layer.url)}
+                  className={cn(
+                    'absolute inset-0 h-full w-full object-fill',
+                    active ? 'opacity-100' : 'opacity-0',
+                  )}
+                  style={{
+                    // Evita flash: capas inactivas no reciben hits pero siguen decodificadas.
+                    visibility: active ? 'visible' : 'hidden',
+                    pointerEvents: 'none',
+                  }}
+                />
+              )
+            })}
 
             <svg
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
-              className="absolute inset-0 h-full w-full"
+              className="absolute inset-0 h-full w-full touch-manipulation"
               role="img"
               aria-label="Departamentos del piso"
             >
@@ -238,7 +387,7 @@ export function TourFloorPlan({
                     key={slot.id}
                     points={slot.points}
                     className={cn(
-                      'cursor-pointer transition-[fill,stroke] duration-200',
+                      'cursor-pointer transition-[fill,stroke] duration-100',
                       !slot.unit && 'cursor-not-allowed',
                     )}
                     fill={
@@ -287,7 +436,7 @@ export function TourFloorPlan({
                       onSelectUnit(slot.unit, slot.id)
                     }}
                     className={cn(
-                      'absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-md bg-white px-2 py-1 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)] transition-[transform,box-shadow] duration-150',
+                      'absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)] transition-[transform,box-shadow] duration-100',
                       'sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1.5',
                       slot.unit
                         ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
@@ -322,7 +471,7 @@ export function TourFloorPlan({
                     key={item}
                     type="button"
                     disabled={!available}
-                    onClick={() => setPlanVariant(item)}
+                    onClick={() => switchVariant(item)}
                     className={cn(
                       'rounded-md px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors sm:px-3 sm:text-[12px]',
                       active
@@ -345,13 +494,14 @@ export function TourFloorPlan({
             </div>
           ) : null}
 
-          {planLoading ? (
+          {waiting ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/40 text-xs text-white/70">
               Cargando plano…
             </div>
-          ) : !planImageUrl ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/55 px-4 text-center text-xs text-white/70">
-              Todavía no hay plano para {floorPlanLevelLabel(floor)}
+          ) : null}
+          {missing ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/55 text-xs text-white/80">
+              No hay plano para este piso
             </div>
           ) : null}
         </div>
@@ -380,22 +530,28 @@ export function TourFloorPlan({
         </div>
       </div>
 
-      <div className="pointer-events-auto flex shrink-0 flex-col items-center justify-between gap-2 py-2 pr-2 sm:gap-2.5 sm:pr-3">
+      <div className="pointer-events-auto flex shrink-0 flex-col items-center justify-between gap-1.5 py-1.5 pr-1.5 sm:gap-2.5 sm:py-2 sm:pr-3 [@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:pr-1">
         <div className="flex min-h-0 flex-1 flex-col justify-center">
-          <div className="flex max-h-full flex-col gap-1 overflow-y-auto rounded-xl bg-white/92 p-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.18)] backdrop-blur-sm sm:gap-1.5 sm:p-2">
+          <div className="flex max-h-full flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-xl bg-white/92 p-1 shadow-[0_8px_24px_rgba(15,23,42,0.18)] backdrop-blur-sm sm:gap-1.5 sm:p-2 [@media(max-height:520px)]:rounded-lg [@media(max-height:520px)]:p-0.5">
             {FLOOR_PLAN_FLOORS.map((item) => {
               const active = item === floor
               const short = floorPlanLevelShort(item)
+              const warmed = Boolean(readyFloors[item] || layers[item])
               return (
                 <button
                   key={item}
                   type="button"
                   onClick={() => onFloorChange(item)}
+                  onMouseEnter={() => warmOnIntent(item)}
+                  onFocus={() => warmOnIntent(item)}
+                  onPointerDown={() => warmOnIntent(item)}
                   className={cn(
-                    'min-w-[2.35rem] rounded-lg px-2 py-1.5 text-[11px] font-semibold tracking-wide transition-colors sm:min-w-[2.6rem] sm:px-2.5 sm:py-2 sm:text-[12px]',
+                    'min-w-[2.1rem] rounded-lg px-1.5 py-1 text-[10px] font-semibold tracking-wide transition-colors sm:min-w-[2.6rem] sm:px-2.5 sm:py-2 sm:text-[12px]',
+                    '[@media(max-height:520px)]:min-w-[1.9rem] [@media(max-height:520px)]:px-1 [@media(max-height:520px)]:py-0.5 [@media(max-height:520px)]:text-[9px]',
                     active
                       ? 'bg-[#1a2744] text-white shadow-sm'
                       : 'bg-white text-[#3a4050] hover:bg-[#eef1f6]',
+                    !warmed && !active && 'opacity-80',
                   )}
                   aria-pressed={active}
                   aria-label={floorPlanLevelLabel(item)}

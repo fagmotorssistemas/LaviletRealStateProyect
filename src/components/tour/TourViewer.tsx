@@ -14,13 +14,16 @@ import {
   FileText,
   Images,
   Layers,
+  Heart,
+  Menu,
   Bookmark,
   PanelsTopLeft,
   Rotate3d,
   SwatchBook,
+  X,
 } from 'lucide-react'
+import Link from 'next/link'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
-import { TourPicker } from '@/components/tour/TourPicker'
 import { TourFichaDrawer } from '@/components/tour/TourFichaDrawer'
 import { TourFloorPlan } from '@/components/tour/TourFloorPlan'
 import { TourComparador } from '@/components/tour/TourComparador'
@@ -30,6 +33,7 @@ import { TourSaveUnitModal } from '@/components/tour/TourSaveUnitModal'
 import { TourTerminacionesPanel } from '@/components/tour/TourTerminacionesPanel'
 import { TourInfoRequestModal } from '@/components/tour/TourInfoRequestModal'
 import { TourFloorLocationPeek } from '@/components/tour/TourFloorLocationPeek'
+import { TourFavoritesPanel } from '@/components/tour/TourFavoritesPanel'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import {
@@ -63,7 +67,7 @@ import {
   writeUnitQueryParam,
 } from '@/lib/tour/unitDeepLink'
 import { FLOOR_PLAN_DEFAULT_FLOOR, FLOOR_PLAN_FLOORS, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
-import { prefetchFloorPlans } from '@/lib/tour/floorPlanClientCache'
+import { prefetchFloorPlans, warmFloorPlans } from '@/lib/tour/floorPlanClientCache'
 import type {
   TourLightMode,
   TourPlacedHotspot,
@@ -452,23 +456,27 @@ function shouldGoImmersive() {
   return shortestViewport() <= 720
 }
 
-function useShowroomImmersive(enabled: boolean) {
-  const [want, setWant] = useState(false)
+function isTouchShowroomDevice() {
+  if (typeof window === 'undefined') return false
+  const touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+  return touch && shortestViewport() <= 900
+}
+
+function useOrientationSync(onChange: () => void) {
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
 
   useEffect(() => {
-    if (!enabled) {
-      setWant(false)
-      return
-    }
+    const timers: number[] = []
     const sync = () => {
-      setWant(shouldGoImmersive())
+      onChangeRef.current()
     }
-    sync()
-    const timers = [0, 200, 500, 900].map((ms) => window.setTimeout(sync, ms))
     const onOrient = () => {
       sync()
       timers.push(window.setTimeout(sync, 200), window.setTimeout(sync, 700))
     }
+    sync()
+    timers.push(...[0, 200, 500, 900].map((ms) => window.setTimeout(sync, ms)))
     const landscapeMq = window.matchMedia('(orientation: landscape)')
     landscapeMq.addEventListener('change', sync)
     window.addEventListener('resize', sync)
@@ -483,9 +491,49 @@ function useShowroomImmersive(enabled: boolean) {
       window.visualViewport?.removeEventListener('resize', sync)
       window.screen?.orientation?.removeEventListener('change', onOrient)
     }
+  }, [])
+}
+
+function useShowroomImmersive(enabled: boolean) {
+  const [want, setWant] = useState(false)
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
+
+  useOrientationSync(() => {
+    if (!enabledRef.current) {
+      setWant(false)
+      return
+    }
+    setWant(shouldGoImmersive())
+  })
+
+  useEffect(() => {
+    if (!enabled) setWant(false)
+    else setWant(shouldGoImmersive())
   }, [enabled])
 
   return { want }
+}
+
+function useNeedLandscapeGate(enabled: boolean) {
+  const [need, setNeed] = useState(false)
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
+
+  useOrientationSync(() => {
+    if (!enabledRef.current) {
+      setNeed(false)
+      return
+    }
+    setNeed(isTouchShowroomDevice() && !isOsLandscape())
+  })
+
+  useEffect(() => {
+    if (!enabled) setNeed(false)
+    else setNeed(isTouchShowroomDevice() && !isOsLandscape())
+  }, [enabled])
+
+  return need
 }
 
 async function requestTourFullscreen(el: HTMLElement) {
@@ -500,6 +548,28 @@ async function requestTourFullscreen(el: HTMLElement) {
   }
 }
 
+async function lockTourLandscape(el: HTMLElement) {
+  await requestTourFullscreen(el)
+  try {
+    const orient = window.screen?.orientation as
+      | (ScreenOrientation & { lock?: (mode: string) => Promise<void> })
+      | undefined
+    if (typeof orient?.lock === 'function') {
+      await orient.lock('landscape')
+    }
+  } catch {
+    /* iOS / desktop without Orientation Lock API */
+  }
+}
+
+async function unlockTourOrientation() {
+  try {
+    window.screen?.orientation?.unlock?.()
+  } catch {
+    /* ignore */
+  }
+}
+
 async function leaveTourFullscreen() {
   const exit =
     document.exitFullscreen?.bind(document) ??
@@ -510,6 +580,7 @@ async function leaveTourFullscreen() {
   } catch {
     /* ignore */
   }
+  await unlockTourOrientation()
 }
 
 function capturePanoFrame(viewer: Viewer): string | null {
@@ -607,6 +678,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const viewerRef = useRef<Viewer | null>(null)
   const hold = useShowroomImmersive(true)
   const immersive = hold.want
+  const needLandscape = useNeedLandscapeGate(true)
   const tourRef = useRef<VirtualTourPlugin | null>(null)
   const targetWidthRef = useRef<TourWidth>(2048)
   const catalogWidthRef = useRef<TourWidth>(4096)
@@ -625,27 +697,34 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [room, setRoom] = useState(TOUR_HOME_SLUG)
   const [loading, setLoading] = useState(false)
   const [booting, setBooting] = useState(true)
+  const [bootError, setBootError] = useState<string | null>(null)
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
   const [fichaOpen, setFichaOpen] = useState(() => Boolean(readUnitQueryParam()))
   const [fichaExpanded, setFichaExpanded] = useState(() => Boolean(readUnitQueryParam()))
   const [saveUnitOpen, setSaveUnitOpen] = useState(false)
+  const [favoritesOpen, setFavoritesOpen] = useState(false)
+  const [mobilePanel, setMobilePanel] = useState<'nav' | 'modes' | null>(null)
   const [infoRequestOpen, setInfoRequestOpen] = useState(false)
   const [shellMode, setShellMode] = useState<'plan' | 'unit'>(() => {
     if (readUnitQueryParam()) return 'unit'
-    return embedded ? 'plan' : 'unit'
+    return 'plan'
   })
   const [planFloor, setPlanFloor] = useState(FLOOR_PLAN_DEFAULT_FLOOR)
 
   useEffect(() => {
-    if (!embedded) return
+    prefetchFloorPlans([...FLOOR_PLAN_FLOORS])
+    void warmFloorPlans([...FLOOR_PLAN_FLOORS], [planFloor])
+  }, [])
+
+  useEffect(() => {
     const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
     const neighbors = [FLOOR_PLAN_FLOORS[idx - 1], FLOOR_PLAN_FLOORS[idx + 1]].filter(
       (item): item is number => typeof item === 'number',
     )
-    prefetchFloorPlans([planFloor, ...neighbors])
-  }, [embedded, planFloor])
+    void warmFloorPlans([planFloor, ...neighbors], [planFloor])
+  }, [planFloor])
 
   const [terminacionesFocus, setTerminacionesFocus] = useState(false)
   const [finishCompareOpen, setFinishCompareOpen] = useState(false)
@@ -762,21 +841,38 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     catalogWidthRef.current = bootWidth
 
     const boot = async () => {
+      setBootError(null)
       const unitTypeSlug = getTourUnitTypeSlug()
       unitTypeSlugRef.current = unitTypeSlug
 
+      const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string) =>
+        Promise.race([
+          promise,
+          new Promise<T>((_, reject) => {
+            window.setTimeout(() => reject(new Error(`${label} tardó demasiado`)), ms)
+          }),
+        ])
+
       const [nextCatalog, nextUnits, dbScene, publicCat] = await Promise.all([
-        loadTourCatalog(unitTypeSlug),
-        loadTourUnits(unitTypeSlug),
-        loadTourNodes({
-          unitTypeSlug,
-          finishSlug: 'nogal',
-          light: 'dia',
-          preferredWidth: bootWidth,
-        }),
-        fetch('/api/tour/catalog', { cache: 'no-store' })
-          .then((res) => (res.ok ? (res.json() as Promise<TourPublicCatalog>) : null))
-          .catch(() => null),
+        withTimeout(loadTourCatalog(unitTypeSlug), 20000, 'Catálogo').catch(() => null),
+        withTimeout(loadTourUnits(unitTypeSlug), 20000, 'Unidades').catch(() => [] as TourUnitSummary[]),
+        withTimeout(
+          loadTourNodes({
+            unitTypeSlug,
+            finishSlug: 'nogal',
+            light: 'dia',
+            preferredWidth: bootWidth,
+          }),
+          20000,
+          'Escenas',
+        ).catch(() => ({ nodes: [] as VirtualTourNode[], startNodeId: undefined as string | undefined })),
+        withTimeout(
+          fetch('/api/tour/catalog', { cache: 'no-store' }).then((res) =>
+            res.ok ? (res.json() as Promise<TourPublicCatalog>) : null,
+          ),
+          20000,
+          'Catálogo público',
+        ).catch(() => null),
       ])
 
       if (cancelled) return
@@ -790,12 +886,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       }
 
       const startFinish =
-        publicCat?.finishes[0]?.slug ?? nextCatalog.finishes[0]?.slug ?? 'nogal'
+        publicCat?.finishes[0]?.slug ?? nextCatalog?.finishes[0]?.slug ?? 'nogal'
       const scene =
         dbScene.nodes.length > 0
           ? dbScene
           : nodesFromPublicCatalog(publicCat, bootWidth, startFinish, 'dia')
       if (scene.nodes.length === 0) {
+        if (!publicCat && !nextCatalog) {
+          setBootError('No se pudo conectar con Supabase. Revisá internet o reintentá.')
+        }
         setBooting(false)
         return
       }
@@ -805,7 +904,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       const startUrl = variantUrl(startNode, bootWidth) ?? String(startNode.panorama)
 
       setCatalog(nextCatalog)
-      setUnits(nextUnits)
+      setUnits(nextUnits ?? [])
       setNodes(scene.nodes)
       setFinish(startFinish)
       setLight('dia')
@@ -898,7 +997,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
     void boot().catch((error) => {
       console.error(error)
-      if (!cancelled) setBooting(false)
+      if (!cancelled) {
+        setBootError('No se pudo cargar el showroom. Revisá la conexión e intentá de nuevo.')
+        setBooting(false)
+      }
     })
 
     return () => {
@@ -1091,26 +1193,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     return displayUnits
   }, [selectedUnit, displayUnits])
 
-  const showPlanShell = embedded && shellMode === 'plan'
-  const showUnitChrome = !embedded || shellMode === 'unit'
-
-  const typologyOptions = useMemo(
-    () =>
-      (publicCatalog?.typologies ?? []).map((item) => ({
-        value: item.code,
-        label: `${item.code} · ${item.name}`,
-      })),
-    [publicCatalog],
-  )
-
-  const typologyMeta = useMemo(() => {
-    const sample = displayUnits[0]
-    if (!sample) return undefined
-    const parts: string[] = []
-    if (sample.area_total_m2 != null) parts.push(`${sample.area_total_m2} m²`)
-    if (sample.bedrooms != null) parts.push(`${sample.bedrooms} hab.`)
-    return parts.join(' · ') || undefined
-  }, [displayUnits])
+  const showPlanShell = shellMode === 'plan'
+  const showUnitChrome = shellMode === 'unit'
 
   const tourRooms = useMemo(() => {
     const fromCatalog = (currentTypology?.rooms ?? [])
@@ -1160,7 +1244,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const isPanoRoom = viewMode === 'tour'
   const isComparador = compareOpen
   const isFinishCompare = finishCompareOpen
-  const terminacionesUiOpen = (terminacionesFocus || isFinishCompare) && !immersive
+  const terminacionesUiOpen = terminacionesFocus || isFinishCompare
   const compareContentMode =
     viewMode === 'galeria' || viewMode === 'vistas' ? viewMode : 'tour'
   const syncCompareCameras =
@@ -1364,7 +1448,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const stillItems = isPlanosMode(viewMode)
     ? planoImages
     : viewMode === 'galeria'
-      ? fichaExpanded
+      ? fichaImages.length > 0
         ? fichaImages.map((item) => ({ id: item.id, label: item.label, url: item.url }))
         : galeriaImages
       : viewMode === 'vistas'
@@ -1553,7 +1637,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       document.documentElement.style.overflow = 'hidden'
       document.body.style.overflow = 'hidden'
       fitViewport()
-      void requestTourFullscreen(root).finally(fitViewport)
+      void lockTourLandscape(root).finally(fitViewport)
     } else {
       if (slot && root.parentElement !== slot) slot.appendChild(root)
       document.documentElement.classList.remove('tour-is-immersive')
@@ -1584,6 +1668,17 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       }
     }
   }, [immersive, embedded])
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root || !isTouchShowroomDevice()) return
+    if (!needLandscape && isOsLandscape()) {
+      void lockTourLandscape(root)
+    }
+    return () => {
+      void unlockTourOrientation()
+    }
+  }, [needLandscape, immersive])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -1703,25 +1798,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (!viewer || booting || publicCatalog || activePanoUrl) return
     if (finish) void applyCombo(finish, light)
   }, [booting, finish, light, applyCombo, activePanoUrl, publicCatalog])
-
-  const onTypologyChange = (code: string) => {
-    walkingRef.current = false
-    walkToRef.current = null
-    lookPromiseRef.current = null
-    setSelectedTypology(code)
-    setFichaOpen(false)
-    setRoom(homeSlug)
-    setVistaIndex(0)
-    setGaleriaIndex(0)
-    setPlanoIndex(0)
-    setTerminacionesFocus(false)
-    setCompareOpen(false)
-    setCompareUnitBId(null)
-    setComparePreviewIndex(0)
-    setCompareSplit(50)
-    currentUrlRef.current = ''
-    appliedPanoKeyRef.current = ''
-  }
 
   const sceneFinishes = publicCatalog?.finishes?.length
     ? publicCatalog.finishes
@@ -2032,6 +2108,40 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         </p>
       ) : null}
 
+      {needLandscape ? (
+        <div className="pointer-events-auto absolute inset-x-0 top-0 z-[125] flex justify-center px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          <button
+            type="button"
+            className="tour-glass max-w-sm px-4 py-3 text-[#f7f3ee]"
+            onClick={() => {
+              const root = rootRef.current
+              if (root) void lockTourLandscape(root)
+            }}
+          >
+            <p className="text-[11px] font-medium tracking-[0.22em] text-[#BDA27E] uppercase">
+              Mejor en horizontal
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-white/70">
+              Girá el celular · Tocá para pantalla completa
+            </p>
+          </button>
+        </div>
+      ) : null}
+
+      {bootError ? (
+        <div className="absolute inset-0 z-[140] flex flex-col items-center justify-center bg-[#111] px-6 text-center">
+          <p className="text-[11px] tracking-[0.28em] text-[#BDA27E] uppercase">Showroom</p>
+          <p className="mt-3 max-w-sm text-sm text-white/70">{bootError}</p>
+          <button
+            type="button"
+            className="tour-glass mt-5 px-4 py-2 text-[11px] font-semibold tracking-[0.16em] text-[#f7f3ee] uppercase"
+            onClick={() => window.location.reload()}
+          >
+            Reintentar
+          </button>
+        </div>
+      ) : null}
+
       {gyroHint && !immersive ? (
         <p className="tour-exit-hint" role="status">
           {gyroHint}
@@ -2052,7 +2162,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       />
 
       {showPlanShell ? (
-        <TourFloorPlan
+        <>
+          <TourFloorPlan
           units={allUnits}
           floor={planFloor}
           onFloorChange={(next) => {
@@ -2076,133 +2187,318 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             })
           }}
         />
+        </>
+      ) : null}
+
+      {/* Modos siempre visible (fuera del chrome): Galería, Vistas, Planos, Tour, etc. */}
+      {!booting ? (
+        <div className="pointer-events-auto absolute top-0 right-0 z-[130] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))]">
+          <button
+            type="button"
+            onClick={() => setMobilePanel((value) => (value === 'modes' ? null : 'modes'))}
+            className="tour-glass inline-flex h-11 min-w-[7.5rem] items-center justify-center gap-1.5 border border-[#BDA27E]/50 px-3.5 text-[10px] font-semibold tracking-[0.16em] text-[#f7f3ee] uppercase shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+            aria-expanded={mobilePanel === 'modes'}
+            aria-haspopup="menu"
+            aria-label="Abrir modos de vista"
+          >
+            {terminacionesFocus || isFinishCompare ? (
+              <SwatchBook size={14} strokeWidth={1.75} className="shrink-0" />
+            ) : isComparador ? (
+              <Columns2 size={14} strokeWidth={1.75} className="shrink-0" />
+            ) : showPlanShell ? (
+              <Images size={14} strokeWidth={1.75} className="shrink-0" />
+            ) : viewMode === 'tour' ? (
+              <Rotate3d size={14} strokeWidth={1.75} className="shrink-0" />
+            ) : isPlanosMode(viewMode) ? (
+              <Layers size={14} strokeWidth={1.75} className="shrink-0" />
+            ) : viewMode === 'vistas' ? (
+              <PanelsTopLeft size={14} strokeWidth={1.75} className="shrink-0" />
+            ) : (
+              <Images size={14} strokeWidth={1.75} className="shrink-0" />
+            )}
+            <span className="min-w-0 truncate">
+              {terminacionesFocus || isFinishCompare
+                ? 'Terminaciones'
+                : isComparador
+                  ? 'Comparador'
+                  : showPlanShell
+                    ? 'Modos'
+                    : viewMode === 'tour'
+                      ? 'Tour 360°'
+                      : viewMode === 'planos-3d'
+                        ? 'Plano 3D'
+                        : viewMode === 'planos-2d'
+                          ? 'Plano 2D'
+                          : viewMode === 'vistas'
+                            ? 'Vistas'
+                            : viewMode === 'galeria'
+                              ? 'Galería'
+                              : 'Modos'}
+            </span>
+            <ChevronLeft
+              size={12}
+              strokeWidth={2}
+              className={cn(
+                'shrink-0 -rotate-90 opacity-70 transition-transform',
+                mobilePanel === 'modes' && 'rotate-90',
+              )}
+            />
+          </button>
+          {mobilePanel === 'modes' ? (
+            <div
+              role="menu"
+              className="tour-glass absolute top-[calc(100%+6px)] right-2 z-[121] flex max-h-[min(70dvh,24rem)] w-[11rem] flex-col gap-1 overflow-y-auto p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+            >
+              <ModeButton
+                active={viewMode === 'galeria' && showUnitChrome && !terminacionesFocus && !isComparador}
+                icon={<Images size={14} strokeWidth={1.75} />}
+                onClick={() => {
+                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                    setSelectedTypology(publicCatalog.typologies[0].code)
+                  }
+                  setShellMode('unit')
+                  setFichaOpen(false)
+                  setTerminacionesFocus(false)
+                  setFinishCompareOpen(false)
+                  setCompareOpen(false)
+                  setViewMode('galeria')
+                  setGaleriaIndex(0)
+                  setMobilePanel(null)
+                }}
+              >
+                Galería
+              </ModeButton>
+              <ModeButton
+                active={viewMode === 'vistas' && showUnitChrome && !terminacionesFocus && !isComparador}
+                icon={<PanelsTopLeft size={14} strokeWidth={1.75} />}
+                onClick={() => {
+                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                    setSelectedTypology(publicCatalog.typologies[0].code)
+                  }
+                  setShellMode('unit')
+                  setFichaOpen(false)
+                  setTerminacionesFocus(false)
+                  setFinishCompareOpen(false)
+                  setCompareOpen(false)
+                  setViewMode('vistas')
+                  setMobilePanel(null)
+                }}
+              >
+                Vistas
+              </ModeButton>
+              <ModeButton
+                active={viewMode === 'planos-3d' && showUnitChrome && !terminacionesFocus && !isComparador}
+                icon={<Layers size={14} strokeWidth={1.75} />}
+                onClick={() => {
+                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                    setSelectedTypology(publicCatalog.typologies[0].code)
+                  }
+                  setShellMode('unit')
+                  setFichaOpen(false)
+                  setTerminacionesFocus(false)
+                  setFinishCompareOpen(false)
+                  setCompareOpen(false)
+                  setViewMode('planos-3d')
+                  setMobilePanel(null)
+                }}
+              >
+                Plano 3D
+              </ModeButton>
+              <ModeButton
+                active={viewMode === 'planos-2d' && showUnitChrome && !terminacionesFocus && !isComparador}
+                icon={<Layers size={14} strokeWidth={1.75} />}
+                onClick={() => {
+                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                    setSelectedTypology(publicCatalog.typologies[0].code)
+                  }
+                  setShellMode('unit')
+                  setFichaOpen(false)
+                  setTerminacionesFocus(false)
+                  setFinishCompareOpen(false)
+                  setCompareOpen(false)
+                  setViewMode('planos-2d')
+                  setMobilePanel(null)
+                }}
+              >
+                Plano 2D
+              </ModeButton>
+              <ModeButton
+                active={viewMode === 'tour' && showUnitChrome && !terminacionesFocus && !isComparador}
+                icon={<Rotate3d size={14} strokeWidth={1.75} />}
+                onClick={() => {
+                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                    setSelectedTypology(publicCatalog.typologies[0].code)
+                  }
+                  setShellMode('unit')
+                  setFichaOpen(false)
+                  setViewMode('tour')
+                  setRoom(homeSlug)
+                  setTerminacionesFocus(false)
+                  setFinishCompareOpen(false)
+                  setCompareOpen(false)
+                  setMobilePanel(null)
+                }}
+              >
+                Tour 360°
+              </ModeButton>
+              <ModeButton
+                active={terminacionesFocus || isFinishCompare}
+                icon={<SwatchBook size={14} strokeWidth={1.75} />}
+                onClick={() => {
+                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                    setSelectedTypology(publicCatalog.typologies[0].code)
+                  }
+                  setShellMode('unit')
+                  setFichaOpen(false)
+                  setFichaExpanded(false)
+                  setCompareOpen(false)
+                  setViewMode('tour')
+                  setTerminacionesFocus(true)
+                  setMobilePanel(null)
+                }}
+              >
+                Terminaciones
+              </ModeButton>
+              <ModeButton
+                active={isComparador}
+                icon={<Columns2 size={14} strokeWidth={1.75} />}
+                onClick={() => {
+                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                    setSelectedTypology(publicCatalog.typologies[0].code)
+                  }
+                  setShellMode('unit')
+                  setFichaOpen(false)
+                  setTerminacionesFocus(false)
+                  setFinishCompareOpen(false)
+                  setCompareOpen(true)
+                  setComparePreviewIndex(0)
+                  setCompareSplit(50)
+                  if (isPlanosMode(viewMode)) setViewMode('tour')
+                  setMobilePanel(null)
+                }}
+              >
+                Comparador
+              </ModeButton>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       <div
         className={cn(
           'tour-chrome pointer-events-none absolute inset-0 z-20',
           immersive && 'is-immersive',
-          showPlanShell && 'invisible pointer-events-none',
         )}
       >
-        <div className="pointer-events-auto absolute top-0 left-0 flex flex-col items-start gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:gap-2.5 sm:p-3.5">
-          {embedded && showUnitChrome ? (
-            <button
-              type="button"
-              onClick={() => {
-                setShellMode('plan')
-                setFichaOpen(false)
-                setTerminacionesFocus(false)
-                setCompareOpen(false)
-                setFinishCompareOpen(false)
-              }}
-              className="tour-glass inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:px-3 sm:py-2 sm:text-[11px]"
-            >
-              <Layers size={13} strokeWidth={1.75} />
-              Volver a los pisos
-            </button>
-          ) : null}
-          {showUnitChrome && !isComparador && !terminacionesUiOpen ? (
-            <>
-          <TourPicker
-            typologies={typologyOptions}
-            typology={selectedTypology}
-            onTypologyChange={onTypologyChange}
-            meta={typologyMeta}
-          />
-              {selectedTypology && embedded ? (
-            <button
-              type="button"
-              onClick={() => {
-                    setFichaExpanded(false)
-                    setFichaOpen(true)
-                  }}
-                  className="tour-glass inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:px-3 sm:py-2 sm:text-[11px]"
-                >
-                  <FileText size={13} strokeWidth={1.75} />
+        <div className="pointer-events-auto absolute top-0 left-0 z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5">
+          {/* Desktop: botones sueltos */}
+          <div className="tour-desktop-nav">
+            {!embedded ? (
+              <Link
+                href="/inicio"
+                className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
+                aria-label="Salir del showroom"
+              >
+                <X size={13} strokeWidth={1.75} className="shrink-0" />
+                Salir
+              </Link>
+            ) : null}
+            {showUnitChrome ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setShellMode('plan')
+                  setFichaOpen(false)
+                  setTerminacionesFocus(false)
+                  setCompareOpen(false)
+                  setFinishCompareOpen(false)
+                }}
+                className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
+              >
+                <Layers size={13} strokeWidth={1.75} className="shrink-0" />
+                Volver a los pisos
+              </button>
+            ) : null}
+            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setFichaExpanded(false)
+                  setFichaOpen(true)
+                }}
+                className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
+              >
+                <FileText size={13} strokeWidth={1.75} className="shrink-0" />
+                <span className="min-w-0 truncate">
                   Ficha técnica
                   {selectedUnit ? ` · ${selectedUnit.unit_number}` : ''}
-            </button>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-        {showUnitChrome && !isComparador && !terminacionesUiOpen ? (
-        <div className="pointer-events-auto absolute top-0 right-0 z-[36] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:p-3.5">
-          <div className="flex w-[8.25rem] flex-col gap-1.5 sm:w-[9.25rem] sm:gap-2">
-            <ModeButton
-              active={viewMode === 'galeria'}
-              icon={<Images size={14} strokeWidth={1.75} />}
-              onClick={() => {
-                setTerminacionesFocus(false)
-                setFinishCompareOpen(false)
-                setViewMode('galeria')
-              }}
-            >
-              Galería
-            </ModeButton>
-            <ModeButton
-              active={viewMode === 'vistas'}
-              icon={<PanelsTopLeft size={14} strokeWidth={1.75} />}
-              onClick={() => {
-                setTerminacionesFocus(false)
-                setFinishCompareOpen(false)
-                setViewMode('vistas')
-              }}
-            >
-              Vistas
-            </ModeButton>
-            <PlanosModePicker
-              viewMode={viewMode}
-              onSelect={(mode) => {
-                setTerminacionesFocus(false)
-                setFinishCompareOpen(false)
-                setCompareOpen(false)
-                setViewMode(mode)
-              }}
-            />
-            <ModeButton
-              active={viewMode === 'tour'}
-              icon={<Rotate3d size={14} strokeWidth={1.75} />}
-              onClick={() => {
-                setViewMode('tour')
-                setRoom(homeSlug)
-                setTerminacionesFocus(false)
-                setFinishCompareOpen(false)
-              }}
-            >
-              Tour 360°
-            </ModeButton>
-            <ModeButton
-              active={terminacionesFocus || isFinishCompare}
-              icon={<SwatchBook size={14} strokeWidth={1.75} />}
-              onClick={() => {
-                setFichaOpen(false)
-                setFichaExpanded(false)
-                setCompareOpen(false)
-                setViewMode('tour')
-                setTerminacionesFocus(true)
-              }}
-            >
-              Terminaciones
-            </ModeButton>
-            <ModeButton
-              active={isComparador}
-              icon={<Columns2 size={14} strokeWidth={1.75} />}
-              onClick={() => {
-                setTerminacionesFocus(false)
-                setFinishCompareOpen(false)
-                setCompareOpen(true)
-                setComparePreviewIndex(0)
-                setCompareSplit(50)
-                if (isPlanosMode(viewMode)) setViewMode('tour')
-              }}
-            >
-              Comparador
-            </ModeButton>
+                </span>
+              </button>
+            ) : null}
+          </div>
+
+          {/* Mobile / landscape: Menú agrupado */}
+          <div className="tour-mobile-nav">
+            {!embedded ? (
+              <Link
+                href="/inicio"
+                className="tour-glass mb-2 inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase"
+                aria-label="Salir del showroom"
+              >
+                <X size={13} strokeWidth={1.75} className="shrink-0" />
+                Salir
+              </Link>
+            ) : null}
+            {showUnitChrome ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMobilePanel((value) => (value === 'nav' ? null : 'nav'))
+                  }
+                  className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase"
+                  aria-expanded={mobilePanel === 'nav'}
+                >
+                  <Menu size={13} strokeWidth={1.75} className="shrink-0" />
+                  Menú
+                </button>
+                {mobilePanel === 'nav' ? (
+                  <div className="tour-glass absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShellMode('plan')
+                        setFichaOpen(false)
+                        setTerminacionesFocus(false)
+                        setCompareOpen(false)
+                        setFinishCompareOpen(false)
+                        setMobilePanel(null)
+                      }}
+                      className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
+                    >
+                      <Layers size={13} strokeWidth={1.75} />
+                      Pisos
+                    </button>
+                    {selectedTypology ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFichaExpanded(false)
+                          setFichaOpen(true)
+                          setMobilePanel(null)
+                        }}
+                        className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
+                      >
+                        <FileText size={13} strokeWidth={1.75} />
+                        Ficha
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
           </div>
         </div>
-        ) : null}
 
         {showUnitChrome ? (
           <TourTerminacionesPanel
@@ -2289,20 +2585,28 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         ) : null}
               </div>
 
-      {!immersive && showUnitChrome ? (
+      {showUnitChrome ? (
         <div className="absolute right-[max(0.75rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-2">
-                  <button
-                    type="button"
+          <button
+            type="button"
+            onClick={() => setFavoritesOpen(true)}
+            className="tour-glass inline-flex h-11 w-11 shrink-0 items-center justify-center text-[#f7f3ee]"
+            aria-label="Ver favoritos"
+            title="Favoritos"
+          >
+            <Heart size={16} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setSaveUnitOpen(true)
             }}
-            className="tour-glass inline-flex h-11 items-center gap-2 rounded-full px-3.5 text-[11px] font-semibold tracking-[0.1em] text-[#f7f3ee] uppercase"
+            className="tour-glass inline-flex h-11 w-11 shrink-0 items-center justify-center text-[#f7f3ee]"
             aria-label="Guardar departamento"
             title="Guardar departamento"
           >
-            <Bookmark size={15} strokeWidth={2} />
-            <span className="hidden sm:inline">Guardar</span>
-                  </button>
+            <Bookmark size={16} strokeWidth={2} />
+          </button>
           {SITE.whatsapp ? (
             <a
               href={tourWhatsAppHref(
@@ -2318,7 +2622,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               )!}
               target="_blank"
               rel="noopener noreferrer"
-              className="tour-whatsapp-btn tour-glass"
+              className="tour-glass inline-flex h-11 w-11 shrink-0 items-center justify-center text-[#f7f3ee]"
               aria-label="Consultar por WhatsApp"
               title="Consultar por WhatsApp"
               onClick={() => {
@@ -2340,12 +2644,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           {selectedUnit ? (
             <TourFloorLocationPeek unit={selectedUnit} units={allUnits} />
           ) : null}
-            </div>
+        </div>
       ) : null}
 
       {embedded || showUnitChrome ? (
         <TourSaveUnitModal
-          open={saveUnitOpen && !immersive}
+          open={saveUnitOpen}
           contained={embedded && !immersive}
           onClose={() => setSaveUnitOpen(false)}
           onIdentified={() => tracking.markIdentified()}
@@ -2355,26 +2659,60 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             unitId: selectedUnit?.id ?? null,
             unitNumber: selectedUnit?.unit_number ?? null,
             roomLabel: roomName,
+            floor: selectedUnit?.floor ?? null,
             finish,
             light,
           }}
         />
       ) : null}
 
-      {embedded ? (
+      {showUnitChrome || showPlanShell ? (
+        <TourFavoritesPanel
+          open={favoritesOpen}
+          contained={embedded && !immersive}
+          onClose={() => setFavoritesOpen(false)}
+          onOpenUnit={(favorite) => {
+            const match =
+              allUnits.find((item) => item.id === favorite.unitId) ??
+              findUnitByNumber(allUnits, favorite.unitNumber)
+            if (!match) return
+            setSelectedUnitId(match.id)
+            if (match.typology_code || favorite.typologyCode) {
+              setSelectedTypology(match.typology_code || favorite.typologyCode || selectedTypology)
+            }
+            const floor = unitFloorNumber(match)
+            if (floor != null) setPlanFloor(floor)
+            setShellMode('unit')
+            setViewMode('galeria')
+            setFichaExpanded(true)
+            setFichaOpen(true)
+            writeUnitQueryParam(match.unit_number)
+          }}
+        />
+      ) : null}
+
+      {showPlanShell || showUnitChrome ? (
         <TourFichaDrawer
-          open={fichaOpen && !immersive}
+          open={fichaOpen}
           onClose={() => {
             setFichaOpen(false)
             setFichaExpanded(false)
+            setSelectedUnitId(null)
+            writeUnitQueryParam(null)
           }}
-          contained
+          contained={embedded && !immersive}
           expanded={fichaExpanded}
           typologyCode={selectedTypology}
           typologyName={currentTypology?.name}
           units={fichaUnits}
+          suggestionUnits={allUnits}
           images={fichaImages}
           initialUnitId={selectedUnitId}
+          onSelectUnit={(unit) => {
+            setSelectedUnitId(unit.id)
+            if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            writeUnitQueryParam(unit.unit_number)
+          }}
           onVerFicha={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
@@ -2393,6 +2731,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           onTour360={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            setFichaOpen(false)
             setFichaExpanded(false)
             setShellMode('unit')
             setViewMode('tour')
@@ -2403,21 +2742,40 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             if (viewMode === 'galeria') setGaleriaIndex(index)
           }}
           onBack={() => {
+            if (fichaExpanded) {
+              setFichaExpanded(false)
+              return
+            }
             setFichaOpen(false)
             setFichaExpanded(false)
-            setShellMode('plan')
-            setViewMode('tour')
+            setSelectedUnitId(null)
+            writeUnitQueryParam(null)
+            if (shellMode !== 'plan') {
+              setShellMode('plan')
+              setViewMode('tour')
+            }
           }}
           onRequestInfo={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            const floor = unitFloorNumber(unit)
+            if (floor != null) setPlanFloor(floor)
+            setFichaOpen(false)
+            setFichaExpanded(false)
+            setTerminacionesFocus(false)
+            setCompareOpen(false)
+            setFinishCompareOpen(false)
+            setShellMode('unit')
+            setViewMode('galeria')
+            setGaleriaIndex(0)
             setInfoRequestOpen(true)
+            writeUnitQueryParam(unit.unit_number)
           }}
         />
       ) : null}
 
       <TourInfoRequestModal
-        open={infoRequestOpen && !immersive}
+        open={infoRequestOpen}
         contained={embedded && !immersive}
         onClose={() => setInfoRequestOpen(false)}
         onIdentified={() => tracking.markIdentified()}

@@ -14,8 +14,10 @@ const MOTIVOS = [
   { value: 'otro', label: 'Otro' },
 ] as const
 
+const labelClass = 'text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/55 uppercase'
+
 const fieldClass =
-  'h-11 w-full rounded-full border border-[#2B1A18]/12 bg-white px-4 text-[13px] text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 focus:border-[#BDA27E]'
+  'mt-1.5 h-11 w-full border border-[#2B1A18]/12 bg-white px-3.5 text-[13px] text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 transition-colors focus:border-[#BDA27E] focus:bg-[#f7f3ee]/50'
 
 type TourInfoRequestModalProps = {
   open: boolean
@@ -132,12 +134,12 @@ export function TourInfoRequestModal({
       <button
         type="button"
         aria-label="Cerrar"
-        className="absolute inset-0 bg-[#2B1A18]/40"
+        className="absolute inset-0 bg-[#2B1A18]/45 backdrop-blur-[2px]"
         onClick={onClose}
       />
       <form
         onSubmit={(event) => void handleSubmit(event)}
-        className="relative z-10 m-3 flex max-h-[min(92dvh,720px)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(43,26,24,0.22)] sm:m-4"
+        className="relative z-10 m-3 flex max-h-[min(92dvh,720px)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-[#f7f3ee] shadow-[0_24px_60px_rgba(43,26,24,0.28)] ring-1 ring-[#2B1A18]/10 sm:m-4"
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#2B1A18]/8 px-5 py-4">
           <Image
@@ -151,49 +153,65 @@ export function TourInfoRequestModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f3f4f6] text-[#1a2744]"
+            className="flex h-9 w-9 items-center justify-center text-[#2B1A18]/55 transition-colors hover:bg-[#2B1A18]/6 hover:text-[#2B1A18]"
             aria-label="Cerrar formulario"
           >
-            <X size={18} strokeWidth={2} />
+            <X size={18} strokeWidth={1.75} />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <h2 className="text-[1.35rem] font-bold tracking-tight text-[#1a2744]">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <p className="text-[11px] font-medium tracking-[0.28em] text-[#BDA27E] uppercase">
+            Showroom
+          </p>
+          <h2 className="mt-2 font-display text-[1.65rem] leading-tight font-semibold tracking-tight text-[#2B1A18]">
             Solicitar información
           </h2>
-          {subtitle ? <p className="mt-1 text-sm text-[#6b7280]">{subtitle}</p> : null}
+          {subtitle ? (
+            <p className="mt-2 text-sm leading-relaxed text-[#2B1A18]/55">{subtitle}</p>
+          ) : null}
 
-          <div className="mt-5 space-y-3">
+          <div className="mt-6 space-y-3.5">
             <label className="block">
-              <span className="sr-only">Nombre</span>
-              <input name="name" required autoComplete="name" placeholder="Nombre" className={fieldClass} />
+              <span className={labelClass}>Nombre</span>
+              <input
+                name="name"
+                required
+                autoComplete="name"
+                placeholder="Tu nombre"
+                className={fieldClass}
+              />
             </label>
             <label className="block">
-              <span className="sr-only">Email</span>
+              <span className={labelClass}>Email</span>
               <input
                 name="email"
                 type="email"
                 required
                 autoComplete="email"
-                placeholder="Email"
+                placeholder="tu@email.com"
                 className={fieldClass}
               />
             </label>
             <label className="block">
-              <span className="sr-only">Teléfono</span>
+              <span className={labelClass}>Teléfono</span>
               <input
                 name="phone"
                 type="tel"
                 required
                 autoComplete="tel"
-                placeholder="Teléfono"
+                placeholder="099 000 0000"
                 className={fieldClass}
               />
             </label>
             <label className="block">
-              <span className="sr-only">Motivo de contacto</span>
-              <select name="motivo" required defaultValue="informacion" className={cn(fieldClass, 'pr-10')}>
+              <span className={labelClass}>Motivo de contacto</span>
+              <select
+                name="motivo"
+                required
+                defaultValue="informacion"
+                className={cn(fieldClass, 'pr-10')}
+              >
                 {MOTIVOS.map((item) => (
                   <option key={item.value} value={item.value}>
                     {item.label}
@@ -202,36 +220,41 @@ export function TourInfoRequestModal({
               </select>
             </label>
             <label className="block">
-              <span className="sr-only">Mensaje</span>
+              <span className={labelClass}>Mensaje</span>
               <textarea
                 name="mensaje"
                 rows={4}
-                placeholder="Mensaje"
-                className="w-full resize-none rounded-2xl border border-[#2B1A18]/12 bg-white px-4 py-3 text-[13px] text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 focus:border-[#BDA27E]"
+                placeholder="Contanos qué necesitás o cuándo te gustaría visitar"
+                className="mt-1.5 w-full resize-none border border-[#2B1A18]/12 bg-white px-3.5 py-3 text-[13px] text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 transition-colors focus:border-[#BDA27E] focus:bg-[#f7f3ee]/50"
               />
             </label>
           </div>
 
-          <label className="mt-4 flex items-start gap-2.5 text-[12px] leading-snug text-[#555850]">
+          <label className="mt-5 flex items-start gap-2.5 text-[12px] leading-snug text-[#2B1A18]/60">
             <input
               name="consent"
               type="checkbox"
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#2B1A18]/25 text-[#1a2744]"
+              className="mt-0.5 h-4 w-4 shrink-0 border-[#2B1A18]/25 accent-[#BDA27E]"
             />
             <span>
               Leí y acepto la{' '}
-              <a href="/privacidad" target="_blank" rel="noopener noreferrer" className="underline">
+              <a
+                href="/privacidad"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-[#BDA27E]/60 underline-offset-2 hover:text-[#2B1A18]"
+              >
                 Política de privacidad
               </a>
             </span>
           </label>
         </div>
 
-        <div className="shrink-0 border-t border-[#2B1A18]/8 p-4">
+        <div className="shrink-0 border-t border-[#2B1A18]/8 bg-[#f7f3ee] p-4">
           <button
             type="submit"
             disabled={pending}
-            className="flex h-11 w-full items-center justify-center rounded-full bg-[#1a2744] text-[12px] font-semibold tracking-[0.14em] text-white uppercase disabled:opacity-60"
+            className="flex h-11 w-full items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
           >
             {pending ? 'Enviando…' : 'Enviar'}
           </button>

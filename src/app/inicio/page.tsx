@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
 import { FullLanding } from '@/components/marketing/FullLanding'
@@ -16,11 +17,14 @@ export default async function InicioPage({
   searchParams: Promise<{ unidad?: string }>
 }) {
   const params = await searchParams
-  const unitDeepLink = Boolean(params.unidad?.trim())
+  const unit = params.unidad?.trim()
+  if (unit) {
+    redirect(`/tour?unidad=${encodeURIComponent(unit)}`)
+  }
 
   return (
     <MarketingShell>
-      <FullLanding unitDeepLink={unitDeepLink} />
+      <FullLanding />
     </MarketingShell>
   )
 }

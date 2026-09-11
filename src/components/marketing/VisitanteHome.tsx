@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { Menu, X } from 'lucide-react'
-import { TourSafeArea } from '@/components/tour/TourSafeArea'
 import { useAuth } from '@/contexts/AuthContext'
 import { HOME_TABS, isHomeTab, type HomeTabId } from '@/lib/marketing/homeTabs'
 import { cn } from '@/lib/utils'
@@ -128,18 +128,18 @@ export function VisitanteHome() {
       </header>
 
       <section className="bg-[#f7f3ee] pt-16">
-        <div className="mx-auto max-w-[1400px] px-5 pt-8 pb-5 sm:px-8 lg:px-12">
+        <div className="mx-auto max-w-[1400px] px-5 pt-8 pb-10 sm:px-8 lg:px-12">
           <p className="text-[11px] font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Showroom virtual</p>
           <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Recorre el showroom en 360°</h1>
           <p className="mt-3 max-w-2xl text-sm text-[#2B1A18]/65 sm:text-base">
-            Entra a las tipologías, cambia de ambiente y quédate donde más te interese. Abajo tienes el
-            resto de la información.
+            Entrá a las tipologías y los pisos en pantalla completa. Abajo tenés el resto de la información.
           </p>
-        </div>
-        <div className="mx-auto max-w-[1400px] px-5 pb-10 sm:px-8 lg:px-12">
-          <div className="h-[min(78vh,760px)] min-h-[420px] overflow-hidden rounded-2xl bg-black shadow-sm ring-1 ring-[#2B1A18]/8">
-            <TourSafeArea embedded />
-          </div>
+          <Link
+            href="/tour"
+            className="mt-6 inline-flex h-12 items-center rounded-lg bg-[#2B1A18] px-6 text-[11px] font-semibold tracking-[0.16em] text-white uppercase transition-colors hover:bg-[#3d2a24]"
+          >
+            Abrir showroom 360°
+          </Link>
         </div>
       </section>
 

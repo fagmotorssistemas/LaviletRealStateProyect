@@ -6,8 +6,8 @@ import { FLOOR_PLAN_FLOORS, isFloorPlanLevel } from '@/lib/tour/floorPlanHotspot
 export const runtime = 'nodejs'
 
 const CACHE_HEADERS = {
-  // Planos cambian poco; stale-while-revalidate mantiene el showroom rápido.
-  'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=600',
+  // Cache corto: el cliente precarga en memoria; no hace falta no-store.
+  'Cache-Control': 'public, max-age=30, s-maxage=120, stale-while-revalidate=300',
 }
 
 /** Lectura pública para el showroom (sin sesión CRM). */

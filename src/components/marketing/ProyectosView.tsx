@@ -140,7 +140,7 @@ export function ProyectosView() {
               </motion.p>
               <motion.div variants={fadeUp} className="mt-8 flex flex-wrap gap-3">
                 <Link
-                  href="/"
+                  href="/tour"
                   className="inline-flex h-11 items-center rounded-lg bg-[#2B1A18] px-5 text-[11px] font-semibold tracking-[0.16em] text-white uppercase transition-colors hover:bg-[#3d2a24]"
                 >
                   Ver showroom 360°

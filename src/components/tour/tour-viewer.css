@@ -386,10 +386,42 @@
   visibility: visible !important;
 }
 
+/* Ya no ocultamos el chrome en immersive: en móvil landscape se necesitan los botones. */
 .tour-chrome.is-immersive {
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.tour-desktop-modes {
+  display: none !important;
+}
+
+/* Siempre el botón agrupado (Galería / Vistas / Planos / Tour / etc.) */
+.tour-mobile-modes {
+  display: block !important;
+  position: relative;
+}
+
+.tour-desktop-nav {
+  display: none;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tour-mobile-nav {
+  display: block;
+  position: relative;
+}
+
+/* Desktop alto: nav izquierda suelta. Celular / landscape → Menú. */
+@media (min-width: 640px) and (min-height: 561px) {
+  .tour-desktop-nav {
+    display: flex;
+  }
+
+  .tour-mobile-nav {
+    display: none;
+  }
 }
 
 .tour-vignette.is-immersive {
@@ -431,6 +463,51 @@
 .tour-exit-hint-top {
   top: max(0.7rem, env(safe-area-inset-top));
   bottom: auto;
+}
+
+/* Ficha: scroll táctil confiable dentro del panel (móvil / landscape). */
+.tour-ficha-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* En celular / landscape bajo: sin hero de imágenes (evita solapar botones). */
+.tour-ficha-media {
+  display: block;
+}
+
+.tour-ficha-chrome-mobile {
+  display: none;
+}
+
+.tour-ficha-gallery-grid {
+  display: block;
+}
+
+@media (max-width: 639px), (max-height: 560px) {
+  .tour-ficha-media {
+    display: none !important;
+  }
+
+  .tour-ficha-chrome-mobile {
+    display: flex !important;
+  }
+
+  .tour-ficha-gallery-grid {
+    display: none !important;
+  }
+}
+
+@container tour (max-height: 520px) {
+  .tour-still-fit {
+    padding-top: max(2.4rem, calc(env(safe-area-inset-top) + 1.6rem));
+    padding-bottom: max(3.2rem, calc(env(safe-area-inset-bottom) + 2rem));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+  }
 }
 
 .psv-container {

@@ -5,7 +5,12 @@ import Image from 'next/image'
 import { floorPlanLevelLabel, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import { fetchFloorPlanDoc, versionedFloorPlanUrl } from '@/lib/tour/floorPlanClientCache'
 import type { FloorPlanZonesDoc } from '@/lib/tour/floorPlanZones'
-import { getFloorPlanVariantMedia, zoneDisplayPointsPercent } from '@/lib/tour/floorPlanZones'
+import {
+  applyOverlayAlign,
+  getFloorPlanOverlayAlign,
+  getFloorPlanVariantMedia,
+  zoneDisplayPointsPercent,
+} from '@/lib/tour/floorPlanZones'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
 
@@ -21,32 +26,61 @@ type DisplaySlot = {
 }
 
 function normalizeUnitCode(value: string) {
-  return value.trim().toLowerCase().replace(/^lc[-\s]?/i, '').replace(/^0+/, '') || value.trim().toLowerCase()
-}
-
-function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: string) {
-  const needles = [zoneId, zoneLabel]
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean)
-  if (needles.length === 0) return null
-  const byExact =
-    units.find((item) => needles.includes(item.unit_number.trim().toLowerCase())) ??
-    units.find((item) => item.id === zoneId) ??
-    null
-  if (byExact) return byExact
-  const normalizedNeedles = new Set(needles.map(normalizeUnitCode))
   return (
-    units.find((item) => normalizedNeedles.has(normalizeUnitCode(item.unit_number))) ?? null
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/^lc[-\s]?/i, '')
+      .replace(/^0+/, '') || value.trim().toLowerCase()
   )
 }
 
-export function TourFloorLocationPeek({
-  unit,
-}: TourFloorLocationPeekProps) {
+/** Resuelve la zona del plano que corresponde a esta unidad. */
+function findZoneIdForUnit(
+  unit: TourUnitSummary,
+  zones: { id: string; label: string }[],
+): string | null {
+  const unitRaw = unit.unit_number.trim().toLowerCase()
+  const unitNorm = normalizeUnitCode(unit.unit_number)
+
+  const exact =
+    zones.find((zone) => zone.id.trim().toLowerCase() === unitRaw) ??
+    zones.find((zone) => zone.label.trim().toLowerCase() === unitRaw) ??
+    null
+  if (exact) return exact.id
+
+  const byNorm =
+    zones.find((zone) => normalizeUnitCode(zone.id) === unitNorm) ??
+    zones.find((zone) => normalizeUnitCode(zone.label) === unitNorm) ??
+    null
+  if (byNorm) return byNorm.id
+
+  // "Unidad 302" / "Depto 302" en label
+  const contained = zones.find((zone) => {
+    const label = zone.label.trim().toLowerCase()
+    const id = zone.id.trim().toLowerCase()
+    return (
+      label.includes(unitRaw) ||
+      id.includes(unitRaw) ||
+      (unitNorm.length >= 2 &&
+        (normalizeUnitCode(zone.id) === unitNorm || normalizeUnitCode(zone.label).endsWith(unitNorm)))
+    )
+  })
+  return contained?.id ?? null
+}
+
+export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
   const [expanded, setExpanded] = useState(false)
+  const [pinned, setPinned] = useState(false)
   const [planDoc, setPlanDoc] = useState<FloorPlanZonesDoc | null>(null)
 
   const floor = unit ? unitFloorNumber(unit) : null
+  const grown = expanded || pinned
+
+  useEffect(() => {
+    setPinned(false)
+    setExpanded(false)
+  }, [unit?.id])
 
   useEffect(() => {
     let cancelled = false
@@ -66,6 +100,11 @@ export function TourFloorLocationPeek({
     }
   }, [floor])
 
+  const overlayAlign = useMemo(
+    () => getFloorPlanOverlayAlign(planDoc, '2d'),
+    [planDoc],
+  )
+
   const displaySlots = useMemo<DisplaySlot[]>(() => {
     if (!planDoc?.zones?.length) return []
     return [...planDoc.zones]
@@ -74,21 +113,13 @@ export function TourFloorLocationPeek({
       .map((zone) => ({
         id: zone.id,
         label: zone.label || zone.id,
-        points: zoneDisplayPointsPercent(zone),
+        points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
       }))
-  }, [planDoc])
+  }, [planDoc, overlayAlign])
 
   const activeSlotId = useMemo(() => {
     if (!unit || !planDoc?.zones?.length) return null
-    const match = planDoc.zones.find((zone) => findUnitForZone([unit], zone.id, zone.label))
-    if (match) return match.id
-    return (
-      planDoc.zones.find(
-        (zone) =>
-          zone.label.trim().toLowerCase() === unit.unit_number.trim().toLowerCase() ||
-          zone.id.trim().toLowerCase() === unit.unit_number.trim().toLowerCase(),
-      )?.id ?? null
-    )
+    return findZoneIdForUnit(unit, planDoc.zones)
   }, [unit, planDoc])
 
   if (!unit) return null
@@ -99,40 +130,52 @@ export function TourFloorLocationPeek({
     planDoc?.updatedAt,
   )
 
-  // Sin plano real no mostramos el peek del ejemplo viejo.
   if (!planImageUrl) return null
+
+  const planW = media.imageWidth > 1 ? media.imageWidth : planDoc?.imageWidth || 1024
+  const planH = media.imageHeight > 1 ? media.imageHeight : planDoc?.imageHeight || 499
 
   return (
     <div
-      className="pointer-events-auto relative"
+      className="pointer-events-auto relative z-[40]"
       onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
+      onMouseLeave={() => {
+        if (!pinned) setExpanded(false)
+      }}
       onFocus={() => setExpanded(true)}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null) && !pinned) {
           setExpanded(false)
         }
       }}
     >
       <button
         type="button"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => {
+          setPinned((value) => !value)
+          setExpanded(true)
+        }}
         className={cn(
-          'overflow-hidden rounded-2xl bg-[#1a1714] shadow-[0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-white/15 transition-[width,height] duration-300 ease-out',
-          expanded ? 'h-44 w-56 sm:h-52 sm:w-64' : 'h-16 w-24 sm:h-[4.5rem] sm:w-28',
+          'origin-bottom-right overflow-hidden rounded-2xl bg-[#1a1714] ring-1 ring-white/20 transition-[width,transform,box-shadow] duration-300 ease-out',
+          grown
+            ? 'w-72 translate-y-[-8px] scale-105 shadow-[0_22px_50px_rgba(0,0,0,0.55)] sm:w-80 sm:translate-y-[-12px] sm:scale-110'
+            : 'w-28 shadow-[0_8px_24px_rgba(0,0,0,0.35)] sm:w-32',
         )}
+        style={{ aspectRatio: `${planW} / ${planH}` }}
         aria-label={`Ubicación en ${floor != null ? floorPlanLevelLabel(floor) : 'piso'} · Unidad ${unit.unit_number}`}
-        aria-expanded={expanded}
+        aria-expanded={grown}
       >
         <div className="relative h-full w-full">
+          {/* object-fill: misma caja que el SVG 0–100 (object-cover desalineaba las zonas). */}
           <Image
             key={planImageUrl}
             src={planImageUrl}
             alt=""
             fill
             unoptimized={planImageUrl.startsWith('http')}
-            className="object-cover"
-            sizes="256px"
+            className="object-fill"
+            sizes="320px"
+            priority={grown}
           />
           <svg
             viewBox="0 0 100 100"
@@ -148,28 +191,30 @@ export function TourFloorLocationPeek({
                   points={slot.points}
                   fill={
                     active
-                      ? expanded
+                      ? grown
                         ? 'rgba(61,155,74,0.55)'
-                        : 'rgba(61,155,74,0.4)'
-                      : 'rgba(255,255,255,0.02)'
+                        : 'rgba(61,155,74,0.42)'
+                      : 'rgba(255,255,255,0.015)'
                   }
                   stroke={
-                    active ? 'rgba(61,155,74,0.95)' : 'rgba(255,255,255,0.08)'
+                    active ? 'rgba(61,155,74,0.95)' : 'rgba(255,255,255,0.06)'
                   }
-                  strokeWidth={active ? 0.45 : 0.15}
+                  strokeWidth={active ? 0.5 : 0.12}
                   vectorEffect="non-scaling-stroke"
                 />
               )
             })}
           </svg>
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-5">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-1.5 pt-5">
             <p
               className={cn(
                 'text-center font-semibold tracking-wide text-white',
-                expanded ? 'text-[11px]' : 'text-[9px]',
+                grown ? 'text-[12px]' : 'text-[9px]',
               )}
             >
-              {expanded ? `Unidad ${unit.unit_number}` : 'Ubicación en piso'}
+              {grown
+                ? `Unidad ${unit.unit_number}${floor != null ? ` · ${floorPlanLevelLabel(floor)}` : ''}`
+                : 'Ubicación en piso'}
             </p>
           </div>
         </div>
