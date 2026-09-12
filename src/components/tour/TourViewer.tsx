@@ -12,7 +12,9 @@ import {
   ChevronRight,
   Columns2,
   Calculator,
+  Compass,
   FileText,
+  Hand,
   Images,
   Layers,
   Heart,
@@ -574,6 +576,18 @@ function isTouchShowroomDevice() {
   return touch && shortestViewport() <= 900
 }
 
+/**
+ * iOS Safari tumba el tab con CSS rotate(90deg) + WebGL ("A problem repeatedly occurred").
+ * En iOS no forzamos landscape por CSS: el usuario gira el teléfono o usa portrait estable.
+ */
+function isIOSWebKit() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  if (/iPad|iPhone|iPod/.test(ua)) return true
+  // iPadOS desktop UA
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+}
+
 function useOrientationSync(onChange: () => void) {
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
@@ -627,14 +641,14 @@ function useShowroomImmersive(enabled: boolean) {
   return { want }
 }
 
-/** Portrait + touch → landscape visual (CSS rotate) sin banners ni gates. */
+/** Portrait + touch → landscape visual (CSS rotate). Desactivado en iOS (crash WebKit). */
 function useForceLandscapeCss(enabled: boolean) {
   const [force, setForce] = useState(false)
   const enabledRef = useRef(enabled)
   enabledRef.current = enabled
 
   useOrientationSync(() => {
-    if (!enabledRef.current) {
+    if (!enabledRef.current || isIOSWebKit()) {
       setForce(false)
       return
     }
@@ -642,7 +656,7 @@ function useForceLandscapeCss(enabled: boolean) {
   })
 
   useEffect(() => {
-    if (!enabled) setForce(false)
+    if (!enabled || isIOSWebKit()) setForce(false)
     else setForce(isTouchShowroomDevice() && !isOsLandscape())
   }, [enabled])
 
@@ -1740,6 +1754,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     const viewer = viewerRef.current
     if (!root) return
 
+    const ios = isIOSWebKit()
     let resizeTimer: number | null = null
     const resize = () => {
       // Con force-landscape, autoSize en bucle (visualViewport) tumba Chrome/Safari.
@@ -1747,8 +1762,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       if (resizeTimer != null) window.clearTimeout(resizeTimer)
       resizeTimer = window.setTimeout(() => {
         resizeTimer = null
-        viewer?.autoSize()
-      }, 120)
+        try {
+          viewer?.autoSize()
+        } catch {
+          /* WebGL perdido en iOS */
+        }
+      }, ios ? 450 : 120)
     }
 
     const fitViewport = () => {
@@ -1761,6 +1780,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         return
       }
       if (!immersive) {
+        root.style.top = ''
+        root.style.left = ''
+        root.style.width = ''
+        root.style.height = ''
+        return
+      }
+      // iOS: no pelear con visualViewport (barra URL); fixed inset-0 basta.
+      if (ios) {
         root.style.top = ''
         root.style.left = ''
         root.style.width = ''
@@ -1785,11 +1812,26 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       document.body.style.overflow = 'hidden'
       fitViewport()
       // Fullscreen + lock solo en landscape nativo (evita crash por pelear con CSS rotate).
-      if (!forceLandscapeCss) {
+      // iOS: ni fullscreen forzado (también tumba tabs con WebGL).
+      if (!forceLandscapeCss && !ios) {
         void lockTourLandscape(root).finally(fitViewport)
-      } else {
+      } else if (forceLandscapeCss) {
         // Un solo autoSize al entrar; nunca en cada resize del viewport.
-        window.setTimeout(() => viewer?.autoSize(), 160)
+        window.setTimeout(() => {
+          try {
+            viewer?.autoSize()
+          } catch {
+            /* ignore */
+          }
+        }, 160)
+      } else if (ios) {
+        window.setTimeout(() => {
+          try {
+            viewer?.autoSize()
+          } catch {
+            /* ignore */
+          }
+        }, 200)
       }
     } else {
       if (slot && root.parentElement !== slot) slot.appendChild(root)
@@ -1802,8 +1844,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       fitViewport()
     }
 
-    // En force-landscape no escuchamos visualViewport: dispara autoSize en bucle y tumba el tab.
-    if (!forceLandscapeCss) {
+    // En force-landscape / iOS no escuchamos visualViewport: dispara autoSize en bucle y tumba el tab.
+    if (!forceLandscapeCss && !ios) {
       window.visualViewport?.addEventListener('resize', fitViewport)
       window.visualViewport?.addEventListener('scroll', fitViewport)
     }
@@ -2986,6 +3028,24 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               <WhatsAppIcon size={16} />
             </a>
           ) : null}
+          {viewMode === 'tour' && showUnitChrome ? (
+            <button
+              type="button"
+              onClick={() => setNavChooserOpen(true)}
+              className="tour-glass pointer-events-auto inline-flex h-11 items-center gap-2 px-3 text-[#f7f3ee]"
+              aria-label="Cambiar control del tour"
+              title="Cambiar entre giroscopio y dedo"
+            >
+              {tourNavMode === 'gyro' ? (
+                <Compass size={15} strokeWidth={1.75} />
+              ) : (
+                <Hand size={15} strokeWidth={1.75} />
+              )}
+              <span className="text-[10px] font-semibold tracking-[0.12em] uppercase">
+                {tourNavMode === 'gyro' ? 'Giroscopio' : 'Dedo'}
+              </span>
+            </button>
+          ) : null}
           {selectedUnit && !fichaOpen ? (
             <TourFloorLocationPeek unit={selectedUnit} units={allUnits} />
           ) : null}
@@ -3167,6 +3227,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       <TourNavModeModal
         open={navChooserOpen}
         contained={embedded && !immersive}
+        currentMode={tourNavMode}
         onClose={() => {
           setNavChooserOpen(false)
           // Sin elección: dedo (no pelea con el peek de ubicación).

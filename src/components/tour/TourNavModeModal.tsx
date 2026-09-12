@@ -8,6 +8,7 @@ export type TourNavMode = 'gyro' | 'finger'
 type TourNavModeModalProps = {
   open: boolean
   contained?: boolean
+  currentMode?: TourNavMode | null
   onChoose: (mode: TourNavMode) => void
   onClose: () => void
 }
@@ -15,6 +16,7 @@ type TourNavModeModalProps = {
 export function TourNavModeModal({
   open,
   contained = false,
+  currentMode = null,
   onChoose,
   onClose,
 }: TourNavModeModalProps) {
@@ -40,7 +42,9 @@ export function TourNavModeModal({
               Tour 360°
             </p>
             <p className="mt-1.5 text-sm leading-snug text-[#f7f3ee]/90">
-              ¿Cómo quiere moverse por el departamento?
+              {currentMode
+                ? 'Puede cambiar cómo se mueve por el departamento.'
+                : '¿Cómo quiere moverse por el departamento?'}
             </p>
           </div>
           <button
@@ -57,7 +61,12 @@ export function TourNavModeModal({
           <button
             type="button"
             onClick={() => onChoose('gyro')}
-            className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/8 px-3.5 py-3 text-left transition-colors hover:border-[#BDA27E]/55 hover:bg-white/12"
+            className={cn(
+              'flex items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors',
+              currentMode === 'gyro'
+                ? 'border-[#BDA27E]/70 bg-white/14'
+                : 'border-white/15 bg-white/8 hover:border-[#BDA27E]/55 hover:bg-white/12',
+            )}
           >
             <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
               <Compass size={18} strokeWidth={1.75} />
@@ -65,6 +74,7 @@ export function TourNavModeModal({
             <span className="min-w-0">
               <span className="block text-[12px] font-semibold tracking-[0.08em] uppercase">
                 Giroscopio
+                {currentMode === 'gyro' ? ' · activo' : ''}
               </span>
               <span className="mt-0.5 block text-[12px] leading-snug text-[#f7f3ee]/65">
                 Mueva el teléfono para mirar alrededor
@@ -75,7 +85,12 @@ export function TourNavModeModal({
           <button
             type="button"
             onClick={() => onChoose('finger')}
-            className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/8 px-3.5 py-3 text-left transition-colors hover:border-[#BDA27E]/55 hover:bg-white/12"
+            className={cn(
+              'flex items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors',
+              currentMode === 'finger'
+                ? 'border-[#BDA27E]/70 bg-white/14'
+                : 'border-white/15 bg-white/8 hover:border-[#BDA27E]/55 hover:bg-white/12',
+            )}
           >
             <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
               <Hand size={18} strokeWidth={1.75} />
@@ -83,6 +98,7 @@ export function TourNavModeModal({
             <span className="min-w-0">
               <span className="block text-[12px] font-semibold tracking-[0.08em] uppercase">
                 Con el dedo
+                {currentMode === 'finger' ? ' · activo' : ''}
               </span>
               <span className="mt-0.5 block text-[12px] leading-snug text-[#f7f3ee]/65">
                 Arrastre la vista con el dedo o el mouse

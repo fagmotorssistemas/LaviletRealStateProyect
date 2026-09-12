@@ -55,7 +55,6 @@ function findZoneIdForUnit(
     null
   if (byNorm) return byNorm.id
 
-  // "Unidad 302" / "Depto 302" en label
   const contained = zones.find((zone) => {
     const label = zone.label.trim().toLowerCase()
     const id = zone.id.trim().toLowerCase()
@@ -69,17 +68,31 @@ function findZoneIdForUnit(
   return contained?.id ?? null
 }
 
+function useCoarsePointer() {
+  const [coarse, setCoarse] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(hover: none), (pointer: coarse)')
+    const sync = () => setCoarse(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  return coarse
+}
+
 export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
-  const [expanded, setExpanded] = useState(false)
-  const [pinned, setPinned] = useState(false)
+  const coarsePointer = useCoarsePointer()
+  const [hoverOpen, setHoverOpen] = useState(false)
+  const [tapOpen, setTapOpen] = useState(false)
   const [planDoc, setPlanDoc] = useState<FloorPlanZonesDoc | null>(null)
 
   const floor = unit ? unitFloorNumber(unit) : null
-  const grown = expanded || pinned
+  // Celular: solo tap. Desktop: hover o click para fijar.
+  const grown = coarsePointer ? tapOpen : hoverOpen || tapOpen
 
   useEffect(() => {
-    setPinned(false)
-    setExpanded(false)
+    setTapOpen(false)
+    setHoverOpen(false)
   }, [unit?.id])
 
   useEffect(() => {
@@ -138,22 +151,33 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
   return (
     <div
       className="pointer-events-auto relative z-[40]"
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => {
-        if (!pinned) setExpanded(false)
+      onMouseEnter={() => {
+        if (!coarsePointer) setHoverOpen(true)
       }}
-      onFocus={() => setExpanded(true)}
+      onMouseLeave={() => {
+        if (!coarsePointer && !tapOpen) setHoverOpen(false)
+      }}
+      onFocus={() => {
+        if (!coarsePointer) setHoverOpen(true)
+      }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null) && !pinned) {
-          setExpanded(false)
+        if (
+          !coarsePointer &&
+          !tapOpen &&
+          !event.currentTarget.contains(event.relatedTarget as Node | null)
+        ) {
+          setHoverOpen(false)
         }
       }}
     >
       <button
         type="button"
         onClick={() => {
-          setPinned((value) => !value)
-          setExpanded(true)
+          setTapOpen((value) => {
+            const next = !value
+            if (!next) setHoverOpen(false)
+            return next
+          })
         }}
         className={cn(
           'origin-bottom-right overflow-hidden rounded-2xl bg-[#1a1714] ring-1 ring-white/20 transition-[width,transform,box-shadow] duration-300 ease-out',
@@ -166,7 +190,6 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
         aria-expanded={grown}
       >
         <div className="relative h-full w-full">
-          {/* object-fill: misma caja que el SVG 0–100 (object-cover desalineaba las zonas). */}
           <Image
             key={planImageUrl}
             src={planImageUrl}
