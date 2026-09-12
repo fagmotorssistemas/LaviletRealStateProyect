@@ -28,7 +28,7 @@ export function localGreeting(at: string) {
 }
 export function naturalConversationReply(reply: string, name: string, greeting: string, at?: string) {
   const full = name.trim(), first = conversationalFirstName(full)
-  let result = reply.trim().replace(/\bamenidades\b/gi, 'instalaciones').replace(/p\. m\.\.|a\. m\.\./g, value => value.slice(0, -1))
+  let result = reply.trim().replace(/\\n/g, '\n').replace(/\bamenidades\b/gi, 'instalaciones').replace(/p\. m\.\.|a\. m\.\./g, value => value.slice(0, -1))
   if (at) result = result.replace(/^(hola[, .!]*\s*)?buen(?:os días|as tardes|as noches)/i, (_, hola: string) => (hola || '') + localGreeting(at))
   if (full && full !== first) result = result.replace(new RegExp(full.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&'), 'gi'), first)
   if (greeting && !/^(hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas\b)/i.test(result)) result = greeting + '. ' + result

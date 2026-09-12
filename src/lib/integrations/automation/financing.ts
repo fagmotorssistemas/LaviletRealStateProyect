@@ -21,8 +21,9 @@ export async function financingContext(lead: Row) {
 export function financingInputs(extracted: Row, current: string, lastReply: string, context: Awaited<ReturnType<typeof financingContext>>) {
   const message = normalized(current)
   const asksConsent = /revision|financiamiento|revisar esa opcion/.test(normalized(lastReply)) && /desea continuar|iniciar|iniciemos|revisemos|revisar esa opcion|revision.*\?/.test(lastReply.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
+  const conditional = /\b(?:pero|solo|siempre que|credito directo|otra entidad)\b/.test(message) || /[?¿]/.test(current)
   const consent = asksConsent && /^(si|si claro|claro|si por favor|de acuerdo|continuemos|si continuemos)$/.test(message)
-    ? true : extracted.financing_consent
+    ? true : conditional ? null : asksConsent ? extracted.financing_consent : null
   let partner = text(extracted.financing_partner)
   // The extractor can carry an old lender forward; only accept a choice mentioned now.
   if (partner && !normalized(current).includes(normalized(partner.replace(/^(banco|cooperativa)\s+/i, '')))) partner = ''
@@ -78,10 +79,29 @@ export function isFinancingTurn(extracted: Row, current: string, lastReply: stri
     .some(key => extracted[key] != null) || /^(si|si claro|claro|de acuerdo|si por favor)$/.test(message)
 }
 
-export function financingQuestionReply(current: string, partners: string[]) {
+export function financingQuestionReply(current: string, partners: string[], lastReply = '') {
+  const m = normalized(current), previous = normalized(lastReply)
+  if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)
+    || (/credito directo/.test(previous) && /pero|o no dan|quiero saber|dispongo|tengo|por que/.test(m))) {
+    const amount = /(?:dispongo|tengo|cuento con).*\b150\b/.test(m)
+      ? ' Cuando dice 150, ¿se refiere a $150 o a $150.000?' : ''
+    return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos orientarle con ' + partners.join(' o ') + '; la aprobación depende de la entidad.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${amount}`
+  }
   if (/solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(normalized(current)) && !/jardin|pichincha|\bjep\b/.test(normalized(current))) {
     return partners.length ? `Por ahora, las alianzas registradas son con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
       : 'El equipo puede ayudarle a comprobar las opciones vigentes. ¿Con qué entidad le gustaría financiarse?'
   }
   return ''
+}
+
+export function avoidFinancingRepeat(reply: string, current: string, lastReply: string, fin: Row, partners: string[]) {
+  if (normalized(reply) !== normalized(lastReply)) return reply
+  if (/repite|repita|otra vez|no entendi/.test(normalized(current))) return reply
+  if (text(fin.state) === 'continuacion_pendiente') return partners.length
+    ? `La revisión sería con ${partners.join(' o ')} y requiere su autorización para solicitar algunos datos. ¿Desea iniciar esa revisión?`
+    : 'Todavía falta que el equipo confirme las alternativas disponibles. Podemos seguir resolviendo sus dudas sobre la compra.'
+  if (text(fin.state) === 'entidad_pendiente') return partners.length
+    ? `Para continuar falta elegir la entidad: ${partners.join(' o ')}. ¿Cuál prefiere?`
+    : 'Aún no tengo una entidad confirmada para ofrecerle. El equipo debe comprobarlo antes de pedirle datos para una revisión.'
+  return 'Ese dato todavía no quedó claro. Puede escribirlo de otra forma o indicarme si prefiere continuar la revisión con una persona.'
 }

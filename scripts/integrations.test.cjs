@@ -164,9 +164,9 @@ function conversationHarness(options = {}) {
       },
     },
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
-    './sdr': { commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
+    './sdr': { publishedUnitCatalog: async () => options.catalog || [], commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
       commercialReply: async () => ({ reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) },
-    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => event.text,
+    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error('MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
         return prompt.startsWith('extractor_eventos') ? { events: [], opt_out: options.optOut === true, ...options.extracted }
@@ -686,4 +686,78 @@ test('commercial context retains measurements on demand and does not repeat faci
   const pool=experience.experienceContext(info,'¿Quién usa la piscina?',memory)
   assert.ok(pool.instalaciones.some(f=>f.amenity_name==='Piscina'))
   assert.equal(info.catalogo[0].area_internal_m2,95.37,'The inventory is never mutated')
+})
+
+test('known area references identify all matching units without inventing a selection',()=>{
+  const {resolveCatalogReference,catalogReferenceReply}=require('../src/lib/integrations/automation/catalog-reference.ts')
+  const catalog=['202','302','402','502'].map(n=>({id:n,unit_number:n,category:'departamento',area_internal_m2:120.83,area_exterior_m2:27.03,spaces:['Sala','Bodega']}))
+  const ref=resolveCatalogReference(catalog,'Oh cuál es el de 120.83?\nQué ofrece?')
+  assert.equal(ref.matches.length,4)
+  const reply=catalogReferenceReply(ref.matches,'Cuál es el de 120.83?')
+  assert.match(reply,/202, 302, 402, 502/);assert.match(reply,/piso/)
+  assert.equal(resolveCatalogReference(catalog,'502').matches.length,0,'An unrelated numeric answer is not a unit choice')
+  assert.equal(resolveCatalogReference(catalog,'502',ref.memory).matches[0].id,'502')
+  assert.equal(experience.needsDimensions('De 3 dormitorios me gustaría',{mentioned_benefits:[],deferred_fields:[]}),false)
+})
+
+test('floor-plan labels link only a uniquely identified published catalog unit',async t=>{
+  live(t)
+  const h=conversationHarness({catalog:[{id:'unit-five',unit_number:'LC-05',category:'local'}],mediaText:'[Imagen: LOCAL COMERCIAL 05. Área interior 94,48 m².]',extracted:{unit_id:'12345678-1234-1234-1234-123456789abc'}})
+  h.rows[0].payload.media={type:'picture',url:'https://amojo.kommo.com/image'};h.rows[0].payload.text=''
+  await h.process([h.rows[0]],async()=>{})
+  const save=h.calls.find(c=>c.name==='save_lead_declarations').args
+  assert.equal(save.p_unit_id,'unit-five');assert.equal(save.p_preferred_category,'local')
+})
+
+test('failed media preserves the written question and records the reason',async t=>{
+  live(t)
+  const h=conversationHarness({mediaFails:true})
+  h.rows[0].payload.media={type:'picture',url:'https://amojo.kommo.com/image'};h.rows[0].payload.text='Quiero el precio del local'
+  const result=await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.filter(c=>c.name==='commercialContext').length,1)
+  assert.match(h.calls.find(c=>c.name==='register_inbound_message').args.p_content,/Quiero el precio/)
+  assert.deepEqual(result.media_errors,['MEDIA_DOWNLOAD_FAILED'])
+})
+
+test('credit direct questions neither start an application nor accept conditional consent',async t=>{
+  live(t)
+  const h=conversationHarness({history:[{role:'bot',content:'¿Le gustaría que iniciemos una revisión de financiamiento?'}],extracted:{events:['asked_financing'],financing_consent:true}})
+  h.rows[0].payload.text='Sí, pero con crédito directo. Yo solo dispongo de 150'
+  await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.filter(c=>c.name==='process_financing_message_v2').length,0)
+  const reply=h.calls.find(c=>c.name==='register_outbound_message').args.p_content
+  assert.match(reply,/No ofrecemos crédito directo/);assert.match(reply,/\$150 o a \$150.000/)
+})
+
+test('choosing JEP then consenting advances instead of repeating the financing introduction',async t=>{
+  live(t)
+  const h=conversationHarness({financeContext:{partners:['Banco Pichincha','Cooperativa JEP'],current:{explicit_consent:true}},history:[{role:'bot',content:'¿Con cuál entidad le gustaría revisar su financiamiento?'}],financing:args=>({active:true,state:args.p_financing_partner?'cedula_pendiente':'entidad_pendiente',selected_partner_name:args.p_financing_partner})})
+  h.rows[0].payload.text='Con la JEP'
+  await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.find(c=>c.name==='process_financing_message_v2').args.p_financing_partner,'Cooperativa JEP')
+  assert.match(h.calls.find(c=>c.name==='register_outbound_message').args.p_content,/cédula/)
+})
+
+test('download follows observed Kommo redirects without trusting arbitrary storage or credentialed URLs',async t=>{
+  const {downloadMedia}=require('../src/lib/integrations/automation/media-download.ts')
+  const urls=[]
+  t.mock.method(global,'fetch',async url=>{urls.push(String(url));return urls.length===1?new Response(null,{status:301,headers:{location:'https://drive-g.kommo.com/file'}}):urls.length===2?new Response(null,{status:301,headers:{location:'https://storage.googleapis.com/file'}}):new Response(Buffer.from([255,216,255,0]),{headers:{'content-type':'application/octet-stream'}})})
+  assert.equal((await downloadMedia('https://amojo.kommo.com/file')).mime,'image/jpeg')
+  assert.equal(urls.length,3)
+  await assert.rejects(()=>downloadMedia('https://storage.googleapis.com/file'),/MEDIA_HOST_NOT_ALLOWED/)
+  await assert.rejects(()=>downloadMedia('https://user:pass@amojo.kommo.com/file'),/MEDIA_HOST_NOT_ALLOWED/)
+  global.fetch=async()=>new Response(null,{status:302,headers:{location:'http://127.0.0.1/private'}})
+  await assert.rejects(()=>downloadMedia('https://amojo.kommo.com/file'),/MEDIA_HOST_NOT_ALLOWED/)
+})
+
+test('PDF input is read as a file and stickers do not block textual intent',async t=>{
+  const {mediaText}=load('src/lib/integrations/automation/ai.ts',{'./media-download':{downloadMedia:async()=>({mime:'application/pdf',bytes:Buffer.from('%PDF-1.4 synthetic')})}})
+  const old=process.env.OPENAI_API_KEY,model=process.env.OPENAI_MODEL;process.env.OPENAI_API_KEY='synthetic';process.env.OPENAI_MODEL='synthetic'
+  t.after(()=>{if(old===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=old;if(model===undefined)delete process.env.OPENAI_MODEL;else process.env.OPENAI_MODEL=model})
+  let body
+  t.mock.method(global,'fetch',async(_,options)=>{body=JSON.parse(options.body);return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({mensaje:'LOCAL COMERCIAL 05'})}]}]}))})
+  const result=await mediaText({text:'Precio',media:{type:'file',url:'https://amojo.kommo.com/file'}})
+  assert.match(result,/Precio.*\n\[Archivo PDF: LOCAL COMERCIAL 05/)
+  assert.equal(body.input[0].content[1].type,'input_file')
+  assert.match(await mediaText({text:'Quiero un carro',media:{type:'sticker',url:'https://amojo.kommo.com/file'}}),/^Quiero un carro/)
 })
