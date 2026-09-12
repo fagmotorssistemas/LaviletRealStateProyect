@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import {
   FLOOR_PLAN_FLOORS,
@@ -688,9 +688,49 @@ export function TourFloorPlan({
 
   const handleSelectSlot = (slot: DisplaySlot) => {
     if (!slot.unit) return
+    const now = Date.now()
+    // Evita open doble (pointerup + click sintético) que a veces pelea con el drawer.
+    if (now - lastHtmlOpenAtRef.current < 400) return
+    lastHtmlOpenAtRef.current = now
     // Elevación nativa del HTML + ficha lateral.
     elevateHtmlUnit(slot.id || slot.unit.unit_number, slot.unit)
     onSelectUnit(slot.unit, slot.id)
+  }
+
+  const slotPointerRef = useRef<{
+    slotId: string
+    pointerId: number
+    x: number
+    y: number
+  } | null>(null)
+
+  const onSlotPointerDown = (slot: DisplaySlot, event: PointerEvent) => {
+    if (!slot.unit) return
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    slotPointerRef.current = {
+      slotId: slot.id,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    }
+  }
+
+  const onSlotPointerUp = (slot: DisplaySlot, event: PointerEvent) => {
+    if (!slot.unit) return
+    const start = slotPointerRef.current
+    slotPointerRef.current = null
+    if (!start || start.slotId !== slot.id || start.pointerId !== event.pointerId) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 14) return
+    event.preventDefault()
+    event.stopPropagation()
+    handleSelectSlot(slot)
+  }
+
+  const onSlotClick = (slot: DisplaySlot, event: MouseEvent) => {
+    if (!slot.unit) return
+    event.preventDefault()
+    event.stopPropagation()
+    handleSelectSlot(slot)
   }
 
   const handleHoverSlot = (slot: DisplaySlot | null) => {
@@ -988,11 +1028,12 @@ export function TourFloorPlan({
                       if (!slot.unit) return
                       setHoverSlot(slot.id)
                     }}
-                    onClick={(event) => {
-                      if (!slot.unit) return
-                      event.stopPropagation()
-                      handleSelectSlot(slot)
+                    onPointerDown={(event) => onSlotPointerDown(slot, event)}
+                    onPointerUp={(event) => onSlotPointerUp(slot, event)}
+                    onPointerCancel={() => {
+                      slotPointerRef.current = null
                     }}
+                    onClick={(event) => onSlotClick(slot, event)}
                   />
                 )
               })}
@@ -1014,9 +1055,12 @@ export function TourFloorPlan({
                     disabled={!slot.unit}
                     onMouseEnter={() => setHoverSlot(slot.id)}
                     onMouseLeave={() => setHoverSlot(null)}
-                    onClick={() => {
-                      handleSelectSlot(slot)
+                    onPointerDown={(event) => onSlotPointerDown(slot, event)}
+                    onPointerUp={(event) => onSlotPointerUp(slot, event)}
+                    onPointerCancel={() => {
+                      slotPointerRef.current = null
                     }}
+                    onClick={(event) => onSlotClick(slot, event)}
                     className={cn(
                       'pointer-events-auto absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)] transition-[transform,box-shadow] duration-100',
                       'sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1.5',
@@ -1076,11 +1120,12 @@ export function TourFloorPlan({
                   style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
                   className={slot.unit ? 'cursor-pointer' : undefined}
                   onMouseEnter={() => handleHoverSlot(slot)}
-                  onClick={(event) => {
-                    if (!slot.unit) return
-                    event.stopPropagation()
-                    handleSelectSlot(slot)
+                  onPointerDown={(event) => onSlotPointerDown(slot, event)}
+                  onPointerUp={(event) => onSlotPointerUp(slot, event)}
+                  onPointerCancel={() => {
+                    slotPointerRef.current = null
                   }}
+                  onClick={(event) => onSlotClick(slot, event)}
                 />
               ))}
             </svg>
@@ -1102,10 +1147,12 @@ export function TourFloorPlan({
                     disabled={!slot.unit}
                     onMouseEnter={() => handleHoverSlot(slot)}
                     onMouseLeave={() => handleHoverSlot(null)}
-                    onClick={() => {
-                      if (!slot.unit) return
-                      handleSelectSlot(slot)
+                    onPointerDown={(event) => onSlotPointerDown(slot, event)}
+                    onPointerUp={(event) => onSlotPointerUp(slot, event)}
+                    onPointerCancel={() => {
+                      slotPointerRef.current = null
                     }}
+                    onClick={(event) => onSlotClick(slot, event)}
                     className={cn(
                       'pointer-events-auto absolute z-[4] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1 transition-[transform,box-shadow] duration-100',
                       selected || hovered

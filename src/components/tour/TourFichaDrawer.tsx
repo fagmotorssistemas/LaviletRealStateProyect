@@ -194,6 +194,8 @@ export function TourFichaDrawer({
   const [showSuggestions, setShowSuggestions] = useState(false)
   const busyRef = useRef(false)
   const openedAtRef = useRef(0)
+  /** Hasta que esté armado, el backdrop no cierra (evita el click fantasma del mismo toque). */
+  const [outsideCloseArmed, setOutsideCloseArmed] = useState(false)
 
   const sorted = useMemo(
     () =>
@@ -266,8 +268,15 @@ export function TourFichaDrawer({
   }
 
   useLayoutEffect(() => {
-    if (!open) return
+    if (!open) {
+      setOutsideCloseArmed(false)
+      return
+    }
     openedAtRef.current = Date.now()
+    setOutsideCloseArmed(false)
+    // El click sintético de iOS/Android puede llegar 300–600ms después.
+    const t = window.setTimeout(() => setOutsideCloseArmed(true), 700)
+    return () => window.clearTimeout(t)
   }, [open])
 
   useEffect(() => {
@@ -367,20 +376,22 @@ export function TourFichaDrawer({
               'z-[60]',
               contained ? 'absolute inset-0' : 'fixed inset-0',
               // Expandida: no cerrar al tocar el fondo (así no se pierden las imágenes).
-              expanded ? 'pointer-events-none bg-transparent' : 'bg-transparent',
+              // Sin armar: deja pasar el click fantasma sin cerrar (ni re-seleccionar debajo).
+              expanded || !outsideCloseArmed
+                ? 'pointer-events-none bg-transparent'
+                : 'bg-transparent',
             )}
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0 }}
-            onClick={
-              expanded
+            onPointerDown={
+              expanded || !outsideCloseArmed
                 ? undefined
                 : (event) => {
-                    // Evita que el mismo toque que abrió la ficha la cierre al soltar sobre el backdrop.
-                    if (Date.now() - openedAtRef.current < 450) {
-                      event.preventDefault()
-                      return
-                    }
+                    // Solo un toque NUEVO cierra; el click fantasma del gesto de apertura se ignora.
+                    if (event.pointerType === 'mouse' && event.button !== 0) return
+                    event.preventDefault()
+                    event.stopPropagation()
                     onClose()
                   }
             }
