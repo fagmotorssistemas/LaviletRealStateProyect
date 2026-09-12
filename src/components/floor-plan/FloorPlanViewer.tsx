@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Apartment, Point } from '@/lib/floor-plan/types'
 import { ApartmentPolygon } from '@/components/floor-plan/ApartmentPolygon'
 import { ApartmentEditor } from '@/components/floor-plan/ApartmentEditor'
 import { polygonToSvgPoints } from '@/lib/floor-plan/api'
 import { applyPolygonMeta, normalizeCurves } from '@/lib/floor-plan/geometry'
 import type { FloorPlanOverlayAlign } from '@/lib/tour/floorPlanZones'
-import { DEFAULT_OVERLAY_ALIGN } from '@/lib/tour/floorPlanZones'
+import { DEFAULT_OVERLAY_ALIGN, invertOverlayAlignPoint } from '@/lib/tour/floorPlanZones'
+import { cn } from '@/lib/utils'
 
 type FloorPlanViewerProps = {
   imageUrl: string
@@ -15,12 +16,14 @@ type FloorPlanViewerProps = {
   height: number
   apartments: Apartment[]
   selectedId: string | null
+  /** Multi-selección (Ctrl/Cmd/Shift+clic). Si falta, se usa solo selectedId. */
+  selectedIds?: string[]
   editMode: boolean
   /** Puntos del trazo libre en curso (null = no está dibujando). */
   draftPoints?: Point[] | null
   onDraftPointsChange?: (points: Point[] | null) => void
   onDraftComplete?: (points: Point[]) => void
-  onSelect: (id: string | null) => void
+  onSelect: (id: string | null, opts?: { additive?: boolean }) => void
   onApartmentsChange: (next: Apartment[] | ((prev: Apartment[]) => Apartment[])) => void
   scale: number
   offset: { x: number; y: number }
@@ -28,6 +31,11 @@ type FloorPlanViewerProps = {
   onOffsetChange: (offset: { x: number; y: number }) => void
   /** Solo visual: desplaza el overlay de zonas (p. ej. ajuste fino 3D). */
   overlayAlign?: FloorPlanOverlayAlign | null
+  /** Editar zonas sin foto (p. ej. encima del HTML 3D). */
+  hideImage?: boolean
+  /** Capa detrás del SVG (mismo tamaño que el stage), p. ej. iframe 3D. */
+  stageBackdrop?: ReactNode
+  className?: string
 }
 
 function clientToImage(
@@ -36,11 +44,13 @@ function clientToImage(
   svg: SVGSVGElement,
   width: number,
   height: number,
+  align?: FloorPlanOverlayAlign | null,
 ): Point {
   const rect = svg.getBoundingClientRect()
-  const x = ((clientX - rect.left) / rect.width) * width
-  const y = ((clientY - rect.top) / rect.height) * height
-  return [Math.round(x), Math.round(y)]
+  const rawX = ((clientX - rect.left) / rect.width) * width
+  const rawY = ((clientY - rect.top) / rect.height) * height
+  const inverted = invertOverlayAlignPoint(rawX, rawY, width, height, align)
+  return [Math.round(inverted.x), Math.round(inverted.y)]
 }
 
 /** Solo translate: el zoom va por width/height CSS (evita blur de scale() en planos grandes). */
@@ -66,6 +76,7 @@ export function FloorPlanViewer({
   height,
   apartments,
   selectedId,
+  selectedIds: selectedIdsProp,
   editMode,
   draftPoints = null,
   onDraftPointsChange,
@@ -77,7 +88,13 @@ export function FloorPlanViewer({
   onScaleChange,
   onOffsetChange,
   overlayAlign = null,
+  hideImage = false,
+  stageBackdrop = null,
+  className,
 }: FloorPlanViewerProps) {
+  const selectedIds = selectedIdsProp ?? (selectedId ? [selectedId] : [])
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
+  const vertexEditing = selectedIds.length === 1 && Boolean(selectedId) && !draftPoints
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [handleDragging, setHandleDragging] = useState(false)
   const panRef = useRef<{ x: number; y: number; ox: number; oy: number; moved: boolean } | null>(
@@ -186,9 +203,18 @@ export function FloorPlanViewer({
   const align = overlayAlign ?? DEFAULT_OVERLAY_ALIGN
   const alignTransform = `translate(${(align.offsetX / 100) * width} ${(align.offsetY / 100) * height}) translate(${width / 2} ${height / 2}) scale(${align.scale}) translate(${-width / 2} ${-height / 2})`
 
+  const toImage = (clientX: number, clientY: number, svg: SVGSVGElement): Point =>
+    clientToImage(clientX, clientY, svg, width, height, align)
+
   return (
     <div
-      className="relative h-full min-h-[360px] w-full overflow-hidden rounded-2xl bg-white ring-1 ring-[#2B1A18]/10"
+      className={cn(
+        'relative h-full w-full overflow-hidden',
+        hideImage
+          ? 'min-h-0 bg-transparent'
+          : 'min-h-[360px] rounded-2xl bg-white ring-1 ring-[#2B1A18]/10',
+        className,
+      )}
       style={{ cursor: drawing ? 'crosshair' : undefined }}
       onWheel={(event) => {
         // No bloquear el scroll del modal: zoom solo con Ctrl/Cmd + rueda.
@@ -225,7 +251,7 @@ export function FloorPlanViewer({
         if (drawing) {
           const svg = event.currentTarget.querySelector('svg')
           if (svg instanceof SVGSVGElement) {
-            paintRubber(clientToImage(event.clientX, event.clientY, svg, width, height))
+            paintRubber(toImage(event.clientX, event.clientY, svg))
           }
         }
         if (!panRef.current) return
@@ -250,7 +276,7 @@ export function FloorPlanViewer({
         if (drawing) {
           const svg = event.currentTarget.querySelector('svg')
           if (!(svg instanceof SVGSVGElement)) return
-          addDraftPoint(clientToImage(event.clientX, event.clientY, svg, width, height))
+          addDraftPoint(toImage(event.clientX, event.clientY, svg))
           return
         }
         // Clic vacío: deseleccionar.
@@ -267,15 +293,20 @@ export function FloorPlanViewer({
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt="Plano arquitectónico"
-          width={width}
-          height={height}
-          draggable={false}
-          decoding="async"
-          className="pointer-events-none absolute inset-0 h-full w-full select-none object-fill [image-rendering:auto]"
-        />
+        {stageBackdrop ? (
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">{stageBackdrop}</div>
+        ) : null}
+        {!hideImage ? (
+          <img
+            src={imageUrl}
+            alt="Plano arquitectónico"
+            width={width}
+            height={height}
+            draggable={false}
+            decoding="async"
+            className="pointer-events-none absolute inset-0 h-full w-full select-none object-fill [image-rendering:auto]"
+          />
+        ) : null}
 
         <svg
           viewBox={`0 0 ${width} ${height}`}
@@ -289,13 +320,7 @@ export function FloorPlanViewer({
               return
             }
             if (!selected || selected.kind === 'circle') return
-            const point = clientToImage(
-              event.clientX,
-              event.clientY,
-              event.currentTarget,
-              width,
-              height,
-            )
+            const point = toImage(event.clientX, event.clientY, event.currentTarget)
             addVertexNear(point)
           }}
         >
@@ -304,14 +329,14 @@ export function FloorPlanViewer({
               <ApartmentPolygon
                 key={apartment.id}
                 apartment={apartment}
-                selected={apartment.id === selectedId}
+                selected={selectedIdSet.has(apartment.id)}
                 hovered={apartment.id === hoveredId}
-                editing={Boolean(selectedId) && apartment.id === selectedId && !drawing}
-                suppressHits={handleDragging || (Boolean(selectedId) && apartment.id !== selectedId)}
+                editing={vertexEditing && apartment.id === selectedId}
+                suppressHits={handleDragging}
                 onHover={setHoveredId}
-                onSelect={(id) => {
+                onSelect={(id, opts) => {
                   if (drawing || handleDragging) return
-                  onSelect(id)
+                  onSelect(id, opts)
                 }}
               />
             ))}
@@ -354,10 +379,11 @@ export function FloorPlanViewer({
               </g>
             ) : null}
 
-            {selected && !drawing ? (
+            {selected && vertexEditing ? (
               <ApartmentEditor
                 apartment={selected}
                 scale={scale}
+                overlayAlign={align}
                 onChange={updateApartment}
                 onDragActiveChange={setHandleDragging}
               />

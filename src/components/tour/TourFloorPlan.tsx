@@ -14,11 +14,9 @@ import {
   getReadyFloorView,
   planDocMediaUrl,
   preferredFloorVariant,
-  prefetchFloorPlans,
   preloadFloorPlanHtml,
   preloadFloorPlanImage,
   refetchFloorPlanDoc,
-  warmFloorPlans,
   type ReadyFloorView,
 } from '@/lib/tour/floorPlanClientCache'
 import { FLOOR_PLAN_WHATSAPP_MESSAGE, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
@@ -77,12 +75,52 @@ function statusDotClass(status: TourUnitSummary['status']) {
 }
 
 function slotCentroid(points: string) {
-  const xs = points.split(' ').map((p) => Number(p.split(',')[0]))
-  const ys = points.split(' ').map((p) => Number(p.split(',')[1]))
-  return {
-    cx: (Math.min(...xs) + Math.max(...xs)) / 2,
-    cy: (Math.min(...ys) + Math.max(...ys)) / 2,
+  const pairs = points
+    .split(/\s+/)
+    .map((p) => p.split(',').map(Number))
+    .filter((pair) => pair.length >= 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
+  if (pairs.length === 0) return { cx: 50, cy: 50 }
+
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  let sx = 0
+  let sy = 0
+  for (const [x, y] of pairs) {
+    sx += x
+    sy += y
+    minX = Math.min(minX, x)
+    maxX = Math.max(maxX, x)
+    minY = Math.min(minY, y)
+    maxY = Math.max(maxY, y)
   }
+  const avg = { cx: sx / pairs.length, cy: sy / pairs.length }
+  const box = { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 }
+
+  if (pairs.length < 3) return avg
+
+  // Centroide por área (shoelace).
+  let area2 = 0
+  let cx = 0
+  let cy = 0
+  for (let i = 0; i < pairs.length; i++) {
+    const [x0, y0] = pairs[i]!
+    const [x1, y1] = pairs[(i + 1) % pairs.length]!
+    const cross = x0 * y1 - x1 * y0
+    area2 += cross
+    cx += (x0 + x1) * cross
+    cy += (y0 + y1) * cross
+  }
+  if (Math.abs(area2) < 1e-8) return avg
+  const area = { cx: cx / (3 * area2), cy: cy / (3 * area2) }
+
+  // En plantas en L el centroide puede caer fuera o “muy abajo”:
+  // preferimos un punto dentro del polígono (área → promedio → caja).
+  if (pointInPolygonPercent(area.cx, area.cy, points)) return area
+  if (pointInPolygonPercent(avg.cx, avg.cy, points)) return avg
+  if (pointInPolygonPercent(box.cx, box.cy, points)) return box
+  return avg
 }
 
 function WhatsAppIcon({ size = 16 }: { size?: number }) {
@@ -126,21 +164,35 @@ function getLaViletPlanta(win: Window | null | undefined): LaViletPlantaApi | nu
   }
 }
 
-function findUnitByPlantaId(units: TourUnitSummary[], plantaId: string) {
+function findUnitByPlantaId(
+  units: TourUnitSummary[],
+  plantaId: string,
+  floorHint?: number,
+) {
   const raw = plantaId.trim()
   if (!raw) return null
-  const byNumber = findUnitByNumber(units, raw)
-  if (byNumber) return byNumber
   const lower = raw.toLowerCase()
   const digits = raw.replace(/\D/g, '')
-  return (
-    units.find((item) => item.unit_number.trim().toLowerCase() === lower) ??
-    units.find((item) => item.id === raw) ??
-    (digits
-      ? units.find((item) => item.unit_number.replace(/\D/g, '') === digits)
-      : null) ??
-    null
-  )
+  const normalized = normalizeUnitCode(raw)
+
+  const matchIn = (list: TourUnitSummary[]) => {
+    if (list.length === 0) return null
+    return (
+      findUnitByNumber(list, raw) ??
+      list.find((item) => item.unit_number.trim().toLowerCase() === lower) ??
+      list.find((item) => item.id === raw) ??
+      list.find((item) => normalizeUnitCode(item.unit_number) === normalized) ??
+      (digits
+        ? list.find((item) => item.unit_number.replace(/\D/g, '') === digits) ??
+          list.find((item) => normalizeUnitCode(item.unit_number) === digits)
+        : null) ??
+      null
+    )
+  }
+
+  const onFloor =
+    floorHint != null ? units.filter((item) => unitFloorNumber(item) === floorHint) : []
+  return matchIn(onFloor) ?? matchIn(units)
 }
 
 function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: string) {
@@ -159,6 +211,56 @@ function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: st
   )
 }
 
+/** Resuelve id del HTML 3D contra zonas del piso (misma lógica que los pines). */
+function findUnitFromSlots(slots: DisplaySlot[], plantaId: string) {
+  const raw = plantaId.trim()
+  if (!raw) return null
+  const lower = raw.toLowerCase()
+  const normalized = normalizeUnitCode(raw)
+  const slot =
+    slots.find((item) => item.id.trim().toLowerCase() === lower) ??
+    slots.find((item) => item.label.trim().toLowerCase() === lower) ??
+    slots.find((item) => normalizeUnitCode(item.id) === normalized) ??
+    slots.find((item) => normalizeUnitCode(item.label) === normalized) ??
+    slots.find((item) => item.unit && normalizeUnitCode(item.unit.unit_number) === normalized) ??
+    null
+  return slot?.unit ?? null
+}
+
+function parsePercentPoints(points: string) {
+  return points
+    .split(/\s+/)
+    .map((p) => p.split(',').map(Number))
+    .filter((pair) => pair.length >= 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1])) as [
+    number,
+    number,
+  ][]
+}
+
+/** Ray casting: ¿el click (en %) cae dentro del polígono de la zona? */
+function pointInPolygonPercent(x: number, y: number, points: string) {
+  const pairs = parsePercentPoints(points)
+  if (pairs.length < 3) return false
+  let inside = false
+  for (let i = 0, j = pairs.length - 1; i < pairs.length; j = i++) {
+    const [xi, yi] = pairs[i]!
+    const [xj, yj] = pairs[j]!
+    const intersect =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + Number.EPSILON) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+function findSlotAtPercent(slots: DisplaySlot[], xPercent: number, yPercent: number) {
+  for (let i = slots.length - 1; i >= 0; i -= 1) {
+    const slot = slots[i]!
+    if (!slot.unit) continue
+    if (pointInPolygonPercent(xPercent, yPercent, slot.points)) return slot
+  }
+  return null
+}
+
 function toLayer(view: ReadyFloorView): FloorLayer | null {
   if (!view.url) return null
   const media = getFloorPlanVariantMedia(view.doc, view.variant)
@@ -167,17 +269,6 @@ function toLayer(view: ReadyFloorView): FloorLayer | null {
     width: media.imageWidth > 1 ? media.imageWidth : view.doc.imageWidth || 1024,
     height: media.imageHeight > 1 ? media.imageHeight : view.doc.imageHeight || 499,
   }
-}
-
-function neighborFloors(current: number, radius = 2) {
-  const idx = FLOOR_PLAN_FLOORS.indexOf(current)
-  if (idx < 0) return [current]
-  const out = new Set<number>([current])
-  for (let d = 1; d <= radius; d += 1) {
-    if (FLOOR_PLAN_FLOORS[idx - d] != null) out.add(FLOOR_PLAN_FLOORS[idx - d])
-    if (FLOOR_PLAN_FLOORS[idx + d] != null) out.add(FLOOR_PLAN_FLOORS[idx + d])
-  }
-  return [...out]
 }
 
 function alternateImageUrl(url: string) {
@@ -208,12 +299,17 @@ export function TourFloorPlan({
   const [readyFloors, setReadyFloors] = useState<Partial<Record<number, boolean>>>({})
   const stickyFloorRef = useRef<number | null>(null)
   const htmlIframeRefs = useRef<Partial<Record<number, HTMLIFrameElement | null>>>({})
-  /** Iframes WebGL montados: activo + vecinos (swap casi instantáneo). */
-  const [keptHtmlFloors, setKeptHtmlFloors] = useState<number[]>([])
+  /** Solo 1 iframe WebGL: más cuelgan el primer load. */
+  const [keptHtmlFloors, setKeptHtmlFloors] = useState<number[]>([floor])
   /** URL del HTML cuyo iframe ya disparó onLoad (por piso). */
   const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
   const onSelectUnitRef = useRef(onSelectUnit)
   onSelectUnitRef.current = onSelectUnit
+  const floorRef = useRef(floor)
+  floorRef.current = floor
+  const displaySlotsRef = useRef<DisplaySlot[]>([])
+  const htmlHoverUnitRef = useRef<TourUnitSummary | null>(null)
+  const lastHtmlOpenAtRef = useRef(0)
   const whatsappHref = tourWhatsAppHref(FLOOR_PLAN_WHATSAPP_MESSAGE)
 
   const upsertLayer = (view: ReadyFloorView) => {
@@ -238,9 +334,9 @@ export function TourFloorPlan({
       if (current && current.url !== layer.url) {
         setHtmlLoadedUrl((loaded) => {
           if (!loaded[view.floor]) return loaded
-          const next = { ...loaded }
-          delete next[view.floor]
-          return next
+          const nextLoaded = { ...loaded }
+          delete nextLoaded[view.floor]
+          return nextLoaded
         })
       }
       return { ...prev, [view.floor]: layer }
@@ -248,14 +344,6 @@ export function TourFloorPlan({
     setVariantByFloor((prev) =>
       prev[view.floor] === view.variant ? prev : { ...prev, [view.floor]: view.variant },
     )
-    // Montar iframe apenas tenemos URL (boot WebGL en background).
-    if (layer.kind === 'html') {
-      setKeptHtmlFloors((prev) => {
-        if (prev.includes(view.floor)) return prev
-        const next = [...prev, view.floor]
-        return next.slice(-6)
-      })
-    }
   }
 
   const ensureFloor = (item: number, opts?: { fresh?: boolean; preferred?: FloorPlanVariant }) => {
@@ -309,114 +397,85 @@ export function TourFloorPlan({
       }
       upsertLayer(view)
       if (media.kind === 'html') {
-        await preloadFloorPlanHtml(media.url)
+        void preloadFloorPlanHtml(media.url)
         setReadyFloors((prev) => ({ ...prev, [item]: true }))
         return view
       }
-      await preloadFloorPlanImage(media.url)
+      void preloadFloorPlanImage(media.url)
       setReadyFloors((prev) => ({ ...prev, [item]: true }))
       return view
     })
   }
 
-  // Calienta TODOS los pisos (calidad intacta); prioridad al activo y vecinos.
+  // Solo el piso activo al montar. NO precargar vecinos aquí (compite con el scroll de pisos).
   useEffect(() => {
-    prefetchFloorPlans([...FLOOR_PLAN_FLOORS])
-    void warmFloorPlans([...FLOOR_PLAN_FLOORS], neighborFloors(floor, 2)).then(() => {
-      for (const item of FLOOR_PLAN_FLOORS) {
-        const preferred = variantByFloor[item] ?? preferredVariant
-        const ready = getReadyFloorView(item, preferred)
-        if (!ready) continue
-        // No pisar una capa 3D/HTML activa con el 2D del warm.
-        setLayers((prev) => {
-          const current = prev[item]
-          if (current?.kind === 'html' && preferred === '3d') return prev
-          if (current && current.variant === preferred && current.url === ready.url) return prev
-          const layer = toLayer(ready)
-          if (!layer) return prev
-          return { ...prev, [item]: layer }
-        })
-        setReadyFloors((prev) => (prev[item] ? prev : { ...prev, [item]: true }))
-      }
-    })
+    void ensureFloor(floor, { preferred: preferredVariant })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     setScale(ZOOM_MIN)
+    htmlHoverUnitRef.current = null
+    htmlHoverLabelRef.current = null
     if (preferredVariant) {
       setVariantByFloor((prev) =>
         prev[floor] === preferredVariant ? prev : { ...prev, [floor]: preferredVariant },
       )
     }
-    // Usar cache caliente (HTML precargado). Solo refetch fresco al montar / invalidar.
     void ensureFloor(floor, { preferred: preferredVariant })
-    for (const item of neighborFloors(floor, 2)) {
-      if (item !== floor) void ensureFloor(item, { preferred: preferredVariant })
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [floor, preferredVariant])
 
-  const targetReady = Boolean(layers[floor] && readyFloors[floor])
+  const currentLayer = layers[floor] ?? null
+  const planVariant =
+    variantByFloor[floor] ?? preferredVariant ?? currentLayer?.variant ?? '3d'
+  const currentReady =
+    Boolean(currentLayer) &&
+    (currentLayer!.kind !== 'html' || htmlLoadedUrl[floor] === currentLayer!.url)
+
+  // En 3D nunca pintar otro piso (evita flash del plano anterior).
+  // En 2D se permite sticky solo mientras carga la imagen.
+  const paintFloor =
+    planVariant === '3d'
+      ? floor
+      : currentReady
+        ? floor
+        : stickyFloorRef.current != null && layers[stickyFloorRef.current]
+          ? stickyFloorRef.current
+          : floor
 
   useEffect(() => {
-    if (targetReady) stickyFloorRef.current = floor
-  }, [targetReady, floor])
+    if (currentReady) stickyFloorRef.current = floor
+  }, [currentReady, floor])
 
-  const paintFloor =
-    targetReady
-      ? floor
-      : stickyFloorRef.current != null && layers[stickyFloorRef.current]
-        ? stickyFloorRef.current
-        : floor
-
-  const shown = layers[paintFloor] ?? layers[floor] ?? null
-  /** Variantes del piso seleccionado (no del sticky) para el toggle 2D/3D. */
-  const selectedLayer = layers[floor] ?? shown
-  // Prioridad al toggle local del piso; preferredVariant solo inicializa / sincroniza desde el menú.
-  const planVariant =
-    variantByFloor[floor] ?? preferredVariant ?? selectedLayer?.variant ?? shown?.variant ?? '3d'
-  const waiting = !shown && !failedFloors[floor]
-  const missing = !shown && Boolean(failedFloors[floor])
-  const docForToggles = selectedLayer?.doc ?? shown?.doc
+  const shown = (planVariant === '3d' ? currentLayer : layers[paintFloor] ?? currentLayer) ?? null
+  const waiting = !currentLayer && !failedFloors[floor]
+  const missing = !currentLayer && Boolean(failedFloors[floor])
+  const docForToggles = currentLayer?.doc ?? null
   const has2d = floorPlanVariantHasMedia(docForToggles?.variants?.['2d'])
   const has3d = floorPlanVariantHasMedia(docForToggles?.variants?.['3d'])
   const canToggleVariant = has2d || has3d
   const expectsHtml3d = Boolean(docForToggles?.variants?.['3d']?.htmlUrl)
-  // Esperar hasta que el iframe del piso activo haya booteado (o no hay HTML).
-  // Si ya hay sticky de otro piso, no tapamos con overlay negro (cambio fluido).
-  const activeHtmlUrl =
-    planVariant === '3d' && layers[paintFloor]?.kind === 'html' ? layers[paintFloor]?.url : null
-  const activeHtmlReady =
-    Boolean(activeHtmlUrl) && htmlLoadedUrl[paintFloor] === activeHtmlUrl
-  const waitingHtml =
+  const waitingHtmlBoot =
     planVariant === '3d' &&
     expectsHtml3d &&
-    !failedFloors[paintFloor] &&
-    Boolean(activeHtmlUrl) &&
-    !activeHtmlReady &&
-    paintFloor === floor
-  const waitingHtmlBoot =
-    waitingHtml ||
-    (planVariant === '3d' &&
-      expectsHtml3d &&
-      !failedFloors[floor] &&
-      !layers[floor]?.url &&
-      paintFloor === floor)
+    !failedFloors[floor] &&
+    (!currentLayer?.url || htmlLoadedUrl[floor] !== currentLayer.url)
 
+  // Un solo iframe WebGL a la vez.
   useEffect(() => {
-    if (planVariant !== '3d') return
-    const keep = neighborFloors(floor, 2)
-    setKeptHtmlFloors((prev) => {
-      const merged = [...keep, ...prev.filter((item) => !keep.includes(item))]
-      // Activo + vecinos primero; conservar hasta 6 para no matar la GPU.
-      return merged.slice(0, 6)
-    })
-    for (const item of keep) {
-      void ensureFloor(item, { preferred: preferredVariant })
+    if (planVariant !== '3d') {
+      setKeptHtmlFloors([])
+      return
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [floor, planVariant, preferredVariant])
+    setKeptHtmlFloors([floor])
+    setHtmlLoadedUrl((prev) => {
+      if (!prev[floor]) return prev
+      const next = { ...prev }
+      delete next[floor]
+      return next
+    })
+  }, [floor, planVariant])
 
   const planAspect = useMemo(() => {
     if (planVariant === '3d') {
@@ -445,16 +504,17 @@ export function TourFloorPlan({
   )
 
   const unitsOnFloor = useMemo(() => {
-    const docFloor = shown?.floor ?? paintFloor
-    const matched = units.filter((unit) => unitFloorNumber(unit) === docFloor)
+    // Siempre el piso seleccionado (no el sticky), para pines/unidades correctos.
+    const matched = units.filter((unit) => unitFloorNumber(unit) === floor)
     const list = matched.length > 0 ? matched : units
     return [...list].sort((a, b) =>
       a.unit_number.localeCompare(b.unit_number, 'es', { numeric: true }),
     )
-  }, [units, paintFloor, shown?.floor])
+  }, [units, floor])
 
   const displaySlots = useMemo<DisplaySlot[]>(() => {
-    const zones = docForToggles?.zones ?? shown?.doc.zones
+    // Zonas del piso activo únicamente (evita pines del plano anterior).
+    const zones = docForToggles?.zones
     if (!zones?.length) return []
     return [...zones]
       .sort((a, b) => a.order - b.order)
@@ -465,39 +525,60 @@ export function TourFloorPlan({
         points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
         unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
       }))
-  }, [docForToggles?.zones, shown?.doc.zones, unitsOnFloor, overlayAlign])
+  }, [docForToggles?.zones, unitsOnFloor, overlayAlign])
+  displaySlotsRef.current = displaySlots
 
   const activeHtmlFloor =
-    planVariant === '3d' && layers[paintFloor]?.kind === 'html' ? paintFloor : null
-  /** Segmentación (zonas/etiquetas) solo en 2D. */
+    planVariant === '3d' && currentLayer?.kind === 'html' && !waitingHtmlBoot ? floor : null
+  /** Segmentación visible solo en 2D (en 3D el HTML interactivo). */
   const showSegmentation = planVariant !== '3d'
   const htmlInteractive = activeHtmlFloor != null
+  const htmlHoverLabelRef = useRef<string | null>(null)
 
-  // El HTML maneja hover/click; el showroom abre la unidad vía postMessage.
+  // CRÍTICO FPS: el hover del iframe NO hace setState (re-render = 4fps con WebGL).
+  // Solo refs; la ficha sí actualiza UI al click.
   useEffect(() => {
+    const resolveUnit = (plantaId: string) =>
+      findUnitByPlantaId(units, plantaId, floorRef.current) ??
+      findUnitFromSlots(displaySlotsRef.current, plantaId)
+
     const onMessage = (event: MessageEvent) => {
       const data = event.data
       if (!data || data.source !== 'lavilet-floor-html') return
       if (data.type === 'hover') {
         const plantaId = String(data.departamento || '').trim()
         if (!plantaId) {
-          setHtmlHoverUnit(null)
-          setHtmlHoverLabel(null)
+          htmlHoverUnitRef.current = null
+          htmlHoverLabelRef.current = null
           return
         }
-        const unit = findUnitByPlantaId(units, plantaId)
-        setHtmlHoverUnit(unit)
-        setHtmlHoverLabel(unit?.unit_number ?? plantaId)
+        const unit = resolveUnit(plantaId)
+        htmlHoverUnitRef.current = unit
+        htmlHoverLabelRef.current = unit?.unit_number ?? plantaId
         return
       }
       if (data.type !== 'ficha') return
       const plantaId = String(data.departamento || '').trim()
-      if (!plantaId) return
-      const unit = findUnitByPlantaId(units, plantaId)
-      setHtmlHoverLabel(unit?.unit_number ?? plantaId)
+      const xPercent = Number(data.xPercent)
+      const yPercent = Number(data.yPercent)
+      const fromPoint =
+        Number.isFinite(xPercent) && Number.isFinite(yPercent)
+          ? findSlotAtPercent(displaySlotsRef.current, xPercent, yPercent)
+          : null
+      const unit =
+        (plantaId ? resolveUnit(plantaId) : null) ??
+        fromPoint?.unit ??
+        htmlHoverUnitRef.current
       if (!unit) return
+      const slotId = fromPoint?.id ?? plantaId ?? unit.unit_number
+      const now = Date.now()
+      if (now - lastHtmlOpenAtRef.current < 350) return
+      lastHtmlOpenAtRef.current = now
+      htmlHoverUnitRef.current = unit
+      htmlHoverLabelRef.current = unit.unit_number
       setHtmlHoverUnit(unit)
-      onSelectUnitRef.current(unit, plantaId)
+      setHtmlHoverLabel(unit.unit_number)
+      onSelectUnitRef.current(unit, slotId)
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
@@ -505,6 +586,8 @@ export function TourFloorPlan({
 
   useEffect(() => {
     if (!htmlInteractive) {
+      htmlHoverUnitRef.current = null
+      htmlHoverLabelRef.current = null
       setHtmlHoverUnit(null)
       setHtmlHoverLabel(null)
     }
@@ -596,12 +679,7 @@ export function TourFloorPlan({
     setFailedFloors((prev) => ({ ...prev, [layerFloor]: true }))
   }
 
-  const warmOnIntent = (item: number) => {
-    prefetchFloorPlans([item])
-    void ensureFloor(item)
-  }
-
-  // Capas listas; iframes HTML solo de los pisos "kept" (activo + anterior).
+  // Capas listas; iframes HTML solo del piso activo.
   const layerEntries = useMemo(
     () => Object.values(layers).filter((layer): layer is FloorLayer => Boolean(layer?.url)),
     [layers],
@@ -614,11 +692,12 @@ export function TourFloorPlan({
     [layerEntries, keptHtmlFloors],
   )
 
+  const showPlanChrome = canToggleVariant
+
   return (
     <div className="absolute inset-0 z-[18] flex bg-[#14110e] pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]">
       <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-2 sm:p-3">
-          {/* Controles encima del plano para que no los tape el hit-area */}
-          {canToggleVariant ? (
+          {showPlanChrome ? (
             <div className="pointer-events-auto absolute left-3 top-3 z-30 flex rounded-lg bg-white/95 p-0.5 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-1 ring-black/10 sm:left-4 sm:top-4">
               {(['2d', '3d'] as const).map((item) => {
                 const available = item === '2d' ? has2d : has3d
@@ -672,9 +751,10 @@ export function TourFloorPlan({
             }}
             onMouseLeave={() => setHoverSlot(null)}
           >
-            {/* HTML/WebGL: activo + vecinos precargados (calidad intacta). */}
+            {/* Un solo iframe WebGL (piso activo). */}
             {htmlLayerEntries.map((layer) => {
               const active = layer.floor === paintFloor && planVariant === '3d'
+              const booted = htmlLoadedUrl[layer.floor] === layer.url
               return (
                 <iframe
                   key={`floor-html-${layer.floor}`}
@@ -687,12 +767,11 @@ export function TourFloorPlan({
                   allow="fullscreen"
                   className={cn(
                     'absolute inset-0 z-[1] h-full w-full border-0 bg-[#14110e]',
-                    active ? 'opacity-100' : 'pointer-events-none opacity-0',
+                    active && booted ? 'opacity-100' : 'pointer-events-none opacity-0',
                   )}
                   style={{
-                    pointerEvents: active ? 'auto' : 'none',
-                    // Mantener WebGL vivo en capas ocultas (no display:none).
-                    visibility: active ? 'visible' : 'hidden',
+                    pointerEvents: active && booted ? 'auto' : 'none',
+                    visibility: active && booted ? 'visible' : 'hidden',
                   }}
                   onLoad={(event) => {
                     htmlIframeRefs.current[layer.floor] = event.currentTarget
@@ -711,8 +790,8 @@ export function TourFloorPlan({
                 />
               )
             })}
-            {waitingHtmlBoot && paintFloor === floor ? (
-              <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-[#14110e]/55 text-sm text-white/70">
+            {waitingHtmlBoot ? (
+              <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center bg-[#14110e] text-sm text-white/70">
                 Cargando plano 3D…
               </div>
             ) : null}
@@ -759,7 +838,7 @@ export function TourFloorPlan({
                 )
               })}
 
-              {/* Segmentación solo en 2D. En HTML 3D el iframe recibe el cursor. */}
+              {/* Segmentación 2D (clickeable). En 3D las zonas van en capa aparte (solo visual). */}
               {!htmlInteractive ? (
               <svg
                 viewBox="0 0 100 100"
@@ -807,7 +886,11 @@ export function TourFloorPlan({
                     }}
                     onPointerDown={(event) => {
                       if (!slot.unit) return
-                      // Evita que el pan/zoom del contenedor se coma el tap.
+                      event.stopPropagation()
+                      handleSelectSlot(slot)
+                    }}
+                    onClick={(event) => {
+                      if (!slot.unit) return
                       event.stopPropagation()
                       handleSelectSlot(slot)
                     }}
@@ -873,18 +956,13 @@ export function TourFloorPlan({
             </div>
           ) : null}
 
-          {/* En 3D: número en el centro de cada depto (sobre el plano). */}
+          {/* En 3D: pines (la segmentación CRM se edita en Inventario → Pisos). */}
           {htmlInteractive && displaySlots.length > 0 ? (
-            <div className="pointer-events-none absolute inset-0 z-[3]">
+            <div className="pointer-events-none absolute inset-0 z-[4]">
               {displaySlots.map((slot) => {
                 if (!slot.unit && !slot.label) return null
                 const { cx, cy } = slotCentroid(slot.points)
                 const label = slot.unit?.unit_number ?? slot.label
-                const active =
-                  (htmlHoverUnit != null && slot.unit?.id === htmlHoverUnit.id) ||
-                  (htmlHoverLabel != null &&
-                    (label.trim().toLowerCase() === htmlHoverLabel.trim().toLowerCase() ||
-                      slot.id.trim().toLowerCase() === htmlHoverLabel.trim().toLowerCase()))
                 const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
                 return (
                   <button
@@ -892,14 +970,13 @@ export function TourFloorPlan({
                     type="button"
                     disabled={!slot.unit}
                     className={cn(
-                      'pointer-events-auto absolute z-[3] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1 transition-[transform,background-color] duration-100',
-                      active || selected
-                        ? 'scale-110 bg-white ring-black/15'
-                        : 'bg-white/92 ring-black/10 hover:bg-white',
+                      'pointer-events-auto absolute z-[4] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1',
+                      selected ? 'bg-white ring-[#3d9b4a]' : 'bg-white/92 ring-black/10',
                       !slot.unit && 'cursor-not-allowed opacity-70',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation()
                       if (slot.unit) onSelectUnit(slot.unit, slot.id)
                     }}
                     title={slot.unit ? `Abrir unidad ${label}` : label}
@@ -911,12 +988,7 @@ export function TourFloorPlan({
                       )}
                       aria-hidden
                     />
-                    <span
-                      className={cn(
-                        'font-bold tracking-wide text-[#1a2744]',
-                        active || selected ? 'text-[11px] sm:text-[12px]' : 'text-[10px] sm:text-[11px]',
-                      )}
-                    >
+                    <span className="text-[10px] font-bold tracking-wide text-[#1a2744] sm:text-[11px]">
                       {label}
                     </span>
                   </button>
@@ -977,26 +1049,26 @@ export function TourFloorPlan({
 
       <div className="pointer-events-auto flex shrink-0 flex-col items-center justify-between gap-1.5 py-1.5 pr-1.5 sm:gap-2.5 sm:py-2 sm:pr-3 [@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:pr-1">
         <div className="flex min-h-0 flex-1 flex-col justify-center">
-          <div className="flex max-h-full flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-xl bg-white/92 p-1 shadow-[0_8px_24px_rgba(15,23,42,0.18)] backdrop-blur-sm sm:gap-1.5 sm:p-2 [@media(max-height:520px)]:rounded-lg [@media(max-height:520px)]:p-0.5">
+          <div
+            className="flex max-h-full flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-xl bg-white/92 p-1 shadow-[0_8px_24px_rgba(15,23,42,0.18)] sm:gap-1.5 sm:p-2 [@media(max-height:520px)]:rounded-lg [@media(max-height:520px)]:p-0.5"
+            style={{ contain: 'layout paint', WebkitOverflowScrolling: 'touch' }}
+            onWheel={(event) => event.stopPropagation()}
+            onTouchMove={(event) => event.stopPropagation()}
+          >
             {FLOOR_PLAN_FLOORS.map((item) => {
               const active = item === floor
               const short = floorPlanLevelShort(item)
-              const warmed = Boolean(readyFloors[item] || layers[item])
               return (
                 <button
                   key={item}
                   type="button"
                   onClick={() => onFloorChange(item)}
-                  onMouseEnter={() => warmOnIntent(item)}
-                  onFocus={() => warmOnIntent(item)}
-                  onPointerDown={() => warmOnIntent(item)}
                   className={cn(
-                    'min-w-[2.1rem] rounded-lg px-1.5 py-1 text-[10px] font-semibold tracking-wide transition-colors sm:min-w-[2.6rem] sm:px-2.5 sm:py-2 sm:text-[12px]',
+                    'min-w-[2.1rem] rounded-lg px-1.5 py-1 text-[10px] font-semibold tracking-wide sm:min-w-[2.6rem] sm:px-2.5 sm:py-2 sm:text-[12px]',
                     '[@media(max-height:520px)]:min-w-[1.9rem] [@media(max-height:520px)]:px-1 [@media(max-height:520px)]:py-0.5 [@media(max-height:520px)]:text-[9px]',
                     active
                       ? 'bg-[#1a2744] text-white shadow-sm'
                       : 'bg-white text-[#3a4050] hover:bg-[#eef1f6]',
-                    !warmed && !active && 'opacity-80',
                   )}
                   aria-pressed={active}
                   aria-label={floorPlanLevelLabel(item)}

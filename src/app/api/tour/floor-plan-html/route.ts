@@ -176,7 +176,8 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
             if (id === lastNative) return;
             lastNative = id;
             window.__lvLastHoverId = id || null;
-            post("hover", { departamento: id ? String(id) : null });
+            // No postMessage de hover: el parent re-renderizaba y mataba el FPS del WebGL.
+            // El click (ficha) sí avisa al showroom.
           } catch (err) {}
         },
         { passive: true }
@@ -186,7 +187,7 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
         function () {
           lastNative = null;
           window.__lvLastHoverId = null;
-          post("hover", { departamento: null });
+          // sin post hover (FPS)
         },
         { passive: true }
       );
@@ -202,7 +203,6 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
       try {
         a.restablecer && a.restablecer({ animate: true });
       } catch (e) {}
-      post("hover", { departamento: null });
     };
     var move = function (e) {
       if (e.pointerType === "touch" || e.buttons > 0) return;
@@ -217,10 +217,9 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
         window.__lvLastHoverId = id || null;
         if (id) {
           a.seleccionar(id);
-          post("hover", { departamento: String(id) });
+          // sin post hover (FPS)
         } else if (typeof a.restablecer === "function") {
           a.restablecer({ animate: true });
-          post("hover", { departamento: null });
         }
       } catch (err) {}
     };
@@ -235,6 +234,10 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
     var openFromPoint = function (clientX, clientY) {
       try {
         var r = view.getBoundingClientRect();
+        if (!r.width || !r.height) return;
+        var xPct = ((clientX - r.left) / r.width) * 100;
+        var yPct = ((clientY - r.top) / r.height) * 100;
+        if (xPct < -2 || xPct > 102 || yPct < -2 || yPct > 102) return;
         var x = ((clientX - r.left) * (a.width || 2048)) / r.width;
         var y = ((clientY - r.top) * (a.height || 970)) / r.height;
         var id =
@@ -242,7 +245,12 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
           (typeof a.identificar === "function" && a.identificar(x, y)) ||
           (typeof a.estado === "function" && a.estado() && a.estado().departamento) ||
           null;
-        if (id) post("ficha", { departamento: String(id) });
+        // Siempre avisamos al showroom (con coords) para abrir ficha aunque el id no matchee.
+        post("ficha", {
+          departamento: id ? String(id) : null,
+          xPercent: xPct,
+          yPercent: yPct,
+        });
       } catch (err) {}
     };
     view.addEventListener("click", function (e) {

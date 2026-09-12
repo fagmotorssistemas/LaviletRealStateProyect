@@ -120,3 +120,71 @@ export function applyPolygonMeta(polygon: Point[], curves?: (Point | null)[]) {
     center: [(x0 + x1) / 2, (y0 + y1) / 2] as [number, number],
   }
 }
+
+/** Traslada un subconjunto de zonas (mismo delta para todas). */
+export function translateApartmentsByIds(
+  apartments: Apartment[],
+  ids: string[],
+  dx: number,
+  dy: number,
+): Apartment[] {
+  if (!ids.length || (dx === 0 && dy === 0)) return apartments
+  const idSet = new Set(ids)
+  const mapPoint = (p: Point): Point => [Math.round(p[0] + dx), Math.round(p[1] + dy)]
+  return apartments.map((apt) => {
+    if (!idSet.has(apt.id)) return apt
+    if (apt.kind === 'circle') {
+      return rebuildCircleApartment(
+        apt,
+        apt.center[0] + dx,
+        apt.center[1] + dy,
+        circleRadiusFromApartment(apt),
+      )
+    }
+    const polygon = apt.polygon.map(mapPoint)
+    const curves = apt.curves?.map((c) => (c ? mapPoint(c) : null))
+    return {
+      ...apt,
+      ...applyPolygonMeta(polygon, curves),
+      needsReview: false,
+    }
+  })
+}
+
+/** Escala un subconjunto alrededor del centroide del grupo. */
+export function scaleApartmentsByIds(
+  apartments: Apartment[],
+  ids: string[],
+  factor: number,
+): Apartment[] {
+  if (!ids.length || !Number.isFinite(factor) || factor === 1) return apartments
+  const idSet = new Set(ids)
+  const group = apartments.filter((a) => idSet.has(a.id))
+  if (!group.length) return apartments
+  let cx = 0
+  let cy = 0
+  for (const a of group) {
+    cx += a.center[0]
+    cy += a.center[1]
+  }
+  cx /= group.length
+  cy /= group.length
+  const mapPoint = (p: Point): Point => [
+    Math.round(cx + (p[0] - cx) * factor),
+    Math.round(cy + (p[1] - cy) * factor),
+  ]
+  return apartments.map((apt) => {
+    if (!idSet.has(apt.id)) return apt
+    if (apt.kind === 'circle') {
+      const [nx, ny] = mapPoint(apt.center)
+      return rebuildCircleApartment(apt, nx, ny, circleRadiusFromApartment(apt) * factor)
+    }
+    const polygon = apt.polygon.map(mapPoint)
+    const curves = apt.curves?.map((c) => (c ? mapPoint(c) : null))
+    return {
+      ...apt,
+      ...applyPolygonMeta(polygon, curves),
+      needsReview: false,
+    }
+  })
+}

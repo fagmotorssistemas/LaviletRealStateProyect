@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ImagePlus, Maximize2, Minimize2, Minus, PenLine, Plus, Save, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Maximize2, Minimize2, Minus, PenLine, Plus, Save, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { listUnitsImportAction } from '@/app/inmobiliaria/inventario-2/actions'
 import { FloorPlanViewer } from '@/components/floor-plan/FloorPlanViewer'
@@ -25,6 +25,10 @@ import {
 } from '@/lib/tour/floorPlanZones'
 import { invalidateFloorPlanCache } from '@/lib/tour/floorPlanClientCache'
 import type { Apartment, Point } from '@/lib/floor-plan/types'
+import {
+  scaleApartmentsByIds,
+  translateApartmentsByIds,
+} from '@/lib/floor-plan/geometry'
 import type { UnitImport } from '@/types/inmobiliaria'
 import { cn } from '@/lib/utils'
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
@@ -84,9 +88,11 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
   const [htmlUrl, setHtmlUrl] = useState<string | null>(null)
   /** Fuerza remount del iframe preview tras cada subida/borrado. */
   const [htmlPreviewNonce, setHtmlPreviewNonce] = useState(0)
+  /** Evita remountar WebGL en cada click rápido al cambiar de piso. */
+  const [htmlPreviewReady, setHtmlPreviewReady] = useState(true)
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null)
   const [apartments, setApartments] = useState<Apartment[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [editMode, setEditMode] = useState(false)
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -101,8 +107,9 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
   const [assignOpen, setAssignOpen] = useState(false)
   const [showAllUnits, setShowAllUnits] = useState(false)
 
+  const selectedId = selectedIds.length ? selectedIds[selectedIds.length - 1]! : null
   const selected = useMemo(
-    () => apartments.find((item) => item.id === selectedId) ?? null,
+    () => (selectedId ? apartments.find((item) => item.id === selectedId) ?? null : null),
     [apartments, selectedId],
   )
 
@@ -191,9 +198,15 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       setOffset({ x: 0, y: 0 })
       return
     }
+    const w = width > 1 ? width : 2048
+    const h = height > 1 ? height : 970
+    const box = viewerBoxRef.current?.getBoundingClientRect()
+    const fitted = box
+      ? fitScaleForView(w, h, box.width, box.height)
+      : Math.min(1, 900 / Math.max(w, h))
     setHtmlUrl(url)
-    setNatural({ width, height })
-    setScale(1)
+    setNatural({ width: w, height: h })
+    setScale(fitted)
     setOffset({ x: 0, y: 0 })
   }, [])
 
@@ -259,9 +272,11 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       const media = getFloorPlanVariantMedia(doc, nextVariant)
       if (media.htmlUrl) {
         const bust = `${media.htmlUrl}${media.htmlUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
-        applyHtml(bust, media.imageWidth || 2048, media.imageHeight || 970)
+        const w = media.imageWidth > 1 ? media.imageWidth : 2048
+        const h = media.imageHeight > 1 ? media.imageHeight : 970
+        applyHtml(bust, w, h)
         if (gen !== loadGenRef.current) return
-        setApartments(doc?.zones ? zonesToApartments(doc.zones, media.imageWidth, media.imageHeight) : [])
+        setApartments(doc?.zones ? zonesToApartments(doc.zones, w, h) : [])
       } else if (media.imageUrl) {
         const bust = `${media.imageUrl}${media.imageUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
         const size = await applyImage(bust)
@@ -280,7 +295,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         if (gen !== loadGenRef.current) return
         setApartments(doc?.zones ? zonesToApartments(doc.zones) : [])
       }
-      setSelectedId(null)
+      setSelectedIds([])
       setEditMode(false)
       setAssignOpen(false)
       setDraftPoints(null)
@@ -360,7 +375,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     setZonesDoc(nextDoc)
     setPlanVariant(next)
     setDraftPoints(null)
-    setSelectedId(null)
+    setSelectedIds([])
     setEditMode(false)
     setAssignOpen(false)
 
@@ -540,7 +555,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       if (!res.ok) throw new Error(json.error || 'No se pudo borrar el piso')
       await applyImage(null)
       setApartments([])
-      setSelectedId(null)
+      setSelectedIds([])
       setEditMode(false)
       await refreshSummaries()
       toast.success(`${floorPlanLevelLabel(floor)} limpio`)
@@ -552,9 +567,9 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
   }
 
   const startPointDraw = () => {
-    if (!natural || !imageUrl) return
+    if (!natural || !(imageUrl || htmlUrl)) return
     setDraftPoints([])
-    setSelectedId(null)
+    setSelectedIds([])
     setEditMode(false)
   }
 
@@ -598,7 +613,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     }
     setApartments((prev) => [...prev, apt])
     setDraftPoints(null)
-    setSelectedId(id)
+    setSelectedIds([id])
     setEditMode(false)
     setAssignOpen(true)
     toast.success('Zona creada — elegí la unidad de la lista')
@@ -653,38 +668,55 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullscreen])
 
-  const selectZone = (id: string, openEditor = true) => {
-    setSelectedId(id)
+  const selectZone = (id: string, openEditor = true, additive = false) => {
     setDraftPoints(null)
     setAssignOpen(false)
+    if (additive) {
+      setSelectedIds((prev) =>
+        prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+      )
+    } else {
+      setSelectedIds([id])
+    }
     if (openEditor) setEditMode(true)
   }
 
+  const handleViewerSelect = (id: string | null, opts?: { additive?: boolean }) => {
+    if (draftPoints != null) return
+    if (id == null) {
+      setSelectedIds([])
+      setEditMode(false)
+      return
+    }
+    selectZone(id, true, Boolean(opts?.additive))
+  }
+
   const renameSelected = (nextId: string) => {
-    if (!selected) return
+    if (!selected || selectedIds.length !== 1) return
     const trimmed = nextId.trim()
     if (!trimmed) return
     setApartments((prev) =>
       prev.map((item) => (item.id === selected.id ? { ...item, id: trimmed } : item)),
     )
-    setSelectedId(trimmed)
+    setSelectedIds([trimmed])
   }
 
   const assignUnit = (unitNumber: string) => {
-    if (!selectedId || !unitNumber) return
+    if (!selectedId || selectedIds.length !== 1 || !unitNumber) return
     const previousId = selectedId
     setApartments((prev) =>
       prev.map((item) => (item.id === previousId ? { ...item, id: unitNumber, needsReview: false } : item)),
     )
-    setSelectedId(unitNumber)
+    setSelectedIds([unitNumber])
     setAssignOpen(false)
     toast.success(`Zona asignada a unidad ${unitNumber}`)
   }
 
   const deleteSelected = () => {
-    if (!selected) return
-    setApartments((prev) => prev.filter((item) => item.id !== selected.id))
-    setSelectedId(null)
+    if (!selectedIds.length) return
+    const remove = new Set(selectedIds)
+    setApartments((prev) => prev.filter((item) => !remove.has(item.id)))
+    setSelectedIds([])
     setEditMode(false)
     setAssignOpen(false)
   }
@@ -694,34 +726,138 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     [zonesDoc, planVariant],
   )
 
-  const nudgeOverlayAlign = (patch: Partial<FloorPlanOverlayAlign>) => {
-    const current = getFloorPlanOverlayAlign(zonesDoc, planVariant)
-    const next = parseOverlayAlign({ ...current, ...patch })
-    setZonesDoc((prev) => {
-      const base =
-        prev ??
-        withFloorPlanVariants({
-          floor,
-          typologyCode,
-          imageUrl: null,
-          imageWidth: 1,
-          imageHeight: 1,
-          variants: {
-            '2d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
-            '3d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
+  // Al cambiar de piso: desmontá el iframe un momento para que el scroll/lista no se trabe.
+  useEffect(() => {
+    setHtmlPreviewReady(false)
+    const id = window.setTimeout(() => setHtmlPreviewReady(true), 320)
+    return () => window.clearTimeout(id)
+  }, [floor, htmlUrl])
+
+  const hasPlanMedia = Boolean(imageUrl || htmlUrl)
+
+  /** Ajuste fino siempre sobre align['3d'] (no toca el 2D). */
+  const nudgeOverlayAlign3d = useCallback(
+    (
+      patch:
+        | Partial<FloorPlanOverlayAlign>
+        | ((current: FloorPlanOverlayAlign) => Partial<FloorPlanOverlayAlign>),
+    ) => {
+      setZonesDoc((prev) => {
+        const current = getFloorPlanOverlayAlign(prev, '3d')
+        const applied = typeof patch === 'function' ? patch(current) : patch
+        const next = parseOverlayAlign({ ...current, ...applied })
+        const base =
+          prev ??
+          withFloorPlanVariants({
+            floor,
+            typologyCode,
+            imageUrl: null,
+            imageWidth: 1,
+            imageHeight: 1,
+            variants: {
+              '2d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
+              '3d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
+            },
+            zones: apartmentsToZones(apartments, natural?.width || 1000, natural?.height || 1000),
+            updatedAt: new Date().toISOString(),
+          })
+        return withFloorPlanVariants({
+          ...base,
+          align: {
+            ...base.align,
+            '3d': next,
           },
-          zones: apartmentsToZones(apartments, natural?.width || 1000, natural?.height || 1000),
-          updatedAt: new Date().toISOString(),
         })
-      return withFloorPlanVariants({
-        ...base,
-        align: {
-          ...base.align,
-          [planVariant]: next,
-        },
       })
-    })
-  }
+    },
+    [apartments, floor, natural?.height, natural?.width, typologyCode],
+  )
+
+  /** Con selección: mueve solo esas zonas. Sin selección: ajuste global 3D. */
+  const nudgeFine3d = useCallback(
+    (action: { dx?: number; dy?: number; scaleFactor?: number }) => {
+      if (selectedIds.length > 0) {
+        const w = natural?.width || 1000
+        const h = natural?.height || 1000
+        if (action.scaleFactor != null && action.scaleFactor !== 1) {
+          setApartments((prev) => scaleApartmentsByIds(prev, selectedIds, action.scaleFactor!))
+          return
+        }
+        const dxPx = ((action.dx ?? 0) / 100) * w
+        const dyPx = ((action.dy ?? 0) / 100) * h
+        if (dxPx !== 0 || dyPx !== 0) {
+          setApartments((prev) => translateApartmentsByIds(prev, selectedIds, dxPx, dyPx))
+        }
+        return
+      }
+      if (action.scaleFactor != null && action.scaleFactor !== 1) {
+        nudgeOverlayAlign3d((a) => ({ scale: a.scale * action.scaleFactor! }))
+        return
+      }
+      if (action.dx != null || action.dy != null) {
+        nudgeOverlayAlign3d((a) => ({
+          offsetX: a.offsetX + (action.dx ?? 0),
+          offsetY: a.offsetY + (action.dy ?? 0),
+        }))
+      }
+    },
+    [selectedIds, natural?.width, natural?.height, nudgeOverlayAlign3d],
+  )
+
+  // Teclado: flechas mueven, +/− escalan — solo en 3D.
+  useEffect(() => {
+    if (planVariant !== '3d' || !hasPlanMedia) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+
+      const step = event.shiftKey ? 1 : 0.4
+      const scaleFactor = event.shiftKey ? 1.02 : 1.01
+      const shrinkFactor = event.shiftKey ? 1 / 1.02 : 1 / 1.01
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        nudgeFine3d({ dx: -step })
+        return
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        nudgeFine3d({ dx: step })
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        nudgeFine3d({ dy: -step })
+        return
+      }
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        nudgeFine3d({ dy: step })
+        return
+      }
+      if (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd') {
+        event.preventDefault()
+        nudgeFine3d({ scaleFactor })
+        return
+      }
+      if (event.key === '-' || event.code === 'NumpadSubtract') {
+        event.preventDefault()
+        nudgeFine3d({ scaleFactor: shrinkFactor })
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [planVariant, hasPlanMedia, nudgeFine3d])
 
   const onSave = async () => {
     if (!typologyCode || !natural || !(imageUrl || htmlUrl)) {
@@ -814,53 +950,35 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       <div className="space-y-1">
         <p className="text-sm text-[#3a3d36]">Planos por piso</p>
         <p className="text-xs text-[#8a8d87]">
-          Dibujá en <span className="font-medium text-[#3a3d36]">2D</span>. En{' '}
-          <span className="font-medium text-[#3a3d36]">3D</span> subí el HTML interactivo (o una
-          imagen); las mismas zonas se reutilizan. Si quedan corridas, usá el ajuste fino.
+          En <span className="font-medium text-[#3a3d36]">2D</span> y{' '}
+          <span className="font-medium text-[#3a3d36]">3D</span> podés dibujar y editar las mismas
+          zonas. En 3D se editan encima del HTML; usá el ajuste fino si el conjunto queda corrido.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
-        {floorSummaries.map((item) => {
-          const active = item.floor === floor
-          const label = floorPlanLevelLabel(item.floor)
-          return (
-            <button
-              key={item.floor}
-              type="button"
-              onClick={() => setFloor(item.floor)}
-              className={cn(
-                'overflow-hidden rounded-xl border text-left transition-colors',
-                active
-                  ? 'border-[#787D62] ring-2 ring-[#787D62]/25'
-                  : 'border-[#2B1A18]/10 hover:border-[#2B1A18]/25',
-              )}
-            >
-              <div className="relative aspect-[4/3] bg-[#f4f4ef]">
-                {item.imageUrl ? (
-                  <img
-                    src={item.imageUrl}
-                    alt={label}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-[#b0b3ab]">
-                    <ImagePlus size={18} />
-                  </div>
-                )}
-              </div>
-              <div className="space-y-0.5 px-2 py-1.5">
-                <p className="text-xs font-semibold leading-snug text-[#3a3d36]">{label}</p>
-                <p className="text-[11px] text-[#8a8d87]">
-                  {item.zoneCount ? `${item.zoneCount} zona(s)` : 'Sin zonas'}
-                  {item.imageUrl2d || item.imageUrl3d
-                    ? ` · ${[item.imageUrl2d ? '2D' : null, item.imageUrl3d ? '3D' : null].filter(Boolean).join('+')}`
-                    : ' · Sin plano'}
-                </p>
-              </div>
-            </button>
-          )
-        })}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[220px] flex-1 sm:max-w-sm">
+          <Select
+            label="Piso"
+            value={String(floor)}
+            onChange={(event) => setFloor(Number(event.target.value))}
+            options={floorSummaries.map((item) => {
+              const bits = [
+                floorPlanLevelLabel(item.floor),
+                item.zoneCount ? `${item.zoneCount} zona(s)` : 'sin zonas',
+                [item.imageUrl2d ? '2D' : null, item.imageUrl3d || item.htmlUrl3d ? '3D' : null]
+                  .filter(Boolean)
+                  .join('+') || 'sin plano',
+              ]
+              return { value: String(item.floor), label: bits.join(' · ') }
+            })}
+          />
+        </div>
+        <p className="pb-2 text-xs text-[#8a8d87]">
+          {currentSummary?.zoneCount
+            ? `${currentSummary.zoneCount} zona(s) en este piso`
+            : 'Este piso aún no tiene zonas'}
+        </p>
       </div>
 
       <div className="rounded-xl border border-[#2B1A18]/10 bg-[#fafaf7] p-3 sm:p-4">
@@ -868,7 +986,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           <div>
             <p className="text-sm font-semibold text-[#3a3d36]">{floorPlanLevelLabel(floor)}</p>
             <p className="text-xs text-[#8a8d87]">
-              {imageUrl
+              {imageUrl || htmlUrl
                 ? `${apartments.length} zona(s) · plano ${planVariant.toUpperCase()}`
                 : `Sin ${planVariant.toUpperCase()} — las zonas se comparten igual`}
             </p>
@@ -982,68 +1100,78 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs font-semibold text-[#3a3d36]">Ajuste fino 3D</p>
               <span className="text-[11px] text-[#8a8d87]">
-                Mueve solo las zonas (no la foto). Después tocá Guardar.
+                {selectedIds.length
+                  ? `Moviendo ${selectedIds.length} zona(s) seleccionada(s). Ctrl/Cmd+clic para sumar/quitar.`
+                  : 'Sin selección = todas (ajuste global). Ctrl/Cmd+clic = elegir cuáles mover juntas.'}{' '}
+                Flechas / +/− · Shift = paso mayor. Guardá al terminar.
               </span>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => nudgeOverlayAlign({ offsetX: overlayAlign.offsetX - 0.4 })}
-                aria-label="Mover zonas a la izquierda"
+                onClick={() => nudgeFine3d({ dx: -0.4 })}
+                aria-label="Mover a la izquierda"
               >
                 <ArrowLeft size={14} />
               </Button>
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => nudgeOverlayAlign({ offsetX: overlayAlign.offsetX + 0.4 })}
-                aria-label="Mover zonas a la derecha"
+                onClick={() => nudgeFine3d({ dx: 0.4 })}
+                aria-label="Mover a la derecha"
               >
                 <ArrowRight size={14} />
               </Button>
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => nudgeOverlayAlign({ offsetY: overlayAlign.offsetY - 0.4 })}
-                aria-label="Mover zonas arriba"
+                onClick={() => nudgeFine3d({ dy: -0.4 })}
+                aria-label="Mover arriba"
               >
                 <ArrowUp size={14} />
               </Button>
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => nudgeOverlayAlign({ offsetY: overlayAlign.offsetY + 0.4 })}
-                aria-label="Mover zonas abajo"
+                onClick={() => nudgeFine3d({ dy: 0.4 })}
+                aria-label="Mover abajo"
               >
                 <ArrowDown size={14} />
               </Button>
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => nudgeOverlayAlign({ scale: overlayAlign.scale - 0.01 })}
-                aria-label="Achicar zonas"
+                onClick={() => nudgeFine3d({ scaleFactor: 1 / 1.01 })}
+                aria-label="Achicar"
               >
                 <Minus size={14} />
               </Button>
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => nudgeOverlayAlign({ scale: overlayAlign.scale + 0.01 })}
-                aria-label="Agrandar zonas"
+                onClick={() => nudgeFine3d({ scaleFactor: 1.01 })}
+                aria-label="Agrandar"
               >
                 <Plus size={14} />
               </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => nudgeOverlayAlign({ ...DEFAULT_OVERLAY_ALIGN })}
-              >
-                Reset
-              </Button>
+              {selectedIds.length ? (
+                <Button type="button" variant="secondary" onClick={() => setSelectedIds([])}>
+                  Quitar selección
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => nudgeOverlayAlign3d({ ...DEFAULT_OVERLAY_ALIGN })}
+                >
+                  Reset global
+                </Button>
+              )}
               <span className="text-[11px] tabular-nums text-[#8a8d87]">
-                x {overlayAlign.offsetX.toFixed(1)} · y {overlayAlign.offsetY.toFixed(1)} · ×
-                {overlayAlign.scale.toFixed(2)}
+                {selectedIds.length
+                  ? `${selectedIds.length} seleccionada(s)`
+                  : `global x ${overlayAlign.offsetX.toFixed(1)} · y ${overlayAlign.offsetY.toFixed(1)} · ×${overlayAlign.scale.toFixed(2)}`}
               </span>
             </div>
           </div>
@@ -1057,7 +1185,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
               type="button"
               variant="secondary"
               onClick={startPointDraw}
-              disabled={!natural || !imageUrl || loading}
+              disabled={!natural || !hasPlanMedia || loading}
             >
               <PenLine size={14} className="mr-1.5" />
               Dibujar punto a punto
@@ -1067,7 +1195,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
               variant="secondary"
               disabled={!selected}
               onClick={() => {
-                setSelectedId(null)
+                setSelectedIds([])
                 setEditMode(false)
               }}
             >
@@ -1114,7 +1242,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         <Button
           type="button"
           onClick={() => void onSave()}
-          disabled={saving || loading || !natural || !imageUrl || draftPoints != null}
+          disabled={saving || loading || !natural || !hasPlanMedia || draftPoints != null}
         >
           <Save size={14} className="mr-1.5" />
           {saving ? 'Guardando…' : 'Guardar zonas'}
@@ -1123,7 +1251,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           <Button
             type="button"
             variant="secondary"
-            disabled={!imageUrl}
+            disabled={!hasPlanMedia}
             onClick={() => zoomBy(0.8)}
             aria-label="Alejar"
             title="Alejar"
@@ -1133,7 +1261,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           <Button
             type="button"
             variant="secondary"
-            disabled={!imageUrl}
+            disabled={!hasPlanMedia}
             onClick={() => zoomBy(1.25)}
             aria-label="Acercar"
             title="Acercar"
@@ -1143,7 +1271,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           <Button
             type="button"
             variant="secondary"
-            disabled={!imageUrl || !natural}
+            disabled={!hasPlanMedia || !natural}
             onClick={resetView}
           >
             Ajustar
@@ -1151,7 +1279,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           <Button
             type="button"
             variant="secondary"
-            disabled={!imageUrl || !natural}
+            disabled={!hasPlanMedia || !natural}
             onClick={() => setFullscreen(true)}
             title="Pantalla completa"
           >
@@ -1233,17 +1361,53 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       ) : null}
 
       <div ref={fullscreen ? undefined : viewerBoxRef} className="h-[min(62dvh,640px)]">
-        {!fullscreen && htmlUrl ? (
-          <div className="overflow-hidden rounded-xl border border-[#2B1A18]/10 bg-white">
-            <iframe
-              key={`floor-html-${typologyCode}-${floor}-${zonesDoc?.updatedAt || ''}-${htmlPreviewNonce}`}
-              src={`/api/tour/floor-plan-html?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}&v=${encodeURIComponent(zonesDoc?.updatedAt || String(Date.now()))}&fresh=1&_=${htmlPreviewNonce}`}
-              title="Vista previa HTML 3D"
-              className="h-[min(52vh,420px)] w-full border-0"
-              style={{ pointerEvents: 'none' }}
-            />
-            <p className="border-t border-[#2B1A18]/8 px-3 py-2 text-xs text-[#8a8d87]">
-              Vista previa del HTML. Las zonas se dibujan en 2D; acá solo alineás el overlay.
+        {!fullscreen && htmlUrl && natural ? (
+          <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[#2B1A18]/10 bg-white">
+            <div className="relative min-h-0 flex-1 bg-[#14110e]">
+              {htmlPreviewReady ? (
+                <FloorPlanViewer
+                  hideImage
+                  stageBackdrop={
+                    <iframe
+                      key={`floor-html-${typologyCode}-${floor}-${zonesDoc?.updatedAt || ''}-${htmlPreviewNonce}`}
+                      src={`/api/tour/floor-plan-html?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}&v=${encodeURIComponent(zonesDoc?.updatedAt || String(Date.now()))}&fresh=1&_=${htmlPreviewNonce}`}
+                      title="Vista previa HTML 3D"
+                      className="h-full w-full border-0"
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  }
+                  imageUrl=""
+                  width={natural.width}
+                  height={natural.height}
+                  apartments={apartments}
+                  selectedId={selectedId}
+                  selectedIds={selectedIds}
+                  editMode={editMode}
+                  draftPoints={draftPoints}
+                  onDraftPointsChange={setDraftPoints}
+                  onDraftComplete={completeDraft}
+                  onSelect={handleViewerSelect}
+                  onApartmentsChange={setApartments}
+                  scale={scale}
+                  offset={offset}
+                  onScaleChange={(next) => setScale(clampScale(next))}
+                  onOffsetChange={setOffset}
+                  overlayAlign={overlayAlign}
+                />
+              ) : (
+                <div className="absolute inset-0 z-0 flex items-center justify-center text-xs text-white/60">
+                  Cargando preview 3D…
+                </div>
+              )}
+              <div className="pointer-events-none absolute bottom-2 left-2 z-[6] rounded-md bg-black/65 px-2 py-1 text-[10px] font-semibold text-white">
+                {apartments.length
+                  ? `${apartments.length} zona(s) · clic para editar`
+                  : 'Sin zonas — usá Dibujar punto a punto'}
+              </div>
+            </div>
+            <p className="shrink-0 border-t border-[#2B1A18]/8 px-3 py-2 text-xs text-[#8a8d87]">
+              Editá la segmentación sobre el 3D (igual que en 2D). Guardá al terminar. Ajuste fino
+              si el conjunto queda corrido.
             </p>
           </div>
         ) : null}
@@ -1254,18 +1418,12 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
             height={natural.height}
             apartments={apartments}
             selectedId={selectedId}
+            selectedIds={selectedIds}
             editMode={editMode}
             draftPoints={draftPoints}
             onDraftPointsChange={setDraftPoints}
             onDraftComplete={completeDraft}
-            onSelect={(id) => {
-              if (draftPoints != null) return
-              setSelectedId(id)
-              if (id) {
-                setAssignOpen(false)
-                setEditMode(true)
-              }
-            }}
+            onSelect={handleViewerSelect}
             onApartmentsChange={setApartments}
             scale={scale}
             offset={offset}
@@ -1273,15 +1431,17 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
             onOffsetChange={setOffset}
             overlayAlign={overlayAlign}
           />
-        ) : !fullscreen ? (
+        ) : null}
+        {!fullscreen && !htmlUrl && !imageUrl ? (
           <div className="flex h-full items-center justify-center rounded-2xl bg-[#f4f4ef] text-sm text-[#8a8d87]">
             {loading ? 'Cargando piso…' : 'Subí una foto del plano para este piso'}
           </div>
-        ) : (
+        ) : null}
+        {fullscreen ? (
           <div className="flex h-full items-center justify-center rounded-2xl bg-[#f4f4ef] text-sm text-[#8a8d87]">
             Editor en pantalla completa
           </div>
-        )}
+        ) : null}
       </div>
 
       <ul className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -1289,10 +1449,12 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           <li key={item.id}>
             <button
               type="button"
-              onClick={() => selectZone(item.id, true)}
+              onClick={(event) =>
+                selectZone(item.id, true, event.ctrlKey || event.metaKey || event.shiftKey)
+              }
               className={cn(
                 'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm',
-                selectedId === item.id
+                selectedIds.includes(item.id)
                   ? 'border-[#787D62] bg-[#787D62]/10 text-[#3a3d36]'
                   : 'border-[#2B1A18]/10 bg-white text-[#555850]',
               )}
@@ -1325,7 +1487,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                       type="button"
                       variant="secondary"
                       onClick={startPointDraw}
-                      disabled={!natural || !imageUrl || loading}
+                      disabled={!natural || !hasPlanMedia || loading}
                     >
                       <PenLine size={14} className="mr-1.5" />
                       Punto a punto
@@ -1335,7 +1497,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                       variant="secondary"
                       disabled={!selected}
                       onClick={() => {
-                        setSelectedId(null)
+                        setSelectedIds([])
                         setEditMode(false)
                       }}
                     >
@@ -1384,7 +1546,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                 <Button
                   type="button"
                   onClick={() => void onSave()}
-                  disabled={saving || loading || !natural || !imageUrl || draftPoints != null}
+                  disabled={saving || loading || !natural || !hasPlanMedia || draftPoints != null}
                 >
                   <Save size={14} className="mr-1.5" />
                   {saving ? 'Guardando…' : 'Guardar'}
@@ -1443,26 +1605,32 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                   </Button>
                 </div>
               </div>
-              <div ref={viewerBoxRef} className="min-h-0 flex-1">
-                {natural && imageUrl ? (
+              <div ref={viewerBoxRef} className="relative min-h-0 flex-1 overflow-hidden rounded-xl">
+                {natural && (imageUrl || htmlUrl) ? (
                   <FloorPlanViewer
-                    imageUrl={imageUrl}
+                    hideImage={Boolean(htmlUrl)}
+                    stageBackdrop={
+                      htmlUrl ? (
+                        <iframe
+                          key={`floor-html-fs-${typologyCode}-${floor}-${htmlPreviewNonce}`}
+                          src={`/api/tour/floor-plan-html?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}&v=${encodeURIComponent(zonesDoc?.updatedAt || String(Date.now()))}&fresh=1&_=${htmlPreviewNonce}`}
+                          title="Vista previa HTML 3D"
+                          className="h-full w-full border-0"
+                          style={{ pointerEvents: 'none' }}
+                        />
+                      ) : null
+                    }
+                    imageUrl={imageUrl || ''}
                     width={natural.width}
                     height={natural.height}
                     apartments={apartments}
                     selectedId={selectedId}
+                    selectedIds={selectedIds}
                     editMode={editMode}
                     draftPoints={draftPoints}
                     onDraftPointsChange={setDraftPoints}
                     onDraftComplete={completeDraft}
-                    onSelect={(id) => {
-                      if (draftPoints != null) return
-                      setSelectedId(id)
-                      if (id) {
-                        setAssignOpen(false)
-                        setEditMode(true)
-                      }
-                    }}
+                    onSelect={handleViewerSelect}
                     onApartmentsChange={setApartments}
                     scale={scale}
                     offset={offset}

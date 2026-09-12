@@ -2343,7 +2343,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               setFichaOpen(false)
               return
             }
-            setFichaExpanded(false)
+            setFichaExpanded(true)
             setFichaOpen(true)
           }}
           onWhatsAppClick={() => {

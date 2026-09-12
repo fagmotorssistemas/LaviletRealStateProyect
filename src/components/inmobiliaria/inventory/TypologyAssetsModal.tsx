@@ -562,7 +562,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 {roomSlots.map((item) => (
                   <div key={item.slug} className="space-y-2">
                     <p className="text-sm text-[#3a3d36]">{item.label}</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                       {combos.map((combo) => {
                         const slot: SceneSlot = {
                           room: item.slug,
@@ -579,33 +579,35 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                             type="button"
                             disabled={!code || uploading}
                             onClick={() => pickRoomFile(slot)}
-                            className="flex cursor-pointer flex-col overflow-hidden rounded-lg border border-[#2B1A18]/10 bg-white text-left disabled:opacity-60"
+                            className="flex cursor-pointer flex-col overflow-hidden rounded-md border border-[#2B1A18]/10 bg-white text-left disabled:opacity-60"
                           >
-                            <div className="relative aspect-[2/1] bg-[#f4f4ef]">
+                            <div className="relative aspect-[16/9] bg-[#f4f4ef]">
                               {asset ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   src={asset.public_url}
                                   alt={`${item.label} ${combo.label}`}
                                   className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
                                 />
                               ) : (
-                                <div className="flex h-full items-center justify-center text-xs text-[#8a8d87]">
+                                <div className="flex h-full items-center justify-center text-[11px] text-[#8a8d87]">
                                   Sin 360
                                 </div>
                               )}
                             </div>
-                            <div className="flex items-center justify-between gap-2 p-2">
-                              <span className="text-xs text-[#3a3d36]">{combo.label}</span>
-                              <span className="flex items-center gap-2">
-                                <span className="text-xs text-[#787D62]">
+                            <div className="flex items-center justify-between gap-1.5 px-1.5 py-1">
+                              <span className="min-w-0 truncate text-[11px] text-[#3a3d36]">{combo.label}</span>
+                              <span className="flex shrink-0 items-center gap-1">
+                                <span className="text-[10px] text-[#787D62]">
                                   {busy ? 'Subiendo…' : fallback ? 'Ya cargada' : asset ? 'Cambiar' : 'Subir'}
                                 </span>
                                 {asset && (
                                   <span
                                     role="button"
                                     tabIndex={0}
-                                    className="rounded p-1 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
+                                    className="rounded p-0.5 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
                                     onClick={(event) => {
                                       event.preventDefault()
                                       event.stopPropagation()
@@ -620,7 +622,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                                     }}
                                     aria-label={`Borrar 360 ${item.label} ${combo.label}`}
                                   >
-                                    <Trash2 size={14} />
+                                    <Trash2 size={12} />
                                   </span>
                                 )}
                               </span>

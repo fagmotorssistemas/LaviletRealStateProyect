@@ -356,6 +356,32 @@ export function applyOverlayAlign(
     .join(' ')
 }
 
+/**
+ * Invierte el transform visual de overlayAlign (coords de pantalla/SVG → coords guardadas).
+ * Misma matemática que el `<g transform>` del FloorPlanViewer.
+ */
+export function invertOverlayAlignPoint(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  align?: FloorPlanOverlayAlign | null,
+): { x: number; y: number } {
+  const a = parseOverlayAlign(align)
+  if (a.offsetX === 0 && a.offsetY === 0 && a.scale === 1) {
+    return { x, y }
+  }
+  const ox = (a.offsetX / 100) * width
+  const oy = (a.offsetY / 100) * height
+  const cx = width / 2
+  const cy = height / 2
+  const s = a.scale || 1
+  return {
+    x: (x - ox - cx) / s + cx,
+    y: (y - oy - cy) / s + cy,
+  }
+}
+
 export async function uploadFloorPlanImage(
   supabase: SupabaseClient,
   typologyCode: string,

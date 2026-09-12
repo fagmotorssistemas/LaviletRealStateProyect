@@ -10,10 +10,13 @@ import {
   polygonToSvgPath,
   rebuildCircleApartment,
 } from '@/lib/floor-plan/geometry'
+import type { FloorPlanOverlayAlign } from '@/lib/tour/floorPlanZones'
+import { invertOverlayAlignPoint } from '@/lib/tour/floorPlanZones'
 
 type ApartmentEditorProps = {
   apartment: Apartment
   scale: number
+  overlayAlign?: FloorPlanOverlayAlign | null
   onChange: (next: Apartment) => void
   /** Mientras se arrastra un handle, el padre apaga hits de otras zonas. */
   onDragActiveChange?: (active: boolean) => void
@@ -24,11 +27,13 @@ function clientToImagePoint(
   svg: SVGSVGElement,
   width: number,
   height: number,
+  align?: FloorPlanOverlayAlign | null,
 ): Point {
   const rect = svg.getBoundingClientRect()
-  const x = ((event.clientX - rect.left) / rect.width) * width
-  const y = ((event.clientY - rect.top) / rect.height) * height
-  return [Math.round(x), Math.round(y)]
+  const rawX = ((event.clientX - rect.left) / rect.width) * width
+  const rawY = ((event.clientY - rect.top) / rect.height) * height
+  const inverted = invertOverlayAlignPoint(rawX, rawY, width, height, align)
+  return [Math.round(inverted.x), Math.round(inverted.y)]
 }
 
 function handleRadius(scale: number) {
@@ -46,6 +51,7 @@ function handleRadius(scale: number) {
 export function ApartmentEditor({
   apartment,
   scale,
+  overlayAlign = null,
   onChange,
   onDragActiveChange,
 }: ApartmentEditorProps) {
@@ -98,7 +104,7 @@ export function ApartmentEditor({
 
     const handleMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault()
-      onMove(clientToImagePoint(moveEvent, svg, width, height))
+      onMove(clientToImagePoint(moveEvent, svg, width, height, overlayAlign))
     }
     const handleUp = () => cleanup()
 
@@ -137,7 +143,7 @@ export function ApartmentEditor({
             if (!svg) return
             const width = Number(svg.viewBox.baseVal.width) || 1
             const height = Number(svg.viewBox.baseVal.height) || 1
-            const start = clientToImagePoint(event, svg, width, height)
+            const start = clientToImagePoint(event, svg, width, height, overlayAlign)
             startDrag(event, (point) => {
               onChange(
                 rebuildCircleApartment(

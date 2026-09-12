@@ -17,7 +17,7 @@ type ApartmentPolygonProps = {
   /** Apaga hits para poder arrastrar puntos encima de zonas vecinas. */
   suppressHits?: boolean
   onHover: (id: string | null) => void
-  onSelect: (id: string) => void
+  onSelect: (id: string, opts?: { additive?: boolean }) => void
 }
 
 export function ApartmentPolygon({
@@ -30,17 +30,17 @@ export function ApartmentPolygon({
   onSelect,
 }: ApartmentPolygonProps) {
   const stroke = selected
-    ? 'rgba(26, 39, 68, 0.55)'
+    ? 'rgba(61, 155, 74, 0.95)'
     : hovered
-      ? 'rgba(120, 125, 98, 0.7)'
-      : 'rgba(26, 39, 68, 0.28)'
+      ? 'rgba(120, 125, 98, 0.9)'
+      : 'rgba(255, 255, 255, 0.55)'
   // Si está en edición, el editor dibuja el contorno: acá casi no trazar para no engrosar.
-  const strokeWidth = editing && selected ? 0 : selected ? 0.7 : hovered ? 0.6 : 0.5
+  const strokeWidth = editing && selected ? 0 : selected ? 0.85 : hovered ? 0.7 : 0.55
   const fill = selected
-    ? 'rgba(26, 39, 68, 0.16)'
+    ? 'rgba(61, 155, 74, 0.32)'
     : hovered
-      ? 'rgba(120, 125, 98, 0.14)'
-      : 'rgba(26, 39, 68, 0.06)'
+      ? 'rgba(120, 125, 98, 0.28)'
+      : 'rgba(120, 125, 98, 0.18)'
   // Clickeable en el plano; la zona seleccionada cede eventos a los handles de edición.
   const className = cn('cursor-pointer')
   const handlers = {
@@ -49,7 +49,9 @@ export function ApartmentPolygon({
     onPointerDown: (event: React.PointerEvent) => {
       if (editing && selected) return
       event.stopPropagation()
-      onSelect(apartment.id)
+      onSelect(apartment.id, {
+        additive: event.ctrlKey || event.metaKey || event.shiftKey,
+      })
     },
   }
   const shapeStyle: CSSProperties = {
