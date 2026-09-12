@@ -588,6 +588,51 @@ function isIOSWebKit() {
   return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
 }
 
+/** Libera WebGL de forma agresiva (recargas en iOS dejan contextos vivos y tumba el tab). */
+function disposeTourViewer(viewer: Viewer | null | undefined, container?: HTMLElement | null) {
+  if (viewer) {
+    try {
+      const gyro = viewer.getPlugin<GyroscopePlugin>(GyroscopePlugin)
+      if (gyro?.isEnabled()) gyro.stop()
+    } catch {
+      /* ignore */
+    }
+    try {
+      viewer.destroy()
+    } catch {
+      /* ignore */
+    }
+  }
+  const root = container
+  if (!root) return
+  root.querySelectorAll('canvas').forEach((canvas) => {
+    try {
+      const el = canvas as HTMLCanvasElement
+      // Sin attrs: si pedís preserveDrawingBuffer distinto al del contexto vivo, getContext → null en iOS.
+      const gl =
+        el.getContext('webgl2') ||
+        el.getContext('webgl') ||
+        el.getContext('experimental-webgl')
+      const lose = (gl as WebGLRenderingContext | null)?.getExtension?.('WEBGL_lose_context')
+      lose?.loseContext()
+    } catch {
+      /* ignore */
+    }
+    try {
+      canvas.remove()
+    } catch {
+      /* ignore */
+    }
+  })
+}
+
+function clearTourDomFlags() {
+  if (typeof document === 'undefined') return
+  document.documentElement.classList.remove('tour-is-immersive', 'tour-is-force-landscape')
+  document.documentElement.style.overflow = ''
+  document.body.style.overflow = ''
+}
+
 function useOrientationSync(onChange: () => void) {
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
@@ -850,6 +895,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [planFloor, setPlanFloor] = useState(FLOOR_PLAN_DEFAULT_FLOOR)
 
   useEffect(() => {
+    const ios = isIOSWebKit()
+    // iOS: no precalentar todos los HTML 3D (varios WebGL al recargar tumba Safari).
+    if (ios) {
+      void warmFloorPlans([planFloor], [planFloor])
+      return
+    }
     prefetchFloorPlans([...FLOOR_PLAN_FLOORS])
     const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
     const priority = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 2)
@@ -868,6 +919,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   }, [])
 
   useEffect(() => {
+    const ios = isIOSWebKit()
+    if (ios) {
+      void warmFloorPlans([planFloor], [planFloor])
+      return
+    }
     const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
     const neighbors = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 2)
     void warmFloorPlans(neighbors, [planFloor])
@@ -1047,6 +1103,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       }
 
       const isNarrow = window.innerWidth < 768
+      const ios = isIOSWebKit()
       const startNode = scene.nodes.find((n) => n.id === scene.startNodeId) ?? scene.nodes[0]
       const startUrl = variantUrl(startNode, bootWidth) ?? String(startNode.panorama)
 
@@ -1058,6 +1115,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       setRoom(TOUR_HOME_SLUG)
       currentUrlRef.current = startUrl
       preloadedRef.current.add(startUrl)
+
+      // Destruir resto previo (Strict Mode / remount rápido en iOS).
+      disposeTourViewer(viewerRef.current, container)
+      viewerRef.current = null
+      tourRef.current = null
 
       const viewer = new Viewer({
         container,
@@ -1073,9 +1135,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         mousewheelCtrlKey: false,
         rendererParameters: {
           alpha: true,
-          antialias: !isNarrow,
-          powerPreference: 'high-performance',
-          preserveDrawingBuffer: true,
+          // iOS: antialias + preserveDrawingBuffer + high-performance acumulan GPU y tumba al recargar.
+          antialias: ios ? false : !isNarrow,
+          powerPreference: ios ? 'low-power' : 'high-performance',
+          preserveDrawingBuffer: ios ? false : true,
         },
         defaultYaw: startNode.data?.initialYaw ?? 0,
         defaultPitch: startNode.data?.initialPitch ?? 0,
@@ -1153,12 +1216,43 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       }
     })
 
+    const onPageHide = () => {
+      // Recarga / cambio de tab en iOS: soltar WebGL YA (no esperar al unmount de React).
+      const v = viewerRef.current
+      viewerRef.current = null
+      tourRef.current = null
+      disposeTourViewer(v, containerRef.current)
+      clearTourDomFlags()
+    }
+    // Si Safari restaura desde bfcache tras pagehide, el canvas ya no sirve → recargar limpio.
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) window.location.reload()
+    }
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('freeze', onPageHide as EventListener)
+    window.addEventListener('pageshow', onPageShow)
+
     return () => {
       cancelled = true
       switchTokenRef.current += 1
-      viewerRef.current?.destroy()
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('freeze', onPageHide as EventListener)
+      window.removeEventListener('pageshow', onPageShow)
+      const v = viewerRef.current
       viewerRef.current = null
       tourRef.current = null
+      disposeTourViewer(v, containerRef.current)
+      // Si el root quedó colgado en body (immersive), devolverlo / limpiar flags.
+      const root = rootRef.current
+      const slot = slotRef.current
+      if (root && slot && root.parentElement === document.body) {
+        try {
+          slot.appendChild(root)
+        } catch {
+          /* ignore */
+        }
+      }
+      clearTourDomFlags()
       html.style.overflow = prevHtmlOverflow
       body.style.overflow = prevBodyOverflow
       html.style.overscrollBehavior = prevHtmlOverscroll
@@ -1461,16 +1555,29 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     const viewer = viewerRef.current
     if (!viewer) return
 
+    const posesCloseLive = (a: ComparePanoPose, b: ComparePanoPose) =>
+      Math.abs(a.yaw - b.yaw) < 0.0008 &&
+      Math.abs(a.pitch - b.pitch) < 0.0008 &&
+      Math.abs(a.zoom - b.zoom) < 0.15
+
+    const read = (): ComparePanoPose => {
+      const pos = viewer.getPosition()
+      return { yaw: pos.yaw, pitch: pos.pitch, zoom: viewer.getZoomLevel() }
+    }
+
+    /** Cada frame: solo la ref (el lado B la lee en su before-render). */
+    const pushLive = () => {
+      if (comparePoseLockRef.current === 'side') return
+      const next = read()
+      const prev = comparePoseLiveRef.current
+      if (prev && posesCloseLive(prev, next)) return
+      comparePoseLiveRef.current = next
+    }
+
     const publish = () => {
       if (comparePoseLockRef.current === 'side') return
       comparePoseLockRef.current = 'main'
-      const pos = viewer.getPosition()
-      const next: ComparePanoPose = {
-        yaw: pos.yaw,
-        pitch: pos.pitch,
-        zoom: viewer.getZoomLevel(),
-      }
-      // Ref primero: el lado B lo lee en before-render (sin esperar React).
+      const next = read()
       comparePoseLiveRef.current = next
       if (comparePoseRafRef.current) cancelAnimationFrame(comparePoseRafRef.current)
       comparePoseRafRef.current = requestAnimationFrame(() => {
@@ -1481,10 +1588,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
     viewer.addEventListener('position-updated', publish)
     viewer.addEventListener('zoom-updated', publish)
+    viewer.addEventListener('before-render', pushLive)
     publish()
     return () => {
       viewer.removeEventListener('position-updated', publish)
       viewer.removeEventListener('zoom-updated', publish)
+      viewer.removeEventListener('before-render', pushLive)
       if (comparePoseRafRef.current) cancelAnimationFrame(comparePoseRafRef.current)
     }
   }, [syncCompareCameras, compareUnitB, viewMode, room, finish, finishRight])
@@ -1741,6 +1850,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || booting) return
+    if (isIOSWebKit()) return
     const t1 = window.setTimeout(() => viewer.autoSize(), 80)
     const t2 = window.setTimeout(() => viewer.autoSize(), 320)
     return () => {
@@ -1806,7 +1916,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
     const slot = slotRef.current
     if (immersive || forceLandscapeCss) {
-      if (root.parentElement !== document.body) document.body.appendChild(root)
+      // iOS: no mover el root a document.body (al recargar queda WebGL huérfano y tumba Safari).
+      // fixed inset-0 ya cubre el viewport sin reparentar.
+      if (!ios && root.parentElement !== document.body) document.body.appendChild(root)
       document.documentElement.classList.add('tour-is-immersive')
       document.documentElement.style.overflow = 'hidden'
       document.body.style.overflow = 'hidden'
@@ -1824,19 +1936,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             /* ignore */
           }
         }, 160)
-      } else if (ios) {
-        window.setTimeout(() => {
-          try {
-            viewer?.autoSize()
-          } catch {
-            /* ignore */
-          }
-        }, 200)
       }
+      // iOS: sin autoSize extra al montar (el boot ya dimensiona; más llamadas = más crashes).
     } else {
       if (slot && root.parentElement !== slot) slot.appendChild(root)
       document.documentElement.classList.remove('tour-is-immersive')
-      void leaveTourFullscreen().finally(resize)
+      if (!ios) void leaveTourFullscreen().finally(resize)
       if (embedded) {
         document.documentElement.style.overflow = ''
         document.body.style.overflow = ''
@@ -2229,6 +2334,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           syncPose={syncCompareCameras ? comparePose : null}
           syncPoseRef={syncCompareCameras ? comparePoseLiveRef : undefined}
           onPoseChange={onCompareSidePoseChange}
+          remapTouch={forceLandscapeCss}
         />
       ) : null}
 
@@ -2256,6 +2362,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           syncPose={comparePose}
           syncPoseRef={comparePoseLiveRef}
           onPoseChange={onCompareSidePoseChange}
+          remapTouch={forceLandscapeCss}
         />
       ) : null}
 

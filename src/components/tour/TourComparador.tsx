@@ -44,6 +44,8 @@ type TourComparadorProps = {
   syncPose?: ComparePanoPose | null
   syncPoseRef?: MutableRefObject<ComparePanoPose | null>
   onPoseChange?: (pose: ComparePanoPose) => void
+  /** Con CSS force-landscape, remapea el dedo también en el lado B. */
+  remapTouch?: boolean
 }
 
 type PickingSide = 'a' | 'b'
@@ -67,6 +69,7 @@ export function TourComparador({
   syncPose = null,
   syncPoseRef,
   onPoseChange,
+  remapTouch = false,
 }: TourComparadorProps) {
   const [picking, setPicking] = useState<PickingSide | null>(() => {
     if (!unitA) return 'a'
@@ -147,6 +150,7 @@ export function TourComparador({
               syncPose={syncPose}
               syncPoseRef={syncPoseRef}
               onPoseChange={onPoseChange}
+              remapTouch={remapTouch}
             />
           ) : (
             <div className="relative h-full bg-[#111]">

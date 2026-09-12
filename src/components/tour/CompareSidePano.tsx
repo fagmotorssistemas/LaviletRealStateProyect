@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Viewer } from '@photo-sphere-viewer/core'
 import '@photo-sphere-viewer/core/index.css'
+import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
 import { cn } from '@/lib/utils'
 
 export type ComparePanoPose = {
@@ -21,15 +22,17 @@ type CompareSidePanoProps = {
   /** Pose en vivo del visor A — se lee cada frame (sync fluido). */
   syncPoseRef?: MutableRefObject<ComparePanoPose | null>
   onPoseChange?: (pose: ComparePanoPose) => void
+  /** Remapea el dedo si el tour root usa CSS rotate(90deg). */
+  remapTouch?: boolean
 }
 
-const EPS = 0.0012
+const EPS = 0.0009
 
 function posesClose(a: ComparePanoPose, b: ComparePanoPose) {
   return (
     Math.abs(a.yaw - b.yaw) < EPS &&
     Math.abs(a.pitch - b.pitch) < EPS &&
-    Math.abs(a.zoom - b.zoom) < 0.2
+    Math.abs(a.zoom - b.zoom) < 0.15
   )
 }
 
@@ -55,12 +58,14 @@ export function CompareSidePano({
   syncPose = null,
   syncPoseRef,
   onPoseChange,
+  remapTouch = false,
 }: CompareSidePanoProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
   const urlRef = useRef<string | null>(null)
   const applyingRef = useRef(false)
   const userDrivingRef = useRef(false)
+  const userDrivingUntilRef = useRef(0)
   const onPoseChangeRef = useRef(onPoseChange)
   onPoseChangeRef.current = onPoseChange
   const syncPosePropRef = useRef(syncPose)
@@ -97,8 +102,7 @@ export function CompareSidePano({
 
     let cancelled = false
     let viewer = viewerRef.current
-    const initial =
-      syncPoseRef?.current ?? syncPosePropRef.current ?? null
+    const initial = syncPoseRef?.current ?? syncPosePropRef.current ?? null
 
     if (!viewer) {
       try {
@@ -115,10 +119,20 @@ export function CompareSidePano({
           minFov: 40,
           mousewheelCtrlKey: false,
           touchmoveTwoFingers: false,
+          mousemove: !remapTouch,
+          moveSpeed: 1.35,
+          moveInertia: 0.5,
           rendererParameters: {
             alpha: true,
             antialias: false,
-            powerPreference: 'high-performance',
+            // iOS: 2º WebGL del comparador + high-performance acelera el crash al recargar.
+            powerPreference:
+              typeof navigator !== 'undefined' &&
+              (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+                ? 'low-power'
+                : 'high-performance',
+            preserveDrawingBuffer: false,
           },
         })
         viewerRef.current = viewer
@@ -126,34 +140,51 @@ export function CompareSidePano({
         if (!cancelled) setMode('flat')
         return
       }
+    } else {
+      try {
+        viewer.setOption('mousemove', !remapTouch)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const markUserDriving = () => {
+      userDrivingRef.current = true
+      userDrivingUntilRef.current = performance.now() + 80
     }
 
     const emitPose = () => {
       if (cancelled || applyingRef.current || !viewerRef.current) return
-      userDrivingRef.current = true
+      markUserDriving()
       onPoseChangeRef.current?.(readPose(viewerRef.current))
-      requestAnimationFrame(() => {
-        userDrivingRef.current = false
-      })
     }
 
     // Aplicar pose del lado A en cada frame (más fiable que depender solo de React state).
     const syncFromMain = () => {
-      if (cancelled || applyingRef.current || userDrivingRef.current || !viewerRef.current) return
+      if (cancelled || applyingRef.current || !viewerRef.current) return
+      if (userDrivingRef.current && performance.now() < userDrivingUntilRef.current) return
+      userDrivingRef.current = false
       const pose = syncPoseRef?.current ?? syncPosePropRef.current
       if (!pose) return
       const current = readPose(viewerRef.current)
       if (posesClose(current, pose)) return
       applyingRef.current = true
       applyPose(viewerRef.current, pose)
-      queueMicrotask(() => {
-        applyingRef.current = false
-      })
+      applyingRef.current = false
     }
 
     viewer.addEventListener('position-updated', emitPose)
     viewer.addEventListener('zoom-updated', emitPose)
     viewer.addEventListener('before-render', syncFromMain)
+
+    let detachRemap: (() => void) | null = null
+    if (remapTouch) {
+      detachRemap = attachForceLandscapePan(viewer, {
+        active: () => !cancelled && !applyingRef.current,
+        speedMult: 1.35,
+        inertia: 0.45,
+      })
+    }
 
     const load = async () => {
       if (url === urlRef.current) {
@@ -201,20 +232,27 @@ export function CompareSidePano({
 
     return () => {
       cancelled = true
+      detachRemap?.()
       window.clearTimeout(t)
       window.clearTimeout(t2)
       window.removeEventListener('resize', onResize)
       viewer.removeEventListener('position-updated', emitPose)
       viewer.removeEventListener('zoom-updated', emitPose)
       viewer.removeEventListener('before-render', syncFromMain)
+      try {
+        viewer.setOption('mousemove', true)
+      } catch {
+        /* ignore */
+      }
     }
-  }, [mode, url, syncPoseRef])
+  }, [mode, url, syncPoseRef, remapTouch])
 
   // También reaccionar a cambios de syncPose por si no hay ref.
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || mode !== 'pano' || !syncPose) return
     if (applyingRef.current) return
+    if (userDrivingRef.current && performance.now() < userDrivingUntilRef.current) return
     const current = readPose(viewer)
     if (posesClose(current, syncPose)) return
     applyingRef.current = true
@@ -224,9 +262,29 @@ export function CompareSidePano({
 
   useEffect(() => {
     return () => {
-      viewerRef.current?.destroy()
+      const v = viewerRef.current
       viewerRef.current = null
       urlRef.current = null
+      if (v) {
+        try {
+          v.destroy()
+        } catch {
+          /* ignore */
+        }
+      }
+      const root = containerRef.current
+      if (!root) return
+      root.querySelectorAll('canvas').forEach((canvas) => {
+        try {
+          const el = canvas as HTMLCanvasElement
+          const gl = el.getContext('webgl2') || el.getContext('webgl')
+          const lose = (gl as WebGLRenderingContext | null)?.getExtension?.('WEBGL_lose_context')
+          lose?.loseContext()
+          canvas.remove()
+        } catch {
+          /* ignore */
+        }
+      })
     }
   }, [])
 

@@ -22,6 +22,7 @@ type TourFinishCompareOverlayProps = {
   syncPose?: ComparePanoPose | null
   syncPoseRef?: MutableRefObject<ComparePanoPose | null>
   onPoseChange?: (pose: ComparePanoPose) => void
+  remapTouch?: boolean
 }
 
 function FinishChip({ item, className }: { item: FinishBadge; className?: string }) {
@@ -61,6 +62,7 @@ export function TourFinishCompareOverlay({
   syncPose = null,
   syncPoseRef,
   onPoseChange,
+  remapTouch = false,
 }: TourFinishCompareOverlayProps) {
   const dragRef = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -108,6 +110,7 @@ export function TourFinishCompareOverlay({
           syncPose={syncPose}
           syncPoseRef={syncPoseRef}
           onPoseChange={onPoseChange}
+          remapTouch={remapTouch}
         />
       </div>
 
