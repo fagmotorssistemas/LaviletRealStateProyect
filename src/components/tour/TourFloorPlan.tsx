@@ -149,8 +149,24 @@ type LaViletPlantaApi = {
   restablecer: (options?: { animate?: boolean }) => unknown
   seleccionarEn?: (x: number, y: number, options?: { animate?: boolean }) => unknown
   identificar?: (x: number, y: number) => string | null
+  identificarVista?: (x: number, y: number) => string | null
+  seleccionarEnVista?: (x: number, y: number, options?: { animate?: boolean }) => unknown
   terminarPresentacion?: () => unknown
-  estado?: () => { departamento?: string | null; modo?: string }
+  estado?: () => { departamento?: string | null; unidad?: string | null; modo?: string }
+}
+
+function plantaIdCandidates(raw: string | null | undefined, unit?: TourUnitSummary | null) {
+  const out: string[] = []
+  const push = (value?: string | null) => {
+    const v = value?.trim()
+    if (!v) return
+    if (!out.includes(v)) out.push(v)
+    const norm = normalizeUnitCode(v)
+    if (norm && !out.includes(norm)) out.push(norm)
+  }
+  push(raw)
+  push(unit?.unit_number)
+  return out
 }
 
 function getLaViletPlanta(win: Window | null | undefined): LaViletPlantaApi | null {
@@ -605,24 +621,94 @@ export function TourFloorPlan({
     }
   }, [activeHtmlFloor])
 
-  const elevateHtmlUnit = useCallback((plantaId: string | null) => {
-    if (activeHtmlFloor == null) return
-    const iframe = htmlIframeRefs.current[activeHtmlFloor]
-    const api = getLaViletPlanta(iframe?.contentWindow ?? null)
-    if (!api) return
-    try {
-      if (plantaId) api.seleccionar(plantaId, { animate: true })
-      else api.restablecer?.({ animate: true })
-    } catch {
-      /* ignore */
+  const elevateHtmlUnit = useCallback(
+    (plantaId: string | null, unit?: TourUnitSummary | null) => {
+      if (activeHtmlFloor == null) return
+      const iframe = htmlIframeRefs.current[activeHtmlFloor]
+      const win = iframe?.contentWindow ?? null
+      const api = getLaViletPlanta(win)
+      if (!plantaId) {
+        try {
+          api?.restablecer?.({ animate: true })
+        } catch {
+          try {
+            api?.restablecer?.()
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          win?.postMessage({ type: 'lavilet:restablecer' }, '*')
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      const ids = plantaIdCandidates(plantaId, unit)
+      let done = false
+      for (const id of ids) {
+        if (!api) break
+        try {
+          // Firma simple primero: varios HTML 2–6 no elevan con options.
+          api.seleccionar(id)
+          done = true
+          break
+        } catch {
+          try {
+            api.seleccionar(id, { animate: true })
+            done = true
+            break
+          } catch {
+            /* next id */
+          }
+        }
+      }
+      if (!done) {
+        for (const id of ids) {
+          try {
+            win?.postMessage({ type: 'lavilet:seleccionar', unidad: id }, '*')
+            break
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    },
+    [activeHtmlFloor],
+  )
+
+  useEffect(() => {
+    if (!htmlInteractive) return
+    const selected =
+      displaySlots.find((item) => item.unit && item.unit.id === selectedUnitId) ?? null
+    if (selected?.unit) {
+      elevateHtmlUnit(selected.id || selected.unit.unit_number, selected.unit)
     }
-  }, [activeHtmlFloor])
+  }, [htmlInteractive, selectedUnitId, displaySlots, elevateHtmlUnit])
 
   const handleSelectSlot = (slot: DisplaySlot) => {
     if (!slot.unit) return
     // Elevación nativa del HTML + ficha lateral.
-    elevateHtmlUnit(slot.id || slot.unit.unit_number)
+    elevateHtmlUnit(slot.id || slot.unit.unit_number, slot.unit)
     onSelectUnit(slot.unit, slot.id)
+  }
+
+  const handleHoverSlot = (slot: DisplaySlot | null) => {
+    if (!slot?.unit) {
+      setHoverSlot(null)
+      if (htmlInteractive) {
+        const selected =
+          displaySlots.find((item) => item.unit && item.unit.id === selectedUnitId) ?? null
+        if (selected?.unit) {
+          elevateHtmlUnit(selected.id || selected.unit.unit_number, selected.unit)
+        } else {
+          elevateHtmlUnit(null)
+        }
+      }
+      return
+    }
+    setHoverSlot(slot.id)
+    if (htmlInteractive) elevateHtmlUnit(slot.id || slot.unit.unit_number, slot.unit)
   }
 
   const zoomOut = () =>
@@ -786,7 +872,9 @@ export function TourFloorPlan({
                     active && booted ? 'opacity-100' : 'pointer-events-none opacity-0',
                   )}
                   style={{
-                    pointerEvents: active && booted ? 'auto' : 'none',
+                    // Con zonas propias, el SVG/pines manejan hover+clic (evita pelea con el bridge).
+                    pointerEvents:
+                      active && booted && displaySlots.length === 0 ? 'auto' : 'none',
                     visibility: active && booted ? 'visible' : 'hidden',
                   }}
                   onLoad={(event) => {
@@ -972,8 +1060,43 @@ export function TourFloorPlan({
             </div>
           ) : null}
 
-          {/* En 3D: pines solo visuales (sin pointer-events) para no tapar hover/elevación del HTML.
-              Clic en el mesh abre la ficha resumen vía postMessage. */}
+          {/* Hit SVG sobre el HTML 3D: hover eleva, clic abre ficha (pisos 2–6). */}
+          {htmlInteractive && displaySlots.length > 0 ? (
+            <svg
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              className="absolute inset-0 z-[3] h-full w-full touch-manipulation"
+              role="img"
+              aria-label="Departamentos del piso"
+              style={{ pointerEvents: 'none' }}
+              onMouseLeave={() => handleHoverSlot(null)}
+            >
+              {displaySlots.map((slot) => (
+                <polygon
+                  key={`html-hit-${slot.id}`}
+                  points={slot.points}
+                  fill="rgba(255,255,255,0.001)"
+                  stroke="rgba(0,0,0,0)"
+                  strokeWidth={0.01}
+                  style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
+                  className={slot.unit ? 'cursor-pointer' : undefined}
+                  onMouseEnter={() => handleHoverSlot(slot)}
+                  onPointerDown={(event) => {
+                    if (!slot.unit) return
+                    event.stopPropagation()
+                    handleSelectSlot(slot)
+                  }}
+                  onClick={(event) => {
+                    if (!slot.unit) return
+                    event.stopPropagation()
+                    handleSelectSlot(slot)
+                  }}
+                />
+              ))}
+            </svg>
+          ) : null}
+
+          {/* Pines 3D: mismos clics que el overlay (ficha + elevación). */}
           {htmlInteractive && displaySlots.length > 0 ? (
             <div className="pointer-events-none absolute inset-0 z-[4]">
               {displaySlots.map((slot) => {
@@ -981,16 +1104,29 @@ export function TourFloorPlan({
                 const { cx, cy } = slotCentroid(slot.points)
                 const label = slot.unit?.unit_number ?? slot.label
                 const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
+                const hovered = hoverSlot === slot.id
                 return (
-                  <div
+                  <button
                     key={`html-pin-${slot.id}`}
+                    type="button"
+                    disabled={!slot.unit}
+                    onMouseEnter={() => handleHoverSlot(slot)}
+                    onMouseLeave={() => handleHoverSlot(null)}
+                    onClick={() => {
+                      if (!slot.unit) return
+                      handleSelectSlot(slot)
+                    }}
                     className={cn(
-                      'absolute z-[4] flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1',
-                      selected ? 'bg-white ring-[#3d9b4a]' : 'bg-white/92 ring-black/10',
-                      !slot.unit && 'opacity-70',
+                      'pointer-events-auto absolute z-[4] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1 transition-[transform,box-shadow] duration-100',
+                      selected || hovered
+                        ? 'bg-white ring-[#3d9b4a]'
+                        : 'bg-white/92 ring-black/10',
+                      slot.unit
+                        ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
+                        : 'cursor-not-allowed opacity-70',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
-                    aria-hidden
+                    aria-label={slot.unit ? `Departamento ${label}` : `Zona ${label}`}
                   >
                     <span
                       className={cn(
@@ -1001,7 +1137,7 @@ export function TourFloorPlan({
                     <span className="text-[10px] font-bold tracking-wide text-[#1a2744] sm:text-[11px]">
                       {label}
                     </span>
-                  </div>
+                  </button>
                 )
               })}
             </div>
@@ -1014,7 +1150,10 @@ export function TourFloorPlan({
                 type="button"
                 className="pointer-events-auto absolute top-1/2 left-1/2 z-[3] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2.5 py-1.5 shadow-[0_4px_16px_rgba(15,23,42,0.35)] ring-1 ring-black/10"
                 onClick={() => {
-                  if (htmlHoverUnit) onSelectUnit(htmlHoverUnit, htmlHoverUnit.unit_number)
+                  if (htmlHoverUnit) {
+                    elevateHtmlUnit(htmlHoverLabel, htmlHoverUnit)
+                    onSelectUnit(htmlHoverUnit, htmlHoverUnit.unit_number)
+                  }
                 }}
                 disabled={!htmlHoverUnit}
               >

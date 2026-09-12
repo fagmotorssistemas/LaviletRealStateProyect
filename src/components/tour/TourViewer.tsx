@@ -43,6 +43,7 @@ import { TourTerminacionesPanel } from '@/components/tour/TourTerminacionesPanel
 import { TourInfoRequestModal } from '@/components/tour/TourInfoRequestModal'
 import { TourFloorLocationPeek } from '@/components/tour/TourFloorLocationPeek'
 import { TourFavoritesPanel } from '@/components/tour/TourFavoritesPanel'
+import { TourNavModeModal, type TourNavMode } from '@/components/tour/TourNavModeModal'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
@@ -825,6 +826,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'nav' | 'modes' | null>(null)
   const [infoRequestOpen, setInfoRequestOpen] = useState(false)
+  const [tourNavMode, setTourNavMode] = useState<TourNavMode | null>(null)
+  const [navChooserOpen, setNavChooserOpen] = useState(false)
   const [shellMode, setShellMode] = useState<'plan' | 'unit'>(() => {
     if (readUnitQueryParam()) return 'unit'
     return 'plan'
@@ -1645,28 +1648,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer || booting || !isPanoRoom) return
-    const onClick = (event: events.ClickEvent) => {
-      if (event.data.rightclick || event.data.marker) return
-      if (viewMode !== 'tour') return
-      if (walkingRef.current) return
-      void lookAtSpot(viewer, event.data.yaw, event.data.pitch)
-    }
-    viewer.addEventListener(events.ClickEvent.type, onClick)
-    return () => {
-      viewer.removeEventListener(events.ClickEvent.type, onClick)
-    }
-  }, [booting, isPanoRoom, viewMode])
-
-  useEffect(() => {
-    const viewer = viewerRef.current
     const root = rootRef.current
     if (!viewer || !root || booting) return
     const gyro = viewer.getPlugin<GyroscopePlugin>(GyroscopePlugin)
     if (!gyro) return
     stabilizeTourGyro(gyro)
 
-    if (viewMode !== 'tour' || !isPanoRoom) {
+    if (viewMode !== 'tour' || !isPanoRoom || tourNavMode !== 'gyro') {
       if (gyro.isEnabled()) gyro.stop()
       return
     }
@@ -1691,13 +1679,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           busy = false
         })
     }
+    // Arranque inmediato tras elegir giroscopio (el gesto del modal ya cuenta).
+    start()
     root.addEventListener('click', start)
     root.addEventListener('touchend', start, { passive: true })
     return () => {
       root.removeEventListener('click', start)
       root.removeEventListener('touchend', start)
     }
-  }, [booting, viewMode, isPanoRoom])
+  }, [booting, viewMode, isPanoRoom, tourNavMode])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -2351,6 +2341,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   setTerminacionesFocus(false)
                   setFinishCompareOpen(false)
                   setCompareOpen(false)
+                  setTourNavMode(null)
+                  setNavChooserOpen(true)
                 }}
                 onTerminaciones={() => {
                   if (!selectedTypology && publicCatalog?.typologies?.[0]) {
@@ -2505,6 +2497,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                     setFinishCompareOpen(false)
                     setCompareOpen(false)
                     setMobilePanel(null)
+                    setTourNavMode(null)
+                    setNavChooserOpen(true)
                   }}
                 >
                   Tour 360°
@@ -3056,6 +3050,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setViewMode('tour')
             setRoom(homeSlug)
             writeUnitQueryParam(unit.unit_number)
+            setTourNavMode(null)
+            setNavChooserOpen(true)
           }}
           onSelectGalleryImage={(index) => {
             if (viewMode === 'galeria') setGaleriaIndex(index)
@@ -3122,6 +3118,20 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           }}
         />
       ) : null}
+
+      <TourNavModeModal
+        open={navChooserOpen}
+        contained={embedded && !immersive}
+        onClose={() => {
+          setNavChooserOpen(false)
+          // Sin elección: dedo (no pelea con el peek de ubicación).
+          setTourNavMode((prev) => prev ?? 'finger')
+        }}
+        onChoose={(mode) => {
+          setTourNavMode(mode)
+          setNavChooserOpen(false)
+        }}
+      />
 
       <TourPhoneUnlockModal
         open={phoneUnlock.open}

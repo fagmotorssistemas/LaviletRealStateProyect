@@ -8,7 +8,7 @@ const htmlMemoryCache = new Map<string, HtmlCacheEntry>()
 
 export function floorPlanHtmlMemoryKey(typologyCode: string, floor: number, version: string) {
   // bridgeRev: subir al cambiar el script inyectado.
-  return `${typologyCode}:${floor}:${version}:bridge7`
+  return `${typologyCode}:${floor}:${version}:bridge8`
 }
 
 export function getFloorPlanHtmlMemory(key: string) {

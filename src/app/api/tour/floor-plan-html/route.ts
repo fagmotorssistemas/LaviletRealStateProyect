@@ -149,6 +149,50 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
       );
     } catch (e) {}
   }
+  function hitTarget(view) {
+    return view.querySelector("canvas") || view;
+  }
+  function toLocal(a, view, clientX, clientY) {
+    var el = hitTarget(view);
+    var r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    var w = a.width || 2048;
+    var h = a.height || 970;
+    return {
+      x: ((clientX - r.left) * w) / r.width,
+      y: ((clientY - r.top) * h) / r.height,
+      xPct: ((clientX - r.left) / r.width) * 100,
+      yPct: ((clientY - r.top) / r.height) * 100,
+    };
+  }
+  function identifyAt(a, x, y) {
+    var id = null;
+    try {
+      if (typeof a.identificarVista === "function") id = a.identificarVista(x, y);
+    } catch (e0) {}
+    if (!id && typeof a.identificar === "function") {
+      try {
+        id = a.identificar(x, y);
+      } catch (e1) {}
+    }
+    if (!id && typeof a.estado === "function") {
+      try {
+        var st = a.estado();
+        if (st && (st.departamento || st.unidad)) id = st.departamento || st.unidad;
+      } catch (e2) {}
+    }
+    return id ? String(id) : null;
+  }
+  function elevate(a, id) {
+    if (!id || typeof a.seleccionar !== "function") return;
+    try {
+      a.seleccionar(id);
+    } catch (e1) {
+      try {
+        a.seleccionar(id, { animate: true });
+      } catch (e2) {}
+    }
+  }
   function ensureHover() {
     var a = api();
     var view = document.querySelector(".lv-view");
@@ -161,47 +205,38 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
       window.__lvLastHoverId = null;
       try {
         a.restablecer && a.restablecer({ animate: true });
-      } catch (e) {}
-    };
-    var resolveId = function (clientX, clientY) {
-      var r = view.getBoundingClientRect();
-      if (!r.width || !r.height) return null;
-      var x = ((clientX - r.left) * (a.width || 2048)) / r.width;
-      var y = ((clientY - r.top) * (a.height || 970)) / r.height;
-      var id =
-        (typeof a.identificar === "function" && a.identificar(x, y)) || null;
-      if (!id && typeof a.estado === "function") {
+      } catch (e) {
         try {
-          var st = a.estado();
-          if (st && st.departamento) id = st.departamento;
+          a.restablecer && a.restablecer();
         } catch (e2) {}
       }
-      return id ? String(id) : null;
     };
     var move = function (e) {
       // Touch: elevación al tap (click). Mouse: eleva en hover.
       if (e.pointerType === "touch") return;
       if (e.buttons > 0) return;
       try {
-        var id = resolveId(e.clientX, e.clientY);
+        var local = toLocal(a, view, e.clientX, e.clientY);
+        if (!local) return;
+        var id = identifyAt(a, local.x, local.y);
         if (id === lastId) return;
         lastId = id;
         window.__lvLastHoverId = id || null;
-        if (id) {
-          // Sin options: algunos HTML solo elevan con la firma simple.
-          a.seleccionar(id);
-        } else if (typeof a.restablecer === "function") {
-          a.restablecer({ animate: true });
+        if (id) elevate(a, id);
+        else if (typeof a.restablecer === "function") {
+          try {
+            a.restablecer({ animate: true });
+          } catch (errR) {
+            a.restablecer();
+          }
         }
       } catch (err) {}
     };
-    // Escuchar en view y canvas (el hit real suele estar en el canvas WebGL).
-    view.addEventListener("pointermove", move, { passive: true });
-    view.addEventListener("pointerleave", clear, { passive: true });
-    var canvas = view.querySelector("canvas");
-    if (canvas && canvas !== view) {
-      canvas.addEventListener("pointermove", move, { passive: true });
-      canvas.addEventListener("pointerleave", clear, { passive: true });
+    var target = hitTarget(view);
+    target.addEventListener("pointermove", move, { passive: true });
+    target.addEventListener("pointerleave", clear, { passive: true });
+    if (target !== view) {
+      view.addEventListener("pointerleave", clear, { passive: true });
     }
   }
   function ensureClick() {
@@ -211,36 +246,27 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
     view.setAttribute("data-lv-click", "1");
     var openFromPoint = function (clientX, clientY) {
       try {
-        var r = view.getBoundingClientRect();
-        if (!r.width || !r.height) return;
-        var xPct = ((clientX - r.left) / r.width) * 100;
-        var yPct = ((clientY - r.top) / r.height) * 100;
-        if (xPct < -2 || xPct > 102 || yPct < -2 || yPct > 102) return;
-        var x = ((clientX - r.left) * (a.width || 2048)) / r.width;
-        var y = ((clientY - r.top) * (a.height || 970)) / r.height;
+        var local = toLocal(a, view, clientX, clientY);
+        if (!local) return;
+        if (local.xPct < -2 || local.xPct > 102 || local.yPct < -2 || local.yPct > 102) return;
         var id =
           window.__lvLastHoverId ||
-          (typeof a.identificar === "function" && a.identificar(x, y)) ||
-          (typeof a.estado === "function" && a.estado() && a.estado().departamento) ||
+          identifyAt(a, local.x, local.y) ||
           null;
-        // Elevación nativa del HTML + aviso al showroom para la ficha resumen.
-        if (id && typeof a.seleccionar === "function") {
-          try {
-            a.seleccionar(id);
-          } catch (errSel) {}
-        }
+        if (id) elevate(a, id);
         post("ficha", {
           departamento: id ? String(id) : null,
-          xPercent: xPct,
-          yPercent: yPct,
+          xPercent: local.xPct,
+          yPercent: local.yPct,
         });
       } catch (err) {}
     };
-    view.addEventListener("click", function (e) {
+    var target = hitTarget(view);
+    target.addEventListener("click", function (e) {
       openFromPoint(e.clientX, e.clientY);
     });
     // Móvil: el elevate a veces mueve la malla y el click pierde el hit.
-    view.addEventListener(
+    target.addEventListener(
       "pointerup",
       function (e) {
         if (e.pointerType !== "touch") return;
