@@ -1,4 +1,5 @@
 import { text } from './data'
+import { mediaMime } from './media-format'
 
 // Kommo's attachment service redirects to its drive and then a signed storage URL.
 // Storage is accepted only as a redirect from that drive, never as an inbound URL.
@@ -25,13 +26,7 @@ export async function downloadMedia(source: string) {
         size += value.byteLength; if (size > limit) { await reader.cancel(); throw Error('MEDIA_TOO_LARGE') } chunks.push(value)
       }
     } finally { reader.releaseLock() }
-    const bytes = Buffer.concat(chunks), declared = text(response.headers.get('content-type')).split(';')[0].toLowerCase()
-    // A drive can send application/octet-stream. Recognize only known magic bytes.
-    const mime = bytes.subarray(0,5).toString() === '%PDF-' ? 'application/pdf'
-      : bytes.subarray(0,3).equals(Buffer.from([255,216,255])) ? 'image/jpeg'
-      : bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? 'image/png'
-      : bytes.subarray(0,4).toString() === 'RIFF' && bytes.subarray(8,12).toString() === 'WEBP' ? 'image/webp'
-      : declared
+    const bytes = Buffer.concat(chunks), mime = mediaMime(bytes, text(response.headers.get('content-type')))
     return {bytes,mime}
   }
   throw Error('MEDIA_REDIRECT_LIMIT')

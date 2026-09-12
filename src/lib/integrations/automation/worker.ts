@@ -4,6 +4,7 @@ import { assertLive, automationSettings } from './config'
 import { autoConfig, db, object, rpc, scope, text, type Row } from './data'
 import { processConversation } from './conversation'
 import { pendingVisits, planVisits, previewVisits, sendVisit } from './visits'
+import { ProviderError } from './kommo'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -63,7 +64,8 @@ export async function runAutomation() {
         // Una RPC o petición pudo ejecutar su efecto antes de fallar la conexión.
         // Guardar solo códigos propios, nunca cuerpos de proveedores o datos del cliente.
         const reason = error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'PROCESSING_FAILED'
-        await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: 'uncertain', p_result: { reason } })
+        const detail = error instanceof ProviderError ? { provider_operation: error.operation, delivery_uncertain: error.uncertain, http_status: error.status } : {}
+        await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: 'uncertain', p_result: { reason, ...detail } })
         results.push({ kind: first.kind, status: 'uncertain', reason })
       }
     }

@@ -11,6 +11,7 @@ export function asksVisitStatus(current: string) {
   return /(?:ya quedamos|(?:esta|quedo|esta o no|quedo o no).*confirmad|tenemos.*cita|cita.*confirmad)/.test(normalized(current))
 }
 export function explicitlyRequestsVisit(current: string) {
+  if (/\b(?:quiero|quisiera|me gustaria) (?:ir a (?:verlo|verla|conocerlo|conocerla)|(?:verlo|verla|conocerlo|conocerla) en persona)\b/.test(normalized(current))) return true
   return /\b(?:agendar|agendemos|reagendar|reprogramar|reservar una cita|coordinar.*(?:cita|visita)|quiero.*(?:cita|visita|visitar)|quisiera.*(?:cita|visita|visitar)|gustaria.*(?:cita|visita|visitar)|puedo (?:ir|visitar)|cambiar.*(?:cita|hora|dia))\b/.test(normalized(current))
 }
 export function visitStatusReply(proposals: Row[], collecting: boolean) {

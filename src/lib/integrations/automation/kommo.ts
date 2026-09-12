@@ -4,10 +4,10 @@ import { assertLive } from './config'
 import { object, type Row } from './data'
 
 export class ProviderError extends Error {
-  constructor(public status: number, public uncertain: boolean) { super(`KOMMO_${status || 'UNAVAILABLE'}`) }
+  constructor(public status: number, public uncertain: boolean, public operation = 'unknown') { super(`KOMMO_${status || 'UNAVAILABLE'}`) }
 }
 let nextCall = 0
-async function request(path: string, method = 'GET', body?: unknown): Promise<unknown> {
+async function request(path: string, method = 'GET', body?: unknown, attempt = 0): Promise<unknown> {
   if (new URL(process.env.KOMMO_BASE_URL || '').origin !== LAVILET_KOMMO_ORIGIN) throw new Error('WRONG_KOMMO_ACCOUNT')
   const token = process.env.KOMMO_ACCESS_TOKEN
   if (!token) throw new Error('KOMMO_CREDENTIALS_MISSING')
@@ -15,17 +15,27 @@ async function request(path: string, method = 'GET', body?: unknown): Promise<un
   // Un worker global y llamadas secuenciales; mantener margen sobre el límite de la cuenta.
   const wait = Math.max(0, nextCall - Date.now()); nextCall = Date.now() + wait + 400
   if (wait) await new Promise(resolve => setTimeout(resolve, wait))
+  const operation = method === 'GET' ? 'read' : method === 'PATCH' ? 'update_field' : 'launch_bot'
+  const retryRead = async (status: number): Promise<unknown> => {
+    // Reads have no delivery side effects. A bot POST or field mutation is never replayed.
+    if (method === 'GET' && attempt < 2 && (!status || status === 429 || status >= 500)) {
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
+      return request(path, method, body, attempt + 1)
+    }
+    throw new ProviderError(status, method !== 'GET', operation)
+  }
   let response: Response
   try {
     response = await fetch(`${LAVILET_KOMMO_ORIGIN}${path}`, { method,
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', redirect: 'error',
       signal: AbortSignal.timeout(10_000) })
-  } catch { throw new ProviderError(0, method !== 'GET') }
-  if (!response.ok) throw new ProviderError(response.status, method !== 'GET')
-  const raw = await response.text()
+  } catch { return retryRead(0) }
+  if (!response.ok) { await response.body?.cancel(); return retryRead(response.status) }
+  let raw: string
+  try { raw = await response.text() } catch { return retryRead(0) }
   if (!raw) return null
-  try { return JSON.parse(raw) } catch { throw new ProviderError(response.status, method !== 'GET') }
+  try { return JSON.parse(raw) } catch { throw new ProviderError(response.status, method !== 'GET', operation) }
 }
 export async function getKommoLead(id: number): Promise<Row> {
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error('INVALID_KOMMO_LEAD')
