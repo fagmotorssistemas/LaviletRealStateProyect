@@ -9,6 +9,7 @@ import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
+import { isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat } from './financing'
@@ -92,7 +93,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!permitted(initialConfig, lead, settings.testLeadId) || lead.bot_enabled !== true || inbound.stopped) return { action: 'bot_paused' }
   const activeLast = inbound.normalized[inbound.normalized.length - 1]
   const current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
-  const modelOnly = /\b(?:modelo|3d|html|animaci[oó]n|recorrido virtual)\b/i.test(current) && !explicitlyRequestsVisit(current)
+  const modelOnly = isUnitVisualRequest(current) && !explicitlyRequestsVisit(current)
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const processingStarted = Date.now()
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
@@ -209,7 +210,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
       if (extracted.tracking_consent) await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: true, p_reason: 'aceptó recibir novedades' })
       await rpc('apply_lead_events', { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
       // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
-      const unitId = reference.explicit && reference.matches.length === 1 ? reference.matches[0].id : null
+      const unitId = (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
       if (unitId) extracted.preferred_category = reference.matches[0].category
       const previousCategory = lead.preferred_category
       const declarations = object(await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
@@ -217,7 +218,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
       lead = { ...lead, ...declarations }
       const facts = qualifiedFacts(object(extracted.qualification), current)
       const categoryChanged = previousCategory && lead.preferred_category !== previousCategory
-      if (categoryChanged && !reference.explicit) { reference.matches = []; summary._unit_reference = {} }
+      if (categoryChanged && !unitId) { reference.matches = []; summary._unit_reference = {} }
       if (Object.keys(facts).length || categoryChanged) {
         const previousFacts = object(object(lead.behavior_signals).sdr)
         // A switch from housing to commercial property starts a different search.
