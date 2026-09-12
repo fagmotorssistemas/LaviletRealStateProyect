@@ -563,10 +563,12 @@ html.tour-is-force-landscape body {
 
 .psv-container {
   background: #111 !important;
+  touch-action: none;
 }
 
 .psv-canvas-container {
   background: #111;
+  touch-action: none;
 }
 
 .psv-virtual-tour-arrows,

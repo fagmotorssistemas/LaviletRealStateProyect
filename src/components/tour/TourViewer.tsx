@@ -59,6 +59,7 @@ import {
 } from '@/lib/tour/tourRooms'
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
+import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
 import { pickRoomScene, pickSceneUrl, finishesMatch } from '@/lib/tour/roomScene'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
 import {
@@ -1052,6 +1053,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         defaultZoomLvl: 0,
         maxFov: isNarrow ? 85 : 90,
         minFov: 40,
+        moveSpeed: isNarrow ? 1.45 : 1,
+        moveInertia: isNarrow ? 0.55 : 0.8,
         touchmoveTwoFingers: false,
         mousewheelCtrlKey: false,
         rendererParameters: {
@@ -1065,7 +1068,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         defaultTransition: { speed: 0, rotation: false },
         plugins: [
           GyroscopePlugin.withConfig({
-            touchmove: true,
+            // El dedo lo maneja el viewer (o el remap de force-landscape); el gyro no debe pelear.
+            touchmove: false,
             roll: false,
             absolutePosition: false,
             moveMode: 'smooth',
@@ -1689,6 +1693,37 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
   }, [booting, viewMode, isPanoRoom, tourNavMode])
 
+  // Portrait + CSS rotate(90deg): remapar el dedo para que arriba/abajo coincidan con la vista.
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || booting) return
+
+    const needsRemap = forceLandscapeCss && viewMode === 'tour' && isPanoRoom
+    try {
+      viewer.setOption('mousemove', !needsRemap)
+    } catch {
+      /* viewer aún no listo */
+    }
+
+    if (!needsRemap) return
+
+    const activeRef = { current: true }
+    const detach = attachForceLandscapePan(viewer, {
+      active: () => activeRef.current && forceLandscapeCss && viewMode === 'tour',
+      speedMult: 1.35,
+      inertia: 0.45,
+    })
+    return () => {
+      activeRef.current = false
+      detach()
+      try {
+        viewer.setOption('mousemove', true)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [booting, forceLandscapeCss, viewMode, isPanoRoom])
+
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || booting) return
@@ -1705,19 +1740,31 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     const viewer = viewerRef.current
     if (!root) return
 
+    let resizeTimer: number | null = null
     const resize = () => {
-      window.setTimeout(() => viewer?.autoSize(), 80)
-      window.setTimeout(() => viewer?.autoSize(), 360)
+      // Con force-landscape, autoSize en bucle (visualViewport) tumba Chrome/Safari.
+      if (forceLandscapeCss) return
+      if (resizeTimer != null) window.clearTimeout(resizeTimer)
+      resizeTimer = window.setTimeout(() => {
+        resizeTimer = null
+        viewer?.autoSize()
+      }, 120)
     }
 
     const fitViewport = () => {
-      // Con CSS force-landscape el layout lo define el rotate; no pelear con inline styles.
-      if (!immersive || forceLandscapeCss) {
+      // Con CSS force-landscape el layout lo define el rotate; no pelear con inline styles ni autoSize.
+      if (forceLandscapeCss) {
         root.style.top = ''
         root.style.left = ''
         root.style.width = ''
         root.style.height = ''
-        if (immersive || forceLandscapeCss) resize()
+        return
+      }
+      if (!immersive) {
+        root.style.top = ''
+        root.style.left = ''
+        root.style.width = ''
+        root.style.height = ''
         return
       }
       const vv = window.visualViewport
@@ -1740,6 +1787,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       // Fullscreen + lock solo en landscape nativo (evita crash por pelear con CSS rotate).
       if (!forceLandscapeCss) {
         void lockTourLandscape(root).finally(fitViewport)
+      } else {
+        // Un solo autoSize al entrar; nunca en cada resize del viewport.
+        window.setTimeout(() => viewer?.autoSize(), 160)
       }
     } else {
       if (slot && root.parentElement !== slot) slot.appendChild(root)
@@ -1752,10 +1802,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       fitViewport()
     }
 
-    window.visualViewport?.addEventListener('resize', fitViewport)
-    window.visualViewport?.addEventListener('scroll', fitViewport)
+    // En force-landscape no escuchamos visualViewport: dispara autoSize en bucle y tumba el tab.
+    if (!forceLandscapeCss) {
+      window.visualViewport?.addEventListener('resize', fitViewport)
+      window.visualViewport?.addEventListener('scroll', fitViewport)
+    }
 
     return () => {
+      if (resizeTimer != null) window.clearTimeout(resizeTimer)
       window.visualViewport?.removeEventListener('resize', fitViewport)
       window.visualViewport?.removeEventListener('scroll', fitViewport)
       root.style.top = ''
@@ -1772,24 +1826,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
   }, [immersive, forceLandscapeCss, embedded])
 
-  // Al abrir en portrait: landscape visual + fullscreen/lock en el primer gesto (requerido por el browser).
+  // Al abrir en portrait: landscape visual por CSS (sin fullscreen: pelea con rotate y tumba el tab).
   useEffect(() => {
     if (!forceLandscapeCss) {
       document.documentElement.classList.remove('tour-is-force-landscape')
       return
     }
     document.documentElement.classList.add('tour-is-force-landscape')
-    const root = rootRef.current
-    const onFirstGesture = () => {
-      // Solo fullscreen: orientation.lock pelea con el CSS rotate y puede tumbar el tab (Chrome).
-      if (root) void requestTourFullscreen(root)
-    }
-    window.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true })
-    window.addEventListener('touchstart', onFirstGesture, { once: true, capture: true })
     return () => {
       document.documentElement.classList.remove('tour-is-force-landscape')
-      window.removeEventListener('pointerdown', onFirstGesture, true)
-      window.removeEventListener('touchstart', onFirstGesture, true)
     }
   }, [forceLandscapeCss])
 
