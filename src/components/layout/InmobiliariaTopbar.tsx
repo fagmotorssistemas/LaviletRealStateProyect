@@ -7,6 +7,7 @@ import { InmobiliariaAccountMenu } from '@/components/layout/InmobiliariaAccount
 import { useAuth } from '@/contexts/AuthContext'
 import { knownRole } from '@/lib/inmobiliaria/roleAccess'
 import { cn } from '@/lib/utils'
+import { VisitInboxTrigger } from '@/components/inmobiliaria/agenda/VisitInboxTrigger'
 
 export function InmobiliariaTopbar() {
   const pathname = usePathname()
@@ -41,7 +42,8 @@ export function InmobiliariaTopbar() {
           )
         })}
       </nav>
-      <div className="pr-5">
+      <div className="flex min-w-0 items-center gap-4 pr-5">
+        <VisitInboxTrigger />
         <InmobiliariaAccountMenu tone="light" />
       </div>
     </header>

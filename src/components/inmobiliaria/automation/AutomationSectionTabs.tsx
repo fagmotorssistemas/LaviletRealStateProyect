@@ -1,27 +1,20 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
+import styles from './AutomationWorkspace.module.css'
 
 export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'reglas' | 'guion' | 'ubicacion' }) {
   const { isAdmin } = useRoleAccess()
-
-  return (
-    <div className="crm-tabs">
-      <Link href="/inmobiliaria/automatizacion" data-active={active === 'monitoreo'} className="crm-tab no-underline">
-        Monitoreo
-      </Link>
-      {isAdmin ? (
-        <Link href="/inmobiliaria/automatizacion/reglas" data-active={active === 'reglas'} className="crm-tab no-underline">
-          Reglas
-        </Link>
-      ) : null}
-      {isAdmin ? (
-        <Link href="/inmobiliaria/automatizacion/guion" data-active={active === 'guion'} className="crm-tab no-underline">
-          Guion
-        </Link>
-      ) : null}
-      {isAdmin && <Link href="/inmobiliaria/automatizacion/ubicacion" data-active={active === 'ubicacion'} className="crm-tab no-underline">Ubicación</Link>}
-    </div>
-  )
+  const tabs = [
+    { id: 'monitoreo', href: '/inmobiliaria/automatizacion', label: 'Monitoreo' },
+    ...(isAdmin ? [
+      { id: 'reglas', href: '/inmobiliaria/automatizacion/reglas', label: 'Reglas y SLA' },
+      { id: 'guion', href: '/inmobiliaria/automatizacion/guion', label: 'Guion del bot' },
+      { id: 'ubicacion', href: '/inmobiliaria/automatizacion/ubicacion', label: 'Ubicación' },
+    ] : []),
+  ]
+  return <nav className={styles.tabs} aria-label="Secciones de automatización">
+    {tabs.map(tab => <Link key={tab.id} href={tab.href} aria-current={active === tab.id ? 'page' : undefined}>{tab.label}</Link>)}
+  </nav>
 }

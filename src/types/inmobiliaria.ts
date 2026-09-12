@@ -373,7 +373,9 @@ export interface AppointmentRescheduleRequest {
   appointment?: { id: string; status: AppointmentStatus; meeting_place: string | null } | null
 }
 
-export type VisitInboxItem = AppointmentRescheduleRequest
+export type VisitInboxItem = Omit<AppointmentRescheduleRequest, 'lead'> & {
+  lead?: { id: string; name: string | null; phone: string | null; kommo_id?: number | null; preferred_category?: string | null } | null
+}
 
 export interface VisitTimeSlot {
   start_time: string
