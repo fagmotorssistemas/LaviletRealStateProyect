@@ -830,3 +830,70 @@ test('asking for a 3D model neither schedules a visit nor accepts an existing pr
     assert.equal(h.calls.filter(c=>['lv_collect_visit_intake','lv_apply_client_visit_intent'].includes(c.name)).length,0)
   }
 })
+
+const unit210 = {id:'cb053324-daa5-4188-9b3c-01ae77f144aa',unit_number:'210',category:'suite',bedrooms:1,floor_number:2}
+test('a residential number matches the real unit even when the client calls a suite a departamento',()=>{
+  for(const message of ['Me interesa el departamento 210','Quiero el departemento 210','[Imagen: DEPARTAMENTO 210]','Me interesa la suite 202']) {
+    const ref=catalogModels.resolveCatalogReference([unit202,unit210],message)
+    assert.equal(ref.matches.length,1)
+    assert.equal(modelDelivery.unitModelDelivery(ref,message,[])?.unit_number,message.includes('210')?'210':'202')
+  }
+  const collision={...unit210,id:'local-210',category:'local',unit_number:'LC-210'}
+  assert.deepEqual(catalogModels.resolveCatalogReference([unit210,collision],'departamento 210').matches,[unit210])
+  assert.deepEqual(catalogModels.resolveCatalogReference([unit210,collision],'local 210').matches,[collision])
+  assert.equal(catalogModels.resolveCatalogReference([unit210,collision],'unidad 210').matches.length,2)
+})
+
+test('a photo request uses the latest unit from the client, recovers a lost summary, and does not claim a real photograph',async()=>{
+  const history=[{role:'cliente',content:'Me interesa el departamento 210'},
+    {role:'bot',content:'La 210 es una suite. ¿Prefiere conocer el departamento 202?'}]
+  for(const message of ['En envíeme una fotografía','Mándeme fotos','¿Tiene imágenes?','el plano','Envíeme la referencia interactiva']) {
+    const ref=catalogModels.resolveCatalogReference([unit202,unit210],message,{},history)
+    assert.deepEqual(ref.matches,[unit210])
+    assert.equal(modelDelivery.unitModelDelivery(ref,message,[])?.unit_number,'210')
+  }
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{
+    activePrompt:async()=>{throw Error('Known model must not fall back to a generic prompt')},
+  }})
+  for(const message of ['Me interesa el departamento 210','En envíeme una fotografía']) {
+    const reply=await commercialReply({referencia_unidad:{matches:[unit210]},modelo_3d:{unidad:'210',se_adjunta_en_esta_respuesta:true}},message,{},async()=>{})
+    assert.doesNotMatch(reply.reply,/asesor|convendría|mayor tamaño|preferir|otra opción|aquí.*foto/i)
+    if(message.includes('fotografía')) assert.match(reply.reply,/vista interactiva/)
+    else assert.match(reply.reply,/210.*suite.*un dormitorio/)
+  }
+})
+
+test('visual followups never resurrect an older unit after a new unknown or ambiguous choice',()=>{
+  for(const content of ['Ahora quiero el departamento 999','Prefiero el local 210','Departamento 202 o departamento 210','Ahora quiero un local']) {
+    const ref=catalogModels.resolveCatalogReference([unit202,unit210],'Envíeme una foto',{ids:[unit202.id]},[
+      {role:'cliente',content:'Me interesa el departamento 202'},{role:'cliente',content}])
+    assert.equal(modelDelivery.unitModelDelivery(ref,'Envíeme una foto',[]),null)
+  }
+  const ref=catalogModels.resolveCatalogReference([unit210],'Mándeme una foto',{},[
+    {role:'cliente',content:'Departamento 210'}, {role:'cliente',content:'Mi entrada sería 25000.00'}])
+  assert.deepEqual(ref.matches,[unit210])
+  assert.equal(modelDelivery.unitModelDelivery(catalogModels.resolveCatalogReference([unit210],'Envíeme una foto de la fachada',{ids:[unit210.id]}),'Envíeme una foto de la fachada',[]),null)
+})
+
+test('the reported 210 conversation saves and sends the same unit in the next visual turn',async t=>{
+  live(t)
+  const first=conversationHarness({catalog:[unit202,unit210],lead:{preferred_category:'departamento'},extracted:{preferred_category:'departamento'}})
+  first.rows[0].payload.text='Me interesa el departamento 210'
+  await first.process([first.rows[0]],async()=>{})
+  const firstSummary=JSON.parse(first.calls.find(c=>c.name==='update:conversations').args.summary)
+  assert.deepEqual(firstSummary._unit_reference.ids,[unit210.id])
+  assert.match(first.calls.find(c=>c.name==='patch').args[2],/\?unidad=210/)
+  const history=[{role:'cliente',content:'Me interesa el departamento 210'}, {role:'bot',content:'La 210 es una suite de un dormitorio.'}]
+  // Check both a new summary and the empty reference left by the old production bug.
+  for(const summary of [firstSummary,{_unit_reference:{},_unit_models_sent:[]}]) {
+    const next=conversationHarness({catalog:[unit202,unit210],lead:{preferred_category:'departamento'},history,
+      summary:JSON.stringify(summary),extracted:{preferred_category:'suite',events:['requested_visit']}})
+    next.rows[0].payload.text='En envíeme una fotografía'
+    await next.process([next.rows[0]],async()=>{})
+    assert.match(next.calls.find(c=>c.name==='patch').args[2],/\?unidad=210/)
+    assert.equal(next.calls.find(c=>c.name==='commercialReply').args.modelo_3d.unidad,'210')
+    assert.deepEqual(JSON.parse(next.calls.find(c=>c.name==='update:conversations').args.summary)._unit_reference.ids,[unit210.id])
+    assert.equal(next.calls.filter(c=>c.name==='launch').length,1)
+    assert.equal(next.calls.filter(c=>c.name==='lv_collect_visit_intake').length,0)
+  }
+})

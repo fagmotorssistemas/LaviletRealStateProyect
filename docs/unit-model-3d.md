@@ -23,6 +23,15 @@ medida con otro piso no autoriza reutilizar el modelo. Las imágenes se leen med
 la extracción visual existente; un título incierto o varias coincidencias requieren
 aclarar la unidad, sin elegir una por parecido visual.
 
+«Departamento» y «suite» se interpretan como referencias residenciales: si el cliente
+pide el departamento 210, se identifica la suite 210 y se presenta su categoría real.
+Los locales mantienen su propio ámbito para evitar confundir códigos coincidentes.
+Pedir fotos, imágenes, planos o una referencia interactiva recupera la última unidad
+indicada por el cliente, incluso si un resumen anterior perdió esa referencia. Una
+alternativa mencionada solo por el bot no cambia la elección. Una nueva unidad
+desconocida, una selección ambigua o un cambio de búsqueda impiden reutilizar una anterior.
+Cuando se ofrece el modelo al pedir una fotografía, se identifica como vista interactiva.
+
 ## Envío
 
 En una consulta comercial con una coincidencia inequívoca, el enlace se añade a la
