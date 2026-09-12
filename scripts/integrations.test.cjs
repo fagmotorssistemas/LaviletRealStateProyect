@@ -149,7 +149,7 @@ function conversationHarness(options = {}) {
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
-      one: async table => table === 'conversations' ? { ...scope, lead_id: 'lead' } : lead,
+      one: async table => table === 'conversations' ? { ...scope, lead_id: 'lead', summary: options.summary } : lead,
       rpc: async (name, args) => {
         calls.push({ name, args })
         if (name === 'register_inbound_message') return { lead_id: 'lead', conversation_id: 'conv', is_duplicate: options.duplicate === true }
@@ -159,11 +159,11 @@ function conversationHarness(options = {}) {
         if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose }).filter(([, v]) => v != null))); return lead }
         if (name === 'lv_collect_visit_intake') return options.intake || { action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
         if (name === 'lv_intake_visit_once') return 'appointment'
-        if (name === 'process_financing_message_v2') return { active: false }
+        if (name === 'process_financing_message_v2') return typeof options.financing === 'function' ? options.financing(args) : options.financing || { active: false }
         return {}
       },
     },
-    './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => ({ partners: ['Banco Pichincha'], current: {} }) },
+    './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
     './sdr': { commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
       commercialReply: async () => ({ reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => event.text,
@@ -472,7 +472,7 @@ test('old summary declarations cannot overwrite a new search without current tex
 })
 test('discovery uses known facts and never asks bedroom count for commercial property', () => {
   const lead = { preferred_category: 'local', purchase_purpose: 'negocio', behavior_signals: { sdr: { actividad_comercial: 'cafetería' } } }
-  assert.equal(sdrRules.nextDiscoveryQuestion(lead).key, 'area_buscada')
+  assert.equal(sdrRules.nextDiscoveryQuestion(lead).key, 'prioridad')
   assert.equal(sdrRules.sdrState({ last_bot_message_at: new Date(Date.now() - 60_000).toISOString() }, []).ya_saludamos, true)
   assert.equal(sdrRules.sdrState({ last_bot_message_at: new Date(Date.now() - 86_400_000).toISOString() }, []).ya_saludamos, false)
   assert.equal(sdrRules.isGreetingOnly('¡Buenas tardes!'), true)
@@ -492,12 +492,198 @@ test('a rejected draft is rewritten and reviewed before it can be sent', async (
   assert.doesNotMatch(result.reply, /Hola/)
 })
 
-test('two rejected drafts fall back to the relevant discovery question without copying claims', async () => {
+test('two rejected drafts offer clarification without copying claims or an unrelated form question', async () => {
   const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
     activePrompt: async name => name, draftReply: async () => 'Su cafetería tendrá rentabilidad garantizada.',
     aiJson: async () => ({ aprobada: false, motivos: ['unsupported_fact'] }),
   } })
   const result = await commercialReply({ siguiente_pregunta: { question: '¿Qué tamaño aproximado busca?' } }, 'Una cafetería', {}, async () => {})
   assert.equal(result.audit.fallback, true)
-  assert.equal(result.reply, '¿Qué tamaño aproximado busca?')
+  assert.match(result.reply, /asesor.*aclarar/)
+  assert.doesNotMatch(result.reply, /tamaño|garantizada/)
+})
+
+
+test('confirmed appointment thanks and status questions cannot restart intake, even with a wrong extractor', async t => {
+  live(t)
+  for (const message of ['Muchas gracias, estaré puntual', 'Gracias, allí estaré', 'Ya quedamos en una cita o no?', 'Pero si ya dije\nYa quedamos en una cita o no?']) {
+    const h = conversationHarness({ proposals: [{ status: 'confirmed', appointment_start_time: '2026-09-12T16:00:00Z' }],
+      history: [{ role: 'bot', content: 'Su cita está confirmada.' }],
+      extracted: { events: ['requested_visit', 'asked_financing'] }, financing: { active: true, state: 'continuacion_pendiente' } })
+    h.rows[0].payload.text = message
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.filter(c => ['lv_collect_visit_intake','process_financing_message_v2','lv_apply_client_visit_intent'].includes(c.name)).length, 0, message)
+    assert.match(h.calls.find(c => c.name === 'patch').args[2], /le esperamos|Le esperamos/)
+  }
+  assert.equal(natural.isCourtesyOnly('Muchas gracias, pero no podré asistir'), false)
+  assert.equal(natural.isCourtesyOnly('Estaré puntual, ¿dónde queda?'), false)
+})
+
+test('No after cancellation closes the visit and never resumes saved financing', async t => {
+  live(t)
+  const h = conversationHarness({ history: [{ role: 'bot', content: 'No se preocupe, hemos cancelado la cita. ¿Le gustaría visitarnos más tarde o prefiere otro día?' }],
+    financing: { active: true, state: 'continuacion_pendiente' }, extracted: { events: ['asked_financing', 'requested_visit'], financing_consent: false } })
+  h.rows[0].payload.text = 'No'
+  await h.process([h.rows[0]], async () => {})
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /dejamos la cita cancelada/)
+  assert.equal(h.calls.filter(c => ['lv_collect_visit_intake','process_financing_message_v2','set_tracking_preference'].includes(c.name)).length,0)
+})
+
+test('a saved financial form does not intercept commercial questions or unrelated No', async t => {
+  live(t)
+  for (const message of ['¿Dónde está el edificio?', 'No']) {
+    const h = conversationHarness({ financing: { active: true, state: 'continuacion_pendiente' },
+      history: [{ role: 'bot', content: '¿Desea conocer el departamento?' }], extracted: { events: ['asked_financing'], financing_consent: true } })
+    h.rows[0].payload.text = message
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length,0)
+    assert.equal(h.calls.filter(c => c.name === 'commercialContext').length,1)
+  }
+})
+
+test('JEP choice is acknowledged and next consent advances the saved form', async t => {
+  live(t)
+  const context = { partners: ['Banco Pichincha','Cooperativa JEP'], current: { explicit_consent: false } }
+  const history = [{ role:'bot', content:'Por el momento no tenemos una alianza registrada con Jardín Azuayo. ¿Le gustaría revisar esa opción?' }]
+  const options = { financeContext: context, history, extracted: {}, financing(args) {
+    if(args.p_financing_partner) context.current.selected_partner_name=args.p_financing_partner
+    if(args.p_financing_consent === true) context.current.explicit_consent=true
+    return { active:true, state: context.current.explicit_consent ? 'cedula_pendiente' : 'continuacion_pendiente', selected_partner_name:context.current.selected_partner_name }
+  } }
+  const h=conversationHarness(options)
+  h.rows[0].payload.text='Con la jep'
+  await h.process([h.rows[0]],async()=>{})
+  let reply=h.calls.filter(c=>c.name==='patch').at(-1).args[2]
+  assert.match(reply,/continuar con Cooperativa JEP/)
+  assert.doesNotMatch(reply,/Pichincha/)
+  assert.equal(context.current.explicit_consent,false,'Choosing a bank alone is not blanket consent')
+  history.push({role:'cliente',content:'Con la jep'},{role:'bot',content:reply})
+  h.rows[1].payload.text='Sí claro'
+  await h.process([h.rows[1]],async()=>{})
+  reply=h.calls.filter(c=>c.name==='patch').at(-1).args[2]
+  assert.match(reply,/cédula/)
+  assert.equal(context.current.explicit_consent,true)
+})
+
+test('asking whether only those banks are offered answers the question without repeating consent', async t => {
+  live(t)
+  const h=conversationHarness({ financeContext:{partners:['Banco Pichincha','Cooperativa JEP'],current:{}}, financing:{active:true,state:'continuacion_pendiente'}, extracted:{events:['asked_financing']} })
+  h.rows[0].payload.text='Si está bien, pero sólo con esas entidades?'
+  await h.process([h.rows[0]],async()=>{})
+  assert.match(h.calls.find(c=>c.name==='patch').args[2],/alianzas registradas/)
+  assert.doesNotMatch(h.calls.find(c=>c.name==='patch').args[2],/iniciemos/)
+})
+
+test('complaints and question marks recover the selected bank without reopening the form or greeting', async t => {
+  live(t)
+  for(const message of ['??','Ya te dije','Por qué repites?','pero eso no fue lo que yo pregunte']) {
+    const h=conversationHarness({financeContext:{partners:['Banco Pichincha','Cooperativa JEP'],current:{selected_partner_name:'Cooperativa JEP',explicit_consent:false}},
+      history:[{role:'bot',content:'¿Le gustaría que iniciemos una revisión de su caso?'}], extracted:{events:['asked_financing','requested_visit']} })
+    h.rows[0].payload.text=message
+    await h.process([h.rows[0]],async()=>{})
+    assert.match(h.calls.find(c=>c.name==='patch').args[2],/Ya tengo registrada su elección de Cooperativa JEP/)
+    assert.equal(h.calls.filter(c=>['process_financing_message_v2','lv_collect_visit_intake'].includes(c.name)).length,0)
+  }
+})
+
+test('a stale extracted lender is not accepted as a new choice',()=>{
+  const context={partners:['Banco Pichincha','Cooperativa JEP'],current:{}}
+  assert.equal(financeRules.financingInputs({financing_partner:'Cooperativa JEP'},'quiero una cita','',context).partner,null)
+  assert.equal(financeRules.financingInputs({financing_partner:'Banco Pichincha'},'con la JEP','',context).partner,'Cooperativa JEP')
+})
+
+test('advisor handoff stays paused and never sends an automatic thanks afterwards',async t=>{
+  live(t)
+  const h=conversationHarness({lead:{bot_enabled:false,handoff_status:'assigned'}})
+  h.rows[0].payload.text='muchas gracias'
+  assert.equal((await h.process([h.rows[0]],async()=>{})).action,'bot_paused')
+  assert.equal(h.calls.filter(c=>c.name==='launch').length,0)
+})
+
+
+const experience = require('../src/lib/integrations/automation/commercial-experience.ts')
+test('benefit memory survives a summary rewrite and history truncation, but never records a failed send',async t=>{
+  live(t)
+  const h=conversationHarness({summary:JSON.stringify({_commercial_memory:{mentioned_benefits:['piscina','gimnasio'],deferred_fields:[]}})})
+  h.rows[0].payload.text='Quisiera conocer las suites'
+  await h.process([h.rows[0]],async()=>{})
+  const update=h.calls.find(c=>c.name==='update:conversations')
+  assert.deepEqual(JSON.parse(update.args.summary)._commercial_memory.mentioned_benefits,['piscina','gimnasio'])
+  const failed=conversationHarness({sendFails:true,summary:JSON.stringify({_commercial_memory:{mentioned_benefits:[],deferred_fields:[]}})})
+  await assert.rejects(()=>failed.process([failed.rows[0]],async()=>{}))
+  assert.equal(failed.calls.filter(c=>c.name==='update:conversations').length,0)
+})
+
+test('a client unable to choose size gets actual examples, not the same question after rejected drafts',async()=>{
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{
+    activePrompt:async name=>name,draftReply:async()=> '¿Qué tamaño aproximado tiene en mente para el local?',
+    aiJson:async()=>({aprobada:true,motivos:[]}),
+  }})
+  const result=await commercialReply({lead:{preferred_category:'local'},historial:[{role:'bot',content:'¿Qué tamaño busca?'}],catalogo:[
+    {unit_number:'LC-03',category:'local',area_internal_m2:52.16},{unit_number:'LC-02',category:'local',area_internal_m2:95.37}],
+    siguiente_pregunta:{question:'¿Qué tamaño busca?'}},'No tengo idea, ¿de qué tamaño son?',{},async()=>{})
+  assert.equal(result.audit.fallback,true)
+  assert.match(result.reply,/52[.,]16.*95[.,]37/)
+  assert.doesNotMatch(result.reply,/qué tamaño.*(?:busca|mente)/i)
+})
+
+test('memory distinguishes explaining a requested benefit from repeating a sales pitch',()=>{
+  const memory=experience.commercialMemory({},[{role:'bot',content:'Hay piscina y gimnasio.'}])
+  assert.ok(experience.experienceIssues('Las suites tienen piscina y gimnasio.','Quiero conocer suites',{},memory).length)
+  assert.deepEqual(experience.experienceIssues('La piscina es para residentes.','¿Quién puede usar la piscina?',{},memory),[])
+  assert.deepEqual(experience.experienceIssues('Cuenta con piscina y gimnasio.','¿Qué instalaciones tienen?',{},memory),[])
+  assert.deepEqual(experience.commercialMemory(memory,[],''),memory)
+})
+
+test('explicit pool questions are answered even after it was presented earlier',async()=>{
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{
+    activePrompt:async name=>name,draftReply:async()=> 'Las suites tienen un dormitorio. ¿Lo busca para vivir?',
+    aiJson:async()=>({aprobada:true,motivos:[]}),
+  }})
+  const result=await commercialReply({historial:[{role:'bot',content:'Hay piscina y gimnasio.'}],
+    instalaciones:[{amenity_name:'Piscina exclusiva para residentes'}]},'¿La piscina es para residentes?',{},async()=>{})
+  assert.match(result.reply,/piscina.*residentes/)
+  assert.ok(result.audit.review_reasons.includes('ignored_question'))
+})
+
+test('investment guarantee questions do not fall through to unrelated discovery',async()=>{
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{}})
+  const result=await commercialReply({posicionamiento_proyecto:experience.PROJECT_POSITIONING},'¿Garantizan que suba de precio?',{},async()=>{})
+  assert.match(result.reply,/no podemos garantizar/)
+  assert.match(result.reply,/ubicación/)
+})
+
+test('clarification fallback explains access, parking and size without making up visitor parking',()=>{
+  const result=experience.commercialFallback({lead:{preferred_category:'local'},instalaciones:[{amenity_name:'Acceso independiente residencial y comercial'},{amenity_name:'Parqueaderos en subsuelos'}],catalogo:[{unit_number:'LC-03',category:'local',area_internal_m2:52.16}]},'No entiendo la circulación ni parqueaderos. ¿Qué tamaño tienen?',{mentioned_benefits:[],deferred_fields:['area_buscada']})
+  assert.match(result,/entradas separadas/);assert.match(result,/pisos bajo tierra/);assert.match(result,/52[.,]16/)
+  assert.doesNotMatch(result,/circulación|garantiz|visitantes/)
+})
+
+test('sales style rejects long prose, jargon and guarantees',()=>{
+  const memory={mentioned_benefits:[],deferred_fields:[]}
+  assert.ok(experience.experienceIssues('La circulación comercial independiente mejora su expectativa de renta.','Quiero invertir',{},memory).includes('style'))
+  assert.ok(experience.experienceIssues('Es totalmente seguro y tiene plusvalía garantizada.','Quiero invertir',{},memory).includes('unsupported_fact'))
+  assert.ok(experience.experienceIssues('Una explicación '.repeat(60),'Más información',{},memory).includes('style'))
+  assert.ok(experience.experienceIssues('Hay supermercados a pocas cuadras.','¿Qué hay cerca?',{},memory).includes('unsupported_fact'))
+})
+
+test('an investor switching from local to suite keeps the investment purpose',async t=>{
+  live(t)
+  const h=conversationHarness({lead:{preferred_category:'local',purchase_purpose:'invertir'},extracted:{preferred_category:'suite',declaration_evidence:{preferred_category:'suites'},events:['declared_unit_type']}})
+  h.rows[0].payload.text='Quiero saber más de suites'
+  await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.find(c=>c.name==='commercialContext').args.purchase_purpose,'invertir')
+  assert.equal(h.calls.find(c=>c.name==='commercialContext').args.preferred_category,'suite')
+})
+
+test('commercial context retains measurements on demand and does not repeat facilities in a presentation',()=>{
+  const info={instalaciones:[{amenity_name:'Piscina'},{amenity_name:'Gimnasio'},{amenity_name:'Seguridad 24h'}],catalogo:[{unit_number:'LC-02',area_internal_m2:95.37,area_exterior_m2:46.74}]}
+  const memory={mentioned_benefits:['piscina','gimnasio'],deferred_fields:[]}
+  const intro=experience.experienceContext(info,'Quiero información de suites',memory)
+  assert.equal(intro.instalaciones.length,1);assert.equal(intro.catalogo[0].area_internal_m2,undefined)
+  const sizes=experience.experienceContext(info,'¿Qué área tiene LC-02?',memory)
+  assert.equal(sizes.catalogo[0].area_internal_m2,95.37)
+  const pool=experience.experienceContext(info,'¿Quién usa la piscina?',memory)
+  assert.ok(pool.instalaciones.some(f=>f.amenity_name==='Piscina'))
+  assert.equal(info.catalogo[0].area_internal_m2,95.37,'The inventory is never mutated')
 })

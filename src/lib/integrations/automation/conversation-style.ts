@@ -8,7 +8,7 @@ export function conversationalFirstName(name: string) {
 }
 export function isCourtesyOnly(message: string) {
   // «Está bien», «de acuerdo» u «ok» también pueden autorizar una propuesta.
-  return /^(?:(?:perfecto|muchas gracias|muchisimas gracias|gracias|con mucho gusto|muy amable|muy bien|excelente|entendido|hasta luego|igualmente)\s*)+$/.test(normalized(message))
+  return /^(?:(?:perfecto|muchas gracias|muchisimas gracias|gracias|con mucho gusto|muy amable|muy bien|excelente|entendido|hasta luego|igualmente|estare puntual|ahi estare|alli estare|nos vemos|le esperamos|hasta entonces)\s*)+$/.test(normalized(message))
 }
 export function greetingForTurn(current: string, history: unknown, lastBotAt: unknown, at: string) {
   const match = current.trim().match(/^(hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas tardes\b|buenas noches\b|buenas\b)/i)
@@ -65,6 +65,7 @@ export const NATURAL_CONVERSATION_RULES = [
   'Cuando pregunta por la ubicación del edificio, explique la dirección. No la convierta en preferencia por un piso.',
   'No generalice balcones, terrazas, bodegas ni distribución a todas las unidades: solo describa atributos explícitos de una unidad verificada. No afirme permisos, rentabilidad ni aptitud para Airbnb.',
   'La ausencia de un atributo en el catálogo significa que no está verificado, no que esa unidad carezca de él. Tampoco invente cercanía a servicios o vías principales sin datos que la respalden.',
+  'Superficies del catálogo: area_internal_m2 es área interior, area_exterior_m2 es área exterior y area_total_m2 es el total registrado; todas están en m². Conteste con las superficies disponibles de la unidad consultada aunque area_total_m2 sea null. Distinga interior y exterior; no llame total al área interior ni invente un total oficial sumando campos. Un área exterior null significa sin registrar, no cero ni ausencia de exterior. No describa el exterior como terraza, jardín o área exclusiva sin datos que lo confirmen. Ejemplo: LC-02 con interior 95.37 y exterior 46.74 se describe como «95,37 m² interiores y 46,74 m² exteriores».',
   'Ejemplo de precisión: si solo consta balcón para el 202, diga «En el 202 consta balcón; para las demás opciones falta verificarlo». No diga «No todos tienen balcón» ni «El 301 no lo incluye» a partir de un campo ausente.',
   'Nunca sugiera una fecha/hora de visita por iniciativa propia: los horarios los propone el asesor desde su agenda. Si pide sugerencia o expresa incertidumbre, el sistema debe coordinarla; no repita preguntas ni invente viernes a las 16.',
 ].join('\n')

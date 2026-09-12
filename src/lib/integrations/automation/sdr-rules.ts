@@ -37,10 +37,12 @@ export function nextDiscoveryQuestion(lead: Row): { key: string; question: strin
     : '¿Lo busca para vivir o como inversión?' }
   if (category === 'local') {
     if (lead.purchase_purpose === 'negocio' && !sdr.actividad_comercial) return { key: 'actividad_comercial', question: '¿Qué tipo de negocio le gustaría instalar?' }
-    if (!sdr.area_buscada) return { key: 'area_buscada', question: '¿Qué tamaño aproximado tiene en mente para el local?' }
+    if (!sdr.prioridad) return { key: 'prioridad', question: '¿Qué sería lo más importante para usted al elegir el local?' }
   } else {
     if (category === 'departamento' && !lead.preferred_bedrooms && !sdr.dormitorios_texto) return { key: 'dormitorios', question: '¿Cuántos dormitorios necesita?' }
-    if (!sdr.prioridad) return { key: 'prioridad', question: '¿Qué sería lo más importante para usted al elegir: distribución, espacio exterior o ubicación?' }
+    if (!sdr.prioridad) return { key: 'prioridad', question: lead.purchase_purpose === 'invertir'
+      ? '¿Qué le gustaría priorizar en su inversión?'
+      : '¿Qué le gustaría mejorar en su día a día con su nueva vivienda?' }
   }
   if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return { key: 'presupuesto', question: '¿Tiene un presupuesto aproximado en mente para orientar la búsqueda?' }
   if (!sdr.plazo_compra) return { key: 'plazo_compra', question: '¿Para cuándo le gustaría tomar una decisión de compra?' }

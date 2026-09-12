@@ -1,5 +1,6 @@
 import { db, object, scope, text, type Row } from './data'
 import { normalized } from './sdr-rules'
+import { isConversationRepair, explicitlyRequestsVisit } from './turn-routing'
 
 export async function financingContext(lead: Row) {
   const [partners, qualification] = await Promise.all([
@@ -19,10 +20,12 @@ export async function financingContext(lead: Row) {
 
 export function financingInputs(extracted: Row, current: string, lastReply: string, context: Awaited<ReturnType<typeof financingContext>>) {
   const message = normalized(current)
-  const asksConsent = /revisi[oó]n|financiamiento/.test(lastReply) && /desea continuar|iniciar|iniciemos|revisemos|revisi[oó]n.*\?/.test(lastReply)
+  const asksConsent = /revision|financiamiento|revisar esa opcion/.test(normalized(lastReply)) && /desea continuar|iniciar|iniciemos|revisemos|revisar esa opcion|revision.*\?/.test(lastReply.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
   const consent = asksConsent && /^(si|si claro|claro|si por favor|de acuerdo|continuemos|si continuemos)$/.test(message)
     ? true : extracted.financing_consent
   let partner = text(extracted.financing_partner)
+  // The extractor can carry an old lender forward; only accept a choice mentioned now.
+  if (partner && !normalized(current).includes(normalized(partner.replace(/^(banco|cooperativa)\s+/i, '')))) partner = ''
   if (/jardin\s*(?:azuayo|zauayo)/.test(message)) partner = 'Jardín Azuayo'
   const alias = (name: string) => normalized(name.replace(/^(banco|cooperativa)\s+/i, ''))
   const known = context.partners.find(name => normalized(partner) === normalized(name) || normalized(partner) === alias(name))
@@ -52,11 +55,33 @@ export function financingReply(fin: Row, partners: string[], unsupported = '') {
     estabilidad_pendiente: '¿Cuánto tiempo lleva trabajando en su empleo actual?', cargo_pendiente: '¿Cuál es su cargo actual?',
     ingreso_pendiente: '¿Cuál es su ingreso mensual aproximado?', ruc_pendiente: '¿Me indica su número de RUC, por favor?',
     lista_para_revision: 'Ya tenemos los datos iniciales para que el equipo revise su caso.',
-    continuacion_pendiente: options
+    continuacion_pendiente: fin.selected_partner_name
+      ? `Podemos continuar con ${text(fin.selected_partner_name)}. ¿Le gustaría que iniciemos la revisión de su caso?`
+      : options
       ? `Sí, podemos orientarle sobre financiamiento con ${options}. La entidad evalúa cada solicitud. ¿Le gustaría que iniciemos una revisión de su caso?`
       : 'Sí, podemos ayudarle a revisar las opciones de financiamiento. ¿Le gustaría que el equipo le oriente?',
   }
   const reply = messages[text(fin.state || fin.financing_state)]
   if (!reply) throw new Error('UNKNOWN_FINANCING_STATE')
   return reply
+}
+
+// An existing qualification is saved progress, not permission to monopolize every turn.
+export function isFinancingTurn(extracted: Row, current: string, lastReply: string, input: { partner: string | null; unsupported: string }) {
+  const message = normalized(current), previous = normalized(lastReply)
+  if (isConversationRepair(current) || explicitlyRequestsVisit(current) || extracted.requested_advisor || extracted.opt_out) return false
+  if (/\b(?:cita|visita|cancelar|reagendar)\b/.test(message)) return false
+  if (/financ|credito|entidad|banco|cooperativa|pichincha|\bjep\b|jardin azuayo/.test(message) || input.partner || input.unsupported) return true
+  if (!/financ|revision|entidad|cedula|ruc|ingreso mensual|cargo actual|empleo actual|relacion de dependencia|nombre completo/.test(previous)) return false
+  if (/[?¿]/.test(current)) return false // A question deserves an answer, not the next form field.
+  return extracted.financing_consent != null || ['full_name', 'national_id', 'applicant_type', 'employment_stability_months', 'job_title', 'monthly_income', 'ruc']
+    .some(key => extracted[key] != null) || /^(si|si claro|claro|de acuerdo|si por favor)$/.test(message)
+}
+
+export function financingQuestionReply(current: string, partners: string[]) {
+  if (/solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(normalized(current)) && !/jardin|pichincha|\bjep\b/.test(normalized(current))) {
+    return partners.length ? `Por ahora, las alianzas registradas son con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
+      : 'El equipo puede ayudarle a comprobar las opciones vigentes. ¿Con qué entidad le gustaría financiarse?'
+  }
+  return ''
 }

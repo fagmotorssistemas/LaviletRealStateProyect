@@ -10,8 +10,10 @@ import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply } from './sdr'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
-import { financingContext, financingInputs, financingReply } from './financing'
+import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn } from './financing'
 import { intakeReply, isVisitDetail, needsVisitHelp } from './visit-intake'
+import { asksVisitStatus, declinedFollowup, explicitlyRequestsVisit, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
+import { commercialMemory, rememberCommercialReply } from './commercial-experience'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -86,15 +88,38 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
   let reply = '', finalNotice = false
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
-  const greeting = !inbound.mediaFailed && isGreetingOnly(current)
+  let greeting = !inbound.mediaFailed && isGreetingOnly(current)
   const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
   const previousSummary = object(conversationBefore.summary)
+  const memory = commercialMemory(previousSummary._commercial_memory, context.historial, current)
   const state = sdrState(lead, context.historial)
+  const repair = isConversationRepair(current) && !!state.ultima_respuesta
+  if (repair) greeting = false
   const turnGreeting = greetingForTurn(current, context.historial, lead.last_bot_message_at, activeLast.sentAt)
   const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
   const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
-  if (!inbound.mediaFailed && isCourtesyOnly(current) && !proposals.some(p => p.status === 'awaiting_client')) {
+  if (!inbound.mediaFailed) {
+    reply = declinedFollowup(current, text(state.ultima_respuesta))
+    if (reply) audit = { source: 'declined_followup' }
+    if (!reply && asksVisitStatus(current)) {
+      reply = visitStatusReply(proposals, visitDraft?.status === 'collecting')
+      if (reply) audit = { source: 'visit_status' }
+    }
+    if (!reply && repair && !/asesor|persona|humano/i.test(current) && !explicitlyRequestsVisit(current)) {
+      const finance = await financingContext(lead)
+      const selected = text(finance.current.selected_partner_name)
+      const visitReply = visitStatusReply(proposals, visitDraft?.status === 'collecting')
+      const declined = (Array.isArray(context.historial) ? context.historial : []).map(object).slice(-4)
+        .some(m => /dejamos la cita cancelada|hemos cancelado la cita/.test(text(m.content)))
+      reply = declined ? 'Disculpe la confusión. Su cita quedó cancelada y no vamos a proponerle otra fecha si no lo desea.'
+        : visitReply ? 'Disculpe la confusión. ' + visitReply
+          : selected ? `Disculpe la repetición. Ya tengo registrada su elección de ${selected}.${finance.current.explicit_consent === true ? ' Podemos continuar desde los datos que faltan, sin comenzar de nuevo.' : ' La revisión todavía no se ha iniciado; podemos retomarla cuando usted lo indique.'}`
+            : ''
+      if (reply) audit = { source: 'context_repair' }
+    }
+  }
+  if (!reply && !inbound.mediaFailed && isCourtesyOnly(current) && !proposals.some(p => p.status === 'awaiting_client')) {
     if (isCourtesyOnly(text(state.ultima_respuesta)) || /^Con mucho gusto, ¡le esperamos!$/i.test(text(state.ultima_respuesta))) return { action: 'courtesy_already_acknowledged' }
     reply = visitDraft?.status !== 'collecting' && proposals.some(p => p.status === 'confirmed') ? 'Con mucho gusto, ¡le esperamos!' : 'Con mucho gusto.'
     audit = { source: 'courtesy' }
@@ -110,7 +135,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!reply && !greeting && proposals.length) {
     await guard()
     const proposal: Row | null = proposals.length === 1 ? { ...proposals[0], source_sent_at: activeLast.sentAt } : null
-    const classification = await aiJson(visitIntentPrompt, { mensaje_cliente: current,
+    const classification = await aiJson(visitIntentPrompt + '\n' + TURN_RULES, { mensaje_cliente: current,
       propuesta: proposal && visitDraft?.status === 'collecting' ? { ...proposal, status: 'awaiting_advisor' } : proposal,
       historial: context.historial })
     const intent = validateIntent(classification, proposal, activeLast.sentAt, text(context.mensaje_actual_at))
@@ -146,14 +171,20 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const [summaryPrompt, extractorPrompt] = await Promise.all([activePrompt('resumen_conversacion'), activePrompt('extractor_eventos')])
     const [newSummary, rawEvents] = await Promise.all([
       aiJson(summaryPrompt, { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current }),
-      aiJson(extractorPrompt + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
-        { resumen: previousSummary, historial: context.historial, ultima_pregunta: state.ultima_respuesta, coordinacion_visita: visitDraft, financiamiento: finance, mensaje_actual: current })
+      aiJson(extractorPrompt + '\n' + TURN_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
+        { resumen: previousSummary, historial: context.historial, ultima_pregunta: state.ultima_respuesta, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, mensaje_actual: current })
     ])
     summary = newSummary
     const extracted = normalizeEvents(rawEvents, current)
     const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance)
     extracted.financing_consent = financeInput.consent
     extracted.financing_partner = financeInput.partner
+    const collectingVisit = visitDraft?.status === 'collecting'
+    const canRequestVisit = !asksVisitStatus(current) && !repair && !isCourtesyOnly(current)
+      && (explicitlyRequestsVisit(current) || collectingVisit || !proposals.length)
+    if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
+    const financeTurn = isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)
+    if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
     await guard()
     if (extracted.opt_out) {
       await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
@@ -177,18 +208,18 @@ export async function processConversation(rows: Row[], guard: Guard) {
         // A switch from housing to commercial property starts a different search.
         const signals = { ...object(lead.behavior_signals), sdr: { ...(categoryChanged ? {} : previousFacts), ...facts } }
         const crossUse = categoryChanged && (previousCategory === 'local' || lead.preferred_category === 'local')
-        const resetSearch = crossUse ? { preferred_bedrooms: null, ...(!extracted.purchase_purpose ? { purchase_purpose: null } : {}) } : {}
+        const resetSearch = crossUse ? { preferred_bedrooms: null, ...(!extracted.purchase_purpose && lead.purchase_purpose !== 'invertir' ? { purchase_purpose: null } : {}) } : {}
         const { error } = await db().from('leads').update({ behavior_signals: signals, ...resetSearch }).match(scope).eq('id', lead.id)
         if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
         lead = { ...lead, ...resetSearch, behavior_signals: signals }
       }
-      const fin = object(await rpc('process_financing_message_v2', { p_lead_id: lead.id,
+      const fin = financeTurn ? object(await rpc('process_financing_message_v2', { p_lead_id: lead.id,
         p_asked_financing: (extracted.events as string[]).includes('asked_financing'),
         ...Object.fromEntries(['financing_consent', 'financing_partner', 'full_name', 'applicant_type', 'national_id',
           'employment_stability_months', 'job_title', 'monthly_income', 'ruc'].map(key => ['p_' + key, extracted[key]])),
-        p_source_message_id: activeLast.externalId, p_current_message: current }))
+        p_source_message_id: activeLast.externalId, p_current_message: current })) : {}
       const visitRequested = (extracted.events as string[]).includes('requested_visit')
-        || (visitDraft?.status === 'collecting' && !(extracted.events as string[]).includes('asked_financing')
+        || (canRequestVisit && visitDraft?.status === 'collecting' && !financeTurn
           && (isVisitDetail(current) || needsVisitHelp(current)))
       if (!visitRequested && (extracted.requested_advisor || fin.ready_for_handoff === true)) {
         await guard()
@@ -206,9 +237,13 @@ export async function processConversation(rows: Row[], guard: Guard) {
           p_needs_help: extracted.visit_needs_help === true || needsVisitHelp(current) }))
         reply = intakeReply(result)
         audit = { source: 'visit_intake', action: result.action, preference: result.slot }
-      } else if (fin.active === true) reply = financingReply(fin, finance.partners, financeInput.unsupported)
+      } else if (fin.active === true) {
+        reply = financingQuestionReply(current, finance.partners) || financingReply(fin, finance.partners, financeInput.unsupported)
+        audit = { source: 'financing', state: fin.state, selected_partner: fin.selected_partner_name }
+      }
       else {
-        const info = await commercialContext(lead, context.historial)
+        const info = { ...await commercialContext(lead, context.historial), propuestas: proposals,
+          coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory }
         const generated = await commercialReply(info, current, summary, guard)
         reply = generated.reply; audit = generated.audit
       }
@@ -244,6 +279,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   await launchSalesbot(last.kommoId, 15578)
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
     p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
-  const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(Object.keys(summary).length ? summary : previousSummary) }).match(scope).eq('id', conversationId)
+  const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply) }
+  const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)
   return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError }
 }
