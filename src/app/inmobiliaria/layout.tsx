@@ -6,6 +6,7 @@ import { InmobiliariaSidebar } from '@/components/layout/InmobiliariaSidebar'
 import { InmobiliariaTopbar } from '@/components/layout/InmobiliariaTopbar'
 import { InmobiliariaRouteKey } from '@/components/layout/InmobiliariaRouteKey'
 import { AppointmentInboxBanner } from '@/components/layout/AppointmentInboxBanner'
+import { VisitInboxProvider } from '@/contexts/VisitInboxContext'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
 
 /** Rutas de lead/cliente (cookies/teléfono) sin login CRM. Redirigen a /simulador. */
@@ -28,6 +29,7 @@ export default function InmobiliariaLayout({ children }: { children: React.React
 
   return (
     <CrmRoleGate>
+      <VisitInboxProvider>
       <div className="crm-app relative flex h-[100dvh] overflow-hidden">
         <InmobiliariaSidebar />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -38,6 +40,7 @@ export default function InmobiliariaLayout({ children }: { children: React.React
           </div>
         </div>
       </div>
+      </VisitInboxProvider>
     </CrmRoleGate>
   )
 }

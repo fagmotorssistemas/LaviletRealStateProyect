@@ -8,6 +8,7 @@ import { inboundFromRow, type Inbound } from './webhook'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
+import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat } from './financing'
@@ -91,6 +92,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!permitted(initialConfig, lead, settings.testLeadId) || lead.bot_enabled !== true || inbound.stopped) return { action: 'bot_paused' }
   const activeLast = inbound.normalized[inbound.normalized.length - 1]
   const current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
+  const modelOnly = /\b(?:modelo|3d|html|animaci[oó]n|recorrido virtual)\b/i.test(current) && !explicitlyRequestsVisit(current)
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const processingStarted = Date.now()
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
@@ -145,7 +147,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
     if (current.includes('[Sticker recibido]') && !inbound.mediaFailed) return { action: 'reaction_only' }
     reply = 'No alcancé a leer este archivo. ¿Puede enviarlo más nítido o escribir el número de la unidad?'
   }
-  if (!reply && !greeting && proposals.length) {
+  if (!reply && !greeting && !modelOnly && proposals.length) {
     await guard()
     const proposal: Row | null = proposals.length === 1 ? { ...proposals[0], source_sent_at: activeLast.sentAt } : null
     const classification = await aiJson(visitIntentPrompt + '\n' + TURN_RULES, { mensaje_cliente: current,
@@ -194,7 +196,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
     extracted.financing_consent = financeInput.consent
     extracted.financing_partner = financeInput.partner
     const collectingVisit = visitDraft?.status === 'collecting'
-    const canRequestVisit = !asksVisitStatus(current) && !repair && !isCourtesyOnly(current)
+    const canRequestVisit = !modelOnly && !asksVisitStatus(current) && !repair && !isCourtesyOnly(current)
       && (explicitlyRequestsVisit(current) || collectingVisit || !proposals.length)
     if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
     const financeTurn = isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)
@@ -260,11 +262,14 @@ export async function processConversation(rows: Row[], guard: Guard) {
         audit = { source: 'financing', state: fin.state, selected_partner: fin.selected_partner_name }
       }
       else {
+        const model = unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
         const info = { ...await commercialContext(lead, context.historial), propuestas: proposals,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
-          referencia_unidad:reference, archivos_no_leidos:inbound.mediaErrors }
+          referencia_unidad:reference, archivos_no_leidos:inbound.mediaErrors,
+          modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true } : null }
         const generated = await commercialReply(info, current, summary, guard)
-        reply = generated.reply; audit = generated.audit
+        reply = appendUnitModel(generated.reply, model); audit = generated.audit
+        if (model && reply.includes(model.url)) audit = { ...audit, unit_model: model }
       }
     }
   }
@@ -299,7 +304,10 @@ export async function processConversation(rows: Row[], guard: Guard) {
   await launchSalesbot(last.kommoId, 15578)
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
     p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
-  const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply) }
+  const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
+  const sentModelId = text(object(audit.unit_model).unit_id)
+  const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply),
+    _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }
   const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)
   return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError }
 }

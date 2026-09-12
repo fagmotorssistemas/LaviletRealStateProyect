@@ -4,7 +4,7 @@ import { type DataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { ecuadorInclusiveRange } from '@/lib/inmobiliaria/agendaTime'
 import { sanitizeSearch } from '@/lib/inmobiliaria/slaStatus'
 import type {
-  Unit, UnitImport, UnitMedia, Lead, Appointment, AppointmentWithUnits, AppointmentStatus, AppointmentRescheduleRequest, AgendaTab, AgendaCoordinationStats, VisitInboxItem, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
+  Unit, UnitImport, UnitMedia, Lead, Appointment, AppointmentWithUnits, AppointmentStatus, AppointmentRescheduleRequest, AgendaTab, AgendaCoordinationStats, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
   UnitStatus, LeadStatus, LeadTemperature, InteractionType,
   ShowroomVisitSource, VisitSchedulingOptions,
   Project, ProjectAsset, ProjectAssetKind, ProjectDetail, ContractStatus, InventorySortOption,
@@ -1760,46 +1760,7 @@ export async function reassignVisitRequest(
   return data as string | null
 }
 
-const INBOX_SELECT =
-  '*, lead:leads(id, name, phone), assigned_advisor:profiles!appointment_reschedule_requests_assigned_advisor_id_fkey(full_name), project:projects(id, name), appointment:appointments(id, status, meeting_place)'
-
-export async function listVisitInbox(
-  supabase: SupabaseClient,
-  params: { isAdmin: boolean; userId: string },
-): Promise<VisitInboxItem[]> {
-  if (rescheduleTableAvailable === false) return []
-  let query = supabase
-    .from('appointment_reschedule_requests')
-    .select(INBOX_SELECT)
-    .in('status', ['awaiting_advisor', 'awaiting_client'])
-    .order('created_at', { ascending: false })
-    .limit(20)
-  if (!params.isAdmin) {
-    query = query.eq('assigned_advisor_id', params.userId)
-  }
-  const { data, error } = await query
-  if (error) {
-    if (isMissingRelation(error)) {
-      rescheduleTableAvailable = false
-      return []
-    }
-    const fallback = await supabase
-      .from('appointment_reschedule_requests')
-      .select('*')
-      .in('status', ['awaiting_advisor', 'awaiting_client'])
-      .order('created_at', { ascending: false })
-      .limit(20)
-    if (fallback.error) {
-      if (isMissingRelation(fallback.error)) {
-        rescheduleTableAvailable = false
-        return []
-      }
-      throw fallback.error
-    }
-    return (fallback.data ?? []) as VisitInboxItem[]
-  }
-  return (data ?? []) as VisitInboxItem[]
-}
+export { listVisitInbox } from './visitInbox.service'
 
 export async function countAgendaCoordinationStats(
   supabase: SupabaseClient,

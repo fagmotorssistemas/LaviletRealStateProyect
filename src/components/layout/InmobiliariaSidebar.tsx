@@ -13,6 +13,7 @@ import {
 } from '@/components/layout/inmobiliariaNav'
 import { useAuth } from '@/contexts/AuthContext'
 import { knownRole } from '@/lib/inmobiliaria/roleAccess'
+import { VisitInboxTrigger } from '@/components/inmobiliaria/agenda/VisitInboxTrigger'
 
 const SIDEBAR_STORAGE_KEY = 'lavilet-sidebar-collapsed'
 
@@ -77,7 +78,8 @@ export function InmobiliariaSidebar() {
         >
           Lavilet
         </Link>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <VisitInboxTrigger compact />
           <InmobiliariaAccountMenu tone="dark" />
         </div>
       </header>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -45,6 +45,8 @@ export function useLeadAutomationDashboard() {
   const [tenantIds, setTenantIds] = useState<string[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+  const loadSequence = useRef(0)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<LeadAutomationDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -62,6 +64,7 @@ export function useLeadAutomationDashboard() {
   )
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current
     if (authLoading) return
     if (!user) {
       setRows([])
@@ -74,6 +77,7 @@ export function useLeadAutomationDashboard() {
     setError(null)
     try {
       const ids = await getAccessibleTenantIds(supabase)
+      if (sequence !== loadSequence.current) return
       setTenantIds(ids)
       if (!ids.length) {
         setRows([])
@@ -102,6 +106,7 @@ export function useLeadAutomationDashboard() {
         }),
       ])
 
+      if (sequence !== loadSequence.current) return
       if (profileRows.error) throw profileRows.error
 
       setProjects(projectRows)
@@ -109,19 +114,22 @@ export function useLeadAutomationDashboard() {
       setRows(list.data)
       setTotal(list.total)
       setKpis(kpiRows)
+      setUpdatedAt(new Date().toISOString())
     } catch (err) {
+      if (sequence !== loadSequence.current) return
       const message = err instanceof Error ? err.message : 'No se pudo cargar el monitoreo'
       setError(message)
       setRows([])
       setKpis(EMPTY_AUTOMATION_KPIS)
       toast.error(message)
     } finally {
-      setIsLoading(false)
+      if (sequence === loadSequence.current) setIsLoading(false)
     }
   }, [authLoading, filters, page, supabase, user])
 
   useEffect(() => {
     void load()
+    return () => { loadSequence.current++ }
   }, [load])
 
   useEffect(() => {
@@ -157,6 +165,10 @@ export function useLeadAutomationDashboard() {
     replaceParams({ ...filters, [key]: value }, 1, selectedLeadId)
   }
 
+  const updateFilters = (patch: Partial<LeadAutomationFilters>) => {
+    replaceParams({ ...filters, ...patch }, 1, selectedLeadId)
+  }
+
   const resetFilters = () => {
     replaceParams(EMPTY_AUTOMATION_FILTERS, 1, selectedLeadId)
   }
@@ -180,6 +192,7 @@ export function useLeadAutomationDashboard() {
     advisors,
     tenantId,
     isLoading,
+    updatedAt,
     error,
     total,
     page,
@@ -191,6 +204,7 @@ export function useLeadAutomationDashboard() {
     detailLoading,
     detailError,
     updateFilter,
+    updateFilters,
     resetFilters,
     setPage,
     openLead,
