@@ -9,6 +9,7 @@
     "lint": "eslint",
     "tour:resize": "node scripts/tour-resize.mjs",
     "test:integrations": "node --test scripts/integrations.test.cjs",
+    "test:unit-model": "node --test scripts/unit-model-viewer.test.cjs",
     "test:visit-inbox": "node --require ./scripts/test-typescript.cjs --test src/services/visitInbox.service.test.ts src/lib/supabase/request.test.ts src/lib/inmobiliaria/visitInbox.test.ts",
     "automation:tick": "node scripts/automation-cron.mjs",
     "automation:watch": "node scripts/automation-cron.mjs --watch",

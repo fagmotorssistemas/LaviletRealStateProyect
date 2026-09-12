@@ -165,7 +165,7 @@ function conversationHarness(options = {}) {
     },
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
     './sdr': { publishedUnitCatalog: async () => options.catalog || [], commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
-      commercialReply: async () => ({ reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) },
+      commercialReply: async info => { calls.push({ name: 'commercialReply', args: info }); return { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } } } },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error('MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
@@ -760,4 +760,73 @@ test('PDF input is read as a file and stickers do not block textual intent',asyn
   assert.match(result,/Precio.*\n\[Archivo PDF: LOCAL COMERCIAL 05/)
   assert.equal(body.input[0].content[1].type,'input_file')
   assert.match(await mediaText({text:'Quiero un carro',media:{type:'sticker',url:'https://amojo.kommo.com/file'}}),/^Quiero un carro/)
+})
+
+const unit202 = { id:'af29eae0-658d-432a-9ea0-eba48deb89ce', unit_number:'202', category:'departamento', floor_number:2, area_internal_m2:120.83 }
+const unit302 = { ...unit202, id:'other-floor', unit_number:'302', floor_number:3 }
+const catalogModels = require('../src/lib/integrations/automation/catalog-reference.ts')
+const modelDelivery = require('../src/lib/integrations/automation/unit-model.ts')
+
+test('text and readable plan titles select the same real unit; an ambiguous area does not', () => {
+  for (const text of ['Quiero ver el departamento #202','El dpto. N° 202','[Imagen: DEPARTAMENTO 202. Área interior: 120,83 m².]','el 202','Quiero el piso 202']) {
+    const reference = catalogModels.resolveCatalogReference([unit202,unit302],text)
+    assert.equal(modelDelivery.unitModelDelivery(reference,text,[])?.url,'https://www.lavilett.com/tour/modelo-3d/segunda-planta.html?unidad=202')
+  }
+  for (const text of ['Cuál es el de 120.83?','Departamento 202 o departamento 302','Quiero el piso 2']) {
+    assert.equal(modelDelivery.unitModelDelivery(catalogModels.resolveCatalogReference([unit202,unit302],text),text,[]),null)
+  }
+})
+
+test('a new unavailable code never reuses the previous model, and another floor is not mapped to 202', () => {
+  const previous={ids:[unit202.id],numbers:['202']}
+  for (const text of ['Ahora quiero ese departamento 999','Quiero ver el departamento 302','[Imagen: LOCAL COMERCIAL 05]']) {
+    const ref=catalogModels.resolveCatalogReference([unit202,unit302],text,previous)
+    assert.equal(modelDelivery.unitModelDelivery(ref,text,[]),null)
+  }
+  const {unitModelUrl}=require('../src/lib/tour/unitModels.ts')
+  assert.equal(unitModelUrl({...unit202,id:'another-project'}),null)
+  assert.equal(unitModelUrl({...unit202,is_published:false}),null)
+  assert.equal(catalogModels.resolveCatalogReference([unit202],'[Imagen: Podría ser DEPARTAMENTO 202, el título no es legible.]').matches.length,0)
+  assert.match(modelDelivery.unitModelRequestReply([unit302],'Quiero ver el modelo del departamento 302',false),/302.*no tengo/)
+  assert.match(modelDelivery.unitModelRequestReply([unit202,unit302],'Quiero ver el modelo',false),/202, 302/)
+})
+
+test('model delivery remembers accepted links, respects refusal, and supports requested re-sends', () => {
+  const ref={explicit:true,matches:[unit202]}, first=modelDelivery.unitModelDelivery(ref,'Departamento 202',[])
+  const history=[{role:'bot',content:first.caption}]
+  assert.equal(modelDelivery.unitModelDelivery(ref,'Qué ofrece el departamento 202?',history),null)
+  assert.equal(modelDelivery.unitModelDelivery(ref,'Departamento 202',[],[unit202.id]),null)
+  assert.equal(modelDelivery.unitModelDelivery(ref,'No me envíe el modelo del departamento 202',[]),null)
+  const again=catalogModels.resolveCatalogReference([unit202],'Envíeme otra vez el modelo 3D',{ids:[unit202.id]})
+  assert.equal(modelDelivery.unitModelDelivery(again,'Envíeme otra vez el modelo 3D',history)?.url,first.url)
+  assert.equal(modelDelivery.unitModelDelivery({explicit:false,matches:[unit202]},'Gracias',[]),null)
+})
+
+test('the model goes through the existing single-message send and is remembered only after success', async t => {
+  live(t)
+  for (const image of [false,true]) {
+    const h=conversationHarness({catalog:[unit202],...(image?{mediaText:'[Imagen: DEPARTAMENTO 202. Área interior 120,83 m².]'}:{})})
+    h.rows[0].payload.text='Quisiera conocer el departamento 202'
+    const result=await h.process([h.rows[0]],async()=>{})
+    assert.equal(result.action,'accepted')
+    assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
+    assert.match(h.calls.find(c=>c.name==='patch').args[2],/\?unidad=202/)
+    assert.equal(h.calls.find(c=>c.name==='commercialReply').args.modelo_3d.unidad,'202')
+    assert.deepEqual(JSON.parse(h.calls.find(c=>c.name==='update:conversations').args.summary)._unit_models_sent,[unit202.id])
+  }
+  const failed=conversationHarness({catalog:[unit202],sendFails:true})
+  failed.rows[0].payload.text='Me interesa el departamento 202'
+  await assert.rejects(()=>failed.process([failed.rows[0]],async()=>{}))
+  assert.equal(failed.calls.filter(c=>c.name==='update:conversations').length,0)
+})
+
+test('asking for a 3D model neither schedules a visit nor accepts an existing proposal',async t=>{
+  live(t)
+  for(const proposals of [[],[{status:'awaiting_client',proposed_start_time:new Date(Date.now()+86400000).toISOString()}]]) {
+    const h=conversationHarness({catalog:[unit202],proposals,extracted:{events:['requested_visit']},intent:'accept'})
+    h.rows[0].payload.text='Quiero ver el modelo 3D del departamento 202'
+    await h.process([h.rows[0]],async()=>{})
+    assert.match(h.calls.find(c=>c.name==='patch').args[2],/\?unidad=202/)
+    assert.equal(h.calls.filter(c=>['lv_collect_visit_intake','lv_apply_client_visit_intent'].includes(c.name)).length,0)
+  }
 })

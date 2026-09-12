@@ -2,30 +2,37 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 
 export function resolveCatalogReference(catalog: Row[], current: string, previous: unknown = {}, history: unknown = []) {
-  const m = normalized(current), saved = object(previous)
+  // A vision description that qualifies the number as unreadable is not an identification.
+  const readable = current.replace(/\[(?:Imagen|Archivo PDF):[\s\S]*?\]/g, block =>
+    /(?:numero|titulo|codigo)[^.]*?(?:ilegible|no (?:se|es)|dudoso)|no (?:se (?:lee|distingue)|puedo leer)|podria ser|parece ser|posiblemente/i.test(normalized(block)) ? '' : block)
+  const m = normalized(readable), saved = object(previous)
   const savedIds = Array.isArray(saved.ids) ? saved.ids : []
-  const codes = [...m.matchAll(/\b(?:lc|local(?: comercial)?|departamento|depto|suite|unidad)\s*(?:numero\s*|n\s*)?(\d{1,4})\b/g)]
+  const codes = [...m.matchAll(/\b(?:lc|local(?: comercial)?|departamento|depto|dpto|apto|apartamento|suite|unidad|piso)\s*(?:numero\s*|n(?:ro|o)?\s*)?(\d{1,4})\b/g)]
   let matches = catalog.filter(u => codes.some(c => {
     const code = text(u.unit_number).replace(/\D/g, '')
-    const category = /^(?:lc|local)/.test(c[0]) ? 'local' : /^suite/.test(c[0]) ? 'suite' : /^(?:departamento|depto)/.test(c[0]) ? 'departamento' : null
+    const category = /^(?:lc|local)/.test(c[0]) ? 'local' : /^suite/.test(c[0]) ? 'suite' : /^(?:departamento|depto|dpto|apto|apartamento)/.test(c[0]) ? 'departamento' : null
+    if (/^piso/.test(c[0]) && c[1].length < 3) return false
     return Number(code) === Number(c[1]) && (!category || u.category === category)
   }))
-  const numbers = [...current.matchAll(/\b\d{1,4}[.,]\d{1,2}\b/g)].map(n => Number(n[0].replace(',', '.')))
-  if (!matches.length && numbers.length && /cual|el de|que ofrece|area|metros|m2|interior|exterior/.test(m)) {
+  const numbers = [...readable.matchAll(/\b\d{1,4}[.,]\d{1,2}\b/g)].map(n => Number(n[0].replace(',', '.')))
+  if (!codes.length && !matches.length && numbers.length && /cual|el de|que ofrece|area|metros|m2|interior|exterior/.test(m)) {
     matches = catalog.filter(u => numbers.some(n => Math.abs(Number(u.area_internal_m2) - n) < .005))
   }
-  if (!matches.length && /^\d{3,4}$/.test(m)) matches = catalog.filter(u => savedIds.includes(u.id) && text(u.unit_number) === m)
+  if (!codes.length && !matches.length && /^(?:el |la )?\d{3,4}$/.test(m)) {
+    const code = m.replace(/^(?:el|la) /, '')
+    matches = catalog.filter(u => (savedIds.includes(u.id) || m !== code) && text(u.unit_number) === code)
+  }
   const explicit = matches.length > 0
   // Only a real previously matched unit can give meaning to «ese», «qué ofrece» or «su precio».
-  if (!explicit && /\b(?:ese|esa|este|esta)\b|que (?:ofrece|incluye|tiene)|su precio/.test(m)) {
+  if (!codes.length && !explicit && /\b(?:ese|esa|este|esta)\b|que (?:ofrece|incluye|tiene)|su precio|modelo|recorrido|animacion|\b3d\b|html/.test(m)) {
     matches = catalog.filter(u => savedIds.includes(u.id))
   }
-  if (!matches.length && /\b(?:ese|esa|este|esta)\b|precio|dueno|quien|que (?:ofrece|incluye|tiene)/.test(m)) {
+  if (!codes.length && !matches.length && /\b(?:ese|esa|este|esta)\b|precio|dueno|quien|que (?:ofrece|incluye|tiene)/.test(m)) {
     const recentImage = (Array.isArray(history) ? history : []).map(object).filter(r => r.role === 'cliente').slice(-4).reverse()
       .find(r => /\[Imagen:|\[Archivo PDF:/.test(text(r.content)) && (!r.sent_at || Date.now() - Date.parse(text(r.sent_at)) < 15 * 60_000))
     if (recentImage) matches = resolveCatalogReference(catalog, text(recentImage.content)).matches
   }
-  return { explicit, matches, memory: matches.length ? { ids: matches.map(u => u.id), numbers: matches.map(u => u.unit_number) } : saved }
+  return { explicit, matches, memory: matches.length ? { ids: matches.map(u => u.id), numbers: matches.map(u => u.unit_number) } : codes.length ? {} : saved }
 }
 
 export function catalogReferenceReply(matches: Row[], current: string) {

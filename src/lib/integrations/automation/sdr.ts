@@ -7,6 +7,7 @@ import { NATURAL_CONVERSATION_RULES, conversationalFirstName } from './conversat
 import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, experienceContext, experienceIssues, PROJECT_POSITIONING, turnWritingRules } from './commercial-experience'
 import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
+import { unitModelRequestReply } from './unit-model'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -53,6 +54,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const reference = object(info.referencia_unidad)
   const matches = Array.isArray(reference.matches) ? reference.matches.map(object)
     : resolveCatalogReference((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary._unit_reference).matches
+  const modelReply = unitModelRequestReply(matches, current, object(info.modelo_3d).se_adjunta_en_esta_respuesta === true)
+  if (modelReply) return { reply: modelReply, audit: { source: 'unit_model_request', rewritten: false, review_reasons: [], fallback: false } }
   const unitReply = catalogReferenceReply(matches, current)
   if (unitReply) return {reply:unitReply, audit:{source:'catalog_reference',rewritten:false,review_reasons:[],fallback:false}}
   if (info.posicionamiento_proyecto && /asegur|garanti/i.test(current) && /precio|rentab|subir|plusval|valori/i.test(current)) {
@@ -61,6 +64,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
   const input = { ...experienceContext(info, current, memory), resumen: summary, mensaje_actual: current }
   const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory)
+    + '\nEl campo modelo_3d indica si el sistema adjuntará el recorrido de la unidad en ESTA respuesta. Si está presente, responda la consulta brevemente sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces de modelos: el sistema añade el enlace verificado. Si no hay modelo_3d no prometa enviar un modelo. No confunda este recorrido con una cita presencial.'
   const reasons: string[] = []
   const warm = (answer: string) => /(?:informaci[oó]n|saber|cu[eé]nt|expl[ií]q|explica).*(?:proyecto|edificio)|(?:proyecto|edificio).*(?:informaci[oó]n|detalles)/i.test(current)
     && !/^(?:claro|con gusto|por supuesto|hola|buen[oa]s?)/i.test(answer.trim()) ? 'Claro, con mucho gusto. ' + answer : answer
