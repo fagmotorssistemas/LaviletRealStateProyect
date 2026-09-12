@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   Bath,
@@ -193,6 +193,7 @@ export function TourFichaDrawer({
   const [displayUrl, setDisplayUrl] = useState<string | null>(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
   const busyRef = useRef(false)
+  const openedAtRef = useRef(0)
 
   const sorted = useMemo(
     () =>
@@ -263,6 +264,11 @@ export function TourFichaDrawer({
       busyRef.current = false
     }, 120)
   }
+
+  useLayoutEffect(() => {
+    if (!open) return
+    openedAtRef.current = Date.now()
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -366,7 +372,18 @@ export function TourFichaDrawer({
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0 }}
-            onClick={expanded ? undefined : onClose}
+            onClick={
+              expanded
+                ? undefined
+                : (event) => {
+                    // Evita que el mismo toque que abrió la ficha la cierre al soltar sobre el backdrop.
+                    if (Date.now() - openedAtRef.current < 450) {
+                      event.preventDefault()
+                      return
+                    }
+                    onClose()
+                  }
+            }
           />
 
           <motion.aside

@@ -988,11 +988,6 @@ export function TourFloorPlan({
                       if (!slot.unit) return
                       setHoverSlot(slot.id)
                     }}
-                    onPointerDown={(event) => {
-                      if (!slot.unit) return
-                      event.stopPropagation()
-                      handleSelectSlot(slot)
-                    }}
                     onClick={(event) => {
                       if (!slot.unit) return
                       event.stopPropagation()
@@ -1081,11 +1076,6 @@ export function TourFloorPlan({
                   style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
                   className={slot.unit ? 'cursor-pointer' : undefined}
                   onMouseEnter={() => handleHoverSlot(slot)}
-                  onPointerDown={(event) => {
-                    if (!slot.unit) return
-                    event.stopPropagation()
-                    handleSelectSlot(slot)
-                  }}
                   onClick={(event) => {
                     if (!slot.unit) return
                     event.stopPropagation()
