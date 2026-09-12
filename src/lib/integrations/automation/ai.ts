@@ -2,6 +2,7 @@ import 'server-only'
 import { object, text, rpc, scope, type Row } from './data'
 import type { Inbound } from './webhook'
 import { downloadMedia } from './media-download'
+import { audioExtensions } from './media-format'
 
 const jsonReplySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
 export async function aiJson(instructions: string, input: unknown, schema?: Row, image?: string, file?: {name: string; data: string}): Promise<Row> {
@@ -59,14 +60,14 @@ export async function mediaText(event: Inbound) {
       pdf ? {name:'documento.pdf',data:`data:application/pdf;base64,${bytes.toString('base64')}`} : undefined)
     return [event.text, (pdf ? '[Archivo PDF: ' : '[Imagen: ') + text(result.mensaje).slice(0,3500) + ']'].filter(Boolean).join('\n')
   }
-  const extensions: Record<string, string> = { 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/webm': 'webm' }
-  if (!extensions[mime]) throw new Error('UNSUPPORTED_MEDIA')
+  if (!audioExtensions[mime]) throw new Error('UNSUPPORTED_MEDIA')
   const key = process.env.OPENAI_API_KEY
   if (!key) throw new Error('OPENAI_NOT_CONFIGURED')
   const form = new FormData()
   form.set('model', process.env.OPENAI_TRANSCRIPTION_MODEL || 'whisper-1')
-  form.set('file', new Blob([new Uint8Array(bytes)], { type: mime }), `audio.${extensions[mime]}`)
+  form.set('file', new Blob([new Uint8Array(bytes)], { type: mime }), `audio.${audioExtensions[mime]}`)
   form.set('language', 'es')
+  form.set('prompt', 'Conversación en español de Ecuador sobre vivienda. Nombres: La Vilet, Puertas del Sol, Cuenca, JEP, Pichincha, Jardín Azuayo. Transcriba solo lo audible; no complete números de departamento, fechas ni montos que no se entiendan.')
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', redirect: 'error',
     headers: { Authorization: `Bearer ${key}` }, body: form, signal: AbortSignal.timeout(30_000) })
   if (!response.ok) throw new Error(`TRANSCRIPTION_HTTP_${response.status}`)

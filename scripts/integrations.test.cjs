@@ -184,6 +184,130 @@ function conversationHarness(options = {}) {
     name: 'Cliente de prueba', sentAt: new Date(Date.now() - 1000).toISOString(), origin: 'waba', media: null } }))
   return { calls, rows, process: mod.processConversation }
 }
+
+test('audio formats use signatures and preserve text plus speech through transcription', async t => {
+  const {mediaMime}=require('../src/lib/integrations/automation/media-format.ts')
+  assert.equal(mediaMime(Buffer.from('OggS000000OpusHead'), 'application/octet-stream'), 'audio/ogg')
+  assert.equal(mediaMime(Buffer.from('RIFF0000WAVE'), 'application/octet-stream'), 'audio/wav')
+  assert.equal(mediaMime(Buffer.from('fLaC0000'), ''), 'audio/flac')
+  assert.equal(mediaMime(Buffer.from('random'), 'audio/x-m4a; codecs=mp4a'), 'audio/mp4')
+  assert.equal(mediaMime(Buffer.from('<html>error</html>'), 'text/html'), 'text/html')
+  assert.equal(mediaMime(Buffer.from('OggS000000theora'), 'application/octet-stream'), 'application/octet-stream')
+  const previous=global.fetch, key=process.env.OPENAI_API_KEY
+  process.env.OPENAI_API_KEY='synthetic'; t.after(()=>{global.fetch=previous;key===undefined?delete process.env.OPENAI_API_KEY:process.env.OPENAI_API_KEY=key})
+  global.fetch=async(url,init)=>{
+    assert.match(String(url),/audio\/transcriptions$/)
+    assert.equal(init.body.get('file').name,'audio.ogg'); assert.equal(init.body.get('file').type,'audio/ogg')
+    assert.equal(init.body.get('language'),'es')
+    return Response.json({text:'Me interesa el departamento 210. ¿Pueden mostrarme el modelo?'})
+  }
+  const {mediaText}=load('src/lib/integrations/automation/ai.ts',{'./media-download':{downloadMedia:async()=>({mime:'audio/ogg',bytes:Buffer.from('OggS000000OpusHead')})}})
+  const result=await mediaText({text:'Para vivir',media:{type:'voice',url:'https://amojo.kommo.com/audio'}})
+  assert.match(result,/^Para vivir\nMe interesa el departamento 210/)
+  global.fetch=async()=>Response.json({text:'  '})
+  await assert.rejects(()=>mediaText({text:'',media:{type:'voice',url:'https://amojo.kommo.com/audio'}}),/INVALID_TRANSCRIPTION/)
+})
+
+test('missing voice attachment URL remains an audio failure instead of a greeting', () => {
+  const msg={id:'audio-missing',entity_id:123,contact_id:456,text:'',created_at:now/1000,origin:'waba',author:{type:'external'},attachment:{type:'voice',file_name:'note.ogg'}}
+  const event=normalizeWebhook(JSON.stringify({account:{id:36919007},message:{add:[msg]}}),'application/json',now)[0]
+  assert.equal(event.media.type,'voice'); assert.equal(event.media.url,'')
+})
+
+test('unreadable audio gets a voice-specific clarification and never an invented appointment', async t => {
+  live(t); const h=conversationHarness({mediaFails:true,extracted:{events:['requested_visit']}})
+  h.rows[0].payload.media={type:'voice',url:'https://amojo.kommo.com/audio'};h.rows[0].payload.text=''
+  const r=await h.process([h.rows[0]],async()=>{})
+  assert.match(h.calls.find(c=>c.name==='patch').args[2],/entender este audio/)
+  assert.equal(h.calls.some(c=>c.name==='lv_collect_visit_intake'),false)
+  assert.deepEqual(r.media_errors,['MEDIA_DOWNLOAD_FAILED'])
+})
+
+test('a transcribed apartment request selects its own model and does not notify an advisor', async t => {
+  live(t); const u={id:'cb053324-daa5-4188-9b3c-01ae77f144aa',category:'suite',unit_number:'210',bedrooms:1}
+  const h=conversationHarness({catalog:[u],mediaText:'Me interesa el departamento 210',extracted:{events:[]}})
+  h.rows[0].payload.media={type:'voice',url:'https://amojo.kommo.com/audio'};h.rows[0].payload.text=''
+  await h.process([h.rows[0]],async()=>{})
+  assert.match(h.calls.find(c=>c.name==='patch').args[2],/unidad=210/)
+  assert.equal(h.calls.some(c=>c.name==='handoff_lead'||c.name==='lv_collect_visit_intake'),false)
+})
+
+test('model interest invites once; invitation acceptance starts collecting, not confirming', async t => {
+  live(t)
+  const policy=require('../src/lib/integrations/automation/sales-policy.ts')
+  const history=[{role:'bot',content:'Aquí puede explorar la suite 210 en 3D: https://www.lavilett.com/tour/modelo-3d/segunda-planta.html?unidad=210'}]
+  const plan=policy.salesPlan({historial:history},'Se ve interesante',{})
+  assert.equal(plan.action,'invite_visit')
+  const reply='Me alegra que le guste. '+plan.closing
+  const memory=policy.rememberSalesReply({},history,'Se ve interesante',reply)
+  assert.equal(memory.visit_invited,true)
+  assert.equal(policy.salesPlan({historial:[]},'Se ve interesante',{_sales_memory:memory}).action,'answer_only')
+  assert.equal(policy.acceptsVisitInvitation('Se ve interesante',reply),false)
+  assert.equal(policy.acceptsVisitInvitation('Sí, pero ¿cuánto cuesta?',reply),false)
+  assert.equal(policy.acceptsVisitInvitation('Mañana a las 11',reply),true)
+  assert.equal(policy.acceptsVisitInvitation('No sé qué día',reply),true)
+  assert.equal(policy.acceptsVisitInvitation('¿Mañana atienden?',reply),false)
+  const h=conversationHarness({history:[{role:'bot',content:reply}]})
+  h.rows[0].payload.text='Sí, por favor'
+  await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.filter(c=>c.name==='lv_collect_visit_intake').length,1)
+  assert.match(h.calls.find(c=>c.name==='patch').args[2],/día y a qué hora/)
+  assert.equal(h.calls.some(c=>c.name==='handoff_lead'),false)
+})
+
+test('positive reactions and dates without scheduling context cannot become appointments', async t => {
+  live(t)
+  for(const message of ['Se ve interesante','Mañana a las diez']) {
+    const h=conversationHarness({extracted:{events:['requested_visit']}})
+    h.rows[0].payload.text=message
+    await h.process([h.rows[0]],async()=>{})
+    assert.equal(h.calls.some(c=>c.name==='lv_collect_visit_intake'),false)
+  }
+})
+
+test('sales memory is isolated per conversation and respects rejected or existing visits', () => {
+  const p=require('../src/lib/integrations/automation/sales-policy.ts')
+  const history=[{role:'bot',content:'¿Le gustaría coordinar una visita?'},{role:'cliente',content:'No gracias'}]
+  const declined=p.salesMemory({},history)
+  const model={modelo_3d:{se_adjunta_en_esta_respuesta:true}}
+  assert.equal(p.salesPlan(model,'Envíeme una fotografía',{_sales_memory:declined}).action,'answer_only')
+  assert.equal(p.salesPlan(model,'Envíeme una fotografía',{}).action,'invite_visit')
+  for(const status of ['confirmed','awaiting_client','awaiting_advisor']) assert.equal(p.salesPlan({...model,propuestas:[{status}]},'Envíeme una fotografía',{}).action,'answer_only')
+  const questions=[{role:'bot',content:'¿Lo busca para vivir o invertir?'},{role:'cliente',content:'Vivir'},{role:'bot',content:'¿Cuántos dormitorios necesita?'}]
+  assert.equal(p.salesPlan({historial:questions},'Tres dormitorios',{}).action,'answer_only')
+})
+
+test('all three reported questions survive rejected drafts without a generic handoff', async () => {
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{activePrompt:async()=>'',draftReply:async()=> '¿Qué presupuesto tiene?',aiJson:async()=>({aprobada:false,motivos:['ignored_question']})}})
+  const current='quiero espacios verdes, si es posible quieor conover mas sobre el sector en donde se encuentra y en caso querer venderlo en el futuro queir sabaer que tan viable eso'
+  const info={posicionamiento_proyecto:{},instalaciones:[{amenity_name:'Áreas exteriores con jardines'}],lugares_cercanos:[{poi_name:'Caffe Bianco'}]}
+  const r=await commercialReply(info,current,{},async()=>{})
+  assert.match(r.reply,/jardines/);assert.match(r.reply,/Puertas del Sol/);assert.match(r.reply,/reventa/)
+  assert.match(r.reply,/no podemos asegurar/);assert.match(r.reply,/visita/)
+  assert.equal((r.reply.match(/\?/g)||[]).length,1)
+  assert.doesNotMatch(r.reply,/presupuesto|información imprecisa|piscina|gimnasio/)
+})
+
+test('unknown budget receives help and does not repeat the financing offer on the next uncertainty', async () => {
+  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{activePrompt:async()=>{throw Error('UNEXPECTED_GENERATION')}}})
+  const info={historial:[{role:'bot',content:'¿Qué presupuesto tiene?'}]}
+  const a=await commercialReply(info,'No estoy seguro de mi presupuesto',{},async()=>{})
+  assert.match(a.reply,/entrada y una cuota/)
+  const b=await commercialReply({...info,conversacion:{ultima_respuesta:a.reply}},'No estoy seguro',{},async()=>{})
+  assert.doesNotMatch(b.reply,/\?|¿Qué presupuesto/)
+})
+
+test('Kommo transient reads retry, permanent credentials errors and writes do not', async t => {
+  live(t);const previous=global.fetch;t.after(()=>global.fetch=previous)
+  const {getKommoLead,setKommoField}=load('src/lib/integrations/automation/kommo.ts',{})
+  let calls=0
+  global.fetch=async()=>{calls++;if(calls===1)throw Error('network');if(calls===2)return new Response('',{status:503});return Response.json({id:123})}
+  assert.equal((await getKommoLead(123)).id,123);assert.equal(calls,3)
+  calls=0;global.fetch=async()=>{calls++;return new Response('',{status:401})}
+  await assert.rejects(()=>getKommoLead(123),e=>e.operation==='read'&&e.uncertain===false);assert.equal(calls,1)
+  calls=0;global.fetch=async()=>{calls++;throw Error('network')}
+  await assert.rejects(()=>setKommoField(123,457014,'Test'),e=>e.operation==='update_field'&&e.uncertain===true);assert.equal(calls,1)
+})
 test('conversation groups two inputs into one reply and records outbound only after acceptance', async t => {
   live(t); const h = conversationHarness()
   const result = await h.process(h.rows, async () => {})
@@ -266,7 +390,7 @@ test('switching from a home to a local does not keep asking about bedrooms or as
 
 test('a preferred visit time records a request but never claims the appointment is confirmed', async t => {
   live(t)
-  const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'one' }], slot: { confidence: 'exact', start_time: '2026-09-11T15:00:00Z' } })
+  const h = conversationHarness({ visitDraft: { status: 'collecting' }, extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, requests: [{ id: 'request', source_message_id: 'one' }], slot: { confidence: 'exact', start_time: '2026-09-11T15:00:00Z' } })
   h.rows[0].payload.text = 'Mañana a las diez'
   await h.process([h.rows[0]], async () => {})
   assert.equal(h.calls.find(c => c.name === 'lv_collect_visit_intake').args.p_message, 'one')
@@ -276,7 +400,7 @@ test('a preferred visit time records a request but never claims the appointment 
 
 test('an existing visit cannot be described as a newly recorded preference', async t => {
   live(t)
-  const h = conversationHarness({ extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, intake: { action: 'collecting', slot: { requested_date: '2026-09-11', has_time: false } } })
+  const h = conversationHarness({ visitDraft: { status: 'collecting' }, extracted: { events: ['requested_visit'], preferred_visit_time_text: 'mañana a las diez' }, intake: { action: 'collecting', slot: { requested_date: '2026-09-11', has_time: false } } })
   h.rows[0].payload.text = 'Mañana a las diez'
   await h.process([h.rows[0]], async () => {})
   assert.match(h.calls.find(c => c.name === 'patch').args[2], /A qué hora/i)
@@ -298,7 +422,7 @@ test('punctuation alone is an invitation to talk, never a product pitch', async 
 
 test('uncertainty requests advisor help once instead of another scheduling question', async t => {
   live(t)
-  const h = conversationHarness({ extracted: { events: ['requested_visit'] }, intake: { action: 'submitted', needs_help: true, preferred_period: 'afternoon', slot: { requested_date: '2026-09-11' } } })
+  const h = conversationHarness({ visitDraft: { status: 'collecting' }, extracted: { events: ['requested_visit'] }, intake: { action: 'submitted', needs_help: true, preferred_period: 'afternoon', slot: { requested_date: '2026-09-11' } } })
   h.rows[0].payload.text = 'No estoy seguro, pero mañana por la tarde'
   await h.process([h.rows[0]], async () => {})
   assert.equal(h.calls.find(c => c.name === 'lv_collect_visit_intake').args.p_needs_help, true)

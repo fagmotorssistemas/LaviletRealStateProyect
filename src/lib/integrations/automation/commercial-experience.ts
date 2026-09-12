@@ -4,7 +4,7 @@ import { catalogReferenceReply, resolveCatalogReference } from './catalog-refere
 
 const benefitTerms: Record<string, RegExp> = {
   piscina: /piscina|nadar|natacion/, gimnasio: /gimnasio|entrenar|ejercicio/, seguridad: /seguridad|vigilancia|monitoreo/,
-  jardines: /jardin|areas verdes/, privacidad: /privacidad|accesos separados|entrada independiente|aislamiento/,
+  jardines: /jardin|(?:areas|espacios|zonas) verdes/, privacidad: /privacidad|accesos separados|entrada independiente|aislamiento/,
   entorno: /supermercado|cafeteria|bancos cerca|servicios cerca/, plusvalia: /plusvalia|valorizacion/,
 }
 export type CommercialMemory = { mentioned_benefits: string[]; deferred_fields: string[] }
@@ -41,7 +41,7 @@ function requestedBenefits(current: string) {
   const m = normalized(current)
   const terms: Record<string, RegExp> = { ...benefitTerms, privacidad: /privacidad|entrada|acceso|circulacion|ruido|aislamiento/,
     entorno: /cerca|alrededor|entorno|barrio|sector|supermercado|cafeteria|banco/,
-    plusvalia: /plusvalia|valoriza|inver|subir|subira|precio|ganancia|rentabilidad/ }
+    plusvalia: /plusvalia|valoriza|inver|subir|subira|precio|ganancia|rentabilidad|reventa|venderlo|venderla/ }
   return Object.keys(terms).filter(key => terms[key].test(m))
 }
 const asksOverview = (current: string) => /(?:que|cuales|todas).*(?:instalaciones|servicios|beneficios)|resum.*instalaciones/.test(normalized(current))
@@ -120,7 +120,7 @@ export function experienceIssues(reply: string, current: string, info: Row, memo
   if (/[?¿]|quien|como|para residentes/.test(m) && benefitsMentioned(current).some(b => ['piscina', 'gimnasio'].includes(b) && !benefitsMentioned(reply).includes(b))) issues.push('ignored_question')
   if (clarification && /circulacion|entrada|acceso/.test(m) && !/entrada|acceso/.test(r)) issues.push('ignored_question')
   if (clarification && /parqueadero|parqueo|subsuel/.test(m) && !/parqueadero|parqueo/.test(r)) issues.push('ignored_question')
-  const detailed = /explic|no entiendo|que (?:significa|quiere decir)|a que se refiere/.test(m) && /\n| y |ademas/.test(m)
+  const detailed = /\n| y |ademas/.test(m) && /explic|no entiendo|que (?:significa|quiere decir)|a que se refiere|sector|venderlo|venderla|reventa/.test(m)
   if (reply.trim().split(/\s+/).length > (detailed ? 110 : 75) || /uso mixto|circulacion (?:comercial|para residentes)|unidades residenciales|expectativa de renta|metraje/.test(r)) issues.push('style')
   if (/solo (?:permite|admite|puedo).*texto|promotora inmobiliaria|no por duenos individuales|pertenece a una promotora|puedo avisarle|le avisare/.test(r)) issues.push('unsupported_fact')
   if (/agmen/.test(r) && !/constru|quien (?:hizo|hace)|quienes (?:hacen|hicieron)/.test(m)) issues.push('unsupported_fact')

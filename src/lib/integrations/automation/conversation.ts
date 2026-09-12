@@ -18,6 +18,8 @@ import { asksVisitStatus, declinedFollowup, explicitlyRequestsVisit, isConversat
 import { commercialMemory, rememberCommercialReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
+import { acceptsVisitInvitation, rememberSalesReply } from './sales-policy'
+import { mediaFailureReply, unreadMediaMarker } from './media-format'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -51,7 +53,7 @@ async function register(events: Inbound[], guard: Guard) {
       try { content = await mediaText(event) } catch (error) {
         mediaFailed = true
         mediaErrors.push(error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'MEDIA_PROCESSING_FAILED')
-        content = [event.text, '[Archivo no interpretado: no se pudo leer este adjunto; esto no limita el canal a texto]'].filter(Boolean).join('\n')
+        content = [event.text, unreadMediaMarker(event.media)].filter(Boolean).join('\n')
       }
     }
     const result = object(await rpc('register_inbound_message', {
@@ -146,7 +148,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   }
   if (!meaningfulText) {
     if (current.includes('[Sticker recibido]') && !inbound.mediaFailed) return { action: 'reaction_only' }
-    reply = 'No alcancé a leer este archivo. ¿Puede enviarlo más nítido o escribir el número de la unidad?'
+    reply = mediaFailureReply(activeLast.media, inbound.mediaErrors)
   }
   if (!reply && !greeting && !modelOnly && proposals.length) {
     await guard()
@@ -191,14 +193,15 @@ export async function processConversation(rows: Row[], guard: Guard) {
       aiJson(extractorPrompt + '\n' + TURN_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
         { resumen: previousSummary, historial: context.historial, ultima_pregunta: state.ultima_respuesta, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:reference.matches, mensaje_actual: current })
     ])
-    summary = {...newSummary, _unit_reference: reference.memory}
+    summary = {...newSummary, _unit_reference: reference.memory, _sales_memory: previousSummary._sales_memory}
     const extracted = normalizeEvents(rawEvents, current)
     const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance)
     extracted.financing_consent = financeInput.consent
     extracted.financing_partner = financeInput.partner
     const collectingVisit = visitDraft?.status === 'collecting'
     const canRequestVisit = !modelOnly && !asksVisitStatus(current) && !repair && !isCourtesyOnly(current)
-      && (explicitlyRequestsVisit(current) || collectingVisit || !proposals.length)
+      && (explicitlyRequestsVisit(current) || collectingVisit || acceptsVisitInvitation(current, text(state.ultima_respuesta)))
+    if (canRequestVisit && acceptsVisitInvitation(current, text(state.ultima_respuesta))) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
     if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
     const financeTurn = isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)
     if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
@@ -308,6 +311,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
   const sentModelId = text(object(audit.unit_model).unit_id)
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply),
+    _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }
   const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)
   return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError }

@@ -38,9 +38,10 @@ export function normalizeWebhook(raw: string, contentType: string, now = Date.no
     const body = get('text').trim()
     if (body.length > 20_000) throw new Error('MESSAGE_TOO_LONG')
     const mediaUrl = get('attachment][link')
+    const mediaType = get('attachment][type'), mediaName = (get('attachment][file_name') || get('attachment][name')).slice(0,200)
     events.push({ externalId, kommoId, contactId, chatId: get('chat_id'), text: body,
       name: get('author][name').slice(0, 200), sentAt: new Date(date).toISOString(), origin: get('origin'),
-      media: mediaUrl ? { type: get('attachment][type'), url: mediaUrl, name: (get('attachment][file_name') || get('attachment][name')).slice(0,200) } : null })
+      media: mediaUrl || mediaType || mediaName ? { type: mediaType, url: mediaUrl, name: mediaName } : null })
   }
   return events
 }
