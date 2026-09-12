@@ -3,7 +3,7 @@ import { object, text } from './data'
 export type Inbound = {
   externalId: string; kommoId: number; contactId: number; chatId: string;
   text: string; name: string; sentAt: string; origin: string;
-  media: { type: string; url: string } | null
+  media: { type: string; url: string; name?: string } | null
 }
 
 export function normalizeWebhook(raw: string, contentType: string, now = Date.now()): Inbound[] {
@@ -40,7 +40,7 @@ export function normalizeWebhook(raw: string, contentType: string, now = Date.no
     const mediaUrl = get('attachment][link')
     events.push({ externalId, kommoId, contactId, chatId: get('chat_id'), text: body,
       name: get('author][name').slice(0, 200), sentAt: new Date(date).toISOString(), origin: get('origin'),
-      media: mediaUrl ? { type: get('attachment][type'), url: mediaUrl } : null })
+      media: mediaUrl ? { type: get('attachment][type'), url: mediaUrl, name: (get('attachment][file_name') || get('attachment][name')).slice(0,200) } : null })
   }
   return events
 }
