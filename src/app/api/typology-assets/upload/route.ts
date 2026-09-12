@@ -8,7 +8,7 @@ import {
   typologyAssetFileName,
   typologyAssetStoragePath,
 } from '@/lib/typology-assets'
-import { isTourRoomSlug, tourRoomFileName } from '@/lib/tour/tourRooms'
+import { isTourRoomSlug, isVistaRoomSlug, tourRoomFileName } from '@/lib/tour/tourRooms'
 import { roomSceneFileName } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import {
@@ -91,14 +91,19 @@ async function handleUpload(request: Request) {
   const sourceExt = (mimeExt || hintExt || 'jpg').replace(/jpeg/, 'jpg')
 
   const persistKind = kindRaw === 'ambiente' ? 'render' : kindRaw
-  const sceneKey = kindRaw === 'ambiente' && light ? { room, finish, light } : null
+  // Galería (kind=render + room vista-* + luz) usa el mismo naming que ambientes.
+  const isGalleryScene =
+    kindRaw === 'render' && Boolean(room) && Boolean(light) && isVistaRoomSlug(room)
+  const sceneKey =
+    ((kindRaw === 'ambiente' || isGalleryScene) && light
+      ? { room, finish, light }
+      : null) as { room: string; finish: string | null; light: TourLightMode } | null
   const planoVariantRaw = String(form.get('plano_variant') ?? '').trim().toLowerCase()
   const planoVariant = planoVariantRaw === '2d' || planoVariantRaw === '3d' ? planoVariantRaw : null
-  let fileName =
-    kindRaw === 'ambiente'
-      ? sceneKey
-        ? roomSceneFileName(sceneKey, undefined, sourceExt)
-        : tourRoomFileName(room, sourceExt)
+  let fileName = sceneKey
+    ? roomSceneFileName(sceneKey, undefined, sourceExt)
+    : kindRaw === 'ambiente'
+      ? tourRoomFileName(room, sourceExt)
       : typologyAssetFileName(fileNameHint)
   if (persistKind === 'plano' && planoVariant && !fileName.startsWith(`${planoVariant}-`)) {
     fileName = `${planoVariant}-${fileName}`
@@ -106,7 +111,7 @@ async function handleUpload(request: Request) {
   const admin = createAdminClient()
 
   const existing = await findTypologyAssetByKey(admin, typologyCode, persistKind, fileName)
-  if (existing && kindRaw !== 'ambiente') {
+  if (existing && !sceneKey) {
     return jsonError(
       `Ya existe ${fileName} para ${typologyCode} (${kindRaw}).`,
       409,
@@ -126,7 +131,7 @@ async function handleUpload(request: Request) {
         : sourceExt === 'gif'
           ? 'image/gif'
           : 'image/jpeg'
-  const isTour360 = kindRaw === 'ambiente'
+  const upsertScene = Boolean(sceneKey)
 
   console.info('[typology-assets] upload original (no sharp)', {
     typologyCode,
@@ -140,7 +145,7 @@ async function handleUpload(request: Request) {
   const persistFile = async (name: string, buffer: Buffer, type: string) => {
     const path = typologyAssetStoragePath(typologyCode, persistKind, name)
     const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
-      upsert: kindRaw === 'ambiente',
+      upsert: upsertScene,
       contentType: type,
       cacheControl: '0',
     })
@@ -179,7 +184,7 @@ async function handleUpload(request: Request) {
 
     // Si había un .webp con pérdida (u otra extensión) de la misma escena, lo limpiamos
     // para que el showroom no siga sirviendo la versión vieja.
-    if (isTour360 && sceneKey) {
+    if (sceneKey) {
       const stem = `${sceneKey.room}_${sceneKey.finish ? `${sceneKey.finish}_` : ''}${sceneKey.light}`
       const all = await listTypologyAssets(admin, typologyCode)
       const stale = all.filter((row) => {
@@ -192,7 +197,7 @@ async function handleUpload(request: Request) {
         try {
           await deleteTypologyAsset(admin, row.id)
         } catch (error) {
-          console.error('cleanup stale ambiente asset', row.file_name, error)
+          console.error('cleanup stale scene asset', row.file_name, error)
         }
       }
     }

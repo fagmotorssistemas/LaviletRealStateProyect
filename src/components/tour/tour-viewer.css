@@ -392,13 +392,58 @@
   visibility: visible !important;
 }
 
-.tour-desktop-modes {
-  display: none !important;
+.tour-modes-desktop {
+  display: none;
+  width: 9.25rem;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-/* Siempre el botón agrupado (Galería / Vistas / Planos / Tour / etc.) */
-.tour-mobile-modes {
-  display: block !important;
+/* En plano: modos dentro del marco, sin caja contenedora */
+.tour-modes-desktop--rail {
+  width: 8.5rem; /* ~23/25 de 9.25rem */
+  gap: 0.3rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.tour-modes-desktop--rail .tour-mode-btn {
+  height: 2.05rem;
+  padding: 0 0.55rem;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  opacity: 0.92;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(20, 17, 14, 0.28) !important;
+  box-shadow: none;
+}
+
+@media (min-width: 640px) {
+  .tour-modes-desktop--rail .tour-mode-btn {
+    height: 2.15rem;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+}
+
+.tour-modes-desktop--rail .tour-mode-btn:hover {
+  opacity: 1;
+  background: rgba(20, 17, 14, 0.48) !important;
+  border-color: rgba(189, 162, 126, 0.4);
+}
+
+.tour-modes-desktop--rail .tour-mode-btn[data-active='true'] {
+  opacity: 1;
+  border-color: rgba(189, 162, 126, 0.5);
+  background: rgba(20, 17, 14, 0.42) !important;
+  box-shadow: inset 2px 0 0 #bda27e;
+}
+
+.tour-modes-mobile {
+  display: block;
   position: relative;
 }
 
@@ -413,8 +458,16 @@
   position: relative;
 }
 
-/* Desktop alto: nav izquierda suelta. Celular / landscape → Menú. */
-@media (min-width: 640px) and (min-height: 561px) {
+/* PC / mouse: botones sueltos. Celular / touch: menú agrupado. */
+@media (hover: hover) and (pointer: fine) and (min-width: 900px) {
+  .tour-modes-desktop {
+    display: flex;
+  }
+
+  .tour-modes-mobile {
+    display: none !important;
+  }
+
   .tour-desktop-nav {
     display: flex;
   }
@@ -436,6 +489,31 @@
   height: 100dvh !important;
   max-width: none !important;
   max-height: none !important;
+}
+
+/**
+ * Celular en portrait: forzamos layout landscape sin esperar Orientation Lock
+ * (iOS / gestos). El showroom se ve horizontal de inmediato.
+ */
+.tour-root.tour-force-landscape {
+  position: fixed !important;
+  z-index: 200 !important;
+  top: 0 !important;
+  left: 100vw !important;
+  width: 100dvh !important;
+  height: 100dvw !important;
+  max-width: none !important;
+  max-height: none !important;
+  transform: rotate(90deg) !important;
+  transform-origin: top left !important;
+  overflow: hidden !important;
+}
+
+html.tour-is-force-landscape,
+html.tour-is-force-landscape body {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 .tour-exit-hint {

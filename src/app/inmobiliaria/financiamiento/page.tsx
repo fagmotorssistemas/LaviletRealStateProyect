@@ -6,6 +6,7 @@ import { useFinancing, type FinancingTab } from '@/hooks/inmobiliaria/useFinanci
 import { CreatePaymentPlanModal } from '@/components/inmobiliaria/financing/CreatePaymentPlanModal'
 import { FinancingCotizador } from '@/components/inmobiliaria/financing/FinancingCotizador'
 import { CreateAsesoriaModal } from '@/components/inmobiliaria/financing/CreateAsesoriaModal'
+import { FinancingSimulatorAdminPanel } from '@/components/financing/FinancingSimulatorAdminPanel'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PersonCell } from '@/components/inmobiliaria/shared/PersonCell'
@@ -20,9 +21,10 @@ import {
   FINANCING_TYPE_OPTIONS,
   PAYMENT_PLAN_BALANCE_OPTIONS,
 } from '@/types/inmobiliaria'
+import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { cn } from '@/lib/utils'
 
-const tabs: { id: FinancingTab; label: string }[] = [
+const baseTabs: { id: FinancingTab; label: string }[] = [
   { id: 'solicitudes', label: 'Cotizador' },
   { id: 'planes', label: 'Planes de pago' },
   { id: 'asesorias', label: 'Asesorías' },
@@ -30,6 +32,7 @@ const tabs: { id: FinancingTab; label: string }[] = [
 ]
 
 export default function FinanciamientoPage() {
+  const { isAdmin } = useRoleAccess()
   const {
     tab,
     setTab,
@@ -54,11 +57,16 @@ export default function FinanciamientoPage() {
   const [asesoriaOpen, setAsesoriaOpen] = useState(false)
   const [showSavedQuotes, setShowSavedQuotes] = useState(false)
 
+  const tabs = isAdmin
+    ? [...baseTabs, { id: 'simulador' as const, label: 'Simulador clientes' }]
+    : baseTabs
+
   const hasFilters = Boolean(search || projectId || status)
   const onCotizador = tab === 'solicitudes' && !showSavedQuotes
+  const onSimulatorAdmin = tab === 'simulador'
   const createLabel = tab === 'asesorias' ? 'Nueva asesoría' : 'Nuevo plan'
   const onCreate = () => {
-    if (tab === 'interesados' || tab === 'solicitudes') return
+    if (tab === 'interesados' || tab === 'solicitudes' || tab === 'simulador') return
     if (tab === 'asesorias') setAsesoriaOpen(true)
     else setPlanOpen(true)
   }
@@ -67,14 +75,25 @@ export default function FinanciamientoPage() {
     <div className="space-y-4">
       <PageHeader
         eyebrow="Crédito inmobiliario"
-        title={onCotizador ? 'Cotizador financiero' : 'Financiamiento'}
+        title={
+          onSimulatorAdmin
+            ? 'Simulador clientes'
+            : onCotizador
+              ? 'Cotizador financiero'
+              : 'Financiamiento'
+        }
         description={
-          onCotizador
-            ? 'Simulación de crédito con inventario, planes e instituciones'
-            : 'Planes de pago, proformas guardadas y pedidos de asesoría'
+          onSimulatorAdmin
+            ? 'Ajustes, analytics y auditoría del simulador público'
+            : onCotizador
+              ? 'Simulación de crédito con inventario, planes e instituciones'
+              : 'Planes de pago, proformas guardadas y pedidos de asesoría'
         }
         actions={
           <>
+            <Button variant="outline" onClick={() => window.open('/simulador', '_blank')}>
+              Abrir /simulador
+            </Button>
             {tab === 'solicitudes' && (
               <Button
                 variant={showSavedQuotes ? 'primary' : 'outline'}
@@ -83,7 +102,7 @@ export default function FinanciamientoPage() {
                 {showSavedQuotes ? 'Volver al cotizador' : 'Proformas guardadas'}
               </Button>
             )}
-            {tab !== 'interesados' && tab !== 'solicitudes' && (
+            {tab !== 'interesados' && tab !== 'solicitudes' && tab !== 'simulador' && (
               <Button onClick={onCreate}>
                 <Plus size={16} className="mr-2" />
                 {createLabel}
@@ -110,6 +129,10 @@ export default function FinanciamientoPage() {
         ))}
       </div>
 
+      {onSimulatorAdmin ? (
+        <FinancingSimulatorAdminPanel />
+      ) : (
+        <>
       {!onCotizador && (
       <InmobiliariaFiltersToolbar
         searchValue={search}
@@ -409,6 +432,8 @@ export default function FinanciamientoPage() {
         onCreated={reload}
         tenantId={tenantId}
       />
+        </>
+      )}
     </div>
   )
 }

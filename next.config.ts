@@ -50,9 +50,31 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
+    const htmlPlanHeaders = [
+      { key: "X-DNS-Prefetch-Control", value: "on" },
+      { key: "X-Frame-Options", value: "SAMEORIGIN" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      {
+        key: "Content-Security-Policy",
+        value: [
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:",
+          "img-src 'self' data: blob:",
+          "style-src 'self' 'unsafe-inline'",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
+          "worker-src 'self' blob:",
+          "connect-src 'self'",
+          "frame-ancestors 'self'",
+        ].join("; "),
+      },
+    ];
     return [
       {
-        source: "/:path*",
+        source: "/api/tour/floor-plan-html",
+        headers: htmlPlanHeaders,
+      },
+      {
+        // Evita doble CSP (Next concatena headers de varias reglas).
+        source: "/((?!api/tour/floor-plan-html).*)",
         headers: securityHeaders,
       },
     ];

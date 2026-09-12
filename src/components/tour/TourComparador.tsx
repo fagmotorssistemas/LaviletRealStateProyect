@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { ArrowLeftRight, ChevronDown, Reply, X } from 'lucide-react'
 import { CompareSidePano, type ComparePanoPose } from '@/components/tour/CompareSidePano'
 import type { TourUnitSummary } from '@/types/tour'
@@ -23,7 +23,7 @@ export type ComparadorPreview = {
   url: string
 }
 
-export type ComparadorContentMode = 'tour' | 'galeria' | 'vistas'
+export type ComparadorContentMode = 'tour' | 'galeria'
 
 type TourComparadorProps = {
   unitA: TourUnitSummary | null
@@ -34,6 +34,7 @@ type TourComparadorProps = {
   previewsB: ComparadorPreview[]
   previewIndexB: number
   onPreviewIndexB: (index: number) => void
+  onSelectUnitA: (unit: TourUnitSummary) => void
   onSelectUnitB: (unit: TourUnitSummary) => void
   onClearUnitB: () => void
   onSwap: () => void
@@ -41,8 +42,11 @@ type TourComparadorProps = {
   split: number
   onSplitChange: (split: number) => void
   syncPose?: ComparePanoPose | null
+  syncPoseRef?: MutableRefObject<ComparePanoPose | null>
   onPoseChange?: (pose: ComparePanoPose) => void
 }
+
+type PickingSide = 'a' | 'b'
 
 export function TourComparador({
   unitA,
@@ -53,6 +57,7 @@ export function TourComparador({
   previewsB,
   previewIndexB,
   onPreviewIndexB,
+  onSelectUnitA,
   onSelectUnitB,
   onClearUnitB,
   onSwap,
@@ -60,29 +65,40 @@ export function TourComparador({
   split,
   onSplitChange,
   syncPose = null,
+  syncPoseRef,
   onPoseChange,
 }: TourComparadorProps) {
-  const [picking, setPicking] = useState(!unitB)
+  const [picking, setPicking] = useState<PickingSide | null>(() => {
+    if (!unitA) return 'a'
+    if (!unitB) return 'b'
+    return null
+  })
   const [statsOpen, setStatsOpen] = useState(true)
   const dragRef = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  const candidates = useMemo(
-    () =>
-      [...units]
-        .filter((item) => item.id !== unitA?.id)
-        .sort((a, b) => a.unit_number.localeCompare(b.unit_number, 'es', { numeric: true })),
-    [units, unitA?.id],
-  )
+  const candidates = useMemo(() => {
+    const excludeId = picking === 'a' ? unitB?.id : unitA?.id
+    return [...units]
+      .filter((item) => item.id !== excludeId)
+      .sort((a, b) => a.unit_number.localeCompare(b.unit_number, 'es', { numeric: true }))
+  }, [units, unitA?.id, unitB?.id, picking])
 
   const activePreview = previewsB[previewIndexB] ?? previewsB[0] ?? null
   const waitingForB = !unitB
   const splitClamped = waitingForB ? 100 : Math.min(88, Math.max(12, split))
   const showPanoB = contentMode === 'tour'
+  const drawerOpen = picking != null
 
   useEffect(() => {
-    if (!unitB) setPicking(true)
-  }, [unitB])
+    if (!unitA) {
+      setPicking('a')
+      return
+    }
+    if (!unitB) {
+      setPicking((prev) => (prev === 'a' ? 'a' : 'b'))
+    }
+  }, [unitA, unitB])
 
   const setSplitFromClientX = useCallback(
     (clientX: number) => {
@@ -116,7 +132,7 @@ export function TourComparador({
   }, [setSplitFromClientX])
 
   return (
-    <div ref={rootRef} className="pointer-events-none absolute inset-0 z-[25]">
+    <div ref={rootRef} className="pointer-events-none absolute inset-0 z-[125]">
       {/* Capa B — solo con unidad elegida (evita media pantalla blanca) */}
       {!waitingForB ? (
         <div
@@ -125,9 +141,11 @@ export function TourComparador({
         >
           {showPanoB ? (
             <CompareSidePano
+              key={panoBUrl ?? 'empty'}
               url={panoBUrl}
               className="h-full w-full bg-[#111]"
               syncPose={syncPose}
+              syncPoseRef={syncPoseRef}
               onPoseChange={onPoseChange}
             />
           ) : (
@@ -165,45 +183,69 @@ export function TourComparador({
               ) : null}
             </div>
           )}
+          {showPanoB && !panoBUrl ? (
+            <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center bg-[#111]/55 px-6 text-center">
+              <p className="max-w-xs text-sm text-white/70">
+                Esta tipología no tiene tour 360 cargado. Elegí otra unidad o subí el 360 en Inventario.
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {unitA ? (
-        <div className="pointer-events-none absolute top-3 left-3 z-[32] sm:top-4 sm:left-4">
-          <div className="inline-flex max-w-[min(42vw,14rem)] items-center rounded-full bg-[#1a2744] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white shadow-md sm:text-[12px]">
-            <span className="truncate">
-              {unitA.unit_number} — {formatPrice(unitA.published_commercial_price)}
-            </span>
-          </div>
-        </div>
-      ) : null}
-
-      {unitB ? (
-        <div
-          className={cn(
-            'pointer-events-none absolute top-3 z-[32] sm:top-4',
-            picking ? 'right-[min(100%,22rem)] mr-3 sm:mr-4' : 'right-3 sm:right-14',
-          )}
+      {/* Badges clickeables — cambian A/B sin pelear con el menú de modos */}
+      <div className="pointer-events-none absolute top-3 right-3 left-3 z-[32] flex items-start justify-between gap-2 sm:top-4 sm:right-4 sm:left-4">
+        <button
+          type="button"
+          onClick={() => setPicking('a')}
+          className="pointer-events-auto inline-flex max-w-[min(46vw,15rem)] items-center rounded-full bg-[#1a2744] px-3 py-1.5 text-left text-[11px] font-semibold tracking-wide text-white shadow-md transition hover:brightness-110 sm:text-[12px]"
+          title="Cambiar unidad A"
         >
-          <div className="inline-flex max-w-[min(42vw,14rem)] items-center rounded-full bg-[#3d9b4a] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white shadow-md sm:text-[12px]">
-            <span className="truncate">
-              {unitB.unit_number} — {formatPrice(unitB.published_commercial_price)}
-            </span>
-          </div>
-        </div>
-      ) : null}
+          <span className="truncate">
+            {unitA
+              ? `${unitA.unit_number} — ${formatPrice(unitA.published_commercial_price)}`
+              : 'Elegir unidad A'}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setPicking('b')}
+          className={cn(
+            'pointer-events-auto inline-flex max-w-[min(46vw,15rem)] items-center rounded-full bg-[#3d9b4a] px-3 py-1.5 text-left text-[11px] font-semibold tracking-wide text-white shadow-md transition hover:brightness-110 sm:text-[12px]',
+            drawerOpen && 'mr-0',
+          )}
+          title="Cambiar unidad B"
+        >
+          <span className="truncate">
+            {unitB
+              ? `${unitB.unit_number} — ${formatPrice(unitB.published_commercial_price)}`
+              : 'Elegir unidad B'}
+          </span>
+        </button>
+      </div>
 
       <button
         type="button"
         onClick={onClose}
-        className="pointer-events-auto absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] z-[34] flex h-11 w-11 items-center justify-center rounded-full bg-[#14110e] text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/15 transition-transform hover:scale-[1.04]"
-        aria-label="Volver"
-        title="Volver"
+        className="pointer-events-auto absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] z-[34] inline-flex h-11 items-center gap-2 rounded-full bg-[#14110e] px-3.5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
+        aria-label={
+          unitA
+            ? `Volver a la unidad ${unitA.unit_number}`
+            : 'Volver'
+        }
+        title={
+          unitA
+            ? `Volver a ${unitA.unit_number}`
+            : 'Volver'
+        }
       >
-        <Reply size={18} strokeWidth={2} className="-scale-x-100" />
+        <Reply size={18} strokeWidth={2} className="-scale-x-100 shrink-0" />
+        <span className="pr-0.5 text-[11px] font-semibold tracking-wide uppercase">
+          {unitA ? `Volver · ${unitA.unit_number}` : 'Volver'}
+        </span>
       </button>
 
-      {!waitingForB ? (
+      {!waitingForB && !drawerOpen ? (
         <div
           role="slider"
           aria-valuemin={12}
@@ -235,7 +277,7 @@ export function TourComparador({
         </div>
       ) : null}
 
-      {unitA && unitB ? (
+      {unitA && unitB && !drawerOpen ? (
         <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-[31] pb-[3.25rem] sm:pb-14">
           <div className="flex justify-center">
             <button
@@ -315,9 +357,16 @@ export function TourComparador({
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => setPicking('a')}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-[#1a2744] px-2.5 py-1.5 text-[10px] font-semibold tracking-wide text-white uppercase"
+                >
+                  Cambiar A
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     onClearUnitB()
-                    setPicking(true)
+                    setPicking('b')
                   }}
                   className="inline-flex items-center gap-1.5 rounded-md bg-[#14110e] px-2.5 py-1.5 text-[10px] font-semibold tracking-wide text-white uppercase"
                 >
@@ -337,15 +386,18 @@ export function TourComparador({
         </div>
       ) : null}
 
-      {picking ? (
+      {drawerOpen ? (
         <div className="pointer-events-auto absolute inset-y-0 right-0 z-[40] flex w-[min(100%,20rem)] flex-col border-l border-[#eceff3] bg-white shadow-2xl sm:w-[22rem]">
           <div className="flex items-center justify-between border-b border-[#eceff3] px-4 py-3">
-            <p className="text-sm font-semibold text-[#1a2744]">Elegir unidad B</p>
+            <p className="text-sm font-semibold text-[#1a2744]">
+              {picking === 'a' ? 'Elegir unidad A' : 'Elegir unidad B'}
+            </p>
             <button
               type="button"
               onClick={() => {
-                if (waitingForB) onClose()
-                else setPicking(false)
+                if (picking === 'b' && waitingForB) onClose()
+                else if (picking === 'a' && !unitA) onClose()
+                else setPicking(null)
               }}
               className="rounded-full p-1.5 text-[#6b7280] hover:bg-[#f3f4f6]"
               aria-label="Cerrar listado"
@@ -360,32 +412,40 @@ export function TourComparador({
               </p>
             ) : (
               <ul className="space-y-1">
-                {candidates.map((unit) => (
-                  <li key={unit.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSelectUnitB(unit)
-                        setPicking(false)
-                        onSplitChange(50)
-                      }}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[#f3f4f6]"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-[#1a2744]">
-                          Unidad {unit.unit_number}
+                {candidates.map((unit) => {
+                  const active =
+                    picking === 'a' ? unit.id === unitA?.id : unit.id === unitB?.id
+                  return (
+                    <li key={unit.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (picking === 'a') onSelectUnitA(unit)
+                          else onSelectUnitB(unit)
+                          setPicking(null)
+                          onSplitChange(50)
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[#f3f4f6]',
+                          active && 'bg-[#f3f4f6] ring-1 ring-[#1a2744]/15',
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-[#1a2744]">
+                            Unidad {unit.unit_number}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] text-[#6b7280]">
+                            {unit.typology_code ? `${unit.typology_code} · ` : ''}
+                            {unit.floor ? `Piso ${unit.floor}` : 'Sin piso'}
+                          </span>
                         </span>
-                        <span className="mt-0.5 block text-[11px] text-[#6b7280]">
-                          {unit.typology_code ? `${unit.typology_code} · ` : ''}
-                          {unit.floor ? `Piso ${unit.floor}` : 'Sin piso'}
+                        <span className="shrink-0 text-xs font-semibold tabular-nums text-[#1a2744]">
+                          {formatPrice(unit.published_commercial_price)}
                         </span>
-                      </span>
-                      <span className="shrink-0 text-xs font-semibold tabular-nums text-[#1a2744]">
-                        {formatPrice(unit.published_commercial_price)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                      </button>
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </div>

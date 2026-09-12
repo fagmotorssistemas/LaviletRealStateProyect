@@ -1,15 +1,22 @@
 'use server'
 
-import { assertCanAccessCrmPath, assertCanWriteCrm, getCrmDataClient } from '@/lib/auth/session'
+import {
+  assertCanAccessCrmPath,
+  assertCanWriteCrm,
+  getCrmDataClient,
+  getSessionProfile,
+} from '@/lib/auth/session'
+import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import {
   createAsesoriaFinanciamiento,
+  createLead,
   createLeadFinancing,
   findOrCreateFinancingPartner,
   listAsesoriasFinanciamiento,
   listFinancingPartners,
   listLeadFinancing,
 } from '@/services/inmobiliaria.service'
-import type { AsesoriaFinanciamiento, FinancingPartner, LeadFinancing } from '@/types/inmobiliaria'
+import type { AsesoriaFinanciamiento, FinancingPartner, Lead, LeadFinancing } from '@/types/inmobiliaria'
 
 export async function listLeadFinancingAction(params: {
   status?: string
@@ -30,6 +37,35 @@ export async function listAsesoriasFinanciamientoAction(params: {
 export async function listFinancingPartnersAction(): Promise<FinancingPartner[]> {
   await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
   return listFinancingPartners(await getCrmDataClient())
+}
+
+export async function createLeadForQuoteAction(payload: {
+  name: string
+  phone?: string | null
+  email?: string | null
+  unit_id?: string | null
+  source?: string | null
+}): Promise<Lead> {
+  await assertCanAccessCrmPath('/inmobiliaria/financiamiento')
+  await assertCanWriteCrm()
+  const admin = await getCrmDataClient()
+  const session = await getSessionProfile()
+  if (!session) throw new Error('No autenticado')
+  const name = payload.name.trim()
+  if (!name) throw new Error('El nombre del lead es obligatorio')
+  const phone = payload.phone?.trim() || null
+  return createLead(
+    admin,
+    {
+      tenant_id: TOUR_TENANT_ID,
+      name,
+      phone,
+      source: payload.source?.trim() || 'financiamiento_crm',
+      status: 'nuevo',
+      assigned_to: session.user.id,
+    },
+    payload.unit_id ? [payload.unit_id] : undefined,
+  )
 }
 
 export async function createLeadFinancingAction(

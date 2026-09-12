@@ -16,6 +16,7 @@ import { Select } from '@/components/ui/Select'
 import {
   assetMatchesRoom,
   isTourPanoramaFileName,
+  isVistaRoomSlug,
   TOUR_HOME_SLUG,
   vistaRoomSlug,
   type TourRoomDef,
@@ -80,7 +81,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [typologies, setTypologies] = useState<TypologyImport[]>([])
   const [code, setCode] = useState('')
   const [kind, setKind] = useState<TypologyAssetKind>('plano')
-  const [tab, setTab] = useState<'ambientes' | 'vistas' | 'documentos' | 'puntos' | 'pisos'>('ambientes')
+  const [tab, setTab] = useState<'ambientes' | 'galeria' | 'documentos' | 'puntos' | 'pisos'>('ambientes')
   const [planoVariant, setPlanoVariant] = useState<'2d' | '3d'>('2d')
   const [roomSlots, setRoomSlots] = useState<TourRoomDef[]>([])
   const [catalogPanoUrl, setCatalogPanoUrl] = useState<string | null>(null)
@@ -387,11 +388,20 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
         `Subiendo ${slot.room} · ${slot.label} para ${code}…`,
     })
     try {
-      await uploadOne(file, 'ambiente', slot.room, slot.finish, slot.light)
+      await uploadOne(
+        file,
+        tab === 'galeria' ? 'render' : 'ambiente',
+        slot.room,
+        slot.finish,
+        slot.light,
+      )
       toast.success(`${slot.room} · ${slot.label} guardado`)
       setNotice({
         tone: 'ok',
-        text: `Listo. En el showroom, ${slot.label} usa esa imagen en ${slot.room}.`,
+        text:
+          tab === 'galeria'
+            ? `Listo. Esa imagen aparece en Galería del showroom (${slot.label}).`
+            : `Listo. En el showroom, ${slot.label} usa esa imagen en ${slot.room}.`,
       })
       await loadAssets(code)
     } catch (err) {
@@ -407,6 +417,8 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const findSlotAsset = (room: string, finish: string | null, light: TourLightMode) => {
     const exact = assets.find((row) => fileMatchesScene(row.file_name, room, finish, light))
     if (exact) return exact
+    // Galería (vista-*): no reutilizar fotos del 360/ambiente sin prefijo.
+    if (isVistaRoomSlug(room)) return undefined
     const defaultFinish = displayFinishes[0]?.slug ?? null
     const isDefaultSlot = light === 'dia' && (finish == null || finish === defaultFinish)
     if (!isDefaultSlot) return undefined
@@ -476,7 +488,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             {(
               [
                 { id: 'ambientes' as const, label: '360' },
-                { id: 'vistas' as const, label: 'Vistas' },
+                { id: 'galeria' as const, label: 'Galería' },
                 { id: 'puntos' as const, label: 'Puntos 360' },
                 { id: 'documentos' as const, label: 'Planos' },
                 { id: 'pisos' as const, label: 'Pisos' },
@@ -488,7 +500,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 onClick={() => {
                   setTab(item.id)
                   if (item.id === 'ambientes') setKind('ambiente')
-                  if (item.id === 'vistas') setKind('render')
+                  if (item.id === 'galeria') setKind('render')
                   if (item.id === 'documentos') setKind('plano')
                 }}
                 className={cn(
@@ -624,12 +636,12 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           </div>
         )}
 
-        {tab === 'vistas' && (
+        {tab === 'galeria' && (
           <div className="space-y-5">
             <div className="space-y-1">
-              <p className="text-sm text-[#3a3d36]">Vistas</p>
+              <p className="text-sm text-[#3a3d36]">Galería</p>
               <p className="text-xs text-[#8a8d87]">
-                Renders planos por ambiente. Acabado 1 y 2, día y noche.
+                Imágenes del showroom (Galería). Renders por ambiente — acabado 1 y 2, día y noche.
               </p>
             </div>
             {roomSlots.length === 0 ? (
@@ -643,7 +655,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 return (
                   <div key={slug} className="space-y-2">
                     <p className="text-sm text-[#3a3d36]">{item.label}</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                       {combos.map((combo) => {
                         const slot: SceneSlot = {
                           room: slug,
@@ -662,7 +674,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                             onClick={() => pickRoomFile(slot)}
                             className="flex cursor-pointer flex-col overflow-hidden rounded-md border border-[#2B1A18]/10 bg-white text-left disabled:opacity-60"
                           >
-                            <div className="relative aspect-[16/10] bg-[#f4f4ef]">
+                            <div className="relative aspect-[4/3] bg-[#f4f4ef]">
                               {asset ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
@@ -671,22 +683,22 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                                   className="h-full w-full object-cover"
                                 />
                               ) : (
-                                <div className="flex h-full items-center justify-center text-xs text-[#8a8d87]">
+                                <div className="flex h-full items-center justify-center text-[11px] text-[#8a8d87]">
                                   Sin render
                                 </div>
                               )}
                             </div>
-                            <div className="flex items-center justify-between gap-2 p-2">
-                              <span className="text-xs text-[#3a3d36]">{combo.label}</span>
-                              <span className="flex items-center gap-2">
-                                <span className="text-xs text-[#787D62]">
+                            <div className="flex items-center justify-between gap-1.5 px-1.5 py-1.5">
+                              <span className="min-w-0 truncate text-[11px] text-[#3a3d36]">{combo.label}</span>
+                              <span className="flex shrink-0 items-center gap-1">
+                                <span className="text-[10px] text-[#787D62]">
                                   {busy ? 'Subiendo…' : fallback ? 'Ya cargada' : asset ? 'Cambiar' : 'Subir'}
                                 </span>
                                 {asset && (
                                   <span
                                     role="button"
                                     tabIndex={0}
-                                    className="rounded p-1 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
+                                    className="rounded p-0.5 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
                                     onClick={(event) => {
                                       event.preventDefault()
                                       event.stopPropagation()
@@ -701,7 +713,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                                     }}
                                     aria-label={`Borrar ${item.label} ${combo.label}`}
                                   >
-                                    <Trash2 size={14} />
+                                    <Trash2 size={12} />
                                   </span>
                                 )}
                               </span>
@@ -715,7 +727,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
               })}
             </div>
             <div className="space-y-2">
-              <p className="text-xs text-[#8a8d87]">Otra vista (fachada, amenidad, etc.)</p>
+              <p className="text-xs text-[#8a8d87]">Otra imagen (fachada, amenidad, etc.)</p>
             <div
               className={cn(
                 'flex flex-col items-center gap-2 rounded-md border border-dashed px-4 py-5 text-center text-sm',
@@ -758,7 +770,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 }}
               />
             </div>
-            {jobs.length > 0 && tab === 'vistas' ? (
+            {jobs.length > 0 && tab === 'galeria' ? (
               <ul className="space-y-1 text-sm">
                 {jobs.map((job) => (
                   <li key={job.id} className="flex items-center justify-between gap-3 rounded-md border border-[#2B1A18]/8 px-3 py-1.5">

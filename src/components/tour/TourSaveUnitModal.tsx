@@ -45,7 +45,7 @@ export async function saveTourUnit(context: TourSaveContext, phone?: string) {
   if (!isShowroomIdentified()) {
     const normalized = normalizeShowroomPhone(phone ?? '')
     if (normalized.replace(/\D/g, '').length < 8) {
-      throw new Error('Ingresá un celular válido')
+      throw new Error('Ingrese un celular válido')
     }
     leadId = await identifyTourLead({
       mode: 'phone',
@@ -115,7 +115,7 @@ export function TourSaveUnitModal({
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     if (!alreadyIn && !consent) {
-      toast.error('Marcá la casilla para guardar tu departamento')
+      toast.error('Marque la casilla para guardar su departamento')
       return
     }
     setPending(true)
@@ -124,8 +124,8 @@ export function TourSaveUnitModal({
       if (!alreadyIn) onIdentified?.()
       toast.success(
         context.unitNumber
-          ? `Guardamos la unidad ${context.unitNumber}`
-          : 'Guardamos tu selección',
+          ? `Guardamos el depto. ${context.unitNumber}`
+          : 'Guardamos su selección',
       )
       onClose()
     } catch (error) {
@@ -155,12 +155,12 @@ export function TourSaveUnitModal({
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.16em] text-[#BDA27E] uppercase">
-              Guardar departamento
+              Guardar favorito
             </p>
             <p className="mt-1 text-sm leading-snug text-[#1a2744]">
               {alreadyIn
-                ? `¿Guardamos ${unitLabel} en tu lista?`
-                : `Dejanos tu celular para guardar ${unitLabel} y retomar después.`}
+                ? `¿Guardamos ${unitLabel} en su lista?`
+                : `Deje su celular y guarde ${unitLabel}. Así accede al simulador de inversión y a opciones de financiamiento.`}
             </p>
           </div>
           <button
@@ -185,10 +185,13 @@ export function TourSaveUnitModal({
                 required
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                placeholder="Ej. 595981234567"
+                placeholder="Ej. 0981 234 567"
                 className="mt-1.5 h-11 w-full rounded-xl border border-[#e5e7eb] bg-[#f7f8fa] px-3 text-sm text-[#1a2744] outline-none placeholder:text-[#9ca3af] focus:border-[#BDA27E]"
               />
             </label>
+            <p className="mt-2 text-[11px] leading-snug text-[#6b645c]">
+              Con su número guarda favoritos y abre el simulador cuando lo necesite.
+            </p>
             <label className="mt-3 flex items-start gap-2 text-[11px] leading-snug text-[#4b5563]">
               <input
                 type="checkbox"
@@ -197,15 +200,23 @@ export function TourSaveUnitModal({
                 className="mt-0.5"
               />
               <span>
-                Acepto que usen mi celular para guardar mi selección y contactarme por este
+                Acepto el uso de mi celular para guardar mi selección y contactarme por este
                 departamento.
               </span>
             </label>
           </>
         ) : (
-          <p className="rounded-xl bg-[#f7f8fa] px-3 py-2.5 text-[12px] text-[#4b5563]">
-            Sesión con celular ····{getShowroomPhone().replace(/\D/g, '').slice(-4)}
-          </p>
+          <div className="space-y-2 rounded-xl bg-[#f7f8fa] px-3 py-2.5">
+            <p className="text-[12px] text-[#4b5563]">
+              Celular ····{getShowroomPhone().replace(/\D/g, '').slice(-4)}
+            </p>
+            <a
+              href="/simulador"
+              className="inline-flex text-[12px] font-semibold text-[#1a2744] underline-offset-2 hover:underline"
+            >
+              Abrir simulador de inversión →
+            </a>
+          </div>
         )}
 
         <button

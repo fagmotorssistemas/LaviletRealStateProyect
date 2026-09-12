@@ -4,8 +4,10 @@ import { getSessionProfile } from '@/lib/auth/session'
 import { canAccessPath, canWriteCrm } from '@/lib/inmobiliaria/roleAccess'
 import { FLOOR_PLAN_FLOORS, isFloorPlanLevel } from '@/lib/tour/floorPlanHotspots'
 import {
+  cleanupOldFloorPlanMedia,
   deleteFloorPlanFloor,
   deleteFloorPlanImage,
+  floorPlanVariantHasMedia,
   listFloorPlanFloorSummaries,
   loadFloorPlanZones,
   parseFloorPlanZonesDoc,
@@ -15,6 +17,7 @@ import {
   type FloorPlanVariant,
   type FloorPlanZonesDoc,
 } from '@/lib/tour/floorPlanZones'
+import { invalidateFloorPlanHtmlMemory } from '@/lib/tour/floorPlanHtmlMemory'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -89,13 +92,14 @@ export async function DELETE(request: Request) {
     } else {
       await deleteFloorPlanImage(admin, typologyCode, floor, variant)
     }
+    invalidateFloorPlanHtmlMemory(typologyCode, floor)
     return NextResponse.json({ ok: true, floor, scope, variant })
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : 'No se pudo eliminar', 500)
   }
 }
 
-/** Sube la imagen del plano de un piso (reemplaza la anterior de ese piso). */
+/** Sube imagen o HTML interactivo del plano (3D = imagen o .html). */
 export async function POST(request: Request) {
   const denied = await assertEditor()
   if (denied) return denied
@@ -114,58 +118,77 @@ export async function POST(request: Request) {
   if (!(uploaded instanceof Blob) || uploaded.size === 0) return jsonError('Falta el archivo', 400)
 
   const maxBytes = 40 * 1024 * 1024
-  if (uploaded.size > maxBytes) return jsonError('La imagen supera el máximo de 40 MB', 413)
+  if (uploaded.size > maxBytes) return jsonError('El archivo supera el máximo de 40 MB', 413)
 
   const fileNameHint = uploaded instanceof File ? uploaded.name : 'plano.png'
   const mime = uploaded.type || ''
+  const isHtml =
+    mime === 'text/html' ||
+    mime === 'application/xhtml+xml' ||
+    /\.html?$/i.test(fileNameHint)
   const isImage =
     mime.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(fileNameHint)
-  if (!isImage) {
-    return jsonError(`El archivo no es una imagen (${fileNameHint || mime || 'sin tipo'})`, 400)
+
+  if (isHtml && variant !== '3d') {
+    return jsonError('El HTML interactivo solo se sube en la variante 3D', 400)
+  }
+  if (!isHtml && !isImage) {
+    return jsonError(
+      `Archivo no válido (${fileNameHint || mime || 'sin tipo'}). Usá imagen o .html`,
+      400,
+    )
   }
 
   const sourceBuffer = Buffer.from(await uploaded.arrayBuffer())
-  // NUNCA re-encodear planos del editor de zonas (ni WebP, ni resize, ni quality).
-  // El archivo se guarda byte a byte; sharp solo lee metadata de tamaño.
   const outBuffer: Buffer = sourceBuffer
-  const hintExt = (fileNameHint.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
-  const mimeExt =
-    mime === 'image/png'
-      ? 'png'
-      : mime === 'image/webp'
-        ? 'webp'
-        : mime === 'image/gif'
-          ? 'gif'
-          : mime === 'image/jpeg' || mime === 'image/jpg'
-            ? 'jpg'
-            : ''
-  const ext = (mimeExt || (hintExt === 'jpeg' ? 'jpg' : hintExt) || 'jpg').replace(/jpeg/, 'jpg')
-  const contentType = mime.startsWith('image/')
-    ? mime
-    : ext === 'png'
-      ? 'image/png'
-      : ext === 'webp'
-        ? 'image/webp'
-        : ext === 'gif'
-          ? 'image/gif'
-          : 'image/jpeg'
+  let ext = 'jpg'
+  let contentType = 'image/jpeg'
   let imageWidth = 1
   let imageHeight = 1
 
-  try {
-    const sharpMod = await import('sharp')
-    const sharp = sharpMod.default
-    if (typeof sharp === 'function') {
-      const meta = await sharp(sourceBuffer, {
-        limitInputPixels: 268_402_689,
-        sequentialRead: true,
-        failOn: 'none',
-      }).metadata()
-      imageWidth = meta.width || 1
-      imageHeight = meta.height || 1
+  if (isHtml) {
+    ext = 'html'
+    contentType = 'text/html'
+    imageWidth = 2048
+    imageHeight = 970
+  } else {
+    const hintExt = (fileNameHint.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
+    const mimeExt =
+      mime === 'image/png'
+        ? 'png'
+        : mime === 'image/webp'
+          ? 'webp'
+          : mime === 'image/gif'
+            ? 'gif'
+            : mime === 'image/jpeg' || mime === 'image/jpg'
+              ? 'jpg'
+              : ''
+    ext = (mimeExt || (hintExt === 'jpeg' ? 'jpg' : hintExt) || 'jpg').replace(/jpeg/, 'jpg')
+    contentType = mime.startsWith('image/')
+      ? mime
+      : ext === 'png'
+        ? 'image/png'
+        : ext === 'webp'
+          ? 'image/webp'
+          : ext === 'gif'
+            ? 'image/gif'
+            : 'image/jpeg'
+
+    try {
+      const sharpMod = await import('sharp')
+      const sharp = sharpMod.default
+      if (typeof sharp === 'function') {
+        const meta = await sharp(sourceBuffer, {
+          limitInputPixels: 268_402_689,
+          sequentialRead: true,
+          failOn: 'none',
+        }).metadata()
+        imageWidth = meta.width || 1
+        imageHeight = meta.height || 1
+      }
+    } catch (error) {
+      console.error('floor-plan-zones image metadata skipped', error)
     }
-  } catch (error) {
-    console.error('floor-plan-zones image metadata skipped', error)
   }
 
   try {
@@ -178,6 +201,7 @@ export async function POST(request: Request) {
       contentType,
       ext,
       variant,
+      { cleanupOld: false },
     )
 
     const existing = await loadFloorPlanZones(admin, typologyCode, floor)
@@ -190,23 +214,31 @@ export async function POST(request: Request) {
           imageWidth: 1,
           imageHeight: 1,
           variants: {
-            '2d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
-            '3d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
+            '2d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
+            '3d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
           },
           zones: [],
           updatedAt: new Date().toISOString(),
         })
 
-    const media = {
-      imageUrl: uploadedImage.publicUrl,
-      imageWidth: imageWidth > 1 ? imageWidth : base.variants[variant].imageWidth || 1,
-      imageHeight: imageHeight > 1 ? imageHeight : base.variants[variant].imageHeight || 1,
-    }
+    const media = isHtml
+      ? {
+          imageUrl: null as string | null,
+          htmlUrl: uploadedImage.publicUrl,
+          imageWidth,
+          imageHeight,
+        }
+      : {
+          imageUrl: uploadedImage.publicUrl,
+          htmlUrl: null as string | null,
+          imageWidth: imageWidth > 1 ? imageWidth : base.variants[variant].imageWidth || 1,
+          imageHeight: imageHeight > 1 ? imageHeight : base.variants[variant].imageHeight || 1,
+        }
     const variants = {
       ...base.variants,
       [variant]: media,
     }
-    const preferred = variants['2d'].imageUrl ? variants['2d'] : variants['3d']
+    const preferred = floorPlanVariantHasMedia(variants['2d']) ? variants['2d'] : variants['3d']
 
     const doc = await saveFloorPlanZones(admin, {
       ...base,
@@ -218,8 +250,13 @@ export async function POST(request: Request) {
       updatedAt: new Date().toISOString(),
     })
 
+    // Limpiar viejos recién después de apuntar el JSON al archivo nuevo.
+    await cleanupOldFloorPlanMedia(admin, typologyCode, floor, variant, uploadedImage.path)
+    invalidateFloorPlanHtmlMemory(typologyCode, floor)
+
     return NextResponse.json({
-      imageUrl: uploadedImage.publicUrl,
+      imageUrl: isHtml ? null : uploadedImage.publicUrl,
+      htmlUrl: isHtml ? uploadedImage.publicUrl : null,
       path: uploadedImage.path,
       floor,
       typologyCode,

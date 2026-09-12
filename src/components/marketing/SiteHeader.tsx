@@ -1,12 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { homePathForRole } from '@/lib/inmobiliaria/roleAccess'
+import {
+  isShowroomIdentified,
+  SHOWROOM_IDENTITY_EVENT,
+} from '@/lib/tour/showroomIdentity'
 import { MARKETING_NAV } from '@/lib/marketing/nav'
 import { cn } from '@/lib/utils'
 
@@ -18,10 +22,30 @@ export function SiteHeader() {
   const { user, profile, isLoading } = useAuth()
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
+  const [hasPhone, setHasPhone] = useState(false)
   const overHero = (pathname === '/inicio' || pathname === '/nosotros') && !scrolled && !open
   const solid = !overHero
   const accountHref = user ? homePathForRole(profile?.role) : '/login'
   const accountLabel = user ? (profile?.role === 'visitante' ? 'Mi cuenta' : 'Panel') : 'Acceso'
+
+  const navItems = useMemo(
+    () =>
+      MARKETING_NAV.filter((item) =>
+        'requiresPhone' in item && item.requiresPhone ? hasPhone : true,
+      ),
+    [hasPhone],
+  )
+
+  useEffect(() => {
+    const sync = () => setHasPhone(isShowroomIdentified())
+    sync()
+    window.addEventListener(SHOWROOM_IDENTITY_EVENT, sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener(SHOWROOM_IDENTITY_EVENT, sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24)
@@ -81,7 +105,7 @@ export function SiteHeader() {
         </motion.div>
 
         <nav className="hidden items-center gap-5 lg:flex xl:gap-8">
-          {MARKETING_NAV.map((item, i) => {
+          {navItems.map((item, i) => {
             const active = pathname === item.href
             return (
               <motion.div
@@ -202,7 +226,7 @@ export function SiteHeader() {
           >
             <div className="px-5 pb-6 pt-2">
               <nav className="flex flex-col gap-1">
-                {MARKETING_NAV.map((item, i) => (
+                {navItems.map((item, i) => (
                   <motion.div
                     key={item.href}
                     initial={reduceMotion ? false : { opacity: 0, x: -12 }}

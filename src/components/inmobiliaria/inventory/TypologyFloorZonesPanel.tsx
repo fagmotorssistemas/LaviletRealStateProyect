@@ -12,6 +12,7 @@ import { FLOOR_PLAN_DEFAULT_FLOOR, FLOOR_PLAN_FLOORS, FLOOR_PLAN_SCOPE, floorPla
 import {
   apartmentsToZones,
   DEFAULT_OVERLAY_ALIGN,
+  floorPlanVariantHasMedia,
   getFloorPlanOverlayAlign,
   getFloorPlanVariantMedia,
   parseOverlayAlign,
@@ -22,6 +23,7 @@ import {
   type FloorPlanVariant,
   type FloorPlanZonesDoc,
 } from '@/lib/tour/floorPlanZones'
+import { invalidateFloorPlanCache } from '@/lib/tour/floorPlanClientCache'
 import type { Apartment, Point } from '@/lib/floor-plan/types'
 import type { UnitImport } from '@/types/inmobiliaria'
 import { cn } from '@/lib/utils'
@@ -65,7 +67,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
   /** Invalida cargas en vuelo para que no pisen un upload recién terminado. */
   const loadGenRef = useRef(0)
   const [floor, setFloor] = useState(FLOOR_PLAN_DEFAULT_FLOOR)
-  const [planVariant, setPlanVariant] = useState<FloorPlanVariant>('2d')
+  const [planVariant, setPlanVariant] = useState<FloorPlanVariant>('3d')
   const [zonesDoc, setZonesDoc] = useState<FloorPlanZonesDoc | null>(null)
   const [floorSummaries, setFloorSummaries] = useState<FloorPlanFloorSummary[]>(
     FLOOR_PLAN_FLOORS.map((n) => ({
@@ -73,11 +75,15 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       imageUrl: null,
       imageUrl2d: null,
       imageUrl3d: null,
+      htmlUrl3d: null,
       zoneCount: 0,
       updatedAt: null,
     })),
   )
   const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [htmlUrl, setHtmlUrl] = useState<string | null>(null)
+  /** Fuerza remount del iframe preview tras cada subida/borrado. */
+  const [htmlPreviewNonce, setHtmlPreviewNonce] = useState(0)
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null)
   const [apartments, setApartments] = useState<Apartment[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -156,6 +162,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
   )
 
   const applyImage = useCallback(async (url: string | null) => {
+    setHtmlUrl(null)
     if (!url) {
       setImageUrl(null)
       setNatural(null)
@@ -173,6 +180,21 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     setScale(fitted)
     setOffset({ x: 0, y: 0 })
     return size
+  }, [])
+
+  const applyHtml = useCallback((url: string | null, width = 2048, height = 970) => {
+    setImageUrl(null)
+    if (!url) {
+      setHtmlUrl(null)
+      setNatural(null)
+      setScale(1)
+      setOffset({ x: 0, y: 0 })
+      return
+    }
+    setHtmlUrl(url)
+    setNatural({ width, height })
+    setScale(1)
+    setOffset({ x: 0, y: 0 })
   }, [])
 
   const minScaleForView = useCallback(() => {
@@ -228,14 +250,19 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       if (!docRes.ok) throw new Error(json.error || 'No se pudo cargar')
       const doc = json.doc ? withFloorPlanVariants(json.doc) : null
       setZonesDoc(doc)
-      const nextVariant: FloorPlanVariant = doc?.variants['2d'].imageUrl
-        ? '2d'
-        : doc?.variants['3d'].imageUrl
-          ? '3d'
-          : '2d'
+      const nextVariant: FloorPlanVariant = floorPlanVariantHasMedia(doc?.variants['3d'])
+        ? '3d'
+        : floorPlanVariantHasMedia(doc?.variants['2d'])
+          ? '2d'
+          : '3d'
       setPlanVariant(nextVariant)
       const media = getFloorPlanVariantMedia(doc, nextVariant)
-      if (media.imageUrl) {
+      if (media.htmlUrl) {
+        const bust = `${media.htmlUrl}${media.htmlUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
+        applyHtml(bust, media.imageWidth || 2048, media.imageHeight || 970)
+        if (gen !== loadGenRef.current) return
+        setApartments(doc?.zones ? zonesToApartments(doc.zones, media.imageWidth, media.imageHeight) : [])
+      } else if (media.imageUrl) {
         const bust = `${media.imageUrl}${media.imageUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
         const size = await applyImage(bust)
         if (gen !== loadGenRef.current) return
@@ -266,13 +293,13 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     } finally {
       if (gen === loadGenRef.current) setLoading(false)
     }
-  }, [typologyCode, floor, applyImage, refreshSummaries])
+  }, [typologyCode, floor, applyImage, applyHtml, refreshSummaries])
 
   const switchPlanVariant = async (next: FloorPlanVariant) => {
     if (next === planVariant) return
     // Conserva zonas en % y las reaplica sobre la otra imagen.
     const flushedZones =
-      natural && imageUrl
+      natural && (imageUrl || htmlUrl)
         ? apartmentsToZones(apartments, natural.width, natural.height)
         : zonesDoc?.zones ?? apartmentsToZones(apartments, 1000, 1000)
 
@@ -285,8 +312,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         imageWidth: 1,
         imageHeight: 1,
         variants: {
-          '2d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
-          '3d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
+          '2d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
+          '3d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
         },
         zones: flushedZones,
         updatedAt: new Date().toISOString(),
@@ -295,18 +322,19 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     let nextDoc = withFloorPlanVariants({ ...base, zones: flushedZones, floor, typologyCode })
 
     // Persistí las zonas al cambiar de variante para que 2D/3D queden sincronizadas.
-    if (natural && imageUrl && flushedZones.length > 0) {
+    if (natural && (imageUrl || htmlUrl) && flushedZones.length > 0) {
       try {
         await ensureAuthCookies()
         const variants = {
           ...nextDoc.variants,
           [planVariant]: {
-            imageUrl: imageUrl.split('?')[0],
+            imageUrl: imageUrl ? imageUrl.split('?')[0] : null,
+            htmlUrl: htmlUrl ? htmlUrl.split('?')[0] : null,
             imageWidth: natural.width,
             imageHeight: natural.height,
           },
         }
-        const preferred = variants['2d'].imageUrl ? variants['2d'] : variants['3d']
+        const preferred = floorPlanVariantHasMedia(variants['2d']) ? variants['2d'] : variants['3d']
         const res = await fetch('/api/floor-plan-zones', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -337,7 +365,12 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     setAssignOpen(false)
 
     const media = getFloorPlanVariantMedia(nextDoc, next)
-    if (media.imageUrl) {
+    if (media.htmlUrl) {
+      const bust = `${media.htmlUrl}${media.htmlUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
+      applyHtml(bust, media.imageWidth || 2048, media.imageHeight || 970)
+      setApartments(zonesToApartments(nextDoc.zones, media.imageWidth || 2048, media.imageHeight || 970))
+      toast.message('Viendo HTML 3D · mismas zonas (dibujá en 2D)')
+    } else if (media.imageUrl) {
       const bust = `${media.imageUrl}${media.imageUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
       await applyImage(bust)
       const size = await loadImageSize(bust)
@@ -348,7 +381,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       setApartments(zonesToApartments(nextDoc.zones, 1000, 1000))
       toast.message(
         next === '3d'
-          ? 'Subí el plano 3D: las zonas del 2D ya están listas'
+          ? 'Subí el HTML o la imagen 3D: las zonas del 2D ya están listas'
           : 'Subí el plano 2D para este nivel',
       )
     }
@@ -361,10 +394,18 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
   const uploadFloorImage = async (list: FileList | File[] | null) => {
     const file = list ? Array.from(list)[0] : null
     if (!file) return
-    const ok =
+    const isHtml =
+      file.type === 'text/html' ||
+      file.type === 'application/xhtml+xml' ||
+      /\.html?$/i.test(file.name)
+    const isImage =
       file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name)
-    if (!ok) {
-      toast.error('El archivo no es una imagen')
+    if (isHtml && planVariant !== '3d') {
+      toast.error('El HTML interactivo se sube en la pestaña 3D')
+      return
+    }
+    if (!isHtml && !isImage) {
+      toast.error('Usá una imagen o un archivo .html')
       return
     }
     if (!typologyCode) {
@@ -386,29 +427,52 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         credentials: 'same-origin',
       })
       const raw = await res.text()
-      let json: { imageUrl?: string; doc?: FloorPlanZonesDoc; error?: string } = {}
+      let json: {
+        imageUrl?: string | null
+        htmlUrl?: string | null
+        doc?: FloorPlanZonesDoc
+        error?: string
+      } = {}
       try {
         json = raw ? (JSON.parse(raw) as typeof json) : {}
       } catch {
         throw new Error(
           res.status === 413
-            ? 'La imagen es demasiado grande'
+            ? 'El archivo es demasiado grande'
             : `No se pudo subir el plano (${res.status})`,
         )
       }
-      if (!res.ok || !json.imageUrl) {
+      if (!res.ok || (!json.imageUrl && !json.htmlUrl)) {
         throw new Error(json.error || `No se pudo subir el plano (${res.status})`)
       }
-      const bust = `${json.imageUrl}${json.imageUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
-      await applyImage(bust)
+      if (json.htmlUrl) {
+        const bust = `${json.htmlUrl}${json.htmlUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
+        applyHtml(bust)
+        setHtmlPreviewNonce((n) => n + 1)
+      } else if (json.imageUrl) {
+        const bust = `${json.imageUrl}${json.imageUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
+        await applyImage(bust)
+      }
       if (json.doc) {
         const normalized = withFloorPlanVariants(json.doc)
         setZonesDoc(normalized)
-        const size = await loadImageSize(bust)
-        setApartments(zonesToApartments(normalized.zones, size.width, size.height))
+        const media = getFloorPlanVariantMedia(normalized, planVariant)
+        setApartments(
+          zonesToApartments(
+            normalized.zones,
+            media.imageWidth > 1 ? media.imageWidth : 2048,
+            media.imageHeight > 1 ? media.imageHeight : 970,
+          ),
+        )
+        if (json.htmlUrl) setHtmlPreviewNonce((n) => n + 1)
       }
       await refreshSummaries()
-      toast.success(`Plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)} guardado`)
+      invalidateFloorPlanCache(floor, typologyCode || FLOOR_PLAN_SCOPE)
+      toast.success(
+        isHtml
+          ? `HTML 3D de ${floorPlanLevelLabel(floor)} guardado`
+          : `Plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)} guardado`,
+      )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo subir el plano')
     } finally {
@@ -421,7 +485,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     if (!typologyCode) return
     if (
       !window.confirm(
-        `¿Quitar la imagen ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)}? Las zonas se mantienen.`,
+        `¿Quitar el ${planVariant === '3d' ? '3D/HTML' : 'plano 2D'} de ${floorPlanLevelLabel(floor)}? Las zonas se mantienen.`,
       )
     ) {
       return
@@ -433,19 +497,22 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         { method: 'DELETE', credentials: 'same-origin' },
       )
       const json = (await res.json()) as { error?: string }
-      if (!res.ok) throw new Error(json.error || 'No se pudo quitar la imagen')
+      if (!res.ok) throw new Error(json.error || 'No se pudo quitar el archivo')
       await applyImage(null)
+      setHtmlUrl(null)
+      setHtmlPreviewNonce((n) => n + 1)
       if (zonesDoc) {
         const next = withFloorPlanVariants({
           ...zonesDoc,
           variants: {
             ...zonesDoc.variants,
-            [planVariant]: { imageUrl: null, imageWidth: 1, imageHeight: 1 },
+            [planVariant]: { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
           },
         })
         setZonesDoc(next)
       }
       await refreshSummaries()
+      invalidateFloorPlanCache(floor, typologyCode || FLOOR_PLAN_SCOPE)
       toast.success(`Imagen ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)} eliminada`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo quitar la imagen')
@@ -640,8 +707,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           imageWidth: 1,
           imageHeight: 1,
           variants: {
-            '2d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
-            '3d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
+            '2d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
+            '3d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
           },
           zones: apartmentsToZones(apartments, natural?.width || 1000, natural?.height || 1000),
           updatedAt: new Date().toISOString(),
@@ -657,8 +724,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
   }
 
   const onSave = async () => {
-    if (!typologyCode || !natural || !imageUrl) {
-      toast.error('Subí un plano antes de guardar las zonas')
+    if (!typologyCode || !natural || !(imageUrl || htmlUrl)) {
+      toast.error('Subí un plano (2D o HTML 3D) antes de guardar las zonas')
       return
     }
     setSaving(true)
@@ -670,12 +737,12 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         withFloorPlanVariants({
           floor,
           typologyCode,
-          imageUrl,
+          imageUrl: imageUrl ? imageUrl.split('?')[0] : null,
           imageWidth: natural.width,
           imageHeight: natural.height,
           variants: {
-            '2d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
-            '3d': { imageUrl: null, imageWidth: 1, imageHeight: 1 },
+            '2d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
+            '3d': { imageUrl: null, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
           },
           align: {
             '2d': { ...DEFAULT_OVERLAY_ALIGN },
@@ -687,12 +754,13 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       const variants = {
         ...base.variants,
         [planVariant]: {
-          imageUrl: imageUrl.split('?')[0],
+          imageUrl: imageUrl ? imageUrl.split('?')[0] : null,
+          htmlUrl: htmlUrl ? htmlUrl.split('?')[0] : null,
           imageWidth: natural.width,
           imageHeight: natural.height,
         },
       }
-      const preferred = variants['2d'].imageUrl ? variants['2d'] : variants['3d']
+      const preferred = floorPlanVariantHasMedia(variants['2d']) ? variants['2d'] : variants['3d']
       const doc: FloorPlanZonesDoc = {
         ...base,
         floor,
@@ -747,8 +815,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         <p className="text-sm text-[#3a3d36]">Planos por piso</p>
         <p className="text-xs text-[#8a8d87]">
           Dibujá en <span className="font-medium text-[#3a3d36]">2D</span>. En{' '}
-          <span className="font-medium text-[#3a3d36]">3D</span> las mismas zonas se reutilizan; si
-          quedan un poco corridas, usá el ajuste fino y guardá.
+          <span className="font-medium text-[#3a3d36]">3D</span> subí el HTML interactivo (o una
+          imagen); las mismas zonas se reutilizan. Si quedan corridas, usá el ajuste fino.
         </p>
       </div>
 
@@ -802,14 +870,17 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
             <p className="text-xs text-[#8a8d87]">
               {imageUrl
                 ? `${apartments.length} zona(s) · plano ${planVariant.toUpperCase()}`
-                : `Sin imagen ${planVariant.toUpperCase()} — las zonas se comparten igual`}
+                : `Sin ${planVariant.toUpperCase()} — las zonas se comparten igual`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex rounded-lg border border-[#2B1A18]/12 bg-white p-0.5">
               {(['2d', '3d'] as const).map((item) => {
                 const active = planVariant === item
-                const has = item === '2d' ? currentSummary?.imageUrl2d : currentSummary?.imageUrl3d
+                const has =
+                  item === '2d'
+                    ? Boolean(currentSummary?.imageUrl2d)
+                    : Boolean(currentSummary?.imageUrl3d || currentSummary?.htmlUrl3d)
                 return (
                   <button
                     key={item}
@@ -840,12 +911,14 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload size={14} className="mr-1.5" />
-              {imageUrl ? `Reemplazar ${planVariant.toUpperCase()}` : `Subir ${planVariant.toUpperCase()}`}
+              {imageUrl || htmlUrl
+                ? `Reemplazar ${planVariant.toUpperCase()}`
+                : `Subir ${planVariant.toUpperCase()}`}
             </Button>
             <Button
               type="button"
               variant="secondary"
-              disabled={!imageUrl || uploading || loading || removing}
+              disabled={!(imageUrl || htmlUrl) || uploading || loading || removing}
               onClick={() => void removeFloorImage()}
             >
               <Trash2 size={14} className="mr-1.5" />
@@ -886,19 +959,25 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
           <p>
             {uploading
               ? 'Subiendo plano…'
-              : `Arrastrá acá el plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)}, o usá “Subir”`}
+              : planVariant === '3d'
+                ? `Arrastrá acá el HTML interactivo o una imagen 3D de ${floorPlanLevelLabel(floor)}`
+                : `Arrastrá acá el plano 2D de ${floorPlanLevelLabel(floor)}, o usá “Subir”`}
           </p>
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif"
+            accept={
+              planVariant === '3d'
+                ? 'image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif,.html,text/html'
+                : 'image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif'
+            }
             className="hidden"
             disabled={!typologyCode || uploading}
             onChange={(e) => void uploadFloorImage(e.target.files)}
           />
         </div>
 
-        {planVariant === '3d' && imageUrl ? (
+        {planVariant === '3d' && (imageUrl || htmlUrl) ? (
           <div className="mt-3 rounded-lg border border-[#2B1A18]/10 bg-white px-3 py-2">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs font-semibold text-[#3a3d36]">Ajuste fino 3D</p>
@@ -1154,6 +1233,20 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       ) : null}
 
       <div ref={fullscreen ? undefined : viewerBoxRef} className="h-[min(62dvh,640px)]">
+        {!fullscreen && htmlUrl ? (
+          <div className="overflow-hidden rounded-xl border border-[#2B1A18]/10 bg-white">
+            <iframe
+              key={`floor-html-${typologyCode}-${floor}-${zonesDoc?.updatedAt || ''}-${htmlPreviewNonce}`}
+              src={`/api/tour/floor-plan-html?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}&v=${encodeURIComponent(zonesDoc?.updatedAt || String(Date.now()))}&fresh=1&_=${htmlPreviewNonce}`}
+              title="Vista previa HTML 3D"
+              className="h-[min(52vh,420px)] w-full border-0"
+              style={{ pointerEvents: 'none' }}
+            />
+            <p className="border-t border-[#2B1A18]/8 px-3 py-2 text-xs text-[#8a8d87]">
+              Vista previa del HTML. Las zonas se dibujan en 2D; acá solo alineás el overlay.
+            </p>
+          </div>
+        ) : null}
         {!fullscreen && natural && imageUrl ? (
           <FloorPlanViewer
             imageUrl={imageUrl}

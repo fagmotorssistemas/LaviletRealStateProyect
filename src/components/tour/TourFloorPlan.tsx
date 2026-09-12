@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import {
   FLOOR_PLAN_FLOORS,
@@ -12,22 +12,26 @@ import {
   fetchFloorPlanDoc,
   getCachedFloorView,
   getReadyFloorView,
-  planDocImageUrl,
+  planDocMediaUrl,
   preferredFloorVariant,
   prefetchFloorPlans,
+  preloadFloorPlanHtml,
   preloadFloorPlanImage,
+  refetchFloorPlanDoc,
   warmFloorPlans,
   type ReadyFloorView,
 } from '@/lib/tour/floorPlanClientCache'
 import { FLOOR_PLAN_WHATSAPP_MESSAGE, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import {
   applyOverlayAlign,
+  floorPlanVariantHasMedia,
   getFloorPlanOverlayAlign,
   getFloorPlanVariantMedia,
   zoneDisplayPointsPercent,
   type FloorPlanVariant,
 } from '@/lib/tour/floorPlanZones'
 import { SITE } from '@/lib/marketing/site'
+import { findUnitByNumber } from '@/lib/tour/unitDeepLink'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
 
@@ -38,6 +42,12 @@ type TourFloorPlanProps = {
   selectedUnitId: string | null
   onSelectUnit: (unit: TourUnitSummary, slotId: string) => void
   onWhatsAppClick?: () => void
+  /** Overlay dentro del marco del plano (p. ej. modos en desktop). */
+  railLeading?: ReactNode
+  /** Preferencia 2D/3D según el modo del showroom (planos-2d / planos-3d). */
+  preferredVariant?: FloorPlanVariant
+  /** Cuando el usuario cambia 2D/3D dentro del plano. */
+  onPreferredVariantChange?: (variant: FloorPlanVariant) => void
 }
 
 type DisplaySlot = {
@@ -84,7 +94,53 @@ function WhatsAppIcon({ size = 16 }: { size?: number }) {
 }
 
 function normalizeUnitCode(value: string) {
-  return value.trim().toLowerCase().replace(/^lc[-\s]?/i, '').replace(/^0+/, '') || value.trim().toLowerCase()
+  let v = value.trim().toLowerCase()
+  // LC-01, L01, 001 → "1"
+  v = v.replace(/^lc[-\s]?/i, '').replace(/^l(?=\d)/i, '')
+  v = v.replace(/^0+/, '') || v
+  return v
+}
+
+/** API pública del HTML interactivo (Three.js). */
+type LaViletPlantaApi = {
+  width?: number
+  height?: number
+  departamentos?: string[]
+  unidades?: string[]
+  seleccionar: (id: string | null, options?: { animate?: boolean }) => unknown
+  restablecer: (options?: { animate?: boolean }) => unknown
+  seleccionarEn?: (x: number, y: number, options?: { animate?: boolean }) => unknown
+  identificar?: (x: number, y: number) => string | null
+  terminarPresentacion?: () => unknown
+  estado?: () => { departamento?: string | null; modo?: string }
+}
+
+function getLaViletPlanta(win: Window | null | undefined): LaViletPlantaApi | null {
+  if (!win) return null
+  try {
+    const api = (win as Window & { LaViletPlanta?: LaViletPlantaApi }).LaViletPlanta
+    if (!api || typeof api.seleccionar !== 'function') return null
+    return api
+  } catch {
+    return null
+  }
+}
+
+function findUnitByPlantaId(units: TourUnitSummary[], plantaId: string) {
+  const raw = plantaId.trim()
+  if (!raw) return null
+  const byNumber = findUnitByNumber(units, raw)
+  if (byNumber) return byNumber
+  const lower = raw.toLowerCase()
+  const digits = raw.replace(/\D/g, '')
+  return (
+    units.find((item) => item.unit_number.trim().toLowerCase() === lower) ??
+    units.find((item) => item.id === raw) ??
+    (digits
+      ? units.find((item) => item.unit_number.replace(/\D/g, '') === digits)
+      : null) ??
+    null
+  )
 }
 
 function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: string) {
@@ -137,8 +193,13 @@ export function TourFloorPlan({
   selectedUnitId,
   onSelectUnit,
   onWhatsAppClick,
+  railLeading,
+  preferredVariant,
+  onPreferredVariantChange,
 }: TourFloorPlanProps) {
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
+  const [htmlHoverUnit, setHtmlHoverUnit] = useState<TourUnitSummary | null>(null)
+  const [htmlHoverLabel, setHtmlHoverLabel] = useState<string | null>(null)
   const [scale, setScale] = useState(ZOOM_MIN)
   /** Capas montadas: se quedan en DOM y el cambio es solo visibility. */
   const [layers, setLayers] = useState<Partial<Record<number, FloorLayer>>>({})
@@ -146,6 +207,13 @@ export function TourFloorPlan({
   const [failedFloors, setFailedFloors] = useState<Partial<Record<number, boolean>>>({})
   const [readyFloors, setReadyFloors] = useState<Partial<Record<number, boolean>>>({})
   const stickyFloorRef = useRef<number | null>(null)
+  const htmlIframeRefs = useRef<Partial<Record<number, HTMLIFrameElement | null>>>({})
+  /** Iframes WebGL montados: activo + vecinos (swap casi instantáneo). */
+  const [keptHtmlFloors, setKeptHtmlFloors] = useState<number[]>([])
+  /** URL del HTML cuyo iframe ya disparó onLoad (por piso). */
+  const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
+  const onSelectUnitRef = useRef(onSelectUnit)
+  onSelectUnitRef.current = onSelectUnit
   const whatsappHref = tourWhatsAppHref(FLOOR_PLAN_WHATSAPP_MESSAGE)
 
   const upsertLayer = (view: ReadyFloorView) => {
@@ -159,38 +227,76 @@ export function TourFloorPlan({
     })
     setLayers((prev) => {
       const current = prev[view.floor]
-      if (current && current.url === layer.url && current.variant === layer.variant) return prev
+      if (
+        current &&
+        current.url === layer.url &&
+        current.variant === layer.variant &&
+        current.kind === layer.kind
+      ) {
+        return prev
+      }
+      if (current && current.url !== layer.url) {
+        setHtmlLoadedUrl((loaded) => {
+          if (!loaded[view.floor]) return loaded
+          const next = { ...loaded }
+          delete next[view.floor]
+          return next
+        })
+      }
       return { ...prev, [view.floor]: layer }
     })
     setVariantByFloor((prev) =>
       prev[view.floor] === view.variant ? prev : { ...prev, [view.floor]: view.variant },
     )
+    // Montar iframe apenas tenemos URL (boot WebGL en background).
+    if (layer.kind === 'html') {
+      setKeptHtmlFloors((prev) => {
+        if (prev.includes(view.floor)) return prev
+        const next = [...prev, view.floor]
+        return next.slice(-6)
+      })
+    }
   }
 
-  const ensureFloor = (item: number) => {
-    const preferred = variantByFloor[item]
-    const ready = getReadyFloorView(item, preferred)
+  const ensureFloor = (item: number, opts?: { fresh?: boolean; preferred?: FloorPlanVariant }) => {
+    const preferred = opts?.preferred ?? variantByFloor[item] ?? preferredVariant
+    const loadDoc = opts?.fresh ? refetchFloorPlanDoc(item) : fetchFloorPlanDoc(item)
+
+    const ready = !opts?.fresh ? getReadyFloorView(item, preferred) : null
     if (ready) {
       upsertLayer(ready)
       setReadyFloors((prev) => (prev[item] ? prev : { ...prev, [item]: true }))
       return Promise.resolve(ready)
     }
-    const cached = getCachedFloorView(item, preferred)
+    const cached = !opts?.fresh ? getCachedFloorView(item, preferred) : null
     if (cached) {
       upsertLayer(cached)
+      if (cached.kind === 'html') {
+        // Prefetch en HTTP cache; el iframe reutiliza bytes (misma calidad).
+        return preloadFloorPlanHtml(cached.url).then(() => {
+          setReadyFloors((prev) => ({ ...prev, [item]: true }))
+          return cached
+        })
+      }
       return preloadFloorPlanImage(cached.url).then(() => {
         setReadyFloors((prev) => ({ ...prev, [item]: true }))
         return cached
       })
     }
-    return fetchFloorPlanDoc(item).then((doc) => {
+    return loadDoc.then(async (doc) => {
       if (!doc) {
         setFailedFloors((prev) => ({ ...prev, [item]: true }))
         return null
       }
+      setFailedFloors((prev) => {
+        if (!prev[item]) return prev
+        const next = { ...prev }
+        delete next[item]
+        return next
+      })
       const variant = preferred ?? preferredFloorVariant(doc)
-      const url = planDocImageUrl(doc, variant)
-      if (!url) {
+      const media = planDocMediaUrl(doc, variant)
+      if (!media.url) {
         setFailedFloors((prev) => ({ ...prev, [item]: true }))
         return null
       }
@@ -198,13 +304,18 @@ export function TourFloorPlan({
         floor: item,
         doc: { ...doc, floor: item },
         variant,
-        url,
+        url: media.url,
+        kind: media.kind,
       }
       upsertLayer(view)
-      return preloadFloorPlanImage(url).then(() => {
+      if (media.kind === 'html') {
+        await preloadFloorPlanHtml(media.url)
         setReadyFloors((prev) => ({ ...prev, [item]: true }))
         return view
-      })
+      }
+      await preloadFloorPlanImage(media.url)
+      setReadyFloors((prev) => ({ ...prev, [item]: true }))
+      return view
     })
   }
 
@@ -213,11 +324,19 @@ export function TourFloorPlan({
     prefetchFloorPlans([...FLOOR_PLAN_FLOORS])
     void warmFloorPlans([...FLOOR_PLAN_FLOORS], neighborFloors(floor, 2)).then(() => {
       for (const item of FLOOR_PLAN_FLOORS) {
-        const ready = getReadyFloorView(item)
-        if (ready) {
-          upsertLayer(ready)
-          setReadyFloors((prev) => (prev[item] ? prev : { ...prev, [item]: true }))
-        }
+        const preferred = variantByFloor[item] ?? preferredVariant
+        const ready = getReadyFloorView(item, preferred)
+        if (!ready) continue
+        // No pisar una capa 3D/HTML activa con el 2D del warm.
+        setLayers((prev) => {
+          const current = prev[item]
+          if (current?.kind === 'html' && preferred === '3d') return prev
+          if (current && current.variant === preferred && current.url === ready.url) return prev
+          const layer = toLayer(ready)
+          if (!layer) return prev
+          return { ...prev, [item]: layer }
+        })
+        setReadyFloors((prev) => (prev[item] ? prev : { ...prev, [item]: true }))
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -225,12 +344,18 @@ export function TourFloorPlan({
 
   useEffect(() => {
     setScale(ZOOM_MIN)
-    void ensureFloor(floor)
+    if (preferredVariant) {
+      setVariantByFloor((prev) =>
+        prev[floor] === preferredVariant ? prev : { ...prev, [floor]: preferredVariant },
+      )
+    }
+    // Usar cache caliente (HTML precargado). Solo refetch fresco al montar / invalidar.
+    void ensureFloor(floor, { preferred: preferredVariant })
     for (const item of neighborFloors(floor, 2)) {
-      if (item !== floor) void ensureFloor(item)
+      if (item !== floor) void ensureFloor(item, { preferred: preferredVariant })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [floor])
+  }, [floor, preferredVariant])
 
   const targetReady = Boolean(layers[floor] && readyFloors[floor])
 
@@ -246,22 +371,77 @@ export function TourFloorPlan({
         : floor
 
   const shown = layers[paintFloor] ?? layers[floor] ?? null
-  const planVariant = shown?.variant ?? '2d'
+  /** Variantes del piso seleccionado (no del sticky) para el toggle 2D/3D. */
+  const selectedLayer = layers[floor] ?? shown
+  // Prioridad al toggle local del piso; preferredVariant solo inicializa / sincroniza desde el menú.
+  const planVariant =
+    variantByFloor[floor] ?? preferredVariant ?? selectedLayer?.variant ?? shown?.variant ?? '3d'
   const waiting = !shown && !failedFloors[floor]
   const missing = !shown && Boolean(failedFloors[floor])
-  const has2d = Boolean(shown?.doc.variants?.['2d']?.imageUrl)
-  const has3d = Boolean(shown?.doc.variants?.['3d']?.imageUrl)
+  const docForToggles = selectedLayer?.doc ?? shown?.doc
+  const has2d = floorPlanVariantHasMedia(docForToggles?.variants?.['2d'])
+  const has3d = floorPlanVariantHasMedia(docForToggles?.variants?.['3d'])
   const canToggleVariant = has2d || has3d
+  const expectsHtml3d = Boolean(docForToggles?.variants?.['3d']?.htmlUrl)
+  // Esperar hasta que el iframe del piso activo haya booteado (o no hay HTML).
+  // Si ya hay sticky de otro piso, no tapamos con overlay negro (cambio fluido).
+  const activeHtmlUrl =
+    planVariant === '3d' && layers[paintFloor]?.kind === 'html' ? layers[paintFloor]?.url : null
+  const activeHtmlReady =
+    Boolean(activeHtmlUrl) && htmlLoadedUrl[paintFloor] === activeHtmlUrl
+  const waitingHtml =
+    planVariant === '3d' &&
+    expectsHtml3d &&
+    !failedFloors[paintFloor] &&
+    Boolean(activeHtmlUrl) &&
+    !activeHtmlReady &&
+    paintFloor === floor
+  const waitingHtmlBoot =
+    waitingHtml ||
+    (planVariant === '3d' &&
+      expectsHtml3d &&
+      !failedFloors[floor] &&
+      !layers[floor]?.url &&
+      paintFloor === floor)
+
+  useEffect(() => {
+    if (planVariant !== '3d') return
+    const keep = neighborFloors(floor, 2)
+    setKeptHtmlFloors((prev) => {
+      const merged = [...keep, ...prev.filter((item) => !keep.includes(item))]
+      // Activo + vecinos primero; conservar hasta 6 para no matar la GPU.
+      return merged.slice(0, 6)
+    })
+    for (const item of keep) {
+      void ensureFloor(item, { preferred: preferredVariant })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [floor, planVariant, preferredVariant])
 
   const planAspect = useMemo(() => {
-    const w = shown?.width || 1024
-    const h = shown?.height || 499
+    if (planVariant === '3d') {
+      const media = getFloorPlanVariantMedia(docForToggles, '3d')
+      // PB HTML es 2048×988; el JSON a veces trae 970 por defecto.
+      const w = media.imageWidth > 1 ? media.imageWidth : 2048
+      const h =
+        media.imageHeight > 1
+          ? media.imageHeight === 970 && floor === 0
+            ? 988
+            : media.imageHeight
+          : floor === 0
+            ? 988
+            : 970
+      return `${w} / ${h}`
+    }
+    const media = getFloorPlanVariantMedia(docForToggles, '2d')
+    const w = media.imageWidth > 1 ? media.imageWidth : shown?.width || 1024
+    const h = media.imageHeight > 1 ? media.imageHeight : shown?.height || 499
     return `${w} / ${h}`
-  }, [shown?.width, shown?.height])
+  }, [docForToggles, planVariant, shown?.width, shown?.height, floor])
 
   const overlayAlign = useMemo(
-    () => getFloorPlanOverlayAlign(shown?.doc ?? null, planVariant),
-    [shown?.doc, planVariant],
+    () => getFloorPlanOverlayAlign(docForToggles ?? null, planVariant),
+    [docForToggles, planVariant],
   )
 
   const unitsOnFloor = useMemo(() => {
@@ -274,7 +454,7 @@ export function TourFloorPlan({
   }, [units, paintFloor, shown?.floor])
 
   const displaySlots = useMemo<DisplaySlot[]>(() => {
-    const zones = shown?.doc.zones
+    const zones = docForToggles?.zones ?? shown?.doc.zones
     if (!zones?.length) return []
     return [...zones]
       .sort((a, b) => a.order - b.order)
@@ -285,7 +465,66 @@ export function TourFloorPlan({
         points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
         unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
       }))
-  }, [shown?.doc, unitsOnFloor, overlayAlign])
+  }, [docForToggles?.zones, shown?.doc.zones, unitsOnFloor, overlayAlign])
+
+  const activeHtmlFloor =
+    planVariant === '3d' && layers[paintFloor]?.kind === 'html' ? paintFloor : null
+  /** Segmentación (zonas/etiquetas) solo en 2D. */
+  const showSegmentation = planVariant !== '3d'
+  const htmlInteractive = activeHtmlFloor != null
+
+  // El HTML maneja hover/click; el showroom abre la unidad vía postMessage.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data
+      if (!data || data.source !== 'lavilet-floor-html') return
+      if (data.type === 'hover') {
+        const plantaId = String(data.departamento || '').trim()
+        if (!plantaId) {
+          setHtmlHoverUnit(null)
+          setHtmlHoverLabel(null)
+          return
+        }
+        const unit = findUnitByPlantaId(units, plantaId)
+        setHtmlHoverUnit(unit)
+        setHtmlHoverLabel(unit?.unit_number ?? plantaId)
+        return
+      }
+      if (data.type !== 'ficha') return
+      const plantaId = String(data.departamento || '').trim()
+      if (!plantaId) return
+      const unit = findUnitByPlantaId(units, plantaId)
+      setHtmlHoverLabel(unit?.unit_number ?? plantaId)
+      if (!unit) return
+      setHtmlHoverUnit(unit)
+      onSelectUnitRef.current(unit, plantaId)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [units])
+
+  useEffect(() => {
+    if (!htmlInteractive) {
+      setHtmlHoverUnit(null)
+      setHtmlHoverLabel(null)
+    }
+  }, [htmlInteractive])
+
+  useEffect(() => {
+    if (activeHtmlFloor == null) return
+    const iframe = htmlIframeRefs.current[activeHtmlFloor]
+    const api = getLaViletPlanta(iframe?.contentWindow ?? null)
+    try {
+      api?.terminarPresentacion?.()
+    } catch {
+      /* ignore */
+    }
+  }, [activeHtmlFloor])
+
+  const handleSelectSlot = (slot: DisplaySlot) => {
+    if (!slot.unit) return
+    onSelectUnit(slot.unit, slot.id)
+  }
 
   const zoomOut = () =>
     setScale((value) => Math.max(ZOOM_MIN, Number((value - ZOOM_STEP).toFixed(2))))
@@ -295,23 +534,64 @@ export function TourFloorPlan({
   const switchVariant = (next: FloorPlanVariant) => {
     const doc = layers[floor]?.doc ?? shown?.doc
     if (!doc) return
-    const url = planDocImageUrl(doc, next)
-    if (!url) return
-    void preloadFloorPlanImage(url).then(() => {
-      upsertLayer({ floor, doc: { ...doc, floor }, variant: next, url })
+    const media = getFloorPlanVariantMedia(doc, next)
+    if (!floorPlanVariantHasMedia(media)) return
+    const resolved = planDocMediaUrl(doc, next)
+    if (!resolved.url) return
+    setVariantByFloor((prev) => ({ ...prev, [floor]: next }))
+    onPreferredVariantChange?.(next)
+    const apply = () => {
+      upsertLayer({
+        floor,
+        doc: { ...doc, floor },
+        variant: next,
+        url: resolved.url!,
+        kind: resolved.kind,
+      })
       setReadyFloors((prev) => ({ ...prev, [floor]: true }))
-    })
+      setFailedFloors((prev) => {
+        if (!prev[floor]) return prev
+        const nextFailed = { ...prev }
+        delete nextFailed[floor]
+        return nextFailed
+      })
+    }
+    if (resolved.kind === 'html') {
+      apply()
+      return
+    }
+    void preloadFloorPlanImage(resolved.url).then(apply)
   }
 
   const handleImageError = (layerFloor: number, url: string) => {
-    const alt = alternateImageUrl(url)
     const layer = layers[layerFloor]
-    if (alt && layer && layer.url === url) {
-      upsertLayer({ ...layer, url: alt })
-      void preloadFloorPlanImage(alt).then(() => {
+    if (layer?.kind === 'html') {
+      setReadyFloors((prev) => ({ ...prev, [layerFloor]: true }))
+      return
+    }
+    const altExt = alternateImageUrl(url)
+    if (altExt && layer && layer.url === url) {
+      upsertLayer({ ...layer, url: altExt, kind: 'image' })
+      void preloadFloorPlanImage(altExt).then(() => {
         setReadyFloors((prev) => ({ ...prev, [layerFloor]: true }))
       })
       return
+    }
+    // Si falla el 3D, vuelve al 2D (o viceversa) en vez de tumbar todo el piso.
+    if (layer?.doc) {
+      const other: FloorPlanVariant = layer.variant === '3d' ? '2d' : '3d'
+      const otherMedia = planDocMediaUrl(layer.doc, other)
+      if (otherMedia.url && otherMedia.url !== url) {
+        setVariantByFloor((prev) => ({ ...prev, [layerFloor]: other }))
+        upsertLayer({
+          ...layer,
+          variant: other,
+          url: otherMedia.url,
+          kind: otherMedia.kind,
+        })
+        if (otherMedia.kind === 'image') void preloadFloorPlanImage(otherMedia.url)
+        return
+      }
     }
     setFailedFloors((prev) => ({ ...prev, [layerFloor]: true }))
   }
@@ -321,148 +601,25 @@ export function TourFloorPlan({
     void ensureFloor(item)
   }
 
-  // Montar todas las capas ya cargadas: el swap es visibility (sin remount).
+  // Capas listas; iframes HTML solo de los pisos "kept" (activo + anterior).
   const layerEntries = useMemo(
     () => Object.values(layers).filter((layer): layer is FloorLayer => Boolean(layer?.url)),
     [layers],
   )
+  const htmlLayerEntries = useMemo(
+    () =>
+      layerEntries.filter(
+        (layer) => layer.kind === 'html' && keptHtmlFloors.includes(layer.floor),
+      ),
+    [layerEntries, keptHtmlFloors],
+  )
 
   return (
     <div className="absolute inset-0 z-[18] flex bg-[#14110e] pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]">
-      <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-1.5 sm:p-3 [@media(max-height:520px)]:p-1">
-        <div
-          className="relative w-full max-h-full overflow-hidden rounded-xl bg-[#1a1714] ring-1 ring-white/10 [@media(max-height:520px)]:rounded-lg"
-          style={{ aspectRatio: planAspect }}
-        >
-          <div
-            className="absolute inset-0 origin-center transition-transform duration-150 ease-out"
-            style={{ transform: `scale(${scale})` }}
-          >
-            {layerEntries.map((layer) => {
-              const active = layer.floor === paintFloor
-              return (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={`floor-${layer.floor}`}
-                  src={layer.url}
-                  alt=""
-                  draggable={false}
-                  decoding="async"
-                  fetchPriority={active ? 'high' : 'low'}
-                  loading="eager"
-                  ref={(node) => {
-                    if (node?.complete && node.naturalWidth > 0) {
-                      setReadyFloors((prev) =>
-                        prev[layer.floor] ? prev : { ...prev, [layer.floor]: true },
-                      )
-                    }
-                  }}
-                  onLoad={() => setReadyFloors((prev) => ({ ...prev, [layer.floor]: true }))}
-                  onError={() => handleImageError(layer.floor, layer.url)}
-                  className={cn(
-                    'absolute inset-0 h-full w-full object-fill',
-                    active ? 'opacity-100' : 'opacity-0',
-                  )}
-                  style={{
-                    // Evita flash: capas inactivas no reciben hits pero siguen decodificadas.
-                    visibility: active ? 'visible' : 'hidden',
-                    pointerEvents: 'none',
-                  }}
-                />
-              )
-            })}
-
-            <svg
-              viewBox="0 0 100 100"
-              preserveAspectRatio="none"
-              className="absolute inset-0 h-full w-full touch-manipulation"
-              role="img"
-              aria-label="Departamentos del piso"
-            >
-              {displaySlots.map((slot) => {
-                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
-                const hovered = hoverSlot === slot.id
-                return (
-                  <polygon
-                    key={slot.id}
-                    points={slot.points}
-                    className={cn(
-                      'cursor-pointer transition-[fill,stroke] duration-100',
-                      !slot.unit && 'cursor-not-allowed',
-                    )}
-                    fill={
-                      selected
-                        ? 'rgba(61,155,74,0.38)'
-                        : hovered && slot.unit
-                          ? 'rgba(61,155,74,0.18)'
-                          : 'rgba(255,255,255,0.02)'
-                    }
-                    stroke={
-                      selected
-                        ? 'rgba(61,155,74,0.95)'
-                        : hovered && slot.unit
-                          ? 'rgba(255,255,255,0.55)'
-                          : 'rgba(255,255,255,0.12)'
-                    }
-                    strokeWidth={selected || hovered ? 0.4 : 0.2}
-                    vectorEffect="non-scaling-stroke"
-                    onMouseEnter={() => setHoverSlot(slot.id)}
-                    onMouseLeave={() => setHoverSlot(null)}
-                    onClick={() => {
-                      if (!slot.unit) return
-                      onSelectUnit(slot.unit, slot.id)
-                    }}
-                  />
-                )
-              })}
-            </svg>
-
-            <div className="absolute inset-0">
-              {displaySlots.map((slot) => {
-                const { cx, cy } = slotCentroid(slot.points)
-                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
-                const hovered = hoverSlot === slot.id
-                const label = slot.unit?.unit_number ?? slot.label
-
-                return (
-                  <button
-                    key={`label-${slot.id}`}
-                    type="button"
-                    disabled={!slot.unit}
-                    onMouseEnter={() => setHoverSlot(slot.id)}
-                    onMouseLeave={() => setHoverSlot(null)}
-                    onClick={() => {
-                      if (!slot.unit) return
-                      onSelectUnit(slot.unit, slot.id)
-                    }}
-                    className={cn(
-                      'absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)] transition-[transform,box-shadow] duration-100',
-                      'sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1.5',
-                      slot.unit
-                        ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
-                        : 'cursor-not-allowed opacity-55',
-                      (selected || hovered) && slot.unit && 'ring-2 ring-[#3d9b4a]/45',
-                    )}
-                    style={{ left: `${cx}%`, top: `${cy}%` }}
-                    aria-label={slot.unit ? `Departamento ${label}` : `Zona ${label}`}
-                  >
-                    <span
-                      className={cn(
-                        'h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5',
-                        slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
-                      )}
-                    />
-                    <span className="text-[10px] font-semibold tracking-wide text-[#2b2f36] sm:text-[11px]">
-                      {label}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
+      <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-2 sm:p-3">
+          {/* Controles encima del plano para que no los tape el hit-area */}
           {canToggleVariant ? (
-            <div className="pointer-events-auto absolute left-3 top-3 z-20 flex rounded-lg bg-white/95 p-0.5 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-1 ring-black/10 sm:left-4 sm:top-4">
+            <div className="pointer-events-auto absolute left-3 top-3 z-30 flex rounded-lg bg-white/95 p-0.5 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-1 ring-black/10 sm:left-4 sm:top-4">
               {(['2d', '3d'] as const).map((item) => {
                 const available = item === '2d' ? has2d : has3d
                 const active = planVariant === item
@@ -494,6 +651,217 @@ export function TourFloorPlan({
             </div>
           ) : null}
 
+          {railLeading ? (
+            <div className="pointer-events-auto absolute top-3 right-3 z-30 sm:top-4 sm:right-4">
+              {railLeading}
+            </div>
+          ) : null}
+
+          <div
+            className={cn(
+              'relative max-h-full max-w-full overflow-hidden',
+              planVariant === '3d'
+                ? 'bg-[#14110e]'
+                : 'rounded-xl bg-white ring-1 ring-white/10 [@media(max-height:520px)]:rounded-lg',
+            )}
+            style={{
+              aspectRatio: planAspect,
+              width: '100%',
+              height: 'auto',
+              maxHeight: '100%',
+            }}
+            onMouseLeave={() => setHoverSlot(null)}
+          >
+            {/* HTML/WebGL: activo + vecinos precargados (calidad intacta). */}
+            {htmlLayerEntries.map((layer) => {
+              const active = layer.floor === paintFloor && planVariant === '3d'
+              return (
+                <iframe
+                  key={`floor-html-${layer.floor}`}
+                  ref={(node) => {
+                    htmlIframeRefs.current[layer.floor] = node
+                  }}
+                  src={layer.url}
+                  title={`Plano interactivo piso ${layer.floor}`}
+                  loading="eager"
+                  allow="fullscreen"
+                  className={cn(
+                    'absolute inset-0 z-[1] h-full w-full border-0 bg-[#14110e]',
+                    active ? 'opacity-100' : 'pointer-events-none opacity-0',
+                  )}
+                  style={{
+                    pointerEvents: active ? 'auto' : 'none',
+                    // Mantener WebGL vivo en capas ocultas (no display:none).
+                    visibility: active ? 'visible' : 'hidden',
+                  }}
+                  onLoad={(event) => {
+                    htmlIframeRefs.current[layer.floor] = event.currentTarget
+                    setHtmlLoadedUrl((prev) =>
+                      prev[layer.floor] === layer.url
+                        ? prev
+                        : { ...prev, [layer.floor]: layer.url },
+                    )
+                    setReadyFloors((prev) => ({ ...prev, [layer.floor]: true }))
+                    try {
+                      getLaViletPlanta(event.currentTarget.contentWindow)?.terminarPresentacion?.()
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                />
+              )
+            })}
+            {waitingHtmlBoot && paintFloor === floor ? (
+              <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-[#14110e]/55 text-sm text-white/70">
+                Cargando plano 3D…
+              </div>
+            ) : null}
+
+            <div
+              className={cn(
+                'absolute inset-0 z-[2] origin-center transition-transform duration-150 ease-out',
+                htmlInteractive && 'pointer-events-none',
+              )}
+              style={{ transform: `scale(${scale})` }}
+            >
+              {layerEntries.map((layer) => {
+                if (layer.kind === 'html') return null
+                // Imagen 2D o 3D (webp) según la variante activa — no solo en modo 2d.
+                const active = layer.floor === paintFloor && layer.variant === planVariant
+                return (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={`floor-${layer.floor}-${layer.variant}`}
+                    src={layer.url}
+                    alt=""
+                    draggable={false}
+                    decoding="async"
+                    fetchPriority={active ? 'high' : 'low'}
+                    loading="eager"
+                    ref={(node) => {
+                      if (node?.complete && node.naturalWidth > 0) {
+                        setReadyFloors((prev) =>
+                          prev[layer.floor] ? prev : { ...prev, [layer.floor]: true },
+                        )
+                      }
+                    }}
+                    onLoad={() => setReadyFloors((prev) => ({ ...prev, [layer.floor]: true }))}
+                    onError={() => handleImageError(layer.floor, layer.url)}
+                    className={cn(
+                      'absolute inset-0 h-full w-full object-fill',
+                      active ? 'opacity-100' : 'opacity-0',
+                    )}
+                    style={{
+                      visibility: active ? 'visible' : 'hidden',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )
+              })}
+
+              {/* Segmentación solo en 2D. En HTML 3D el iframe recibe el cursor. */}
+              {!htmlInteractive ? (
+              <svg
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                className="absolute inset-0 z-[1] h-full w-full touch-manipulation"
+                role="img"
+                aria-label="Departamentos del piso"
+                onMouseLeave={() => setHoverSlot(null)}
+              >
+              {displaySlots.map((slot) => {
+                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
+                const hovered = hoverSlot === slot.id
+                return (
+                  <polygon
+                    key={slot.id}
+                    points={slot.points}
+                    className={cn(
+                      'cursor-pointer transition-[fill,stroke] duration-100',
+                      !slot.unit && 'cursor-not-allowed',
+                    )}
+                    fill={
+                      showSegmentation
+                        ? selected
+                          ? 'rgba(61,155,74,0.38)'
+                          : hovered && slot.unit
+                            ? 'rgba(61,155,74,0.18)'
+                            : 'rgba(255,255,255,0.04)'
+                        : 'rgba(255,255,255,0.001)'
+                    }
+                    stroke={
+                      showSegmentation
+                        ? selected
+                          ? 'rgba(61,155,74,0.95)'
+                          : hovered && slot.unit
+                            ? 'rgba(255,255,255,0.7)'
+                            : 'rgba(255,255,255,0.28)'
+                        : 'rgba(0,0,0,0)'
+                    }
+                    strokeWidth={showSegmentation ? (selected || hovered ? 0.55 : 0.35) : 0.01}
+                    vectorEffect="non-scaling-stroke"
+                    style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
+                    onMouseEnter={() => {
+                      if (!slot.unit) return
+                      setHoverSlot(slot.id)
+                    }}
+                    onPointerDown={(event) => {
+                      if (!slot.unit) return
+                      // Evita que el pan/zoom del contenedor se coma el tap.
+                      event.stopPropagation()
+                      handleSelectSlot(slot)
+                    }}
+                  />
+                )
+              })}
+            </svg>
+              ) : null}
+
+            {showSegmentation ? (
+            <div className="pointer-events-none absolute inset-0 z-[2]">
+              {displaySlots.map((slot) => {
+                const { cx, cy } = slotCentroid(slot.points)
+                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
+                const hovered = hoverSlot === slot.id
+                const label = slot.unit?.unit_number ?? slot.label
+
+                return (
+                  <button
+                    key={`label-${slot.id}`}
+                    type="button"
+                    disabled={!slot.unit}
+                    onMouseEnter={() => setHoverSlot(slot.id)}
+                    onMouseLeave={() => setHoverSlot(null)}
+                    onClick={() => {
+                      handleSelectSlot(slot)
+                    }}
+                    className={cn(
+                      'pointer-events-auto absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)] transition-[transform,box-shadow] duration-100',
+                      'sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1.5',
+                      slot.unit
+                        ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
+                        : 'cursor-not-allowed opacity-55',
+                      (selected || hovered) && slot.unit && 'ring-2 ring-[#3d9b4a]/45',
+                    )}
+                    style={{ left: `${cx}%`, top: `${cy}%` }}
+                    aria-label={slot.unit ? `Departamento ${label}` : `Zona ${label}`}
+                  >
+                    <span
+                      className={cn(
+                        'h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5',
+                        slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
+                      )}
+                    />
+                    <span className="text-[10px] font-semibold tracking-wide text-[#2b2f36] sm:text-[11px]">
+                      {label}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            ) : null}
+          </div>
+
           {waiting ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/40 text-xs text-white/70">
               Cargando plano…
@@ -504,9 +872,86 @@ export function TourFloorPlan({
               No hay plano para este piso
             </div>
           ) : null}
-        </div>
 
-        <div className="pointer-events-auto absolute bottom-3 left-3 z-20 flex flex-col gap-1.5 sm:bottom-4 sm:left-4">
+          {/* En 3D: número en el centro de cada depto (sobre el plano). */}
+          {htmlInteractive && displaySlots.length > 0 ? (
+            <div className="pointer-events-none absolute inset-0 z-[3]">
+              {displaySlots.map((slot) => {
+                if (!slot.unit && !slot.label) return null
+                const { cx, cy } = slotCentroid(slot.points)
+                const label = slot.unit?.unit_number ?? slot.label
+                const active =
+                  (htmlHoverUnit != null && slot.unit?.id === htmlHoverUnit.id) ||
+                  (htmlHoverLabel != null &&
+                    (label.trim().toLowerCase() === htmlHoverLabel.trim().toLowerCase() ||
+                      slot.id.trim().toLowerCase() === htmlHoverLabel.trim().toLowerCase()))
+                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
+                return (
+                  <button
+                    key={`html-pin-${slot.id}`}
+                    type="button"
+                    disabled={!slot.unit}
+                    className={cn(
+                      'pointer-events-auto absolute z-[3] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1 transition-[transform,background-color] duration-100',
+                      active || selected
+                        ? 'scale-110 bg-white ring-black/15'
+                        : 'bg-white/92 ring-black/10 hover:bg-white',
+                      !slot.unit && 'cursor-not-allowed opacity-70',
+                    )}
+                    style={{ left: `${cx}%`, top: `${cy}%` }}
+                    onClick={() => {
+                      if (slot.unit) onSelectUnit(slot.unit, slot.id)
+                    }}
+                    title={slot.unit ? `Abrir unidad ${label}` : label}
+                  >
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 shrink-0 rounded-full sm:h-2 sm:w-2',
+                        slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
+                      )}
+                      aria-hidden
+                    />
+                    <span
+                      className={cn(
+                        'font-bold tracking-wide text-[#1a2744]',
+                        active || selected ? 'text-[11px] sm:text-[12px]' : 'text-[10px] sm:text-[11px]',
+                      )}
+                    >
+                      {label}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+
+          {/* Hover sin zona: pin al centro con el id del HTML. */}
+          {htmlInteractive && htmlHoverLabel && displaySlots.length === 0 ? (
+            <div className="pointer-events-none absolute inset-0 z-[3]">
+              <button
+                type="button"
+                className="pointer-events-auto absolute top-1/2 left-1/2 z-[3] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2.5 py-1.5 shadow-[0_4px_16px_rgba(15,23,42,0.35)] ring-1 ring-black/10"
+                onClick={() => {
+                  if (htmlHoverUnit) onSelectUnit(htmlHoverUnit, htmlHoverUnit.unit_number)
+                }}
+                disabled={!htmlHoverUnit}
+              >
+                <span
+                  className={cn(
+                    'h-2 w-2 shrink-0 rounded-full',
+                    htmlHoverUnit ? statusDotClass(htmlHoverUnit.status) : 'bg-[#BDA27E]',
+                  )}
+                  aria-hidden
+                />
+                <span className="text-[11px] font-bold tracking-wide text-[#1a2744]">
+                  {htmlHoverLabel}
+                </span>
+              </button>
+            </div>
+          ) : null}
+          </div>
+
+        <div className="pointer-events-auto absolute bottom-3 left-3 z-30 flex flex-col gap-1.5 sm:bottom-4 sm:left-4">
           <button
             type="button"
             onClick={zoomIn}

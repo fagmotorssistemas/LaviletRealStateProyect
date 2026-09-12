@@ -1,9 +1,10 @@
 /**
  * Cache en memoria + fetch del plano del edificio para el showroom.
- * Evita refetch al remount y permite precargar imagen sin bajar calidad.
+ * Evita refetch al remount y permite precargar imagen/HTML sin bajar calidad.
  */
 import { FLOOR_PLAN_SCOPE } from '@/lib/tour/floorPlanHotspots'
 import {
+  floorPlanVariantHasMedia,
   getFloorPlanVariantMedia,
   withFloorPlanVariants,
   type FloorPlanVariant,
@@ -11,11 +12,16 @@ import {
 } from '@/lib/tour/floorPlanZones'
 
 const docCache = new Map<string, FloorPlanZonesDoc | null>()
+const docCacheAt = new Map<string, number>()
 const inflight = new Map<string, Promise<FloorPlanZonesDoc | null>>()
 const imageReady = new Map<string, Promise<void>>()
 const imageComplete = new Set<string>()
 /** Image() vivos: mantienen decode en memoria del browser para swap instantáneo. */
 const hotImages = new Map<string, HTMLImageElement>()
+const htmlReady = new Map<string, Promise<void>>()
+const htmlComplete = new Set<string>()
+/** Cache de doc en showroom: largo; el CRM invalida al subir. */
+const DOC_CACHE_TTL_MS = 10 * 60_000
 
 function cacheKey(typologyCode: string, floor: number) {
   return `${typologyCode}:${floor}`
@@ -31,6 +37,10 @@ export function versionedFloorPlanUrl(url: string | null | undefined, updatedAt?
 
 export function isFloorPlanImageReady(url: string | null | undefined): boolean {
   return Boolean(url && imageComplete.has(url))
+}
+
+export function isFloorPlanHtmlReady(url: string | null | undefined): boolean {
+  return Boolean(url && htmlComplete.has(url))
 }
 
 /** Precarga en el browser; mantiene la Image en memoria para cambio de piso instantáneo. */
@@ -70,7 +80,9 @@ export function preloadFloorPlanImage(url: string | null | undefined): Promise<v
     img.onerror = () => {
       window.clearTimeout(timeoutId)
       hotImages.delete(url)
-      done()
+      imageReady.delete(url)
+      imageComplete.delete(url)
+      resolve()
     }
     img.src = url
     if (img.complete && img.naturalWidth > 0) {
@@ -82,21 +94,76 @@ export function preloadFloorPlanImage(url: string | null | undefined): Promise<v
   return task
 }
 
-export function preferredFloorVariant(doc: FloorPlanZonesDoc): FloorPlanVariant {
-  if (doc.variants?.['2d']?.imageUrl) return '2d'
-  if (doc.variants?.['3d']?.imageUrl) return '3d'
-  return '2d'
+/**
+ * Precarga el HTML 3D en el cache HTTP del browser (misma calidad).
+ * El iframe luego reutiliza la respuesta ya bajada.
+ */
+export function preloadFloorPlanHtml(url: string | null | undefined): Promise<void> {
+  if (!url || typeof window === 'undefined') return Promise.resolve()
+  if (htmlComplete.has(url)) return Promise.resolve()
+  const existing = htmlReady.get(url)
+  if (existing) return existing
+
+  const task = fetch(url, {
+    credentials: 'same-origin',
+    cache: 'force-cache',
+  })
+    .then(async (res) => {
+      if (!res.ok) return
+      await res.arrayBuffer()
+      htmlComplete.add(url)
+    })
+    .catch(() => undefined)
+    .then(() => undefined)
+
+  htmlReady.set(url, task)
+  return task
 }
 
+export function preferredFloorVariant(doc: FloorPlanZonesDoc): FloorPlanVariant {
+  if (floorPlanVariantHasMedia(doc.variants?.['3d'])) return '3d'
+  if (floorPlanVariantHasMedia(doc.variants?.['2d'])) return '2d'
+  return '3d'
+}
+
+export function planDocMediaUrl(
+  doc: FloorPlanZonesDoc | null | undefined,
+  variant?: FloorPlanVariant,
+  opts?: { floor?: number; typologyCode?: string },
+): { url: string | null; kind: 'image' | 'html' } {
+  if (!doc) return { url: null, kind: 'image' }
+  const v = variant ?? preferredFloorVariant(doc)
+  const media = getFloorPlanVariantMedia(doc, v)
+  if (media.htmlUrl) {
+    const floor = opts?.floor ?? doc.floor
+    const typologyCode = opts?.typologyCode ?? doc.typologyCode ?? FLOOR_PLAN_SCOPE
+    // Proxy: Storage no sirve HTML ejecutable (text/plain + CSP sandbox).
+    const proxy = `/api/tour/floor-plan-html?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}&v=${encodeURIComponent(doc.updatedAt || '')}`
+    return { url: proxy, kind: 'html' }
+  }
+  if (media.imageUrl) {
+    return { url: versionedFloorPlanUrl(media.imageUrl, doc.updatedAt), kind: 'image' }
+  }
+  const alt = getFloorPlanVariantMedia(doc, v === '2d' ? '3d' : '2d')
+  if (alt.htmlUrl) {
+    const floor = opts?.floor ?? doc.floor
+    const typologyCode = opts?.typologyCode ?? doc.typologyCode ?? FLOOR_PLAN_SCOPE
+    const proxy = `/api/tour/floor-plan-html?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}&v=${encodeURIComponent(doc.updatedAt || '')}`
+    return { url: proxy, kind: 'html' }
+  }
+  return {
+    url: versionedFloorPlanUrl(alt.imageUrl || doc.imageUrl, doc.updatedAt),
+    kind: 'image',
+  }
+}
+
+/** @deprecated Prefer planDocMediaUrl — mantiene compat con callers de imagen. */
 export function planDocImageUrl(
   doc: FloorPlanZonesDoc | null | undefined,
   variant?: FloorPlanVariant,
 ): string | null {
-  if (!doc) return null
-  const v = variant ?? preferredFloorVariant(doc)
-  const media = getFloorPlanVariantMedia(doc, v)
-  const alt = getFloorPlanVariantMedia(doc, v === '2d' ? '3d' : '2d')
-  return versionedFloorPlanUrl(media.imageUrl || alt.imageUrl || doc.imageUrl, doc.updatedAt)
+  const media = planDocMediaUrl(doc, variant)
+  return media.kind === 'image' ? media.url : null
 }
 
 export type ReadyFloorView = {
@@ -104,6 +171,7 @@ export type ReadyFloorView = {
   doc: FloorPlanZonesDoc
   variant: FloorPlanVariant
   url: string
+  kind: 'image' | 'html'
 }
 
 /** Vista lista para pintar YA (sync). null si aún no está en cache caliente. */
@@ -115,12 +183,14 @@ export function getReadyFloorView(
   const doc = getCachedFloorPlanDoc(floor, typologyCode)
   if (doc === undefined || !doc) return null
   const v = variant ?? preferredFloorVariant(doc)
-  const url = planDocImageUrl(doc, v)
-  if (!url || !isFloorPlanImageReady(url)) return null
-  return { floor, doc, variant: v, url }
+  const media = planDocMediaUrl(doc, v)
+  if (!media.url) return null
+  if (media.kind === 'image' && !isFloorPlanImageReady(media.url)) return null
+  if (media.kind === 'html' && !isFloorPlanHtmlReady(media.url)) return null
+  return { floor, doc, variant: v, url: media.url, kind: media.kind }
 }
 
-/** Doc en cache + URL aunque la imagen aún no haya terminado decode. */
+/** Doc en cache + URL aunque la media aún no haya terminado. */
 export function getCachedFloorView(
   floor: number,
   variant?: FloorPlanVariant,
@@ -129,17 +199,24 @@ export function getCachedFloorView(
   const doc = getCachedFloorPlanDoc(floor, typologyCode)
   if (doc === undefined || !doc) return null
   const v = variant ?? preferredFloorVariant(doc)
-  const url = planDocImageUrl(doc, v)
-  if (!url) return null
-  return { floor, doc, variant: v, url }
+  const media = planDocMediaUrl(doc, v)
+  if (!media.url) return null
+  return { floor, doc, variant: v, url: media.url, kind: media.kind }
 }
 
-async function warmDocImages(doc: FloorPlanZonesDoc | null) {
+async function warmDocMedia(doc: FloorPlanZonesDoc | null) {
   if (!doc) return
   const primary = preferredFloorVariant(doc)
-  await preloadFloorPlanImage(planDocImageUrl(doc, primary))
+  const primaryMedia = planDocMediaUrl(doc, primary)
+  if (primaryMedia.kind === 'html') {
+    await preloadFloorPlanHtml(primaryMedia.url)
+  } else {
+    await preloadFloorPlanImage(primaryMedia.url)
+  }
   const secondary = primary === '2d' ? '3d' : '2d'
-  void preloadFloorPlanImage(planDocImageUrl(doc, secondary))
+  const secondaryMedia = planDocMediaUrl(doc, secondary)
+  if (secondaryMedia.kind === 'html') void preloadFloorPlanHtml(secondaryMedia.url)
+  else if (secondaryMedia.kind === 'image') void preloadFloorPlanImage(secondaryMedia.url)
 }
 
 /** Lectura síncrona del cache (undefined = aún no pedido). */
@@ -157,9 +234,10 @@ export async function fetchFloorPlanDoc(
   typologyCode: string = FLOOR_PLAN_SCOPE,
 ): Promise<FloorPlanZonesDoc | null> {
   const key = cacheKey(typologyCode, floor)
-  if (docCache.has(key)) {
+  const cachedAt = docCacheAt.get(key) ?? 0
+  if (docCache.has(key) && Date.now() - cachedAt < DOC_CACHE_TTL_MS) {
     const cached = docCache.get(key) ?? null
-    void warmDocImages(cached)
+    void warmDocMedia(cached)
     return cached
   }
 
@@ -168,7 +246,7 @@ export async function fetchFloorPlanDoc(
 
   const request = fetch(
     `/api/tour/floor-plans?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}`,
-    { cache: 'force-cache' },
+    { cache: 'default' },
   )
     .then(async (res) => {
       if (!res.ok) return null
@@ -178,8 +256,9 @@ export async function fetchFloorPlanDoc(
     .catch(() => null)
     .then((doc) => {
       docCache.set(key, doc)
+      docCacheAt.set(key, Date.now())
       inflight.delete(key)
-      void warmDocImages(doc)
+      void warmDocMedia(doc)
       return doc
     })
 
@@ -188,7 +267,7 @@ export async function fetchFloorPlanDoc(
 }
 
 /**
- * Doc + imagen lista para pintar (sin flash negro).
+ * Doc + media lista para pintar (sin flash negro).
  */
 export async function fetchFloorPlanReady(
   floor: number,
@@ -197,13 +276,14 @@ export async function fetchFloorPlanReady(
   const doc = await fetchFloorPlanDoc(floor, typologyCode)
   if (!doc) return null
   const variant = preferredFloorVariant(doc)
-  const url = planDocImageUrl(doc, variant)
-  if (!url) return { floor, doc, variant, url: '' }
-  await preloadFloorPlanImage(url)
-  return { floor, doc, variant, url }
+  const media = planDocMediaUrl(doc, variant)
+  if (!media.url) return { floor, doc, variant, url: '', kind: 'image' }
+  if (media.kind === 'image') await preloadFloorPlanImage(media.url)
+  else await preloadFloorPlanHtml(media.url)
+  return { floor, doc, variant, url: media.url, kind: media.kind }
 }
 
-/** Precarga JSON (+ imagen en background) de varios pisos. */
+/** Precarga JSON (+ media en background) de varios pisos. */
 export function prefetchFloorPlans(floors: number[], typologyCode: string = FLOOR_PLAN_SCOPE) {
   for (const floor of floors) {
     void fetchFloorPlanDoc(floor, typologyCode)
@@ -211,8 +291,8 @@ export function prefetchFloorPlans(floors: number[], typologyCode: string = FLOO
 }
 
 /**
- * Calienta pisos en orden: primero prioridad, luego el resto.
- * Mantiene Images decodificadas para que el swap sea instantáneo.
+ * Calienta pisos en paralelo (prioridad primero).
+ * Precarga HTML/imagen en HTTP cache; no monta WebGL.
  */
 export function warmFloorPlans(
   floors: number[],
@@ -226,27 +306,50 @@ export function warmFloorPlans(
     return true
   })
 
-  let chain = Promise.resolve()
-  for (const floor of order) {
-    chain = chain.then(() =>
-      fetchFloorPlanReady(floor, typologyCode).then(() => undefined),
-    )
-  }
-  return chain
+  // Más paralelismo en los primeros (activo + vecinos); el resto sigue en cola.
+  const concurrency = Math.min(6, Math.max(3, order.length))
+  let index = 0
+  const workers = Array.from({ length: Math.min(concurrency, order.length || 1) }, async () => {
+    while (index < order.length) {
+      const floor = order[index]
+      index += 1
+      await fetchFloorPlanReady(floor, typologyCode)
+    }
+  })
+  return Promise.all(workers).then(() => undefined)
 }
 
 export function invalidateFloorPlanCache(floor?: number, typologyCode: string = FLOOR_PLAN_SCOPE) {
   if (floor == null) {
     docCache.clear()
+    docCacheAt.clear()
     inflight.clear()
     imageReady.clear()
     imageComplete.clear()
     hotImages.clear()
+    htmlReady.clear()
+    htmlComplete.clear()
     return
   }
   const key = cacheKey(typologyCode, floor)
   docCache.delete(key)
+  docCacheAt.delete(key)
   inflight.delete(key)
+
+  // Limpiar HTML precacheado de este piso (URLs con floor=N en el proxy).
+  const floorMarker = `floor=${floor}`
+  const typologyMarker = `typology_code=${encodeURIComponent(typologyCode)}`
+  for (const url of [...htmlComplete]) {
+    if (url.includes(floorMarker) && url.includes(typologyMarker)) {
+      htmlComplete.delete(url)
+      htmlReady.delete(url)
+    }
+  }
+  for (const url of [...htmlReady.keys()]) {
+    if (url.includes(floorMarker) && url.includes(typologyMarker)) {
+      htmlReady.delete(url)
+    }
+  }
 }
 
 /** Fuerza refetch de un piso (p. ej. URL de imagen cambiada en storage). */
@@ -268,8 +371,9 @@ export function refetchFloorPlanDoc(
     .catch(() => null)
     .then((doc) => {
       docCache.set(key, doc)
+      docCacheAt.set(key, Date.now())
       inflight.delete(key)
-      void warmDocImages(doc)
+      void warmDocMedia(doc)
       return doc
     })
   inflight.set(key, request)

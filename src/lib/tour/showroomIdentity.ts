@@ -5,6 +5,9 @@
 const PHONE_KEY = 'lv_showroom_phone'
 const LEAD_KEY = 'lv_showroom_lead'
 
+/** Disparado en la misma pestaña al guardar/limpiar celular (storage solo cruza tabs). */
+export const SHOWROOM_IDENTITY_EVENT = 'lv:showroom-identity'
+
 export function normalizeShowroomPhone(raw: string) {
   return String(raw ?? '').replace(/[^\d+]/g, '').trim()
 }
@@ -31,6 +34,15 @@ export function isShowroomIdentified() {
   return Boolean(getShowroomPhone())
 }
 
+function notifyShowroomIdentityChange() {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new Event(SHOWROOM_IDENTITY_EVENT))
+  } catch {
+    /* ignore */
+  }
+}
+
 export function setShowroomIdentity(phone: string, leadId?: string | null) {
   if (typeof window === 'undefined') return
   const normalized = normalizeShowroomPhone(phone)
@@ -40,6 +52,7 @@ export function setShowroomIdentity(phone: string, leadId?: string | null) {
   } catch {
     /* ignore */
   }
+  notifyShowroomIdentityChange()
 }
 
 export function clearShowroomIdentity() {
@@ -50,6 +63,7 @@ export function clearShowroomIdentity() {
   } catch {
     /* ignore */
   }
+  notifyShowroomIdentityChange()
 }
 
 /** Email sintético estable por teléfono (el RPC exige email; el match real es por phone). */

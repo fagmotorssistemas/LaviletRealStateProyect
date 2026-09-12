@@ -55,6 +55,8 @@ export async function enrichTourLeadAfterIdentify(
     sessionId?: string | null
     typologyCode?: string | null
     unitTypeId?: string | null
+    unitId?: string | null
+    unitNumber?: string | null
     interestRoom?: string | null
     finish?: string | null
     light?: string | null
@@ -65,6 +67,7 @@ export async function enrichTourLeadAfterIdentify(
   const now = new Date().toISOString()
   let session: {
     id: string
+    unit_id: string | null
     unit_type_id: string | null
     city: string | null
     country: string | null
@@ -98,8 +101,34 @@ export async function enrichTourLeadAfterIdentify(
     }
   }
 
+  let unitId = first(args.unitId) || first(session?.unit_id)
+  let unitNumber = first(args.unitNumber)
+  if (!unitId && unitNumber) {
+    const { data: unit } = await admin
+      .from('units')
+      .select('id, unit_number, unit_type_id, bedrooms')
+      .eq('unit_number', unitNumber)
+      .limit(1)
+      .maybeSingle()
+    if (unit?.id) {
+      unitId = unit.id
+      unitNumber = first(unit.unit_number) || unitNumber
+    }
+  }
+  if (unitId && !unitNumber) {
+    const { data: unit } = await admin.from('units').select('unit_number').eq('id', unitId).maybeSingle()
+    unitNumber = first(unit?.unit_number)
+  }
+
   const unitTypeId =
-    first(args.unitTypeId) || session?.unit_type_id || (await resolveUnitTypeId(admin, args.typologyCode))
+    first(args.unitTypeId) ||
+    session?.unit_type_id ||
+    (unitId
+      ? (
+          await admin.from('units').select('unit_type_id').eq('id', unitId).maybeSingle()
+        ).data?.unit_type_id
+      : null) ||
+    (await resolveUnitTypeId(admin, args.typologyCode))
   let bedrooms: number | null = null
   let typologyCode = first(args.typologyCode)
 
@@ -125,10 +154,19 @@ export async function enrichTourLeadAfterIdentify(
 
   const resume = buildShowroomResume({
     typologyCode,
-    interestRoom: args.interestRoom,
+    interestRoom: args.interestRoom || (unitNumber ? `Unidad ${unitNumber}` : null),
     finish: args.finish,
     light: args.light,
   })
+
+  const showroomSignals = {
+    typology: typologyCode,
+    unit_id: unitId,
+    unit_number: unitNumber,
+    room: first(args.interestRoom),
+    finish: first(args.finish),
+    light: first(args.light),
+  }
 
   const patch: Record<string, unknown> = {
     last_interaction_at: now,
@@ -159,25 +197,47 @@ export async function enrichTourLeadAfterIdentify(
   if (!lead?.first_landing_path && session?.landing_path) patch.first_landing_path = session.landing_path
   if (!lead?.first_touch_at) patch.first_touch_at = session?.started_at || now
   if (!lead?.tracking_consent_at) patch.tracking_consent_at = now
-  if (!lead?.behavior_signals) {
-    patch.behavior_signals = {
-      showroom: {
-        typology: typologyCode,
-        room: first(args.interestRoom),
-        finish: first(args.finish),
-        light: first(args.light),
-      },
-    }
+
+  const existingSignals =
+    lead?.behavior_signals && typeof lead.behavior_signals === 'object' && !Array.isArray(lead.behavior_signals)
+      ? (lead.behavior_signals as Record<string, unknown>)
+      : {}
+  const existingShowroom =
+    existingSignals.showroom && typeof existingSignals.showroom === 'object' && !Array.isArray(existingSignals.showroom)
+      ? (existingSignals.showroom as Record<string, unknown>)
+      : {}
+  patch.behavior_signals = {
+    ...existingSignals,
+    showroom: {
+      ...existingShowroom,
+      ...Object.fromEntries(Object.entries(showroomSignals).filter(([, value]) => value != null)),
+    },
   }
 
   const { error: leadError } = await admin.from('leads').update(patch).eq('id', args.leadId)
   if (leadError) console.error('enrich tour lead', leadError)
+
+  if (unitId) {
+    const { error: linkError } = await admin.from('lead_units').upsert(
+      {
+        lead_id: args.leadId,
+        unit_id: unitId,
+        priority: 0,
+        source: 'web',
+        interest_level: 'consulto',
+        updated_at: now,
+      },
+      { onConflict: 'lead_id,unit_id' },
+    )
+    if (linkError) console.error('enrich tour lead_units', linkError)
+  }
 
   if (session?.id) {
     const sessionPatch: Record<string, unknown> = {
       tracking_consent: true,
       lead_id: args.leadId,
     }
+    if (unitId) sessionPatch.unit_id = unitId
     if (unitTypeId) sessionPatch.unit_type_id = unitTypeId
     if (!session.city && first(args.city)) sessionPatch.city = first(args.city)
     if (!session.country && first(args.country)) sessionPatch.country = first(args.country)

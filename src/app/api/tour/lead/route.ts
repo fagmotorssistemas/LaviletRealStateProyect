@@ -109,6 +109,8 @@ export async function POST(request: Request) {
         sessionId: body.session_id,
         typologyCode: body.typology_code,
         unitTypeId: body.unit_type_id,
+        unitId: body.unit_id,
+        unitNumber: body.unit_number,
         interestRoom,
         finish: body.finish,
         light: body.light,

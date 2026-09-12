@@ -6,7 +6,10 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/contexts/AuthContext'
-import { createLeadFinancingAction } from '@/app/inmobiliaria/financiamiento/actions'
+import {
+  createLeadFinancingAction,
+  createLeadForQuoteAction,
+} from '@/app/inmobiliaria/financiamiento/actions'
 import { listLeads, listUnits } from '@/services/inmobiliaria.service'
 import { formatCurrency } from '@/lib/utils'
 import { buildAmortizationSchedule, quoteTotals } from '@/lib/inmobiliaria/financingQuote'
@@ -27,11 +30,11 @@ interface FinancingCotizadorProps {
 }
 
 const NEW_PARTNER = '__nueva__'
+const NEW_LEAD = '__nuevo_lead__'
 
 const emptyForm = {
   lead_id: '',
   unit_id: '',
-  plan_id: '',
   financing_type: 'banco',
   financing_partner_id: '',
   partner_name: '',
@@ -41,26 +44,52 @@ const emptyForm = {
   term_months: '',
   interest_rate: '',
   notes: '',
+  new_lead_name: '',
+  new_lead_phone: '',
+  new_lead_email: '',
 }
 
 function round2(n: number) {
   return Math.round(n * 100) / 100
 }
 
-export function FinancingCotizador({ tenantId, partners, plans, onSaved }: FinancingCotizadorProps) {
+function unitPriceOf(unit: Unit | undefined | null): number {
+  if (!unit) return 0
+  const raw = unit.published_commercial_price
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+function partnersMatchingType(partners: FinancingPartner[], financingType: string) {
+  const type = financingType.trim().toLowerCase()
+  const active = partners.filter((p) => p.is_active !== false)
+  if (!type || type === 'mixto' || type === 'contado') return active
+  return active.filter((p) => {
+    const pt = (p.partner_type || '').trim().toLowerCase()
+    if (!pt) return false
+    if (pt === type) return true
+    if (type === 'banco') return pt.includes('banco') || pt === 'bank'
+    if (type === 'cooperativa') return pt.includes('coop')
+    if (type === 'biess') return pt.includes('biess')
+    return pt.includes(type)
+  })
+}
+
+export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved }: FinancingCotizadorProps) {
   const { supabase, profile } = useAuth()
   const [loading, setLoading] = useState(false)
   const [leads, setLeads] = useState<Lead[]>([])
   const [units, setUnits] = useState<Unit[]>([])
   const [form, setForm] = useState(emptyForm)
   const [showSchedule, setShowSchedule] = useState(false)
-  const [entryEdit, setEntryEdit] = useState<'pct' | 'amount'>('pct')
+  /** Quién manda: % o $ — el otro se calcula y queda bloqueado. */
+  const [entryDriver, setEntryDriver] = useState<'pct' | 'amount'>('pct')
 
   useEffect(() => {
     if (!tenantId) return
     Promise.all([
       listLeads(supabase, { tenantId, page: 1, pageSize: 200 }),
-      listUnits(supabase, { tenantId, page: 1, pageSize: 200, sort: 'unit_natural' }),
+      listUnits(supabase, { tenantId, page: 1, pageSize: 500, sort: 'unit_natural' }),
     ])
       .then(([leadRes, unitRes]) => {
         setLeads(leadRes.data)
@@ -71,13 +100,13 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
 
   const selectedLead = leads.find((l) => l.id === form.lead_id)
   const selectedUnit = units.find((u) => u.id === form.unit_id)
-  const selectedPlan = plans.find((p) => p.id === form.plan_id)
   const selectedPartner = partners.find((p) => p.id === form.financing_partner_id)
+  const creatingLead = form.lead_id === NEW_LEAD
 
-  const unitPlans = useMemo(() => {
-    if (!selectedUnit?.project_id) return plans.filter((p) => p.is_active)
-    return plans.filter((p) => p.is_active && p.project_id === selectedUnit.project_id)
-  }, [plans, selectedUnit?.project_id])
+  const filteredPartners = useMemo(
+    () => partnersMatchingType(partners, form.financing_type),
+    [partners, form.financing_type],
+  )
 
   const quote = useMemo(() => {
     const unitPrice = Number(form.unit_price) || 0
@@ -98,32 +127,54 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
     [showSchedule, quote.financed, form.interest_rate, form.term_months],
   )
 
+  const syncEntryFromPrice = (price: number, pct: number, amount: number, driver: 'pct' | 'amount') => {
+    if (!(price > 0)) {
+      return {
+        entry_pct: driver === 'pct' ? String(pct || '') : form.entry_pct,
+        entry_amount: driver === 'amount' ? String(amount || '') : form.entry_amount,
+      }
+    }
+    if (driver === 'pct') {
+      const safePct = pct || 0
+      return {
+        entry_pct: String(safePct),
+        entry_amount: String(round2((price * safePct) / 100)),
+      }
+    }
+    const safeAmount = amount || 0
+    return {
+      entry_amount: String(safeAmount),
+      entry_pct: String(round2((safeAmount / price) * 100)),
+    }
+  }
+
   const handleUnitChange = (unitId: string) => {
     const unit = units.find((u) => u.id === unitId)
-    const price = unit?.published_commercial_price ?? 0
-    const planForProject = unit
-      ? plans.find((p) => p.is_active && p.project_id === unit.project_id && p.entry_pct != null)
-      : undefined
-    const pct = (planForProject?.entry_pct ?? Number(form.entry_pct)) || 30
+    const price = unitPriceOf(unit)
+    const pct = Number(form.entry_pct) || 30
+    if (unit && !(price > 0)) {
+      toast.error(`La unidad ${unit.unit_number} no tiene precio publicado`)
+    }
+    setEntryDriver('pct')
     setForm((p) => ({
       ...p,
       unit_id: unitId,
-      plan_id: planForProject?.id ?? '',
-      unit_price: price ? String(price) : p.unit_price,
+      unit_price: price > 0 ? String(price) : '',
       entry_pct: String(pct),
-      entry_amount: price ? String(round2((price * pct) / 100)) : p.entry_amount,
+      entry_amount: price > 0 ? String(round2((price * pct) / 100)) : '',
     }))
   }
 
-  const handlePlanChange = (planId: string) => {
-    const plan = plans.find((p) => p.id === planId)
-    const price = Number(form.unit_price) || 0
-    const pct = (plan?.entry_pct ?? Number(form.entry_pct)) || 0
+  const handleTypeChange = (value: string) => {
+    const nextPartners = partnersMatchingType(partners, value)
+    const keep =
+      form.financing_partner_id === NEW_PARTNER ||
+      nextPartners.some((p) => p.id === form.financing_partner_id)
     setForm((p) => ({
       ...p,
-      plan_id: planId,
-      entry_pct: String(pct),
-      entry_amount: price ? String(round2((price * pct) / 100)) : p.entry_amount,
+      financing_type: value,
+      financing_partner_id: keep ? p.financing_partner_id : '',
+      partner_name: keep && p.financing_partner_id === NEW_PARTNER ? p.partner_name : '',
     }))
   }
 
@@ -132,6 +183,7 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
     const price = Number(form.unit_price) || 0
     const minPct = partner?.min_entry_pct
     const pct = minPct != null ? minPct : Number(form.entry_pct) || 30
+    setEntryDriver('pct')
     setForm((p) => ({
       ...p,
       financing_partner_id: value,
@@ -139,23 +191,23 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
       interest_rate: partner?.approx_rate != null ? String(partner.approx_rate) : p.interest_rate,
       term_months: partner?.max_term_years != null ? String(partner.max_term_years * 12) : p.term_months,
       entry_pct: String(pct),
-      entry_amount: price ? String(round2((price * pct) / 100)) : p.entry_amount,
+      entry_amount: price > 0 ? String(round2((price * pct) / 100)) : p.entry_amount,
     }))
   }
 
   const handleEntryPct = (value: string) => {
-    setEntryEdit('pct')
+    setEntryDriver('pct')
     const pct = Number(value) || 0
     const price = Number(form.unit_price) || 0
     setForm((p) => ({
       ...p,
       entry_pct: value,
-      entry_amount: price ? String(round2((price * pct) / 100)) : p.entry_amount,
+      entry_amount: price > 0 ? String(round2((price * pct) / 100)) : '',
     }))
   }
 
   const handleEntryAmount = (value: string) => {
-    setEntryEdit('amount')
+    setEntryDriver('amount')
     const amount = Number(value) || 0
     const price = Number(form.unit_price) || 0
     setForm((p) => ({
@@ -167,25 +219,57 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
 
   const handlePrice = (value: string) => {
     const price = Number(value) || 0
-    const pct = entryEdit === 'pct' ? Number(form.entry_pct) || 0 : null
-    if (pct != null) {
-      setForm((p) => ({
-        ...p,
-        unit_price: value,
-        entry_amount: price ? String(round2((price * pct) / 100)) : '',
-      }))
-    } else {
-      setForm((p) => ({ ...p, unit_price: value }))
-    }
+    const pct = Number(form.entry_pct) || 0
+    const amount = Number(form.entry_amount) || 0
+    const synced = syncEntryFromPrice(price, pct, amount, entryDriver)
+    setForm((p) => ({
+      ...p,
+      unit_price: value,
+      ...synced,
+    }))
   }
 
   const resetForm = () => {
     setForm(emptyForm)
     setShowSchedule(false)
+    setEntryDriver('pct')
   }
 
   const persist = async () => {
-    if (!form.lead_id) {
+    let leadId = form.lead_id
+
+    if (creatingLead) {
+      const name = form.new_lead_name.trim()
+      if (!name) {
+        toast.error('Escribe el nombre del nuevo lead')
+        return false
+      }
+      setLoading(true)
+      try {
+        const lead = await createLeadForQuoteAction({
+          name,
+          phone: form.new_lead_phone.trim() || null,
+          email: form.new_lead_email.trim() || null,
+          unit_id: form.unit_id || null,
+        })
+        leadId = lead.id
+        setLeads((prev) => [lead, ...prev])
+        setForm((p) => ({
+          ...p,
+          lead_id: lead.id,
+          new_lead_name: '',
+          new_lead_phone: '',
+          new_lead_email: '',
+        }))
+        toast.success('Lead creado')
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'No se pudo crear el lead')
+        setLoading(false)
+        return false
+      }
+    }
+
+    if (!leadId || leadId === NEW_LEAD) {
       toast.error('Selecciona el solicitante (lead)')
       return false
     }
@@ -204,7 +288,7 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
     setLoading(true)
     try {
       await createLeadFinancingAction({
-        lead_id: form.lead_id,
+        lead_id: leadId,
         unit_id: form.unit_id || null,
         financing_partner_id:
           form.financing_partner_id && form.financing_partner_id !== NEW_PARTNER
@@ -222,10 +306,7 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
         term_months: Number(form.term_months) || null,
         interest_rate: Number(form.interest_rate) || null,
         monthly_payment: round2(quote.monthly) || null,
-        notes:
-          [form.notes.trim(), selectedPlan ? `Plan: ${selectedPlan.name}` : '']
-            .filter(Boolean)
-            .join(' · ') || null,
+        notes: form.notes.trim() || null,
         generated_by: 'asesor',
       })
       toast.success('Proforma guardada en simulaciones')
@@ -261,6 +342,15 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
   const partnerLabel =
     selectedPartner?.name ||
     (form.partner_name.trim() ? form.partner_name.trim() : 'Institución por definir')
+
+  const typeLabel =
+    FINANCING_TYPE_OPTIONS.find((o) => o.value === form.financing_type)?.label ?? 'Institución'
+  const partnerPlaceholder =
+    form.financing_type === 'cooperativa'
+      ? 'Cooperativa…'
+      : form.financing_type === 'biess'
+        ? 'BIESS…'
+        : 'Banco…'
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -298,27 +388,29 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
             <Select
               id="fin-unit"
               label="Unidad"
-              options={units.map((u) => ({
-                value: u.id,
-                label: `${u.unit_number}${u.project?.name ? ` · ${u.project.name}` : ''}`,
-              }))}
+              options={units.map((u) => {
+                const price = unitPriceOf(u)
+                return {
+                  value: u.id,
+                  label: `${u.unit_number}${u.project?.name ? ` · ${u.project.name}` : ''}${
+                    price > 0 ? ` · ${formatCurrency(price)}` : ''
+                  }`,
+                }
+              })}
               placeholder="Buscar / seleccionar unidad"
               value={form.unit_id}
               onChange={(e) => handleUnitChange(e.target.value)}
             />
-            {unitPlans.length > 0 && (
-              <Select
-                id="fin-plan"
-                label="Plan de pago del proyecto"
-                options={unitPlans.map((p) => ({
-                  value: p.id,
-                  label: `${p.name}${p.entry_pct != null ? ` · entrada ${p.entry_pct}%` : ''}`,
-                }))}
-                placeholder="Opcional — rellena la entrada"
-                value={form.plan_id}
-                onChange={(e) => handlePlanChange(e.target.value)}
-              />
-            )}
+            {selectedUnit ? (
+              <p className="text-xs text-[#6b645c]">
+                Precio publicado:{' '}
+                <span className="font-semibold text-[#3a3d36]">
+                  {unitPriceOf(selectedUnit) > 0
+                    ? formatCurrency(unitPriceOf(selectedUnit))
+                    : 'Sin precio en inventario'}
+                </span>
+              </p>
+            ) : null}
           </section>
 
           <section className="space-y-3">
@@ -328,14 +420,48 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
             <Select
               id="fin-lead"
               label="Lead *"
-              options={leads.map((l) => ({
-                value: l.id,
-                label: l.phone ? `${l.name} · ${l.phone}` : l.name,
-              }))}
+              options={[
+                { value: NEW_LEAD, label: '+ Crear lead nuevo…' },
+                ...leads.map((l) => ({
+                  value: l.id,
+                  label: l.phone ? `${l.name} · ${l.phone}` : l.name,
+                })),
+              ]}
               placeholder="Nombre del prospecto"
               value={form.lead_id}
               onChange={(e) => setForm((p) => ({ ...p, lead_id: e.target.value }))}
             />
+            {creatingLead ? (
+              <div className="space-y-3 rounded-lg border border-[#c5c8bc] bg-white/70 p-3">
+                <p className="text-xs text-[#6b645c]">
+                  Se creará el lead al guardar la proforma.
+                </p>
+                <Input
+                  id="fin-new-lead-name"
+                  label="Nombre *"
+                  placeholder="Nombre completo"
+                  value={form.new_lead_name}
+                  onChange={(e) => setForm((p) => ({ ...p, new_lead_name: e.target.value }))}
+                />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    id="fin-new-lead-phone"
+                    label="Celular"
+                    placeholder="09…"
+                    value={form.new_lead_phone}
+                    onChange={(e) => setForm((p) => ({ ...p, new_lead_phone: e.target.value }))}
+                  />
+                  <Input
+                    id="fin-new-lead-email"
+                    label="Email"
+                    type="email"
+                    placeholder="opcional"
+                    value={form.new_lead_email}
+                    onChange={(e) => setForm((p) => ({ ...p, new_lead_email: e.target.value }))}
+                  />
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="space-y-3">
@@ -348,25 +474,36 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
                 label="Tipo"
                 options={FINANCING_TYPE_OPTIONS}
                 value={form.financing_type}
-                onChange={(e) => setForm((p) => ({ ...p, financing_type: e.target.value }))}
+                onChange={(e) => handleTypeChange(e.target.value)}
               />
               <Select
                 id="fin-partner"
-                label="Institución *"
+                label={`${typeLabel} *`}
                 options={[
-                  ...partners.map((p) => ({ value: p.id, label: p.name })),
-                  { value: NEW_PARTNER, label: 'Otra institución…' },
+                  ...filteredPartners.map((p) => ({ value: p.id, label: p.name })),
+                  { value: NEW_PARTNER, label: `Otra ${typeLabel.toLowerCase()}…` },
                 ]}
-                placeholder="Banco, BIESS…"
+                placeholder={partnerPlaceholder}
                 value={form.financing_partner_id}
                 onChange={(e) => handlePartnerChange(e.target.value)}
               />
             </div>
+            {filteredPartners.length === 0 && form.financing_partner_id !== NEW_PARTNER ? (
+              <p className="text-xs text-[#8a5c58]">
+                No hay {typeLabel.toLowerCase()}s cargados. Elige “Otra…” o cambia el tipo.
+              </p>
+            ) : null}
             {(form.financing_partner_id === NEW_PARTNER || !form.financing_partner_id) && (
               <Input
                 id="fin-partner-name"
-                label="Nombre de la institución"
-                placeholder="Banco Pichincha"
+                label={`Nombre de la ${typeLabel.toLowerCase()}`}
+                placeholder={
+                  form.financing_type === 'cooperativa'
+                    ? 'Cooperativa JEP'
+                    : form.financing_type === 'biess'
+                      ? 'BIESS'
+                      : 'Banco Pichincha'
+                }
                 value={form.partner_name}
                 onChange={(e) => setForm((p) => ({ ...p, partner_name: e.target.value }))}
               />
@@ -389,7 +526,12 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
                 max="100"
                 step="0.01"
                 value={form.entry_pct}
+                readOnly={entryDriver === 'amount'}
+                className={entryDriver === 'amount' ? 'cursor-pointer bg-[#ebece6] text-[#6b645c]' : undefined}
                 onChange={(e) => handleEntryPct(e.target.value)}
+                onFocus={() => {
+                  setEntryDriver('pct')
+                }}
               />
               <Input
                 id="fin-entry"
@@ -398,9 +540,19 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
                 min="0"
                 step="0.01"
                 value={form.entry_amount}
+                readOnly={entryDriver === 'pct'}
+                className={entryDriver === 'pct' ? 'cursor-pointer bg-[#ebece6] text-[#6b645c]' : undefined}
                 onChange={(e) => handleEntryAmount(e.target.value)}
+                onFocus={() => {
+                  setEntryDriver('amount')
+                }}
               />
             </div>
+            <p className="text-[11px] text-[#8a8d87]">
+              {entryDriver === 'pct'
+                ? 'Editando %. El $ se calcula solo. Haz clic en Entrada ($) para editar el monto.'
+                : 'Editando $. El % se calcula solo. Haz clic en Entrada (%) para editar el porcentaje.'}
+            </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Input
                 id="fin-term"
@@ -433,7 +585,7 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
         <div className="lg:col-span-3">
           <div
             id="financing-proforma"
-              className="border border-[#c5c8bc] bg-[#f7f7f3] p-6 shadow-[inset_0_0_0_6px_#f4f4ef] print:border-0 print:shadow-none"
+            className="border border-[#c5c8bc] bg-[#f7f7f3] p-6 shadow-[inset_0_0_0_6px_#f4f4ef] print:border-0 print:shadow-none"
           >
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -460,8 +612,16 @@ export function FinancingCotizador({ tenantId, partners, plans, onSaved }: Finan
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   Solicitante
                 </p>
-                <p className="mt-1 font-medium text-slate-900">{selectedLead?.name ?? '—'}</p>
-                <p className="text-xs text-slate-500">{selectedLead?.phone ?? 'Sin teléfono'}</p>
+                <p className="mt-1 font-medium text-slate-900">
+                  {creatingLead
+                    ? form.new_lead_name.trim() || 'Nuevo lead'
+                    : (selectedLead?.name ?? '—')}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {creatingLead
+                    ? form.new_lead_phone.trim() || 'Sin teléfono'
+                    : (selectedLead?.phone ?? 'Sin teléfono')}
+                </p>
               </div>
               <div className="rounded-lg bg-slate-50 p-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">

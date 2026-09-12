@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import { Reply } from 'lucide-react'
 import { CompareSidePano, type ComparePanoPose } from '@/components/tour/CompareSidePano'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
@@ -20,6 +20,7 @@ type TourFinishCompareOverlayProps = {
   onSplitChange: (split: number) => void
   onClose: () => void
   syncPose?: ComparePanoPose | null
+  syncPoseRef?: MutableRefObject<ComparePanoPose | null>
   onPoseChange?: (pose: ComparePanoPose) => void
 }
 
@@ -58,6 +59,7 @@ export function TourFinishCompareOverlay({
   onSplitChange,
   onClose,
   syncPose = null,
+  syncPoseRef,
   onPoseChange,
 }: TourFinishCompareOverlayProps) {
   const dragRef = useRef(false)
@@ -104,6 +106,7 @@ export function TourFinishCompareOverlay({
           url={rightPanoUrl}
           className="h-full w-full bg-[#111]"
           syncPose={syncPose}
+          syncPoseRef={syncPoseRef}
           onPoseChange={onPoseChange}
         />
       </div>

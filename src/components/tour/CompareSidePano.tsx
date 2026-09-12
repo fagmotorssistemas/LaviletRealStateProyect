@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Viewer } from '@photo-sphere-viewer/core'
 import '@photo-sphere-viewer/core/index.css'
 import { cn } from '@/lib/utils'
@@ -16,18 +16,20 @@ type CompareSidePanoProps = {
   className?: string
   /** Si true, usa imagen plana (más fiable / sin 2º WebGL). */
   flatFallback?: boolean
-  /** Pose del otro visor (mismo punto de vista). */
+  /** Pose inicial / React (fallback). */
   syncPose?: ComparePanoPose | null
+  /** Pose en vivo del visor A — se lee cada frame (sync fluido). */
+  syncPoseRef?: MutableRefObject<ComparePanoPose | null>
   onPoseChange?: (pose: ComparePanoPose) => void
 }
 
-const EPS = 0.0008
+const EPS = 0.0012
 
 function posesClose(a: ComparePanoPose, b: ComparePanoPose) {
   return (
     Math.abs(a.yaw - b.yaw) < EPS &&
     Math.abs(a.pitch - b.pitch) < EPS &&
-    Math.abs(a.zoom - b.zoom) < 0.15
+    Math.abs(a.zoom - b.zoom) < 0.2
   )
 }
 
@@ -51,16 +53,18 @@ export function CompareSidePano({
   className,
   flatFallback = false,
   syncPose = null,
+  syncPoseRef,
   onPoseChange,
 }: CompareSidePanoProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
   const urlRef = useRef<string | null>(null)
   const applyingRef = useRef(false)
+  const userDrivingRef = useRef(false)
   const onPoseChangeRef = useRef(onPoseChange)
   onPoseChangeRef.current = onPoseChange
-  const syncPoseRef = useRef(syncPose)
-  syncPoseRef.current = syncPose
+  const syncPosePropRef = useRef(syncPose)
+  syncPosePropRef.current = syncPose
 
   const [mode, setMode] = useState<'pano' | 'flat' | 'empty' | 'error'>(
     url ? (flatFallback ? 'flat' : 'pano') : 'empty',
@@ -93,6 +97,8 @@ export function CompareSidePano({
 
     let cancelled = false
     let viewer = viewerRef.current
+    const initial =
+      syncPoseRef?.current ?? syncPosePropRef.current ?? null
 
     if (!viewer) {
       try {
@@ -102,9 +108,9 @@ export function CompareSidePano({
           loadingTxt: '',
           lang: { loading: '' },
           canvasBackground: '#111',
-          defaultZoomLvl: syncPoseRef.current?.zoom ?? 0,
-          defaultYaw: syncPoseRef.current?.yaw,
-          defaultPitch: syncPoseRef.current?.pitch,
+          defaultZoomLvl: initial?.zoom ?? 0,
+          defaultYaw: initial?.yaw,
+          defaultPitch: initial?.pitch,
           maxFov: 90,
           minFov: 40,
           mousewheelCtrlKey: false,
@@ -124,11 +130,30 @@ export function CompareSidePano({
 
     const emitPose = () => {
       if (cancelled || applyingRef.current || !viewerRef.current) return
+      userDrivingRef.current = true
       onPoseChangeRef.current?.(readPose(viewerRef.current))
+      requestAnimationFrame(() => {
+        userDrivingRef.current = false
+      })
+    }
+
+    // Aplicar pose del lado A en cada frame (más fiable que depender solo de React state).
+    const syncFromMain = () => {
+      if (cancelled || applyingRef.current || userDrivingRef.current || !viewerRef.current) return
+      const pose = syncPoseRef?.current ?? syncPosePropRef.current
+      if (!pose) return
+      const current = readPose(viewerRef.current)
+      if (posesClose(current, pose)) return
+      applyingRef.current = true
+      applyPose(viewerRef.current, pose)
+      queueMicrotask(() => {
+        applyingRef.current = false
+      })
     }
 
     viewer.addEventListener('position-updated', emitPose)
     viewer.addEventListener('zoom-updated', emitPose)
+    viewer.addEventListener('before-render', syncFromMain)
 
     const load = async () => {
       if (url === urlRef.current) {
@@ -137,15 +162,11 @@ export function CompareSidePano({
         } catch {
           /* ignore */
         }
-        if (syncPoseRef.current) {
-          applyingRef.current = true
-          applyPose(viewer, syncPoseRef.current)
-          applyingRef.current = false
-        }
+        syncFromMain()
         return
       }
       urlRef.current = url
-      const pose = syncPoseRef.current
+      const pose = syncPoseRef?.current ?? syncPosePropRef.current
       try {
         await viewer.setPanorama(url, {
           transition: false,
@@ -160,11 +181,7 @@ export function CompareSidePano({
         } catch {
           /* ignore */
         }
-        if (pose) {
-          applyingRef.current = true
-          applyPose(viewer, pose)
-          applyingRef.current = false
-        }
+        syncFromMain()
       } catch {
         if (!cancelled) setMode('flat')
       }
@@ -180,28 +197,29 @@ export function CompareSidePano({
     }
     window.addEventListener('resize', onResize)
     const t = window.setTimeout(onResize, 100)
+    const t2 = window.setTimeout(onResize, 400)
 
     return () => {
       cancelled = true
       window.clearTimeout(t)
+      window.clearTimeout(t2)
       window.removeEventListener('resize', onResize)
       viewer.removeEventListener('position-updated', emitPose)
       viewer.removeEventListener('zoom-updated', emitPose)
+      viewer.removeEventListener('before-render', syncFromMain)
     }
-  }, [mode, url])
+  }, [mode, url, syncPoseRef])
 
-  // Sync desde el visor principal
+  // También reaccionar a cambios de syncPose por si no hay ref.
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || mode !== 'pano' || !syncPose) return
+    if (applyingRef.current) return
     const current = readPose(viewer)
     if (posesClose(current, syncPose)) return
     applyingRef.current = true
     applyPose(viewer, syncPose)
-    // liberar en el próximo frame para no rebotar el evento
-    requestAnimationFrame(() => {
-      applyingRef.current = false
-    })
+    applyingRef.current = false
   }, [syncPose, mode])
 
   useEffect(() => {
@@ -231,13 +249,13 @@ export function CompareSidePano({
 
       {mode === 'empty' ? (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white/50">
-          Sin tour 360 para este acabado
+          Sin tour 360 para comparar
         </div>
       ) : null}
 
       {mode === 'error' ? (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white/50">
-          No se pudo cargar el acabado
+          No se pudo cargar el 360
         </div>
       ) : null}
     </div>

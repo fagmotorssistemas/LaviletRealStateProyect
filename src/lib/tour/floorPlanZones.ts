@@ -14,6 +14,8 @@ export type FloorPlanVariant = '2d' | '3d'
 
 export type FloorPlanVariantMedia = {
   imageUrl: string | null
+  /** HTML interactivo (reemplaza la imagen 3D cuando existe). */
+  htmlUrl?: string | null
   imageWidth: number
   imageHeight: number
 }
@@ -66,8 +68,14 @@ export type FloorPlanZonesDoc = {
 
 const EMPTY_MEDIA: FloorPlanVariantMedia = {
   imageUrl: null,
+  htmlUrl: null,
   imageWidth: 1,
   imageHeight: 1,
+}
+
+/** ¿La variante tiene algo para mostrar (foto o HTML)? */
+export function floorPlanVariantHasMedia(media: FloorPlanVariantMedia | null | undefined) {
+  return Boolean(media?.imageUrl || media?.htmlUrl)
 }
 
 export function floorPlanZonesPath(typologyCode: string, floor: number) {
@@ -85,22 +93,177 @@ export function floorPlanImagePath(
   return `${typologyCode}/floor-${key}-${suffix}.${ext}`
 }
 
+/** Ruta única por subida para romper caché de CDN/Storage (mismo nombre = mismo archivo viejo). */
+export function floorPlanImagePathVersioned(
+  typologyCode: string,
+  floor: number,
+  ext = 'webp',
+  variant: FloorPlanVariant = '2d',
+  version = Date.now(),
+) {
+  const key = floorPlanStorageKey(floor)
+  const suffix = variant === '3d' ? 'plan-3d' : 'plan'
+  return `${typologyCode}/floor-${key}-${suffix}-v${version}.${ext}`
+}
+
 export type FloorPlanFloorSummary = {
   floor: number
   imageUrl: string | null
   imageUrl2d: string | null
   imageUrl3d: string | null
+  htmlUrl3d: string | null
   zoneCount: number
   updatedAt: string | null
 }
 
 const FLOOR_PLAN_IMAGE_EXTS = ['webp', 'jpg', 'jpeg', 'png', 'gif'] as const
+const FLOOR_PLAN_MEDIA_EXTS = [...FLOOR_PLAN_IMAGE_EXTS, 'html'] as const
+
+function publicFloorPlanUrl(supabase: SupabaseClient, path: string) {
+  return supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).getPublicUrl(path).data.publicUrl
+}
+
+function floorPlanMediaNameRegex(floor: number, variant: FloorPlanVariant) {
+  const key = floorPlanStorageKey(floor)
+  if (variant === '3d') {
+    // floor-2-plan-3d.html | floor-2-plan-3d-v123.html | floor-2-plan-3d.webp | …
+    return new RegExp(
+      `^floor-${key}-plan-3d(?:-v\\d+)?\\.(?:html|webp|jpe?g|png|gif)$`,
+      'i',
+    )
+  }
+  return new RegExp(`^floor-${key}-plan(?:-v\\d+)?\\.(?:webp|jpe?g|png|gif)$`, 'i')
+}
+
+/** Lista paths de media de un piso/variante (canónico + versionados). */
+export async function listFloorPlanMediaPaths(
+  supabase: SupabaseClient,
+  typologyCode: string,
+  floor: number,
+  variant?: FloorPlanVariant,
+): Promise<string[]> {
+  const { data: files } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).list(typologyCode, {
+    limit: 200,
+  })
+  if (!files?.length) return []
+  const variants: FloorPlanVariant[] = variant ? [variant] : ['2d', '3d']
+  const paths: string[] = []
+  for (const v of variants) {
+    const re = floorPlanMediaNameRegex(floor, v)
+    for (const file of files) {
+      if (re.test(file.name)) paths.push(`${typologyCode}/${file.name}`)
+    }
+  }
+  return paths
+}
+
+/**
+ * Si el JSON no tiene una variante pero el archivo sí está en storage
+ * (p. ej. subida 3D reciente / cache viejo), completa la URL.
+ */
+export async function discoverFloorPlanVariantUrls(
+  supabase: SupabaseClient,
+  typologyCode: string,
+  floor: number,
+): Promise<Record<FloorPlanVariant, string | null>> {
+  const key = floorPlanStorageKey(floor)
+  const found: Record<FloorPlanVariant, string | null> = { '2d': null, '3d': null }
+  const { data: files } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).list(typologyCode, {
+    limit: 200,
+  })
+  if (!files?.length) return found
+
+  // Preferir el archivo versionado más reciente (mayor -vN).
+  type Candidate = { name: string; stamp: number; html: boolean }
+  let pick3d: Candidate | null = null
+  let pick2d: Candidate | null = null
+
+  const re3d = new RegExp(`^floor-${key}-plan-3d(?:-v(\\d+))?\\.(html|webp|jpe?g|png|gif)$`, 'i')
+  const re2d = new RegExp(`^floor-${key}-plan(?:-v(\\d+))?\\.(webp|jpe?g|png|gif)$`, 'i')
+
+  for (const file of files) {
+    const name = file.name
+    const m3 = name.match(re3d)
+    if (m3) {
+      const stamp = m3[1] ? Number(m3[1]) : 0
+      const html = m3[2].toLowerCase() === 'html'
+      const next = { name, stamp, html }
+      if (
+        !pick3d ||
+        next.stamp > pick3d.stamp ||
+        (next.stamp === pick3d.stamp && html && !pick3d.html)
+      ) {
+        pick3d = next
+      }
+      continue
+    }
+    const m2 = name.match(re2d)
+    if (m2) {
+      const stamp = m2[1] ? Number(m2[1]) : 0
+      if (!pick2d || stamp > pick2d.stamp) {
+        pick2d = { name, stamp, html: false }
+      }
+    }
+  }
+
+  if (pick3d) found['3d'] = publicFloorPlanUrl(supabase, `${typologyCode}/${pick3d.name}`)
+  if (pick2d) found['2d'] = publicFloorPlanUrl(supabase, `${typologyCode}/${pick2d.name}`)
+  return found
+}
+
+function mergeDiscoveredVariants(
+  doc: FloorPlanZonesDoc,
+  discovered: Record<FloorPlanVariant, string | null>,
+): { doc: FloorPlanZonesDoc; changed: boolean } {
+  const next = withFloorPlanVariants(doc)
+  let changed = false
+  for (const variant of ['2d', '3d'] as const) {
+    const url = discovered[variant]
+    if (!url) continue
+    const current = next.variants[variant]
+    const currentUrl = current?.htmlUrl || current?.imageUrl || null
+    // Si ya hay URL pero discovery encontró una versión más nueva (-vN mayor), actualizar.
+    const shouldReplace =
+      !currentUrl ||
+      (versionStampFromMediaUrl(url) > versionStampFromMediaUrl(currentUrl) &&
+        url.split('?')[0] !== currentUrl.split('?')[0])
+    if (!shouldReplace) continue
+    const isHtml = /\.html(?:$|\?)/i.test(url)
+    next.variants[variant] = {
+      imageUrl: isHtml ? null : url,
+      htmlUrl: isHtml ? url : null,
+      imageWidth: current?.imageWidth || (isHtml ? 2048 : 1),
+      imageHeight: current?.imageHeight || (isHtml ? 970 : 1),
+    }
+    changed = true
+  }
+  if (!changed) return { doc: next, changed: false }
+  const preferred = floorPlanVariantHasMedia(next.variants['2d'])
+    ? next.variants['2d']
+    : next.variants['3d']
+  return {
+    changed: true,
+    doc: {
+      ...next,
+      imageUrl: preferred.imageUrl,
+      imageWidth: preferred.imageWidth || 1,
+      imageHeight: preferred.imageHeight || 1,
+    },
+  }
+}
+
+function versionStampFromMediaUrl(url: string | null | undefined): number {
+  if (!url) return 0
+  const match = url.match(/-v(\d+)\.(?:html|webp|jpe?g|png|gif)(?:$|\?)/i)
+  return match ? Number(match[1]) || 0 : 0
+}
 
 function parseMedia(value: unknown): FloorPlanVariantMedia {
   if (!value || typeof value !== 'object') return { ...EMPTY_MEDIA }
   const row = value as Partial<FloorPlanVariantMedia>
   return {
     imageUrl: typeof row.imageUrl === 'string' ? row.imageUrl : null,
+    htmlUrl: typeof row.htmlUrl === 'string' ? row.htmlUrl : null,
     imageWidth: Number.isFinite(Number(row.imageWidth)) ? Number(row.imageWidth) : 1,
     imageHeight: Number.isFinite(Number(row.imageHeight)) ? Number(row.imageHeight) : 1,
   }
@@ -111,20 +274,23 @@ export function withFloorPlanVariants(doc: FloorPlanZonesDoc): FloorPlanZonesDoc
   const legacy2d: FloorPlanVariantMedia = doc.imageUrl
     ? {
         imageUrl: doc.imageUrl,
+        htmlUrl: null,
         imageWidth: doc.imageWidth || 1,
         imageHeight: doc.imageHeight || 1,
       }
     : { ...EMPTY_MEDIA }
 
+  const raw2d = doc.variants?.['2d'] ? parseMedia(doc.variants['2d']) : { ...EMPTY_MEDIA }
+  const raw3d = doc.variants?.['3d'] ? parseMedia(doc.variants['3d']) : { ...EMPTY_MEDIA }
+
   const variants: Record<FloorPlanVariant, FloorPlanVariantMedia> = {
-    '2d': doc.variants?.['2d']?.imageUrl ? doc.variants['2d'] : legacy2d,
-    '3d': doc.variants?.['3d'] ?? { ...EMPTY_MEDIA },
+    '2d': floorPlanVariantHasMedia(raw2d) ? raw2d : legacy2d,
+    '3d': raw3d,
   }
 
-  // Si variants.2d estaba vacío pero legacy tenía imagen, ya quedó en 2d.
-  if (!variants['2d'].imageUrl && legacy2d.imageUrl) variants['2d'] = legacy2d
+  if (!floorPlanVariantHasMedia(variants['2d']) && legacy2d.imageUrl) variants['2d'] = legacy2d
 
-  const preferred = variants['2d'].imageUrl ? variants['2d'] : variants['3d']
+  const preferred = floorPlanVariantHasMedia(variants['2d']) ? variants['2d'] : variants['3d']
   return {
     ...doc,
     variants,
@@ -198,24 +364,46 @@ export async function uploadFloorPlanImage(
   contentType: string,
   ext = 'webp',
   variant: FloorPlanVariant = '2d',
+  options?: { cleanupOld?: boolean },
 ): Promise<{ path: string; publicUrl: string }> {
-  const stale = FLOOR_PLAN_IMAGE_EXTS.filter((item) => item !== ext).map((item) =>
-    floorPlanImagePath(typologyCode, floor, item, variant),
+  const version = Date.now()
+  const path = floorPlanImagePathVersioned(typologyCode, floor, ext, variant, version)
+
+  const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
+    upsert: false,
+    contentType,
+    // Sin cache largo: la URL ya es única por versión.
+    cacheControl: '0',
+  })
+  if (error) throw new Error(error.message || 'No se pudo subir el plano del piso')
+
+  if (options?.cleanupOld !== false) {
+    await cleanupOldFloorPlanMedia(supabase, typologyCode, floor, variant, path)
+  }
+
+  const { data } = supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).getPublicUrl(path)
+  return { path, publicUrl: data.publicUrl }
+}
+
+/** Borra media previa del piso/variante dejando solo `keepPath`. */
+export async function cleanupOldFloorPlanMedia(
+  supabase: SupabaseClient,
+  typologyCode: string,
+  floor: number,
+  variant: FloorPlanVariant,
+  keepPath: string,
+): Promise<void> {
+  const stale = (await listFloorPlanMediaPaths(supabase, typologyCode, floor, variant)).filter(
+    (item) => item !== keepPath,
   )
+  // Canónicos fijos (legado sin -vN).
+  for (const ext of FLOOR_PLAN_MEDIA_EXTS) {
+    const canonical = floorPlanImagePath(typologyCode, floor, ext, variant)
+    if (canonical !== keepPath && !stale.includes(canonical)) stale.push(canonical)
+  }
   if (stale.length > 0) {
     await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).remove(stale)
   }
-
-  const path = floorPlanImagePath(typologyCode, floor, ext, variant)
-  const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
-    upsert: true,
-    contentType,
-    // Cache en CDN/browser; el showroom bustea con ?v=updatedAt al cambiar el doc.
-    cacheControl: '86400',
-  })
-  if (error) throw new Error(error.message || 'No se pudo subir el plano del piso')
-  const { data } = supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).getPublicUrl(path)
-  return { path, publicUrl: data.publicUrl }
 }
 
 export async function deleteFloorPlanImage(
@@ -224,15 +412,22 @@ export async function deleteFloorPlanImage(
   floor: number,
   variant: FloorPlanVariant = '2d',
 ): Promise<void> {
-  const paths = FLOOR_PLAN_IMAGE_EXTS.map((ext) =>
+  const paths = await listFloorPlanMediaPaths(supabase, typologyCode, floor, variant)
+  // Incluir canónicos fijos por si list falló parcialmente.
+  const fallback = FLOOR_PLAN_MEDIA_EXTS.map((ext) =>
     floorPlanImagePath(typologyCode, floor, ext, variant),
   )
-  await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).remove(paths)
+  const unique = [...new Set([...paths, ...fallback])]
+  if (unique.length > 0) {
+    await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).remove(unique)
+  }
   const existing = await loadFloorPlanZones(supabase, typologyCode, floor)
   if (!existing) return
   const next = withFloorPlanVariants(existing)
   next.variants[variant] = { ...EMPTY_MEDIA }
-  const preferred = next.variants['2d'].imageUrl ? next.variants['2d'] : next.variants['3d']
+  const preferred = floorPlanVariantHasMedia(next.variants['2d'])
+    ? next.variants['2d']
+    : next.variants['3d']
   await saveFloorPlanZones(supabase, {
     ...next,
     imageUrl: preferred.imageUrl,
@@ -262,11 +457,13 @@ export async function listFloorPlanFloorSummaries(
       const normalized = doc ? withFloorPlanVariants(doc) : null
       const imageUrl2d = normalized?.variants['2d'].imageUrl ?? null
       const imageUrl3d = normalized?.variants['3d'].imageUrl ?? null
+      const htmlUrl3d = normalized?.variants['3d'].htmlUrl ?? null
       return {
         floor,
-        imageUrl: imageUrl2d || imageUrl3d,
+        imageUrl: imageUrl2d || imageUrl3d || htmlUrl3d,
         imageUrl2d,
-        imageUrl3d,
+        imageUrl3d: imageUrl3d || htmlUrl3d,
+        htmlUrl3d,
         zoneCount: normalized?.zones.length ?? 0,
         updatedAt: normalized?.updatedAt ?? null,
       } satisfies FloorPlanFloorSummary
@@ -503,12 +700,56 @@ export async function loadFloorPlanZones(
   floor: number,
 ): Promise<FloorPlanZonesDoc | null> {
   const path = floorPlanZonesPath(typologyCode, floor)
-  const { data, error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).download(path)
-  if (error || !data) return null
+  const [{ data, error }, discovered] = await Promise.all([
+    supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).download(path),
+    discoverFloorPlanVariantUrls(supabase, typologyCode, floor),
+  ])
+
+  let doc: FloorPlanZonesDoc | null = null
+  if (!error && data) {
+    try {
+      doc = parseFloorPlanZonesDoc(JSON.parse(await data.text()))
+    } catch {
+      doc = null
+    }
+  }
+
+  if (!doc) {
+    if (!discovered['2d'] && !discovered['3d']) return null
+    const d2 = discovered['2d']
+    const d3 = discovered['3d']
+    const d3Html = Boolean(d3 && /\.html(?:$|\?)/i.test(d3))
+    const seed = withFloorPlanVariants({
+      floor,
+      typologyCode,
+      imageUrl: d2 || (d3Html ? null : d3),
+      imageWidth: d3Html && !d2 ? 2048 : 1,
+      imageHeight: d3Html && !d2 ? 970 : 1,
+      variants: {
+        '2d': { imageUrl: d2, htmlUrl: null, imageWidth: 1, imageHeight: 1 },
+        '3d': {
+          imageUrl: d3Html ? null : d3,
+          htmlUrl: d3Html ? d3 : null,
+          imageWidth: d3Html ? 2048 : 1,
+          imageHeight: d3Html ? 970 : 1,
+        },
+      },
+      zones: [],
+      updatedAt: new Date().toISOString(),
+    })
+    try {
+      return await saveFloorPlanZones(supabase, seed)
+    } catch {
+      return seed
+    }
+  }
+
+  const merged = mergeDiscoveredVariants(doc, discovered)
+  if (!merged.changed) return merged.doc
   try {
-    return parseFloorPlanZonesDoc(JSON.parse(await data.text()))
+    return await saveFloorPlanZones(supabase, merged.doc)
   } catch {
-    return null
+    return merged.doc
   }
 }
 
@@ -532,7 +773,8 @@ export async function saveFloorPlanZones(
     floorPlanZonesPath(doc.typologyCode, doc.floor),
     JSON.stringify(next),
     // El bucket typology-assets solo admite imágenes; mismo truco que hotspots.
-    { upsert: true, contentType: 'image/webp', cacheControl: '300' },
+    // cacheControl bajo: el JSON se reescribe en cada subida y no debe quedar pegado.
+    { upsert: true, contentType: 'image/webp', cacheControl: '0' },
   )
   if (error) throw new Error(error.message || 'No se pudieron guardar las zonas del piso')
   return next

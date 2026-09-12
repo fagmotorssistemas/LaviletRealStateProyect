@@ -229,17 +229,20 @@ async function toCatalogTypology(
       )
       .map(toPublic),
     planos: list.filter((item) => item.kind === 'plano').map(toPublic),
-    vistas: slots.map((room) => {
-      const slug = vistaRoomSlug(room.slug)
-      const scenes = buildRoomScenes(publicAssets, slug)
-      const selected = pickRoomScene(scenes, defaultFinish, 'dia')
-      return {
-        slug,
-        label: room.label,
-        url: selected?.url ?? null,
-        scenes,
-      }
-    }),
+    vistas: slots
+      .map((room) => {
+        const slug = vistaRoomSlug(room.slug)
+        // Solo archivos de la pestaña Galería (vista-*). No mezclar 360/ambientes.
+        const scenes = buildRoomScenes(publicAssets, slug)
+        const selected = pickRoomScene(scenes, defaultFinish, 'dia')
+        return {
+          slug,
+          label: room.label,
+          url: selected?.url ?? null,
+          scenes,
+        }
+      })
+      .filter((item) => item.scenes.length > 0 && Boolean(item.url)),
     slots: slots.map((room) => ({ slug: room.slug, label: room.label })),
     rooms: catalogRooms,
     hotspots: placed.filter((pin) => {

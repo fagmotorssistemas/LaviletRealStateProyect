@@ -191,6 +191,8 @@ export function FloorPlanViewer({
       className="relative h-full min-h-[360px] w-full overflow-hidden rounded-2xl bg-white ring-1 ring-[#2B1A18]/10"
       style={{ cursor: drawing ? 'crosshair' : undefined }}
       onWheel={(event) => {
+        // No bloquear el scroll del modal: zoom solo con Ctrl/Cmd + rueda.
+        if (!event.ctrlKey && !event.metaKey) return
         event.preventDefault()
         const delta = event.deltaY > 0 ? 0.9 : 1.1
         const next = Math.min(8, Math.max(0.05, Number((scaleRef.current * delta).toFixed(4))))

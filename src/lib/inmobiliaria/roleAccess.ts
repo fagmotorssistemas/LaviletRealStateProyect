@@ -69,7 +69,10 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
     '/inmobiliaria/agenda',
     '/inmobiliaria/ventas',
   ],
-  contable: ['/inmobiliaria/financiamiento', '/inmobiliaria/contratos'],
+  contable: [
+    '/inmobiliaria/financiamiento',
+    '/inmobiliaria/contratos',
+  ],
   admin: [
     '/inmobiliaria/inventario',
     '/inmobiliaria/proyectos',

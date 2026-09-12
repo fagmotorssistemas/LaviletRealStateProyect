@@ -84,6 +84,9 @@ body {
 
 .crm-app-canvas {
   background-color: #fcfbf9;
+  /* Scroll nativo fluido; evita que transforms del contenido peleen con el scroll. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .crm-sidebar {
@@ -625,8 +628,8 @@ textarea.crm-field {
 
 @keyframes crm-rise {
   from {
-    opacity: 0;
-    translate: 0 14px;
+    opacity: 0.92;
+    translate: 0 6px;
   }
   to {
     opacity: 1;
@@ -641,36 +644,36 @@ textarea.crm-field {
 .crm-reveal .crm-project-card,
 .crm-reveal .crm-empty,
 .crm-reveal [class*="overflow-x-auto"] {
-  animation: crm-rise 0.62s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: crm-rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .crm-reveal .crm-page-header {
-  animation-delay: 0.04s;
+  animation-delay: 0s;
 }
 
 .crm-reveal .crm-filters-panel {
-  animation-delay: 0.12s;
+  animation-delay: 0.02s;
 }
 
 .crm-reveal .crm-tabs {
-  animation-delay: 0.16s;
+  animation-delay: 0.04s;
 }
 
-.crm-reveal .crm-stat:nth-child(1) { animation-delay: 0.1s; }
-.crm-reveal .crm-stat:nth-child(2) { animation-delay: 0.16s; }
-.crm-reveal .crm-stat:nth-child(3) { animation-delay: 0.22s; }
-.crm-reveal .crm-stat:nth-child(4) { animation-delay: 0.28s; }
+.crm-reveal .crm-stat:nth-child(1) { animation-delay: 0.02s; }
+.crm-reveal .crm-stat:nth-child(2) { animation-delay: 0.04s; }
+.crm-reveal .crm-stat:nth-child(3) { animation-delay: 0.06s; }
+.crm-reveal .crm-stat:nth-child(4) { animation-delay: 0.08s; }
 
-.crm-reveal .crm-project-card:nth-child(1) { animation-delay: 0.12s; }
-.crm-reveal .crm-project-card:nth-child(2) { animation-delay: 0.18s; }
-.crm-reveal .crm-project-card:nth-child(3) { animation-delay: 0.24s; }
-.crm-reveal .crm-project-card:nth-child(4) { animation-delay: 0.3s; }
-.crm-reveal .crm-project-card:nth-child(5) { animation-delay: 0.36s; }
-.crm-reveal .crm-project-card:nth-child(6) { animation-delay: 0.42s; }
+.crm-reveal .crm-project-card:nth-child(1) { animation-delay: 0.02s; }
+.crm-reveal .crm-project-card:nth-child(2) { animation-delay: 0.04s; }
+.crm-reveal .crm-project-card:nth-child(3) { animation-delay: 0.06s; }
+.crm-reveal .crm-project-card:nth-child(4) { animation-delay: 0.08s; }
+.crm-reveal .crm-project-card:nth-child(5) { animation-delay: 0.1s; }
+.crm-reveal .crm-project-card:nth-child(6) { animation-delay: 0.12s; }
 
 .crm-reveal .crm-empty,
 .crm-reveal [class*="overflow-x-auto"] {
-  animation-delay: 0.2s;
+  animation-delay: 0.04s;
 }
 
 @keyframes crm-modal-fade {

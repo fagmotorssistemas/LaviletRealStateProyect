@@ -23,7 +23,12 @@ import type {
   Project,
 } from '@/types/inmobiliaria'
 
-export type FinancingTab = 'planes' | 'solicitudes' | 'asesorias' | 'interesados'
+export type FinancingTab =
+  | 'planes'
+  | 'solicitudes'
+  | 'asesorias'
+  | 'interesados'
+  | 'simulador'
 
 export function useFinancing() {
   const { supabase, user, isLoading: authLoading } = useAuth()

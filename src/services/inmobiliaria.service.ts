@@ -2699,13 +2699,16 @@ export async function updatePaymentPlan(
   return data as PaymentPlan
 }
 
+const FINANCING_PARTNER_EMBED =
+  'id, partner_name, partner_type, annual_interest_rate, min_financing_years, max_financing_years, processing_days, notes, active'
+
 export async function listLeadFinancing(
   supabase: SupabaseClient,
   params: { status?: string; search?: string } = {},
 ): Promise<LeadFinancing[]> {
   let query = supabase
     .from('lead_financing')
-    .select('*, lead:leads(id, name, phone), unit:units(id, unit_number, project:projects(name)), partner:financing_partners(id, name, partner_type, approx_rate)')
+    .select(`*, lead:leads(id, name, phone), unit:units(id, unit_number, project:projects(name)), partner:financing_partners(${FINANCING_PARTNER_EMBED})`)
     .order('requested_at', { ascending: false })
 
   if (params.status) query = query.eq('status', params.status)
@@ -2757,12 +2760,17 @@ async function hydrateLeadFinancing(
       ? supabase.from('units').select('id, unit_number, project:projects(name)').in('id', unitIds)
       : Promise.resolve({ data: [] as { id: string; unit_number: string; project?: { name: string } | { name: string }[] | null }[] }),
     partnerIds.length
-      ? supabase.from('financing_partners').select('id, name, partner_type, approx_rate').in('id', partnerIds)
-      : Promise.resolve({ data: [] as Pick<FinancingPartner, 'id' | 'name' | 'partner_type' | 'approx_rate'>[] }),
+      ? supabase.from('financing_partners').select(FINANCING_PARTNER_EMBED).in('id', partnerIds)
+      : Promise.resolve({ data: [] as Record<string, unknown>[] }),
   ])
   const leadMap = new Map((leads ?? []).map((l) => [l.id, l]))
   const unitMap = new Map((units ?? []).map((u) => [u.id, u]))
-  const partnerMap = new Map((partners ?? []).map((p) => [p.id, p]))
+  const partnerMap = new Map(
+    (partners ?? [])
+      .map((p) => mapFinancingPartnerRow(p))
+      .filter((p): p is FinancingPartner => Boolean(p))
+      .map((p) => [p.id, p]),
+  )
   return rows.map((r) => {
     const embedded =
       unwrapPartner(r.partner) ??
@@ -2780,12 +2788,38 @@ async function hydrateLeadFinancing(
 }
 
 function unwrapPartner(value: unknown): Pick<FinancingPartner, 'id' | 'name' | 'partner_type' | 'approx_rate'> | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const row = Array.isArray(value) ? value[0] : value
-  if (!row || typeof row !== 'object' || !('name' in row)) return undefined
-  const name = (row as { name?: unknown }).name
-  if (typeof name !== 'string' || !name.trim()) return undefined
-  return row as Pick<FinancingPartner, 'id' | 'name' | 'partner_type' | 'approx_rate'>
+  const mapped = mapFinancingPartnerRow(value)
+  if (!mapped) return undefined
+  return {
+    id: mapped.id,
+    name: mapped.name,
+    partner_type: mapped.partner_type,
+    approx_rate: mapped.approx_rate,
+  }
+}
+
+/** Adapta schema del simulador (`partner_name`, `annual_interest_rate`, `active`) al shape CRM. */
+function mapFinancingPartnerRow(value: unknown): FinancingPartner | null {
+  if (!value || typeof value !== 'object') return null
+  const row = (Array.isArray(value) ? value[0] : value) as Record<string, unknown>
+  if (!row || typeof row !== 'object') return null
+  const id = String(row.id ?? '')
+  const name = String(row.partner_name ?? row.name ?? '').trim()
+  if (!id || !name) return null
+  const active = row.active ?? row.is_active
+  return {
+    id,
+    name,
+    partner_type: (row.partner_type as string | null) ?? null,
+    max_term_years: (row.max_financing_years as number | null) ?? (row.max_term_years as number | null) ?? null,
+    min_entry_pct: (row.min_entry_pct as number | null) ?? null,
+    approx_rate:
+      (row.annual_interest_rate as number | null) ?? (row.approx_rate as number | null) ?? null,
+    requirements: (row.notes as string | null) ?? (row.requirements as string | null) ?? null,
+    approval_days:
+      (row.processing_days as number | null) ?? (row.approval_days as number | null) ?? null,
+    is_active: active == null ? true : Boolean(active),
+  }
 }
 
 export async function createLeadFinancing(
@@ -2823,20 +2857,26 @@ export async function createLeadFinancing(
       generated_by: payload.generated_by ?? 'asesor',
       notes: payload.notes ?? null,
     })
-    .select('*, partner:financing_partners(id, name, partner_type, approx_rate)')
+    .select(`*, partner:financing_partners(${FINANCING_PARTNER_EMBED})`)
     .single()
   if (error) throw error
-  return data as LeadFinancing
+  const row = data as LeadFinancing & { partner?: unknown }
+  return {
+    ...row,
+    partner: unwrapPartner(row.partner) ?? null,
+  }
 }
 
 export async function listFinancingPartners(supabase: SupabaseClient): Promise<FinancingPartner[]> {
   const { data, error } = await supabase
     .from('financing_partners')
-    .select('*')
-    .eq('is_active', true)
-    .order('name', { ascending: true })
+    .select(FINANCING_PARTNER_EMBED)
+    .eq('active', true)
+    .order('partner_name', { ascending: true })
   if (error) throw error
-  return (data ?? []) as FinancingPartner[]
+  return (data ?? [])
+    .map((row) => mapFinancingPartnerRow(row))
+    .filter((row): row is FinancingPartner => Boolean(row))
 }
 
 export async function findOrCreateFinancingPartner(
@@ -2848,27 +2888,35 @@ export async function findOrCreateFinancingPartner(
 
   const { data: existing } = await supabase
     .from('financing_partners')
-    .select('*')
-    .ilike('name', name)
+    .select(FINANCING_PARTNER_EMBED)
+    .ilike('partner_name', name)
     .limit(1)
     .maybeSingle()
-  if (existing) return existing as FinancingPartner
+  const mappedExisting = mapFinancingPartnerRow(existing)
+  if (mappedExisting) return mappedExisting
 
-  const partnerType = ['banco', 'biess', 'cooperativa'].includes(params.partner_type ?? '')
+  const partnerType = ['banco', 'biess', 'cooperativa', 'bank', 'cooperative'].includes(
+    params.partner_type ?? '',
+  )
     ? params.partner_type
-    : null
+    : 'bank'
 
   const { data, error } = await supabase
     .from('financing_partners')
     .insert({
-      name,
+      tenant_id: TOUR_TENANT_ID,
+      partner_name: name,
       partner_type: partnerType,
-      is_active: true,
+      annual_interest_rate: 0,
+      active: true,
+      is_recommended: false,
     })
-    .select()
+    .select(FINANCING_PARTNER_EMBED)
     .single()
   if (error) throw error
-  return data as FinancingPartner
+  const mapped = mapFinancingPartnerRow(data)
+  if (!mapped) throw new Error('No se pudo crear la institución')
+  return mapped
 }
 
 export async function listAsesoriasFinanciamiento(

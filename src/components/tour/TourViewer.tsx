@@ -11,20 +11,29 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns2,
+  Calculator,
   FileText,
   Images,
   Layers,
   Heart,
+  Landmark,
   Menu,
+  Moon,
   Bookmark,
-  PanelsTopLeft,
   Rotate3d,
+  Sun,
   SwatchBook,
   X,
 } from 'lucide-react'
 import Link from 'next/link'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
 import { TourFichaDrawer } from '@/components/tour/TourFichaDrawer'
+import { TourSimulatorDrawer } from '@/components/tour/TourSimulatorDrawer'
+import { TourFinancingDrawer } from '@/components/tour/TourFinancingDrawer'
+import {
+  TourPhoneUnlockModal,
+  type TourPhoneUnlockIntent,
+} from '@/components/tour/TourPhoneUnlockModal'
 import { TourFloorPlan } from '@/components/tour/TourFloorPlan'
 import { TourComparador } from '@/components/tour/TourComparador'
 import { TourFinishCompareOverlay } from '@/components/tour/TourFinishCompareOverlay'
@@ -36,6 +45,7 @@ import { TourFloorLocationPeek } from '@/components/tour/TourFloorLocationPeek'
 import { TourFavoritesPanel } from '@/components/tour/TourFavoritesPanel'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
+import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
 import {
   buildTourRooms,
   roomsShareFamily,
@@ -61,6 +71,10 @@ import {
 import { useTourSceneTracking } from '@/hooks/useTourSceneTracking'
 import { TourLeadGate } from '@/components/tour/TourLeadGate'
 import { logTourEvent } from '@/lib/tour/visitorTracking'
+import {
+  isShowroomIdentified,
+  SHOWROOM_IDENTITY_EVENT,
+} from '@/lib/tour/showroomIdentity'
 import {
   findUnitByNumber,
   readUnitQueryParam,
@@ -214,7 +228,7 @@ function StillFrame({
   )
 }
 
-type TourViewMode = 'tour' | 'vistas' | 'galeria' | 'planos-2d' | 'planos-3d'
+type TourViewMode = 'tour' | 'galeria' | 'planos-2d' | 'planos-3d'
 type StillItem = { id: string; label: string; url: string }
 
 function stillLabelFromFile(fileName: string) {
@@ -258,6 +272,7 @@ function ModeButton({
       title={title ?? children}
       disabled={disabled}
       onClick={onClick}
+      data-active={active ? 'true' : undefined}
       className={cn(
         'tour-mode-btn tour-glass border-white/25 !bg-[#14110e]/72 text-left font-semibold uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300',
         active ? 'text-white shadow-[inset_2px_0_0_#BDA27E]' : 'text-white/80 hover:text-white',
@@ -318,6 +333,7 @@ function PlanosModePicker({
           'tour-mode-btn tour-glass border-white/25 !bg-[#14110e]/72 text-left font-semibold uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300',
           active ? 'text-white shadow-[inset_2px_0_0_#BDA27E]' : 'text-white/80 hover:text-white',
         )}
+        data-active={active ? 'true' : undefined}
       >
         <span className="tour-mode-btn__icon" aria-hidden>
           <Layers size={14} strokeWidth={1.75} />
@@ -361,6 +377,100 @@ function PlanosModePicker({
     </div>
   )
 }
+
+function DesktopModesList({
+  viewMode,
+  active,
+  show,
+  onGaleria,
+  onPlanos,
+  onTour,
+  onTerminaciones,
+  onComparador,
+}: {
+  viewMode: TourViewMode
+  active: {
+    galeria: boolean
+    tour: boolean
+    terminaciones: boolean
+    comparador: boolean
+  }
+  show: {
+    galeria: boolean
+    planos: boolean
+    tour: boolean
+    terminaciones: boolean
+    comparador: boolean
+  }
+  onGaleria: () => void
+  onPlanos: (mode: 'planos-2d' | 'planos-3d') => void
+  onTour: () => void
+  onTerminaciones: () => void
+  onComparador: () => void
+}) {
+  return (
+    <>
+      {show.galeria ? (
+        <ModeButton active={active.galeria} icon={<Images size={14} strokeWidth={1.75} />} onClick={onGaleria}>
+          Galería
+        </ModeButton>
+      ) : null}
+      {show.planos ? <PlanosModePicker viewMode={viewMode} onSelect={onPlanos} /> : null}
+      {show.tour ? (
+        <ModeButton active={active.tour} icon={<Rotate3d size={14} strokeWidth={1.75} />} onClick={onTour}>
+          Tour 360°
+        </ModeButton>
+      ) : null}
+      {show.terminaciones ? (
+        <ModeButton
+          active={active.terminaciones}
+          icon={<SwatchBook size={14} strokeWidth={1.75} />}
+          onClick={onTerminaciones}
+        >
+          Terminaciones
+        </ModeButton>
+      ) : null}
+      {show.comparador ? (
+        <ModeButton active={active.comparador} icon={<Columns2 size={14} strokeWidth={1.75} />} onClick={onComparador}>
+          Comparador
+        </ModeButton>
+      ) : null}
+    </>
+  )
+}
+
+/** Qué modos tiene sentido mostrar según la vista actual. */
+function modeButtonsForView(input: {
+  shellMode: 'plan' | 'unit'
+  viewMode: TourViewMode
+  terminacionesFocus: boolean
+}): {
+  galeria: boolean
+  planos: boolean
+  tour: boolean
+  terminaciones: boolean
+  comparador: boolean
+} {
+  // Plano del edificio: sin menú de modos (solo toggle 2D/3D del propio plano).
+  if (input.shellMode === 'plan') {
+    return { galeria: false, planos: false, tour: false, terminaciones: false, comparador: false }
+  }
+  // Panel de terminaciones: volver al tour o seguir en terminaciones.
+  if (input.terminacionesFocus) {
+    return { galeria: false, planos: false, tour: true, terminaciones: true, comparador: false }
+  }
+  // Galería: sin terminaciones ni comparador (son del 360).
+  if (input.viewMode === 'galeria') {
+    return { galeria: true, planos: false, tour: true, terminaciones: false, comparador: false }
+  }
+  // Planos tipología (stills): no mezclar con menú de modos del edificio.
+  if (isPlanosMode(input.viewMode)) {
+    return { galeria: true, planos: false, tour: true, terminaciones: false, comparador: false }
+  }
+  // Tour 360°: todo lo del recorrido (sin planos tipología en el menú).
+  return { galeria: true, planos: false, tour: true, terminaciones: true, comparador: true }
+}
+
 
 function StillGalleryBar({
   items,
@@ -525,15 +635,37 @@ function useNeedLandscapeGate(enabled: boolean) {
       setNeed(false)
       return
     }
-    setNeed(isTouchShowroomDevice() && !isOsLandscape())
+    // Con CSS force-landscape ya no bloqueamos: el showroom se ve horizontal solo.
+    setNeed(false)
   })
 
   useEffect(() => {
-    if (!enabled) setNeed(false)
-    else setNeed(isTouchShowroomDevice() && !isOsLandscape())
+    setNeed(false)
   }, [enabled])
 
   return need
+}
+
+/** Portrait + touch → forzamos landscape visual (CSS) al abrir el showroom. */
+function useForceLandscapeCss(enabled: boolean) {
+  const [force, setForce] = useState(false)
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
+
+  useOrientationSync(() => {
+    if (!enabledRef.current) {
+      setForce(false)
+      return
+    }
+    setForce(isTouchShowroomDevice() && !isOsLandscape())
+  })
+
+  useEffect(() => {
+    if (!enabled) setForce(false)
+    else setForce(isTouchShowroomDevice() && !isOsLandscape())
+  }, [enabled])
+
+  return force
 }
 
 async function requestTourFullscreen(el: HTMLElement) {
@@ -679,6 +811,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const hold = useShowroomImmersive(true)
   const immersive = hold.want
   const needLandscape = useNeedLandscapeGate(true)
+  const forceLandscapeCss = useForceLandscapeCss(true)
   const tourRef = useRef<VirtualTourPlugin | null>(null)
   const targetWidthRef = useRef<TourWidth>(2048)
   const catalogWidthRef = useRef<TourWidth>(4096)
@@ -703,6 +836,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [gateOpen, setGateOpen] = useState(false)
   const [fichaOpen, setFichaOpen] = useState(() => Boolean(readUnitQueryParam()))
   const [fichaExpanded, setFichaExpanded] = useState(() => Boolean(readUnitQueryParam()))
+  const [simulatorOpen, setSimulatorOpen] = useState(false)
+  const [financingOpen, setFinancingOpen] = useState(false)
+  const [phoneUnlock, setPhoneUnlock] = useState<{
+    open: boolean
+    intent: TourPhoneUnlockIntent
+  }>({ open: false, intent: 'simulator' })
+  const [showroomIdentified, setShowroomIdentified] = useState(false)
   const [saveUnitOpen, setSaveUnitOpen] = useState(false)
   const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'nav' | 'modes' | null>(null)
@@ -715,15 +855,26 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     prefetchFloorPlans([...FLOOR_PLAN_FLOORS])
-    void warmFloorPlans([...FLOOR_PLAN_FLOORS], [planFloor])
+    const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
+    const priority = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 2)
+    void warmFloorPlans([...FLOOR_PLAN_FLOORS], priority.length ? priority : [planFloor])
+  }, [])
+
+  useEffect(() => {
+    const sync = () => setShowroomIdentified(isShowroomIdentified())
+    sync()
+    window.addEventListener(SHOWROOM_IDENTITY_EVENT, sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener(SHOWROOM_IDENTITY_EVENT, sync)
+      window.removeEventListener('storage', sync)
+    }
   }, [])
 
   useEffect(() => {
     const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
-    const neighbors = [FLOOR_PLAN_FLOORS[idx - 1], FLOOR_PLAN_FLOORS[idx + 1]].filter(
-      (item): item is number => typeof item === 'number',
-    )
-    void warmFloorPlans([planFloor, ...neighbors], [planFloor])
+    const neighbors = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 2)
+    void warmFloorPlans(neighbors, [planFloor])
   }, [planFloor])
 
   const [terminacionesFocus, setTerminacionesFocus] = useState(false)
@@ -733,16 +884,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [comparePose, setComparePose] = useState<ComparePanoPose | null>(null)
   const comparePoseLockRef = useRef<'main' | 'side' | null>(null)
   const comparePoseRafRef = useRef(0)
+  /** Pose en vivo para sync frame-a-frame del lado B. */
+  const comparePoseLiveRef = useRef<ComparePanoPose | null>(null)
   const [compareOpen, setCompareOpen] = useState(false)
   const [compareUnitBId, setCompareUnitBId] = useState<string | null>(null)
   const [comparePreviewIndex, setComparePreviewIndex] = useState(0)
   const [compareSplit, setCompareSplit] = useState(50)
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
-  const [gyroHint, setGyroHint] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<TourViewMode>(() =>
-    readUnitQueryParam() ? 'galeria' : 'tour',
+    readUnitQueryParam() ? 'galeria' : 'planos-3d',
   )
-  const [vistaIndex, setVistaIndex] = useState(0)
   const [galeriaIndex, setGaleriaIndex] = useState(0)
   const [planoIndex, setPlanoIndex] = useState(0)
   const [panoGhost, setPanoGhost] = useState<string | null>(null)
@@ -1054,8 +1205,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (!publicCatalog) void applyCombo(slug, light)
   }
 
-  const onLight = () => {
-    const next: TourLightMode = light === 'dia' ? 'noche' : 'dia'
+  const onLight = (nextLight?: TourLightMode) => {
+    const next: TourLightMode = nextLight ?? (light === 'dia' ? 'noche' : 'dia')
+    if (next === light) return
     setLight(next)
     logTourEvent({
       event_type: 'cambio_luz',
@@ -1158,34 +1310,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       seen.add(url)
       items.push({ id, label, url })
     }
-    for (const roomItem of typ?.rooms ?? []) {
-      const scene = pickRoomScene(roomItem.scenes, finish || null, light)
-      add(`room-${roomItem.slug}`, roomItem.label, pickSceneUrl(scene) ?? roomItem.url)
-    }
     for (const item of typ?.vistas ?? []) {
       const scene = pickRoomScene(item.scenes, finish || null, light)
       add(item.slug, item.label, pickSceneUrl(scene) ?? item.url)
     }
-    for (const extra of typ?.renders ?? []) {
-      add(extra.id, stillLabelFromFile(extra.file_name), extra.url)
-    }
     return items
-  }, [compareUnitB, publicCatalog, currentTypology, selectedTypology, finish, light])
-
-  const comparePanoBUrl = useMemo(() => {
-    if (!compareUnitB) return null
-    const code = compareUnitB.typology_code || selectedTypology
-    const typ =
-      publicCatalog?.typologies?.find((item) => item.code === code) ??
-      (code === selectedTypology ? currentTypology : null)
-    if (!typ) return null
-    const fromPano = pickCatalogPanoUrl(typ.panorama, catalogWidthRef.current, finish || null, light)
-    if (fromPano) return fromPano
-    const home =
-      typ.rooms.find((item) => item.slug === 'home' || item.slug.includes('living')) ?? typ.rooms[0]
-    if (!home) return null
-    const scene = pickRoomScene(home.scenes, finish || null, light)
-    return pickSceneUrl(scene, catalogWidthRef.current) ?? home.url
   }, [compareUnitB, publicCatalog, currentTypology, selectedTypology, finish, light])
 
   const fichaUnits = useMemo(() => {
@@ -1195,6 +1324,51 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   const showPlanShell = shellMode === 'plan'
   const showUnitChrome = shellMode === 'unit'
+
+  const ensureUnitForTools = useCallback(() => {
+    if (selectedUnitId) return
+    const first = displayUnits[0]
+    if (!first) return
+    setSelectedUnitId(first.id)
+    writeUnitQueryParam(first.unit_number)
+  }, [selectedUnitId, displayUnits])
+
+  const openSimulatorTool = useCallback(() => {
+    setFichaOpen(false)
+    setFichaExpanded(false)
+    setFinancingOpen(false)
+    ensureUnitForTools()
+    // Temporal: sin gate de WhatsApp mientras se ajusta el simulador.
+    setSimulatorOpen(true)
+  }, [ensureUnitForTools])
+
+  const openFinancingTool = useCallback(() => {
+    setFichaOpen(false)
+    setFichaExpanded(false)
+    setSimulatorOpen(false)
+    ensureUnitForTools()
+    if (!isShowroomIdentified()) {
+      setPhoneUnlock({ open: true, intent: 'financing' })
+      return
+    }
+    setFinancingOpen(true)
+  }, [ensureUnitForTools])
+
+  const handlePhoneUnlocked = useCallback((intent: TourPhoneUnlockIntent) => {
+    setShowroomIdentified(true)
+    if (intent === 'simulator') {
+      setFinancingOpen(false)
+      setSimulatorOpen(true)
+      return
+    }
+    setSimulatorOpen(false)
+    setFinancingOpen(true)
+  }, [])
+  const modeButtons = modeButtonsForView({
+    shellMode,
+    viewMode,
+    terminacionesFocus,
+  })
 
   const tourRooms = useMemo(() => {
     const fromCatalog = (currentTypology?.rooms ?? [])
@@ -1210,6 +1384,40 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     })
   }, [currentTypology?.rooms, displayUnits])
   const homeSlug = tourHomeSlug(tourRooms)
+
+  const comparePanoBUrl = useMemo(() => {
+    if (!compareUnitB) return null
+    const code = compareUnitB.typology_code || selectedTypology
+    const typ =
+      publicCatalog?.typologies?.find((item) => item.code === code) ??
+      (code === selectedTypology ? currentTypology : null)
+    if (!typ) return null
+
+    const rooms = typ.rooms ?? []
+    const urlForSlug = (slug: string | null | undefined) => {
+      if (!slug) return null
+      const roomItem =
+        rooms.find((entry) => entry.slug === slug) ??
+        rooms.find((entry) => roomsShareSlot(entry.slug, slug)) ??
+        rooms.find((entry) => roomsShareFamily(entry.slug, slug))
+      if (!roomItem) return null
+      const scene = pickRoomScene(roomItem.scenes, finish || null, light)
+      return pickSceneUrl(scene, catalogWidthRef.current) ?? roomItem.url ?? null
+    }
+
+    const homeOfB = tourHomeSlug(
+      rooms.map((item) => ({ slug: item.slug, label: item.label })),
+    )
+
+    return (
+      urlForSlug(room) ??
+      urlForSlug(homeOfB) ??
+      urlForSlug(homeSlug) ??
+      pickCatalogPanoUrl(typ.panorama, catalogWidthRef.current, finish || null, light) ??
+      rooms.map((item) => urlForSlug(item.slug)).find(Boolean) ??
+      null
+    )
+  }, [compareUnitB, publicCatalog, currentTypology, selectedTypology, finish, light, room, homeSlug])
 
   const photoBySlug = useMemo(() => {
     const map: Record<string, string | null> = {}
@@ -1245,10 +1453,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const isComparador = compareOpen
   const isFinishCompare = finishCompareOpen
   const terminacionesUiOpen = terminacionesFocus || isFinishCompare
-  const compareContentMode =
-    viewMode === 'galeria' || viewMode === 'vistas' ? viewMode : 'tour'
+  const compareContentMode: 'tour' = 'tour'
   const syncCompareCameras =
-    isFinishCompare || (isComparador && Boolean(compareUnitB) && compareContentMode === 'tour')
+    isFinishCompare || (isComparador && Boolean(compareUnitB))
 
   useEffect(() => {
     if (!syncCompareCameras) return
@@ -1264,6 +1471,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         pitch: pos.pitch,
         zoom: viewer.getZoomLevel(),
       }
+      // Ref primero: el lado B lo lee en before-render (sin esperar React).
+      comparePoseLiveRef.current = next
       if (comparePoseRafRef.current) cancelAnimationFrame(comparePoseRafRef.current)
       comparePoseRafRef.current = requestAnimationFrame(() => {
         setComparePose(next)
@@ -1284,6 +1493,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const onCompareSidePoseChange = useCallback((pose: ComparePanoPose) => {
     if (comparePoseLockRef.current === 'main') return
     comparePoseLockRef.current = 'side'
+    comparePoseLiveRef.current = pose
     setComparePose(pose)
     const viewer = viewerRef.current
     if (viewer) {
@@ -1298,45 +1508,18 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       if (comparePoseLockRef.current === 'side') comparePoseLockRef.current = null
     })
   }, [])
-  const vistaImages = useMemo(() => {
-    const items: { id: string; label: string; url: string }[] = []
+  const galeriaImages = useMemo(() => {
+    const items: StillItem[] = []
     const seen = new Set<string>()
     const add = (id: string, label: string, url: string | null | undefined) => {
       if (!url || seen.has(url)) return
       seen.add(url)
       items.push({ id, label, url })
     }
+    // Solo pestaña Galería del CRM (archivos vista-*). Nada de 360, planos ni extras.
     for (const item of currentTypology?.vistas ?? []) {
       const scene = pickRoomScene(item.scenes, finish || null, light)
       add(item.slug, item.label, pickSceneUrl(scene) ?? item.url)
-    }
-    for (const extra of currentTypology?.renders ?? []) {
-      add(extra.id, stillLabelFromFile(extra.file_name), extra.url)
-    }
-    return items
-  }, [currentTypology, finish, light])
-
-  const galeriaImages = useMemo(() => {
-    const items: StillItem[] = []
-    const seen = new Set<string>()
-    for (const roomItem of currentTypology?.rooms ?? []) {
-      const scene = pickRoomScene(roomItem.scenes, finish || null, light)
-      const url = pickSceneUrl(scene) ?? roomItem.url
-      if (!url || seen.has(url)) continue
-      seen.add(url)
-      items.push({ id: `room-${roomItem.slug}`, label: roomItem.label, url })
-    }
-    // Fallback: renders tipología si no hay ambientes
-    if (items.length === 0) {
-      for (const extra of currentTypology?.renders ?? []) {
-        if (!extra.url || seen.has(extra.url)) continue
-        seen.add(extra.url)
-        items.push({
-          id: extra.id,
-          label: stillLabelFromFile(extra.file_name),
-          url: extra.url,
-        })
-      }
     }
     return items
   }, [currentTypology, finish, light])
@@ -1358,47 +1541,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     return items
   }, [currentTypology, viewMode])
 
-  const fichaImages = useMemo(() => {
-    const items: { id: string; label: string; url: string; kind: 'vista' | 'plano' | 'ambiente' }[] = []
-    const seen = new Set<string>()
-    const add = (
-      id: string,
-      label: string,
-      url: string | null | undefined,
-      kind: 'vista' | 'plano' | 'ambiente',
-    ) => {
-      if (!url || seen.has(url)) return
-      seen.add(url)
-      items.push({ id, label, url, kind })
-    }
-    for (const item of currentTypology?.planos ?? []) {
-      const label = stillLabelFromFile(item.file_name) || 'Plano'
-      if (matchesPlanoVariant(item.file_name, '2d')) {
-        add(item.id, label.includes('2') ? label : `${label} 2D`, item.url, 'plano')
-      } else if (matchesPlanoVariant(item.file_name, '3d')) {
-        add(item.id, label.includes('3') ? label : `${label} 3D`, item.url, 'plano')
-      } else {
-        add(item.id, label, item.url, 'plano')
-      }
-    }
-    for (const item of currentTypology?.vistas ?? []) {
-      const scene = pickRoomScene(item.scenes, finish || null, light)
-      add(item.slug, item.label, pickSceneUrl(scene) ?? item.url, 'vista')
-    }
-    for (const extra of currentTypology?.renders ?? []) {
-      add(extra.id, stillLabelFromFile(extra.file_name), extra.url, 'vista')
-    }
-    for (const roomItem of currentTypology?.rooms ?? []) {
-      const scene = pickRoomScene(roomItem.scenes, finish || null, light)
-      add(
-        `room-${roomItem.slug}`,
-        roomItem.label,
-        pickSceneUrl(scene) ?? roomItem.url,
-        'ambiente',
-      )
-    }
-    return items
-  }, [currentTypology, finish, light])
+  const fichaImages = useMemo(
+    () =>
+      galeriaImages.map((item) => ({
+        id: item.id,
+        label: item.label,
+        url: item.url,
+        kind: 'vista' as const,
+      })),
+    [galeriaImages],
+  )
 
   const onSelectRoom = useCallback(
     (roomId: string) => {
@@ -1445,25 +1597,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     [nodes, room, selectedTypology, currentTypology?.id, currentTypology?.hotspots, urlForRoom, tourRooms],
   )
 
-  const stillItems = isPlanosMode(viewMode)
-    ? planoImages
-    : viewMode === 'galeria'
-      ? fichaImages.length > 0
-        ? fichaImages.map((item) => ({ id: item.id, label: item.label, url: item.url }))
-        : galeriaImages
-      : viewMode === 'vistas'
-        ? vistaImages
-        : []
-  const stillIndex = isPlanosMode(viewMode)
-    ? planoIndex
-    : viewMode === 'galeria'
-      ? galeriaIndex
-      : vistaIndex
-  const setStillIndex = isPlanosMode(viewMode)
-    ? setPlanoIndex
-    : viewMode === 'galeria'
-      ? setGaleriaIndex
-      : setVistaIndex
+  const stillItems = isPlanosMode(viewMode) ? planoImages : viewMode === 'galeria' ? galeriaImages : []
+  const stillIndex = isPlanosMode(viewMode) ? planoIndex : galeriaIndex
+  const setStillIndex = isPlanosMode(viewMode) ? setPlanoIndex : setGaleriaIndex
   const stepStill = useCallback(
     (delta: -1 | 1) => {
       setStillIndex((index) => {
@@ -1478,20 +1614,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const stillUrl = stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.url ?? null
   if (stillUrl) lastStillRef.current = stillUrl
   const overlayUrl = stillUrl ?? lastStillRef.current
-  const showStill = Boolean(stillUrl)
+  // En comparador/terminaciones el split es siempre 360, nunca stills.
+  const showStill = Boolean(stillUrl) && !isComparador && !isFinishCompare
   useEffect(() => {
     if (tourRooms.some((item) => item.slug === room)) return
     const aliased = resolveTourRoomSlug(room, tourRooms, (slug) => Boolean(urlForRoom(slug)))
     setRoom(aliased !== room && tourRooms.some((item) => item.slug === aliased) ? aliased : homeSlug)
   }, [tourRooms, room, homeSlug, urlForRoom])
-
-  useEffect(() => {
-    if (vistaImages.length === 0) {
-      if (vistaIndex !== 0) setVistaIndex(0)
-      return
-    }
-    if (vistaIndex >= vistaImages.length) setVistaIndex(0)
-  }, [vistaImages.length, vistaIndex])
 
   useEffect(() => {
     if (galeriaImages.length === 0) {
@@ -1572,14 +1701,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       void permission
         .then((granted) => {
           if (!granted) {
-            setGyroHint('Tocá Permitir en el aviso de movimiento, o abrí el tour en Safari')
             busy = false
             return
           }
-          return gyro.start('smooth').then(() => setGyroHint(null))
+          return gyro.start('smooth')
         })
         .catch(() => {
-          setGyroHint('Abrí el tour en Safari y permití el movimiento del celular')
+          busy = false
+        })
+        .finally(() => {
           busy = false
         })
     }
@@ -1679,6 +1809,26 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       void unlockTourOrientation()
     }
   }, [needLandscape, immersive])
+
+  // Al abrir en portrait: landscape visual inmediato + intentar lock nativo al primer toque.
+  useEffect(() => {
+    if (!forceLandscapeCss) {
+      document.documentElement.classList.remove('tour-is-force-landscape')
+      return
+    }
+    document.documentElement.classList.add('tour-is-force-landscape')
+    const root = rootRef.current
+    const onFirstGesture = () => {
+      if (root) void lockTourLandscape(root)
+    }
+    window.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true })
+    window.addEventListener('touchstart', onFirstGesture, { once: true, capture: true })
+    return () => {
+      document.documentElement.classList.remove('tour-is-force-landscape')
+      window.removeEventListener('pointerdown', onFirstGesture, true)
+      window.removeEventListener('touchstart', onFirstGesture, true)
+    }
+  }, [forceLandscapeCss])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -1924,7 +2074,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       className={cn(
         'tour-root overflow-hidden bg-black overscroll-none',
         immersive && 'is-immersive',
-        immersive || !embedded
+        forceLandscapeCss && 'tour-force-landscape',
+        immersive || !embedded || forceLandscapeCss
           ? 'fixed inset-0 z-[200] h-[100dvh] w-full'
           : 'relative h-full w-full',
       )}
@@ -1987,6 +2138,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setCompareUnitBId(unit.id)
             setComparePreviewIndex(0)
           }}
+          onSelectUnitA={(unit) => {
+            setSelectedUnitId(unit.id)
+            if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            writeUnitQueryParam(unit.unit_number)
+            setViewMode('tour')
+          }}
           onClearUnitB={() => {
             setCompareUnitBId(null)
             setComparePreviewIndex(0)
@@ -2001,12 +2158,26 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setCompareSplit(50)
           }}
           onClose={() => {
+            // Volver al depto de la izquierda (unidad A).
+            if (selectedUnit) {
+              setSelectedUnitId(selectedUnit.id)
+              if (selectedUnit.typology_code) setSelectedTypology(selectedUnit.typology_code)
+              writeUnitQueryParam(selectedUnit.unit_number)
+            }
             setCompareOpen(false)
             setCompareUnitBId(null)
             setComparePreviewIndex(0)
             setCompareSplit(50)
+            setShellMode('unit')
+            setTerminacionesFocus(false)
+            setFinishCompareOpen(false)
+            setFichaOpen(false)
+            setFichaExpanded(false)
+            setViewMode('tour')
+            setRoom(homeSlug)
           }}
           syncPose={syncCompareCameras ? comparePose : null}
+          syncPoseRef={syncCompareCameras ? comparePoseLiveRef : undefined}
           onPoseChange={onCompareSidePoseChange}
         />
       ) : null}
@@ -2033,6 +2204,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setViewMode('tour')
           }}
           syncPose={comparePose}
+          syncPoseRef={comparePoseLiveRef}
           onPoseChange={onCompareSidePoseChange}
         />
       ) : null}
@@ -2058,7 +2230,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         <CrossfadeStill
           url={overlayUrl}
           alt={viewMode === 'tour' ? roomName : (stillItems[stillIndex]?.label ?? (isPlanosMode(viewMode) ? 'Plano' : 'Vista'))}
-          contain={viewMode !== 'tour'}
+          contain={isPlanosMode(viewMode)}
           fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
         />
       </div>
@@ -2072,17 +2244,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         </div>
       )}
 
-      {!booting && viewMode === 'vistas' && vistaImages.length === 0 && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
-          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Vistas</p>
-          <p className="mt-2 text-sm text-white/45">Aún no hay renders en esta tipología.</p>
-        </div>
-      )}
-
       {!booting && viewMode === 'galeria' && galeriaImages.length === 0 && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Galería</p>
-          <p className="mt-2 text-sm text-white/45">Aún no hay ambientes en esta tipología.</p>
+          <p className="mt-2 text-sm text-white/45">Aún no hay imágenes de galería en esta tipología.</p>
         </div>
       )}
 
@@ -2102,9 +2267,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         </div>
       )}
 
-      {immersive ? (
+      {immersive && !forceLandscapeCss ? (
         <p className="tour-exit-hint" role="status">
           Poné el celular en vertical para salir
+        </p>
+      ) : null}
+
+      {forceLandscapeCss ? (
+        <p className="tour-exit-hint tour-exit-hint-top" role="status">
+          Showroom en horizontal · girá el celular cuando puedas
         </p>
       ) : null}
 
@@ -2142,18 +2313,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         </div>
       ) : null}
 
-      {gyroHint && !immersive ? (
-        <p className="tour-exit-hint" role="status">
-          {gyroHint}
-        </p>
-      ) : null}
-
-      {gyroHint && immersive ? (
-        <p className="tour-exit-hint tour-exit-hint-top" role="status">
-          {gyroHint}
-        </p>
-      ) : null}
-
       <div
         className={cn(
           'tour-vignette pointer-events-none absolute inset-0 z-[12]',
@@ -2166,6 +2325,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           <TourFloorPlan
           units={allUnits}
           floor={planFloor}
+          preferredVariant={viewMode === 'planos-2d' ? '2d' : '3d'}
+          onPreferredVariantChange={(variant) => {
+            setViewMode(variant === '3d' ? 'planos-3d' : 'planos-2d')
+          }}
           onFloorChange={(next) => {
             setPlanFloor(next)
             setSelectedUnitId(null)
@@ -2174,9 +2337,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           onSelectUnit={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            writeUnitQueryParam(unit.unit_number)
+            // Si el simulador o financiamiento está abierto, actualiza la unidad ahí; si no, abre la ficha.
+            if (simulatorOpen || financingOpen) {
+              setFichaOpen(false)
+              return
+            }
             setFichaExpanded(false)
             setFichaOpen(true)
-            writeUnitQueryParam(unit.unit_number)
           }}
           onWhatsAppClick={() => {
             logTourEvent({
@@ -2190,69 +2358,22 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         </>
       ) : null}
 
-      {/* Modos siempre visible (fuera del chrome): Galería, Vistas, Planos, Tour, etc. */}
-      {!booting ? (
-        <div className="pointer-events-auto absolute top-0 right-0 z-[130] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))]">
-          <button
-            type="button"
-            onClick={() => setMobilePanel((value) => (value === 'modes' ? null : 'modes'))}
-            className="tour-glass inline-flex h-11 min-w-[7.5rem] items-center justify-center gap-1.5 border border-[#BDA27E]/50 px-3.5 text-[10px] font-semibold tracking-[0.16em] text-[#f7f3ee] uppercase shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
-            aria-expanded={mobilePanel === 'modes'}
-            aria-haspopup="menu"
-            aria-label="Abrir modos de vista"
-          >
-            {terminacionesFocus || isFinishCompare ? (
-              <SwatchBook size={14} strokeWidth={1.75} className="shrink-0" />
-            ) : isComparador ? (
-              <Columns2 size={14} strokeWidth={1.75} className="shrink-0" />
-            ) : showPlanShell ? (
-              <Images size={14} strokeWidth={1.75} className="shrink-0" />
-            ) : viewMode === 'tour' ? (
-              <Rotate3d size={14} strokeWidth={1.75} className="shrink-0" />
-            ) : isPlanosMode(viewMode) ? (
-              <Layers size={14} strokeWidth={1.75} className="shrink-0" />
-            ) : viewMode === 'vistas' ? (
-              <PanelsTopLeft size={14} strokeWidth={1.75} className="shrink-0" />
-            ) : (
-              <Images size={14} strokeWidth={1.75} className="shrink-0" />
-            )}
-            <span className="min-w-0 truncate">
-              {terminacionesFocus || isFinishCompare
-                ? 'Terminaciones'
-                : isComparador
-                  ? 'Comparador'
-                  : showPlanShell
-                    ? 'Modos'
-                    : viewMode === 'tour'
-                      ? 'Tour 360°'
-                      : viewMode === 'planos-3d'
-                        ? 'Plano 3D'
-                        : viewMode === 'planos-2d'
-                          ? 'Plano 2D'
-                          : viewMode === 'vistas'
-                            ? 'Vistas'
-                            : viewMode === 'galeria'
-                              ? 'Galería'
-                              : 'Modos'}
-            </span>
-            <ChevronLeft
-              size={12}
-              strokeWidth={2}
-              className={cn(
-                'shrink-0 -rotate-90 opacity-70 transition-transform',
-                mobilePanel === 'modes' && 'rotate-90',
-              )}
-            />
-          </button>
-          {mobilePanel === 'modes' ? (
-            <div
-              role="menu"
-              className="tour-glass absolute top-[calc(100%+6px)] right-2 z-[121] flex max-h-[min(70dvh,24rem)] w-[11rem] flex-col gap-1 overflow-y-auto p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
-            >
-              <ModeButton
-                active={viewMode === 'galeria' && showUnitChrome && !terminacionesFocus && !isComparador}
-                icon={<Images size={14} strokeWidth={1.75} />}
-                onClick={() => {
+      {/* Modos PC / móvil: no en el plano del edificio (ahí solo 2D/3D). */}
+      {!booting && !isComparador && !isFinishCompare && !showPlanShell ? (
+        <div
+          className="pointer-events-auto absolute top-0 right-0 z-[130] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))]"
+        >
+          <div className="tour-modes-desktop">
+              <DesktopModesList
+                viewMode={viewMode}
+                show={modeButtons}
+                active={{
+                  galeria: viewMode === 'galeria' && showUnitChrome && !terminacionesFocus && !isComparador,
+                  tour: viewMode === 'tour' && showUnitChrome && !terminacionesFocus && !isComparador,
+                  terminaciones: terminacionesFocus || isFinishCompare,
+                  comparador: isComparador,
+                }}
+                onGaleria={() => {
                   if (!selectedTypology && publicCatalog?.typologies?.[0]) {
                     setSelectedTypology(publicCatalog.typologies[0].code)
                   }
@@ -2263,15 +2384,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   setCompareOpen(false)
                   setViewMode('galeria')
                   setGaleriaIndex(0)
-                  setMobilePanel(null)
                 }}
-              >
-                Galería
-              </ModeButton>
-              <ModeButton
-                active={viewMode === 'vistas' && showUnitChrome && !terminacionesFocus && !isComparador}
-                icon={<PanelsTopLeft size={14} strokeWidth={1.75} />}
-                onClick={() => {
+                onPlanos={(mode) => {
                   if (!selectedTypology && publicCatalog?.typologies?.[0]) {
                     setSelectedTypology(publicCatalog.typologies[0].code)
                   }
@@ -2280,52 +2394,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   setTerminacionesFocus(false)
                   setFinishCompareOpen(false)
                   setCompareOpen(false)
-                  setViewMode('vistas')
-                  setMobilePanel(null)
+                  setViewMode(mode)
                 }}
-              >
-                Vistas
-              </ModeButton>
-              <ModeButton
-                active={viewMode === 'planos-3d' && showUnitChrome && !terminacionesFocus && !isComparador}
-                icon={<Layers size={14} strokeWidth={1.75} />}
-                onClick={() => {
-                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                    setSelectedTypology(publicCatalog.typologies[0].code)
-                  }
-                  setShellMode('unit')
-                  setFichaOpen(false)
-                  setTerminacionesFocus(false)
-                  setFinishCompareOpen(false)
-                  setCompareOpen(false)
-                  setViewMode('planos-3d')
-                  setMobilePanel(null)
-                }}
-              >
-                Plano 3D
-              </ModeButton>
-              <ModeButton
-                active={viewMode === 'planos-2d' && showUnitChrome && !terminacionesFocus && !isComparador}
-                icon={<Layers size={14} strokeWidth={1.75} />}
-                onClick={() => {
-                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                    setSelectedTypology(publicCatalog.typologies[0].code)
-                  }
-                  setShellMode('unit')
-                  setFichaOpen(false)
-                  setTerminacionesFocus(false)
-                  setFinishCompareOpen(false)
-                  setCompareOpen(false)
-                  setViewMode('planos-2d')
-                  setMobilePanel(null)
-                }}
-              >
-                Plano 2D
-              </ModeButton>
-              <ModeButton
-                active={viewMode === 'tour' && showUnitChrome && !terminacionesFocus && !isComparador}
-                icon={<Rotate3d size={14} strokeWidth={1.75} />}
-                onClick={() => {
+                onTour={() => {
                   if (!selectedTypology && publicCatalog?.typologies?.[0]) {
                     setSelectedTypology(publicCatalog.typologies[0].code)
                   }
@@ -2336,15 +2407,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   setTerminacionesFocus(false)
                   setFinishCompareOpen(false)
                   setCompareOpen(false)
-                  setMobilePanel(null)
                 }}
-              >
-                Tour 360°
-              </ModeButton>
-              <ModeButton
-                active={terminacionesFocus || isFinishCompare}
-                icon={<SwatchBook size={14} strokeWidth={1.75} />}
-                onClick={() => {
+                onTerminaciones={() => {
                   if (!selectedTypology && publicCatalog?.typologies?.[0]) {
                     setSelectedTypology(publicCatalog.typologies[0].code)
                   }
@@ -2354,15 +2418,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   setCompareOpen(false)
                   setViewMode('tour')
                   setTerminacionesFocus(true)
-                  setMobilePanel(null)
                 }}
-              >
-                Terminaciones
-              </ModeButton>
-              <ModeButton
-                active={isComparador}
-                icon={<Columns2 size={14} strokeWidth={1.75} />}
-                onClick={() => {
+                onComparador={() => {
                   if (!selectedTypology && publicCatalog?.typologies?.[0]) {
                     setSelectedTypology(publicCatalog.typologies[0].code)
                   }
@@ -2373,14 +2430,187 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   setCompareOpen(true)
                   setComparePreviewIndex(0)
                   setCompareSplit(50)
-                  if (isPlanosMode(viewMode)) setViewMode('tour')
-                  setMobilePanel(null)
+                  setViewMode('tour')
                 }}
-              >
-                Comparador
-              </ModeButton>
+              />
             </div>
-          ) : null}
+
+          <div className="tour-modes-mobile">
+            <button
+              type="button"
+              onClick={() => setMobilePanel((value) => (value === 'modes' ? null : 'modes'))}
+              className="tour-glass inline-flex h-11 min-w-[7.5rem] items-center justify-center gap-1.5 border border-[#BDA27E]/50 px-3.5 text-[10px] font-semibold tracking-[0.16em] text-[#f7f3ee] uppercase shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+              aria-expanded={mobilePanel === 'modes'}
+              aria-haspopup="menu"
+              aria-label="Abrir modos de vista"
+            >
+              {terminacionesFocus || isFinishCompare ? (
+                <SwatchBook size={14} strokeWidth={1.75} className="shrink-0" />
+              ) : isComparador ? (
+                <Columns2 size={14} strokeWidth={1.75} className="shrink-0" />
+              ) : viewMode === 'tour' ? (
+                <Rotate3d size={14} strokeWidth={1.75} className="shrink-0" />
+              ) : isPlanosMode(viewMode) ? (
+                <Layers size={14} strokeWidth={1.75} className="shrink-0" />
+              ) : (
+                <Images size={14} strokeWidth={1.75} className="shrink-0" />
+              )}
+              <span className="min-w-0 truncate">
+                {terminacionesFocus || isFinishCompare
+                  ? 'Terminaciones'
+                  : isComparador
+                    ? 'Comparador'
+                    : viewMode === 'tour'
+                      ? 'Tour 360°'
+                      : viewMode === 'planos-3d'
+                        ? 'Plano 3D'
+                        : viewMode === 'planos-2d'
+                          ? 'Plano 2D'
+                          : viewMode === 'galeria'
+                            ? 'Galería'
+                            : 'Modos'}
+              </span>
+              <ChevronLeft
+                size={12}
+                strokeWidth={2}
+                className={cn(
+                  'shrink-0 -rotate-90 opacity-70 transition-transform',
+                  mobilePanel === 'modes' && 'rotate-90',
+                )}
+              />
+            </button>
+            {mobilePanel === 'modes' ? (
+              <div
+                role="menu"
+                className="tour-glass absolute top-[calc(100%+6px)] right-2 z-[121] flex max-h-[min(70dvh,24rem)] w-[11rem] flex-col gap-1 overflow-y-auto p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+              >
+                {modeButtons.galeria ? (
+                <ModeButton
+                  active={viewMode === 'galeria' && showUnitChrome && !terminacionesFocus && !isComparador}
+                  icon={<Images size={14} strokeWidth={1.75} />}
+                  onClick={() => {
+                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                      setSelectedTypology(publicCatalog.typologies[0].code)
+                    }
+                    setShellMode('unit')
+                    setFichaOpen(false)
+                    setTerminacionesFocus(false)
+                    setFinishCompareOpen(false)
+                    setCompareOpen(false)
+                    setViewMode('galeria')
+                    setGaleriaIndex(0)
+                    setMobilePanel(null)
+                  }}
+                >
+                  Galería
+                </ModeButton>
+                ) : null}
+                {modeButtons.planos ? (
+                <>
+                <ModeButton
+                  active={viewMode === 'planos-3d' && showUnitChrome && !terminacionesFocus && !isComparador}
+                  icon={<Layers size={14} strokeWidth={1.75} />}
+                  onClick={() => {
+                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                      setSelectedTypology(publicCatalog.typologies[0].code)
+                    }
+                    setShellMode('unit')
+                    setFichaOpen(false)
+                    setTerminacionesFocus(false)
+                    setFinishCompareOpen(false)
+                    setCompareOpen(false)
+                    setViewMode('planos-3d')
+                    setMobilePanel(null)
+                  }}
+                >
+                  Plano 3D
+                </ModeButton>
+                <ModeButton
+                  active={viewMode === 'planos-2d' && showUnitChrome && !terminacionesFocus && !isComparador}
+                  icon={<Layers size={14} strokeWidth={1.75} />}
+                  onClick={() => {
+                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                      setSelectedTypology(publicCatalog.typologies[0].code)
+                    }
+                    setShellMode('unit')
+                    setFichaOpen(false)
+                    setTerminacionesFocus(false)
+                    setFinishCompareOpen(false)
+                    setCompareOpen(false)
+                    setViewMode('planos-2d')
+                    setMobilePanel(null)
+                  }}
+                >
+                  Plano 2D
+                </ModeButton>
+                </>
+                ) : null}
+                {modeButtons.tour ? (
+                <ModeButton
+                  active={viewMode === 'tour' && showUnitChrome && !terminacionesFocus && !isComparador}
+                  icon={<Rotate3d size={14} strokeWidth={1.75} />}
+                  onClick={() => {
+                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                      setSelectedTypology(publicCatalog.typologies[0].code)
+                    }
+                    setShellMode('unit')
+                    setFichaOpen(false)
+                    setViewMode('tour')
+                    setRoom(homeSlug)
+                    setTerminacionesFocus(false)
+                    setFinishCompareOpen(false)
+                    setCompareOpen(false)
+                    setMobilePanel(null)
+                  }}
+                >
+                  Tour 360°
+                </ModeButton>
+                ) : null}
+                {modeButtons.terminaciones ? (
+                <ModeButton
+                  active={terminacionesFocus || isFinishCompare}
+                  icon={<SwatchBook size={14} strokeWidth={1.75} />}
+                  onClick={() => {
+                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                      setSelectedTypology(publicCatalog.typologies[0].code)
+                    }
+                    setShellMode('unit')
+                    setFichaOpen(false)
+                    setFichaExpanded(false)
+                    setCompareOpen(false)
+                    setViewMode('tour')
+                    setTerminacionesFocus(true)
+                    setMobilePanel(null)
+                  }}
+                >
+                  Terminaciones
+                </ModeButton>
+                ) : null}
+                {modeButtons.comparador ? (
+                <ModeButton
+                  active={isComparador}
+                  icon={<Columns2 size={14} strokeWidth={1.75} />}
+                  onClick={() => {
+                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
+                      setSelectedTypology(publicCatalog.typologies[0].code)
+                    }
+                    setShellMode('unit')
+                    setFichaOpen(false)
+                    setTerminacionesFocus(false)
+                    setFinishCompareOpen(false)
+                    setCompareOpen(true)
+                    setComparePreviewIndex(0)
+                    setCompareSplit(50)
+                    setViewMode('tour')
+                    setMobilePanel(null)
+                  }}
+                >
+                  Comparador
+                </ModeButton>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -2388,19 +2618,26 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         className={cn(
           'tour-chrome pointer-events-none absolute inset-0 z-20',
           immersive && 'is-immersive',
+          (isComparador || isFinishCompare) && 'hidden',
         )}
       >
-        <div className="pointer-events-auto absolute top-0 left-0 z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5">
+        <div
+          className={cn(
+            'pointer-events-none absolute top-0 left-0 z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5',
+            // En planos: bajar "Volver" para no tapar el toggle 2D/3D.
+            showPlanShell && 'pt-[max(3.75rem,calc(env(safe-area-inset-top)+3.25rem))] sm:pt-16',
+          )}
+        >
           {/* Desktop: botones sueltos */}
-          <div className="tour-desktop-nav">
+          <div className="tour-desktop-nav pointer-events-auto">
             {!embedded ? (
               <Link
                 href="/inicio"
                 className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
-                aria-label="Salir del showroom"
+                aria-label="Volver a la página web"
               >
                 <X size={13} strokeWidth={1.75} className="shrink-0" />
-                Salir
+                Volver a la página web
               </Link>
             ) : null}
             {showUnitChrome ? (
@@ -2408,6 +2645,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                 type="button"
                 onClick={() => {
                   setShellMode('plan')
+                  setViewMode('planos-3d')
                   setFichaOpen(false)
                   setTerminacionesFocus(false)
                   setCompareOpen(false)
@@ -2424,6 +2662,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                 type="button"
                 onClick={() => {
                   setFichaExpanded(false)
+                  setSimulatorOpen(false)
+                  setFinancingOpen(false)
                   setFichaOpen(true)
                 }}
                 className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
@@ -2435,18 +2675,47 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                 </span>
               </button>
             ) : null}
+            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology ? (
+              <button
+                type="button"
+                onClick={openSimulatorTool}
+                className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
+              >
+                <Calculator size={13} strokeWidth={1.75} className="shrink-0" />
+                <span className="min-w-0 truncate">
+                  Simular inversión
+                  {selectedUnit ? ` · ${selectedUnit.unit_number}` : ''}
+                </span>
+              </button>
+            ) : null}
+            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology ? (
+              <button
+                type="button"
+                onClick={openFinancingTool}
+                className={cn(
+                  'tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]',
+                  !showroomIdentified && 'opacity-80',
+                )}
+              >
+                <Landmark size={13} strokeWidth={1.75} className="shrink-0" />
+                <span className="min-w-0 truncate">
+                  Financiamiento
+                  {selectedUnit ? ` · ${selectedUnit.unit_number}` : ''}
+                </span>
+              </button>
+            ) : null}
           </div>
 
           {/* Mobile / landscape: Menú agrupado */}
-          <div className="tour-mobile-nav">
+          <div className="tour-mobile-nav pointer-events-auto">
             {!embedded ? (
               <Link
                 href="/inicio"
                 className="tour-glass mb-2 inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase"
-                aria-label="Salir del showroom"
+                aria-label="Volver a la página web"
               >
                 <X size={13} strokeWidth={1.75} className="shrink-0" />
-                Salir
+                Volver a la web
               </Link>
             ) : null}
             {showUnitChrome ? (
@@ -2468,6 +2737,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                       type="button"
                       onClick={() => {
                         setShellMode('plan')
+                        setViewMode('planos-3d')
                         setFichaOpen(false)
                         setTerminacionesFocus(false)
                         setCompareOpen(false)
@@ -2480,18 +2750,47 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                       Pisos
                     </button>
                     {selectedTypology ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFichaExpanded(false)
-                          setFichaOpen(true)
-                          setMobilePanel(null)
-                        }}
-                        className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
-                      >
-                        <FileText size={13} strokeWidth={1.75} />
-                        Ficha
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFichaExpanded(false)
+                            setSimulatorOpen(false)
+                            setFinancingOpen(false)
+                            setFichaOpen(true)
+                            setMobilePanel(null)
+                          }}
+                          className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
+                        >
+                          <FileText size={13} strokeWidth={1.75} />
+                          Ficha
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openSimulatorTool()
+                            setMobilePanel(null)
+                          }}
+                          className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
+                        >
+                          <Calculator size={13} strokeWidth={1.75} />
+                          Simular
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openFinancingTool()
+                            setMobilePanel(null)
+                          }}
+                          className={cn(
+                            'inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase',
+                            !showroomIdentified && 'opacity-80',
+                          )}
+                        >
+                          <Landmark size={13} strokeWidth={1.75} />
+                          Financiar
+                        </button>
+                      </>
                     ) : null}
                   </div>
                 ) : null}
@@ -2565,6 +2864,69 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         >
           {loading && <div className="tour-glass tour-caption self-center px-3 py-1.5">Cargando</div>}
 
+          {viewMode === 'galeria' ? (
+            <div className="pointer-events-auto flex w-full min-w-0 max-w-2xl flex-col items-center gap-2">
+              {sceneFinishes.length > 0 ? (
+                <div className="tour-glass flex max-w-full items-center gap-1.5 overflow-x-auto px-2 py-1.5">
+                  {sceneFinishes.map((item) => {
+                    const active = item.slug === finish
+                    return (
+                      <button
+                        key={item.slug}
+                        type="button"
+                        onClick={() => onFinish(item.slug)}
+                        className={cn(
+                          'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-semibold tracking-wide uppercase transition',
+                          active
+                            ? 'bg-white text-[#1a2744] shadow-sm'
+                            : 'bg-white/10 text-[#f7f3ee] hover:bg-white/18',
+                        )}
+                        title={item.name}
+                        aria-pressed={active}
+                      >
+                        <span
+                          className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-black/15"
+                          style={{ background: finishSwatchStyle(item.slug, item.name) }}
+                        />
+                        {item.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+              <div className="tour-glass inline-flex items-center gap-0.5 p-1">
+                <button
+                  type="button"
+                  onClick={() => onLight('dia')}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold tracking-wide uppercase transition',
+                    light === 'dia'
+                      ? 'bg-white text-[#1a2744] shadow-sm'
+                      : 'text-[#f7f3ee]/80 hover:bg-white/10 hover:text-[#f7f3ee]',
+                  )}
+                  aria-pressed={light === 'dia'}
+                >
+                  <Sun size={13} strokeWidth={2} />
+                  Día
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onLight('noche')}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold tracking-wide uppercase transition',
+                    light === 'noche'
+                      ? 'bg-white text-[#1a2744] shadow-sm'
+                      : 'text-[#f7f3ee]/80 hover:bg-white/10 hover:text-[#f7f3ee]',
+                  )}
+                  aria-pressed={light === 'noche'}
+                >
+                  <Moon size={13} strokeWidth={2} />
+                  Noche
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {viewMode !== 'tour' && stillItems.length > 0 && (
             <StillGalleryBar
               items={stillItems}
@@ -2578,7 +2940,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           <p className="tour-caption hidden self-center px-1 text-center sm:block">
             {viewMode === 'tour'
               ? `${selectedUnit ? `Unidad ${selectedUnit.unit_number} · ` : ''}${roomName}${finishName ? ` · ${finishName}` : ''} · ${lightLabel}`
-              : `${stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.label ?? 'Vistas'}${viewMode === 'vistas' && finishName ? ` · ${finishName}` : ''}${viewMode === 'vistas' ? ` · ${lightLabel}` : ''}`}
+              : `${stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.label ?? 'Galería'}${viewMode === 'galeria' && finishName ? ` · ${finishName}` : ''}${viewMode === 'galeria' ? ` · ${lightLabel}` : ''}`}
           </p>
                 ) : null}
               </div>
@@ -2602,8 +2964,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               setSaveUnitOpen(true)
             }}
             className="tour-glass inline-flex h-11 w-11 shrink-0 items-center justify-center text-[#f7f3ee]"
-            aria-label="Guardar departamento"
-            title="Guardar departamento"
+            aria-label="Guardar favorito"
+            title="Guardar favorito"
           >
             <Bookmark size={16} strokeWidth={2} />
           </button>
@@ -2671,6 +3033,17 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           open={favoritesOpen}
           contained={embedded && !immersive}
           onClose={() => setFavoritesOpen(false)}
+          onIdentified={() => tracking.markIdentified()}
+          context={{
+            typologyCode: selectedTypology,
+            unitTypeId: currentTypology?.id,
+            unitId: selectedUnit?.id ?? null,
+            unitNumber: selectedUnit?.unit_number ?? null,
+            floor: selectedUnit?.floor ?? null,
+            roomLabel: roomName,
+            finish,
+            light,
+          }}
           onOpenUnit={(favorite) => {
             const match =
               allUnits.find((item) => item.id === favorite.unitId) ??
@@ -2721,6 +3094,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setTerminacionesFocus(false)
             setCompareOpen(false)
             setFinishCompareOpen(false)
+            setSimulatorOpen(false)
+            setFinancingOpen(false)
             setShellMode('unit')
             setViewMode('galeria')
             setGaleriaIndex(0)
@@ -2752,7 +3127,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             writeUnitQueryParam(null)
             if (shellMode !== 'plan') {
               setShellMode('plan')
-              setViewMode('tour')
+              setViewMode('planos-3d')
             }
           }}
           onRequestInfo={(unit) => {
@@ -2773,6 +3148,53 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           }}
         />
       ) : null}
+
+      {showPlanShell || showUnitChrome ? (
+        <TourSimulatorDrawer
+          open={simulatorOpen}
+          onClose={() => setSimulatorOpen(false)}
+          contained={embedded && !immersive}
+          unitNumber={selectedUnit?.unit_number ?? null}
+          units={fichaUnits.length > 0 ? fichaUnits : displayUnits}
+          onSelectUnit={(unit) => {
+            setSelectedUnitId(unit.id)
+            if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            writeUnitQueryParam(unit.unit_number)
+          }}
+        />
+      ) : null}
+
+      {showPlanShell || showUnitChrome ? (
+        <TourFinancingDrawer
+          open={financingOpen}
+          onClose={() => setFinancingOpen(false)}
+          contained={embedded && !immersive}
+          unitNumber={selectedUnit?.unit_number ?? null}
+          units={fichaUnits.length > 0 ? fichaUnits : displayUnits}
+          onSelectUnit={(unit) => {
+            setSelectedUnitId(unit.id)
+            if (unit.typology_code) setSelectedTypology(unit.typology_code)
+            writeUnitQueryParam(unit.unit_number)
+          }}
+        />
+      ) : null}
+
+      <TourPhoneUnlockModal
+        open={phoneUnlock.open}
+        intent={phoneUnlock.intent}
+        contained={embedded && !immersive}
+        onClose={() => setPhoneUnlock((prev) => ({ ...prev, open: false }))}
+        onUnlocked={(intent) => {
+          tracking.markIdentified()
+          handlePhoneUnlocked(intent)
+        }}
+        typologyCode={selectedTypology}
+        unitTypeId={currentTypology?.id}
+        unitId={selectedUnit?.id ?? null}
+        unitNumber={selectedUnit?.unit_number ?? null}
+        finish={finish}
+        light={light}
+      />
 
       <TourInfoRequestModal
         open={infoRequestOpen}

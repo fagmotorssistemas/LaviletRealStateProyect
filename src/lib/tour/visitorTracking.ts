@@ -1,6 +1,6 @@
 import type { TourEventType } from '@/lib/tour/trackingIds'
 import { mergeGuestFavoritesIntoPhone } from '@/lib/tour/tourFavorites'
-import { normalizeShowroomPhone } from '@/lib/tour/showroomIdentity'
+import { normalizeShowroomPhone, setShowroomIdentity } from '@/lib/tour/showroomIdentity'
 
 export type TourTrackIds = {
   visitor_id: string
@@ -200,6 +200,7 @@ export async function identifyTourLead(input: {
     throw new Error(humanApiError(json.error, 'No se pudo guardar el contacto'))
   }
   mergeGuestFavoritesIntoPhone(normalizeShowroomPhone(input.phone))
+  setShowroomIdentity(input.phone, json.lead_id)
   logTourEvent({
     event_type: 'lead_identificado',
     typology_code: input.typology_code,
