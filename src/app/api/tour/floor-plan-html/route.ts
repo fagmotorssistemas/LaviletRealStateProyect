@@ -151,49 +151,8 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
   }
   function ensureHover() {
     var a = api();
-    if (!a) return;
-    var estado = typeof a.estado === "function" ? a.estado() : null;
     var view = document.querySelector(".lv-view");
-    if (!view) return;
-    // PB hover nativo: solo sincronizamos el id para el click / botón Abrir.
-    if (estado && estado.modo === "hover") {
-      if (view.getAttribute("data-lv-hover-sync") === "1") return;
-      view.setAttribute("data-lv-hover-sync", "1");
-      var lastNative = undefined;
-      view.addEventListener(
-        "pointermove",
-        function (e) {
-          if (e.pointerType === "touch" || e.buttons > 0) return;
-          try {
-            var r = view.getBoundingClientRect();
-            if (!r.width || !r.height) return;
-            var x = ((e.clientX - r.left) * (a.width || 2048)) / r.width;
-            var y = ((e.clientY - r.top) * (a.height || 970)) / r.height;
-            var id =
-              (typeof a.identificar === "function" && a.identificar(x, y)) ||
-              (typeof a.estado === "function" && a.estado() && a.estado().departamento) ||
-              null;
-            if (id === lastNative) return;
-            lastNative = id;
-            window.__lvLastHoverId = id || null;
-            // No postMessage de hover: el parent re-renderizaba y mataba el FPS del WebGL.
-            // El click (ficha) sí avisa al showroom.
-          } catch (err) {}
-        },
-        { passive: true }
-      );
-      view.addEventListener(
-        "pointerleave",
-        function () {
-          lastNative = null;
-          window.__lvLastHoverId = null;
-          // sin post hover (FPS)
-        },
-        { passive: true }
-      );
-      return;
-    }
-    if (view.getAttribute("data-lv-hover") === "1") return;
+    if (!a || !view || view.getAttribute("data-lv-hover") === "1") return;
     view.setAttribute("data-lv-hover", "1");
     var lastId = undefined;
     var clear = function () {
@@ -204,27 +163,46 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
         a.restablecer && a.restablecer({ animate: true });
       } catch (e) {}
     };
+    var resolveId = function (clientX, clientY) {
+      var r = view.getBoundingClientRect();
+      if (!r.width || !r.height) return null;
+      var x = ((clientX - r.left) * (a.width || 2048)) / r.width;
+      var y = ((clientY - r.top) * (a.height || 970)) / r.height;
+      var id =
+        (typeof a.identificar === "function" && a.identificar(x, y)) || null;
+      if (!id && typeof a.estado === "function") {
+        try {
+          var st = a.estado();
+          if (st && st.departamento) id = st.departamento;
+        } catch (e2) {}
+      }
+      return id ? String(id) : null;
+    };
     var move = function (e) {
-      if (e.pointerType === "touch" || e.buttons > 0) return;
+      // Touch: elevación al tap (click). Mouse: eleva en hover.
+      if (e.pointerType === "touch") return;
+      if (e.buttons > 0) return;
       try {
-        var r = view.getBoundingClientRect();
-        if (!r.width || !r.height) return;
-        var x = ((e.clientX - r.left) * (a.width || 2048)) / r.width;
-        var y = ((e.clientY - r.top) * (a.height || 970)) / r.height;
-        var id = typeof a.identificar === "function" ? a.identificar(x, y) : null;
+        var id = resolveId(e.clientX, e.clientY);
         if (id === lastId) return;
         lastId = id;
         window.__lvLastHoverId = id || null;
         if (id) {
+          // Sin options: algunos HTML solo elevan con la firma simple.
           a.seleccionar(id);
-          // sin post hover (FPS)
         } else if (typeof a.restablecer === "function") {
           a.restablecer({ animate: true });
         }
       } catch (err) {}
     };
+    // Escuchar en view y canvas (el hit real suele estar en el canvas WebGL).
     view.addEventListener("pointermove", move, { passive: true });
     view.addEventListener("pointerleave", clear, { passive: true });
+    var canvas = view.querySelector("canvas");
+    if (canvas && canvas !== view) {
+      canvas.addEventListener("pointermove", move, { passive: true });
+      canvas.addEventListener("pointerleave", clear, { passive: true });
+    }
   }
   function ensureClick() {
     var a = api();
@@ -245,7 +223,12 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
           (typeof a.identificar === "function" && a.identificar(x, y)) ||
           (typeof a.estado === "function" && a.estado() && a.estado().departamento) ||
           null;
-        // Siempre avisamos al showroom (con coords) para abrir ficha aunque el id no matchee.
+        // Elevación nativa del HTML + aviso al showroom para la ficha resumen.
+        if (id && typeof a.seleccionar === "function") {
+          try {
+            a.seleccionar(id);
+          } catch (errSel) {}
+        }
         post("ficha", {
           departamento: id ? String(id) : null,
           xPercent: xPct,

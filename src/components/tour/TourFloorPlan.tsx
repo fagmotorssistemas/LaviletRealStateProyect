@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import {
   FLOOR_PLAN_FLOORS,
@@ -578,6 +578,7 @@ export function TourFloorPlan({
       htmlHoverLabelRef.current = unit.unit_number
       setHtmlHoverUnit(unit)
       setHtmlHoverLabel(unit.unit_number)
+      // El HTML ya elevó con su hover/click nativo; solo abrimos la ficha.
       onSelectUnitRef.current(unit, slotId)
     }
     window.addEventListener('message', onMessage)
@@ -604,8 +605,23 @@ export function TourFloorPlan({
     }
   }, [activeHtmlFloor])
 
+  const elevateHtmlUnit = useCallback((plantaId: string | null) => {
+    if (activeHtmlFloor == null) return
+    const iframe = htmlIframeRefs.current[activeHtmlFloor]
+    const api = getLaViletPlanta(iframe?.contentWindow ?? null)
+    if (!api) return
+    try {
+      if (plantaId) api.seleccionar(plantaId, { animate: true })
+      else api.restablecer?.({ animate: true })
+    } catch {
+      /* ignore */
+    }
+  }, [activeHtmlFloor])
+
   const handleSelectSlot = (slot: DisplaySlot) => {
     if (!slot.unit) return
+    // Elevación nativa del HTML + ficha lateral.
+    elevateHtmlUnit(slot.id || slot.unit.unit_number)
     onSelectUnit(slot.unit, slot.id)
   }
 
@@ -956,7 +972,8 @@ export function TourFloorPlan({
             </div>
           ) : null}
 
-          {/* En 3D: pines (la segmentación CRM se edita en Inventario → Pisos). */}
+          {/* En 3D: pines solo visuales (sin pointer-events) para no tapar hover/elevación del HTML.
+              Clic en el mesh abre la ficha resumen vía postMessage. */}
           {htmlInteractive && displaySlots.length > 0 ? (
             <div className="pointer-events-none absolute inset-0 z-[4]">
               {displaySlots.map((slot) => {
@@ -965,33 +982,26 @@ export function TourFloorPlan({
                 const label = slot.unit?.unit_number ?? slot.label
                 const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
                 return (
-                  <button
+                  <div
                     key={`html-pin-${slot.id}`}
-                    type="button"
-                    disabled={!slot.unit}
                     className={cn(
-                      'pointer-events-auto absolute z-[4] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1',
+                      'absolute z-[4] flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1',
                       selected ? 'bg-white ring-[#3d9b4a]' : 'bg-white/92 ring-black/10',
-                      !slot.unit && 'cursor-not-allowed opacity-70',
+                      !slot.unit && 'opacity-70',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      if (slot.unit) onSelectUnit(slot.unit, slot.id)
-                    }}
-                    title={slot.unit ? `Abrir unidad ${label}` : label}
+                    aria-hidden
                   >
                     <span
                       className={cn(
                         'h-1.5 w-1.5 shrink-0 rounded-full sm:h-2 sm:w-2',
                         slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
                       )}
-                      aria-hidden
                     />
                     <span className="text-[10px] font-bold tracking-wide text-[#1a2744] sm:text-[11px]">
                       {label}
                     </span>
-                  </button>
+                  </div>
                 )
               })}
             </div>

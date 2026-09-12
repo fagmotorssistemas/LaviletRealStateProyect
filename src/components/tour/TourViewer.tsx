@@ -562,8 +562,8 @@ function isOsLandscape() {
 }
 
 function shouldGoImmersive() {
-  if (!isOsLandscape()) return false
-  return shortestViewport() <= 720
+  // En celular el showroom vive siempre a pantalla completa (landscape nativo o CSS).
+  return isTouchShowroomDevice()
 }
 
 function isTouchShowroomDevice() {
@@ -625,28 +625,7 @@ function useShowroomImmersive(enabled: boolean) {
   return { want }
 }
 
-function useNeedLandscapeGate(enabled: boolean) {
-  const [need, setNeed] = useState(false)
-  const enabledRef = useRef(enabled)
-  enabledRef.current = enabled
-
-  useOrientationSync(() => {
-    if (!enabledRef.current) {
-      setNeed(false)
-      return
-    }
-    // Con CSS force-landscape ya no bloqueamos: el showroom se ve horizontal solo.
-    setNeed(false)
-  })
-
-  useEffect(() => {
-    setNeed(false)
-  }, [enabled])
-
-  return need
-}
-
-/** Portrait + touch → forzamos landscape visual (CSS) al abrir el showroom. */
+/** Portrait + touch → landscape visual (CSS rotate) sin banners ni gates. */
 function useForceLandscapeCss(enabled: boolean) {
   const [force, setForce] = useState(false)
   const enabledRef = useRef(enabled)
@@ -808,10 +787,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
-  const hold = useShowroomImmersive(true)
+  const hold = useShowroomImmersive(!embedded)
   const immersive = hold.want
-  const needLandscape = useNeedLandscapeGate(true)
-  const forceLandscapeCss = useForceLandscapeCss(true)
+  const forceLandscapeCss = useForceLandscapeCss(!embedded)
   const tourRef = useRef<VirtualTourPlugin | null>(null)
   const targetWidthRef = useRef<TourWidth>(2048)
   const catalogWidthRef = useRef<TourWidth>(4096)
@@ -1743,11 +1721,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
 
     const fitViewport = () => {
-      if (!immersive) {
+      // Con CSS force-landscape el layout lo define el rotate; no pelear con inline styles.
+      if (!immersive || forceLandscapeCss) {
         root.style.top = ''
         root.style.left = ''
         root.style.width = ''
         root.style.height = ''
+        if (immersive || forceLandscapeCss) resize()
         return
       }
       const vv = window.visualViewport
@@ -1761,13 +1741,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
 
     const slot = slotRef.current
-    if (immersive) {
+    if (immersive || forceLandscapeCss) {
       if (root.parentElement !== document.body) document.body.appendChild(root)
       document.documentElement.classList.add('tour-is-immersive')
       document.documentElement.style.overflow = 'hidden'
       document.body.style.overflow = 'hidden'
       fitViewport()
-      void lockTourLandscape(root).finally(fitViewport)
+      // Fullscreen + lock solo en landscape nativo (evita crash por pelear con CSS rotate).
+      if (!forceLandscapeCss) {
+        void lockTourLandscape(root).finally(fitViewport)
+      }
     } else {
       if (slot && root.parentElement !== slot) slot.appendChild(root)
       document.documentElement.classList.remove('tour-is-immersive')
@@ -1797,20 +1780,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         document.body.style.overflow = ''
       }
     }
-  }, [immersive, embedded])
+  }, [immersive, forceLandscapeCss, embedded])
 
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root || !isTouchShowroomDevice()) return
-    if (!needLandscape && isOsLandscape()) {
-      void lockTourLandscape(root)
-    }
-    return () => {
-      void unlockTourOrientation()
-    }
-  }, [needLandscape, immersive])
-
-  // Al abrir en portrait: landscape visual inmediato + intentar lock nativo al primer toque.
+  // Al abrir en portrait: landscape visual + fullscreen/lock en el primer gesto (requerido por el browser).
   useEffect(() => {
     if (!forceLandscapeCss) {
       document.documentElement.classList.remove('tour-is-force-landscape')
@@ -1819,7 +1791,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     document.documentElement.classList.add('tour-is-force-landscape')
     const root = rootRef.current
     const onFirstGesture = () => {
-      if (root) void lockTourLandscape(root)
+      // Solo fullscreen: orientation.lock pelea con el CSS rotate y puede tumbar el tab (Chrome).
+      if (root) void requestTourFullscreen(root)
     }
     window.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true })
     window.addEventListener('touchstart', onFirstGesture, { once: true, capture: true })
@@ -2267,38 +2240,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         </div>
       )}
 
-      {immersive && !forceLandscapeCss ? (
-        <p className="tour-exit-hint" role="status">
-          Poné el celular en vertical para salir
-        </p>
-      ) : null}
-
-      {forceLandscapeCss ? (
-        <p className="tour-exit-hint tour-exit-hint-top" role="status">
-          Showroom en horizontal · girá el celular cuando puedas
-        </p>
-      ) : null}
-
-      {needLandscape ? (
-        <div className="pointer-events-auto absolute inset-x-0 top-0 z-[125] flex justify-center px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-          <button
-            type="button"
-            className="tour-glass max-w-sm px-4 py-3 text-[#f7f3ee]"
-            onClick={() => {
-              const root = rootRef.current
-              if (root) void lockTourLandscape(root)
-            }}
-          >
-            <p className="text-[11px] font-medium tracking-[0.22em] text-[#BDA27E] uppercase">
-              Mejor en horizontal
-            </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-white/70">
-              Girá el celular · Tocá para pantalla completa
-            </p>
-          </button>
-        </div>
-      ) : null}
-
       {bootError ? (
         <div className="absolute inset-0 z-[140] flex flex-col items-center justify-center bg-[#111] px-6 text-center">
           <p className="text-[11px] tracking-[0.28em] text-[#BDA27E] uppercase">Showroom</p>
@@ -2343,7 +2284,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               setFichaOpen(false)
               return
             }
-            setFichaExpanded(true)
+            // Primera ficha (resumen). La expandida se abre con “Ver ficha”.
+            setSimulatorOpen(false)
+            setFinancingOpen(false)
+            setFichaExpanded(false)
             setFichaOpen(true)
           }}
           onWhatsAppClick={() => {
@@ -3003,7 +2947,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               <WhatsAppIcon size={16} />
             </a>
           ) : null}
-          {selectedUnit ? (
+          {selectedUnit && !fichaOpen ? (
             <TourFloorLocationPeek unit={selectedUnit} units={allUnits} />
           ) : null}
         </div>
