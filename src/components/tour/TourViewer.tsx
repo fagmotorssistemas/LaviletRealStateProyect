@@ -1916,9 +1916,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
     const slot = slotRef.current
     if (immersive || forceLandscapeCss) {
-      // iOS: no mover el root a document.body (al recargar queda WebGL huérfano y tumba Safari).
-      // fixed inset-0 ya cubre el viewport sin reparentar.
-      if (!ios && root.parentElement !== document.body) document.body.appendChild(root)
+      // Debe ser hijo directo de body: globals.css oculta `body > *:not(.tour-root)`.
+      // (En iOS no evitamos el append: eso escondía botones del plano / chrome.)
+      if (root.parentElement !== document.body) document.body.appendChild(root)
       document.documentElement.classList.add('tour-is-immersive')
       document.documentElement.style.overflow = 'hidden'
       document.body.style.overflow = 'hidden'

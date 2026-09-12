@@ -47,9 +47,16 @@ html.tour-is-immersive [data-site-header] {
   pointer-events: none !important;
 }
 
+/* Solo aplica cuando .tour-root es hijo directo de body (TourViewer lo reparenta). */
 html.tour-is-immersive body > *:not(.tour-root) {
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+/* Si por alguna razón el root sigue anidado, que al menos se vea y sea usable. */
+html.tour-is-immersive .tour-root {
+  visibility: visible !important;
+  pointer-events: auto !important;
 }
 
 body {
