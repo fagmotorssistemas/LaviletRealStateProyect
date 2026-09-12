@@ -319,6 +319,8 @@ export function TourFloorPlan({
   const [keptHtmlFloors, setKeptHtmlFloors] = useState<number[]>([floor])
   /** URL del HTML cuyo iframe ya disparó onLoad (por piso). */
   const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
+  /** iOS/Safari: en landscape bajo, width:100%+aspect-ratio deja el plano chico; priorizar altura. */
+  const [landscapeFill, setLandscapeFill] = useState(false)
   const onSelectUnitRef = useRef(onSelectUnit)
   onSelectUnitRef.current = onSelectUnit
   const floorRef = useRef(floor)
@@ -327,6 +329,20 @@ export function TourFloorPlan({
   const htmlHoverUnitRef = useRef<TourUnitSummary | null>(null)
   const lastHtmlOpenAtRef = useRef(0)
   const whatsappHref = tourWhatsAppHref(FLOOR_PLAN_WHATSAPP_MESSAGE)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: landscape) and (max-height: 560px)')
+    const sync = () => setLandscapeFill(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    window.addEventListener('orientationchange', sync)
+    window.addEventListener('resize', sync)
+    return () => {
+      mq.removeEventListener('change', sync)
+      window.removeEventListener('orientationchange', sync)
+      window.removeEventListener('resize', sync)
+    }
+  }, [])
 
   const upsertLayer = (view: ReadyFloorView) => {
     const layer = toLayer(view)
@@ -837,10 +853,26 @@ export function TourFloorPlan({
   const showPlanChrome = canToggleVariant
 
   return (
-    <div className="absolute inset-0 z-[18] flex bg-[#14110e] pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]">
-      <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-2 sm:p-3">
+    <div
+      className={cn(
+        'absolute inset-0 z-[18] flex bg-[#14110e]',
+        'pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]',
+        'pl-[max(0px,env(safe-area-inset-left))] pr-[max(0px,env(safe-area-inset-right))]',
+      )}
+    >
+      <div
+        className={cn(
+          'relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden',
+          landscapeFill ? 'p-1' : 'p-2 sm:p-3',
+        )}
+      >
           {showPlanChrome ? (
-            <div className="pointer-events-auto absolute left-3 top-3 z-30 flex rounded-lg bg-white/95 p-0.5 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-1 ring-black/10 sm:left-4 sm:top-4">
+            <div
+              className={cn(
+                'pointer-events-auto absolute z-30 flex rounded-lg bg-white/95 p-0.5 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-1 ring-black/10',
+                landscapeFill ? 'top-1.5 left-1.5' : 'top-3 left-3 sm:top-4 sm:left-4',
+              )}
+            >
               {(['2d', '3d'] as const).map((item) => {
                 const available = item === '2d' ? has2d : has3d
                 const active = planVariant === item
@@ -885,12 +917,21 @@ export function TourFloorPlan({
                 ? 'bg-[#14110e]'
                 : 'rounded-xl bg-white ring-1 ring-white/10 [@media(max-height:520px)]:rounded-lg',
             )}
-            style={{
-              aspectRatio: planAspect,
-              width: '100%',
-              height: 'auto',
-              maxHeight: '100%',
-            }}
+            style={
+              landscapeFill
+                ? {
+                    aspectRatio: planAspect,
+                    height: '100%',
+                    width: 'auto',
+                    maxWidth: '100%',
+                  }
+                : {
+                    aspectRatio: planAspect,
+                    width: '100%',
+                    height: 'auto',
+                    maxHeight: '100%',
+                  }
+            }
             onMouseLeave={() => setHoverSlot(null)}
           >
             {/* Un solo iframe WebGL (piso activo). */}
@@ -1209,7 +1250,12 @@ export function TourFloorPlan({
           ) : null}
           </div>
 
-        <div className="pointer-events-auto absolute bottom-3 left-3 z-30 flex flex-col gap-1.5 sm:bottom-4 sm:left-4">
+        <div
+          className={cn(
+            'pointer-events-auto absolute z-30 flex flex-col gap-1.5',
+            landscapeFill ? 'bottom-1.5 left-1.5' : 'bottom-3 left-3 sm:bottom-4 sm:left-4',
+          )}
+        >
           <button
             type="button"
             onClick={zoomIn}
@@ -1233,7 +1279,13 @@ export function TourFloorPlan({
         </div>
       </div>
 
-      <div className="pointer-events-auto flex shrink-0 flex-col items-center justify-between gap-1.5 py-1.5 pr-1.5 sm:gap-2.5 sm:py-2 sm:pr-3 [@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:pr-1">
+      <div
+        className={cn(
+          'pointer-events-auto flex shrink-0 flex-col items-center justify-between gap-1.5',
+          landscapeFill ? 'py-1 pr-1' : 'py-1.5 pr-1.5 sm:gap-2.5 sm:py-2 sm:pr-3',
+          '[@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:pr-1',
+        )}
+      >
         <div className="flex min-h-0 flex-1 flex-col justify-center">
           <div
             className="flex max-h-full flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-xl bg-white/92 p-1 shadow-[0_8px_24px_rgba(15,23,42,0.18)] sm:gap-1.5 sm:p-2 [@media(max-height:520px)]:rounded-lg [@media(max-height:520px)]:p-0.5"

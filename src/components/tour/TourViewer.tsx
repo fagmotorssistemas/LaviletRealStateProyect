@@ -1880,28 +1880,30 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       }, ios ? 450 : 120)
     }
 
+    const clearRootBox = () => {
+      root.style.top = ''
+      root.style.left = ''
+      root.style.width = ''
+      root.style.height = ''
+    }
+
     const fitViewport = () => {
       // Con CSS force-landscape el layout lo define el rotate; no pelear con inline styles ni autoSize.
       if (forceLandscapeCss) {
-        root.style.top = ''
-        root.style.left = ''
-        root.style.width = ''
-        root.style.height = ''
+        clearRootBox()
         return
       }
       if (!immersive) {
-        root.style.top = ''
-        root.style.left = ''
-        root.style.width = ''
-        root.style.height = ''
+        clearRootBox()
         return
       }
-      // iOS: no pelear con visualViewport (barra URL); fixed inset-0 basta.
+      // iOS: al girar, innerWidth/Height son el viewport real. Evita 100dvh stale (plano/tour “compactados”).
+      // No usamos visualViewport en bucle (tumba Safari); solo window resize/orientation.
       if (ios) {
-        root.style.top = ''
-        root.style.left = ''
-        root.style.width = ''
-        root.style.height = ''
+        root.style.top = '0px'
+        root.style.left = '0px'
+        root.style.width = `${window.innerWidth}px`
+        root.style.height = `${window.innerHeight}px`
         return
       }
       const vv = window.visualViewport
@@ -1917,7 +1919,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     const slot = slotRef.current
     if (immersive || forceLandscapeCss) {
       // Debe ser hijo directo de body: globals.css oculta `body > *:not(.tour-root)`.
-      // (En iOS no evitamos el append: eso escondía botones del plano / chrome.)
       if (root.parentElement !== document.body) document.body.appendChild(root)
       document.documentElement.classList.add('tour-is-immersive')
       document.documentElement.style.overflow = 'hidden'
@@ -1936,8 +1937,17 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             /* ignore */
           }
         }, 160)
+      } else if (ios) {
+        // Tras girar el teléfono Safari tarda en reportar el tamaño final.
+        window.setTimeout(() => {
+          fitViewport()
+          try {
+            viewer?.autoSize()
+          } catch {
+            /* ignore */
+          }
+        }, 320)
       }
-      // iOS: sin autoSize extra al montar (el boot ya dimensiona; más llamadas = más crashes).
     } else {
       if (slot && root.parentElement !== slot) slot.appendChild(root)
       document.documentElement.classList.remove('tour-is-immersive')
@@ -1949,20 +1959,62 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       fitViewport()
     }
 
-    // En force-landscape / iOS no escuchamos visualViewport: dispara autoSize en bucle y tumba el tab.
+    // Android/desktop: visualViewport. iOS: solo window (orientation/resize), sin visualViewport.
     if (!forceLandscapeCss && !ios) {
       window.visualViewport?.addEventListener('resize', fitViewport)
       window.visualViewport?.addEventListener('scroll', fitViewport)
     }
 
+    const onIosOrient = () => {
+      if (!ios || forceLandscapeCss || !immersive) return
+      fitViewport()
+      resize()
+      window.setTimeout(() => {
+        fitViewport()
+        try {
+          viewerRef.current?.autoSize()
+        } catch {
+          /* ignore */
+        }
+      }, 280)
+      window.setTimeout(() => {
+        fitViewport()
+        try {
+          viewerRef.current?.autoSize()
+        } catch {
+          /* ignore */
+        }
+      }, 700)
+    }
+    let iosOrientTimer: number | null = null
+    const onIosOrientDebounced = () => {
+      if (iosOrientTimer != null) window.clearTimeout(iosOrientTimer)
+      // resize de barra URL: un solo fit; orientationchange dispara al instante abajo.
+      iosOrientTimer = window.setTimeout(() => {
+        iosOrientTimer = null
+        onIosOrient()
+      }, 120)
+    }
+    const onIosOrientationChange = () => {
+      if (iosOrientTimer != null) window.clearTimeout(iosOrientTimer)
+      iosOrientTimer = null
+      onIosOrient()
+    }
+    if (ios && immersive && !forceLandscapeCss) {
+      window.addEventListener('orientationchange', onIosOrientationChange)
+      window.addEventListener('resize', onIosOrientDebounced)
+      window.screen?.orientation?.addEventListener('change', onIosOrientationChange)
+    }
+
     return () => {
       if (resizeTimer != null) window.clearTimeout(resizeTimer)
+      if (iosOrientTimer != null) window.clearTimeout(iosOrientTimer)
       window.visualViewport?.removeEventListener('resize', fitViewport)
       window.visualViewport?.removeEventListener('scroll', fitViewport)
-      root.style.top = ''
-      root.style.left = ''
-      root.style.width = ''
-      root.style.height = ''
+      window.removeEventListener('orientationchange', onIosOrientationChange)
+      window.removeEventListener('resize', onIosOrientDebounced)
+      window.screen?.orientation?.removeEventListener('change', onIosOrientationChange)
+      clearRootBox()
       const slot = slotRef.current
       if (slot && root.parentElement !== slot) slot.appendChild(root)
       document.documentElement.classList.remove('tour-is-immersive')
@@ -2231,7 +2283,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         immersive && 'is-immersive',
         forceLandscapeCss && 'tour-force-landscape',
         immersive || !embedded || forceLandscapeCss
-          ? 'fixed inset-0 z-[200] h-[100dvh] w-full'
+          ? 'fixed inset-0 z-[200] h-auto w-auto'
           : 'relative h-full w-full',
       )}
     >
