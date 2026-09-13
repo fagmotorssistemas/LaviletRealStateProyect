@@ -13,7 +13,7 @@
     "test:visit-inbox": "node --require ./scripts/test-typescript.cjs --test src/services/visitInbox.service.test.ts src/lib/supabase/request.test.ts src/lib/inmobiliaria/visitInbox.test.ts",
     "automation:tick": "node scripts/automation-cron.mjs",
     "automation:watch": "node scripts/automation-cron.mjs --watch",
-    "test:automation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts"
+    "test:automation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts src/services/automationRules.service.test.ts"
   },
   "engines": {
     "node": "20.x"

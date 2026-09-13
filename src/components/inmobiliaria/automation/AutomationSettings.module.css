@@ -1,0 +1,60 @@
+.shell { max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; color: #344139; }
+.shell button { letter-spacing: normal; }
+.shell input[type='checkbox'] { accent-color: #3f5845; }
+.shell :global(.crm-field) { font-size: 13px; }
+.shell :global(button:focus-visible), .shell :global(a:focus-visible), .panel:focus-visible { outline: 2px solid #9c824f; outline-offset: 3px; }
+.counter { min-width: 23px; text-align: center; padding: 2px 6px; border: 1px solid currentColor; border-radius: 4px; font-variant-numeric: tabular-nums; }
+.projectBar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 20px; background: white; border: 1px solid #e3e7dd; }
+.projectBar > div { width: 310px; max-width: 100%; }
+.projectBar > p { color: #626d5f; font-size: 12px; line-height: 1.8; text-align: right; }
+.projectBar > p > span { color: #87917f; }
+.summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.metric { background: #fff; border: 1px solid #e3e7dd; padding: 19px 22px; }
+.metricLabel { display: flex; gap: 10px; align-items: center; justify-content: space-between; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: #7a8472; }
+.metricValue { margin: 13px 0 8px; font-family: var(--font-display), Georgia, serif; font-size: 31px; line-height: 1.2; color: #2a4030; }
+.metricValue small { font-family: var(--font-sans), sans-serif; font-size: 12px; color: #7a8472; }
+.metric p { font-size: 11px; line-height: 1.6; color: #7b8576; }
+.metric[data-muted] { background: #f9faf6; }
+.settingsGrid { display: grid; grid-template-columns: 235px minmax(0, 1fr); gap: 24px; align-items: start; }
+.sidebar { position: sticky; top: 24px; }
+.navLabel { padding: 6px 12px 14px; font-size: 10px; text-transform: uppercase; letter-spacing: .13em; color: #8a9283; }
+.sectionNav { display: flex; flex-direction: column; gap: 6px; }
+.sectionNav button { display: flex; text-align: left; align-items: center; gap: 12px; padding: 15px 12px; color: #7b8574; background: transparent; border: 1px solid transparent; cursor: pointer; }
+.sectionNav button > svg { flex-shrink: 0; }
+.sectionNav button > span { flex: 1; }
+.sectionNav strong { display: block; font-size: 13px; font-weight: 600; color: #4d604b; }
+.sectionNav small { display: block; margin-top: 4px; font-size: 11px; line-height: 1.5; }
+.sectionNav button[aria-selected='true'] { background: white; border-color: #dce2d3; box-shadow: inset 3px 0 #596d45; color: #596d45; }
+.sectionNav button:hover:not([aria-selected='true']) { background: #edf0e7; }
+.navHelp { margin: 22px 12px 0; padding-top: 18px; border-top: 1px solid #e1e5da; font-size: 11px; line-height: 1.8; color: #8b9384; }
+.panelArea { min-width: 0; }
+.panel { background: #fff; border: 1px solid #e2e6dc; min-width: 0; }
+.panel[hidden] { display: none !important; }
+.panelHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 25px 26px; border-bottom: 1px solid #e9ece3; }
+.panelHeader h2 { font-family: var(--font-display), Georgia, serif; font-size: 25px; line-height: 1.2; color: #33482f; }
+.panelHeader p { margin-top: 9px; font-size: 12px; line-height: 1.8; color: #7d8675; max-width: 620px; }
+.panelAction { flex-shrink: 0; }
+.panelBody { padding: 24px 26px; display: flex; flex-direction: column; gap: 22px; }
+.panelBody table { width: 100%; }
+.shell .panelBody table thead th { background: #f6f8f2; color: #7a8470; font-size: 11px; padding: 13px 14px; font-weight: 600; text-align: left; }
+.shell .panelBody table tbody td { padding: 13px 14px; font-size: 12px; }
+.panelBody table tbody tr:last-child { border-bottom: 0; }
+.notice { background: #f5f7f0; border: 1px solid #e2e7d8; border-left: 3px solid #7c8d65; padding: 16px 18px; font-size: 12px; line-height: 1.8; color: #647258; }
+.notice strong { display: block; color: #3d5336; margin-bottom: 5px; font-size: 13px; }
+.notice p + p { margin-top: 7px; }
+.statusLine { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 16px; border: 1px solid #e2e7d8; background: #fafbf7; }
+.statusLine h3 { font-size: 14px; font-weight: 600; }
+.statusLine p { font-size: 12px; color: #849077; margin-top: 5px; }
+.statusBadge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 5px 9px; background: #edf1e6; color: #647354; }
+.statusBadge[data-active='true'] { background: #fff0d8; color: #946529; }
+.messageGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.messageCard { padding: 20px; border: 1px solid #e3e7dd; }
+.messageCard > svg { color: #83956b; margin-bottom: 15px; }
+.messageCard h3 { font-size: 15px; font-weight: 600; margin: 12px 0 8px; }
+.messageCard p, .messageCard li { font-size: 12px; line-height: 1.9; color: #78846c; }
+.messageCard ul { margin-top: 12px; padding-left: 16px; list-style: disc; }
+.mapCard { padding: 24px; border: 1px solid #e1e7d7; background: #fff; }
+.mapCaption { display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: #f6f8f1; color: #78856b; font-size: 12px; }
+@media (max-width: 1100px) { .settingsGrid { grid-template-columns: 195px minmax(0, 1fr); gap: 16px; } .panelHeader, .panelBody { padding: 20px; } .panelHeader { flex-wrap: wrap; } }
+@media (max-width: 800px) { .settingsGrid { grid-template-columns: 1fr; } .sidebar { position: static; } .sectionNav { flex-direction: row; overflow-x: auto; padding-bottom: 3px; } .sectionNav button { flex-shrink: 0; padding: 12px 14px; } .sectionNav small, .sectionNav button > svg:last-child, .navHelp, .navLabel { display: none; } .sectionNav button[aria-selected='true'] { box-shadow: inset 0 -3px #596d45; } .projectBar { align-items: flex-start; } .projectBar p { max-width: 245px; } .summary { gap: 8px; } .metric { padding: 15px; } .metricValue { font-size: 26px; } }
+@media (max-width: 550px) { .shell { gap: 16px; } .projectBar { flex-direction: column; gap: 10px; padding: 15px; } .projectBar > div { width: 100%; } .projectBar p { text-align: left; max-width: none; } .summary { grid-template-columns: 1fr; } .metric { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; } .metricLabel { justify-content: flex-start; } .metricValue { margin: 0; font-size: 25px; grid-column: 2; grid-row: 1 / 3; align-self: center; } .metric p { grid-column: 1; } .panelBody, .panelHeader { padding: 17px; } .panelAction { width: 100%; } .messageGrid { grid-template-columns: 1fr; } .mapCard { padding: 15px; } }

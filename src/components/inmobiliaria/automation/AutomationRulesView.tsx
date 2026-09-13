@@ -1,12 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Settings2 } from 'lucide-react'
-import { AutomationSectionTabs } from '@/components/inmobiliaria/automation/AutomationSectionTabs'
+import { Settings2, Clock3, Users, ChartNoAxesColumnIncreasing, CalendarClock } from 'lucide-react'
+import { AutomationSettingsHeader, AutomationSettingsSummary, AutomationSettingsSections, AutomationSettingsPanel as RulesCard, automationSettingsStyles as styles } from './AutomationSettings'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
-import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -24,6 +23,7 @@ import {
 import { formatDateTime } from '@/lib/utils'
 import {
   addSalespersonAction,
+  disableNutritionSequenceAction,
   loadAutomationRulesAction,
   saveAutomationConfigAction,
   saveNutritionStepsAction,
@@ -63,31 +63,6 @@ function Toggle({
   )
 }
 
-function RulesCard({
-  title,
-  description,
-  action,
-  children,
-}: {
-  title: string
-  description: string
-  action: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="font-display text-lg font-semibold text-[#3a3d36]">{title}</h2>
-          <p className="mt-1 text-sm text-[#7a7e70]">{description}</p>
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  )
-}
-
 export function AutomationRulesView() {
   const router = useRouter()
   const { isAdmin, isLoading: roleLoading } = useRoleAccess()
@@ -104,6 +79,7 @@ export function AutomationRulesView() {
   const [addPersonId, setAddPersonId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+  const [section, setSection] = useState('horario')
 
   useEffect(() => {
     if (roleLoading) return
@@ -239,9 +215,9 @@ export function AutomationRulesView() {
     setSaving('nutrition')
     try {
       await saveNutritionStepsAction(nutrition)
-      toast.success('Nutrición guardada')
+      toast.success('Seguimiento guardado')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo guardar la nutrición')
+      toast.error(error instanceof Error ? error.message : 'No se pudo guardar el seguimiento')
     } finally {
       setSaving(null)
     }
@@ -260,6 +236,19 @@ export function AutomationRulesView() {
     }
   }
 
+  const disableNutrition = async () => {
+    setSaving('nutrition-disable')
+    try {
+      await disableNutritionSequenceAction(projectId)
+      setNutrition(current => current.map(step => ({ ...step, active: false })))
+      toast.success('Toda la secuencia quedó desactivada')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo desactivar la secuencia')
+    } finally {
+      setSaving(null)
+    }
+  }
+
   if (roleLoading || !isAdmin) {
     return (
       <div className="flex justify-center py-20">
@@ -269,23 +258,22 @@ export function AutomationRulesView() {
   }
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        eyebrow="Automatización"
-        title="Reglas"
-        description="Horario, equipo, puntaje y nutrición. Las preguntas y respuestas del bot están en Guion."
-      />
-      <AutomationSectionTabs active="reglas" />
-
-      <div className="max-w-sm">
+    <div className={styles.shell}>
+      <AutomationSettingsHeader
+        active="reglas"
+        title="Reglas y SLA"
+        description="Organice la atención del equipo, los tiempos de respuesta y el seguimiento comercial."
+        project={
         <Select
           label="Proyecto"
           options={projects.map((project) => ({ value: project.id, label: project.name }))}
           placeholder="Elige un proyecto"
           value={projectId}
+          disabled={saving !== null}
           onChange={(event) => setProjectId(event.target.value)}
         />
-      </div>
+        }
+      />
 
       {projects.length === 0 ? (
         <EmptyState
@@ -299,15 +287,32 @@ export function AutomationRulesView() {
         </div>
       ) : (
         <>
+          <AutomationSettingsSummary items={[
+            { label: 'Revisión de citas', value: <>{config.review_sla_minutes} <small>minutos</small></>, detail: 'Plazo objetivo para atender la solicitud', icon: Clock3 },
+            { label: 'Equipo en rotación', value: salespeople.filter(person => person.receives_leads && person.is_active !== false).length, detail: 'Asesores habilitados para recibir leads', icon: Users },
+            { label: 'Seguimiento de 4 semanas', value: nutrition.some(step => step.active) ? 'Configurado' : 'Desactivado', detail: 'El envío automático aún no está conectado', icon: CalendarClock, muted: true },
+          ]} />
+          <AutomationSettingsSections selected={section} onSelect={setSection} sections={[
+            { id: 'horario', label: 'Horario y SLA', detail: 'Jornada y plazos de atención', icon: Clock3 },
+            { id: 'equipo', label: 'Equipo y rotación', detail: 'Asignación de leads y citas', icon: Users },
+            { id: 'puntaje', label: 'Calificación de leads', detail: 'Puntajes y nivel de interés', icon: ChartNoAxesColumnIncreasing },
+            { id: 'seguimiento', label: 'Seguimiento', detail: 'Secuencia de 4 semanas', icon: CalendarClock },
+          ]}>
           <RulesCard
-            title="Horario y modo"
-            description="Modo del bot, zona horaria y jornada. El horario hábil también alimenta is_project_open (handoff). El plazo de revisión de citas no es el SLA de traspaso."
+            id="horario"
+            title="Horario y tiempos de atención"
+            description="Defina la jornada de los asesores y los plazos para revisar las solicitudes de visita."
             action={
               <Button onClick={() => void saveConfig()} disabled={saving === 'config'}>
                 {saving === 'config' ? 'Guardando...' : 'Guardar'}
               </Button>
             }
           >
+            <div className={styles.notice}>
+              <strong>¿Qué significa SLA?</strong>
+              <p>Es el plazo objetivo de atención del equipo: {config.sla_response_minutes} minutos para responder tras un traspaso a un asesor y {config.review_sla_minutes} minutos para revisar una solicitud de cita.</p>
+              <p>Estos plazos permiten detectar solicitudes vencidas. No son una espera que el bot deba cumplir antes de responder.</p>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Select
                 label="Modo"
@@ -369,7 +374,7 @@ export function AutomationRulesView() {
                 <Toggle
                   checked={config.is_active}
                   onChange={(value) => patchConfig('is_active', value)}
-                  label="Motor activo"
+                  label="Configuración habilitada"
                 />
               </div>
             </div>
@@ -390,6 +395,7 @@ export function AutomationRulesView() {
                       <td className="px-4 py-2">
                         <input
                           type="checkbox"
+                          aria-label={`${day.label}: atención habilitada`}
                           checked={day.enabled}
                           onChange={(event) =>
                             setDays((current) =>
@@ -404,6 +410,7 @@ export function AutomationRulesView() {
                       <td className="px-4 py-2">
                         <input
                           type="time"
+                          aria-label={`${day.label}: hora de apertura`}
                           value={day.open}
                           disabled={!day.enabled}
                           onChange={(event) =>
@@ -419,6 +426,7 @@ export function AutomationRulesView() {
                       <td className="px-4 py-2">
                         <input
                           type="time"
+                          aria-label={`${day.label}: hora de cierre`}
                           value={day.close}
                           disabled={!day.enabled}
                           onChange={(event) =>
@@ -437,12 +445,12 @@ export function AutomationRulesView() {
               </table>
             </div>
             <p className="text-xs text-[#7a7e70]">
-              Este horario también lo consume el handoff (`is_project_open`). Cambiarlo afecta visitas y traspaso.
-              El plazo de revisión de citas es distinto de `sla_response_minutes` (SLA de handoff); no se reescribe aquí.
+              Esta jornada se utiliza para coordinar visitas y derivar solicitudes al equipo. La pausa de la IA de cada lead se administra desde Monitoreo.
             </p>
           </RulesCard>
 
           <RulesCard
+            id="equipo"
             title="Equipo y rotación"
             description="Quién recibe leads de este proyecto. Apagar a alguien no lo saca del equipo."
             action={null}
@@ -561,8 +569,9 @@ export function AutomationRulesView() {
           </RulesCard>
 
           <RulesCard
-            title="Puntaje"
-            description="Cortes de temperatura y puntos por evento. No se pueden borrar eventos; solo ajustar."
+            id="puntaje"
+            title="Calificación de leads"
+            description="Los límites de interés se guardan por proyecto. Los puntos por evento son reglas compartidas de la plataforma."
             action={
               <Button onClick={() => void saveConfig()} disabled={saving === 'config'}>
                 {saving === 'config' ? 'Guardando...' : 'Guardar cortes'}
@@ -664,25 +673,33 @@ export function AutomationRulesView() {
           </RulesCard>
 
           <RulesCard
-            title="Nutrición"
-            description="Secuencia de 4 semanas. Sin plantilla aprobada por Meta no se envía fuera de la ventana de 24 horas."
+            id="seguimiento"
+            title="Seguimiento de 4 semanas"
+            description="Prepare los temas y las plantillas para dar seguimiento. Esta configuración aún no está conectada al envío automático de mensajes."
             action={
               nutrition.length ? (
-                <Button onClick={() => void saveNutrition()} disabled={saving === 'nutrition'}>
+                <Button onClick={() => void saveNutrition()} disabled={saving !== null}>
                   {saving === 'nutrition' ? 'Guardando...' : 'Guardar'}
                 </Button>
               ) : (
-                <Button onClick={() => void seedNutrition()} disabled={saving === 'nutrition-seed'}>
-                  Crear 4 semanas
+                <Button onClick={() => void seedNutrition()} disabled={saving !== null}>
+                  Preparar 4 semanas
                 </Button>
               )
             }
           >
+            <div className={styles.statusLine}>
+              <div>
+                <span className={styles.statusBadge} data-active={nutrition.some(step => step.active)}>{nutrition.some(step => step.active) ? 'Hay pasos marcados como activos' : 'Secuencia desactivada'}</span>
+                <p>Preparar la secuencia crea sus cuatro pasos apagados.</p>
+              </div>
+              {nutrition.length > 0 && <Button variant="outline" onClick={() => void disableNutrition()} disabled={saving !== null}>{saving === 'nutrition-disable' ? 'Desactivando…' : 'Desactivar toda la secuencia'}</Button>}
+            </div>
             {nutrition.length === 0 ? (
               <EmptyState
                 icon={Settings2}
                 title="Todavía no hay plantillas"
-                description="Crea la secuencia con temas de lanzamiento. Márcalas como aprobadas cuando Meta las confirme."
+                description="Prepare los cuatro temas de lanzamiento. Registre la aprobación de cada plantilla únicamente cuando Meta la confirme."
               />
             ) : (
               <div className="overflow-x-auto rounded-xl border border-gray-100">
@@ -691,7 +708,7 @@ export function AutomationRulesView() {
                     <tr>
                       <th className="px-4 py-2 font-medium">Semana</th>
                       <th className="px-4 py-2 font-medium">Tema</th>
-                      <th className="px-4 py-2 font-medium">Template Meta</th>
+                      <th className="px-4 py-2 font-medium">Plantilla de Meta</th>
                       <th className="px-4 py-2 font-medium">Aprobado</th>
                       <th className="px-4 py-2 font-medium">Activo</th>
                     </tr>
@@ -761,6 +778,7 @@ export function AutomationRulesView() {
               </div>
             )}
           </RulesCard>
+          </AutomationSettingsSections>
         </>
       )}
     </div>

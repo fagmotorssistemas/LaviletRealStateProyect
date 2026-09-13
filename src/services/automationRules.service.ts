@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { defaultAutomationConfig } from '@/lib/inmobiliaria/automationRules'
+import { defaultAutomationConfig } from '../lib/inmobiliaria/automationRules'
 import type {
   AutomationRulesPayload,
   NutritionStepRow,
@@ -234,8 +234,16 @@ export async function seedNutritionSteps(
       topic: step.topic,
       meta_template_name: step.meta_template_name,
       is_approved: false,
-      active: true,
+      active: false,
     })),
   )
+  if (error) throw new Error(error.message)
+}
+
+export async function disableNutritionSequence(supabase: SupabaseClient, projectId: string) {
+  if (!projectId) throw new Error('Elige un proyecto')
+  const { error } = await supabase.from('nutrition_steps')
+    .update({ active: false })
+    .eq('project_id', projectId)
   if (error) throw new Error(error.message)
 }

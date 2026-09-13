@@ -1,12 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { MessageSquareText } from 'lucide-react'
-import { AutomationSectionTabs } from '@/components/inmobiliaria/automation/AutomationSectionTabs'
+import { MessageSquareText, ListChecks, Workflow, CalendarClock, Landmark } from 'lucide-react'
+import { AutomationSettingsHeader, AutomationSettingsSummary, AutomationSettingsSections, AutomationSettingsPanel as GuionCard, automationSettingsStyles as styles } from './AutomationSettings'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
-import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -58,31 +57,6 @@ function Toggle({
   )
 }
 
-function GuionCard({
-  title,
-  description,
-  action,
-  children,
-}: {
-  title: string
-  description: string
-  action: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="font-display text-lg font-semibold text-[#3a3d36]">{title}</h2>
-          <p className="mt-1 text-sm text-[#7a7e70]">{description}</p>
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  )
-}
-
 export function AutomationGuionView() {
   const router = useRouter()
   const { isAdmin, isLoading: roleLoading } = useRoleAccess()
@@ -99,6 +73,7 @@ export function AutomationGuionView() {
   const [newTopicContent, setNewTopicContent] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+  const [section, setSection] = useState('respuestas')
 
   useEffect(() => {
     if (roleLoading) return
@@ -264,23 +239,22 @@ export function AutomationGuionView() {
   }
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        eyebrow="Automatización"
-        title="Guion"
-        description="Qué pregunta el bot y cómo responde. No cambia horario, puntaje ni nutrición."
-      />
-      <AutomationSectionTabs active="guion" />
-
-      <div className="max-w-sm">
+    <div className={styles.shell}>
+      <AutomationSettingsHeader
+        active="guion"
+        title="Guion del bot"
+        description="Defina el trato, las preguntas y las instrucciones que orientan cada conversación."
+        project={
         <Select
           label="Proyecto"
           options={projects.map((project) => ({ value: project.id, label: project.name }))}
           placeholder="Elige un proyecto"
           value={projectId}
+          disabled={saving !== null}
           onChange={(event) => setProjectId(event.target.value)}
         />
-      </div>
+        }
+      />
 
       {projects.length === 0 ? (
         <EmptyState
@@ -294,9 +268,20 @@ export function AutomationGuionView() {
         </div>
       ) : (
         <>
+          <AutomationSettingsSummary items={[
+            { label: 'Instrucciones activas', value: topics.filter(topic => topic.is_active && SDR_PROMPT_ORDER.includes(topic.name)).length, detail: 'Guiones que utiliza la conversación', icon: MessageSquareText },
+            { label: 'Preguntas orientativas', value: questions.filter(question => question.is_active).length, detail: 'Se adaptan a lo que el lead ya compartió', icon: ListChecks },
+            { label: 'Tipo de respuesta', value: 'Mixta', detail: 'IA comercial y mensajes operativos guiados', icon: Workflow },
+          ]} />
+          <AutomationSettingsSections selected={section} onSelect={setSection} sections={[
+            { id: 'respuestas', label: 'Cómo responde', detail: 'Tono e instrucciones de la IA', icon: MessageSquareText },
+            { id: 'preguntas', label: 'Qué pregunta', detail: 'Datos para orientar al cliente', icon: ListChecks },
+            { id: 'operativos', label: 'Citas y financiamiento', detail: 'Cómo se eligen estos mensajes', icon: Workflow },
+          ]}>
           <GuionCard
+            id="preguntas"
             title="Qué pregunta el bot"
-            description="Una pregunta por mensaje, en este orden. Quitar es apagar o borrar la fila. Al guardar se inyecta en el agente comercial del proyecto."
+            description="Son una guía para conocer al cliente. El bot adapta el orden y evita preguntar de nuevo lo que ya sabe."
             action={
               questions.length ? (
                 <Button onClick={() => void saveQuestions()} disabled={saving === 'questions'}>
@@ -405,12 +390,13 @@ export function AutomationGuionView() {
           </GuionCard>
 
           <GuionCard
+            id="respuestas"
             title="Cómo responde"
             description="La bienvenida se usa solo en la primera respuesta. El prompt comercial orienta la conversación y descubre necesidades; el revisor comprueba hechos y continuidad. Los cambios guardados se leen en los siguientes mensajes."
             action={null}
           >
             <p className="text-sm text-[#5c6156]">
-              Responda primero la consulta y avance con una pregunta pertinente: tipo de inmueble, uso,
+              Responda primero la consulta y haga una pregunta cuando ayude a avanzar: tipo de inmueble, uso,
               características, presupuesto o visita. Las citas solo se confirman con una propuesta aprobada.
               Las preguntas del guion son orientativas; no deben repetirse si el cliente ya respondió.
               Los precios dependen del modo comercial del proyecto y de valores publicados.
@@ -422,6 +408,8 @@ export function AutomationGuionView() {
                   <div key={row.id} className="rounded-lg border border-gray-100">
                     <button
                       type="button"
+                      aria-expanded={open}
+                      aria-controls={`topic-${row.id}`}
                       className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
                       onClick={() => setOpenTopicId(open ? null : row.id)}
                     >
@@ -432,7 +420,7 @@ export function AutomationGuionView() {
                       <span className="text-xs text-[#7a7e70]">{!SDR_PROMPT_ORDER.includes(row.name) ? 'Referencia' : row.is_active ? 'Activo' : 'Apagado'}</span>
                     </button>
                     {open ? (
-                      <div className="space-y-3 border-t border-gray-100 px-4 py-3">
+                      <div id={`topic-${row.id}`} className="space-y-3 border-t border-gray-100 px-4 py-3">
                         <p className="text-sm text-[#5c6156]">{topicPromptHelp(row.name)}</p>
                         <Input
                           label="Descripción del uso"
@@ -513,6 +501,24 @@ export function AutomationGuionView() {
               </div>
             </div>
           </GuionCard>
+          <GuionCard id="operativos" title="Citas y financiamiento" description="Estos procesos combinan decisiones de la IA con textos predefinidos. El mensaje cambia según el paso y los datos reales de cada lead.">
+            <div className={styles.messageGrid}>
+              <article className={styles.messageCard}>
+                <Landmark size={24} /><span className={styles.statusBadge}>Proceso guiado</span>
+                <h3>Financiamiento</h3>
+                <p>El sistema elige mensajes para informar las entidades disponibles, registrar la elección y solicitar los datos que faltan.</p>
+                <ul><li>Las entidades se toman de la configuración vigente.</li><li>Las preguntas dependen de la información ya registrada.</li><li>La consulta sobre crédito directo tiene una respuesta específica.</li></ul>
+              </article>
+              <article className={styles.messageCard}>
+                <CalendarClock size={24} /><span className={styles.statusBadge}>Textos con datos de la cita</span>
+                <h3>Agendamiento de visitas</h3>
+                <p>Las solicitudes, propuestas, confirmaciones y cancelaciones tienen textos definidos para cada estado.</p>
+                <ul><li>La fecha, la hora y el asesor se completan con la cita real.</li><li>La confirmación incluye la ubicación guardada.</li><li>El bot distingue una preferencia de una cita confirmada.</li></ul>
+              </article>
+            </div>
+            <div className={styles.notice}><strong>¿Qué se puede editar desde Guion?</strong><p>El tono y las instrucciones de las respuestas comerciales. Los textos operativos de citas y financiamiento están definidos en el sistema y todavía no tienen un editor en esta pantalla.</p><p>No hace falta crear más plantillas en Kommo para cambiar la lógica que elige estos mensajes.</p></div>
+          </GuionCard>
+          </AutomationSettingsSections>
         </>
       )}
     </div>

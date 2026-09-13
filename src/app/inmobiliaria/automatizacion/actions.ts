@@ -5,6 +5,7 @@ import { assertAdmin, getSessionUser } from '@/lib/auth/session'
 import { listTeamProfiles } from '@/services/inmobiliaria.service'
 import {
   addProjectSalesperson,
+  disableNutritionSequence,
   loadAutomationRules,
   seedNutritionSteps,
   updateSalespersonRow,
@@ -115,4 +116,14 @@ export async function seedNutritionStepsAction(projectId: string) {
       steps: DEFAULT_NUTRITION_TOPICS,
     }),
   )
+}
+
+export async function disableNutritionSequenceAction(projectId: string) {
+  await withAdminSession(async client => {
+    if (!projectId) throw new Error('Elige un proyecto')
+    const { data, error } = await client.from('projects').select('id').eq('id', projectId).maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!data) throw new Error('Proyecto no encontrado')
+    await disableNutritionSequence(client, projectId)
+  })
 }
