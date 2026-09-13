@@ -9,6 +9,7 @@ import { catalogReferenceReply, resolveCatalogReference } from './catalog-refere
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { unitModelRequestReply } from './unit-model'
 import { salesPlan, salesIssues, salesTopicReply } from './sales-policy'
+import { openingWritingRules, variedReplyOpening } from './response-openings'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -75,13 +76,11 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
   const input = { ...experienceContext(info, current, memory), siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
-  const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory)
+  const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial)
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nEl campo modelo_3d indica si el sistema adjuntará el recorrido de la unidad en ESTA respuesta. Si está presente, responda la consulta brevemente sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces de modelos: el sistema añade el enlace verificado. Si no hay modelo_3d no prometa enviar un modelo. No confunda este recorrido con una cita presencial.'
   const reasons: string[] = []
-  const warm = (answer: string) => /(?:informaci[oó]n|saber|cu[eé]nt|expl[ií]q|explica).*(?:proyecto|edificio)|(?:proyecto|edificio).*(?:informaci[oó]n|detalles)/i.test(current)
-    && !/^(?:claro|con gusto|por supuesto|hola|buen[oa]s?)/i.test(answer.trim()) ? 'Claro, con mucho gusto. ' + answer : answer
-  let reply = warm(await draftReply(prompt + rules, input))
+  let reply = variedReplyOpening(await draftReply(prompt + rules, input), info.historial)
   // One bounded rewrite; rejected drafts never reach Kommo.
   for (let attempt = 0; attempt < 2; attempt++) {
     await guard()
@@ -92,8 +91,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number])) as string[] : []))
     if (!attempt) {
       await guard()
-      reply = warm(await draftReply(prompt + rules, { ...input, borrador_rechazado: reply, correcciones_requeridas: reasons,
-        tarea: 'Reescriba en lenguaje sencillo y breve. Resuelva la consulta actual; no repita beneficios ni preguntas sobre datos que el cliente no sabe. Una pregunta útil es opcional, sin inventar hechos.' }))
+      reply = variedReplyOpening(await draftReply(prompt + rules, { ...input, borrador_rechazado: reply, correcciones_requeridas: reasons,
+        tarea: 'Reescriba en lenguaje sencillo y breve. Resuelva la consulta actual; no repita beneficios ni preguntas sobre datos que el cliente no sabe. Una pregunta útil es opcional, sin inventar hechos.' }), info.historial)
     }
   }
   return finish(salesTopicReply(info, current) || commercialFallback(info, current, memory), { rewritten: true, review_reasons: [...new Set(reasons)], fallback: true })

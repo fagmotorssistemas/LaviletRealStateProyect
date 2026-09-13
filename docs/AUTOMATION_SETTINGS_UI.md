@@ -21,3 +21,9 @@ El mapa conserva la selección de punto y el guardado explícito. La pantalla di
 ## Validación
 
 `npm run test:automation` incluye pruebas de la preparación desactivada, alcance por proyecto, rechazo sin proyecto y propagación de errores de permisos. `npm run build` comprueba los componentes y las rutas. La revisión visual requiere un navegador conectado y una sesión de administrador.
+
+## Precios
+
+Automatización → Precios permite al administrador editar el precio comercial en USD de departamentos y suites, o consultar todas las categorías del proyecto. Guarda `units.published_commercial_price`, el mismo valor del inventario; no crea otro catálogo de precios ni modifica costos o publicación de unidades. Un valor vacío retira el precio (null, no cero). La edición comprueba proyecto, tenant y versión de la unidad para no sobrescribir un cambio concurrente.
+
+Guardar un precio no cambia el modo comercial. En lanzamiento sigue oculto al bot; en preventa puede utilizarse cuando la unidad está publicada y disponible. El formulario muestra esa condición y enlaza a Reglas y SLA. Las pruebas de precios están incluidas en `npm run test:automation`.

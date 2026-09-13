@@ -20,6 +20,7 @@ import { resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { acceptsVisitInvitation, rememberSalesReply } from './sales-policy'
 import { mediaFailureReply, unreadMediaMarker } from './media-format'
+import { variedReplyOpening } from './response-openings'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -278,7 +279,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
     }
   }
   if (inbound.mediaErrors.length) audit = {...audit, media_errors: inbound.mediaErrors}
-  reply = naturalConversationReply(reply, text(lead.name), turnGreeting, activeLast.sentAt)
+  reply = naturalConversationReply(variedReplyOpening(reply, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
   if (!reply.trim() || reply.length > 1500) throw new Error('EMPTY_OR_LONG_REPLY')
   const conversationId = text(inbound.registration.conversation_id)
   async function authorized() {

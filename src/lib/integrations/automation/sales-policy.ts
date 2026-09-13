@@ -99,5 +99,5 @@ export function salesTopicReply(info: Row, current: string) {
   }
   if (topics.includes('reventa')) sentences.push('Para una futura reventa conviene revisar precios de propiedades similares, estado del inmueble y demanda de ese momento; no podemos asegurar una ganancia ni un plazo de venta.')
   if (topics.includes('compra')) sentences.push('Primero revisamos la opción que le interesa; después, el asesor confirma disponibilidad, precio y condiciones para avanzar. Si necesita financiamiento, podemos orientarle con las entidades habilitadas.')
-  return sentences.length === topics.length ? 'Claro, con mucho gusto. ' + sentences.join(' ') : ''
+  return sentences.length === topics.length ? sentences.join(' ') : ''
 }

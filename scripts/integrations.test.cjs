@@ -29,6 +29,63 @@ const { validateVisit, routeSignature } = require('../src/lib/integrations/autom
 const { normalizeEvents, validateIntent } = require('../src/lib/integrations/automation/conversation-rules.ts')
 const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
+const openings = require('../src/lib/integrations/automation/response-openings.ts')
+
+test('courtesy openings vary across a conversation instead of rotating equivalent filler', () => {
+  const history = [{ role: 'bot', content: 'Claro, con mucho gusto. Le cuento sobre el proyecto.' }]
+  for (const prefix of ['Claro, ', 'Con gusto. ', 'Por supuesto, ', 'Perfecto, ', 'Con gusto le explico: ']) {
+    assert.equal(openings.variedReplyOpening(prefix + 'el 210 tiene un dormitorio.', history), 'El 210 tiene un dormitorio.')
+  }
+  assert.equal(openings.variedReplyOpening('Claro, sí, podemos revisarlo.', history), 'Sí, podemos revisarlo.')
+  assert.equal(openings.variedReplyOpening('Claro, no ofrecemos crédito directo.', history), 'No ofrecemos crédito directo.')
+  assert.equal(openings.variedReplyOpening('Claro. Con mucho gusto. El 210 tiene un dormitorio.', history), 'El 210 tiene un dormitorio.')
+  assert.equal(openings.variedReplyOpening('El 210 tiene un dormitorio.', history), 'El 210 tiene un dormitorio.')
+})
+
+test('opening variation preserves standalone courtesy, greetings, conditions and links', () => {
+  const history = [{ role: 'bot', content: 'Con gusto. Puede revisar la unidad.' }]
+  for (const reply of ['Con mucho gusto.', 'Sí, la cita está confirmada.', 'No podemos confirmar todavía.', 'Lamento la confusión.', 'Hola, un gusto saludarle. ¿En qué le ayudo?', 'Claro que puede consultar con un asesor.']) {
+    assert.equal(openings.variedReplyOpening(reply, history), reply)
+  }
+  const detail = 'Su cita está confirmada para el sábado a las 11. Ubicación: https://example.com/map?a=1&b=2'
+  assert.equal(openings.variedReplyOpening('Perfecto, ' + detail, history), detail)
+  assert.equal(openings.variedReplyOpening('Con gusto. Es el 210.', []), 'Con gusto. Es el 210.')
+})
+
+test('opener memory uses recent replies from this conversation, never client wording', () => {
+  assert.equal(openings.variedReplyOpening('Claro, le ayudo.', [{ role: 'cliente', content: 'Claro, me interesa.' }]), 'Claro, le ayudo.')
+  const history = [{ role: 'bot', content: 'Claro, con gusto. Veamos.' }, ...Array.from({ length: 6 }, () => ({ role: 'bot', content: 'El departamento tiene balcón.' }))]
+  assert.equal(openings.variedReplyOpening('Claro, le ayudo.', history), 'Claro, le ayudo.')
+  assert.match(openings.openingWritingRules([{ role: 'bot', content: 'Con gusto. Veamos.' }]), /omita las fórmulas/)
+})
+
+test('project explanations keep a natural generated opening without forcing Claro', async () => {
+  const answer = 'Le cuento: La Vilet combina viviendas y locales en Puertas del Sol.'
+  const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
+    activePrompt: async () => '', draftReply: async () => answer, aiJson: async () => ({ aprobada: true, motivos: [] }),
+  } })
+  const result = await commercialReply({ historial: [], conversacion: {} }, 'Quiero información sobre el proyecto', {}, async () => {})
+  assert.equal(result.reply, answer)
+})
+
+test('a style rejection of a project overview still answers using known project facts', async () => {
+  const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
+    activePrompt: async () => '', draftReply: async () => 'Una explicación demasiado larga. '.repeat(40),
+    aiJson: async () => ({ aprobada: false, motivos: ['style'] }),
+  } })
+  const result = await commercialReply({ proyecto: { name: 'La Vilet' }, posicionamiento_proyecto: { concept: 'Vivir en Puertas del Sol' } }, 'Quisiera saber más sobre el proyecto', {}, async () => {})
+  assert.match(result.reply, /La Vilet.*Puertas del Sol/)
+  assert.doesNotMatch(result.reply, /imprecisa|asesor/)
+  assert.equal(result.audit.fallback, true)
+})
+
+test('price actions require administrator authorization before querying any project', async () => {
+  const actions = load('src/app/inmobiliaria/automatizacion/precios/actions.ts', {
+    '@/lib/auth/session': { assertAdmin: async () => { throw Error('Solo administrador') }, getSessionUser: async () => { assert.fail('No database access before authorization') } },
+  })
+  await assert.rejects(actions.loadUnitPricesAction('project-a'), /administrador/)
+  await assert.rejects(actions.saveUnitPriceAction({ projectId: 'project-a', unitId: 'unit-a', price: '200000', expectedUpdatedAt: '2026-09-13T00:00:00Z' }), /administrador/)
+})
 const now = Date.parse('2026-09-09T18:00:00Z')
 const later = offset => new Date(now + offset).toISOString()
 function live(t) {

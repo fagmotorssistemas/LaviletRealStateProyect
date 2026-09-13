@@ -10,7 +10,7 @@ import styles from './AutomationSettings.module.css'
 export { styles as automationSettingsStyles }
 
 export function AutomationSettingsHeader({ active, title, description, project }: {
-  active: 'reglas' | 'guion' | 'ubicacion'; title: string; description: string; project: ReactNode
+  active: 'reglas' | 'guion' | 'ubicacion' | 'precios'; title: string; description: string; project: ReactNode
 }) {
   const inbox = useVisitInboxContext()
   return <>
