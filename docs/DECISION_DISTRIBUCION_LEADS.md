@@ -12,6 +12,14 @@ El código revisado ya asigna leads mediante funciones de base de datos como `ha
 
 ## Ventajas y desventajas reales
 
+### Si aún no existiera el reparto
+
+Partiendo de cero, empezaría con Kommo como responsable del reparto comercial y copiaría el responsable a la plataforma. Su rotación de responsables cubre el reparto básico sin construir otro servicio de asignación. La plataforma puede seguir gestionando agenda, avisos y la bandeja de solicitudes a partir de ese responsable; disponer de agenda propia no obliga a ser también la autoridad del reparto comercial.
+
+Solo construiría un motor propio si una evaluación de requisitos mostrara reglas necesarias que Kommo no puede resolver razonablemente: por ejemplo, balancear una carga específica registrada aquí, reservas simultáneas de capacidad o decisiones conjuntas entre varios canales. Primero se debe comprobar esa limitación y comparar el costo total de las dos soluciones. Lo ya construido no es, por sí solo, una justificación suficiente para conservarlo. La recomendación inicial de esta nota evalúa la arquitectura existente; no establece que una plataforma propia sea siempre la mejor elección.
+
+### Comparación de las dos alternativas
+
 | Alternativa | Ventajas | Desventajas o costos |
 | --- | --- | --- |
 | Kommo decide; la plataforma importa el responsable | Menor cantidad de lógica propia que mantener. Reglas operables desde el CRM. Para un reparto sencillo entre asesores, evita depender de la aplicación propia al asignar un lead que acaba de entrar por Kommo. | Para considerar agenda, carga o reglas que solo existen aquí, hay que suministrar esos datos e integrar los cambios. La plataforma necesita recibir la asignación antes de coordinar avisos y permisos. Cambios en ambos lados requieren una política de conflictos. |

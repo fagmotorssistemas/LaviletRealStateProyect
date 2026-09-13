@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { useAuth } from '@/contexts/AuthContext'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
+import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
 import { listProjects } from '@/services/inmobiliaria.service'
 import {
   defaultAutomationConfig,
@@ -95,7 +96,9 @@ export function AutomationRulesView() {
     }
     const rows = await listProjects(supabase, ids[0], ids)
     setProjects(rows)
-    setProjectId((current) => current || rows[0]?.id || '')
+    setProjectId((current) => rows.some((project) => project.id === current)
+      ? current
+      : rows.find((project) => project.id === LAVILET_PROJECT_ID)?.id || rows[0]?.id || '')
   }, [authLoading, supabase, user])
 
   const loadRules = useCallback(async (id: string) => {
