@@ -1,12 +1,34 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
-import { resolveCatalogReference } from './catalog-reference'
-import { mentionsFinancing, salesMemory } from './sales-policy'
+import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
+import { appendUnitModel, unitModelDelivery } from './unit-model'
+import { acceptsUnitOptions, mentionsFinancing, salesMemory } from './sales-policy'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
+import { purchasePriceQuestion, salesSubject } from './sales-subject'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
-export const asksUnitPrice = (value: string) => /\b(?:precios?|valores?|cuesta|cuestan|costos?|cotizacion)\b/.test(normalized(value))
-  && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|carro|auto|moto|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(normalized(value))
+export const asksUnitPrice = (value: string) => purchasePriceQuestion(value)
+  && salesSubject(value).subject !== 'vehicle'
+  && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(normalized(value))
+
+// Preserve the stated amount; a low budget is an opportunity to offer guidance,
+// never grounds to infer thousands or claim that financing is already approved.
+export function statedBudget(current: string) {
+  const m = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+  const amount = m.match(/\b(?:cuento con|dispongo de|tengo|presupuesto(?: es)?(?: de)?)(?:\s+solo)?\s*\$?\s*(\d(?:[\d.,]*\d)?)(?:\s*(mil|miles|k)\b)?/)
+  if (!amount) return null
+  const after = m.slice((amount.index || 0) + amount[0].length)
+  if (/^\s*(?:dormitorios?|habitaciones?|hijos?|personas?|anos?|metros?|m2|m²|departamentos?|locales?|suites?)\b/.test(after)) return null
+  if (/^\s*[a-z]/.test(after) && !/^\s*(?:dolares|usd|para|de presupuesto|aproximadamente|y)\b/.test(after)) return null
+  let value: number | null
+  try { value = parseCommercialPrice(amount[1]) } catch { return null }
+  return value ? value * (amount[2] ? 1000 : 1) : null
+}
+
+function variant(options: string[], history: unknown) {
+  const previous = rows(history).filter(row => row.role === 'bot').slice(-6).map(row => text(row.content)).join('\n')
+  return options.find(option => !previous.includes(option)) || options[0]
+}
 
 // Price facts always come from this turn's authorized catalog. A media reference or
 // conversation summary identifies a unit but never authorizes disclosing its price.
@@ -14,10 +36,13 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   if (!asksUnitPrice(current)) return null
   const policy = object(info.politica_comercial), m = normalized(current)
   if (policy.precios_autorizados !== true) return {
-    reply: 'Todavía no tengo un precio autorizado para compartir. Podemos revisar con el asesor el valor de la opción que le interesa.', quoted: false,
+    reply: 'El asesor puede ayudarle a conocer el valor de la opción que le interesa.', quoted: false,
   }
   const catalog = rows(info.catalogo)
-  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite' : /\bdepart[ae]mentos?\b/.test(m) ? 'departamento' : ''
+  const topic = salesSubject(current, info.historial)
+  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite' : /\bdepart[ae]mentos?\b/.test(m) ? 'departamento'
+    : /\bviviendas?\b/.test(m) || topic.acceptedRedirect ? 'vivienda' : ''
+  const matchesCategory = (unit: Row, value: string) => value === 'vivienda' ? ['suite', 'departamento'].includes(text(unit.category)) : unit.category === value
   const bedrooms = m.match(/\b([123]) (?:dormitorios?|habitaciones?)\b/)
   const resolved = resolveCatalogReference(catalog, current, summary._unit_reference, info.historial)
   const reference = object(info.referencia_unidad)
@@ -25,38 +50,79 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   const savedIds = rows(catalog).filter(unit => (Array.isArray(object(summary._unit_reference).ids) ? object(summary._unit_reference).ids as unknown[] : []).includes(unit.id)).map(unit => unit.id)
   let selected: Row[]
   if (resolved.hasUnitMention || reference.hasUnitMention === true) selected = resolved.matches
-  else if (category || bedrooms) selected = catalog.filter(unit => (!category || unit.category === category) && (!bedrooms || Number(unit.bedrooms) === Number(bedrooms[1])))
+  else if (category || bedrooms) selected = catalog.filter(unit => (!category || matchesCategory(unit, category)) && (!bedrooms || Number(unit.bedrooms) === Number(bedrooms[1])))
   else if (resolved.matches.length || referenceIds.length || savedIds.length) {
     const ids = resolved.matches.length ? resolved.matches.map(unit => unit.id) : referenceIds.length ? referenceIds : savedIds
     selected = catalog.filter(unit => ids.includes(unit.id))
   } else {
-    const preferred = text(object(info.lead).preferred_category)
-    selected = preferred ? catalog.filter(unit => unit.category === preferred) : []
+    const preferred = text(object(info.lead).preferred_category) || topic.category || ''
+    const preferredBedrooms = Number(object(info.lead).preferred_bedrooms)
+    selected = preferred ? catalog.filter(unit => matchesCategory(unit, preferred) && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
     if (!preferred) return { reply: '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false }
   }
   const priced = selected.filter(unit => Number.isFinite(Number(unit.published_commercial_price)) && Number(unit.published_commercial_price) > 0)
-  if (!priced.length) return { reply: 'No tengo un precio autorizado para esa opción. El asesor puede confirmarlo antes de que tome una decisión.', quoted: false }
+  if (!priced.length) return { reply: 'Podemos consultar con el asesor el valor de esa opción para darle una cifra precisa.', quoted: false }
   const money = (value: unknown) => '$' + Number(value).toLocaleString('es-EC', { maximumFractionDigits: 2 })
   const unitName = (unit: Row) => `${unit.category === 'local' ? 'local' : unit.category === 'suite' ? 'suite' : 'departamento'} ${text(unit.unit_number)}`
   const approximate = policy.precios_aproximados === true
   let reply: string
-  if (priced.length === 1) reply = `El precio${approximate ? ' aproximado' : ''} ${priced[0].category === 'suite' ? 'de la' : 'del'} ${unitName(priced[0])} es de ${money(priced[0].published_commercial_price)} USD.`
-  else if (priced.length <= 3) reply = `Los precios${approximate ? ' aproximados' : ''} son: ${priced.map(unit => `${unitName(unit)}, ${money(unit.published_commercial_price)} USD`).join('; ')}.`
+  if (priced.length === 1) {
+    const name = `${priced[0].category === 'suite' ? 'la' : 'el'} ${unitName(priced[0])}`
+    const value = money(priced[0].published_commercial_price)
+    reply = variant([
+      `El precio${approximate ? ' aproximado' : ''} ${priced[0].category === 'suite' ? 'de la' : 'del'} ${unitName(priced[0])} es de ${value} USD.`,
+      `Para ${name}, el valor${approximate ? ' referencial' : ''} es de ${value} USD.`,
+      `${name[0].toUpperCase() + name.slice(1)} tiene un valor${approximate ? ' aproximado' : ''} de ${value} USD.`,
+    ], info.historial)
+  }
+  else if (priced.length <= 3) reply = variant(['Le comparto los valores', 'Estas son las opciones que estamos revisando', 'Para estas opciones, los valores son'], info.historial) + `: ${priced.map(unit => `${unitName(unit)}, ${money(unit.published_commercial_price)} USD`).join('; ')}.`
   else {
     const values = priced.map(unit => Number(unit.published_commercial_price))
     const min = Math.min(...values), max = Math.max(...values)
-    reply = `Las opciones con precio registrado${approximate ? ' aproximado' : ''} ${min === max ? `tienen un valor de ${money(min)}` : `van de ${money(min)} a ${money(max)}`} USD.`
+    const leadBedrooms = Number(object(info.lead).preferred_bedrooms)
+    const count = bedrooms ? Number(bedrooms[1]) : !category ? leadBedrooms : 0
+    const subject = count ? `Las opciones de ${count} dormitorios` : 'Las opciones que estamos revisando'
+    const intro = variant([subject, count ? `Para ${count} dormitorios, los valores` : 'Para estas opciones, los valores', 'En estas opciones, los precios'], info.historial)
+    reply = `${intro} ${min === max ? `parten de ${money(min)}` : `van de ${money(min)} a ${money(max)}`} USD.`
   }
-  if (approximate) reply += ' Es un valor referencial de lanzamiento y puede cambiar hasta que se confirme el precio definitivo.'
-  if (priced.length < selected.length) reply += ' Algunas de las otras unidades todavía no tienen precio registrado.'
+  if (approximate) reply += ' ' + variant([
+    'Son valores referenciales de lanzamiento y pueden cambiar.',
+    'Por ahora son valores aproximados de lanzamiento, sujetos a cambios.',
+    'Estamos en lanzamiento, por lo que estos valores son referenciales y pueden variar.',
+  ], info.historial)
+  if (priced.length < selected.length) reply += ' Podemos consultar también el valor de las demás opciones.'
+  const budget = statedBudget(current)
+  const lowBudget = budget !== null && budget < Math.min(...priced.map(unit => Number(unit.published_commercial_price)))
   const finance = object(info.financiamiento)
   const memory = salesMemory(summary._sales_memory, info.historial)
   let financingOffer = ''
-  if (!memory.financing_mentioned && !mentionsFinancing(current) && !Object.keys(object(finance.current)).length) {
+  if ((!memory.financing_mentioned || lowBudget) && !mentionsFinancing(current) && !/no (?:quiero|necesito|deseo).*financ|sin credito/.test(m) && !Object.keys(object(finance.current)).length) {
     const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
-    if (partners.length) financingOffer = `También contamos con opciones de financiamiento con ${partners.join(' o ')} y le acompañamos en el proceso.`
+    if (partners.length) financingOffer = variant(lowBudget ? [
+      `Si necesita financiar la compra, podemos ayudarle a revisar opciones con ${partners.join(' o ')}.`,
+      `Podemos orientarle sobre el financiamiento con ${partners.join(' o ')} y ver qué alternativa se ajusta a su situación.`,
+    ] : [
+      `Si le interesa financiar la compra, podemos acompañarle a revisar opciones con ${partners.join(' o ')}.`,
+      `También podemos ayudarle con el financiamiento a través de ${partners.join(' o ')}.`,
+      `Para el financiamiento trabajamos con ${partners.join(' o ')}; podemos orientarle durante el proceso.`,
+    ], info.historial)
   }
-  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, prices: priced.map(unit => Number(unit.published_commercial_price)) }
+  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, units: priced, prices: priced.map(unit => Number(unit.published_commercial_price)) }
+}
+
+export function acceptedPriceOption(info: Row, current: string, summary: Row) {
+  const history = rows(info.historial), last = text(history.filter(row => ['bot', 'asesor'].includes(text(row.role))).at(-1)?.content)
+  if (!acceptsUnitOptions(current, last)) return null
+  const catalog = rows(info.catalogo)
+  const named = resolveCatalogReference(catalog, last).matches
+  const lastPrice = [...history].reverse().find(row => row.role === 'cliente' && asksUnitPrice(text(row.content)))
+  const options = named.length ? named : lastPrice ? unitPriceQuote(info, text(lastPrice.content), summary)?.units || [] : []
+  const unit = [...options].sort((a, b) => Number(a.published_commercial_price) - Number(b.published_commercial_price))[0]
+  if (!unit) return null
+  const detail = catalogReferenceReply([unit], 'Qué ofrece')
+  const model = unitModelDelivery({ explicit: true, matches: [unit] }, 'Quiero ver esta unidad', info.historial, summary._unit_models_sent)
+  return { reply: appendUnitModel(detail, model), audit: { source: 'accepted_price_option', fallback: false,
+    unit_reference: { ids: [unit.id], numbers: [unit.unit_number] }, ...(model ? { unit_model: model } : {}) } }
 }
 
 export const PRICE_REPLY_RULES = `La política comercial de este turno prevalece sobre el historial y cualquier guion anterior.
@@ -64,11 +130,14 @@ Solo informe precios de catálogo autorizados: nunca reutilice un precio recorda
 En Lanzamiento, si precios_aproximados es true, identifique el valor como aproximado y explique brevemente que es referencial de lanzamiento y puede cambiar.
 En Preventa informe el precio sin esa aclaración. No invente descuentos, precios, cuotas ni notificaciones futuras.
 Si hay respuesta_precio_verificada, incluya esos datos y resuelva también las otras consultas; no vuelva a pedir la unidad ya identificada.
+Hable al cliente con naturalidad. Nunca diga «precio registrado», «precio autorizado», «registrado en el sistema» ni explique cómo almacenamos los precios. Diga el valor o el rango de las opciones de su interés.
+Si el cliente dice «tengo 100 dólares» o un presupuesto inferior al precio, puede ofrecer orientación sobre financiamiento sin interrogarlo por la cifra. Respete el monto literal: no lo multiplique por mil ni asegure que alcanza para una entrada o que se aprobará un crédito.
 No repita ofertas de financiamiento ya mencionadas. No añada por rutina «la aprobación depende de la entidad» ni «la entidad evalúa cada solicitud»; ofrezca acompañamiento en el proceso.
 Si le preguntan expresamente si el crédito está aprobado o garantizado, explique que la entidad debe evaluar el caso; nunca asegure una aprobación.`
 
 export function priceReplyIssues(reply: string, info: Row, current = '', expectedPrices?: number[]) {
   const policy = object(info.politica_comercial), m = normalized(reply)
+  if (/precios?[^.!?\n]{0,35}(?:registrad|autorizad)|(?:registrad|autorizad)[^.!?\n]{0,25}precios?/.test(m)) return ['style']
   if (!/aprob|garanti|asegur/.test(normalized(current)) && /aprobacion depende|entidad evalua cada solicitud/.test(m)) return ['style']
   const discloses = /(?:\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares))/i.test(reply) && /precio|valor|cuesta|costo|desde|opciones/.test(m)
   if (!discloses) return []

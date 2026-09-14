@@ -6,6 +6,8 @@ import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { applyVisitorCookie } from '@/lib/tour/visitorCookie'
 
 export async function proxy(request: NextRequest) {
+  // Client-facing brochure is a public static asset, independent of CRM login.
+  if (request.nextUrl.pathname === '/materiales/brochure-la-vilet-v5.pdf') return NextResponse.next({ request })
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

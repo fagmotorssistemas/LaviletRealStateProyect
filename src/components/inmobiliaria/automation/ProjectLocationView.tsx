@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
+import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
 import { googleMapsUrl, type ProjectVisitLocation } from '@/lib/inmobiliaria/projectLocation'
 import { listProjects } from '@/services/inmobiliaria.service'
 import { loadProjectLocationAction, saveProjectLocationAction } from '@/app/inmobiliaria/automatizacion/ubicacion/actions'
@@ -34,7 +35,12 @@ export function ProjectLocationView() {
       try {
         const ids = await getAccessibleTenantIds(supabase)
         const rows = ids.length ? await listProjects(supabase, ids[0], ids) : []
-        if (active) { setProjects(rows); setProjectId(rows[0]?.id ?? ''); if (!rows.length) setLoading(false) }
+        if (active) {
+          setProjects(rows)
+          setProjectId(current => rows.some(project => project.id === current) ? current
+            : rows.find(project => project.id === LAVILET_PROJECT_ID)?.id ?? rows[0]?.id ?? '')
+          if (!rows.length) setLoading(false)
+        }
       } catch { if (active) { setError('No se pudieron cargar los proyectos'); setLoading(false) } }
     })()
     return () => { active = false }

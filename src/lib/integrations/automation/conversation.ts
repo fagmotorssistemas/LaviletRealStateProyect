@@ -18,10 +18,13 @@ import { asksVisitStatus, declinedFollowup, explicitlyRequestsVisit, isConversat
 import { commercialMemory, rememberCommercialReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
-import { acceptsVisitInvitation, rememberSalesReply } from './sales-policy'
+import { acceptsUnitOptions, acceptsVisitInvitation, rememberSalesReply } from './sales-policy'
 import { mediaFailureReply, unreadMediaMarker } from './media-format'
 import { variedReplyOpening } from './response-openings'
-import { asksUnitPrice, unitPriceQuote } from './price-reply'
+import { acceptedPriceOption, asksUnitPrice, unitPriceQuote } from './price-reply'
+import { scheduleNutrition24h } from './nutrition'
+import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
+import { salesSubject } from './sales-subject'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -115,8 +118,22 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
   if (!inbound.mediaFailed) {
-    reply = mediaClarificationReply(current)
-    if (reply) audit = { source: 'media_clarification' }
+    if (!/asesor|persona|humano|no me (?:escrib|contact)|dejen de/i.test(current)) {
+      reply = vehicleScopeReply(current, context.historial)
+      if (reply) audit = { source: 'vehicle_out_of_scope' }
+    }
+    if (!reply && wantsBrochure(current, context.historial)) {
+      const info = await commercialContext(lead, context.historial)
+      reply = brochureReply(current, context.historial, text(info.modo_comercial))
+      if (reply) audit = { source: 'brochure', brochure_sent: true }
+    }
+    if (!reply && acceptsUnitOptions(current, text(state.ultima_respuesta))) {
+      const accepted = acceptedPriceOption(await commercialContext(lead, context.historial), current, previousSummary)
+      reply = accepted?.reply || `No tengo los detalles actualizados de esa unidad. Le comparto el brochure para que pueda conocer la propuesta del proyecto:\n\n${BROCHURE_URL}`
+      audit = accepted?.audit || { source: 'price_option_unavailable', brochure_sent: true }
+    }
+    if (!reply) reply = mediaClarificationReply(current)
+    if (reply && !audit.source) audit = { source: 'media_clarification' }
     if (!reply && fabricatedActionRequest(current)) { reply = 'Para confirmarle una cita o una reserva, primero debe quedar registrada y aprobada en el sistema. Puedo ayudarle a coordinarla.'; audit = {source:'action_not_recorded'} }
     if (!reply) {reply = declinedFollowup(current, text(state.ultima_respuesta)); if (reply) audit = { source: 'declined_followup' }}
     if (!reply && asksVisitStatus(current)) {
@@ -193,7 +210,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const [newSummary, rawEvents] = await Promise.all([
       aiJson(summaryPrompt, { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current }),
       aiJson(extractorPrompt + '\n' + TURN_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
-        { resumen: previousSummary, historial: context.historial, ultima_pregunta: state.ultima_respuesta, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:reference.matches, mensaje_actual: current })
+        { resumen: previousSummary, historial: context.historial, tema_actual: salesSubject(current, context.historial), ultima_pregunta: state.ultima_respuesta, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:reference.matches, mensaje_actual: current })
     ])
     summary = {...newSummary, _unit_reference: reference.memory, _sales_memory: previousSummary._sales_memory}
     const extracted = normalizeEvents(rawEvents, current)
@@ -285,6 +302,10 @@ export async function processConversation(rows: Row[], guard: Guard) {
     }
   }
   if (inbound.mediaErrors.length) audit = {...audit, media_errors: inbound.mediaErrors}
+  if (audit.source === 'visit_intake') {
+    const info = await commercialContext(lead, context.historial)
+    if (info.modo_comercial === 'lanzamiento') reply = launchVisitReply(reply, object(info.politica_visitas).launchDestination === 'office' ? 'office' : 'site')
+  }
   reply = naturalConversationReply(variedReplyOpening(reply, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
   if (!reply.trim() || reply.length > 1500) throw new Error('EMPTY_OR_LONG_REPLY')
   const conversationId = text(inbound.registration.conversation_id)
@@ -318,8 +339,13 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
   const sentModelId = text(object(audit.unit_model).unit_id)
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply),
+    ...(audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }
   const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)
-  return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError }
+  // A scheduling failure must not mark an already accepted reply as uncertain.
+  let nutrition: Row
+  try { nutrition = await scheduleNutrition24h(text(lead.id), conversationId, activeLast.externalId) }
+  catch { nutrition = { scheduled: false, reason: 'schedule_failed' } }
+  return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError, nutrition }
 }

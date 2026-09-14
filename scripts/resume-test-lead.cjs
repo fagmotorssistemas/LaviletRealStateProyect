@@ -5,11 +5,22 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { createClient } = require('@supabase/supabase-js')
 
-const TEST_LEAD = '52fa6e93-4bd4-42ad-963a-666e9c7902a7'
+const targets = {
+  carlos: { id: '52fa6e93-4bd4-42ad-963a-666e9c7902a7', kommo: 2710090, contact: 6431312, phone: '593987110032' },
+  nataly: { id: 'bf32833f-fd65-461e-9e0e-31844e4d6814', kommo: 3928256, contact: 8715920, phone: '593939731833' },
+}
+const args = process.argv.slice(2)
+if (args.some(arg => arg !== '--apply' && !/^--lead=(carlos|nataly)$/.test(arg)) || args.filter(arg => arg.startsWith('--lead=')).length > 1) {
+  throw Error('Use --lead=carlos o --lead=nataly y, opcionalmente, --apply.')
+}
+const selected = args.find(arg => arg.startsWith('--lead='))?.slice('--lead='.length) ?? 'carlos'
+if (!Object.hasOwn(targets, selected)) throw Error('Use --lead=carlos o --lead=nataly. No se admiten otros contactos.')
+const target = targets[selected]
+const TEST_LEAD = target.id
 const PROJECT = 'b1b2c3d4-0001-4000-8000-000000000001'
 const TENANT = 'a1b2c3d4-0001-4000-8000-000000000001'
-const KOMMO_LEAD = 2710090
-const CONTACT = 6431312
+const KOMMO_LEAD = target.kommo
+const CONTACT = target.contact
 const STOP_FIELD = 451530
 const ORIGIN = 'https://lavilet.kommo.com'
 
@@ -32,7 +43,7 @@ async function main() {
     .select('id,tenant_id,project_id,kommo_id,phone,bot_enabled,handoff_status,tracking_opt_out_at')
     .eq('id', TEST_LEAD).single().abortSignal(AbortSignal.timeout(15000))
   if (error || !lead || lead.tenant_id !== TENANT || lead.project_id !== PROJECT || lead.kommo_id !== KOMMO_LEAD
-    || lead.phone?.replace(/\D/g, '') !== '593987110032') throw Error('TEST_LEAD_MISMATCH')
+    || lead.phone?.replace(/\D/g, '') !== target.phone) throw Error('TEST_LEAD_MISMATCH')
   if (lead.bot_enabled !== true || lead.handoff_status !== 'none' || lead.tracking_opt_out_at) {
     throw Error('RESET_REQUIRED: primero ejecute el reinicio del lead de prueba en Supabase')
   }
@@ -41,7 +52,7 @@ async function main() {
   const value = stopValue(remote)
   if (!stopped(value)) return console.log('El lead de prueba ya está habilitado en Supabase y Kommo.')
   if (!process.argv.includes('--apply')) {
-    return console.log('Vista previa: se cambiará DETENER IA de true a false únicamente en el lead de prueba Kommo 2710090. Use --apply para continuar.')
+    return console.log(`Vista previa: se cambiará DETENER IA de true a false únicamente en ${selected}, Kommo ${KOMMO_LEAD}. Use --apply para continuar.`)
   }
   const backup = path.join('tmp', `resume-test-lead-${Date.now()}.json`)
   fs.mkdirSync('tmp', { recursive: true })

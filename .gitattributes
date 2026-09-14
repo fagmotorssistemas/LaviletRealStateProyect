@@ -1,0 +1,2 @@
+# Preserve interactive PDFs byte for byte; line-ending conversion breaks offsets.
+*.pdf -text -diff

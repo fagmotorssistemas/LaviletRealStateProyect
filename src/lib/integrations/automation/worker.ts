@@ -5,6 +5,7 @@ import { autoConfig, db, object, rpc, scope, text, type Row } from './data'
 import { processConversation } from './conversation'
 import { pendingVisits, planVisits, previewVisits, sendVisit } from './visits'
 import { ProviderError } from './kommo'
+import { cancelNutrition24h, sendNutrition24h } from './nutrition'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -44,7 +45,21 @@ export async function runAutomation() {
       const first = object(batch[0]), ids = batch.map(row => row.id)
       try {
         let result: Row
-        if (first.kind === 'inbound') result = await processConversation(batch, guard)
+        if (first.kind === 'inbound') {
+          await guard()
+          await cancelNutrition24h(Number(object(first.payload).kommoId))
+          result = await processConversation(batch, guard)
+        }
+        else if (first.kind === 'maintenance' && object(first.payload).task === 'nutrition_24h') {
+          result = await sendNutrition24h(first, guard)
+          if (result.action === 'deferred') {
+            const { error } = await db().from('lv_integration_events').update({ status: 'pending', available_at: result.nextAt, claim_token: null, claimed_at: null })
+              .match(scope).eq('id', first.id).eq('status', 'processing').eq('claim_token', token)
+            if (error) throw Error('NUTRITION_DEFER_FAILED')
+            results.push({ kind: 'nutrition_24h', ...result })
+            continue
+          }
+        }
         else if (first.kind === 'maintenance') {
           await guard()
           const enqueued = await planVisits(guard)
@@ -58,7 +73,7 @@ export async function runAutomation() {
           if (settings.globalMaintenance && !settings.testLeadId && config.test_only === false) await rpc('apply_temperature_decay')
           result = { action: 'daily_decay' }
         } else throw new Error('UNSUPPORTED_TASK')
-        await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: 'completed', p_result: result })
+        await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: result.action === 'cancelled' ? 'cancelled' : 'completed', p_result: result })
         results.push({ kind: first.kind, ...result })
       } catch (error) {
         // Una RPC o petición pudo ejecutar su efecto antes de fallar la conexión.

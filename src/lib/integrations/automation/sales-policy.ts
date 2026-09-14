@@ -1,11 +1,18 @@
 import { object, text, type Row } from './data'
+import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { normalized } from './sdr-rules'
 import { isUnitVisualRequest } from './unit-visual-request'
+import { salesSubject } from './sales-subject'
 
 const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
 const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
 const positive = (v: string) => /^(?:(?:si|claro|perfecto|bueno) )?(?:se ve interesante|me (?:gusta|interesa|encanta)|esta interesante|muy interesante|me parece (?:bien|interesante))$/.test(normalized(v))
 const discovery = (v: string) => /[¿?]/.test(v) && /presupuesto|para vivir|como inversion|para invertir|cuantos dormitorios|que.*prioriz|que.*importante|cuando.*decision/.test(normalized(v))
+
+export function acceptsUnitOptions(current: string, lastReply: string) {
+  return /^(?:si(?: por favor| me gustaria| quiero| claro| gracias)?|claro|de acuerdo|muestr[ae]me(?: una)?|a ver)$/.test(normalized(current))
+    && /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(lastReply))
+}
 
 export function acceptsVisitInvitation(current: string, lastReply: string) {
   if (!invitation(lastReply)) return false
@@ -20,17 +27,24 @@ export function acceptsVisitInvitation(current: string, lastReply: string) {
 
 export function salesMemory(previous: unknown, history: unknown) {
   const saved = object(previous)
+  const messages = rows(history)
   let invited = saved.visit_invited === true, declined = saved.visit_declined === true, last = ''
-  let financingMentioned = saved.financing_mentioned === true
-  for (const row of rows(history)) {
+  // Repair older memory that counted credit for a vehicle as mortgage guidance.
+  const wrongScope = messages.some((row, index) => row.role === 'cliente' && mentionsFinancing(text(row.content))
+    && salesSubject(text(row.content), messages.slice(0, index)).subject === 'vehicle')
+  let financingMentioned = saved.financing_mentioned === true && !wrongScope
+  let unitsOffered = saved.unit_options_offered === true
+  for (const [index, row] of messages.entries()) {
     const content = text(row.content)
-    if (['cliente', 'bot', 'asesor'].includes(text(row.role)) && mentionsFinancing(content)) financingMentioned = true
+    if (['cliente', 'bot', 'asesor'].includes(text(row.role)) && mentionsFinancing(content)
+      && salesSubject(content, messages.slice(0, index)).subject !== 'vehicle') financingMentioned = true
     if (['bot', 'asesor'].includes(text(row.role))) {
       last = content
       if (invitation(content)) invited = true
+      if (/le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(content))) unitsOffered = true
     } else if (row.role === 'cliente' && invitation(last) && /^(?:no|no gracias|ahora no|por ahora no|solo (?:quiero )?informacion)/.test(normalized(content))) declined = true
   }
-  return { visit_invited: invited, visit_declined: declined, financing_mentioned: financingMentioned }
+  return { visit_invited: invited, visit_declined: declined, financing_mentioned: financingMentioned, unit_options_offered: unitsOffered }
 }
 
 export function mentionsFinancing(value: string) {
@@ -62,26 +76,39 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const topics = salesTopics(current)
   const hasUnit = rows(object(info.referencia_unidad).matches).length === 1
   const signal = info.precio_cotizado === true || model || (positive(current) && (sawModel || hasUnit)) || (topics.includes('reventa') && topics.length > 1)
-  const invite = signal && !pendingVisit && !refuses && !memory.visit_invited && !memory.visit_declined
+  const policy = object(info.politica_visitas)
+  const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
+  const invite = visits.allowSuggestions && signal && !pendingVisit && !refuses && !memory.visit_invited && !memory.visit_declined
+  const offerUnits = !invite && info.precio_cotizado === true && !pendingVisit && !model && !memory.unit_options_offered
+    && !/solo (?:quiero )?(?:el )?precio|no (?:quiero|deseo|necesito).*(?:ver|opcion|modelo|distribucion)/.test(m) && !isUnitVisualRequest(current)
+  const quoted = rows(info.unidades_cotizadas)
+  const unitClosing = quoted.length === 1
+    ? `¿Le gustaría revisar la distribución ${quoted[0].category === 'suite' ? 'de la suite' : quoted[0].category === 'local' ? 'del local' : 'del departamento'} ${text(quoted[0].unit_number)}?`
+    : '¿Le gustaría que le muestre una opción de ese rango?'
   const twoQuestions = replies.length >= 2 && replies.slice(-2).every(r => discovery(text(r.content)))
   const uncertain = /no (?:se|estoy segur|tengo claro|tengo idea)|no he pensado/.test(m)
   const answerOnly = pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
-  return { action: invite ? 'invite_visit' : answerOnly ? 'answer_only' : 'discover', topics,
-    max_questions: invite || !answerOnly ? 1 : 0,
-    closing: invite ? '¿Le gustaría coordinar una visita para conocerlo en persona?' : '',
+  return { action: invite ? 'invite_visit' : offerUnits ? 'offer_units' : answerOnly ? 'answer_only' : 'discover', topics,
+    max_questions: invite || offerUnits || !answerOnly ? 1 : 0,
+    closing: invite ? visitInvitation(text(info.modo_comercial), visits) : offerUnits ? unitClosing : '',
+    visits_allowed: visits.allowSuggestions,
+    launch: info.modo_comercial === 'lanzamiento',
     memory, positive_after_model: positive(current) && (sawModel || hasUnit),
     rules: `Responda primero todas las dudas del mensaje. No siga una lista obligatoria de calificación.
 Use datos ya conocidos de vivir/invertir, dormitorios y presupuesto; pregunte solo UN dato útil que falte, nunca uno aplazado o ya contestado.
 Si aún no sabe su presupuesto, ofrezca ayudarle a ordenar entrada y cuota cómoda, sin aprobar un crédito ni exigir ingresos aquí.
 Presente de uno a tres beneficios relevantes, solo los que ayudan a esta persona; no repita instalaciones ni rellene hasta llegar a tres.
 No suponga que «se ve interesante» acepta una visita. No cree cita ni avise al asesor al ofrecerla.
-El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
+${visits.allowSuggestions ? 'Las sugerencias de visita están habilitadas; use únicamente la invitación del sistema.' : 'Las sugerencias de visita están desactivadas. No invite, proponga ni pregunte por visitas; si el cliente la solicita expresamente el sistema coordina esa petición.'}
+El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : offerUnits ? 'responder el precio; el sistema ofrecerá revisar una unidad, NO escriba otra pregunta ni invite a una visita' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
 No prometa reventa, arriendo, rentabilidad, disponibilidad, aprobación bancaria ni tiempos sin datos. No invente reservas, anticipos ni pasos legales de compra.
 Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también es una respuesta completa.` }
 }
 
 export function salesIssues(reply: string, plan: ReturnType<typeof salesPlan>) {
   const r = normalized(reply), issues: string[] = []
+  if (!plan.visits_allowed && /(?:le gustaria|podemos|puede|le invito|coordin|agend|visitenos).{0,50}(?:visita|visitarnos|conocerlo|conocer el lugar|verlo en persona)/.test(r)) issues.push('unsupported_fact')
+  if (plan.launch && /(?:visitar|recorrer|conocer|ver).{0,30}(?:departamento|suite|vivienda).{0,20}(?:persona|presencial|construid)|(?:departamentos|suites) (?:terminados|construidos) disponibles/.test(r)) issues.push('unsupported_fact')
   if ((plan.action !== 'discover') && /[¿?]/.test(reply)) issues.push('repeated_question')
   if (plan.topics.includes('jardines') && !/jardin|verde/.test(r)) issues.push('ignored_question')
   if (plan.topics.includes('sector') && !/sector|puertas del sol|barrio|cerca|entorno/.test(r)) issues.push('ignored_question')

@@ -10,7 +10,7 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
   const savedIds = Array.isArray(saved.ids) ? saved.ids : []
   const codes = [...m.matchAll(/\b(?:lc|local(?: comercial)?|depart[ae]mento|depto|dpto|apto|apartamento|suite|unidad|piso)\s*(?:numero\s*|n(?:ro|o)?\s*)?(\d{1,4})\b/g)]
   // «Cuánto cuesta el 502» also names a unit, not an amount or a floor.
-  if (!codes.length && /\b(?:precio|valor|cuesta|cuestan|cost[oa])\b/.test(m)) {
+  if (!codes.length && /\b(?:precio|valor|vale|valen|cuesta|cuestan|cost[oa])\b/.test(m)) {
     codes.push(...m.matchAll(/\b(?:el|del|la|de la)\s+(\d{3,4})\b/g))
   }
   let matches = catalog.filter(u => codes.some(c => {

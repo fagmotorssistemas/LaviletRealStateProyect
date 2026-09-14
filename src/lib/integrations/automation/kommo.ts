@@ -1,4 +1,5 @@
 import 'server-only'
+import { NUTRITION_24H_BODY } from '@/lib/inmobiliaria/nutrition24h'
 import { LAVILET_KOMMO_ORIGIN } from '../lavilet'
 import { assertLive } from './config'
 import { object, type Row } from './data'
@@ -63,4 +64,23 @@ export async function launchSalesbot(leadId: number, botId: number) {
   if (![leadId, botId].every(n => Number.isSafeInteger(n) && n > 0)) throw new Error('INVALID_KOMMO_IDS')
   // Nunca reintentar automáticamente un POST que pudo ser aceptado.
   await request('/api/v4/bots/run', 'POST', [{ bot_id: botId, entity_id: leadId, entity_type: 'leads' }])
+}
+
+export function approvedNutritionTemplate(template: Row, fieldId: number) {
+  const reviews = object(template._embedded).reviews
+  const expected = NUTRITION_24H_BODY.replace('{{1}}', `{{lead.cf.${fieldId}}}`)
+  return template.type === 'waba' && String(template.content || '').trim() === expected
+    && Array.isArray(reviews) && reviews.length > 0 && reviews.map(object).every(review => review.status === 'approved')
+}
+
+export async function verifyNutritionTemplate(name: string, fieldId: number) {
+  const matches: Row[] = []
+  for (let page = 1; page <= 10; page++) {
+    const response = object(await request(`/api/v4/chats/templates?with=reviews&limit=50&page=${page}`))
+    const raw = object(response._embedded).chat_templates
+    const templates = Array.isArray(raw) ? raw.map(object) : []
+    matches.push(...templates.filter(template => template.name === name && template.type === 'waba'))
+    if (templates.length < 50) return matches.length === 1 && approvedNutritionTemplate(matches[0], fieldId)
+  }
+  return false
 }
