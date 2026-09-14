@@ -2,6 +2,14 @@
 
 ## Nataly Caballero
 
+**Si aparece «function does not exist»**, copiar **TODO** el contenido de
+[`reset_nataly_test_lead.sql`](../supabase/operations/reset_nataly_test_lead.sql) en SQL Editor con rol postgres y pulsar Run.
+Ese archivo instala las funciones y ejecuta el reinicio de Nataly en una sola transacción.
+Si el ejecutor está ocupado, esperar unos segundos y volver a ejecutar el archivo completo.
+No basta con copiar el SELECT cuando la función todavía no existe.
+
+Para instalar las funciones sin reiniciar conversaciones, se puede usar la alternativa siguiente:
+
 Primero, copiar y ejecutar una vez en SQL Editor de Supabase, con rol postgres, todo el archivo
 [`20260914170000_manual_test_contacts_reset.sql`](../supabase/migrations/20260914170000_manual_test_contacts_reset.sql).
 Esta instalación **está preparada, pendiente de ejecutar en Supabase**. Instalarla no reinicia ninguna conversación.

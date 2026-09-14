@@ -11,10 +11,11 @@ import { unitModelRequestReply } from './unit-model'
 import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
-import { PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
+import { acceptedPriceOption, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
 import { priceFinancingReply } from './financing'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
+import { salesSubject } from './sales-subject'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -58,6 +59,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
   const material = brochureReply(current, info.historial, text(info.modo_comercial))
   if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
+  const acceptedOption = acceptedPriceOption(info, current, summary)
+  if (acceptedOption) return acceptedOption
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
   const attachBrochure = wantsBrochure(current, info.historial)
   const quote = unitPriceQuote(info, current, summary)
@@ -67,7 +70,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (!quote && budget !== null && budget < 1000 && partners.length && !/no (?:quiero|necesito|deseo).*financ|sin credito/i.test(current)) {
     return { reply: `Podemos ayudarle a explorar opciones de financiamiento con ${partners.join(' o ')} y revisar qué alternativa se ajusta a su situación.`, audit: { source: 'budget_financing_guidance', fallback: false } }
   }
-  const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true }, current, summary)
+  const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true, unidades_cotizadas: quote?.units }, current, summary)
   const finish = (reply: string, audit: Row) => {
     // Safe fallbacks must obey the same stopping rule as generated drafts.
     let answer = plan.action !== 'discover' ? reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || reply : reply
@@ -103,10 +106,11 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     return { reply: 'La ubicación en Puertas del Sol es parte del atractivo para invertir. Podemos comparar las opciones según sus objetivos, pero no podemos garantizar que el precio suba ni una rentabilidad futura.', audit: { source: 'investment_expectations', rewritten: false, review_reasons: [], fallback: false } }
   }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
-  const input = { ...experienceContext(info, current, memory), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
+  const input = { ...experienceContext(info, current, memory), tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
   const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
     + (info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
+    + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nEl campo modelo_3d indica si el sistema adjuntará el recorrido de la unidad en ESTA respuesta. Si está presente, responda la consulta brevemente sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces de modelos: el sistema añade el enlace verificado. Si no hay modelo_3d no prometa enviar un modelo. No confunda este recorrido con una cita presencial.'
   const reasons: string[] = []

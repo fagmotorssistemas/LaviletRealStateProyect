@@ -1,5 +1,6 @@
 import { object, text } from './data'
 import { normalized } from './sdr-rules'
+import { salesSubject } from './sales-subject'
 
 export const BROCHURE_PATH = '/materiales/brochure-la-vilet-v5.pdf'
 export const BROCHURE_URL = `https://www.lavilett.com${BROCHURE_PATH}`
@@ -7,17 +8,10 @@ const rows = (history: unknown) => (Array.isArray(history) ? history : []).map(o
 
 export function vehicleScopeReply(current: string, history: unknown = []) {
   const m = normalized(current)
-  // Questions about parking or paying for property with a vehicle remain property questions.
-  if (/parque|garaje|estacion|entrada|abono|parte de pago|permuta|entregar|reciben|aceptan|vendo mi|vender mi/.test(m)) return ''
+  const topic = salesSubject(current, history)
+  if (topic.subject !== 'vehicle') return ''
   const explicit = /\b(?:carro|auto|vehiculo|coche|camioneta|moto)s?\b/.test(m)
-  const clients = rows(history).filter(row => row.role === 'cliente').slice(-4).reverse()
-  let previousVehicle = false
-  for (const row of clients) {
-    const message = normalized(text(row.content))
-    if (/suite|departamento|vivienda|local|proyecto/.test(message)) break
-    if (/\b(?:carro|auto|vehiculo|coche|camioneta|moto)s?\b/.test(message)) { previousVehicle = true; break }
-  }
-  const followup = previousVehicle && /recomiend|sugier|quiero uno|cual|cuanto|precio|rentar|rento|comprar/.test(m) && !/suite|departamento|vivienda|local|proyecto/.test(m)
+  const followup = ['price', 'financing', 'recommendation'].includes(topic.question) || /quiero uno|cual|rentar|rento|comprar/.test(m)
   if (!explicit && !followup) return ''
   const alternatives = [
     'Lamento no poder ayudarle con la búsqueda de un vehículo; no los vendemos ni alquilamos. En La Vilet ofrecemos suites, departamentos y locales comerciales, y será un gusto orientarle si alguno le interesa.',

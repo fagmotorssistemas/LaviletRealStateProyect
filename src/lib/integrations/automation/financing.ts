@@ -1,6 +1,7 @@
 import { db, object, scope, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isConversationRepair, explicitlyRequestsVisit } from './turn-routing'
+import { acceptsUnitOptions } from './sales-policy'
 
 export async function financingContext(lead: Row) {
   const [partners, qualification] = await Promise.all([
@@ -70,6 +71,7 @@ export function financingReply(fin: Row, partners: string[], unsupported = '') {
 // An existing qualification is saved progress, not permission to monopolize every turn.
 export function isFinancingTurn(extracted: Row, current: string, lastReply: string, input: { partner: string | null; unsupported: string }) {
   const message = normalized(current), previous = normalized(lastReply)
+  if (acceptsUnitOptions(current, lastReply)) return false
   if (isConversationRepair(current) || explicitlyRequestsVisit(current) || extracted.requested_advisor || extracted.opt_out) return false
   if (/\b(?:cita|visita|cancelar|reagendar)\b/.test(message)) return false
   if (/financ|credito|entidad|banco|cooperativa|pichincha|\bjep\b|jardin azuayo/.test(message) || input.partner || input.unsupported) return true

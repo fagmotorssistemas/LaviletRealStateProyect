@@ -1,12 +1,15 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
-import { resolveCatalogReference } from './catalog-reference'
-import { mentionsFinancing, salesMemory } from './sales-policy'
+import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
+import { appendUnitModel, unitModelDelivery } from './unit-model'
+import { acceptsUnitOptions, mentionsFinancing, salesMemory } from './sales-policy'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
+import { purchasePriceQuestion, salesSubject } from './sales-subject'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
-export const asksUnitPrice = (value: string) => /\b(?:precios?|valores?|cuesta|cuestan|costos?|cotizacion)\b/.test(normalized(value))
-  && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|carro|auto|moto|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(normalized(value))
+export const asksUnitPrice = (value: string) => purchasePriceQuestion(value)
+  && salesSubject(value).subject !== 'vehicle'
+  && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(normalized(value))
 
 // Preserve the stated amount; a low budget is an opportunity to offer guidance,
 // never grounds to infer thousands or claim that financing is already approved.
@@ -36,7 +39,10 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
     reply: 'El asesor puede ayudarle a conocer el valor de la opción que le interesa.', quoted: false,
   }
   const catalog = rows(info.catalogo)
-  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite' : /\bdepart[ae]mentos?\b/.test(m) ? 'departamento' : ''
+  const topic = salesSubject(current, info.historial)
+  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite' : /\bdepart[ae]mentos?\b/.test(m) ? 'departamento'
+    : /\bviviendas?\b/.test(m) || topic.acceptedRedirect ? 'vivienda' : ''
+  const matchesCategory = (unit: Row, value: string) => value === 'vivienda' ? ['suite', 'departamento'].includes(text(unit.category)) : unit.category === value
   const bedrooms = m.match(/\b([123]) (?:dormitorios?|habitaciones?)\b/)
   const resolved = resolveCatalogReference(catalog, current, summary._unit_reference, info.historial)
   const reference = object(info.referencia_unidad)
@@ -44,14 +50,14 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   const savedIds = rows(catalog).filter(unit => (Array.isArray(object(summary._unit_reference).ids) ? object(summary._unit_reference).ids as unknown[] : []).includes(unit.id)).map(unit => unit.id)
   let selected: Row[]
   if (resolved.hasUnitMention || reference.hasUnitMention === true) selected = resolved.matches
-  else if (category || bedrooms) selected = catalog.filter(unit => (!category || unit.category === category) && (!bedrooms || Number(unit.bedrooms) === Number(bedrooms[1])))
+  else if (category || bedrooms) selected = catalog.filter(unit => (!category || matchesCategory(unit, category)) && (!bedrooms || Number(unit.bedrooms) === Number(bedrooms[1])))
   else if (resolved.matches.length || referenceIds.length || savedIds.length) {
     const ids = resolved.matches.length ? resolved.matches.map(unit => unit.id) : referenceIds.length ? referenceIds : savedIds
     selected = catalog.filter(unit => ids.includes(unit.id))
   } else {
-    const preferred = text(object(info.lead).preferred_category)
+    const preferred = text(object(info.lead).preferred_category) || topic.category || ''
     const preferredBedrooms = Number(object(info.lead).preferred_bedrooms)
-    selected = preferred ? catalog.filter(unit => unit.category === preferred && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
+    selected = preferred ? catalog.filter(unit => matchesCategory(unit, preferred) && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
     if (!preferred) return { reply: '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false }
   }
   const priced = selected.filter(unit => Number.isFinite(Number(unit.published_commercial_price)) && Number(unit.published_commercial_price) > 0)
@@ -101,7 +107,22 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
       `Para el financiamiento trabajamos con ${partners.join(' o ')}; podemos orientarle durante el proceso.`,
     ], info.historial)
   }
-  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, prices: priced.map(unit => Number(unit.published_commercial_price)) }
+  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, units: priced, prices: priced.map(unit => Number(unit.published_commercial_price)) }
+}
+
+export function acceptedPriceOption(info: Row, current: string, summary: Row) {
+  const history = rows(info.historial), last = text(history.filter(row => ['bot', 'asesor'].includes(text(row.role))).at(-1)?.content)
+  if (!acceptsUnitOptions(current, last)) return null
+  const catalog = rows(info.catalogo)
+  const named = resolveCatalogReference(catalog, last).matches
+  const lastPrice = [...history].reverse().find(row => row.role === 'cliente' && asksUnitPrice(text(row.content)))
+  const options = named.length ? named : lastPrice ? unitPriceQuote(info, text(lastPrice.content), summary)?.units || [] : []
+  const unit = [...options].sort((a, b) => Number(a.published_commercial_price) - Number(b.published_commercial_price))[0]
+  if (!unit) return null
+  const detail = catalogReferenceReply([unit], 'Qué ofrece')
+  const model = unitModelDelivery({ explicit: true, matches: [unit] }, 'Quiero ver esta unidad', info.historial, summary._unit_models_sent)
+  return { reply: appendUnitModel(detail, model), audit: { source: 'accepted_price_option', fallback: false,
+    unit_reference: { ids: [unit.id], numbers: [unit.unit_number] }, ...(model ? { unit_model: model } : {}) } }
 }
 
 export const PRICE_REPLY_RULES = `La política comercial de este turno prevalece sobre el historial y cualquier guion anterior.
