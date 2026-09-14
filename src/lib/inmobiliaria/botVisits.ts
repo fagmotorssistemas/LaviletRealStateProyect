@@ -13,6 +13,6 @@ export function visitInvitation(mode: string, policy: BotVisitPolicy) {
   if (!policy.allowSuggestions) return ''
   if (mode !== 'lanzamiento') return '¿Le gustaría coordinar una visita para conocer el proyecto en persona?'
   return policy.launchDestination === 'office'
-    ? '¿Le gustaría coordinar una visita a nuestra oficina para revisar el proyecto? Está en la misma dirección donde se construirá La Vilet.'
+    ? '¿Le gustaría coordinar una visita a nuestra oficina para revisar el proyecto?'
     : '¿Le gustaría coordinar una visita para conocer el lugar donde se construirá La Vilet?'
 }

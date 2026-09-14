@@ -13,7 +13,7 @@ import { isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat } from './financing'
-import { intakeReply, isVisitDetail, needsVisitHelp } from './visit-intake'
+import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent } from './visit-intake'
 import { asksVisitStatus, declinedFollowup, explicitlyRequestsVisit, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
 import { commercialMemory, rememberCommercialReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
@@ -26,6 +26,11 @@ import { scheduleNutrition24h } from './nutrition'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
+import { operationalReply } from './operational-copy'
+import { mentionsVisitLocation, withVisitLocation } from './visit-location'
+import { selectedVisitOption } from './visit-choice'
+import { visitParserReady } from './visit-parser-health'
+import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -134,6 +139,15 @@ export async function processConversation(rows: Row[], guard: Guard) {
       ? 'He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle. Podrá continuar por aquí sin volver a explicar lo que busca.'
       : 'He pasado su consulta a un asesor de nuestro equipo para que le ayude con ese detalle y continúe atendiéndole por aquí.'
   }
+  async function collectVisit(args: Row) {
+    if (!await visitParserReady()) {
+      // Preserve the request in the actual advisor queue; do not ask for the
+      // same date again or manufacture a booking using the old SQL parser.
+      const message = await transferToAdvisor('revisar la solicitud de visita y el horario indicado; coordinación automática en actualización')
+      return { action: 'advisor_handoff', message }
+    }
+    return object(await rpc('lv_collect_visit_intake', args))
+  }
   const memory = commercialMemory(previousSummary._commercial_memory, context.historial, current)
   const state = sdrState(lead, context.historial)
   const repair = isConversationRepair(current) && !!state.ultima_respuesta
@@ -165,6 +179,13 @@ export async function processConversation(rows: Row[], guard: Guard) {
       reply = visitStatusReply(proposals, visitDraft?.status === 'collecting')
       if (reply) audit = { source: 'visit_status' }
     }
+    if (!reply && /^(?:ya |si |bueno |pero |y |esta bien |me dice |por favor )*(?:d[oó]nde(?: queda| est[aá]n| es| est[aá]| se encuentra)?|cu[aá]l es (?:la|su) (?:direcci[oó]n|ubicaci[oó]n)|(?:la )?(?:ubicaci[oó]n|direcci[oó]n)|c[oó]mo llego)[\s?¿.!]*$/i.test(current.trim())) {
+      const info = await commercialContext(lead, context.historial)
+      if (text(object(info.proyecto).address)) {
+        reply = withVisitLocation(info.modo_comercial === 'lanzamiento' ? 'Puede encontrarnos en nuestra oficina de atención, en el lugar donde se construirá La Vilet.' : 'Esta es la ubicación de La Vilet.', info, true)
+        audit = { source: 'location' }
+      }
+    }
     if (!reply && repair && !/asesor|persona|humano/i.test(current) && !explicitlyRequestsVisit(current) && salesSubject(current).subject !== 'property' && !asksUnitPrice(current)) {
       const finance = await financingContext(lead)
       const selected = text(finance.current.selected_partner_name)
@@ -193,6 +214,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!meaningfulText) {
     if (current.includes('[Sticker recibido]') && !inbound.mediaFailed) return { action: 'reaction_only' }
     reply = mediaFailureReply(activeLast.media, inbound.mediaErrors)
+    audit = { source: 'media_not_understood', media_errors: inbound.mediaErrors }
   }
   if (!reply && businessScope.kind === 'mixed' && (explicitlyRequestsVisit(current) || ((proposals.length || visitDraft?.status === 'collecting') && (isVisitDetail(current) || /cancel|reprogram/i.test(current))))) {
     // The existing SQL appointment parser reads the original message. Let a human
@@ -206,16 +228,31 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const classification = await aiJson(visitIntentPrompt + '\n' + TURN_RULES, { mensaje_cliente: current,
       propuesta: proposal && visitDraft?.status === 'collecting' ? { ...proposal, status: 'awaiting_advisor' } : proposal,
       historial: context.historial })
-    const intent = validateIntent(classification, proposal, activeLast.sentAt, text(context.mensaje_actual_at))
+    const options = Array.isArray(proposal?.proposed_options) ? proposal.proposed_options.map(object) : []
+    const selected = selectedVisitOption(current, options, activeLast.sentAt)
+    const override = visitTurnIntent(current)
+    const intent = validateIntent(classification.intent === 'opt_out' ? classification : selected !== null ? { intent: 'accept' }
+      : override === 'counterproposal' ? { intent: override } : classification, proposal, activeLast.sentAt, text(context.mensaje_actual_at))
     if (intent === 'opt_out') {
       await guard(); await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
       reply = 'Hemos registrado su solicitud de no recibir más mensajes.'; finalNotice = true
+    } else if (proposal && intent === 'accept' && options.length > 1) {
+      if (selected === null) {
+        reply = `¿Cuál de estos horarios le queda mejor?\n\n${visitOptionsList(options.map(o => ({ start_time: text(o.start_time), end_time: text(o.end_time) })))}`
+        audit = { source: 'visit_option_choice' }
+      } else {
+        await guard()
+        const result = object(await rpc('lv_client_select_visit_option', { p_request_id: proposal.request_id || proposal.id,
+          p_option_index: selected, p_message_id: activeLast.externalId }))
+        if (result.status !== 'confirmed') throw new Error('VISIT_OPTION_NOT_CONFIRMED')
+        return { action: 'confirmed', selected_option: selected }
+      }
     } else if (proposal && (intent === 'counterproposal' || intent === 'reject' || (intent === 'unclear' && visitDraft?.status === 'collecting'))) {
       await guard()
-      const result = object(await rpc('lv_collect_visit_intake', { p_lead: lead.id, p_message: activeLast.externalId,
-        p_needs_help: needsVisitHelp(current), p_previous_request: proposal.request_id || proposal.id, p_snapshot: proposal }))
-      reply = intakeReply(result)
-      audit = { source: 'visit_intake', action: result.action, preference: result.slot }
+      const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
+        p_needs_help: needsVisitHelp(current), p_previous_request: proposal.request_id || proposal.id, p_snapshot: proposal })
+      reply = text(result.message) || intakeReply(result)
+      audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot }
     } else if (proposal && intent === 'unclear') {
       reply = proposal.status === 'awaiting_advisor'
         ? 'El equipo todavía está revisando el horario. Le confirmaremos por aquí en cuanto esté listo.'
@@ -245,16 +282,16 @@ export async function processConversation(rows: Row[], guard: Guard) {
     ])
     summary = {...newSummary, _unit_reference: reference.memory, _sales_memory: previousSummary._sales_memory}
     const extracted = normalizeEvents(rawEvents, current)
-    const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance)
+    const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
     extracted.financing_consent = financeInput.consent
     extracted.financing_partner = financeInput.partner
     const collectingVisit = visitDraft?.status === 'collecting'
-    const canRequestVisit = !modelOnly && !asksVisitStatus(current) && !repair && !isCourtesyOnly(current)
+    const canRequestVisit = !modelOnly && !asksVisitStatus(current) && (!repair || isVisitDetail(current)) && !isCourtesyOnly(current)
       && (explicitlyRequestsVisit(current) || collectingVisit || acceptsVisitInvitation(current, text(state.ultima_respuesta)))
     if (canRequestVisit && (explicitlyRequestsVisit(current) || acceptsVisitInvitation(current, text(state.ultima_respuesta)))) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
     if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
     const priceTurn = asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
-    const financeTurn = !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)
+    const financeTurn = !priceTurn && (financeInput.consent === true || isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
     if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
     await guard()
     if (extracted.opt_out) {
@@ -304,13 +341,13 @@ export async function processConversation(rows: Row[], guard: Guard) {
           reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita')
           audit = { source: 'price_and_visit_handoff' }
         } else {
-          const result = object(await rpc('lv_collect_visit_intake', { p_lead: lead.id, p_message: activeLast.externalId,
-            p_needs_help: extracted.visit_needs_help === true || needsVisitHelp(current) }))
-          reply = intakeReply(result)
+          const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
+            p_needs_help: extracted.visit_needs_help === true || needsVisitHelp(current) })
+          reply = text(result.message) || intakeReply(result)
           const overview = projectOverviewReply(visitInfo, current)
           if (overview) reply = overview + ' ' + reply
           if (quote) reply = quote.reply.replace(/\s*¿[^?]+\?\s*$/, '') + ' ' + reply
-          audit = { source: 'visit_intake', action: result.action, preference: result.slot }
+          audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot }
         }
         if (wantsBrochure(current, context.historial)) reply += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
       } else if (financeAnswer) {
@@ -337,6 +374,15 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (audit.source === 'visit_intake') {
     const info = await commercialContext(lead, context.historial)
     if (info.modo_comercial === 'lanzamiento') reply = launchVisitReply(reply, object(info.politica_visitas).launchDestination === 'office' ? 'office' : 'site')
+  }
+  if (['visit_intake', 'visit_status', 'financing', 'financing_question', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model'].includes(text(audit.source))) {
+    await guard()
+    const composed = await operationalReply(reply, current, context.historial, audit)
+    reply = composed.reply
+    audit = { ...audit, ai_operational_copy: composed.generated }
+  }
+  if (!['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification'].includes(text(audit.source)) && (mentionsVisitLocation(reply) || ['visit_intake', 'visit_option_choice'].includes(text(audit.source)))) {
+    reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
   }
   if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
   reply = naturalConversationReply(variedReplyOpening(reply, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
@@ -372,6 +418,8 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
   const sentModelId = text(object(audit.unit_model).unit_id)
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply),
+    _last_operational_step: ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'budget_financing_guidance') && /\?/.test(reply)
+      ? { kind: 'financing_consent', reply } : {},
     ...(audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }

@@ -80,10 +80,12 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const hasUnit = rows(object(info.referencia_unidad).matches).length === 1
   const concreteInterest = /(?:me interesa|busco|quiero|quisiera).*(?:departamento|suite|vivienda|local)/.test(m)
     && (hasUnit || /\b[123] (?:dormitorios|habitaciones|personas)|pisos? altos?|terraza/.test(m))
-  const signal = info.precio_cotizado === true || model || concreteInterest || (positive(current) && (sawModel || hasUnit)) || (topics.includes('reventa') && topics.length > 1)
+  const signal = info.precio_cotizado === true || model || concreteInterest || (positive(current) && (sawModel || hasUnit || /brochure|folleto/i.test(last))) || (topics.includes('reventa') && topics.length > 1)
   const policy = object(info.politica_visitas)
   const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
-  const invite = visits.allowSuggestions && signal && !pendingVisit && !refuses && !memory.visit_invited && !memory.visit_declined
+  const recentInvitation = replies.slice(-3).some(row => invitation(text(row.content)))
+  const invite = visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
+    && (!memory.visit_invited || replies.length >= 3) && !memory.visit_declined
   // An old offer must not block a useful next step after the client starts a new search.
   const recentUnitOffer = replies.slice(-2).some(row => /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(text(row.content))))
   const offerUnits = !invite && info.precio_cotizado === true && !pendingVisit && !model && (!memory.unit_options_offered || (replies.length >= 3 && !recentUnitOffer))
@@ -93,9 +95,12 @@ export function salesPlan(info: Row, current: string, summary: Row) {
     ? `¿Le gustaría revisar la distribución ${quoted[0].category === 'suite' ? 'de la suite' : quoted[0].category === 'local' ? 'del local' : 'del departamento'} ${text(quoted[0].unit_number)}?`
     : '¿Le gustaría que le muestre una opción de ese rango?'
   const twoQuestions = replies.length >= 2 && replies.slice(-2).every(r => discovery(text(r.content)))
+  const shareBrochure = twoQuestions && !pendingVisit && !invite && !offerUnits
+    && !replies.some(r => /brochure-la-vilet|brochure|folleto/i.test(text(r.content)))
+    && !/no (?:quiero|deseo|necesito).*(?:material|brochure|folleto|informacion)/.test(m)
   const uncertain = /no (?:se|estoy segur|tengo claro|tengo idea)|no he pensado/.test(m)
   const answerOnly = pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
-  return { action: invite ? 'invite_visit' : offerUnits ? 'offer_units' : answerOnly ? 'answer_only' : 'discover', topics,
+  return { action: invite ? 'invite_visit' : offerUnits ? 'offer_units' : shareBrochure ? 'share_brochure' : answerOnly ? 'answer_only' : 'discover', topics,
     max_questions: invite || offerUnits || !answerOnly ? 1 : 0,
     closing: invite ? visitInvitation(text(info.modo_comercial), visits) : offerUnits ? unitClosing : '',
     visits_allowed: visits.allowSuggestions,
@@ -106,7 +111,7 @@ Use datos ya conocidos de vivir/invertir, dormitorios y presupuesto; pregunte so
 Si aún no sabe su presupuesto, ofrezca ayudarle a ordenar entrada y cuota cómoda, sin aprobar un crédito ni exigir ingresos aquí.
 Presente de uno a tres beneficios relevantes, solo los que ayudan a esta persona; no repita instalaciones ni rellene hasta llegar a tres.
 No suponga que «se ve interesante» acepta una visita. No cree cita ni avise al asesor al ofrecerla.
-${visits.allowSuggestions ? 'Las sugerencias de visita están habilitadas; use únicamente la invitación del sistema.' : 'Las sugerencias de visita están desactivadas. No invite, proponga ni pregunte por visitas; si el cliente la solicita expresamente el sistema coordina esa petición.'}
+${visits.allowSuggestions ? 'Las sugerencias de visita están habilitadas; el sistema añadirá una invitación y la ubicación completa.' : 'Las sugerencias de visita están desactivadas. No invite, proponga ni pregunte por visitas; si el cliente la solicita expresamente el sistema coordina esa petición.'}
 El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : offerUnits ? 'responder el precio; el sistema ofrecerá revisar una unidad, NO escriba otra pregunta ni invite a una visita' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
 No prometa reventa, arriendo, rentabilidad, disponibilidad, aprobación bancaria ni tiempos sin datos. No invente reservas, anticipos ni pasos legales de compra.
 Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también es una respuesta completa.` }

@@ -349,6 +349,7 @@ export interface AppointmentRescheduleRequest {
   previous_end_time: string | null
   proposed_start_time: string | null
   proposed_end_time: string | null
+  proposed_options?: VisitTimeSlot[]
   preferred_time_text: string | null
   source_message_text: string | null
   source_channel: string | null

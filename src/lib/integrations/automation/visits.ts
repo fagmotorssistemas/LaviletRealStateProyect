@@ -3,9 +3,27 @@ import { automationSettings, assertLive } from './config'
 import { autoConfig, db, object, permitted, rpc, scope, text, type Row } from './data'
 import { getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { prepareVisit, routeSignature, validateVisit } from './visit-rules'
+import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
+import { operationalReply } from './operational-copy'
 
 export type Guard = () => Promise<void>
-export async function visitContext(jobId: string) { return object(await rpc('lv_app_visit_context', { p_job: jobId })) }
+export async function visitContext(jobId: string) {
+  const result = object(await rpc('lv_app_visit_context', { p_job: jobId }))
+  const [project, config] = await Promise.all([
+    db().from('projects').select('address,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).maybeSingle(),
+    db().from('project_automation_config').select('mode').match(scope).maybeSingle(),
+  ])
+  if (project.error || config.error) throw new Error('VISIT_LOCATION_CONTEXT_FAILED')
+  let address = text(project.data?.address)
+  const appointment = object(result.appointment)
+  if (appointment.location_type === 'oficina' && appointment.office_id) {
+    const office = await db().from('offices').select('address').eq('id', appointment.office_id).eq('tenant_id', scope.tenant_id).maybeSingle()
+    if (office.error || !office.data) throw new Error('VISIT_OFFICE_CONTEXT_FAILED')
+    address = text(office.data.address)
+  }
+  return { ...result, address, mode: config.data?.mode,
+    launch_destination: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).launchDestination }
+}
 
 export async function pendingVisits() {
   let q = db().from('lv_outbox').select('id').match(scope).eq('status', 'pending')
@@ -51,6 +69,14 @@ export async function sendVisit(jobId: string, guard: Guard) {
   if (count) return { jobId, status: 'unresolved_conversation' }
   await getKommoLead(Number(lead.kommo_id))
   const route = object(context.route), payload = object(object(context.job).payload)
+  if (!Array.isArray(payload.options) || !payload.options.length) {
+    const draft = await operationalReply(text(payload.detail), text(object(context.request).source_message_text), [], {
+      action: object(context.job).kind, status: object(context.request).status,
+      protected_terms: [context.advisor_name, context.address].filter(Boolean),
+    })
+    payload.detail = draft.reply
+    payload.ai_operational_copy = draft.generated
+  }
   const send = { ...payload, detail: payload.detail, link: '', rendered: text(payload.detail),
     _kommo_id: lead.kommo_id, _route: routeSignature(route), _material: null, _app: 'lavilet' }
   await guard()

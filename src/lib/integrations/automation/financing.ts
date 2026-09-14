@@ -19,11 +19,12 @@ export async function financingContext(lead: Row) {
   return { partners: names, current: object(qualification.data?.[0]) }
 }
 
-export function financingInputs(extracted: Row, current: string, lastReply: string, context: Awaited<ReturnType<typeof financingContext>>) {
+export function financingInputs(extracted: Row, current: string, lastReply: string, context: Awaited<ReturnType<typeof financingContext>>, lastStep: Row = {}) {
   const message = normalized(current)
-  const asksConsent = /revision|financiamiento|revisar esa opcion/.test(normalized(lastReply)) && /desea continuar|iniciar|iniciemos|revisemos|revisar esa opcion|revision.*\?/.test(lastReply.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
+  const verifiedConsentStep = lastStep.kind === 'financing_consent' && lastStep.reply === lastReply && /\?/.test(lastReply)
+  const asksConsent = verifiedConsentStep || (/revision|financiamiento|revisar esa opcion/.test(normalized(lastReply)) && /desea continuar|iniciar|iniciemos|revisemos|revisar esa opcion|revision.*\?/.test(lastReply.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()))
   const conditional = /\b(?:pero|solo|siempre que|credito directo|otra entidad)\b/.test(message) || /[?¿]/.test(current)
-  const consent = asksConsent && /^(si|si claro|claro|si por favor|de acuerdo|continuemos|si continuemos)$/.test(message)
+  const consent = asksConsent && /^(si|si claro|claro|si por favor|de acuerdo|continuemos|si continuemos|por supuesto|si por supuesto|hagamoslo|me gustaria)$/.test(message)
     ? true : conditional ? null : asksConsent ? extracted.financing_consent : null
   let partner = text(extracted.financing_partner)
   // The extractor can carry an old lender forward; only accept a choice mentioned now.

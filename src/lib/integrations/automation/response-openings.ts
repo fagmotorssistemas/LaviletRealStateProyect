@@ -24,8 +24,9 @@ export function variedReplyOpening(reply: string, history: unknown) {
   const current = replyOpening(reply)
   if (!current) return reply
   const recent = recentReplyOpenings(history)
-  const repeated = recent.some(row => row.opening?.family === current.family)
-  const consecutiveCourtesy = !!recent.at(-1)?.opening
+  const key = (phrase: string) => normalize(phrase).replace(/^claro.*$/, 'claro').replace(/^con (?:mucho )?gusto.*$/, 'con gusto')
+  const repeated = recent.slice(-2).some(row => row.opening && key(row.opening.phrase) === key(current.phrase))
+  const consecutiveCourtesy = recent.length >= 2 && recent.slice(-2).every(row => !!row.opening)
   if (!repeated && !consecutiveCourtesy) return reply
   let body = reply.trim().slice(current.prefix.length).trim()
   // A standalone courtesy is a complete answer. Do not remove it or emit blanks.
@@ -45,10 +46,11 @@ export function openingWritingRules(history: unknown) {
   const starts = recent.map(row => row.text.split(/\s+/).slice(0, 9).join(' '))
   return `\nVARIEDAD Y CERCANÍA EN ESTE TURNO (prevalece sobre ejemplos de aperturas del guion):
 Las últimas aperturas enviadas fueron: ${JSON.stringify(starts)}.
-No copie esas aperturas ni rote mecánicamente «claro», «con gusto», «perfecto», «por supuesto» o agradecimientos. Cambiar un sinónimo de la misma muletilla sigue siendo repetición.
+No copie la misma apertura en turnos consecutivos ni rote mecánicamente muletillas.
 La amabilidad se expresa al escuchar y resolver la consulta concreta, no con una fórmula obligatoria al principio.
 Varíe la estructura: responder el dato solicitado; conectar con una preferencia que acaba de expresar; explicar en una frase una diferencia; reconocer una inquietud cuando la haya; o introducir una comparación pertinente. Elija solo lo que encaje, sin inventar preferencias, beneficios o emociones.
 En continuaciones puede comenzar por el departamento, el dato o una explicación. Evite encadenar validaciones y frases como «me alegra» en todos los turnos. No convierta el tono cercano en una ficha fría ni en entusiasmo exagerado.
-${recent.some(row => row.opening) ? 'En este turno omita las fórmulas genéricas de cortesía al inicio; ya se usaron recientemente.' : 'Una apertura amable y breve es opcional, nunca obligatoria.'}
+Puede decir «perfecto» o «excelente» cuando el cliente acepta un paso concreto; «claro», «por supuesto» o «con gusto» cuando responde a una solicitud. Es opcional: no elogie dudas, dificultades económicas, quejas o cualquier afirmación por costumbre. Alterne con respuestas directas.
+${recent.length >= 2 && recent.slice(-2).every(row => row.opening) ? 'Las últimas dos respuestas empezaron con cortesía: esta vez empiece por la respuesta concreta.' : 'Una apertura amable y breve es bienvenida si encaja con el mensaje; no está prohibida porque se haya utilizado varias respuestas atrás.'}
 Respete las decisiones, condiciones, precios, enlaces y estados reales; variar el tono no permite cambiar los hechos.`
 }

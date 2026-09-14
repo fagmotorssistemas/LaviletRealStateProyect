@@ -2,7 +2,7 @@ import 'server-only'
 import { object, text, rpc, db, scope, type Row } from './data'
 import type { Inbound } from './webhook'
 import { downloadMedia } from './media-download'
-import { audioExtensions } from './media-format'
+import { audioExtensions, clearAudioTranscript, wavHasSignal } from './media-format'
 
 const jsonReplySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
 export async function aiJson(instructions: string, input: unknown, schema?: Row, image?: string, file?: {name: string; data: string}): Promise<Row> {
@@ -73,17 +73,23 @@ export async function mediaText(event: Inbound) {
     return [event.text, (pdf ? '[Archivo PDF: ' : '[Imagen: ') + text(result.mensaje).slice(0,3500) + ']'].filter(Boolean).join('\n')
   }
   if (!audioExtensions[mime]) throw new Error('UNSUPPORTED_MEDIA')
+  if (!bytes.length || (mime === 'audio/wav' && wavHasSignal(bytes) === false)) throw new Error('AUDIO_NO_CLEAR_SPEECH')
   const key = process.env.OPENAI_API_KEY
   if (!key) throw new Error('OPENAI_NOT_CONFIGURED')
+  const model = process.env.OPENAI_TRANSCRIPTION_MODEL || 'whisper-1'
+  if (model !== 'whisper-1' && !/^gpt-4o(?:-mini)?-transcribe(?:-\d{4}-\d{2}-\d{2})?$/.test(model)) throw new Error('TRANSCRIPTION_MODEL_QUALITY_UNSUPPORTED')
   const form = new FormData()
-  form.set('model', process.env.OPENAI_TRANSCRIPTION_MODEL || 'whisper-1')
+  form.set('model', model)
   form.set('file', new Blob([new Uint8Array(bytes)], { type: mime }), `audio.${audioExtensions[mime]}`)
   form.set('language', 'es')
-  form.set('prompt', 'Conversación en español de Ecuador sobre vivienda. Nombres: La Vilet, Puertas del Sol, Cuenca, JEP, Pichincha, Jardín Azuayo. Transcriba solo lo audible; no complete números de departamento, fechas ni montos que no se entiendan.')
+  // Do not prime silent recordings with a project lexicon or conversation text.
+  // A nonempty transcription alone must never count as speech or consent.
+  form.set('response_format', model === 'whisper-1' ? 'verbose_json' : 'json')
+  if (model === 'whisper-1') form.append('timestamp_granularities[]', 'segment')
+  else form.append('include[]', 'logprobs')
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', redirect: 'error',
     headers: { Authorization: `Bearer ${key}` }, body: form, signal: AbortSignal.timeout(30_000) })
   if (!response.ok) throw new Error(`TRANSCRIPTION_HTTP_${response.status}`)
-  const transcript = text(object(await response.json()).text)
-  if (!transcript.trim() || transcript.length > 20_000) throw new Error('INVALID_TRANSCRIPTION')
+  const transcript = clearAudioTranscript(await response.json(), model)
   return [event.text, transcript].filter(Boolean).join('\n')
 }

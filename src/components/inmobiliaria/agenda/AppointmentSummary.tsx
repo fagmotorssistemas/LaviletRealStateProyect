@@ -17,6 +17,7 @@ const appointmentLabels: Record<string, string> = { aceptado: 'Cita confirmada',
 function requestedLabel(detail: AppointmentWithUnits, options: VisitSchedulingOptions | null) {
   if (detail.collectingVisit) return 'Horario en coordinación'
   const request = detail.openReschedule
+  if (request?.status === 'awaiting_client' && (request.proposed_options?.length ?? 0) > 1) return `${request.proposed_options!.length} horarios para elegir`
   if (!request && detail.start_time) return formatAgendaDateTime(detail.start_time)
   const date = options?.requested.start_time ?? request?.proposed_start_time
   if (date) return formatAgendaDateTime(date)
@@ -62,6 +63,7 @@ export function AppointmentSummary({ detail, options, scheduleLoading, scheduleE
         <div className="min-w-0">
           <p className="text-xs text-[#7b8170]">{waitingClient ? 'Horario propuesto' : pending ? 'Fecha y hora solicitadas' : 'Fecha y hora de la visita'}</p>
           <p className="mt-1 text-2xl font-semibold leading-snug tracking-tight text-[#3e4735]">{scheduleLoading ? 'Consultando horario…' : requestedLabel(detail, options)}</p>
+          {waitingClient && (request?.proposed_options?.length ?? 0) > 1 && <ol className="mt-3 list-inside list-decimal space-y-1 text-sm text-[#596649]">{request!.proposed_options!.map(slot => <li key={slot.start_time}>{formatAgendaDateTime(slot.start_time)}</li>)}</ol>}
           <p className="mt-1 text-xs text-[#858a7c]">Hora de Ecuador · duración de 60 minutos</p>
           {options?.requested.preferred_period && <p className="mt-1 text-sm text-[#667253]">Prefiere {options.requested.preferred_period === 'afternoon' ? 'por la tarde' : 'por la mañana'}</p>}
         </div>
@@ -92,7 +94,7 @@ export function AppointmentSummary({ detail, options, scheduleLoading, scheduleE
         <Button type="button" variant="outline" className="h-auto min-h-10 gap-2 py-2.5 tracking-normal" disabled={saving} onClick={onPropose}><Clock3 size={15} />Proponer horario</Button>
         <Button type="button" variant="ghost" className="h-auto min-h-10 gap-2 py-2.5 tracking-normal" disabled={saving} onClick={onReassign}><RefreshCw size={14} />Solicitar reasignación</Button>
       </div>
-      {waitingClient && <p className="text-xs text-[#858a7c]">La cita se confirmará cuando el cliente acepte esta propuesta.</p>}
+      {waitingClient && <p className="text-xs text-[#858a7c]">La cita se confirmará cuando el cliente elija un horario disponible de esta propuesta.</p>}
     </div>}
     {request && !canManage && <p className="text-sm text-[#7b8170]">Esta solicitud está a cargo de {detail.responsible?.full_name || 'otro asesor'}.</p>}
 

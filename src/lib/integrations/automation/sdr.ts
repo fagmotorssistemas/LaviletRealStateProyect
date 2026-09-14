@@ -17,6 +17,7 @@ import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
 import { unitRecommendation } from './unit-recommendation'
+import { withVisitLocation } from './visit-location'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -69,7 +70,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const finance = object(info.financiamiento)
   const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
   if (!quote && budget !== null && budget < 1000 && partners.length && !/no (?:quiero|necesito|deseo).*financ|sin credito/i.test(current)) {
-    return { reply: `Podemos ayudarle a explorar opciones de financiamiento con ${partners.join(' o ')} y revisar qué alternativa se ajusta a su situación.`, audit: { source: 'budget_financing_guidance', fallback: false } }
+    return { reply: `Podemos acompañarle a revisar opciones de financiamiento con ${partners.join(' o ')}. ¿Le gustaría que iniciemos la revisión de su caso?`, audit: { source: 'budget_financing_guidance', fallback: false } }
   }
   const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true, unidades_cotizadas: quote?.units }, current, summary)
   const finish = (reply: string, audit: Row) => {
@@ -77,8 +78,10 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     // Safe fallbacks must obey the same stopping rule as generated drafts.
     let answer = plan.action !== 'discover' ? reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || reply : reply
     if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
-    if (attachBrochure && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
-    return { reply: answer + (plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''), audit: { ...audit, ...(attachBrochure ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics } }
+    const shareMaterial = attachBrochure || plan.action === 'share_brochure'
+    if (shareMaterial && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure para que pueda explorar la propuesta${info.modo_comercial === 'lanzamiento' ? '; las imágenes ilustran cómo está previsto el proyecto' : ''}: ${BROCHURE_URL}`
+    answer += plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''
+    return { reply: withVisitLocation(answer, info), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics } }
   }
   const overview = projectOverviewReply(info, current)
   if (overview && !/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|constructora|entrega|ubicacion|sector|alrededor|cerca/i.test(current)) return finish(overview + `\n\nAquí puede conocer la propuesta con más detalle: ${BROCHURE_URL}`, { source: 'project_overview', brochure_sent: true, fallback: false })

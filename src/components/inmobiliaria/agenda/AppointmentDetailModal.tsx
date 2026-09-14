@@ -21,7 +21,9 @@ import { ArrowLeft, Send } from 'lucide-react'
 import { AppointmentSummary, AppointmentExpandedDetails } from './AppointmentSummary'
 import { KommoChatLink } from './KommoChatLink'
 import { VisitRecommendations } from './VisitRecommendations'
+import { VisitProposalComposer } from './VisitProposalComposer'
 import { useVisitScheduling } from '@/hooks/inmobiliaria/useVisitScheduling'
+import { useVisitProposalCapability } from '@/hooks/inmobiliaria/useVisitProposalCapability'
 import { AppointmentInterestUnitsPicker } from '@/components/inmobiliaria/agenda/AppointmentInterestUnitsPicker'
 import { AgendaVisitFields, addOneHour, type AgendaVisitFieldValues } from '@/components/inmobiliaria/agenda/AgendaVisitFields'
 import {
@@ -105,6 +107,7 @@ export function AppointmentDetailModal({
   const canActOnRequest = Boolean(detail?.openReschedule)
     && Boolean(scope?.isAdmin || detail?.openReschedule?.assigned_advisor_id === user?.id)
   const scheduling = useVisitScheduling(supabase, isOpen && canActOnRequest ? detail?.openReschedule?.id : undefined)
+  const supportsVisitOptions = useVisitProposalCapability(supabase, isOpen && canActOnRequest)
 
   const selectRecommendation = (slot: VisitTimeSlot) => {
     const start = isoToEcuadorParts(slot.start_time)
@@ -371,7 +374,7 @@ export function AppointmentDetailModal({
   const panelTitle: Record<Panel, string> = {
     view: detail?.openReschedule ? 'Cita pendiente' : 'Visita a La Vilet',
     details: 'Detalles de la visita', confirm: 'Confirmar cita', attendance: detail?.status === 'atendido' ? 'Editar asistencia' : 'Registrar asistencia',
-    propose: 'Proponer horario', cancel: 'Cancelar cita', reassign: 'Solicitar reasignación',
+    propose: supportsVisitOptions ? 'Proponer horarios' : 'Proponer horario', cancel: 'Cancelar cita', reassign: 'Solicitar reasignación',
   }
   const openProposal = () => {
     setVisit(prev => ({ ...prev, visitDate: scheduling.options?.requested.requested_date ?? '', startHm: '', endHm: '' }))
@@ -466,7 +469,11 @@ export function AppointmentDetailModal({
       )}
 
       {!loadingDetail && !loadError && detail && panel === 'propose' && (
-        <form className="space-y-4" onSubmit={handleProposeRequest}>
+        supportsVisitOptions && detail.openReschedule ? <VisitProposalComposer key={detail.openReschedule.id}
+          requestId={detail.openReschedule.id} scheduling={scheduling} onCancel={() => setPanel('view')}
+          onSent={() => refreshAfter('Propuesta registrada. Se enviará el mensaje revisado al cliente.')} />
+        : <form className="space-y-4" onSubmit={handleProposeRequest}>
+          <p className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">La propuesta de hasta tres horarios requiere la actualización de agenda. Mientras tanto, puede enviar un horario individual.</p>
           <VisitRecommendations options={scheduling.options} loading={scheduling.loading} error={scheduling.error}
             disabled={saving} selectedStart={ecuadorLocalToIso(visit.visitDate, visit.startHm)}
             onSelect={selectRecommendation} onReload={() => void scheduling.reload(visit.visitDate || undefined)} />

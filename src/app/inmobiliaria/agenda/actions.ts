@@ -16,6 +16,9 @@ import {
   acceptClientVisitTime,
 } from '@/services/inmobiliaria.service'
 import type { AppointmentLocationType } from '@/types/inmobiliaria'
+import type { VisitTimeSlot } from '@/types/inmobiliaria'
+import type { VisitProposalPreview } from '@/lib/inmobiliaria/visitProposalOptions'
+import { prepareVisitProposal, sendVisitProposal } from '@/services/visitProposal.service'
 
 function readableMessage(message: string) {
   const trimmed = message.trim()
@@ -132,6 +135,14 @@ export async function advisorProposeRequestAction(input: {
       notes: input.notes,
     }),
   )
+}
+
+export async function prepareVisitOptionsAction(input: { requestId: string; options: VisitTimeSlot[] }) {
+  return withAgendaWrite(client => prepareVisitProposal(client, input.requestId, input.options))
+}
+
+export async function sendVisitOptionsAction(preview: VisitProposalPreview) {
+  return withAgendaWrite(client => sendVisitProposal(client, preview))
 }
 
 export async function requestReassignmentAction(input: { requestId: string; reason: string }) {

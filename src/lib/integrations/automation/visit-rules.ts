@@ -1,6 +1,8 @@
 import { object, text, type Row } from './data'
-import { buildVisitMessage } from '@/lib/inmobiliaria/visitClock'
+import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 import { LAVILET_MESSAGE_ROUTES, LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '../lavilet'
+import { withVisitLocation } from './visit-location'
+import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
 
 const HOUR = 3_600_000
 const ms = (v: unknown) => Date.parse(text(v))
@@ -24,7 +26,10 @@ export function validateVisit(context: Row, now = Date.now()): Decision {
   if (!Number.isSafeInteger(Number(l.kommo_id)) || Number(l.kommo_id) <= 0) deferred.push('invalid_kommo_id')
   if (route.enabled !== true || route.approved !== true || !text(route.body_template)
     || route.bot_id !== expected?.botId || route.detail_field_id !== expected?.fieldId) deferred.push('route_not_configured')
-  if (!text(p.detail).trim() || text(p.detail).length > 256) deferred.push('invalid_detail')
+  if (!text(p.detail).trim() || text(p.detail).length > 1500) deferred.push('invalid_detail')
+  const meetingMap = !a.location_type || a.location_type === 'proyecto' ? context.location || p.location : p.location
+  if (context.address && !text(p.detail).toLowerCase().includes(text(context.address).toLowerCase())) invalid.push('address_changed_or_missing')
+  if (meetingMap && !text(p.detail).includes(text(meetingMap))) invalid.push('map_changed_or_missing')
   const last = ms(context.last_client_message_at)
   if (!Number.isFinite(last) || last > now || now - last >= 24 * HOUR) deferred.push('outside_whatsapp_window')
   if (context.event_current !== true || a.status === 'cancelado' || a.no_show === true) invalid.push('stale_event')
@@ -41,6 +46,17 @@ export function validateVisit(context: Row, now = Date.now()): Decision {
     if (j.kind === 'visit_propose') {
       if (r.status !== 'awaiting_client' || !r.advisor_accepted_at || r.client_accepted_at
         || (r.expires_at && !(ms(r.expires_at) > now))) invalid.push('proposal_not_pending')
+      const options = (Array.isArray(p.options) ? p.options : []).map(object)
+      const offered = (Array.isArray(r.proposed_options) ? r.proposed_options : []).map(object)
+      if (offered.length > 1 && !options.length) invalid.push('missing_options')
+      if (options.length) {
+        const same = options.length <= 3 && new Set(options.map(slot => ms(slot.start_time))).size === options.length
+          && options.length === offered.length && options.every((slot, i) =>
+          ms(slot.start_time) === ms(offered[i]?.start_time) && ms(slot.end_time) === ms(offered[i]?.end_time)
+          && ms(slot.start_time) > now && ms(slot.end_time) - ms(slot.start_time) === HOUR)
+        if (!same) invalid.push('options_changed')
+        if (same && !text(p.detail).includes(visitOptionsList(options.map(o => ({ start_time: text(o.start_time), end_time: text(o.end_time) }))))) invalid.push('options_missing_from_message')
+      }
     } else if (r.status !== 'confirmed' || !r.advisor_accepted_at || !r.client_accepted_at
       || !['aceptado', 'reprogramado'].includes(text(a.status)) || context.reminders_paused === true
       || ms(a.start_time) !== ms(r.proposed_start_time) || ms(a.end_time) !== ms(r.proposed_end_time)) invalid.push('confirmation_changed')
@@ -64,9 +80,22 @@ export function routeSignature(route: Row) {
 export function prepareVisit(context: Row): Row {
   const j = object(context.job), a = object(context.appointment), p = object(j.payload)
   const location = !a.location_type || a.location_type === 'proyecto' ? context.location || p.location : p.location
-  const detail = buildVisitMessage({ kind: j.kind as 'visit_propose' | 'visit_confirm' | 'visit_reschedule_confirm' | 'visit_2h',
-    startIso: text(p.start_time || a.start_time), leadName: text(object(context.lead).name),
-    advisorName: text(context.advisor_name), locationUrl: text(location) })
-  // Conservar hechos exactos. La redacción opcional no puede alterar fecha, asesor o ubicación.
+  const options = (Array.isArray(p.options) ? p.options : []).map(object)
+    .map(o => ({ start_time: text(o.start_time), end_time: text(o.end_time) }))
+  const when = formatVisitWhen(text(p.start_time || a.start_time))
+  const place = context.mode === 'lanzamiento'
+    ? context.launch_destination === 'site' ? 'el terreno donde se construirá La Vilet' : 'nuestra oficina para revisar el proyecto La Vilet'
+    : 'La Vilet'
+  let detail: string
+  if (j.kind === 'visit_propose' && options.length) {
+    const list = visitOptionsList(options)
+    // The advisor approved this exact preview; never generate different copy
+    // after approval. Dates must still match the current request on every check.
+    detail = text(p.message_draft).includes(list) && text(p.message_draft).length <= 1500 ? text(p.message_draft) : ''
+    return { ...context, job: { ...j, payload: { ...p, detail } } }
+  } else if (j.kind === 'visit_propose') detail = `Podemos recibirle ${when} en ${place}. ¿Le queda bien este horario? Si prefiere otro, puede indicárnoslo para que el equipo lo verifique.`
+  else if (j.kind === 'visit_2h') detail = `Le recordamos su visita ${when} en ${place}. Si necesita cambiar el horario, puede indicárnoslo por aquí.`
+  else detail = `Su cita está confirmada ${when} en ${place}${context.advisor_name ? ', con ' + text(context.advisor_name) : ''}. Será un gusto recibirle.`
+  detail = withVisitLocation(detail, { address: context.address || p.address, map_url: location }, true)
   return { ...context, job: { ...j, payload: { ...p, detail } } }
 }

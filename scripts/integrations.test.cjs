@@ -31,6 +31,27 @@ const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
 
+test('financing consent follows the verified step after a natural AI rewrite', () => {
+  const { financingInputs } = require('../src/lib/integrations/automation/financing.ts')
+  const reply = 'Podemos acompañarle a explorar alternativas con Banco Pichincha. ¿Desea avanzar?'
+  const finance = { partners: ['Banco Pichincha'], current: {} }
+  assert.equal(financingInputs({}, 'Sí, por supuesto', reply, finance, { kind: 'financing_consent', reply }).consent, true)
+  assert.equal(financingInputs({}, 'Sí, por supuesto', reply, finance).consent, null)
+  assert.equal(financingInputs({}, 'Sí, pero con crédito directo', reply, finance, { kind: 'financing_consent', reply }).consent, null)
+  assert.equal(financingInputs({}, 'Sí', '¿Le gustaría una visita?', finance, { kind: 'financing_consent', reply }).consent, null)
+})
+
+test('a pending SQL migration passes a visit to the advisor without using the broken parser', async t => {
+  live(t)
+  const h = conversationHarness({ parserReady: false, extracted: { events: ['requested_visit'] } })
+  h.rows[0].payload.text = 'Quiero reagendar mi cita'; h.rows[1].payload.text = 'Para mañana a las 8'
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.source, 'advisor_handoff')
+  assert.ok(h.calls.some(c => c.name === 'handoff_lead'))
+  assert.equal(h.calls.some(c => c.name === 'lv_collect_visit_intake'), false)
+  assert.doesNotMatch(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /Qué día|qué hora/)
+})
+
 test('financing for an unrelated service does not suppress property financing guidance', () => {
   const { salesMemory } = require('../src/lib/integrations/automation/sales-policy.ts')
   const memory = salesMemory({ financing_mentioned: true }, [
@@ -337,7 +358,7 @@ test('launch visit controls default off, preserve unrelated settings, and descri
   const merged = visits.withBotVisitPolicy(previous, { allowSuggestions: true, launchDestination: 'office' })
   assert.deepEqual(merged.nutrition_24h, nutritionConfig)
   assert.deepEqual(merged.bot_pricing, previous.bot_pricing)
-  assert.match(visits.visitInvitation('lanzamiento', visits.botVisitPolicy(merged, 'lanzamiento')), /oficina.*misma dirección/)
+  assert.match(visits.visitInvitation('lanzamiento', visits.botVisitPolicy(merged, 'lanzamiento')), /oficina.*revisar el proyecto/)
   assert.match(visits.visitInvitation('lanzamiento', { allowSuggestions: true, launchDestination: 'site' }), /lugar donde se construirá/)
   assert.equal(visits.visitInvitation('lanzamiento', { allowSuggestions: false, launchDestination: 'site' }), '')
 })
@@ -565,8 +586,12 @@ test('an accepted unit that has left the catalog sends available material instea
 
 test('courtesy openings vary across a conversation instead of rotating equivalent filler', () => {
   const history = [{ role: 'bot', content: 'Claro, con mucho gusto. Le cuento sobre el proyecto.' }]
-  for (const prefix of ['Claro, ', 'Con gusto. ', 'Por supuesto, ', 'Perfecto, ', 'Con gusto le explico: ']) {
+  for (const prefix of ['Claro, ']) {
     assert.equal(openings.variedReplyOpening(prefix + 'el 210 tiene un dormitorio.', history), 'El 210 tiene un dormitorio.')
+  }
+  for (const prefix of ['Con gusto. ', 'Por supuesto, ', 'Perfecto, ', 'Con gusto le explico: ']) {
+    assert.equal(openings.variedReplyOpening(prefix + 'el 210 tiene un dormitorio.', history), prefix + 'el 210 tiene un dormitorio.')
+    assert.equal(openings.variedReplyOpening(prefix + 'el 210 tiene un dormitorio.', [...history, { role: 'bot', content: 'Perfecto, revisemos.' }]), 'El 210 tiene un dormitorio.')
   }
   assert.equal(openings.variedReplyOpening('Claro, sí, podemos revisarlo.', history), 'Sí, podemos revisarlo.')
   assert.equal(openings.variedReplyOpening('Claro, no ofrecemos crédito directo.', history), 'No ofrecemos crédito directo.')
@@ -580,7 +605,7 @@ test('opening variation preserves standalone courtesy, greetings, conditions and
     assert.equal(openings.variedReplyOpening(reply, history), reply)
   }
   const detail = 'Su cita está confirmada para el sábado a las 11. Ubicación: https://example.com/map?a=1&b=2'
-  assert.equal(openings.variedReplyOpening('Perfecto, ' + detail, history), detail)
+  assert.equal(openings.variedReplyOpening('Perfecto, ' + detail, history), 'Perfecto, ' + detail)
   assert.equal(openings.variedReplyOpening('Con gusto. Es el 210.', []), 'Con gusto. Es el 210.')
 })
 
@@ -588,7 +613,7 @@ test('opener memory uses recent replies from this conversation, never client wor
   assert.equal(openings.variedReplyOpening('Claro, le ayudo.', [{ role: 'cliente', content: 'Claro, me interesa.' }]), 'Claro, le ayudo.')
   const history = [{ role: 'bot', content: 'Claro, con gusto. Veamos.' }, ...Array.from({ length: 6 }, () => ({ role: 'bot', content: 'El departamento tiene balcón.' }))]
   assert.equal(openings.variedReplyOpening('Claro, le ayudo.', history), 'Claro, le ayudo.')
-  assert.match(openings.openingWritingRules([{ role: 'bot', content: 'Con gusto. Veamos.' }]), /omita las fórmulas/)
+  assert.match(openings.openingWritingRules([{ role: 'bot', content: 'Con gusto. Veamos.' }]), /no está prohibida/)
 })
 
 test('project explanations keep a natural generated opening without forcing Claro', async () => {
@@ -795,7 +820,7 @@ function fixture() {
     lead: { ...scope, id: 'lead', channel_origin: 'whatsapp', kommo_id: 123, bot_enabled: true },
     config: { ...scope, enabled: true, dry_run: false, test_only: false },
     appointment: { ...scope, id: 'appointment', lead_id: 'lead', status: 'aceptado', start_time: later(7_200_000) },
-    route: { enabled: true, approved: true, bot_id: 18350, detail_field_id: 513120, link_field_id: 0, body_template: '{{detalle}}', template_name: 'reminder' },
+    route: { enabled: true, approved: true, bot_id: 15578, detail_field_id: 457014, link_field_id: 0, body_template: '{{detalle}}', template_name: 'reminder' },
     last_client_message_at: later(-60_000), revision: 'r1', event_current: true, reminders_paused: false, recent_jobs: [] }
 }
 test('activation requires explicit ownership and valid cutover date', t => {
@@ -850,7 +875,7 @@ test('a changed appointment after PATCH prevents Salesbot launch', async t => {
   let reads = 0, patches = 0, launches = 0; const finishes = []
   const claimed = () => ({ ...c, job: { ...c.job, status: 'claimed', claim_token: 'token',
     payload: { ...c.job.payload, _kommo_id: 123, _route: routeSignature(c.route) } } })
-  const query = { select() { return this }, match() { return this }, eq() { return this }, like() { return Promise.resolve({ count: 0, error: null }) } }
+  const query = { select() { return this }, match() { return this }, eq() { return this }, maybeSingle() { return Promise.resolve({ data: {}, error: null }) }, like() { return Promise.resolve({ count: 0, error: null }) } }
   const mockRpc = async (name, args) => {
     if (name === 'lv_app_visit_context') { reads++; return reads === 1 ? c : reads === 2 ? claimed() : { ...claimed(), event_current: false } }
     if (name === 'lv3_reserve') return { reserved: true, job_id: 'job' }
@@ -858,6 +883,7 @@ test('a changed appointment after PATCH prevents Salesbot launch', async t => {
     throw Error(name)
   }
   const { sendVisit } = load('src/lib/integrations/automation/visits.ts', {
+    './operational-copy': { operationalReply: async reply => ({ reply, generated: false }) },
     './data': { ...data, rpc: mockRpc, db: () => ({ from: () => query }) },
     './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { patches++ }, launchSalesbot: async () => { launches++ } },
   })
@@ -899,6 +925,8 @@ function conversationHarness(options = {}) {
     return q
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
+    './visit-parser-health': { visitParserReady: async () => options.parserReady !== false },
+    './operational-copy': { operationalReply: async reply => ({ reply, generated: false }) },
     './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }) },
     './nutrition': { scheduleNutrition24h: async () => ({ scheduled: false, reason: 'test' }) },
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
@@ -909,6 +937,7 @@ function conversationHarness(options = {}) {
         if (name === 'lv_app_conversation_context') return { propuestas: options.proposals || [], historial: options.history || [], mensaje_actual_at: new Date().toISOString() }
         if (name === 'lv_app_visit_preference') return options.slot || {}
         if (name === 'lv_apply_client_visit_intent') return options.applied || { action: 'reply', request_id: 'request', mensaje: 'Texto anterior que debe sustituirse' }
+        if (name === 'lv_client_select_visit_option') return options.selectedVisitResult || { status: 'confirmed' }
         if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose }).filter(([, v]) => v != null))); return lead }
         if (name === 'lv_collect_visit_intake') return options.intake || { action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
         if (name === 'lv_intake_visit_once') return 'appointment'
@@ -920,7 +949,7 @@ function conversationHarness(options = {}) {
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
     './sdr': { publishedUnitCatalog: async () => options.catalog || [], commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
       commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? require('../src/lib/integrations/automation/sdr.ts').commercialReply(info, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
-    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error('MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
+    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error(options.mediaFailureCode || 'MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
         return prompt.startsWith('extractor_eventos') ? { events: [], opt_out: options.optOut === true, ...options.extracted }
@@ -953,7 +982,8 @@ test('audio formats use signatures and preserve text plus speech through transcr
     assert.match(String(url),/audio\/transcriptions$/)
     assert.equal(init.body.get('file').name,'audio.ogg'); assert.equal(init.body.get('file').type,'audio/ogg')
     assert.equal(init.body.get('language'),'es')
-    return Response.json({text:'Me interesa el departamento 210. ¿Pueden mostrarme el modelo?'})
+    return Response.json({text:'Me interesa el departamento 210. ¿Pueden mostrarme el modelo?',duration:5,
+      segments:[{text:'Me interesa el departamento 210. ¿Pueden mostrarme el modelo?',no_speech_prob:0.01,avg_logprob:-0.1,compression_ratio:1}]})
   }
   const {mediaText}=load('src/lib/integrations/automation/ai.ts',{'./media-download':{downloadMedia:async()=>({mime:'audio/ogg',bytes:Buffer.from('OggS000000OpusHead')})}})
   const result=await mediaText({text:'Para vivir',media:{type:'voice',url:'https://amojo.kommo.com/audio'}})
@@ -1028,7 +1058,7 @@ test('sales memory is isolated per conversation and respects rejected or existin
   assert.equal(p.salesPlan(model,'Envíeme una fotografía',{}).action,'invite_visit')
   for(const status of ['confirmed','awaiting_client','awaiting_advisor']) assert.equal(p.salesPlan({...model,propuestas:[{status}]},'Envíeme una fotografía',{}).action,'answer_only')
   const questions=[{role:'bot',content:'¿Lo busca para vivir o invertir?'},{role:'cliente',content:'Vivir'},{role:'bot',content:'¿Cuántos dormitorios necesita?'}]
-  assert.equal(p.salesPlan({historial:questions},'Tres dormitorios',{}).action,'answer_only')
+  assert.equal(p.salesPlan({historial:questions},'Tres dormitorios',{}).action,'share_brochure')
 })
 
 test('all three reported questions survive rejected drafts without a generic handoff', async () => {
@@ -1777,4 +1807,78 @@ test('the reported 210 conversation saves and sends the same unit in the next vi
     assert.equal(next.calls.filter(c=>c.name==='launch').length,1)
     assert.equal(next.calls.filter(c=>c.name==='lv_collect_visit_intake').length,0)
   }
+})
+
+// September 14 regression cases: a failed voice message must not revive an
+// earlier sales intent, and appointment alternatives require an actual choice.
+function currentVisitOptions() {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+  return ['09:00', '11:00', '15:00'].map(clock => ({ start_time: `${tomorrow}T${clock}:00-05:00`, end_time: `${tomorrow}T${String(Number(clock.slice(0, 2)) + 1).padStart(2, '0')}:00:00-05:00` }))
+}
+function offeredVisitOptions() {
+  return { id: 'three-option-request', request_id: 'three-option-request', appointment_id: 'appointment', status: 'awaiting_client', proposed_by: 'advisor',
+    advisor_accepted_at: new Date(Date.now() - 10000).toISOString(), propuesta_enviada_at: new Date(Date.now() - 9000).toISOString(), proposed_options: currentVisitOptions() }
+}
+
+test('silent or unclear audio never triggers the stale price, financing or appointment intent', async t => {
+  live(t)
+  const h = conversationHarness({ mediaFails: true, mediaFailureCode: 'AUDIO_NO_SPEECH', intent: 'accept', proposals: [offeredVisitOptions()],
+    extracted: { events: ['requested_visit', 'asked_financing'], requested_advisor: true, financing_consent: true },
+    history: [{ role: 'cliente', content: '¿Qué precios tienen?' }, { role: 'bot', content: '¿Desea que revisemos financiamiento o una visita?' }] })
+  h.rows[0].payload.text = ''
+  h.rows[0].payload.media = { type: 'voice', url: 'https://amojo.kommo.com/audio' }
+  const result = await h.process([h.rows[0]], async () => {})
+  assert.equal(result.source, 'media_not_understood')
+  assert.match(h.calls.find(c => c.name === 'patch').args[2], /no alcancé a entender este audio.*enviarlo de nuevo o escribirme/s)
+  assert.doesNotMatch(h.calls.find(c => c.name === 'patch').args[2], /precio|Pichincha|JEP|visita|claro, con gusto/i)
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+  assert.equal(h.calls.some(c => ['lv_collect_visit_intake', 'lv_client_select_visit_option', 'lv_apply_client_visit_intent', 'process_financing_message_v2', 'handoff_lead', 'apply_lead_events'].includes(c.name)), false)
+})
+
+test('asking for other times overrides an erroneous AI acceptance and notifies the advisor for alternatives', async t => {
+  live(t)
+  const h = conversationHarness({ proposals: [offeredVisitOptions()], intent: 'accept', intake: { action: 'submitted', needs_help: true, slot: {} } })
+  h.rows[0].payload.text = 'Prefiero otra'
+  h.rows[1].payload.text = 'Qué opciones tiene?'
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.source, 'visit_intake')
+  const request = h.calls.find(c => c.name === 'lv_collect_visit_intake')
+  assert.equal(request.args.p_needs_help, true)
+  assert.equal(request.args.p_previous_request, 'three-option-request')
+  assert.equal(h.calls.some(c => ['lv_client_select_visit_option', 'lv_apply_client_visit_intent'].includes(c.name)), false)
+  assert.doesNotMatch(h.calls.find(c => c.name === 'patch').args[2], /confirmamos su cita|las 2 p/i)
+})
+
+test('a generic yes cannot accept one of several times, while an explicit second choice selects exactly it', async t => {
+  live(t)
+  const proposal = offeredVisitOptions()
+  const generic = conversationHarness({ proposals: [proposal], intent: 'accept' })
+  generic.rows[0].payload.text = 'Sí'
+  const pending = await generic.process([generic.rows[0]], async () => {})
+  assert.equal(pending.source, 'visit_option_choice')
+  assert.match(generic.calls.find(c => c.name === 'patch').args[2], /Cuál de estos horarios/i)
+  assert.equal(generic.calls.some(c => ['lv_client_select_visit_option', 'lv_apply_client_visit_intent', 'lv_collect_visit_intake'].includes(c.name)), false)
+  const selected = conversationHarness({ proposals: [proposal], intent: 'question' })
+  selected.rows[0].payload.text = 'La segunda me queda bien'
+  const result = await selected.process([selected.rows[0]], async () => {})
+  assert.deepEqual(result, { action: 'confirmed', selected_option: 2 })
+  assert.equal(selected.calls.find(c => c.name === 'lv_client_select_visit_option').args.p_option_index, 2)
+  assert.equal(selected.calls.find(c => c.name === 'lv_client_select_visit_option').args.p_request_id, 'three-option-request')
+  assert.equal(selected.calls.some(c => c.name === 'lv_apply_client_visit_intent'), false)
+})
+
+test('the reported Ya pero donde followup returns the exact address and map without starting appointment intake', async t => {
+  live(t)
+  const address = 'Ricardo Darquea Granda y Elena Landívar, Puertas del Sol, Cuenca'
+  const map = 'https://www.google.com/maps/search/?api=1&query=-2.892287%2C-79.030259'
+  const h = conversationHarness({ proposals: [offeredVisitOptions()], intent: 'counterproposal',
+    commercialInfo: { modo_comercial: 'lanzamiento', proyecto: { address }, ubicacion: map },
+    history: [{ role: 'bot', content: 'Puede visitarnos en nuestra oficina, en la misma dirección donde se construirá La Vilet.' }] })
+  h.rows[0].payload.text = 'Ya pero donde'
+  const result = await h.process([h.rows[0]], async () => {})
+  assert.equal(result.source, 'location')
+  const reply = h.calls.find(c => c.name === 'patch').args[2]
+  assert.ok(reply.includes(address))
+  assert.ok(reply.includes(map))
+  assert.equal(h.calls.some(c => ['lv_collect_visit_intake', 'lv_client_select_visit_option', 'lv_apply_client_visit_intent'].includes(c.name)), false)
 })
