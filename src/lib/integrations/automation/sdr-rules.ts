@@ -33,24 +33,38 @@ export function qualifiedFacts(raw: Row, message: string): Row {
   return facts
 }
 
-export function nextDiscoveryQuestion(lead: Row): { key: string; question: string } {
-  const sdr = object(object(lead.behavior_signals).sdr), category = text(lead.preferred_category)
-  if (!category) return { key: 'categoria', question: '¿Está buscando una vivienda o un local para su negocio?' }
-  if (!lead.purchase_purpose) return { key: 'proposito', question: category === 'local'
-    ? '¿Lo busca para su propio negocio o para invertir y arrendarlo?'
-    : '¿Lo busca para vivir o como inversión?' }
-  if (category === 'local') {
-    if (lead.purchase_purpose === 'negocio' && !sdr.actividad_comercial) return { key: 'actividad_comercial', question: '¿Qué tipo de negocio le gustaría instalar?' }
-    if (!sdr.prioridad) return { key: 'prioridad', question: '¿Qué sería lo más importante para usted al elegir el local?' }
-  } else {
-    if (category === 'departamento' && !lead.preferred_bedrooms && !sdr.dormitorios_texto) return { key: 'dormitorios', question: '¿Cuántos dormitorios necesita?' }
-    if (!sdr.prioridad) return { key: 'prioridad', question: lead.purchase_purpose === 'invertir'
-      ? '¿Qué le gustaría priorizar en su inversión?'
-      : '¿Qué le gustaría mejorar en su día a día con su nueva vivienda?' }
+function discoveryQuestion(key: string, question: string) {
+  const purposes: Record<string, string> = {
+    categoria: 'Elegir qué catálogo y material mostrar: vivienda o local.',
+    proposito: 'Comparar distribución, área y uso de la unidad; no evaluar aprobación bancaria ni asumir ingresos futuros.',
+    actividad_comercial: 'Comprobar si el espacio y las condiciones de uso sirven al negocio previsto.',
+    dormitorios: 'Seleccionar unidades cuya distribución cubra la necesidad indicada.',
+    prioridad: 'Comparar características concretas de unidades, no prolongar el chat.',
+    presupuesto: 'Filtrar precios de unidades y ofrecer orientación financiera si hace falta.',
+    plazo_compra: 'Acordar el siguiente paso y momento útil de seguimiento, sin presionar.',
+    visita: 'Solicitar una preferencia para coordinar una visita sujeta a confirmación del equipo.',
   }
-  if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return { key: 'presupuesto', question: '¿Tiene un presupuesto aproximado en mente para orientar la búsqueda?' }
-  if (!sdr.plazo_compra) return { key: 'plazo_compra', question: '¿Para cuándo le gustaría tomar una decisión de compra?' }
-  return { key: 'visita', question: '¿Le gustaría coordinar una visita para conocer mejor las opciones?' }
+  return { key, question, purpose: purposes[key] }
+}
+
+export function nextDiscoveryQuestion(lead: Row): { key: string; question: string; purpose: string } {
+  const sdr = object(object(lead.behavior_signals).sdr), category = text(lead.preferred_category)
+  if (!category) return discoveryQuestion('categoria', '¿Está buscando una vivienda o un local para su negocio?')
+  if (!lead.purchase_purpose) return discoveryQuestion('proposito', category === 'local'
+    ? '¿Lo busca para su propio negocio o para invertir y arrendarlo?'
+    : '¿Lo busca para vivir o como inversión?')
+  if (category === 'local') {
+    if (lead.purchase_purpose === 'negocio' && !sdr.actividad_comercial) return discoveryQuestion('actividad_comercial', '¿Qué tipo de negocio le gustaría instalar?')
+    if (!sdr.prioridad) return discoveryQuestion('prioridad', '¿Qué sería lo más importante para usted al elegir el local?')
+  } else {
+    if (category === 'departamento' && !lead.preferred_bedrooms && !sdr.dormitorios_texto) return discoveryQuestion('dormitorios', '¿Cuántos dormitorios necesita?')
+    if (!sdr.prioridad) return discoveryQuestion('prioridad', lead.purchase_purpose === 'invertir'
+      ? '¿Qué le gustaría priorizar en su inversión?'
+      : '¿Qué le gustaría mejorar en su día a día con su nueva vivienda?')
+  }
+  if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return discoveryQuestion('presupuesto', '¿Tiene un presupuesto aproximado en mente para orientar la búsqueda?')
+  if (!sdr.plazo_compra) return discoveryQuestion('plazo_compra', '¿Para cuándo le gustaría tomar una decisión de compra?')
+  return discoveryQuestion('visita', '¿Le gustaría coordinar una visita para conocer mejor las opciones?')
 }
 
 export const reviewReasons = ['unsupported_fact', 'unsupported_action', 'ignored_question', 'repeated_greeting', 'repeated_question', 'style', 'missing_next_step'] as const

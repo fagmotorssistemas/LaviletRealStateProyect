@@ -6,6 +6,7 @@ import { acceptsUnitOptions, mentionsFinancing, salesMemory } from './sales-poli
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 import { purchasePriceQuestion, salesSubject } from './sales-subject'
 import { hasAffordabilityConcern } from './financing'
+import { asksForHouse } from './product-fit'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 export function asksUnitPrice(value: string, propertyScope = false) {
@@ -45,6 +46,7 @@ function variant(options: string[], history: unknown) {
 // Price facts always come from this turn's authorized catalog. A media reference or
 // conversation summary identifies a unit but never authorizes disclosing its price.
 export function unitPriceQuote(info: Row, current: string, summary: Row) {
+  if (asksForHouse(current)) return null
   if (!asksUnitPrice(current, ['property', 'mixed'].includes(text(info.alcance_negocio)))) return null
   const policy = object(info.politica_comercial), m = normalized(current)
   if (policy.precios_autorizados !== true) return {

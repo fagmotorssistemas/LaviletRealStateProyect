@@ -47,7 +47,12 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
     && (/\bcooperativa gep\b/.test(message) || /\bjep\b/.test(normalized(lastReply)))
   if (contextualJepTypo) message = message.replace(/\bgep\b/g, 'jep')
   const asksConsent = asksFinancingConsent(lastReply, lastStep)
-  const conditional = /\b(?:pero|solo|siempre que|credito directo|otra entidad)\b/.test(message) || /[?¿]/.test(current)
+  const decision = message.split(/\n+|\s+y\s+(?=(?:el local|la vivienda|el departamento|cuanto|que|como|eso)\b)/)[0]
+  const explicitHelp = /^(?:si |claro |de acuerdo )?(?:ayudeme|ayudenme|ayudennos|ayudanos) (?:con|en) (?:el |la )?(?:financiamiento|revision|evaluacion)\b/.test(decision)
+  const acceptsFinancialHelp = explicitHelp && /^(?:si|claro|de acuerdo)\b/.test(message) && /financ|credito|revision/.test(normalized(lastReply))
+  const conditional = /\b(?:solo si|siempre que|a condicion|si me (?:aprueban|aseguran|garantizan))\b/.test(message)
+    || /\b(?:pero|solo|credito directo|otra entidad)\b/.test(decision)
+    || (/[?¿]/.test(current) && !((asksConsent || acceptsFinancialHelp) && explicitHelp))
   const declined = /^(?:no|ahora no|por ahora no|todavia no|mejor no)\b|\bno (?:quiero|deseo|autorizo|me interesa)\b/.test(message)
   const explicitReview = /\b(?:quisiera|quiero|deseo|me gustaria|podemos|vamos a) (?:que (?:me |nos )?(?:ayuden|ayude) a )?(?:(?:hacer|iniciar|empezar|continuar|realizar) (?:la |una |el |una nueva )?(?:prueba|revision|evaluacion|precalificacion)|(?:probar|revisar|evaluar|precalificar)(?:lo|la)?\b)/.test(message)
     || /\b(?:hagamos|iniciemos|empecemos|continuemos) (?:la |una |el )?(?:prueba|revision|evaluacion|precalificacion)\b/.test(message)
@@ -57,7 +62,7 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   // Choosing a lender alone is not consent. Accept an actual request to review the
   // case, even when a natural response includes more words than a bare «sí».
   const consent = conditional || declined ? null
-    : (asksConsent && (plainYes || explicitReview)) || explicitlyFinancialReview ? true
+    : (asksConsent && (plainYes || explicitReview || explicitHelp)) || explicitlyFinancialReview || acceptsFinancialHelp ? true
     : asksConsent && confirmsReview && extracted.financing_consent === true && !hasAffordabilityConcern(current) ? true
     : null
   let partner = text(extracted.financing_partner)
@@ -118,15 +123,15 @@ export function isFinancingTurn(extracted: Row, current: string, lastReply: stri
 }
 
 export function financingQuestionReply(current: string, partners: string[], lastReply = '') {
-  const m = normalized(current), previous = normalized(lastReply)
+  const m = normalized(current)
+  void lastReply // Previous answers explain references; they never create a new credit question.
   if (/aprob|garanti|asegur/.test(m) && /credito|financ|prestamo/.test(m)) {
     return 'Le acompañamos en el proceso, pero no podemos asegurar la aprobación del crédito. La entidad necesita revisar su caso para confirmarla.'
   }
   const asksReviewDetails = /\b(?:requisitos|elegible|elegibilidad|califico|calificar)\b|\bque (?:necesito|necesita|necesitamos|piden|solicitan)\b|\bcomo (?:funciona|es|se hace|puedo saber)\b/.test(m)
     && /credito|financ|prestamo|elegib/.test(m)
   const reviewDetails = 'Para orientar la revisión de su caso, el equipo puede ayudarle a revisar sus ingresos y capacidad de pago y explicarle los requisitos de la entidad. Le acompañamos en el proceso.'
-  if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)
-    || (/credito directo/.test(previous) && /pero|o no dan|quiero saber|dispongo|tengo|por que/.test(m))) {
+  if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)) {
     return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos ayudarle a explorar un crédito con ' + partners.join(' o ') + '.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${asksReviewDetails ? ' ' + reviewDetails : ''}`
   }
   if (/solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(normalized(current)) && !/jardin|pichincha|\bjep\b/.test(normalized(current))) {

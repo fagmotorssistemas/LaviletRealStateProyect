@@ -379,7 +379,8 @@ test('a lead may explicitly request a visit when proactive invitations are disab
   h.rows[0].payload.text = 'Quiero agendar una visita'
   await h.process([h.rows[0]], async () => {})
   const reply = h.calls.find(c => c.name === 'patch').args[2]
-  assert.match(reply, /oficina.*dirección del proyecto/)
+  assert.match(reply, /oficina.*revisar el proyecto/)
+  assert.doesNotMatch(reply, /Dirección:|Mapa:/)
   assert.equal(h.calls.filter(c => c.name === 'lv_collect_visit_intake').length, 1)
   assert.doesNotMatch(reply, /departamentos construidos|conocerlo en persona/)
 })
@@ -1028,19 +1029,45 @@ test('OpenAI billing errors retain a safe diagnostic code that the worker can re
 
 function conversationHarness(options = {}) {
   const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false }
+  let escalationAttempted = false, escalationStored = options.proposals?.[0] || null
   const query = table => {
-    const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointment_reschedule_requests' ? options.requests || [{ id: 'request', source_message_id: 'one' }] : [], error: null, count: 0 }).then(resolve) } }
-    for (const name of ['update', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
+    const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? options.requests || [{ id: 'request', source_message_id: 'one' }] : [], error: null, count: 0 }).then(resolve) } }
+    for (const name of ['update', 'delete', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
     q.update = values => { calls.push({ name: 'update:' + table, args: values }); return q }
     return q
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
     './visit-parser-health': { visitParserReady: async () => options.parserReady !== false },
     './operational-copy': { operationalReply: async reply => ({ reply: options.operationalCopy || reply, generated: !!options.operationalCopy }) },
+    './turn-completeness': { completeTurnReply: async input => {
+      calls.push({ name: 'completeTurnReply', args: input })
+      return typeof options.turnComplete === 'function' ? options.turnComplete(input) : options.turnComplete || { reply: input.baseReply, changed: false, needsAdvisor: false, unresolved: [], audit: {} }
+    } },
+    './visit-escalation': {
+      declinesAllVisitAlternatives: require('../src/lib/integrations/automation/visit-escalation.ts').declinesAllVisitAlternatives,
+      escalateVisitCoordination: async args => {
+        calls.push({ name: 'escalateVisitCoordination', args })
+        escalationAttempted = true
+        if (options.urgentFailure === 'concurrent_confirm') {
+          escalationStored = { ...args.proposal, status: 'confirmed' }
+          throw Error('RPC_LV_ESCALATE_VISIT_COORDINATION_P0001')
+        }
+        if (options.urgentFailure === 'missing') throw Error('RPC_LV_ESCALATE_VISIT_COORDINATION_PGRST202')
+        if (options.urgentFailure === 'unknown') throw Error('RPC_LV_ESCALATE_VISIT_COORDINATION_FAILED')
+        lead.bot_enabled = false
+        escalationStored = { ...args.proposal, status: 'awaiting_advisor', source_message_id: args.messageId, coordination_urgent_at: new Date().toISOString() }
+        if (options.urgentFailure === 'timeout_after_commit') throw Error('RPC_LV_ESCALATE_VISIT_COORDINATION_FAILED')
+        return { action: 'escalated', request_id: args.proposal.request_id || args.proposal.id, bot_paused: true,
+          message: 'Entendemos. He pasado su solicitud al equipo para que un asesor se comunique con usted y puedan coordinar la visita directamente.' }
+      },
+    },
     './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }) },
     './nutrition': { scheduleNutrition24h: async () => ({ scheduled: false, reason: 'test' }) },
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
-      one: async table => table === 'conversations' ? { ...scope, lead_id: 'lead', summary: options.summary } : lead,
+      one: async table => {
+        if (options.urgentReadFails && escalationAttempted) throw Error('READ_URGENT_STATE_FAILED')
+        return table === 'conversations' ? { ...scope, lead_id: 'lead', summary: options.summary } : table === 'appointment_reschedule_requests' ? escalationStored : lead
+      },
       rpc: async (name, args) => {
         calls.push({ name, args })
         if (name === 'register_inbound_message') return { lead_id: 'lead', conversation_id: 'conv', is_duplicate: options.duplicate === true }
@@ -1058,7 +1085,7 @@ function conversationHarness(options = {}) {
     },
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
     './sdr': { publishedUnitCatalog: async () => options.catalog || [], commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
-      commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? require('../src/lib/integrations/automation/sdr.ts').commercialReply(info, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
+      commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? (options.commercialAi ? load('src/lib/integrations/automation/sdr.ts',{'./ai':options.commercialAi}) : require('../src/lib/integrations/automation/sdr.ts')).commercialReply(info, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error(options.mediaFailureCode || 'MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
@@ -1069,7 +1096,10 @@ function conversationHarness(options = {}) {
     './kommo': {
       getKommoLead: async () => ({ id: 123, _embedded: { contacts: [{ id: 456 }] } }),
       getKommoContact: async () => ({ id: 456, custom_fields_values: [{ field_code: 'PHONE', values: [{ value: '+593000000000' }] }] }),
-      botStopped: () => false, setKommoField: async (...args) => calls.push({ name: 'patch', args }),
+      botStopped: () => false, setKommoField: async (...args) => {
+        calls.push({ name: 'patch', args })
+        if (options.urgentPauseSyncFails && args[1] === 451530) throw Error('KOMMO_UNAVAILABLE')
+      },
       launchSalesbot: async (...args) => { calls.push({ name: 'launch', args }); if (options.sendFails) throw Error('KOMMO_UNAVAILABLE') },
     },
   })
@@ -1316,15 +1346,15 @@ test('punctuation alone is an invitation to talk, never a product pitch', async 
   assert.equal(h.calls.some(c => c.name === 'ai'), false)
 })
 
-test('uncertainty requests advisor help once instead of another scheduling question', async t => {
+test('initial scheduling uncertainty preserves the preferred date and asks for the missing time', async t => {
   live(t)
-  const h = conversationHarness({ visitDraft: { status: 'collecting' }, extracted: { events: ['requested_visit'] }, intake: { action: 'submitted', needs_help: true, preferred_period: 'afternoon', slot: { requested_date: '2026-09-11' } } })
+  const h = conversationHarness({ visitDraft: { status: 'collecting' }, extracted: { events: ['requested_visit'] }, intake: { action: 'collecting', needs_help: false, preferred_period: 'afternoon', slot: { requested_date: '2030-09-17', has_time:false } } })
   h.rows[0].payload.text = 'No estoy seguro, pero mañana por la tarde'
   await h.process([h.rows[0]], async () => {})
-  assert.equal(h.calls.find(c => c.name === 'lv_collect_visit_intake').args.p_needs_help, true)
+  assert.equal(h.calls.find(c => c.name === 'lv_collect_visit_intake').args.p_needs_help, false)
   const reply = h.calls.find(c => c.name === 'patch').args[2]
-  assert.match(reply, /viernes 11.*tarde/)
-  assert.doesNotMatch(reply, /\?|confirmamos|a las/)
+  assert.match(reply, /martes 17.*hora/)
+  assert.doesNotMatch(reply, /enviará una propuesta|cita.*confirmada/)
 })
 
 test('closed days and partial dates never claim a registered appointment', () => {
@@ -1470,6 +1500,7 @@ test('style preserves decisions, answers and only the first name', () => {
 test('prepared visits use the current project location, not a stale queued link', () => {
   const { prepareVisit } = require('../src/lib/integrations/automation/visit-rules.ts')
   const c = fixture()
+  c.job.kind = 'visit_confirm'
   c.location = 'https://www.google.com/maps/search/?api=1&query=-2.892340%2C-79.030352'
   c.job.payload.location = 'https://kommo.cc/stale'
   const prepared = prepareVisit(c).job.payload.detail
@@ -1479,6 +1510,7 @@ test('prepared visits use the current project location, not a stale queued link'
 test('an office visit keeps its meeting point when the project map changes', () => {
   const { prepareVisit } = require('../src/lib/integrations/automation/visit-rules.ts')
   const c = fixture()
+  c.job.kind = 'visit_reschedule_confirm'
   c.appointment.location_type = 'oficina'
   c.job.payload.location = 'https://www.google.com/maps/search/?api=1&query=-2.91%2C-79.02'
   c.location = 'https://www.google.com/maps/search/?api=1&query=-2.892340%2C-79.030352'
@@ -1557,7 +1589,7 @@ test('a saved financial form does not intercept commercial questions or unrelate
     h.rows[0].payload.text = message
     await h.process([h.rows[0]], async () => {})
     assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length,0)
-    assert.equal(h.calls.filter(c => c.name === 'commercialContext').length,1)
+    assert.ok(h.calls.some(c => c.name === 'commercialContext'))
   }
 })
 
@@ -1734,7 +1766,7 @@ test('failed media preserves the written question and records the reason',async 
   const h=conversationHarness({mediaFails:true})
   h.rows[0].payload.media={type:'picture',url:'https://amojo.kommo.com/image'};h.rows[0].payload.text='Quiero el precio del local'
   const result=await h.process([h.rows[0]],async()=>{})
-  assert.equal(h.calls.filter(c=>c.name==='commercialContext').length,1)
+  assert.ok(h.calls.some(c=>c.name==='commercialContext'))
   assert.match(h.calls.find(c=>c.name==='register_inbound_message').args.p_content,/Quiero el precio/)
   assert.deepEqual(result.media_errors,['MEDIA_DOWNLOAD_FAILED'])
 })
@@ -1991,4 +2023,231 @@ test('the reported Ya pero donde followup returns the exact address and map with
   assert.ok(reply.includes(address))
   assert.ok(reply.includes(map))
   assert.equal(h.calls.some(c => ['lv_collect_visit_intake', 'lv_client_select_visit_option', 'lv_apply_client_visit_intent'].includes(c.name)), false)
+})
+
+test('a house budget, floors and direct credit are clarified together before any application', async t => {
+  live(t)
+  const h=conversationHarness({commercialInfo:contextualInfo(),financeContext:contextualInfo().financiamiento,
+    extracted:{events:['asked_price','asked_financing'],financing_consent:true},
+    turnComplete(input) {
+      assert.match(input.current,/casa de 300 mil/)
+      assert.match(input.current,/cuantos pisos/)
+      assert.match(input.baseReply,/no vendemos casas independientes/)
+      assert.match(input.baseReply,/pisos de una casa/)
+      assert.match(input.baseReply,/No ofrecemos crédito directo/)
+      assert.match(input.baseReply,/Banco Pichincha.*Cooperativa JEP/)
+      return {reply:input.baseReply+' Podemos usar el presupuesto que nos indica para revisar alternativas de departamentos.',changed:true,needsAdvisor:false,unresolved:[],audit:{covered:['house','floors','budget','direct_credit']}}
+    }})
+  h.rows[0].payload.text='Quiero una casa de 300 mil, cuantos pisos tiene la casa?'
+  h.rows[1].payload.text='Y tienen crédito directo?'
+  const result=await h.process(h.rows,async()=>{})
+  const sent=h.calls.find(c=>c.name==='patch' && c.args[1]===457014).args[2]
+  assert.match(sent,/no vendemos casas independientes.*pisos de una casa.*No ofrecemos crédito directo.*presupuesto/s)
+  assert.equal(result.source,'product_clarification')
+  assert.equal(h.calls.filter(c=>c.name==='completeTurnReply').length,1)
+  assert.equal(h.calls.some(c=>['process_financing_message_v2','lv_collect_visit_intake','handoff_lead'].includes(c.name)),false)
+  assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
+})
+
+test('asking again about a house floors answers that premise without replaying previous direct credit', async t => {
+  live(t)
+  const previous='No ofrecemos crédito directo con el proyecto. Podemos ayudarle a explorar un crédito con Banco Pichincha o Cooperativa JEP.'
+  const h=conversationHarness({history:[{role:'bot',content:previous}],extracted:{events:['asked_financing'],financing_consent:true},financeContext:contextualInfo().financiamiento})
+  h.rows[0].payload.text='Pero y de cuantos pisos es la casa?'
+  await h.process([h.rows[0]],async()=>{})
+  const sent=h.calls.find(c=>c.name==='patch').args[2]
+  assert.match(sent,/no vendemos casas independientes/)
+  assert.match(sent,/pisos de una casa/)
+  assert.doesNotMatch(sent,/crédito directo|Pichincha|JEP/)
+  assert.notEqual(sent,previous)
+  assert.equal(h.calls.some(c=>c.name==='process_financing_message_v2'),false)
+})
+
+test('ambiguous options after direct credit reach semantic coverage with both financing and property context', async t => {
+  live(t)
+  const previous='No ofrecemos crédito directo con el proyecto. Podemos explorar alternativas con Banco Pichincha o Cooperativa JEP.'
+  const h=conversationHarness({commercialInfo:contextualInfo(),financeContext:contextualInfo().financiamiento,
+    history:[{role:'bot',content:previous}],extracted:{events:['asked_financing'],financing_consent:true},
+    turnComplete(input) {
+      assert.equal(input.current,'Y entonces qué opciones tengo?')
+      assert.deepEqual(input.verified.financiamiento.partners,['Banco Pichincha','Cooperativa JEP'])
+      assert.ok(input.verified.catalogo.length)
+      assert.doesNotMatch(input.baseReply,/No ofrecemos crédito directo/)
+      return {reply:'Si se refiere al financiamiento, podemos explorar Banco Pichincha o Cooperativa JEP. Si busca opciones de vivienda, también puedo guiarle entre nuestras suites y departamentos.',changed:true,needsAdvisor:false,unresolved:[],audit:{purpose:'clarify_request'}}
+    }})
+  h.rows[0].payload.text='Y entonces qué opciones tengo?'
+  await h.process([h.rows[0]],async()=>{})
+  const sent=h.calls.find(c=>c.name==='patch').args[2]
+  assert.match(sent,/Banco Pichincha.*Cooperativa JEP.*suites y departamentos/)
+  assert.doesNotMatch(sent,/No ofrecemos crédito directo/)
+  assert.equal(h.calls.some(c=>c.name==='process_financing_message_v2'),false)
+})
+
+test('a mistaken team attendance question checks actual appointments without starting a visit or stating AI identity', async t => {
+  live(t)
+  for(const pending of [false,true]) {
+    const h=conversationHarness({appointments:[],proposals:pending?[offeredVisitOptions()]:[],extracted:{events:['requested_visit']}})
+    h.rows[0].payload.text='Saludos, oiga si va a venir a la cita el día de hoy?'
+    const result=await h.process([h.rows[0]],async()=>{})
+    const sent=h.calls.find(c=>c.name==='patch').args[2]
+    assert.equal(result.source,'team_attendance')
+    assert.match(sent,pending?/pendiente de confirmación/:/no tenemos una cita confirmada/)
+    assert.doesNotMatch(sent,/asistente virtual|soy una IA|no puedo asistir|yo iré/)
+    assert.equal(h.calls.some(c=>['lv_collect_visit_intake','lv_apply_client_visit_intent','process_financing_message_v2'].includes(c.name)),false)
+  }
+})
+
+test('a real upcoming appointment cannot become a false no-appointment denial on a team attendance question', async t => {
+  live(t)
+  const slot=currentVisitOptions()[0]
+  const h=conversationHarness({appointments:[{id:'confirmed',status:'aceptado',...slot}]})
+  h.rows[0].payload.text='Oiga, va a venir a la cita mañana?'
+  await h.process([h.rows[0]],async()=>{})
+  const sent=h.calls.find(c=>c.name==='patch').args[2]
+  assert.match(sent,/Tenemos confirmada su visita a La Vilet/)
+  assert.match(sent,/verifique un asesor/)
+  assert.doesNotMatch(sent,/no tenemos una cita|asistente virtual|iré|iremos/)
+  assert.equal(h.calls.some(c=>c.name==='lv_collect_visit_intake'),false)
+})
+
+test('unit price plus requested interior model survives in one reply without an unsolicited map', async t => {
+  live(t)
+  const unit={...unit202,bedrooms:3,published_commercial_price:250000}
+  const info={...contextualInfo(),catalogo:[unit],politica_visitas:{allowSuggestions:true,launchDestination:'office'}}
+  const h=conversationHarness({catalog:[unit],commercialInfo:info,realCommercial:true,financeContext:info.financiamiento,
+    commercialAi:{activePrompt:async()=>'',draftReply:async(_prompt,input)=>input.respuesta_precio_verificada+' Puede revisar sus espacios en la vista interactiva.',aiJson:async()=>({aprobada:true,motivos:[],requiere_asesor:false})}})
+  h.rows[0].payload.text='Qué precio tiene el departamento 202?'
+  h.rows[1].payload.text='Tiene alguna foto de adentro?'
+  await h.process(h.rows,async()=>{})
+  const sent=h.calls.find(c=>c.name==='patch').args[2]
+  assert.match(sent,/250[.,]000/)
+  assert.match(sent,/unidad=202/)
+  assert.doesNotMatch(sent,/Mapa:|google\.com\/maps|Ricardo Darquea/)
+  const coverage=h.calls.find(c=>c.name==='completeTurnReply')
+  assert.match(coverage.args.current,/precio.*202[\s\S]*foto/)
+  assert.equal(coverage.args.verified.ubicacion,undefined)
+})
+
+test('an initial when-can-I-visit question returns business hours and keeps intake collecting until the client gives a slot', async t => {
+  live(t)
+  const hours=Object.fromEntries([1,2,3,4,5].map(day=>[String(day),{open:'09:00',close:'18:00'}]))
+  const info={...contextualInfo(),horario_atencion:hours}
+  const h=conversationHarness({commercialInfo:info,extracted:{events:['requested_visit'],visit_needs_help:true},intake:{action:'collecting',needs_help:false,slot:{}}})
+  h.rows[0].payload.text='Quiero hacer una visita, cuando y a qué hora puedo ir?'
+  await h.process([h.rows[0]],async()=>{})
+  const request=h.calls.find(c=>c.name==='lv_collect_visit_intake')
+  assert.equal(request.args.p_needs_help,false)
+  const sent=h.calls.find(c=>c.name==='patch').args[2]
+  assert.match(sent,/lunes a viernes de 09:00 a 18:00/)
+  assert.match(sent,/fecha y hora.*verificaremos la disponibilidad/)
+  assert.doesNotMatch(sent,/enviará una propuesta|Mapa:|google\.com\/maps|cita está confirmada/)
+  const slot={...currentVisitOptions()[1],confidence:'exact',has_time:true,requested_date:currentVisitOptions()[1].start_time.slice(0,10)}
+  const next=conversationHarness({commercialInfo:info,visitDraft:{status:'collecting'},history:[{role:'bot',content:sent}],slot,intake:{action:'submitted',slot}})
+  next.rows[0].payload.text='Para mañana a las 11'
+  await next.process([next.rows[0]],async()=>{})
+  assert.ok(next.calls.some(c=>c.name==='lv_collect_visit_intake'))
+  assert.match(next.calls.find(c=>c.name==='patch').args[2],/mañana.*11/s)
+  assert.match(next.calls.find(c=>c.name==='patch').args[2],/revisaremos.*disponibilidad/s)
+  assert.doesNotMatch(next.calls.find(c=>c.name==='patch').args[2],/qué día|qué hora|Mapa:/i)
+})
+
+test('rejecting all offered slots pauses Kommo and delivers one final coordination notice without new intake', async t => {
+  live(t)
+  for(const message of ['Ninguna de esas horas me sirve','No puedo en esos horarios','No quiero ninguna de las opciones']) {
+    const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject'})
+    h.rows[0].payload.text=message
+    const result=await h.process([h.rows[0]],async()=>{})
+    assert.equal(result.source,'visit_urgent_handoff',message)
+    assert.equal(result.bot_paused,true)
+    const handoff=h.calls.find(c=>c.name==='escalateVisitCoordination')
+    assert.equal(handoff.args.current,message)
+    assert.equal(handoff.args.messageId,'one')
+    assert.equal(h.calls.filter(c=>c.name==='escalateVisitCoordination').length,1)
+    assert.ok(h.calls.some(c=>c.name==='patch' && c.args[1]===451530 && c.args[2]==='true'))
+    assert.match(h.calls.find(c=>c.name==='patch' && c.args[1]===457014).args[2],/asesor se comunique.*coordinar la visita/)
+    assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
+    assert.equal(h.calls.some(c=>['lv_collect_visit_intake','lv_apply_client_visit_intent','process_financing_message_v2'].includes(c.name)),false)
+  }
+})
+
+test('urgent RPC timeout after commit recovers the persisted handoff without rotating advisors or sending twice', async t => {
+  live(t)
+  const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',urgentFailure:'timeout_after_commit'})
+  h.rows[0].payload.text='Ninguna de esas horas me sirve'
+  const result=await h.process([h.rows[0]],async()=>{})
+  assert.equal(result.source,'visit_urgent_handoff');assert.equal(result.recovered_after_error,true)
+  assert.equal(h.calls.filter(c=>c.name==='escalateVisitCoordination').length,1)
+  assert.equal(h.calls.some(c=>c.name==='handoff_lead'),false)
+  assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
+  const sent=h.calls.find(c=>c.name==='register_outbound_message').args.p_content
+  assert.match(sent,/asesor se comunique.*coordinar la visita/)
+  assert.doesNotMatch(sent,/cita.*confirmada|hemos llamado|qué día|qué hora/i)
+})
+
+test('urgent Kommo pause synchronization failure cannot trigger a second handoff after database success', async t => {
+  live(t)
+  const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',urgentPauseSyncFails:true})
+  h.rows[0].payload.text='Ninguna de esas horas me sirve'
+  const result=await h.process([h.rows[0]],async()=>{})
+  assert.equal(result.source,'visit_urgent_handoff');assert.equal(result.bot_paused,true);assert.equal(result.kommo_pause_sync,'pending')
+  assert.equal(h.calls.some(c=>c.name==='handoff_lead'),false)
+  assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
+  assert.equal(h.calls.filter(c=>c.name==='patch'&&c.args[1]===451530).length,1)
+})
+
+test('urgent rejection with a concurrently confirmed appointment performs no secondary handoff or outbound reply', async t => {
+  live(t)
+  const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',urgentFailure:'concurrent_confirm'})
+  h.rows[0].payload.text='Ninguna de esas horas me sirve'
+  const result=await h.process([h.rows[0]],async()=>{})
+  assert.equal(result.action,'visit_coordination_changed')
+  assert.equal(h.calls.some(c=>['handoff_lead','launch','register_outbound_message','lv_collect_visit_intake'].includes(c.name)),false)
+})
+
+test('urgent unknown persistence or failed verification never runs another handoff or claims it succeeded', async t => {
+  live(t)
+  for (const options of [{urgentFailure:'unknown'},{urgentFailure:'timeout_after_commit',urgentReadFails:true}]) {
+    const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',...options})
+    h.rows[0].payload.text='Ninguna de esas horas me sirve'
+    await assert.rejects(h.process([h.rows[0]],async()=>{}),/VISIT_URGENT_RESULT_UNKNOWN/)
+    assert.equal(h.calls.some(c=>['handoff_lead','launch','register_outbound_message'].includes(c.name)),false)
+  }
+})
+
+test('urgent fallback is limited to a definitely missing RPC and a still-open untouched advisor proposal', async t => {
+  live(t)
+  const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',urgentFailure:'missing'})
+  h.rows[0].payload.text='Ninguna de esas horas me sirve'
+  const result=await h.process([h.rows[0]],async()=>{})
+  assert.equal(result.source,'advisor_handoff');assert.equal(result.urgent_coordination_fallback,true)
+  assert.equal(h.calls.filter(c=>c.name==='handoff_lead').length,1)
+  assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
+})
+
+test('a new date after rejecting options and a full cancellation keep their own routing instead of urgent handoff', async t => {
+  live(t)
+  const alternative=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',intake:{action:'collecting',slot:{requested_date:'2030-09-17',has_time:false}}})
+  alternative.rows[0].payload.text='No puedo en esos horarios, mejor mañana'
+  await alternative.process([alternative.rows[0]],async()=>{})
+  assert.ok(alternative.calls.some(c=>c.name==='lv_collect_visit_intake'))
+  assert.equal(alternative.calls.some(c=>c.name==='escalateVisitCoordination'),false)
+  const cancel=conversationHarness({proposals:[offeredVisitOptions()],intent:'cancel',applied:{action:'reply',mensaje:'La visita quedó cancelada.'}})
+  cancel.rows[0].payload.text='Cancele la cita, ya no quiero una visita'
+  await cancel.process([cancel.rows[0]],async()=>{})
+  assert.equal(cancel.calls.find(c=>c.name==='lv_apply_client_visit_intent').args.p_intent,'cancel')
+  assert.equal(cancel.calls.some(c=>c.name==='escalateVisitCoordination'),false)
+  assert.equal(cancel.calls.some(c=>c.name==='lv_collect_visit_intake'),false)
+})
+
+test('outbound proposals and reminders omit map while confirmed visits keep the exact current location', () => {
+  const {prepareVisit}=require('../src/lib/integrations/automation/visit-rules.ts')
+  const c=fixture();c.location='https://maps.example/lavilet';c.address='Dirección de prueba'
+  for(const kind of ['visit_propose','visit_2h']) {
+    c.job.kind=kind
+    assert.doesNotMatch(prepareVisit(c).job.payload.detail,/Mapa:|maps\.example|Dirección de prueba/)
+  }
+  for(const kind of ['visit_confirm','visit_reschedule_confirm']) {
+    c.job.kind=kind
+    assert.match(prepareVisit(c).job.payload.detail,/Dirección de prueba\nMapa: https:\/\/maps.example\/lavilet/)
+  }
 })

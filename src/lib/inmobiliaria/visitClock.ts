@@ -1,4 +1,4 @@
-import { ecuadorYmd } from './agendaTime'
+import { addYmd, ecuadorYmd } from './agendaTime'
 
 export const VISIT_DURATION_MINUTES = 60
 
@@ -53,6 +53,22 @@ export function formatVisitDate(iso: string | Date): string {
 
 export function formatVisitWhen(iso: string | Date): string {
   return `${formatVisitDate(iso)} ${formatVisitClock(iso)}`
+}
+
+/** Explicit calendar date even when a client uses a relative day. */
+export function formatVisitDateRelative(iso: string | Date, reference: string | Date = new Date()): string {
+  const date = iso instanceof Date ? iso : new Date(iso)
+  const at = reference instanceof Date ? reference : new Date(reference)
+  const label = formatVisitDate(date)
+  if (!Number.isFinite(at.getTime())) return label
+  const today = ecuadorYmd(at), day = ecuadorYmd(date)
+  if (day === today) return `hoy, ${label.replace(/^el /, '')}`
+  if (day === addYmd(today, 1)) return `mañana, ${label.replace(/^el /, '')}`
+  return label
+}
+
+export function formatVisitWhenRelative(iso: string | Date, reference?: string | Date): string {
+  return `${formatVisitDateRelative(iso, reference)} ${formatVisitClock(iso)}`
 }
 
 export function buildVisitMessage(params: {

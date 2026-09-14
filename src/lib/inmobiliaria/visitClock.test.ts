@@ -6,6 +6,7 @@ import {
   buildVisitMessage,
   formatVisitClock,
   formatVisitWhen,
+  formatVisitWhenRelative,
 } from './visitClock.ts'
 
 describe('visit duration and confirm copy', () => {
@@ -18,6 +19,14 @@ describe('visit duration and confirm copy', () => {
     assert.equal(formatVisitClock('2026-09-08T18:00:00.000Z'), 'a la 1 p. m.')
     assert.equal(formatVisitClock('2026-09-08T19:00:00.000Z'), 'a las 2 p. m.')
     assert.equal(formatVisitWhen('2026-09-08T18:00:00.000Z'), 'el martes 8 de septiembre a la 1 p. m.')
+  })
+
+  it('names today and tomorrow with explicit Ecuador dates, including across UTC midnight', () => {
+    const reference = '2026-09-14T21:49:00Z'
+    assert.equal(formatVisitWhenRelative('2026-09-15T16:00:00Z', reference), 'mañana, martes 15 de septiembre a las 11 a. m.')
+    assert.equal(formatVisitWhenRelative('2026-09-14T19:00:00Z', reference), 'hoy, lunes 14 de septiembre a las 2 p. m.')
+    assert.equal(formatVisitWhenRelative('2026-09-21T15:00:00Z', reference), 'el lunes 21 de septiembre a las 10 a. m.')
+    assert.equal(formatVisitWhenRelative('2026-09-15T16:00:00Z', '2026-09-15T03:00:00Z'), 'mañana, martes 15 de septiembre a las 11 a. m.')
   })
 
   it('keeps the maps url without trailing punctuation', () => {

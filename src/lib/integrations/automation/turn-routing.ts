@@ -10,7 +10,22 @@ export function asksVisitStatus(current: string) {
   if (/cancel|reagend|reprogram|cambiar/.test(normalized(current))) return false
   return /(?:ya quedamos|(?:esta|quedo|esta o no|quedo o no).*confirmad|tenemos.*cita|cita.*confirmad)/.test(normalized(current))
 }
+export function asksTeamAttendance(current: string) {
+  const value = normalized(current)
+  return /\b(?:va a venir|van a venir|vendran?|vienen|viene|va a asistir|van a asistir)\b/.test(value)
+    && /\b(?:cita|reunion|hoy|manana|esperando|esperamos|acordamos)\b/.test(value)
+    && !/\b(?:puedo|quiero|quisiera|me gustaria|voy a) (?:ir|venir|asistir)\b/.test(value)
+}
+
+export function teamAttendanceReply(appointments: Row[], proposals: Row[]) {
+  const confirmed = appointments.filter(a => ['aceptado', 'reprogramado'].includes(text(a.status)))
+  if (confirmed.length === 1) return `Tenemos confirmada su visita a La Vilet para ${formatVisitWhen(text(confirmed[0].start_time))} Si se refiere a una visita del equipo a otro lugar, esa coordinación necesita que la verifique un asesor.`
+  if (confirmed.length > 1) return 'Tenemos visitas a La Vilet confirmadas. ¿A cuál de ellas se refiere para comprobarlo con el equipo?'
+  if (proposals.some(p => ['awaiting_advisor', 'awaiting_client'].includes(text(p.status)))) return 'Gracias por su mensaje. Tenemos una solicitud de visita a La Vilet pendiente de confirmación; todavía no hay una cita confirmada. Puede haber una confusión con otra coordinación.'
+  return 'Gracias por su mensaje. Lamento la confusión: no tenemos una cita confirmada con usted. Si se refiere a una coordinación con alguien de nuestro equipo, podemos ayudarle a verificarla.'
+}
 export function explicitlyRequestsVisit(current: string) {
+  if (asksTeamAttendance(current)) return false
   // Permission questions are requests too. Evaluate each clause so an unrelated
   // booking or a declined visit cannot borrow an intent from another question.
   return current.split(/[.!?;\n]+|\bpero\b|\badem[aá]s\b/iu).some(clause => {
@@ -59,6 +74,7 @@ export function declinedFollowup(current: string, lastReply: string) {
 }
 
 export const TURN_RULES = `Interprete SOLO la intención del turno actual; el historial explica referencias, no genera eventos nuevos.
+«¿Va a venir a la cita?» pregunta si alguien del equipo acudirá; no autoriza agendar ni demuestra una cita real. Compruebe las citas existentes; no se presente como asistente virtual por este motivo.
 «¿Puedo hacer una visita?» o «¿Es posible visitar la oficina?» pide coordinar una visita, incluso si también solicita detalles del proyecto. Responda ambas necesidades sin pedirle repetir la solicitud. Agendar vuelos, servicios médicos u otra actividad ajena no solicita una cita inmobiliaria; no use una coordinación pendiente para interpretar ese mensaje como fecha u hora de una visita.
 Las propuestas/citas y la coordinación adjuntas son el estado real. «Estaré puntual», «allí estaré», «nos vemos» y agradecimientos NO solicitan una cita nueva. «Ya quedamos en una cita o no» consulta su estado, no solicita agendar.
 «No» tras ofrecer otra fecha después de cancelar rechaza reagendar; no retoma financiamiento ni significa opt-out.

@@ -363,6 +363,8 @@ export interface AppointmentRescheduleRequest {
   expires_at: string | null
   escalation_due_at: string | null
   escalated_at: string | null
+  coordination_urgent_at?: string | null
+  coordination_summary?: string | null
   resolution_notes: string | null
   created_at: string
   resolved_at: string | null

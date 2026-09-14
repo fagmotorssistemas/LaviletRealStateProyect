@@ -21,6 +21,7 @@ export function acceptsVisitInvitation(current: string, lastReply: string) {
   // A proposed day/hour or a request for scheduling help also answers an invitation.
   // Questions about prices, business hours or other topics do not accept it.
   if (/precio|presupuesto|financ|credito|cuesta|atienden|horario de atencion|pero|\bno puedo\b/.test(m)) return false
+  if (/\b(?:cuando|a que hora|que dias?)\b.*\b(?:puedo|podria|pueden)\b/.test(m)) return true
   return /^(?:si )?(?:manana|hoy|pasado manana|(?:el )?(?:lunes|martes|miercoles|jueves|viernes|sabado)|(?:el )?\d{1,2} de \w+|a las \d{1,2})(?:\s+(?:a|las|por|en|la|el|de|tarde|manana|horas|am|pm|\d{1,2}))*$/.test(m)
     || /^(?:no (?:se|estoy segur[oa])(?: (?:cuando|que dia|a que hora))?|digame (?:usted|ud)|que (?:dia|hora) (?:pueden|tienen)|sugierame (?:un dia|una hora|un horario))$/.test(m)
 }
@@ -101,6 +102,7 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const uncertain = /no (?:se|estoy segur|tengo claro|tengo idea)|no he pensado/.test(m)
   const answerOnly = pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
   return { action: invite ? 'invite_visit' : offerUnits ? 'offer_units' : shareBrochure ? 'share_brochure' : answerOnly ? 'answer_only' : 'discover', topics,
+    question_purpose: invite ? 'Obtener permiso para coordinar la visita, sin confirmarla.' : offerUnits ? 'Elegir una unidad y mostrar su distribución.' : answerOnly ? null : object(info.siguiente_pregunta).purpose || 'Aclarar un dato faltante que cambie la recomendación o el siguiente paso.',
     max_questions: invite || offerUnits || !answerOnly ? 1 : 0,
     closing: invite ? visitInvitation(text(info.modo_comercial), visits) : offerUnits ? unitClosing : '',
     visits_allowed: visits.allowSuggestions,
@@ -108,10 +110,12 @@ export function salesPlan(info: Row, current: string, summary: Row) {
     memory, positive_after_model: positive(current) && (sawModel || hasUnit),
     rules: `Responda primero todas las dudas del mensaje. No siga una lista obligatoria de calificación.
 Use datos ya conocidos de vivir/invertir, dormitorios y presupuesto; pregunte solo UN dato útil que falte, nunca uno aplazado o ya contestado.
+Cada pregunta debe tener un propósito concreto y un uso para la respuesta: seleccionar una unidad, mostrar material pertinente, coordinar una visita, iniciar una revisión financiera consentida o facilitar atención del asesor. Si no cambia ninguna decisión, omita la pregunta. No pregunte para mantener interacción ni clasifique a alguien como poco interesado por hacer preguntas; use decisiones expresas del cliente y respete su ritmo.
+Preguntar uso propio o inversión sirve para orientar la elección de la unidad. No afirme que alquilar generará ingresos aceptados por el banco ni que respalda o mejora la aprobación: faltan políticas verificadas de la entidad. Si preguntan por qué importa, explique el propósito comercial y que cualquier efecto crediticio debe verificarlo la entidad.
 Si aún no sabe su presupuesto, ofrezca ayudarle a ordenar entrada y cuota cómoda, sin aprobar un crédito ni exigir ingresos aquí.
 Presente de uno a tres beneficios relevantes, solo los que ayudan a esta persona; no repita instalaciones ni rellene hasta llegar a tres.
 No suponga que «se ve interesante» acepta una visita. No cree cita ni avise al asesor al ofrecerla.
-${visits.allowSuggestions ? 'Las sugerencias de visita están habilitadas; el sistema añadirá una invitación y la ubicación completa.' : 'Las sugerencias de visita están desactivadas. No invite, proponga ni pregunte por visitas; si el cliente la solicita expresamente el sistema coordina esa petición.'}
+${visits.allowSuggestions ? 'Las sugerencias de visita están habilitadas; el sistema añadirá una invitación. El mapa se entrega solo al solicitarlo el cliente o al confirmar realmente la cita, nunca por esta invitación.' : 'Las sugerencias de visita están desactivadas. No invite, proponga ni pregunte por visitas; si el cliente la solicita expresamente el sistema coordina esa petición.'}
 El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : offerUnits ? 'responder el precio; el sistema ofrecerá revisar una unidad, NO escriba otra pregunta ni invite a una visita' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
 No prometa reventa, arriendo, rentabilidad, disponibilidad, aprobación bancaria ni tiempos sin datos. No invente reservas, anticipos ni pasos legales de compra.
 Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también es una respuesta completa.` }

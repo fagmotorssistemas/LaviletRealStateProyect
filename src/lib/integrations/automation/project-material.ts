@@ -16,7 +16,7 @@ export function vehicleScopeReply(current: string, history: unknown = []) {
   const alternatives = [
     'Lamento no poder ayudarle con la búsqueda de un vehículo; no los vendemos ni alquilamos. En La Vilet ofrecemos suites, departamentos y locales comerciales, y será un gusto orientarle si alguno le interesa.',
     'Me gustaría poder orientarle, pero no vendemos ni alquilamos vehículos. Nos dedicamos a suites, departamentos y locales comerciales en La Vilet. Si le interesa alguna de estas opciones, con gusto le ayudo.',
-    'Disculpe, con vehículos no podemos ayudarle, pues no los vendemos ni alquilamos. Nuestra especialidad son las suites, departamentos y locales comerciales de La Vilet. Aquí estamos si desea conocerlos.',
+    'Disculpe la confusión. Somos La Vilet, un proyecto inmobiliario de suites, departamentos y locales comerciales en Cuenca; no vendemos ni alquilamos vehículos.',
   ]
   // Use only delivered replies to vary the tone; a client's text cannot select the wording.
   const replies = rows(history).filter(row => ['bot', 'asesor'].includes(text(row.role))).slice(-6)
@@ -48,7 +48,7 @@ export function brochureReply(current: string, history: unknown, mode: string) {
 }
 
 export function launchVisitReply(reply: string, destination: 'site' | 'office') {
-  const place = destination === 'office' ? 'nuestra oficina, en la dirección del proyecto' : 'el terreno donde se construirá La Vilet'
+  const place = destination === 'office' ? 'nuestra oficina para revisar el proyecto' : 'el terreno donde se construirá La Vilet'
   if (/¿Qué día y a qué hora le gustaría venir\?/.test(reply)) return reply.replace('¿Qué día y a qué hora le gustaría venir?', `Podemos recibirle en ${place}. ¿Qué día y a qué hora le gustaría venir?`)
   return reply
 }

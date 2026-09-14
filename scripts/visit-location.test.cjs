@@ -31,7 +31,7 @@ test('catalog features, pets and price determinants do not append an unrelated m
   }
 })
 
-test('real invitations with a physical destination include the verified address and map', () => {
+test('physical invitations and pending coordination do not include an unsolicited map', () => {
   for (const reply of [
     '¿Le gustaría coordinar una visita a nuestra oficina para revisar el proyecto?',
     'Si desea, podemos recibirle en nuestra oficina.',
@@ -40,11 +40,22 @@ test('real invitations with a physical destination include the verified address 
     'La oficina está donde se construirá La Vilet.',
     'Podemos encontrarnos en la misma dirección del proyecto.',
     'Le esperamos.',
+    '¿Qué día y a qué hora le gustaría venir a nuestra oficina?',
+    'Para la visita de mañana, revisaremos disponibilidad y le confirmaremos.',
+    'Le proponemos otros horarios para visitar la oficina.',
+    'El precio del departamento 202 es de $250.000. ¿Le gustaría visitar nuestra oficina? Aquí puede explorar el modelo 3D: https://www.lavilett.com/tour/modelo-3d/segunda-planta.html?unidad=202',
   ]) {
     const result = withVisitLocation(reply, info)
-    assert.ok(result.includes(address), reply)
-    assert.ok(result.includes(map), reply)
-    assert.equal(withVisitLocation(result, info), result)
+    assert.equal(result, reply)
+    assert.ok(!result.includes(map), reply)
+  }
+})
+
+test('verified confirmation or explicit request can deliberately append the map without duplicates', () => {
+  for (const reply of ['Su cita está confirmada para mañana.', 'Aquí tiene la dirección solicitada.']) {
+    const result=withVisitLocation(reply,info,true)
+    assert.ok(result.includes(address)); assert.ok(result.includes(map))
+    assert.equal(withVisitLocation(result,info,true),result)
   }
 })
 

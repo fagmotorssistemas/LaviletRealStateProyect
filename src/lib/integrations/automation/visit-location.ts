@@ -54,7 +54,9 @@ export function locationAnswer(info: Row, kind: LocationRequestKind = 'request')
 // Location is delivered as verified content after composition, so a stylistic
 // rewrite cannot omit it or replace the map with a promise to send it later.
 export function withVisitLocation(reply: string, info: Row, force = false) {
-  if (!force && !mentionsVisitLocation(reply)) return reply
+  // A sales invitation is not permission to send a map. Callers must establish
+  // an explicit location request or an actual appointment confirmation.
+  if (!force) return reply
   const address = text(object(info.proyecto).address || info.address).trim()
   const map = text(info.ubicacion || info.map_url).trim()
   const parts: string[] = []

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
-import { ArrowRight, CalendarDays, CheckCheck, Clock3, ExternalLink, Inbox, RefreshCw, Search, X } from 'lucide-react'
+import { ArrowRight, CalendarDays, CheckCheck, Clock3, ExternalLink, Inbox, Phone, RefreshCw, Search, X } from 'lucide-react'
 import { useVisitInboxContext, type VisitInboxTab } from '@/contexts/VisitInboxContext'
 import { formatAgendaDateTime } from '@/lib/inmobiliaria/agendaTime'
 import { kommoLeadUrl } from '@/lib/inmobiliaria/visitPresentation'
@@ -54,11 +54,14 @@ export function VisitInboxDrawer() {
           {visible.map(item => {
             const urgent = visitIsOverdue(item, now)
             const isPending = item.status === 'awaiting_advisor'
+            const coordinationUrgent = Boolean(isPending && item.coordination_urgent_at)
+            const phone = item.lead?.phone?.replace(/[^+\d]/g, '')
             const chat = kommoLeadUrl(item.lead?.kommo_id)
             return <article key={item.id} className={`rounded-xl border bg-white p-4 ${urgent ? 'border-amber-300' : 'border-stone-200'}`}>
-              <div className="flex items-center justify-between gap-3 text-[11px]"><span className={`rounded-full px-2 py-1 font-semibold ${isPending ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{urgent ? 'Requiere atención' : isPending ? 'Pendiente de revisión' : 'Esperando al cliente'}</span><span className="flex items-center gap-1 whitespace-nowrap text-stone-500"><Clock3 size={12} />{visitWaitLabel(item.created_at, now)}</span></div>
+              <div className="flex items-center justify-between gap-3 text-[11px]"><span className={`rounded-full px-2 py-1 font-semibold ${isPending ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{coordinationUrgent ? 'Llamada urgente · bot pausado' : urgent ? 'Requiere atención' : isPending ? 'Pendiente de revisión' : 'Esperando al cliente'}</span><span className="flex items-center gap-1 whitespace-nowrap text-stone-500"><Clock3 size={12} />{visitWaitLabel(item.coordination_urgent_at || item.created_at, now)}</span></div>
               <h3 className="mt-3 font-semibold">{item.lead?.name || 'Cliente sin nombre'}</h3>
               <p className="mt-0.5 text-xs text-stone-500">{item.project?.name || 'Proyecto'}{item.lead?.preferred_category ? ` · ${item.lead.preferred_category.replace(/_/g, ' ')}` : ''}</p>
+              {coordinationUrgent && <div className="mt-3 rounded-lg bg-amber-50 p-3"><p className="line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-amber-950">{item.coordination_summary || 'El cliente no pudo elegir un horario. Contactar por teléfono para coordinar la visita.'}</p>{phone && <a href={`tel:${phone}`} className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900"><Phone size={13} />Llamar al cliente</a>}</div>}
               <div className="my-4 flex gap-3 rounded-lg bg-[#f8f8f4] px-3 py-3"><CalendarDays size={18} className="mt-1 shrink-0 text-[#787D62]" /><div><p className="text-[10px] tracking-wide text-stone-500 uppercase">{isPending ? 'Horario solicitado' : (item.proposed_options?.length ?? 0) > 1 ? 'Opciones enviadas' : 'Horario propuesto'}</p>
                 {!isPending && (item.proposed_options?.length ?? 0) > 1 ? <ol className="mt-2 list-inside list-decimal space-y-1 text-sm font-medium">{item.proposed_options!.map(slot => <li key={slot.start_time}>{formatAgendaDateTime(slot.start_time)}</li>)}</ol>
                   : <p className="mt-1 text-base font-semibold">{item.proposed_start_time ? formatAgendaDateTime(item.proposed_start_time) : item.preferred_time_text || 'Necesita una propuesta de horario'}</p>}</div></div>

@@ -20,6 +20,7 @@ import { unitRecommendation } from './unit-recommendation'
 import { locationRequestKind, withVisitLocation } from './visit-location'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { commercialCoverageIssues } from './multi-topic-turn'
+import { houseProductReply, PRODUCT_FIT_RULES } from './product-fit'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -52,6 +53,9 @@ export async function commercialContext(lead: Row, history: unknown) {
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       precios_aproximados: pricing.approximate,
       confirmar_disponibilidad: false, confirmar_visita_sin_resultado: false, agendar_llamadas: false },
+    alcance_producto: 'La Vilet ofrece suites, departamentos y locales comerciales en Cuenca; no casas independientes.',
+    politica_financiera: { credito_directo: false, arriendo_futuro_no_es_ingreso_verificado: true,
+      uso_del_inmueble: 'El uso propio o inversión orienta la elección de unidad. Cualquier efecto sobre la evaluación crediticia debe verificarlo la entidad; no hay políticas bancarias verificadas para afirmar que un arriendo futuro respalda la solicitud.' },
     catalogo: catalog, instalaciones: amenities.data, lugares_cercanos: places.data,
     horario_atencion: settings.business_hours,
     ubicacion: settings.visit_location_url,
@@ -59,6 +63,11 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  const house = houseProductReply(current, text(object(info.conversacion).ultima_respuesta))
+  if (house) {
+    const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
+    return { reply: house + (mentionsFinancing(current) ? ' ' + priceFinancingReply(current, { partners, current: object(finance.current) }) : ''), audit: { source: 'product_clarification', fallback: false } }
+  }
   const offTopic = ['property', 'mixed'].includes(text(info.alcance_negocio)) ? '' : vehicleScopeReply(current, info.historial)
   if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
   const material = brochureReply(current, info.historial, text(info.modo_comercial))
@@ -123,8 +132,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
   const input = { ...experienceContext(info, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
-  const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES
-    + '\nResponda cada tema de consultas_del_turno en esta respuesta, incluso si llegó en otro mensaje del mismo turno. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. La ubicación se añade únicamente si la pidió o si hay invitación presencial concreta; una mención descriptiva del sector no solicita un mapa.'
+  const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
+    + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
     + (info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'

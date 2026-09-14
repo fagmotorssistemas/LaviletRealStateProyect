@@ -11,7 +11,7 @@ Module._load = function (id, parent, main) {
   return load.call(this, id, parent, main)
 }
 require('./test-typescript.cjs')
-const { visitDetailText, isVisitDetail, needsVisitHelp, visitTurnIntent } = require('../src/lib/integrations/automation/visit-intake.ts')
+const { visitDetailText, isVisitDetail, needsVisitHelp, visitTurnIntent, intakeReply } = require('../src/lib/integrations/automation/visit-intake.ts')
 const { PGlite } = require('../tmp/sql-validation/node_modules/@electric-sql/pglite')
 const read = name => fs.readFileSync(path.join(__dirname, '../supabase/migrations', name), 'utf8')
 const tenant = 'a1b2c3d4-0001-4000-8000-000000000001'
@@ -33,6 +33,17 @@ test('appointment alternatives and expressive date/hour fragments route to coord
     assert.equal(needsVisitHelp(value), false, value)
     assert.equal(visitTurnIntent(value), null, value)
   }
+})
+
+test('next-week corrections route as a new client preference and name relative days explicitly', () => {
+  for (const value of ['El siguiente lunes a las 10 am', 'La siguiente semana el lunes a las 10 am', 'Puede ser mañana\nNo no, mejor la siguiente semana el lunes a las 10 am, puede ser?']) {
+    assert.equal(visitTurnIntent(value), 'counterproposal', value)
+  }
+  const at = '2026-09-14T21:49:00Z'
+  const result = { action: 'submitted', slot: { confidence: 'exact', requested_date: '2026-09-15', start_time: '2026-09-15T16:00:00Z', has_time: true } }
+  assert.match(intakeReply(result, at), /para mañana, martes 15 de septiembre a las 11 a\. m\./)
+  assert.doesNotMatch(intakeReply(result, at), /confirmamos su cita|https|Qué día/i)
+  assert.match(intakeReply({ action: 'collecting', slot: { requested_date: '2026-09-14', has_time: false } }, at), /para hoy, lunes 14 de septiembre.*A qué hora/)
 })
 
 async function database() {
@@ -63,6 +74,85 @@ async function database() {
   await db.exec(read('20260910233000_visit_intake_collection.sql'))
   return db
 }
+
+test('initial business-hours questions collect the client preference before requesting advisor review', async () => {
+  const db = await database()
+  try {
+    await db.exec(read('20260914193000_visit_date_context_repair.sql'))
+    await db.exec(read('20260914233000_visit_next_week_context.sql'))
+    await db.exec(read('20260915101000_visit_hours_before_assignment.sql'))
+    const lead = (await db.query('INSERT INTO leads(tenant_id,project_id) VALUES($1,$2) RETURNING id', [tenant, project])).rows[0].id
+    const conversation = (await db.query("INSERT INTO conversations(tenant_id,project_id,lead_id,channel) VALUES($1,$2,$3,'whatsapp') RETURNING id", [tenant, project, lead])).rows[0].id
+    let sequence = Date.now()
+    const turn = async content => {
+      const id = (await db.query("INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,'cliente',$2,$3) RETURNING id", [conversation, content, new Date(sequence += 1000).toISOString()])).rows[0].id
+      const result = (await db.query('SELECT lv_collect_visit_intake($1,$2,false,NULL,NULL) r', [lead, id])).rows[0].r
+      await db.query("INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,'bot','Indíquenos su preferencia',$2)", [conversation, new Date(sequence += 1000).toISOString()])
+      return result
+    }
+    assert.equal((await turn('¿Qué horarios tienen? ¿Cuándo y a qué hora puedo ir?')).action, 'collecting')
+    assert.equal((await db.query('SELECT count(*)::int n FROM appointment_reschedule_requests')).rows[0].n, 0)
+    const partial = await turn('Para mañana')
+    assert.equal(partial.action, 'collecting')
+    assert.ok(partial.slot.requested_date)
+    assert.equal((await db.query('SELECT count(*)::int n FROM appointment_reschedule_requests')).rows[0].n, 0)
+    const complete = await turn('A las 11 am')
+    assert.equal(complete.action, 'submitted')
+    assert.equal(complete.slot.requested_date, partial.slot.requested_date)
+    assert.equal((await db.query('SELECT status FROM appointment_reschedule_requests')).rows[0].status, 'awaiting_advisor')
+    assert.equal((await db.query("SELECT count(*)::int n FROM appointments WHERE status IN ('aceptado','reprogramado')")).rows[0].n, 0)
+  } finally { await db.close() }
+})
+
+test('SQL next-week migration resolves Monday corrections and never confirms a client preference', async () => {
+  const db = await database()
+  try {
+    await db.exec(read('20260914193000_visit_date_context_repair.sql'))
+    const at = '2026-09-14T21:49:00Z'
+    const parts = async (value, reference = at) => (await db.query('SELECT lv_visit_preference_parts($1,$2,$3) p', [value, reference, 'America/Guayaquil'])).rows[0].p
+    assert.equal((await parts('El siguiente lunes a las 10 am')).requested_date, '2026-09-14', 'reproduce deployed same-day/past failure')
+    await db.exec(read('20260914233000_visit_next_week_context.sql'))
+    const corrected = 'Puede ser mañana\nNo no, mejor la siguiente semana el lunes a las 10 am, puede ser?'
+    for (const value of [corrected, 'El siguiente lunes a las 10 am', 'El próximo lunes a las 10 am', 'La próxima semana el lunes a las 10 am', 'El lunes de la semana que viene a las 10 am', 'El lunes siguiente a las 10 am', 'Para el lunes de la semana entrante a las 10 am']) {
+      const result = await parts(value)
+      assert.equal(result.requested_date, '2026-09-21', value)
+      assert.deepEqual(result.hours, [10], value)
+    }
+    assert.equal((await parts('El martes de la siguiente semana a las 10 am')).requested_date, '2026-09-22')
+    assert.equal((await parts('El siguiente lunes a las 10 am', '2026-09-15T18:00:00Z')).requested_date, '2026-09-21')
+    assert.equal((await parts('El lunes de esta semana a las 10 am', '2026-09-15T18:00:00Z')).requested_date, '2026-09-14', 'do not silently move a genuinely past explicit week')
+    assert.equal((await parts('El lunes a las 10 am')).requested_date, '2026-09-14')
+    assert.equal((await parts('Mañana a las 11')).requested_date, '2026-09-15')
+    assert.equal((await parts('Hoy a las 5 pm')).requested_date, '2026-09-14')
+    assert.equal((await parts('El lunes de la próxima semana a las 10 am', '2026-12-28T20:00:00Z')).requested_date, '2027-01-04')
+    for (const value of ['La próxima semana a las 10 am', 'El lunes o martes de la próxima semana a las 10 am', 'Dentro de dos semanas el lunes a las 10 am']) assert.equal((await parts(value)).ambiguous, true, value)
+    assert.equal((await parts('No puedo el siguiente lunes a las 10 am')).clear_date, true)
+    assert.equal((await parts('Prefiero otra opción')).clear_date, true)
+    const exact = (await db.query('SELECT lv_parse_visit_preference($1,$2,$3) p', [corrected, at, 'America/Guayaquil'])).rows[0].p
+    assert.equal(exact.confidence, 'exact')
+    assert.equal(exact.requested_date, '2026-09-21')
+    assert.equal(new Date(exact.start_time).toISOString(), '2026-09-21T15:00:00.000Z')
+
+    const nextMonday = (await db.query("SELECT ((clock_timestamp() AT TIME ZONE 'America/Guayaquil')::date-extract(isodow FROM clock_timestamp() AT TIME ZONE 'America/Guayaquil')::int+8)::text d")).rows[0].d
+    const lead = (await db.query('INSERT INTO leads(tenant_id,project_id) VALUES($1,$2) RETURNING id', [tenant, project])).rows[0].id
+    const conversation = (await db.query("INSERT INTO conversations(tenant_id,project_id,lead_id,channel) VALUES($1,$2,$3,'whatsapp') RETURNING id", [tenant, project, lead])).rows[0].id
+    let sequence = Date.now()
+    const message = async (role, content) => (await db.query('INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,$2,$3,$4) RETURNING id', [conversation, role, content, new Date(sequence += 1000).toISOString()])).rows[0].id
+    await message('cliente', 'Puede ser mañana')
+    const correctionId = await message('cliente', 'No no, mejor la siguiente semana el lunes a las 10 am, puede ser?')
+    const first = (await db.query('SELECT lv_collect_visit_intake($1,$2,false,NULL,NULL) r', [lead, correctionId])).rows[0].r
+    assert.equal(first.action, 'submitted')
+    assert.equal(first.slot.requested_date, nextMonday)
+    assert.equal(new Date(first.slot.start_time).getUTCHours(), 15)
+    await message('bot', 'Revisaremos ese horario.')
+    const repeatId = await message('cliente', 'El siguiente lunes a las 10 am')
+    const second = (await db.query('SELECT lv_collect_visit_intake($1,$2,false,$3,NULL) r', [lead, repeatId, first.request_id])).rows[0].r
+    assert.equal(second.action, 'submitted')
+    assert.equal(second.slot.requested_date, nextMonday)
+    assert.equal((await db.query("SELECT count(*)::int n FROM appointments WHERE status IN ('aceptado','reprogramado')")).rows[0].n, 0)
+    assert.equal((await db.query('SELECT content FROM messages WHERE id=$1', [correctionId])).rows[0].content, 'No no, mejor la siguiente semana el lunes a las 10 am, puede ser?', 'raw message is preserved')
+  } finally { await db.close() }
+})
 
 test('SQL migration fixes the real mañana regression, preserves fragments and rejects obsolete options', async () => {
   const db = await database()

@@ -76,17 +76,17 @@ test('questions, cancellation, objections and opt-out never confirm an option', 
   }
 })
 
-test('office and visit messages append the complete verified address and map', () => {
+test('an invitation alone does not attach a map before a request or confirmation', () => {
   for (const message of ['Puede visitar nuestra oficina.', 'Le esperamos.', 'La oficina está donde se construirá La Vilet.']) {
     const reply = withVisitLocation(message, { proyecto: { address }, ubicacion: map })
-    assert.ok(reply.includes(address)); assert.ok(reply.includes(map))
+    assert.equal(reply, message)
   }
 })
 
 test('an existing textual address still receives the missing map and remains idempotent', () => {
   const base = `Dirección: ${address}`
-  const first = withVisitLocation(base, { address, map_url: map })
-  const second = withVisitLocation(first, { address, map_url: map })
+  const first = withVisitLocation(base, { address, map_url: map }, true)
+  const second = withVisitLocation(first, { address, map_url: map }, true)
   assert.equal(first, second)
   assert.equal(first.split(address).length - 1, 1)
   assert.equal(first.split(map).length - 1, 1)
@@ -101,7 +101,7 @@ test('location can be forced for a short answer without inventing absent data', 
 
 function context(count = 3) {
   const options = choices.slice(0, count), start = options[0], route = LAVILET_MESSAGE_ROUTES.find(r => r.kind === 'visit_propose')
-  const preview = `Tenemos estas opciones para recibirle en nuestra oficina:\n\n${visitOptionsList(options)}\n\nPuede elegir la que mejor le venga o indicarnos otro día para verificarlo con el equipo.\nDirección: ${address}\nMapa: ${map}`
+  const preview = `Tenemos estas opciones para recibirle en nuestra oficina:\n\n${visitOptionsList(options)}\n\nPuede elegir la que mejor le venga o indicarnos otro día para verificarlo con el equipo.`
   return {
     job: { ...scope, id: 'job', kind: 'visit_propose', status: 'pending', lead_id: 'lead', appointment_id: 'appointment',
       scheduled_at: new Date(now - 1000).toISOString(), expires_at: new Date(now + 3600000).toISOString(),
@@ -176,28 +176,49 @@ test('expired requests, expired jobs and past alternatives are canceled', () => 
   assert.ok(validateVisit(prepareVisit(pastOption), now).reasons.includes('options_changed'))
 })
 
-test('missing address or map blocks delivery instead of claiming the location was shared', () => {
+function confirmationContext() {
+  const c = context(1), route = LAVILET_MESSAGE_ROUTES.find(r => r.kind === 'visit_confirm')
+  c.job.kind = 'visit_confirm'; c.job.payload.options = []; c.request.proposed_options = []
+  c.request.status = 'confirmed'; c.request.client_accepted_at = new Date(now - 1000).toISOString()
+  c.appointment.status = 'aceptado'
+  c.route.bot_id = route.botId; c.route.detail_field_id = route.fieldId
+  return prepareVisit(c)
+}
+
+test('confirmed appointments include the complete verified location and cannot omit it', () => {
   for (const [remove, reason] of [[address, 'address_changed_or_missing'], [map, 'map_changed_or_missing']]) {
-    const c = context()
+    const c = confirmationContext()
+    assert.equal(validateVisit(c, now).action, 'send')
+    assert.ok(c.job.payload.detail.includes(address)); assert.ok(c.job.payload.detail.includes(map))
     c.job.payload.detail = c.job.payload.detail.replace(remove, '')
     const decision = validateVisit(c, now)
     assert.equal(decision.action, 'cancel'); assert.ok(decision.reasons.includes(reason))
   }
 })
 
-test('a changed project location invalidates an older approved preview', () => {
-  const c = context()
+test('a changed location invalidates an outdated confirmation but not an unrelated proposal', () => {
+  const c = confirmationContext()
   c.address = 'Nueva oficina, Cuenca'
-  assert.ok(validateVisit(prepareVisit(c), now).reasons.includes('address_changed_or_missing'))
+  assert.ok(validateVisit(c, now).reasons.includes('address_changed_or_missing'))
   c.address = address; c.location = 'https://maps.google.com/?q=other'
-  assert.ok(validateVisit(prepareVisit(c), now).reasons.includes('map_changed_or_missing'))
+  assert.ok(validateVisit(c, now).reasons.includes('map_changed_or_missing'))
+  const proposal = context(); proposal.address = c.address; proposal.location = c.location
+  assert.equal(validateVisit(prepareVisit(proposal), now).action, 'send')
 })
 
-test('single legacy proposals also receive the office address and map', () => {
+test('single legacy proposals do not deliver unsolicited location', () => {
   const c = context(1)
   c.job.payload.options = []; c.request.proposed_options = []
   const prepared = prepareVisit(c)
   assert.ok(prepared.job.payload.detail.includes('nuestra oficina'))
-  assert.ok(prepared.job.payload.detail.includes(address)); assert.ok(prepared.job.payload.detail.includes(map))
+  assert.ok(!prepared.job.payload.detail.includes(address)); assert.ok(!prepared.job.payload.detail.includes(map))
   assert.equal(validateVisit(prepared, now).action, 'send')
+})
+
+test('appointment reminders do not repeat the map without an approved reminder location policy', () => {
+  const c = context(1)
+  c.job.kind = 'visit_2h'
+  const prepared = prepareVisit(c)
+  assert.ok(prepared.job.payload.detail.includes('Le recordamos'))
+  assert.ok(!prepared.job.payload.detail.includes(address)); assert.ok(!prepared.job.payload.detail.includes(map))
 })

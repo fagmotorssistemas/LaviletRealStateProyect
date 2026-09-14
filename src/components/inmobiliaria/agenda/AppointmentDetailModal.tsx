@@ -22,6 +22,7 @@ import { AppointmentSummary, AppointmentExpandedDetails } from './AppointmentSum
 import { KommoChatLink } from './KommoChatLink'
 import { VisitRecommendations } from './VisitRecommendations'
 import { VisitProposalComposer } from './VisitProposalComposer'
+import { UrgentVisitAgreement } from './UrgentVisitAgreement'
 import { useVisitScheduling } from '@/hooks/inmobiliaria/useVisitScheduling'
 import { useVisitProposalCapability } from '@/hooks/inmobiliaria/useVisitProposalCapability'
 import { AppointmentInterestUnitsPicker } from '@/components/inmobiliaria/agenda/AppointmentInterestUnitsPicker'
@@ -47,7 +48,7 @@ import {
   requestReassignmentAction,
 } from '@/app/inmobiliaria/agenda/actions'
 
-type Panel = 'view' | 'details' | 'confirm' | 'attendance' | 'propose' | 'cancel' | 'reassign'
+type Panel = 'view' | 'details' | 'confirm' | 'attendance' | 'propose' | 'cancel' | 'reassign' | 'call-agreement'
 
 const emptyVisit: AgendaVisitFieldValues = {
   visitDate: '',
@@ -375,6 +376,7 @@ export function AppointmentDetailModal({
     view: detail?.openReschedule ? 'Cita pendiente' : 'Visita a La Vilet',
     details: 'Detalles de la visita', confirm: 'Confirmar cita', attendance: detail?.status === 'atendido' ? 'Editar asistencia' : 'Registrar asistencia',
     propose: supportsVisitOptions ? 'Proponer horarios' : 'Proponer horario', cancel: 'Cancelar cita', reassign: 'Solicitar reasignación',
+    'call-agreement': 'Registrar acuerdo de llamada',
   }
   const openProposal = () => {
     setVisit(prev => ({ ...prev, visitDate: scheduling.options?.requested.requested_date ?? '', startHm: '', endHm: '' }))
@@ -417,6 +419,7 @@ export function AppointmentDetailModal({
           detail={detail} options={scheduling.options} scheduleLoading={scheduling.loading} scheduleError={scheduling.error}
           canManage={canActOnRequest} saving={saving} onAccept={() => void handleAcceptRequest()}
           onPropose={openProposal} onReassign={() => { setNotes(''); setPanel('reassign') }}
+          onCallAgreement={() => setPanel('call-agreement')}
           onDetails={() => setPanel('details')} onConfirm={() => setPanel('confirm')}
           onAttendance={() => { setNotes(detail.result_notes ?? ''); setAttendanceReason(''); setAttendanceVersion(detail.updated_at); setPanel('attendance') }} onCancel={() => setPanel('cancel')}
         />
@@ -430,6 +433,8 @@ export function AppointmentDetailModal({
           </div>
         </div>
       )}
+
+      {!loadingDetail && !loadError && detail?.openReschedule?.coordination_urgent_at && panel === 'call-agreement' && <UrgentVisitAgreement requestId={detail.openReschedule.id} onCancel={() => setPanel('view')} onSaved={() => refreshAfter('Visita acordada por llamada y registrada. El bot permanece pausado.')} />}
 
       {!loadingDetail && !loadError && detail && panel === 'confirm' && (
         <form onSubmit={handleConfirm} className="space-y-4">

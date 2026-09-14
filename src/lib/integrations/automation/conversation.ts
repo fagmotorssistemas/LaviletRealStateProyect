@@ -12,27 +12,30 @@ import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
-import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat } from './financing'
-import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent } from './visit-intake'
-import { asksVisitStatus, declinedFollowup, explicitlyRequestsVisit, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
+import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat, priceFinancingReply } from './financing'
+import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply } from './visit-intake'
+import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
 import { commercialMemory, rememberCommercialReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { acceptsUnitOptions, acceptsVisitInvitation, rememberSalesReply } from './sales-policy'
 import { mediaFailureReply, unreadMediaMarker } from './media-format'
 import { variedReplyOpening } from './response-openings'
-import { acceptedPriceOption, asksUnitPrice, unitPriceQuote } from './price-reply'
+import { acceptedPriceOption, asksUnitPrice, unitPriceQuote, priceReplyIssues } from './price-reply'
 import { scheduleNutrition24h } from './nutrition'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
 import { operationalReply } from './operational-copy'
-import { locationAnswer, locationRequestKind, mentionsVisitLocation, withVisitLocation } from './visit-location'
+import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
 import { commercialCoverageIssues, commercialTurnTopics } from './multi-topic-turn'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { selectedVisitOption } from './visit-choice'
 import { visitParserReady } from './visit-parser-health'
 import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
+import { asksForHouse, houseProductReply } from './product-fit'
+import { declinesAllVisitAlternatives, escalateVisitCoordination } from './visit-escalation'
+import { completeTurnReply } from './turn-completeness'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -159,6 +162,22 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
   if (!inbound.mediaFailed) {
+    if (!reply && asksTeamAttendance(current)) {
+      const appointments = await db().from('appointments').select('id,status,start_time,end_time').match(scope)
+        .eq('lead_id', lead.id).in('status', ['aceptado', 'reprogramado']).gt('end_time', activeLast.sentAt)
+      if (appointments.error) {
+        reply = await transferToAdvisor('verificar a qué cita se refiere el cliente y si espera una visita del equipo')
+        audit = { source: 'advisor_handoff' }
+      } else {
+        reply = teamAttendanceReply(appointments.data || [], proposals)
+        audit = { source: 'team_attendance', verified_appointments: appointments.data || [] }
+      }
+    }
+    if (!reply && asksForHouse(current)) {
+      reply = houseProductReply(current, text(state.ultima_respuesta))
+      if (/financ|cr[eé]dito|hipoteca/i.test(current)) reply += ' ' + priceFinancingReply(current, await financingContext(lead))
+      audit = { source: 'product_clarification' }
+    }
     if (!reply && businessScope.kind !== 'property' && businessScope.kind !== 'mixed' && !/asesor|persona|humano|no me (?:escrib|contact)|dejen de/i.test(current)) {
       reply = vehicleScopeReply(current, context.historial)
       if (reply) audit = { source: 'vehicle_out_of_scope' }
@@ -243,6 +262,46 @@ export async function processConversation(rows: Row[], guard: Guard) {
     if (intent === 'opt_out') {
       await guard(); await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
       reply = 'Hemos registrado su solicitud de no recibir más mensajes.'; finalNotice = true
+    } else if (proposal && declinesAllVisitAlternatives(current, proposal, intent)) {
+      await guard()
+      let escalated: Row | null = null
+      try {
+        escalated = await escalateVisitCoordination({ proposal, current, history: context.historial, messageId: activeLast.externalId })
+      } catch (failure) {
+        // A timeout may follow a committed transaction. Never rotate the
+        // advisor again without first checking the durable request and pause.
+        let stored: Row
+        try {
+          await guard()
+          const verified = await Promise.all([
+            one('appointment_reschedule_requests', text(proposal.request_id || proposal.id)),
+            one('leads', text(lead.id)),
+          ])
+          stored = verified[0]; lead = verified[1]
+        } catch { throw new Error('VISIT_URGENT_RESULT_UNKNOWN') }
+        if (stored.coordination_urgent_at && stored.source_message_id === activeLast.externalId
+          && stored.status === 'awaiting_advisor' && lead.bot_enabled === false) {
+          escalated = { action: 'escalated', request_id: stored.id, bot_paused: true, recovered_after_error: true }
+        } else if (stored.coordination_urgent_at || stored.status !== 'awaiting_client' || stored.proposed_by !== 'advisor'
+          || lead.bot_enabled !== true) {
+          return { action: 'visit_coordination_changed', request_id: stored.id }
+        } else if (failure instanceof Error && /RPC_LV_ESCALATE_VISIT_COORDINATION_(?:PGRST202|42883)$/.test(failure.message)) {
+          // Only a definitely absent RPC proves it never mutated this request.
+          reply = await transferToAdvisor('coordinación urgente: rechazó las alternativas de visita; llamar para acordar un horario y revisar la solicitud pendiente')
+          audit = { source: 'advisor_handoff', urgent_coordination_fallback: true }
+        } else { throw new Error('VISIT_URGENT_RESULT_UNKNOWN') }
+      }
+      if (escalated) {
+        lead = await one('leads', text(lead.id))
+        if (lead.bot_enabled !== false) throw new Error('VISIT_URGENT_PAUSE_NOT_VERIFIED')
+        finalNotice = true
+        reply = text(escalated.message) || 'Entendemos. He pasado su solicitud al equipo para que un asesor se comunique con usted y puedan coordinar la visita directamente.'
+        audit = { source: 'visit_urgent_handoff', request_id: escalated.request_id, bot_paused: true,
+          recovered_after_error: escalated.recovered_after_error === true }
+        await guard()
+        try { await setKommoField(last.kommoId, 451530, 'true') }
+        catch { audit = { ...audit, kommo_pause_sync: 'pending' } }
+      }
     } else if (proposal && intent === 'accept' && options.length > 1) {
       if (selected === null) {
         reply = `¿Cuál de estos horarios le queda mejor?\n\n${visitOptionsList(options.map(o => ({ start_time: text(o.start_time), end_time: text(o.end_time) })))}`
@@ -258,7 +317,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
       await guard()
       const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
         p_needs_help: needsVisitHelp(current), p_previous_request: proposal.request_id || proposal.id, p_snapshot: proposal })
-      reply = text(result.message) || intakeReply(result)
+      reply = text(result.message) || intakeReply(result, activeLast.sentAt)
       audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot }
     } else if (proposal && intent === 'unclear') {
       reply = proposal.status === 'awaiting_advisor'
@@ -298,7 +357,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
     if (canRequestVisit && (explicitlyRequestsVisit(current) || acceptsVisitInvitation(current, text(state.ultima_respuesta)))) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
     if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
     const priceTurn = asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
-    const financeTurn = !priceTurn && (financeInput.consent === true || isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
+    const financeTurn = financeInput.consent === true || (!priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
     if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
     await guard()
     if (extracted.opt_out) {
@@ -327,7 +386,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
         if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
         lead = { ...lead, ...resetSearch, behavior_signals: signals }
       }
-      const financeAnswer = priceTurn ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
+      const financeAnswer = priceTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
       // A question about a product is not an application or consent to collect personal data.
       let fin: Row = {}, financeFailure = ''
       if (financeTurn && !financeAnswer) {
@@ -361,8 +420,9 @@ export async function processConversation(rows: Row[], guard: Guard) {
           audit = { source: 'price_and_visit_handoff' }
         } else {
           const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
-            p_needs_help: extracted.visit_needs_help === true || needsVisitHelp(current) })
-          reply = text(result.message) || intakeReply(result)
+            p_needs_help: false })
+          reply = text(result.message) || intakeReply(result, activeLast.sentAt)
+          if (result.action === 'collecting' && needsVisitHelp(current)) reply = visitBusinessHoursReply(visitInfo.horario_atencion, result, activeLast.sentAt) || reply
           const overview = projectOverviewReply(visitInfo, current)
           if (overview) reply = overview + ' ' + reply
           if (quote) reply = quote.reply.replace(/\s*¿[^?]+\?\s*$/, '') + ' ' + reply
@@ -392,7 +452,11 @@ export async function processConversation(rows: Row[], guard: Guard) {
           modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true, modelo_especifico_disponible: model.model_available, texto_de_entrega: model.caption } : null }
         const generated = await commercialReply(info, current, summary, guard)
         audit = generated.audit
-        reply = audit.requires_advisor === true ? await transferToAdvisor(text(audit.handoff_reason)) : appendUnitModel(generated.reply, model)
+        if (audit.requires_advisor === true) {
+          // A missing answer must not erase the independent facts we can supply.
+          const partial = completeTurnAnswer('', turnAnswerFacts(info, current, summary)).reply
+          reply = [partial, await transferToAdvisor(text(audit.handoff_reason))].filter(Boolean).join('\n\n')
+        } else reply = appendUnitModel(generated.reply, model)
         if (model && reply.includes(model.url)) audit = { ...audit, unit_model: model }
       }
     }
@@ -407,26 +471,43 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const prepared = turnAnswerFacts(info, current, previousSummary)
     const completed = completeTurnAnswer(reply, prepared)
     reply = completed.reply
-    if (completed.missing.length && !finalNotice) {
-      const notice = await transferToAdvisor('responder las consultas adicionales pendientes: ' + completed.missing.join(', '))
-      reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + notice
-      audit = { ...audit, additional_questions_handoff: true }
-    }
+    // The semantic check below can answer topics outside this small factual
+    // checklist. Only an actual information gap should trigger human help.
     audit = { ...audit, answered_topics: prepared.topics.filter(topic => !completed.missing.includes(topic)) }
   }
-  if (['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model'].includes(text(audit.source))) {
+  if (['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model', 'product_clarification', 'team_attendance'].includes(text(audit.source))) {
     await guard()
     const composed = await operationalReply(reply, current, context.historial, audit)
     const complete = !commercialCoverageIssues(composed.reply, commercialTurnTopics(current, context.historial, ['property', 'mixed'].includes(businessScope.kind))).length
     if (complete) reply = composed.reply
     audit = { ...audit, ai_operational_copy: complete && composed.generated }
   }
-  if (!['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && (locationRequestKind(current) || mentionsVisitLocation(reply) || ['visit_intake', 'visit_option_choice'].includes(text(audit.source)))) {
+  if (!['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification'].includes(text(audit.source))) {
+    await guard()
+    const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
+      estado_operativo: audit, coordinacion_visita: visitDraft }
+    // The map URL is not a suggestion the writer may add opportunistically.
+    if (!locationRequestKind(current)) delete (info as Row).ubicacion
+    const quote = unitPriceQuote(info, current, previousSummary)
+    const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
+      verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
+      preserveOperationalQuestion: ['financing', 'visit_intake', 'visit_status', 'visit_option_choice'].includes(text(audit.source)) })
+    const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
+    if (!invalidPrice) reply = reviewed.reply
+    else { reviewed.needsAdvisor = true; reviewed.unresolved.push('comparar las categorías y precios consultados sin mezclar unidades') }
+    audit = { ...audit, turn_completeness: reviewed.audit }
+    if (reviewed.needsAdvisor && !finalNotice) {
+      const notice = await transferToAdvisor('resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650))
+      reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + notice
+      audit = { ...audit, additional_questions_handoff: true }
+    }
+  }
+  if (!['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
     reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
   }
   if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
   reply = naturalConversationReply(variedReplyOpening(reply, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
-  if (!reply.trim() || reply.length > 1500) throw new Error('EMPTY_OR_LONG_REPLY')
+  if (!reply.trim() || reply.length > 3000) throw new Error('EMPTY_OR_LONG_REPLY')
   const conversationId = text(inbound.registration.conversation_id)
   async function authorized() {
     await guard()

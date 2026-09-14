@@ -28,8 +28,9 @@ export function validateVisit(context: Row, now = Date.now()): Decision {
     || route.bot_id !== expected?.botId || route.detail_field_id !== expected?.fieldId) deferred.push('route_not_configured')
   if (!text(p.detail).trim() || text(p.detail).length > 1500) deferred.push('invalid_detail')
   const meetingMap = !a.location_type || a.location_type === 'proyecto' ? context.location || p.location : p.location
-  if (context.address && !text(p.detail).toLowerCase().includes(text(context.address).toLowerCase())) invalid.push('address_changed_or_missing')
-  if (meetingMap && !text(p.detail).includes(text(meetingMap))) invalid.push('map_changed_or_missing')
+  const confirmsVisit = j.kind === 'visit_confirm' || j.kind === 'visit_reschedule_confirm'
+  if (confirmsVisit && context.address && !text(p.detail).toLowerCase().includes(text(context.address).toLowerCase())) invalid.push('address_changed_or_missing')
+  if (confirmsVisit && meetingMap && !text(p.detail).includes(text(meetingMap))) invalid.push('map_changed_or_missing')
   const last = ms(context.last_client_message_at)
   if (!Number.isFinite(last) || last > now || now - last >= 24 * HOUR) deferred.push('outside_whatsapp_window')
   if (context.event_current !== true || a.status === 'cancelado' || a.no_show === true) invalid.push('stale_event')
@@ -96,6 +97,8 @@ export function prepareVisit(context: Row): Row {
   } else if (j.kind === 'visit_propose') detail = `Podemos recibirle ${when} en ${place}. ¿Le queda bien este horario? Si prefiere otro, puede indicárnoslo para que el equipo lo verifique.`
   else if (j.kind === 'visit_2h') detail = `Le recordamos su visita ${when} en ${place}. Si necesita cambiar el horario, puede indicárnoslo por aquí.`
   else detail = `Su cita está confirmada ${when} en ${place}${context.advisor_name ? ', con ' + text(context.advisor_name) : ''}. Será un gusto recibirle.`
-  detail = withVisitLocation(detail, { address: context.address || p.address, map_url: location }, true)
+  if (j.kind === 'visit_confirm' || j.kind === 'visit_reschedule_confirm') {
+    detail = withVisitLocation(detail, { address: context.address || p.address, map_url: location }, true)
+  }
   return { ...context, job: { ...j, payload: { ...p, detail } } }
 }

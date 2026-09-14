@@ -11,7 +11,10 @@ export async function visitParserReady() {
     const result = object(await rpc('lv_visit_preference_parts', {
       p_text: 'Para mañana a las 8', p_at: '2026-09-14T18:23:06Z', p_timezone: 'America/Guayaquil',
     }))
-    ready = result.requested_date === '2026-09-15'
+    const nextWeek = object(await rpc('lv_visit_preference_parts', {
+      p_text: 'La siguiente semana el lunes a las 10 am', p_at: '2026-09-14T18:23:06Z', p_timezone: 'America/Guayaquil',
+    }))
+    ready = result.requested_date === '2026-09-15' && nextWeek.requested_date === '2026-09-21'
   } catch { /* A missing migration must not restart the client's questions. */ }
   lastCheck = { at: Date.now(), ready }
   return ready

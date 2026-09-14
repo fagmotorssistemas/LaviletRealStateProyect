@@ -100,3 +100,26 @@ test('an approval guarantee question and unrelated commercial questions keep the
   assert.equal(financingQuestionReply('¿Cuál es la ubicación?', context.partners), '')
   assert.equal(financingQuestionReply('¿Aceptan mascotas?', context.partners), '')
 })
+
+test('explicit financial help remains consent when another current question follows', () => {
+  for (const message of [
+    'Sí ayúdeme en el financiamiento.\nY el local lo quiero para rentarlo, eso influye en algo?',
+    'Sí, ayúdeme con el financiamiento y el local lo quiero para rentarlo, ¿eso influye en algo?',
+  ]) {
+    const input=financingInputs({},message,offer,context)
+    assert.equal(input.consent,true,message)
+    assert.equal(isFinancingTurn({},message,offer,input),true,message)
+  }
+})
+
+test('low budget and compound questions do not fabricate authorization or inherit direct-credit negativity', () => {
+  const previous=financingQuestionReply('¿Tienen crédito directo?',context.partners)
+  for (const message of [
+    'Quiero comprar algo pero no sé si me alcanza. ¿Qué opciones tengo?',
+    'Sí, solo si me alcanza. ¿Cómo lo hacemos?',
+    'Ayúdeme con el financiamiento solo si me aprueban, ¿qué documentos piden?',
+  ]) assert.notEqual(financingInputs({financing_consent:true},message,offer,context).consent,true,message)
+  for (const message of ['¿Qué opciones tengo?', 'Pero ¿cuántos pisos es la casa?', 'Quiero revisar departamentos']) {
+    assert.equal(financingQuestionReply(message,context.partners,previous),'',message)
+  }
+})

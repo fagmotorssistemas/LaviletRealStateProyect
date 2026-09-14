@@ -4,6 +4,10 @@ export function visitNeedsAttention(item: VisitInboxItem) {
   return item.status === 'awaiting_advisor'
 }
 
+export function visitUrgencyKey(item: VisitInboxItem) {
+  return visitNeedsAttention(item) && item.coordination_urgent_at ? `${item.id}:${item.coordination_urgent_at}` : null
+}
+
 export function visitIsOverdue(item: VisitInboxItem, now: number) {
   return visitNeedsAttention(item) && Boolean(item.escalation_due_at)
     && Date.parse(item.escalation_due_at!) <= now
@@ -12,6 +16,7 @@ export function visitIsOverdue(item: VisitInboxItem, now: number) {
 export function prioritizeVisitInbox(items: VisitInboxItem[], now: number) {
   return [...items].sort((a, b) =>
     Number(visitNeedsAttention(b)) - Number(visitNeedsAttention(a))
+    || Number(Boolean(visitUrgencyKey(b))) - Number(Boolean(visitUrgencyKey(a)))
     || Number(visitIsOverdue(b, now)) - Number(visitIsOverdue(a, now))
     || Date.parse(a.created_at) - Date.parse(b.created_at)
     || a.id.localeCompare(b.id))
