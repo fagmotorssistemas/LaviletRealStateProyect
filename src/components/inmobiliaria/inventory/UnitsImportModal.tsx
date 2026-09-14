@@ -18,6 +18,7 @@ import {
   type UnitImport,
   type UnitStatus,
 } from '@/types/inmobiliaria'
+import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 
 function toNum(value: string): number | null {
   const trimmed = value.trim()
@@ -27,10 +28,12 @@ function toNum(value: string): number | null {
 }
 
 function spacesFromInput(value: string): string[] {
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
+  return sanitizeTourSpaces(
+    value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  )
 }
 
 type FormState = {

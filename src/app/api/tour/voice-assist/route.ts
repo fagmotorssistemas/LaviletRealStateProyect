@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server'
-import type { VoiceAssistCatalogUnit } from '@/lib/tour/voiceAssist'
-import { runTourVoiceAssist, transcribeTourVoice } from '@/lib/tour/voiceAssistServer'
+import {
+  normalizeFilters,
+  resolveVoiceCategory,
+  speakUnclearSpeechClarification,
+  splitSpeakChunks,
+  type VoiceAssistCatalogUnit,
+  type VoiceAssistFilters,
+  type VoiceAssistUnitCard,
+} from '@/lib/tour/voiceAssist'
+import { runTourVoiceAssist, synthesizeTourVoice, transcribeTourVoice } from '@/lib/tour/voiceAssistServer'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,9 +38,55 @@ function asCatalog(raw: unknown): VoiceAssistCatalogUnit[] {
         price: num(u.price),
         status: String(u.status ?? ''),
         typology_code: u.typology_code == null ? null : String(u.typology_code),
+        category: resolveVoiceCategory({
+          category: u.category == null ? null : String(u.category),
+          unit_number: String(u.unit_number ?? ''),
+          bedrooms: num(u.bedrooms),
+        }),
       }
     })
     .filter((u) => u.id && u.unit_number)
+}
+
+function asPreviousFilters(raw: unknown): VoiceAssistFilters | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  return normalizeFilters(raw as Partial<VoiceAssistFilters>)
+}
+
+function asPreviousMatches(raw: unknown): VoiceAssistUnitCard[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .slice(0, 5)
+    .map((row) => {
+      const u = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      const num = (v: unknown) => {
+        if (v == null || v === '') return null
+        const n = typeof v === 'number' ? v : Number(v)
+        return Number.isFinite(n) ? n : null
+      }
+      const id = String(u.id ?? '')
+      const unit_number = String(u.unit_number ?? '')
+      if (!id || !unit_number) return null
+      return {
+        id,
+        unit_number,
+        floor: u.floor == null ? null : String(u.floor),
+        floor_number: num(u.floor_number),
+        bedrooms: num(u.bedrooms),
+        bathrooms: num(u.bathrooms),
+        area_total_m2: num(u.area_total_m2),
+        price: num(u.price),
+        status: String(u.status ?? ''),
+        typology_code: u.typology_code == null ? null : String(u.typology_code),
+        category: resolveVoiceCategory({
+          category: u.category == null ? null : String(u.category),
+          unit_number,
+          bedrooms: num(u.bedrooms),
+        }),
+        blurb: String(u.blurb ?? ''),
+      } satisfies VoiceAssistUnitCard
+    })
+    .filter((row): row is VoiceAssistUnitCard => row != null)
 }
 
 export async function POST(request: Request) {
@@ -47,6 +101,8 @@ export async function POST(request: Request) {
     const contentType = request.headers.get('content-type') || ''
     let transcript = ''
     let catalog: VoiceAssistCatalogUnit[] = []
+    let previousFilters: VoiceAssistFilters | null = null
+    let previousMatches: VoiceAssistUnitCard[] = []
 
     if (contentType.includes('multipart/form-data')) {
       const form = await request.formData()
@@ -56,6 +112,22 @@ export async function POST(request: Request) {
           catalog = asCatalog(JSON.parse(unitsRaw))
         } catch {
           return NextResponse.json({ error: 'Catálogo inválido' }, { status: 400 })
+        }
+      }
+      const memoryRaw = form.get('previous_filters')
+      if (typeof memoryRaw === 'string' && memoryRaw.trim()) {
+        try {
+          previousFilters = asPreviousFilters(JSON.parse(memoryRaw))
+        } catch {
+          previousFilters = null
+        }
+      }
+      const matchesRaw = form.get('previous_matches')
+      if (typeof matchesRaw === 'string' && matchesRaw.trim()) {
+        try {
+          previousMatches = asPreviousMatches(JSON.parse(matchesRaw))
+        } catch {
+          previousMatches = []
         }
       }
       const textField = form.get('text')
@@ -77,7 +149,12 @@ export async function POST(request: Request) {
         transcript = await transcribeTourVoice(blob, name)
       }
     } else {
-      let body: { text?: string; units?: unknown }
+      let body: {
+        text?: string
+        units?: unknown
+        previous_filters?: unknown
+        previous_matches?: unknown
+      }
       try {
         body = (await request.json()) as typeof body
       } catch {
@@ -87,14 +164,47 @@ export async function POST(request: Request) {
         .trim()
         .slice(0, 2000)
       catalog = asCatalog(body.units)
+      previousFilters = asPreviousFilters(body.previous_filters)
+      previousMatches = asPreviousMatches(body.previous_matches)
     }
 
     if (!transcript) {
-      return NextResponse.json({ error: 'Di algo o escribe tu búsqueda' }, { status: 400 })
+      // Audio vacío / silencio: respuesta amable (no error ni “fuera de tema”).
+      const soft = speakUnclearSpeechClarification()
+      return NextResponse.json({
+        transcript: '',
+        speak: soft.speak,
+        filters: previousFilters ?? normalizeFilters({ only_available: true }),
+        matches: previousMatches.slice(0, 3),
+        follow_up: soft.follow_up,
+      })
     }
 
-    const result = await runTourVoiceAssist({ transcript, catalog })
-    return NextResponse.json(result)
+    const result = await runTourVoiceAssist({
+      transcript,
+      catalog,
+      previousFilters,
+      previousMatches,
+    })
+
+    // Primer trozo de audio OpenAI junto a la respuesta → el cliente habla antes.
+    let audio_base64: string | null = null
+    try {
+      const firstChunk = splitSpeakChunks(result.speak)[0]
+      if (firstChunk) {
+        const audio = await synthesizeTourVoice(firstChunk)
+        if (audio && audio.byteLength > 0) {
+          audio_base64 = Buffer.from(audio).toString('base64')
+        }
+      }
+    } catch (error) {
+      console.warn(
+        'tour voice-assist first audio',
+        error instanceof Error ? error.message : 'TTS_FIRST_CHUNK_FAILED',
+      )
+    }
+
+    return NextResponse.json({ ...result, audio_base64 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'VOICE_ASSIST_FAILED'
     console.error('tour voice-assist', message)
