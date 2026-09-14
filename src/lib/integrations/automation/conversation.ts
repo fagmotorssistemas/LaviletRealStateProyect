@@ -15,7 +15,7 @@ import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationRe
 import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat } from './financing'
 import { intakeReply, isVisitDetail, needsVisitHelp } from './visit-intake'
 import { asksVisitStatus, declinedFollowup, explicitlyRequestsVisit, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
-import { commercialMemory, rememberCommercialReply } from './commercial-experience'
+import { commercialMemory, rememberCommercialReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { acceptsUnitOptions, acceptsVisitInvitation, rememberSalesReply } from './sales-policy'
@@ -25,6 +25,7 @@ import { acceptedPriceOption, asksUnitPrice, unitPriceQuote } from './price-repl
 import { scheduleNutrition24h } from './nutrition'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
+import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -99,8 +100,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   let lead = await one('leads', text(inbound.registration.lead_id))
   if (!permitted(initialConfig, lead, settings.testLeadId) || lead.bot_enabled !== true || inbound.stopped) return { action: 'bot_paused' }
   const activeLast = inbound.normalized[inbound.normalized.length - 1]
-  const current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
-  const modelOnly = isUnitVisualRequest(current) && !explicitlyRequestsVisit(current)
+  let current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const processingStarted = Date.now()
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
@@ -109,6 +109,31 @@ export async function processConversation(rows: Row[], guard: Guard) {
   let greeting = !inbound.mediaFailed && isGreetingOnly(current)
   const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
   const previousSummary = object(conversationBefore.summary)
+  let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
+  if (!inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)) {
+    businessScope = await classifyBusinessScope(current, context.historial)
+    if (businessScope.kind === 'out_of_scope') {
+      reply = businessScope.reply
+      audit = { source: 'business_out_of_scope', business_scope: businessScope.kind }
+    } else if (businessScope.uncertain) {
+      reply = 'Disculpe, no alcancé a entender bien su consulta. ¿Qué le gustaría saber sobre La Vilet?'
+      audit = { source: 'scope_clarification', business_scope: 'uncertain' }
+    } else if (businessScope.kind === 'mixed') current = businessScope.property_message
+  }
+  const modelOnly = isUnitVisualRequest(current) && !explicitlyRequestsVisit(current)
+  async function transferToAdvisor(reason: string) {
+    await guard()
+    await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: `${reason}. Consulta pendiente: ${current.slice(0, 650)}` })
+    lead = await one('leads', text(lead.id))
+    if (!['queued', 'assigned', 'acknowledged'].includes(text(lead.handoff_status))) throw new Error('HANDOFF_NOT_RECORDED')
+    const { error } = await db().from('leads').update({ bot_enabled: false }).match(scope).eq('id', lead.id)
+    if (error) throw new Error('HANDOFF_PAUSE_FAILED')
+    await setKommoField(last.kommoId, 451530, 'true')
+    finalNotice = true
+    return lead.handoff_status === 'queued'
+      ? 'He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle. Podrá continuar por aquí sin volver a explicar lo que busca.'
+      : 'He pasado su consulta a un asesor de nuestro equipo para que le ayude con ese detalle y continúe atendiéndole por aquí.'
+  }
   const memory = commercialMemory(previousSummary._commercial_memory, context.historial, current)
   const state = sdrState(lead, context.historial)
   const repair = isConversationRepair(current) && !!state.ultima_respuesta
@@ -118,7 +143,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
   if (!inbound.mediaFailed) {
-    if (!/asesor|persona|humano|no me (?:escrib|contact)|dejen de/i.test(current)) {
+    if (!reply && businessScope.kind !== 'property' && businessScope.kind !== 'mixed' && !/asesor|persona|humano|no me (?:escrib|contact)|dejen de/i.test(current)) {
       reply = vehicleScopeReply(current, context.historial)
       if (reply) audit = { source: 'vehicle_out_of_scope' }
     }
@@ -140,7 +165,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
       reply = visitStatusReply(proposals, visitDraft?.status === 'collecting')
       if (reply) audit = { source: 'visit_status' }
     }
-    if (!reply && repair && !/asesor|persona|humano/i.test(current) && !explicitlyRequestsVisit(current)) {
+    if (!reply && repair && !/asesor|persona|humano/i.test(current) && !explicitlyRequestsVisit(current) && salesSubject(current).subject !== 'property' && !asksUnitPrice(current)) {
       const finance = await financingContext(lead)
       const selected = text(finance.current.selected_partner_name)
       const visitReply = visitStatusReply(proposals, visitDraft?.status === 'collecting')
@@ -168,6 +193,12 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!meaningfulText) {
     if (current.includes('[Sticker recibido]') && !inbound.mediaFailed) return { action: 'reaction_only' }
     reply = mediaFailureReply(activeLast.media, inbound.mediaErrors)
+  }
+  if (!reply && businessScope.kind === 'mixed' && (explicitlyRequestsVisit(current) || ((proposals.length || visitDraft?.status === 'collecting') && (isVisitDetail(current) || /cancel|reprogram/i.test(current))))) {
+    // The existing SQL appointment parser reads the original message. Let a human
+    // resolve mixed bookings so a flight's date cannot become the property's date.
+    reply = await transferToAdvisor('coordinación inmobiliaria mezclada con otra gestión; verificar únicamente la visita al proyecto')
+    audit = { source: 'mixed_visit_handoff' }
   }
   if (!reply && !greeting && !modelOnly && proposals.length) {
     await guard()
@@ -220,9 +251,9 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const collectingVisit = visitDraft?.status === 'collecting'
     const canRequestVisit = !modelOnly && !asksVisitStatus(current) && !repair && !isCourtesyOnly(current)
       && (explicitlyRequestsVisit(current) || collectingVisit || acceptsVisitInvitation(current, text(state.ultima_respuesta)))
-    if (canRequestVisit && acceptsVisitInvitation(current, text(state.ultima_respuesta))) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
+    if (canRequestVisit && (explicitlyRequestsVisit(current) || acceptsVisitInvitation(current, text(state.ultima_respuesta)))) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
     if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
-    const priceTurn = asksUnitPrice(current)
+    const priceTurn = asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
     const financeTurn = !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)
     if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
     await guard()
@@ -263,25 +294,25 @@ export async function processConversation(rows: Row[], guard: Guard) {
         || (canRequestVisit && visitDraft?.status === 'collecting' && !financeTurn
           && (isVisitDetail(current) || needsVisitHelp(current)))
       if (!visitRequested && (extracted.requested_advisor || fin.ready_for_handoff === true)) {
-        await guard()
-        await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: extracted.requested_advisor ? 'pidió hablar con un asesor' : 'información lista para revisión' })
-        lead = await one('leads', text(lead.id))
-        if (!['queued', 'assigned', 'acknowledged'].includes(text(lead.handoff_status))) throw new Error('HANDOFF_NOT_RECORDED')
-        const { error } = await db().from('leads').update({ bot_enabled: false }).match(scope).eq('id', lead.id)
-        if (error) throw new Error('HANDOFF_PAUSE_FAILED')
-        await setKommoField(last.kommoId, 451530, 'true')
-        reply = lead.handoff_status === 'queued' ? 'Su solicitud quedó en espera de un asesor de nuestro equipo.' : 'Un asesor de nuestro equipo continuará con su atención.'
-        finalNotice = true
+        reply = await transferToAdvisor(extracted.requested_advisor ? 'pidió hablar con un asesor' : 'información lista para revisión')
+        audit = { source: 'advisor_handoff' }
       } else if (visitRequested) {
         await guard()
-        const result = object(await rpc('lv_collect_visit_intake', { p_lead: lead.id, p_message: activeLast.externalId,
-          p_needs_help: extracted.visit_needs_help === true || needsVisitHelp(current) }))
-        reply = intakeReply(result)
-        if (priceTurn) {
-          const quote = unitPriceQuote({ ...await commercialContext(lead, context.historial), financiamiento: finance, referencia_unidad: reference }, current, summary)
+        const visitInfo = await commercialContext(lead, context.historial)
+        const quote = priceTurn ? unitPriceQuote({ ...visitInfo, alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
+        if (quote?.needsAdvisor) {
+          reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita')
+          audit = { source: 'price_and_visit_handoff' }
+        } else {
+          const result = object(await rpc('lv_collect_visit_intake', { p_lead: lead.id, p_message: activeLast.externalId,
+            p_needs_help: extracted.visit_needs_help === true || needsVisitHelp(current) }))
+          reply = intakeReply(result)
+          const overview = projectOverviewReply(visitInfo, current)
+          if (overview) reply = overview + ' ' + reply
           if (quote) reply = quote.reply.replace(/\s*¿[^?]+\?\s*$/, '') + ' ' + reply
+          audit = { source: 'visit_intake', action: result.action, preference: result.slot }
         }
-        audit = { source: 'visit_intake', action: result.action, preference: result.slot }
+        if (wantsBrochure(current, context.historial)) reply += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
       } else if (financeAnswer) {
         reply = financeAnswer
         audit = { source: 'financing_question' }
@@ -291,12 +322,13 @@ export async function processConversation(rows: Row[], guard: Guard) {
       }
       else {
         const model = unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
-        const info = { ...await commercialContext(lead, context.historial), propuestas: proposals,
+        const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, propuestas: proposals,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
           referencia_unidad:reference, archivos_no_leidos:inbound.mediaErrors,
-          modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true } : null }
+          modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true, modelo_especifico_disponible: model.model_available, texto_de_entrega: model.caption } : null }
         const generated = await commercialReply(info, current, summary, guard)
-        reply = appendUnitModel(generated.reply, model); audit = generated.audit
+        audit = generated.audit
+        reply = audit.requires_advisor === true ? await transferToAdvisor(text(audit.handoff_reason)) : appendUnitModel(generated.reply, model)
         if (model && reply.includes(model.url)) audit = { ...audit, unit_model: model }
       }
     }
@@ -306,6 +338,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const info = await commercialContext(lead, context.historial)
     if (info.modo_comercial === 'lanzamiento') reply = launchVisitReply(reply, object(info.politica_visitas).launchDestination === 'office' ? 'office' : 'site')
   }
+  if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
   reply = naturalConversationReply(variedReplyOpening(reply, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
   if (!reply.trim() || reply.length > 1500) throw new Error('EMPTY_OR_LONG_REPLY')
   const conversationId = text(inbound.registration.conversation_id)
@@ -345,7 +378,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)
   // A scheduling failure must not mark an already accepted reply as uncertain.
   let nutrition: Row
-  try { nutrition = await scheduleNutrition24h(text(lead.id), conversationId, activeLast.externalId) }
+  try { nutrition = businessScope.kind === 'out_of_scope' || businessScope.uncertain ? { scheduled: false, reason: 'outside_property_conversation' } : await scheduleNutrition24h(text(lead.id), conversationId, activeLast.externalId) }
   catch { nutrition = { scheduled: false, reason: 'schedule_failed' } }
   return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError, nutrition }
 }

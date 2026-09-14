@@ -4,7 +4,7 @@ import { db, object, scope, text, type Row } from './data'
 import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
 import type { Guard } from './visits'
 import { NATURAL_CONVERSATION_RULES, conversationalFirstName } from './conversation-style'
-import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, experienceContext, experienceIssues, PROJECT_POSITIONING, turnWritingRules } from './commercial-experience'
+import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, experienceContext, experienceIssues, PROJECT_POSITIONING, turnWritingRules, unresolvedCommercialReply, projectOverviewReply } from './commercial-experience'
 import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { unitModelRequestReply } from './unit-model'
@@ -16,6 +16,7 @@ import { priceFinancingReply } from './financing'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
+import { unitRecommendation } from './unit-recommendation'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -55,7 +56,7 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
-  const offTopic = vehicleScopeReply(current, info.historial)
+  const offTopic = ['property', 'mixed'].includes(text(info.alcance_negocio)) ? '' : vehicleScopeReply(current, info.historial)
   if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
   const material = brochureReply(current, info.historial, text(info.modo_comercial))
   if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
@@ -72,12 +73,15 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true, unidades_cotizadas: quote?.units }, current, summary)
   const finish = (reply: string, audit: Row) => {
+    if (quote?.needsAdvisor || unresolvedCommercialReply(reply)) return { reply, audit: { ...audit, requires_advisor: true, handoff_reason: quote?.needsAdvisor ? 'precio por verificar' : 'consulta sin respuesta verificada' } }
     // Safe fallbacks must obey the same stopping rule as generated drafts.
     let answer = plan.action !== 'discover' ? reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || reply : reply
     if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
     if (attachBrochure && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
     return { reply: answer + (plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''), audit: { ...audit, ...(attachBrochure ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics } }
   }
+  const overview = projectOverviewReply(info, current)
+  if (overview && !/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|constructora|entrega|ubicacion|sector|alrededor|cerca/i.test(current)) return finish(overview + `\n\nAquí puede conocer la propuesta con más detalle: ${BROCHURE_URL}`, { source: 'project_overview', brochure_sent: true, fallback: false })
   const mediaExplanation = mediaClarificationReply(current)
   if (mediaExplanation) return {reply:mediaExplanation,audit:{source:'media_clarification',rewritten:false,review_reasons:[],fallback:false}}
   if (fabricatedActionRequest(current)) return {reply:'Para confirmarle una cita o una reserva, primero debe quedar registrada y aprobada en el sistema. Puedo ayudarle a coordinarla.',audit:{source:'action_not_recorded',rewritten:false,review_reasons:[],fallback:false}}
@@ -88,7 +92,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   if (!quote && info.posicionamiento_proyecto && !/precio|metros|tama[nñ]o|qu[eé] (?:ofrece|incluye)|[mM]²/i.test(current) && /constructora|qui[eé]n(?:es)?[^?\n]*(?:constru|hizo|hace|hicieron|hacen)/i.test(current)) {
     const ownerToo = /due[nñ]o|propietario/i.test(current)
-    return {reply:'La constructora del proyecto es Agmen.' + (ownerToo ? ' El nombre del propietario no lo tengo confirmado.' : ''), audit:{source:'project_builder',rewritten:false,review_reasons:[],fallback:false}}
+    return {reply:'La constructora del proyecto es Agmen.' + (ownerToo ? ' El nombre del propietario no lo tengo confirmado.' : ''), audit:{source:'project_builder',rewritten:false,review_reasons:[],fallback:false, ...(ownerToo ? { requires_advisor: true, handoff_reason: 'confirmar propietario' } : {})}}
   }
   const reference = object(info.referencia_unidad)
   const matches = Array.isArray(reference.matches) ? reference.matches.map(object)
@@ -101,7 +105,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     return { reply: alreadyHelped ? 'Está bien, puede definirlo con calma. Por ahora podemos revisar qué opción se adapta a sus necesidades, sin fijar todavía un presupuesto.' : 'Podemos orientarle partiendo de una entrada y una cuota mensual con las que se sienta cómodo, sin comprometerse todavía. ¿Le ayudaría revisar las opciones de financiamiento?', audit: { source: 'budget_guidance', fallback: false } }
   }
   const unitReply = catalogReferenceReply(matches, current)
-  if (unitReply && !quote) return {reply:unitReply, audit:{source:'catalog_reference',rewritten:false,review_reasons:[],fallback:false}}
+  if (unitReply && !quote) return finish(unitReply, {source:'catalog_reference',rewritten:false,review_reasons:[],fallback:false})
+  const recommendation = !quote ? unitRecommendation(info, current, summary) : null
+  if (recommendation) return finish(recommendation.reply, recommendation.audit)
   if (info.posicionamiento_proyecto && /asegur|garanti/i.test(current) && /precio|rentab|subir|plusval|valori/i.test(current)) {
     return { reply: 'La ubicación en Puertas del Sol es parte del atractivo para invertir. Podemos comparar las opciones según sus objetivos, pero no podemos garantizar que el precio suba ni una rentabilidad futura.', audit: { source: 'investment_expectations', rewritten: false, review_reasons: [], fallback: false } }
   }
@@ -112,18 +118,21 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + (info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
-    + '\nEl campo modelo_3d indica si el sistema adjuntará el recorrido de la unidad en ESTA respuesta. Si está presente, responda la consulta brevemente sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces de modelos: el sistema añade el enlace verificado. Si no hay modelo_3d no prometa enviar un modelo. No confunda este recorrido con una cita presencial.'
+    + '\nEl campo modelo_3d indica que se adjunta material en ESTA respuesta. Si modelo_especifico_disponible=false, es una ficha de la unidad con referencia general del proyecto: no describa la geometría como si fuera la unidad solicitada. Si está presente, responda en menos de 850 caracteres sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces: el sistema añade texto_de_entrega. Si no hay modelo_3d no prometa enviar un modelo. No confunda este material con una cita presencial.'
   const reasons: string[] = []
   let reply = variedReplyOpening(await draftReply(prompt + rules, input), info.historial)
   // One bounded rewrite; rejected drafts never reach Kommo.
   for (let attempt = 0; attempt < 2; attempt++) {
     await guard()
-    const review = await aiJson(reviewer + rules, { ...input, respuesta: reply }, reviewSchema)
+    const review = await aiJson(reviewer + rules + '\nDevuelva además requiere_asesor=true SOLO si una pregunta inmobiliaria concreta no puede resolverse con los hechos del contexto y debe verificarla el equipo. No lo active por estilo, una preferencia aún sin elegir, preguntas sobre otros negocios, ni enlaces o agenda que el sistema adjunta/procesa. Tampoco por falta de una fecha de entrega: puede explicar que aún no se ha definido. Si hay datos suficientes, corrija el borrador en vez de derivar.', { ...input, respuesta: reply }, reviewSchema)
+    if (review.requiere_asesor === true) return { reply: '', audit: { source: 'verified_information_gap', requires_advisor: true, handoff_reason: 'consulta inmobiliaria que requiere información del equipo', fallback: false } }
     const issues = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan), ...priceReplyIssues(reply, info, current, quote?.prices)]
     if (quote?.quoted && !/\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares)/i.test(reply)) issues.push('ignored_question')
     if (quote?.quoted && !quote.financingOffer && !mentionsFinancing(current) && mentionsFinancing(reply)) issues.push('repeated_question')
     if (reply.trim() === text(object(info.conversacion).ultima_respuesta).trim() && !/rep[ií]t|repita|otra vez|no entend[ií]/i.test(current)) issues.push('repeated_question')
-    if (review.aprobada === true && !issues.length) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false })
+    const reviewIssues = Array.isArray(review.motivos) ? review.motivos.map(text) : []
+    const onlyStyle = attempt > 0 && reply.length <= 900 && reviewIssues.length > 0 && reviewIssues.every(reason => ['style', 'missing_next_step'].includes(reason)) && issues.every(reason => reason === 'style')
+    if ((review.aprobada === true && !issues.length) || onlyStyle) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ...(onlyStyle ? { style_review_only: true } : {}) })
     reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number])) as string[] : []))
     if (!attempt) {
       await guard()

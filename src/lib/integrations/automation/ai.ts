@@ -1,5 +1,5 @@
 import 'server-only'
-import { object, text, rpc, scope, type Row } from './data'
+import { object, text, rpc, db, scope, type Row } from './data'
 import type { Inbound } from './webhook'
 import { downloadMedia } from './media-download'
 import { audioExtensions } from './media-format'
@@ -34,10 +34,22 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
 }
 
 export async function activePrompt(name: string) {
+  const at = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date())
   const p = object(await rpc('get_active_prompt', { p_tenant_id: scope.tenant_id, p_project_id: scope.project_id,
-    p_name: name, p_channel: 'whatsapp', p_at: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date()) }))
-  if (!text(p.content).trim()) throw new Error(`PROMPT_MISSING_${name}`)
-  return text(p.content)
+    p_name: name, p_channel: 'whatsapp', p_at: at }))
+  if (text(p.content).trim()) return text(p.content)
+  // The editor maintains one active instruction per name. Its historical mode
+  // tag must not silence the bot after moving to preventa: commercial policies
+  // come from the current project context. Never mask an RPC/database failure.
+  const { data, error } = await db().from('agent_prompts').select('content')
+    .match(scope).eq('name', name).eq('is_active', true).contains('channel', ['whatsapp'])
+    .or(`valid_from.is.null,valid_from.lte.${at}`).or(`valid_until.is.null,valid_until.gte.${at}`)
+    .limit(2).abortSignal(AbortSignal.timeout(10_000))
+  if (error) throw new Error(`PROMPT_LOOKUP_FAILED_${name}`)
+  if (data && data.length > 1) throw new Error(`PROMPT_AMBIGUOUS_${name}`)
+  const content = text(object(data?.[0]).content)
+  if (!content.trim()) throw new Error(`PROMPT_MISSING_${name}`)
+  return content
 }
 
 export async function draftReply(prompt: string, context: unknown) {

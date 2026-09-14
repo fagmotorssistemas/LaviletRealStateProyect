@@ -2,7 +2,7 @@ import { object, text, type Row } from './data'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { normalized } from './sdr-rules'
 import { isUnitVisualRequest } from './unit-visual-request'
-import { salesSubject } from './sales-subject'
+import { isPropertyScopeRedirect, salesSubject } from './sales-subject'
 
 const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
 const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
@@ -29,15 +29,18 @@ export function salesMemory(previous: unknown, history: unknown) {
   const saved = object(previous)
   const messages = rows(history)
   let invited = saved.visit_invited === true, declined = saved.visit_declined === true, last = ''
-  // Repair older memory that counted credit for a vehicle as mortgage guidance.
+  const unrelatedClientTurn = (row: Row, index: number) => row.role === 'cliente' && (
+    salesSubject(text(row.content), messages.slice(0, index)).subject === 'vehicle'
+    || isPropertyScopeRedirect(text(messages.slice(index + 1).find(next => ['bot', 'asesor'].includes(text(next.role)))?.content)))
+  // Repair older memory that counted credit for another service as mortgage guidance.
   const wrongScope = messages.some((row, index) => row.role === 'cliente' && mentionsFinancing(text(row.content))
-    && salesSubject(text(row.content), messages.slice(0, index)).subject === 'vehicle')
+    && unrelatedClientTurn(row, index))
   let financingMentioned = saved.financing_mentioned === true && !wrongScope
   let unitsOffered = saved.unit_options_offered === true
   for (const [index, row] of messages.entries()) {
     const content = text(row.content)
     if (['cliente', 'bot', 'asesor'].includes(text(row.role)) && mentionsFinancing(content)
-      && salesSubject(content, messages.slice(0, index)).subject !== 'vehicle') financingMentioned = true
+      && !unrelatedClientTurn(row, index) && salesSubject(content, messages.slice(0, index)).subject !== 'vehicle') financingMentioned = true
     if (['bot', 'asesor'].includes(text(row.role))) {
       last = content
       if (invitation(content)) invited = true
@@ -72,14 +75,18 @@ export function salesPlan(info: Row, current: string, summary: Row) {
     || object(info.coordinacion_visita).status === 'collecting'
   const refuses = /no (?:quiero|deseo|necesito|me interesa).*(?:visita|cita)|solo (?:quiero )?(?:informacion|ver|saber)/.test(m)
   const model = object(info.modelo_3d).se_adjunta_en_esta_respuesta === true
-  const sawModel = /\/tour\/modelo-3d\/|\b3D\b/.test(last)
+  const sawModel = /\/tour\/(?:modelo-3d|unidad)\/|\b3D\b/.test(last)
   const topics = salesTopics(current)
   const hasUnit = rows(object(info.referencia_unidad).matches).length === 1
-  const signal = info.precio_cotizado === true || model || (positive(current) && (sawModel || hasUnit)) || (topics.includes('reventa') && topics.length > 1)
+  const concreteInterest = /(?:me interesa|busco|quiero|quisiera).*(?:departamento|suite|vivienda|local)/.test(m)
+    && (hasUnit || /\b[123] (?:dormitorios|habitaciones|personas)|pisos? altos?|terraza/.test(m))
+  const signal = info.precio_cotizado === true || model || concreteInterest || (positive(current) && (sawModel || hasUnit)) || (topics.includes('reventa') && topics.length > 1)
   const policy = object(info.politica_visitas)
   const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
   const invite = visits.allowSuggestions && signal && !pendingVisit && !refuses && !memory.visit_invited && !memory.visit_declined
-  const offerUnits = !invite && info.precio_cotizado === true && !pendingVisit && !model && !memory.unit_options_offered
+  // An old offer must not block a useful next step after the client starts a new search.
+  const recentUnitOffer = replies.slice(-2).some(row => /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(text(row.content))))
+  const offerUnits = !invite && info.precio_cotizado === true && !pendingVisit && !model && (!memory.unit_options_offered || (replies.length >= 3 && !recentUnitOffer))
     && !/solo (?:quiero )?(?:el )?precio|no (?:quiero|deseo|necesito).*(?:ver|opcion|modelo|distribucion)/.test(m) && !isUnitVisualRequest(current)
   const quoted = rows(info.unidades_cotizadas)
   const unitClosing = quoted.length === 1

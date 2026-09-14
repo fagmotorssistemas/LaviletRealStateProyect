@@ -40,7 +40,7 @@ export function wantsBrochure(current: string, history: unknown = []) {
 
 export function brochureReply(current: string, history: unknown, mode: string) {
   if (!wantsBrochure(current, history)) return ''
-  if (/precio|cuesta|financ|credito|entrega|cuando|fecha|dormitorio|sector|ubicacion|\b\d{3}\b|foto|modelo|plano/.test(normalized(current))) return ''
+  if (/precio|cuesta|financ|credito|entrega|cuando|fecha|dormitorio|sector|ubicacion|\b\d{3}\b|foto|modelo|plano|visita|cita|agendar/.test(normalized(current))) return ''
   const launch = mode === 'lanzamiento'
   return launch
     ? `Le comparto el brochure para que pueda conocer la propuesta y sus espacios. Las imágenes muestran cómo está previsto el proyecto; todavía no hay departamentos construidos.\n\n${BROCHURE_URL}`
@@ -49,7 +49,7 @@ export function brochureReply(current: string, history: unknown, mode: string) {
 
 export function launchVisitReply(reply: string, destination: 'site' | 'office') {
   const place = destination === 'office' ? 'nuestra oficina, en la dirección del proyecto' : 'el terreno donde se construirá La Vilet'
-  if (/¿Qué día y a qué hora le gustaría venir\?/.test(reply)) return `Podemos recibirle en ${place}. ¿Qué día y a qué hora le gustaría venir?`
+  if (/¿Qué día y a qué hora le gustaría venir\?/.test(reply)) return reply.replace('¿Qué día y a qué hora le gustaría venir?', `Podemos recibirle en ${place}. ¿Qué día y a qué hora le gustaría venir?`)
   return reply
 }
 

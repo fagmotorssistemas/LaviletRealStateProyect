@@ -1,0 +1,33 @@
+.page { min-height: 100vh; background: #f5f3ee; color: #23362f; padding: 0 24px 48px; }
+.header { max-width: 1060px; margin: auto; min-height: 88px; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 1px solid #d9ddd4; font-size: 12px; color: #57665d; }
+.brand { color: #23362f; font-family: var(--font-bodoni), Georgia, serif; font-size: 28px; letter-spacing: .12em; text-decoration: none; }
+.content { max-width: 920px; margin: 0 auto; }
+.intro { padding: 56px 0 32px; max-width: 690px; }
+.eyebrow { font-size: 11px; letter-spacing: .18em; font-weight: 700; color: #647b62; margin-bottom: 14px; }
+.intro h1, .unavailable h1 { font-family: var(--font-bodoni), Georgia, serif; font-size: clamp(34px, 6vw, 58px); line-height: 1.1; margin-bottom: 18px; }
+.intro p:last-child { color: #5a675f; font-size: 16px; line-height: 1.7; }
+.card { background: #fff; border: 1px solid #e1e4dc; border-radius: 18px; padding: 28px; margin-bottom: 22px; }
+.cardHeading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 22px; }
+.card h2, .next h2 { font-size: 23px; font-family: var(--font-cormorant), Georgia, serif; font-weight: 600; }
+.cardHeading span { font-size: 11px; border-radius: 100px; background: #edf2e9; padding: 7px 11px; color: #486241; }
+.specs { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 24px; margin-bottom: 28px; }
+.specs dt { color: #67736c; font-size: 12px; margin-bottom: 6px; }
+.specs dd { font-size: 24px; font-weight: 500; letter-spacing: -.03em; }
+.spaces { border-top: 1px solid #e5e8e1; padding-top: 20px; }
+.spaces summary, .example summary { cursor: pointer; font-size: 14px; font-weight: 500; }
+.spaces summary:focus-visible, .example summary:focus-visible, .primary:focus-visible, .brand:focus-visible { outline: 2px solid #637c52; outline-offset: 5px; }
+.spaces ul { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin-top: 18px; padding: 0; }
+.spaces li { font-size: 13px; padding: 7px 11px; border-radius: 6px; background: #f5f5f1; }
+.card > p, .example > p { font-size: 14px; line-height: 1.7; color: #5a675f; }
+.notice { border-left: 3px solid #a5b995; padding: 0 0 0 16px; margin-bottom: 22px; }
+.example { border: 1px solid #dfe5d9; border-radius: 10px; padding: 18px; }
+.example > p { margin: 18px 0; }
+.viewer { width: 100%; height: clamp(420px, 65vh, 720px); border: 0; margin-top: 20px; border-radius: 10px; background: #f4f4ee; }
+.next { background: #e9eee3; padding: 26px 28px; border-radius: 18px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.next p { font-size: 13px; line-height: 1.6; color: #57694f; margin-top: 5px; }
+.primary { display: inline-flex; align-items: center; justify-content: center; gap: 18px; color: white; background: #2c4437; border-radius: 7px; padding: 13px 18px; font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; }
+.primary:hover { background: #405e4c; }
+.footer { max-width: 570px; text-align: center; font-size: 12px; line-height: 1.8; margin: 28px auto; color: #6f796e; }
+.unavailable { max-width: 640px; margin: 0 auto; padding-top: 18vh; }
+.unavailable p:not(.eyebrow) { line-height: 1.8; color: #64715e; margin-bottom: 26px; }
+@media (max-width: 560px) { .page { padding: 0 16px 30px; } .header { min-height: 74px; } .header span { max-width: 120px; text-align: right; line-height: 1.5; } .brand { font-size: 23px; } .intro { padding-top: 38px; } .card { padding: 22px 18px; } .specs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 14px; } .specs dd { font-size: 21px; } .next { align-items: stretch; flex-direction: column; padding: 23px; gap: 18px; } .example { padding: 14px; } }

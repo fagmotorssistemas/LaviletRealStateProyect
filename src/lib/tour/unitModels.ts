@@ -1,6 +1,7 @@
 /** Models reviewed against the published inventory; never infer another floor's geometry. */
 export const UNIT_MODEL_PATH = '/tour/modelo-3d/segunda-planta.html'
 export const UNIT_MODEL_ORIGIN = 'https://www.lavilett.com'
+export const UNIT_REFERENCE_PATH = '/tour/unidad'
 export const UNIT_MODELS = [
   { number: '201', id: 'a88ce32b-4f7d-4dbd-8c3d-bfcd7b8ac485' },
   { number: '202', id: 'af29eae0-658d-432a-9ea0-eba48deb89ce' },
@@ -20,4 +21,15 @@ export function unitModelUrl(unit: Record<string, unknown>) {
   if (!model || !['suite', 'departamento'].includes(String(unit.category))
     || unit.is_published === false || (unit.status && unit.status !== 'disponible')) return null
   return `${UNIT_MODEL_ORIGIN}${UNIT_MODEL_PATH}?unidad=${model.number}`
+}
+
+/** The public reference revalidates publication and project ownership on every visit. */
+export function unitReferenceUrl(unit: Record<string, unknown>) {
+  const model = unitModelUrl(unit)
+  if (model) return model
+  if (!['suite', 'departamento'].includes(String(unit.category))
+    || unit.is_published === false || (unit.status && unit.status !== 'disponible')
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(unit.id))
+    || !/^\d{3,4}$/.test(String(unit.unit_number))) return null
+  return `${UNIT_MODEL_ORIGIN}${UNIT_REFERENCE_PATH}/${unit.id}`
 }

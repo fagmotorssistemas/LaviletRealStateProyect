@@ -7,8 +7,8 @@ import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 import { purchasePriceQuestion, salesSubject } from './sales-subject'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
-export const asksUnitPrice = (value: string) => purchasePriceQuestion(value)
-  && salesSubject(value).subject !== 'vehicle'
+export const asksUnitPrice = (value: string, propertyScope = false) => purchasePriceQuestion(value)
+  && (propertyScope || salesSubject(value).subject !== 'vehicle')
   && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(normalized(value))
 
 // Preserve the stated amount; a low budget is an opportunity to offer guidance,
@@ -33,10 +33,10 @@ function variant(options: string[], history: unknown) {
 // Price facts always come from this turn's authorized catalog. A media reference or
 // conversation summary identifies a unit but never authorizes disclosing its price.
 export function unitPriceQuote(info: Row, current: string, summary: Row) {
-  if (!asksUnitPrice(current)) return null
+  if (!asksUnitPrice(current, ['property', 'mixed'].includes(text(info.alcance_negocio)))) return null
   const policy = object(info.politica_comercial), m = normalized(current)
   if (policy.precios_autorizados !== true) return {
-    reply: 'El asesor puede ayudarle a conocer el valor de la opción que le interesa.', quoted: false,
+    reply: '', quoted: false, needsAdvisor: true,
   }
   const catalog = rows(info.catalogo)
   const topic = salesSubject(current, info.historial)
@@ -48,20 +48,20 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   const reference = object(info.referencia_unidad)
   const referenceIds = rows(reference.matches).map(unit => unit.id)
   const savedIds = rows(catalog).filter(unit => (Array.isArray(object(summary._unit_reference).ids) ? object(summary._unit_reference).ids as unknown[] : []).includes(unit.id)).map(unit => unit.id)
+  const remembered = resolved.matches.length ? resolved.matches : catalog.filter(unit => (referenceIds.length ? referenceIds : savedIds).includes(unit.id))
   let selected: Row[]
   if (resolved.hasUnitMention || reference.hasUnitMention === true) selected = resolved.matches
   else if (category || bedrooms) selected = catalog.filter(unit => (!category || matchesCategory(unit, category)) && (!bedrooms || Number(unit.bedrooms) === Number(bedrooms[1])))
-  else if (resolved.matches.length || referenceIds.length || savedIds.length) {
-    const ids = resolved.matches.length ? resolved.matches.map(unit => unit.id) : referenceIds.length ? referenceIds : savedIds
-    selected = catalog.filter(unit => ids.includes(unit.id))
+  else if (remembered.length && (!topic.category || remembered.every(unit => matchesCategory(unit, topic.category!)))) {
+    selected = remembered
   } else {
-    const preferred = text(object(info.lead).preferred_category) || topic.category || ''
-    const preferredBedrooms = Number(object(info.lead).preferred_bedrooms)
+    const preferred = topic.category || text(object(info.lead).preferred_category) || ''
+    const preferredBedrooms = preferred === 'local' ? 0 : Number(object(info.lead).preferred_bedrooms)
     selected = preferred ? catalog.filter(unit => matchesCategory(unit, preferred) && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
     if (!preferred) return { reply: '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false }
   }
   const priced = selected.filter(unit => Number.isFinite(Number(unit.published_commercial_price)) && Number(unit.published_commercial_price) > 0)
-  if (!priced.length) return { reply: 'Podemos consultar con el asesor el valor de esa opción para darle una cifra precisa.', quoted: false }
+  if (!priced.length) return { reply: '', quoted: false, needsAdvisor: true }
   const money = (value: unknown) => '$' + Number(value).toLocaleString('es-EC', { maximumFractionDigits: 2 })
   const unitName = (unit: Row) => `${unit.category === 'local' ? 'local' : unit.category === 'suite' ? 'suite' : 'departamento'} ${text(unit.unit_number)}`
   const approximate = policy.precios_aproximados === true

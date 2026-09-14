@@ -31,6 +31,123 @@ const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
 
+test('financing for an unrelated service does not suppress property financing guidance', () => {
+  const { salesMemory } = require('../src/lib/integrations/automation/sales-policy.ts')
+  const memory = salesMemory({ financing_mentioned: true }, [
+    { role: 'cliente', content: 'Quiero financiar el vuelo' },
+    { role: 'bot', content: 'Lo siento, no somos una agencia de viajes. Somos La Vilet, un proyecto inmobiliario.' },
+    { role: 'cliente', content: 'Oh entiendo, ¿cuánto valen los departamentos?' },
+  ])
+  assert.equal(memory.financing_mentioned, false)
+})
+
+test('unrelated business requests bypass pending property appointments, financing and handoff', async t => {
+  live(t)
+  for (const current of ['Revisa mi vuelo de mañana', 'Agenda una limpieza dental', 'Quiero alquilar una moto', '¿Cuánto cuesta reparar mi celular?']) {
+    const h = conversationHarness({ businessScope: { kind: 'out_of_scope', property_message: '', reply: 'Lo siento, no ofrecemos ese servicio. Somos La Vilet, un proyecto inmobiliario.', uncertain: false },
+      visitDraft: { status: 'collecting' }, proposals: [{ id: 'visit', status: 'awaiting_client' }], extracted: { requested_advisor: true, events: ['requested_visit', 'asked_financing'] } })
+    h.rows[0].payload.text = current; h.rows[1].payload.text = ''
+    const result = await h.process(h.rows, async () => {})
+    assert.equal(result.source, 'business_out_of_scope')
+    assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+    assert.equal(h.calls.some(c => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2', 'apply_lead_events'].includes(c.name)), false)
+  }
+})
+
+test('mixed bookings reach an advisor without feeding the flight date to the SQL appointment parser', async t => {
+  live(t)
+  const h = conversationHarness({ businessScope: { kind: 'mixed', property_message: 'Quiero visitar La Vilet', reply: 'Lo siento, no gestionamos reservas de vuelos. Somos un proyecto inmobiliario.', uncertain: false } })
+  h.rows[0].payload.text = 'Cambia mi vuelo al martes a las 9. Quiero visitar La Vilet'; h.rows[1].payload.text = ''
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.source, 'mixed_visit_handoff')
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+  assert.equal(h.calls.some(c => c.name === 'lv_collect_visit_intake'), false)
+  assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /no gestionamos reservas.*[\s\S]*bandeja/)
+})
+
+test('details plus permission to visit answers both even when the extractor misses the event', async t => {
+  live(t)
+  const h = conversationHarness({ commercialInfo: { modo_comercial: 'lanzamiento', posicionamiento_proyecto: {}, politica_visitas: { allowSuggestions: false, launchDestination: 'office' } }, extracted: { events: [] } })
+  h.rows[0].payload.text = 'Deme detalles del proyecto'; h.rows[1].payload.text = 'Y puedo hacer una visita?'
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.source, 'visit_intake')
+  const reply = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
+  assert.match(reply, /La Vilet.*Puertas del Sol/)
+  assert.match(reply, /construcción aún no ha comenzado/)
+  assert.match(reply, /oficina.*Qué día/)
+  assert.equal((reply.match(/\?/g) || []).length, 1)
+  assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false)
+})
+
+test('unanswerable property questions actually enqueue an advisor and pause the bot before acknowledging', async t => {
+  live(t)
+  const h = conversationHarness({ commercialResult: { reply: '', audit: { requires_advisor: true, handoff_reason: 'dato no disponible' } } })
+  h.rows[0].payload.text = '¿Cuál es el número de licencia urbanística?'; h.rows[1].payload.text = ''
+  await h.process(h.rows, async () => {})
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+  assert.match(h.calls.find(c => c.name === 'handoff_lead').args.p_reason, /licencia urbanística/)
+  assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === false))
+  assert.ok(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530 && c.args[2] === 'true'))
+  assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /bandeja del equipo/)
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+})
+
+test('a failed handoff never tells the lead that an advisor was assigned', async t => {
+  live(t)
+  const h = conversationHarness({ handoffFails: true, commercialResult: { reply: '', audit: { requires_advisor: true } } })
+  h.rows[0].payload.text = '¿Cuál es el número de licencia urbanística?'; h.rows[1].payload.text = ''
+  await assert.rejects(() => h.process(h.rows, async () => {}), /HANDOFF_NOT_RECORDED/)
+  assert.equal(h.calls.some(c => c.name === 'launch' || c.name === 'register_outbound_message'), false)
+})
+
+test('current commercial category ignores stale housing bedroom and unit preferences when quoting locals', () => {
+  const { unitPriceQuote } = require('../src/lib/integrations/automation/price-reply.ts')
+  const info = { ...priceInfo(), catalogo: [...priceCatalog.filter(u => u.category !== 'local'), { id: 'local', unit_number: 'LC-05', category: 'local', published_commercial_price: 420000, bedrooms: null }],
+    lead: { preferred_category: 'departamento', preferred_bedrooms: 3 }, historial: [{ role: 'cliente', content: 'Quiero invertir en un local comercial' }] }
+  const quote = unitPriceQuote(info, 'Qué precios tienen?', { _unit_reference: { ids: ['u502'] } })
+  assert.equal(quote.quoted, true)
+  assert.match(quote.reply, /local LC-05.*420[.,]000/)
+  assert.doesNotMatch(quote.reply, /departamento|dormitorios/)
+})
+
+test('semantic property scope survives vehicle words for a commercial business', async () => {
+  const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
+  const info = { ...priceInfo(), alcance_negocio: 'property', catalogo: [{ id: 'local', unit_number: 'LC-05', category: 'local', published_commercial_price: 310000 }] }
+  const result = await commercialReply(info, 'Quiero un local para vender motos, qué precio tiene?', {}, async () => {})
+  assert.match(result.reply, /local LC-05.*310[.,]000/)
+  assert.doesNotMatch(result.reply, /no vendemos|vehículos/)
+})
+
+test('a brochure request plus visit still coordinates and includes the actual brochure', async t => {
+  live(t)
+  const h = conversationHarness({ commercialInfo: { modo_comercial: 'lanzamiento', politica_visitas: { allowSuggestions: false, launchDestination: 'office' } } })
+  h.rows[0].payload.text = 'Envíeme el brochure'; h.rows[1].payload.text = 'y puedo hacer una visita?'
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.source, 'visit_intake')
+  assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /oficina.*[\s\S]*brochure-la-vilet-v5\.pdf/)
+})
+
+test('missing price plus visit transfers the whole question instead of discarding the price request', async t => {
+  live(t)
+  const h = conversationHarness({ commercialInfo: { ...priceInfo(), politica_comercial: { precios_autorizados: false } } })
+  h.rows[0].payload.text = '¿Cuánto vale el local 05?'; h.rows[1].payload.text = '¿Puedo hacer una visita?'
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.source, 'price_and_visit_handoff')
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+  assert.match(h.calls.find(c => c.name === 'handoff_lead').args.p_reason, /precio.*visita/)
+  assert.equal(h.calls.some(c => c.name === 'lv_collect_visit_intake'), false)
+})
+
+test('an unrelated question mixed with known price does not pause the bot because of an old appointment', async t => {
+  live(t)
+  const h = conversationHarness({ businessScope: { kind: 'mixed', property_message: 'Dígame el precio del 502', reply: 'Lo siento, no gestionamos reservas de vuelos. Somos un proyecto inmobiliario.', uncertain: false },
+    proposals: [{ id: 'visit', status: 'confirmed' }], commercialInfo: priceInfo(), realCommercial: true, catalog: priceCatalog })
+  h.rows[0].payload.text = 'Revisa mi vuelo y dígame el precio del 502'; h.rows[1].payload.text = ''
+  await h.process(h.rows, async () => {})
+  assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false)
+  assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /310[.,]000/)
+})
+
 const nutritionRules = require('../src/lib/inmobiliaria/nutrition24h.ts')
 const nutritionContext = require('../src/lib/integrations/automation/nutrition-context.ts')
 const nutritionHours = Object.fromEntries([1, 2, 3, 4, 5, 6].map(day => [day, { open: day === 6 ? '09:30' : '08:30', close: day === 6 ? '13:30' : '18:30' }]))
@@ -782,6 +899,7 @@ function conversationHarness(options = {}) {
     return q
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
+    './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }) },
     './nutrition': { scheduleNutrition24h: async () => ({ scheduled: false, reason: 'test' }) },
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
       one: async table => table === 'conversations' ? { ...scope, lead_id: 'lead', summary: options.summary } : lead,
@@ -795,12 +913,13 @@ function conversationHarness(options = {}) {
         if (name === 'lv_collect_visit_intake') return options.intake || { action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
         if (name === 'lv_intake_visit_once') return 'appointment'
         if (name === 'process_financing_message_v2') return typeof options.financing === 'function' ? options.financing(args) : options.financing || { active: false }
+        if (name === 'handoff_lead') { if (!options.handoffFails) lead.handoff_status = 'queued'; return {} }
         return {}
       },
     },
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
     './sdr': { publishedUnitCatalog: async () => options.catalog || [], commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
-      commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.realCommercial ? require('../src/lib/integrations/automation/sdr.ts').commercialReply(info, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } } } },
+      commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? require('../src/lib/integrations/automation/sdr.ts').commercialReply(info, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error('MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
@@ -1260,7 +1379,7 @@ test('two rejected drafts offer clarification without copying claims or an unrel
   } })
   const result = await commercialReply({ siguiente_pregunta: { question: '¿Qué tamaño aproximado busca?' } }, 'Una cafetería', {}, async () => {})
   assert.equal(result.audit.fallback, true)
-  assert.match(result.reply, /asesor.*aclarar/)
+  assert.equal(result.audit.requires_advisor, true)
   assert.doesNotMatch(result.reply, /tamaño|garantizada/)
 })
 

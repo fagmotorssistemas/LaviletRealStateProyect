@@ -54,7 +54,7 @@ export function nextDiscoveryQuestion(lead: Row): { key: string; question: strin
 }
 
 export const reviewReasons = ['unsupported_fact', 'unsupported_action', 'ignored_question', 'repeated_greeting', 'repeated_question', 'style', 'missing_next_step'] as const
-export const reviewSchema = { type: 'object', properties: { aprobada: { type: 'boolean' }, motivos: { type: 'array', items: { type: 'string', enum: reviewReasons } } }, required: ['aprobada', 'motivos'], additionalProperties: false }
+export const reviewSchema = { type: 'object', properties: { aprobada: { type: 'boolean' }, motivos: { type: 'array', items: { type: 'string', enum: reviewReasons } }, requiere_asesor: { type: 'boolean' } }, required: ['aprobada', 'motivos', 'requiere_asesor'], additionalProperties: false }
 export function styleIssues(reply: string, alreadyWelcomed: boolean): string[] {
   const issues: string[] = []
   if (/no todos(?: los (?:departamentos|inmuebles|locales|espacios))? (?:tienen|cuentan|incluyen)|(?:el|la) (?:unidad )?\d+ no (?:lo )?(?:incluye|tiene|cuenta)|otros como (?:el|la) \d+ no/i.test(reply)) issues.push('unsupported_fact')

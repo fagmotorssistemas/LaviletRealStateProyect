@@ -9,11 +9,24 @@ const acknowledged = (m: string) => !/no (?:entiendo|entendi|comprendo)/.test(m)
   && /(?:^|\b)(?:oh entiendo|entiendo|entendi|entendido|ya (?:se|entendi|veo)|ah (?:bueno|ok)|ok|de acuerdo|gracias por aclarar)(?:\b|$)/.test(m)
 const propertyContext = /parque|garaje|estacion|parte de pago|como pago|permuta|como entrada|como abono|vendo mi|vender mi/
 
+// Recognize the semantic classifier's replies as well as older vehicle templates.
+// Accepting an explanation about any unrelated service returns to the offered
+// property context; the previous off-topic noun must not own later price questions.
+export function isPropertyScopeRedirect(value: string) {
+  const m = normalized(value)
+  const property = /la\s*vilet|inmobiliari|suite|departamento|vivienda|local(?:es)? comercial/.test(m)
+  const boundary = /no (?:somos|gestionamos|organizamos|vendemos|alquilamos|prestamos|ofrecemos|atendemos|realizamos|brindamos)|no (?:los )?(?:vendemos|alquilamos)|no (?:le )?podemos ayudar|no poder ayudar|no corresponde a|nuestra atencion se centra|solo (?:atendemos|brindamos informacion|podemos ayudar)/.test(m)
+  return property && boundary
+}
+
 export const purchasePriceQuestion = (value: string) => /\b(?:precios?|valores?|vale|valen|cuesta|cuestan|costos?|cotizacion)\b|\bcuanto (?:sale|salen|piden|paga)/.test(normalized(value))
 
 function explicitSubject(m: string): { subject: Subject; category: Category } | null {
   if (propertyContext.test(m) && /\b(?:auto|carro|vehiculo|moto)s?\b/.test(m)) return { subject: 'property', category: null }
-  const property = [...m.matchAll(properties)].at(-1)
+  const property = [...m.matchAll(properties)].filter(match => {
+    const before = m.slice(Math.max(0, match.index! - 55), match.index)
+    return !/(?:no|ni)\s*(?:(?:quiero|busco|necesito|me interesan?|hablo de|me refiero a)\s*)?(?:(?:los|las|un|una|unos|unas)\s*)?$/.test(before)
+  }).at(-1)
   const vehicle = [...m.matchAll(vehicles)].filter(match => {
     const before = m.slice(Math.max(0, match.index! - 45), match.index)
     return !/(?:no (?:los )?(?:venden|vendemos|alquilan|alquilamos)|(?:ya )?no (?:quiero|busco|hablo de|me refiero a))\s*(?:ni alquilan\s*)?$/.test(before)
@@ -35,9 +48,8 @@ export function salesSubject(current: string, history: unknown = []) {
   for (const row of [...previous, { role: 'cliente', content: current }]) {
     const m = normalized(text(row.content))
     if (['bot', 'asesor'].includes(text(row.role))) {
-      if (/no (?:los )?vendemos ni alquilamos|no vendemos vehiculos|con vehiculos no podemos ayudarle/.test(m)
-        && /suite|departamento|vivienda|local/.test(m)) {
-        redirected = /suite|departamento|vivienda/.test(m) ? 'vivienda' : 'local'
+      if (isPropertyScopeRedirect(m)) {
+        redirected = subject === 'property' && category ? category : /local/.test(m) && !/suite|departamento|vivienda/.test(m) ? 'local' : 'vivienda'
       }
       continue
     }
