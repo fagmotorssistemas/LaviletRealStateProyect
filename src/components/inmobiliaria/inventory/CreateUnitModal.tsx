@@ -11,6 +11,7 @@ import type { Project } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
 import { createUnit, uploadUnitMedia } from '@/services/inmobiliaria.service'
 import { prepareImageForWebUpload } from '@/lib/images/prepareImageForWebUpload'
+import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { toast } from 'sonner'
 import { ImagePlus, X, BedDouble, Bath } from 'lucide-react'
 
@@ -37,10 +38,12 @@ function toNum(value: string): number | null {
 }
 
 function spacesFromInput(value: string): string[] {
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
+  return sanitizeTourSpaces(
+    value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  )
 }
 
 const emptyForm = {

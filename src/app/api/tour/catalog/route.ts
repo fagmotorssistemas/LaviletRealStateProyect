@@ -4,8 +4,10 @@ import { getTypologyAssetPublicUrl } from '@/services/inmobiliaria.service'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { ensureDefaultFinishPackages } from '@/lib/tour/tourRpc'
 import {
+  isExcludedTourAssetFile,
   isTourPanoramaFileName,
   roomsShareFamily,
+  sanitizeTourSpaces,
   tourHomeSlug,
   vistaRoomSlug,
   unionTourRooms,
@@ -44,6 +46,7 @@ type UnitRow = {
   area_exterior_m2: number | null
   area_terrace_covered_m2: number | null
   area_terrace_open_m2: number | null
+  category: string | null
 }
 
 export async function GET() {
@@ -64,7 +67,7 @@ export async function GET() {
       admin
         .from('units')
         .select(
-          'id, unit_number, unit_type_id, floor, floor_number, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2',
+          'id, unit_number, unit_type_id, floor, floor_number, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2, category',
         )
         .eq('tenant_id', TOUR_TENANT_ID)
         .order('unit_number', { ascending: true }),
@@ -126,11 +129,12 @@ export async function GET() {
         bedrooms: row.bedrooms,
         bathrooms_full: row.bathrooms_full ?? row.bathrooms,
         bathrooms_half: row.bathrooms_half ?? 0,
-        spaces: Array.isArray(row.spaces) ? row.spaces : [],
+        spaces: sanitizeTourSpaces(row.spaces),
         area_internal_m2: row.area_internal_m2,
         area_exterior_m2: row.area_exterior_m2,
         area_terrace_covered_m2: row.area_terrace_covered_m2,
         area_terrace_open_m2: row.area_terrace_open_m2,
+        category: row.category ?? null,
       }
     }),
     },
@@ -149,7 +153,9 @@ async function toCatalogTypology(
   assetsByCode: Map<string, TypologyAsset[]>,
   finishes: { slug: string; name: string }[],
 ) {
-  const list = assetsByCode.get(row.name) ?? assetsByCode.get(row.slug) ?? []
+  const list = (assetsByCode.get(row.name) ?? assetsByCode.get(row.slug) ?? []).filter(
+    (item) => !isExcludedTourAssetFile(item.file_name),
+  )
   const toPublic = (item: TypologyAsset) => ({
     id: item.id,
     file_name: item.file_name,
@@ -162,7 +168,7 @@ async function toCatalogTypology(
       bedrooms: unit.bedrooms ?? row.bedrooms,
       bathrooms_full: unit.bathrooms_full ?? unit.bathrooms,
       bathrooms_half: unit.bathrooms_half,
-      spaces: Array.isArray(unit.spaces) ? unit.spaces : [],
+      spaces: sanitizeTourSpaces(unit.spaces),
     })),
   )
   const rooms =

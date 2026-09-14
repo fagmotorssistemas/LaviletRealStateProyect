@@ -22,7 +22,6 @@ const SPACE_ALIASES: Record<string, TourRoomDef> = {
   terraza: { slug: 'terraza', label: 'Terraza' },
   balcon: { slug: 'balcon', label: 'Balcón' },
   balcones: { slug: 'balcon', label: 'Balcón' },
-  bodega: { slug: 'bodega', label: 'Bodega' },
 }
 
 const SPACE_ORDER = [
@@ -35,11 +34,10 @@ const SPACE_ORDER = [
   'despensa',
   'terraza',
   'balcon',
-  'bodega',
 ] as const
 
 const ROOM_SLUG_RE =
-  /^(sala|comedor|cocina|estar|estudio|lavado|despensa|terraza|balcon|bodega|dormitorio(?:-\d+)?|bano-completo(?:-\d+)?|bano-social(?:-\d+)?)$/
+  /^(sala|comedor|cocina|estar|estudio|lavado|despensa|terraza|balcon|dormitorio(?:-\d+)?|bano-completo(?:-\d+)?|bano-social(?:-\d+)?)$/
 
 /** @deprecated Usar buildTourRooms. Se deja para archivos demo. */
 export const TOUR_ROOMS: TourRoomDef[] = [
@@ -87,9 +85,26 @@ function slugifySpace(value: string) {
     .replace(/^-+|-+$/g, '')
 }
 
+/** Ambientes que no se muestran ni se cargan (sin fotos / fuera de producto). */
+export function isExcludedTourSpace(value: string) {
+  const key = slugifySpace(value)
+  return key === 'bodega' || key.startsWith('bodega-')
+}
+
+export function sanitizeTourSpaces(spaces: string[] | null | undefined): string[] {
+  if (!Array.isArray(spaces)) return []
+  return spaces.filter((item) => typeof item === 'string' && item.trim() && !isExcludedTourSpace(item))
+}
+
+/** Archivos de tipología que no deben entrar al tour/galería (ej. bodega_*). */
+export function isExcludedTourAssetFile(fileName: string) {
+  const base = fileName.replace(/\.[^.]+$/, '').toLowerCase()
+  return base === 'bodega' || base.startsWith('bodega_') || base.startsWith('bodega-')
+}
+
 function mapSpace(raw: string): TourRoomDef | null {
   const key = slugifySpace(raw)
-  if (!key) return null
+  if (!key || isExcludedTourSpace(key)) return null
   if (SPACE_ALIASES[key]) return SPACE_ALIASES[key]
   if (/^dormitorio/.test(key) || /^habitacion/.test(key) || /^bano/.test(key)) return null
   return { slug: key, label: raw.trim() }
@@ -120,7 +135,7 @@ export function buildTourRooms(spec: TourRoomSpec): TourRoomDef[] {
   }
 
   for (const slug of SPACE_ORDER) {
-    if (slug === 'lavado' || slug === 'despensa' || slug === 'terraza' || slug === 'balcon' || slug === 'bodega') {
+    if (slug === 'lavado' || slug === 'despensa' || slug === 'terraza' || slug === 'balcon') {
       continue
     }
     const item = fromSpaces.get(slug)
@@ -131,7 +146,7 @@ export function buildTourRooms(spec: TourRoomSpec): TourRoomDef[] {
   for (const item of numbered('bano-completo', 'Baño completo', spec.bathrooms_full ?? 0)) add(item)
   for (const item of numbered('bano-social', 'Baño social', spec.bathrooms_half ?? 0)) add(item)
 
-  for (const slug of ['lavado', 'despensa', 'terraza', 'balcon', 'bodega'] as const) {
+  for (const slug of ['lavado', 'despensa', 'terraza', 'balcon'] as const) {
     const item = fromSpaces.get(slug)
     if (item) add(item)
   }
@@ -268,6 +283,6 @@ export function roomSlugFromNode(node: { id: string; data?: { room?: string } } 
   if (fromData) return fromData
   const id = node?.id ?? ''
   if (isTourRoomSlug(id)) return id
-  const match = id.match(/(sala|comedor|cocina|estar|estudio|lavado|despensa|terraza|balcon|bodega|dormitorio(?:-\d+)?|bano-completo(?:-\d+)?|bano-social(?:-\d+)?)/)
+  const match = id.match(/(sala|comedor|cocina|estar|estudio|lavado|despensa|terraza|balcon|dormitorio(?:-\d+)?|bano-completo(?:-\d+)?|bano-social(?:-\d+)?)/)
   return match?.[1] ?? id
 }

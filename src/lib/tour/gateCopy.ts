@@ -26,7 +26,7 @@ function sectionWithArticle(label: string) {
   if (lower.startsWith('área') || lower.startsWith('area')) {
     return `el ${text.replace(/^area/i, 'área')}`
   }
-  if (lower === 'estar' || lower === 'estudio' || lower === 'comedor' || lower === 'balcón' || lower === 'balcon' || lower === 'bodega') {
+  if (lower === 'estar' || lower === 'estudio' || lower === 'comedor' || lower === 'balcón' || lower === 'balcon') {
     return `el ${lower.replace('balcon', 'balcón')}`
   }
   if (FEMININE.has(lower)) return `la ${lower}`

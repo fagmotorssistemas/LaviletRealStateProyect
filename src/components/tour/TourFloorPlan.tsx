@@ -42,6 +42,8 @@ type TourFloorPlanProps = {
   onWhatsAppClick?: () => void
   /** Overlay dentro del marco del plano (p. ej. modos en desktop). */
   railLeading?: ReactNode
+  /** Acciones bajo el selector de piso (p. ej. micrófono), encima de WhatsApp. */
+  railTrailing?: ReactNode
   /** Preferencia 2D/3D según el modo del showroom (planos-2d / planos-3d). */
   preferredVariant?: FloorPlanVariant
   /** Cuando el usuario cambia 2D/3D dentro del plano. */
@@ -301,6 +303,7 @@ export function TourFloorPlan({
   onSelectUnit,
   onWhatsAppClick,
   railLeading,
+  railTrailing,
   preferredVariant,
   onPreferredVariantChange,
 }: TourFloorPlanProps) {
@@ -1281,14 +1284,18 @@ export function TourFloorPlan({
 
       <div
         className={cn(
-          'pointer-events-auto flex shrink-0 flex-col items-center justify-between gap-1.5',
-          landscapeFill ? 'py-1 pr-1' : 'py-1.5 pr-1.5 sm:gap-2.5 sm:py-2 sm:pr-3',
-          '[@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:pr-1',
+          'pointer-events-auto flex h-full min-h-0 w-[4.1rem] shrink-0 flex-col items-stretch gap-2 self-stretch sm:w-[4.6rem]',
+          landscapeFill ? 'py-1 pr-1' : 'py-2 pr-2 sm:gap-2.5 sm:py-3 sm:pr-3',
+          '[@media(max-height:520px)]:w-[3.7rem] [@media(max-height:520px)]:gap-1.5 [@media(max-height:520px)]:py-1 [@media(max-height:520px)]:pr-1',
         )}
       >
-        <div className="flex min-h-0 flex-1 flex-col justify-center">
+        <div className="flex min-h-0 flex-1 flex-col">
           <div
-            className="flex max-h-full flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-xl bg-white/92 p-1 shadow-[0_8px_24px_rgba(15,23,42,0.18)] sm:gap-1.5 sm:p-2 [@media(max-height:520px)]:rounded-lg [@media(max-height:520px)]:p-0.5"
+            className={cn(
+              'flex h-full min-h-0 flex-1 flex-col justify-between gap-1 overflow-y-auto overscroll-contain rounded-xl bg-white/92 p-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.18)]',
+              'sm:gap-1.5 sm:p-2',
+              '[@media(max-height:520px)]:gap-0.5 [@media(max-height:520px)]:rounded-lg [@media(max-height:520px)]:p-1',
+            )}
             style={{ contain: 'layout paint', WebkitOverflowScrolling: 'touch' }}
             onWheel={(event) => event.stopPropagation()}
             onTouchMove={(event) => event.stopPropagation()}
@@ -1302,8 +1309,9 @@ export function TourFloorPlan({
                   type="button"
                   onClick={() => onFloorChange(item)}
                   className={cn(
-                    'min-w-[2.1rem] rounded-lg px-1.5 py-1 text-[10px] font-semibold tracking-wide sm:min-w-[2.6rem] sm:px-2.5 sm:py-2 sm:text-[12px]',
-                    '[@media(max-height:520px)]:min-w-[1.9rem] [@media(max-height:520px)]:px-1 [@media(max-height:520px)]:py-0.5 [@media(max-height:520px)]:text-[9px]',
+                    'flex w-full min-h-[1.85rem] flex-1 items-center justify-center rounded-lg px-1.5 text-[12px] font-semibold tracking-wide',
+                    'sm:min-h-[2.1rem] sm:px-2 sm:text-[13px]',
+                    '[@media(max-height:520px)]:min-h-[1.55rem] [@media(max-height:520px)]:text-[11px]',
                     active
                       ? 'bg-[#1a2744] text-white shadow-sm'
                       : 'bg-white text-[#3a4050] hover:bg-[#eef1f6]',
@@ -1318,13 +1326,16 @@ export function TourFloorPlan({
             })}
           </div>
         </div>
+        {railTrailing ? (
+          <div className="flex shrink-0 flex-col items-center gap-1.5">{railTrailing}</div>
+        ) : null}
         {SITE.whatsapp && whatsappHref ? (
           <a
             href={whatsappHref}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => onWhatsAppClick?.()}
-            className="tour-whatsapp-btn tour-glass shrink-0"
+            className="tour-whatsapp-btn tour-glass mx-auto shrink-0"
             aria-label="Consultar por WhatsApp"
             title="Consultar por WhatsApp"
           >

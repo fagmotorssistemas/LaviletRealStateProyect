@@ -299,6 +299,16 @@ export function TourComparador({
                   Sin imágenes para esta tipología
                 </div>
               )}
+              {activePreview?.label ? (
+                <div
+                  className="pointer-events-none absolute bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-[4] flex justify-center px-2"
+                  style={{ left: `${splitClamped}%`, right: 0 }}
+                >
+                  <div className="max-w-[min(100%,14rem)] truncate rounded-full bg-black/45 px-3 py-1.5 text-center text-[10px] font-semibold tracking-[0.12em] text-white uppercase shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[11px]">
+                    {activePreview.label}
+                  </div>
+                </div>
+              ) : null}
               {sceneControlsB ? (
                 <div
                   className="tour-compare-scene-controls pointer-events-none absolute bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+3.75rem))] z-[4] flex justify-center px-1.5 sm:bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+5rem))] sm:px-2"

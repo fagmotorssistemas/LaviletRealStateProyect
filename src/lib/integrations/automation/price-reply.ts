@@ -9,6 +9,7 @@ import { hasAffordabilityConcern } from './financing'
 import { asksForHouse } from './product-fit'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
+<<<<<<< Updated upstream
 export function asksUnitPrice(value: string, propertyScope = false) {
   if (!purchasePriceQuestion(value) || (!propertyScope && salesSubject(value).subject === 'vehicle')) return false
   // One WhatsApp turn can include several messages/questions. A separate question
@@ -23,6 +24,11 @@ export function asksUnitPrice(value: string, propertyScope = false) {
       && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(m)
   })
 }
+=======
+export const asksUnitPrice = (value: string) => purchasePriceQuestion(value)
+  && salesSubject(value).subject !== 'vehicle'
+  && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero)\b/.test(normalized(value))
+>>>>>>> Stashed changes
 
 // Preserve the stated amount; a low budget is an opportunity to offer guidance,
 // never grounds to infer thousands or claim that financing is already approved.

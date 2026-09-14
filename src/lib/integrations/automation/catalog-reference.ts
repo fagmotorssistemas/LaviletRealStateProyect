@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isUnitVisualRequest } from './unit-visual-request'
+import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 
 export function resolveCatalogReference(catalog: Row[], current: string, previous: unknown = {}, history: unknown = []) {
   // A vision description that qualifies the number as unreadable is not an identification.
@@ -69,7 +70,7 @@ export function catalogReferenceReply(matches: Row[], current: string) {
   const opening = matches.length === 1 ? `Claro, se trata ${first.category === 'local' ? 'del local' : 'de la unidad'} ${codes}.`
     : `Claro, esa medida corresponde a las unidades ${codes}.`
   const area = Number(first.area_internal_m2) > 0 ? ` Tienen ${number(first.area_internal_m2)} m² interiores${Number(first.area_exterior_m2) > 0 ? ` y ${number(first.area_exterior_m2)} m² exteriores` : ''}.` : ''
-  const common = (Array.isArray(first.spaces) ? first.spaces : []).filter(s => matches.every(u => Array.isArray(u.spaces) && u.spaces.includes(s)))
+  const common = sanitizeTourSpaces(Array.isArray(first.spaces) ? first.spaces : []).filter(s => matches.every(u => Array.isArray(u.spaces) && u.spaces.includes(s)))
   const spaces = common.length ? ` Incluyen ${common.slice(0, 6).map(s => text(s).toLocaleLowerCase('es')).join(', ')}.` : ''
   return opening + (matches.length === 1 ? area.replace(' Tienen', ' Tiene') + spaces.replace(' Incluyen', ' Incluye') : area + spaces + ' ¿Tiene algún piso de preferencia?')
 }

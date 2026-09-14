@@ -133,6 +133,8 @@ export interface TourUnitSummary {
   slug: string | null
   typology_code?: string | null
   unit_type_id?: string | null
+  /** departamento | suite | local | … */
+  category?: string | null
 }
 
 export type TourRoomScene = {
@@ -210,5 +212,6 @@ export type TourPublicCatalog = {
     area_exterior_m2?: number | null
     area_terrace_covered_m2?: number | null
     area_terrace_open_m2?: number | null
+    category?: string | null
   }>
 }
