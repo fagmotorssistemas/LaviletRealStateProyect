@@ -294,7 +294,8 @@ test('vehicle requests and recommendation followups stay out of real estate work
     h.rows[0].payload.text = current
     await h.process([h.rows[0]], async () => {})
     const reply = h.calls.find(c => c.name === 'patch').args[2]
-    assert.match(reply, /No vendemos ni alquilamos vehículos.*suites, departamentos y locales/)
+    assert.match(reply, /no (?:los )?vendemos ni alquilamos/i)
+    assert.match(reply, /suites, departamentos y locales comerciales/)
     assert.doesNotMatch(reply, /imprecisa|visita|financiamiento/)
     assert.equal(h.calls.some(c => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2', 'apply_lead_events'].includes(c.name)), false)
   }
@@ -304,6 +305,24 @@ test('vehicle handling does not block parking, payment questions or a later swit
   const { vehicleScopeReply } = require('../src/lib/integrations/automation/project-material.ts')
   const h = [{ role: 'cliente', content: 'Quiero un vehículo' }]
   for (const current of ['¿Tienen parqueadero para mi auto?', '¿Reciben un vehículo como parte de pago?', 'Ahora quiero un departamento', 'Recomiéndeme una suite']) assert.equal(vehicleScopeReply(current, h), '')
+})
+
+test('repeated vehicle requests stay cordial and vary without inventing a service or pressuring a visit', () => {
+  const { vehicleScopeReply } = require('../src/lib/integrations/automation/project-material.ts')
+  const history = [{ role: 'cliente', content: 'Quiero comprar un vehículo' }]
+  const sent = []
+  for (let turn = 0; turn < 4; turn++) {
+    const reply = vehicleScopeReply('Recomiéndeme uno', history)
+    assert.match(reply, /no (?:los )?vendemos ni alquilamos/i)
+    assert.match(reply, /Lamento|Me gustaría poder orientarle|Disculpe/)
+    assert.doesNotMatch(reply, /imprecisa|financiamiento|visita|\?/)
+    assert.ok(reply.length < 300)
+    assert.notEqual(reply, sent.at(-1))
+    sent.push(reply)
+    history.push({ role: 'bot', content: reply }, { role: 'cliente', content: 'Recomiéndeme uno' })
+  }
+  assert.equal(new Set(sent.slice(0, 3)).size, 3)
+  assert.equal(vehicleScopeReply('Quiero un auto', [{ role: 'cliente', content: sent[0] }]), sent[0])
 })
 
 test('courtesy openings vary across a conversation instead of rotating equivalent filler', () => {

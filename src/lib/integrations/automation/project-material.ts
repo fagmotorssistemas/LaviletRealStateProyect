@@ -18,7 +18,20 @@ export function vehicleScopeReply(current: string, history: unknown = []) {
     if (/\b(?:carro|auto|vehiculo|coche|camioneta|moto)s?\b/.test(message)) { previousVehicle = true; break }
   }
   const followup = previousVehicle && /recomiend|sugier|quiero uno|cual|cuanto|precio|rentar|rento|comprar/.test(m) && !/suite|departamento|vivienda|local|proyecto/.test(m)
-  return explicit || followup ? 'No vendemos ni alquilamos vehículos, así que no podemos ayudarle con esa búsqueda. Aquí ofrecemos suites, departamentos y locales comerciales.' : ''
+  if (!explicit && !followup) return ''
+  const alternatives = [
+    'Lamento no poder ayudarle con la búsqueda de un vehículo; no los vendemos ni alquilamos. En La Vilet ofrecemos suites, departamentos y locales comerciales, y será un gusto orientarle si alguno le interesa.',
+    'Me gustaría poder orientarle, pero no vendemos ni alquilamos vehículos. Nos dedicamos a suites, departamentos y locales comerciales en La Vilet. Si le interesa alguna de estas opciones, con gusto le ayudo.',
+    'Disculpe, con vehículos no podemos ayudarle, pues no los vendemos ni alquilamos. Nuestra especialidad son las suites, departamentos y locales comerciales de La Vilet. Aquí estamos si desea conocerlos.',
+  ]
+  // Use only delivered replies to vary the tone; a client's text cannot select the wording.
+  const replies = rows(history).filter(row => ['bot', 'asesor'].includes(text(row.role))).slice(-6)
+    .map(row => normalized(text(row.content)))
+  // Least recently used also varies the response after all alternatives have appeared.
+  return alternatives.reduce((best, candidate) => {
+    const lastUse = (reply: string) => replies.findLastIndex(sent => sent.includes(normalized(reply)))
+    return lastUse(candidate) < lastUse(best) ? candidate : best
+  })
 }
 
 export function wantsBrochure(current: string, history: unknown = []) {
