@@ -124,7 +124,7 @@ export function TourSaveUnitModal({
       if (!alreadyIn) onIdentified?.()
       toast.success(
         context.unitNumber
-          ? `Guardamos el depto. ${context.unitNumber}`
+          ? `Guardamos el departamento ${context.unitNumber}`
           : 'Guardamos su selección',
       )
       onClose()

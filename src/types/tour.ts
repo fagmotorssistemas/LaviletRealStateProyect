@@ -132,6 +132,7 @@ export interface TourUnitSummary {
   spaces?: string[]
   slug: string | null
   typology_code?: string | null
+  unit_type_id?: string | null
 }
 
 export type TourRoomScene = {

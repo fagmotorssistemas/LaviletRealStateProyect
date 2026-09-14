@@ -50,6 +50,55 @@ function applyPose(viewer: Viewer, pose: ComparePanoPose) {
   }
 }
 
+function safeAutoSize(viewer: Viewer | null | undefined) {
+  if (!viewer) return
+  try {
+    viewer.autoSize()
+    viewer.needsUpdate()
+  } catch {
+    /* ignore */
+  }
+}
+
+function waitForSize(el: HTMLElement, isCancelled: () => boolean): Promise<boolean> {
+  if (el.clientWidth > 2 && el.clientHeight > 2) return Promise.resolve(true)
+
+  return new Promise((resolve) => {
+    let settled = false
+    const done = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      try {
+        ro.disconnect()
+      } catch {
+        /* ignore */
+      }
+      window.clearInterval(poll)
+      window.clearTimeout(timeout)
+      resolve(ok)
+    }
+
+    const ro = new ResizeObserver(() => {
+      if (isCancelled()) {
+        done(false)
+        return
+      }
+      if (el.clientWidth > 2 && el.clientHeight > 2) done(true)
+    })
+    ro.observe(el)
+
+    const poll = window.setInterval(() => {
+      if (isCancelled()) {
+        done(false)
+        return
+      }
+      if (el.clientWidth > 2 && el.clientHeight > 2) done(true)
+    }, 40)
+
+    const timeout = window.setTimeout(() => done(el.clientWidth > 2 && el.clientHeight > 2), 2500)
+  })
+}
+
 /** Visor 360 liviano para el lado B (comparador), con sync de cámara. */
 export function CompareSidePano({
   url,
@@ -70,18 +119,22 @@ export function CompareSidePano({
   onPoseChangeRef.current = onPoseChange
   const syncPosePropRef = useRef(syncPose)
   syncPosePropRef.current = syncPose
+  const cancelledRef = useRef(false)
 
   const [mode, setMode] = useState<'pano' | 'flat' | 'empty' | 'error'>(
     url ? (flatFallback ? 'flat' : 'pano') : 'empty',
   )
+  const [loading, setLoading] = useState(Boolean(url) && !flatFallback)
 
   useEffect(() => {
     if (!url) {
       setMode('empty')
+      setLoading(false)
       return
     }
     if (flatFallback) {
       setMode('flat')
+      setLoading(false)
       return
     }
     setMode('pano')
@@ -90,7 +143,11 @@ export function CompareSidePano({
   useEffect(() => {
     if (mode !== 'pano') {
       if (viewerRef.current) {
-        viewerRef.current.destroy()
+        try {
+          viewerRef.current.destroy()
+        } catch {
+          /* ignore */
+        }
         viewerRef.current = null
         urlRef.current = null
       }
@@ -100,154 +157,173 @@ export function CompareSidePano({
     const container = containerRef.current
     if (!container || !url) return
 
-    let cancelled = false
-    let viewer = viewerRef.current
-    const initial = syncPoseRef?.current ?? syncPosePropRef.current ?? null
-
-    if (!viewer) {
-      try {
-        viewer = new Viewer({
-          container,
-          navbar: false,
-          loadingTxt: '',
-          lang: { loading: '' },
-          canvasBackground: '#111',
-          defaultZoomLvl: initial?.zoom ?? 0,
-          defaultYaw: initial?.yaw,
-          defaultPitch: initial?.pitch,
-          maxFov: 90,
-          minFov: 40,
-          mousewheelCtrlKey: false,
-          touchmoveTwoFingers: false,
-          mousemove: !remapTouch,
-          moveSpeed: 1.35,
-          moveInertia: 0.5,
-          rendererParameters: {
-            alpha: true,
-            antialias: false,
-            // iOS: 2º WebGL del comparador + high-performance acelera el crash al recargar.
-            powerPreference:
-              typeof navigator !== 'undefined' &&
-              (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
-                ? 'low-power'
-                : 'high-performance',
-            preserveDrawingBuffer: false,
-          },
-        })
-        viewerRef.current = viewer
-      } catch {
-        if (!cancelled) setMode('flat')
-        return
-      }
-    } else {
-      try {
-        viewer.setOption('mousemove', !remapTouch)
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const markUserDriving = () => {
-      userDrivingRef.current = true
-      userDrivingUntilRef.current = performance.now() + 80
-    }
-
-    const emitPose = () => {
-      if (cancelled || applyingRef.current || !viewerRef.current) return
-      markUserDriving()
-      onPoseChangeRef.current?.(readPose(viewerRef.current))
-    }
-
-    // Aplicar pose del lado A en cada frame (más fiable que depender solo de React state).
-    const syncFromMain = () => {
-      if (cancelled || applyingRef.current || !viewerRef.current) return
-      if (userDrivingRef.current && performance.now() < userDrivingUntilRef.current) return
-      userDrivingRef.current = false
-      const pose = syncPoseRef?.current ?? syncPosePropRef.current
-      if (!pose) return
-      const current = readPose(viewerRef.current)
-      if (posesClose(current, pose)) return
-      applyingRef.current = true
-      applyPose(viewerRef.current, pose)
-      applyingRef.current = false
-    }
-
-    viewer.addEventListener('position-updated', emitPose)
-    viewer.addEventListener('zoom-updated', emitPose)
-    viewer.addEventListener('before-render', syncFromMain)
-
+    cancelledRef.current = false
+    const isCancelled = () => cancelledRef.current
+    const timers: number[] = []
     let detachRemap: (() => void) | null = null
-    if (remapTouch) {
-      detachRemap = attachForceLandscapePan(viewer, {
-        active: () => !cancelled && !applyingRef.current,
-        speedMult: 1.35,
-        inertia: 0.45,
-      })
+    let onReady: (() => void) | null = null
+    let emitPose: (() => void) | null = null
+    let syncFromMain: (() => void) | null = null
+
+    const bumpSize = () => {
+      safeAutoSize(viewerRef.current)
+      for (const ms of [50, 160, 360, 700]) {
+        timers.push(window.setTimeout(() => safeAutoSize(viewerRef.current), ms))
+      }
     }
 
-    const load = async () => {
-      if (url === urlRef.current) {
-        try {
-          viewer.autoSize()
-        } catch {
-          /* ignore */
-        }
-        syncFromMain()
+    const run = async () => {
+      setLoading(true)
+      const sized = await waitForSize(container, isCancelled)
+      if (isCancelled()) return
+      if (!sized) {
+        setMode('flat')
+        setLoading(false)
         return
       }
-      urlRef.current = url
-      const pose = syncPoseRef?.current ?? syncPosePropRef.current
-      try {
-        await viewer.setPanorama(url, {
-          transition: false,
-          showLoader: false,
-          ...(pose
-            ? { position: { yaw: pose.yaw, pitch: pose.pitch }, zoom: pose.zoom }
-            : {}),
-        })
-        if (cancelled) return
+
+      let viewer = viewerRef.current
+      const initial = syncPoseRef?.current ?? syncPosePropRef.current ?? null
+
+      if (!viewer) {
         try {
-          viewer.autoSize()
+          viewer = new Viewer({
+            container,
+            navbar: false,
+            loadingTxt: '',
+            lang: { loading: '' },
+            canvasBackground: '#111',
+            defaultZoomLvl: initial?.zoom ?? 0,
+            defaultYaw: initial?.yaw,
+            defaultPitch: initial?.pitch,
+            maxFov: 90,
+            minFov: 40,
+            mousewheelCtrlKey: false,
+            touchmoveTwoFingers: false,
+            mousemove: !remapTouch,
+            moveSpeed: 1.35,
+            moveInertia: 0.5,
+            rendererParameters: {
+              alpha: true,
+              antialias: false,
+              powerPreference:
+                typeof navigator !== 'undefined' &&
+                (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+                  ? 'low-power'
+                  : 'high-performance',
+              preserveDrawingBuffer: false,
+            },
+          })
+          viewerRef.current = viewer
+        } catch {
+          if (!isCancelled()) {
+            setMode('flat')
+            setLoading(false)
+          }
+          return
+        }
+      } else {
+        try {
+          viewer.setOption('mousemove', !remapTouch)
         } catch {
           /* ignore */
         }
-        syncFromMain()
-      } catch {
-        if (!cancelled) setMode('flat')
       }
-    }
-    void load()
 
-    const onResize = () => {
+      emitPose = () => {
+        if (isCancelled() || applyingRef.current || !viewerRef.current) return
+        userDrivingRef.current = true
+        userDrivingUntilRef.current = performance.now() + 80
+        onPoseChangeRef.current?.(readPose(viewerRef.current))
+      }
+
+      syncFromMain = () => {
+        if (isCancelled() || applyingRef.current || !viewerRef.current) return
+        if (userDrivingRef.current && performance.now() < userDrivingUntilRef.current) return
+        userDrivingRef.current = false
+        const pose = syncPoseRef?.current ?? syncPosePropRef.current
+        if (!pose) return
+        const current = readPose(viewerRef.current)
+        if (posesClose(current, pose)) return
+        applyingRef.current = true
+        applyPose(viewerRef.current, pose)
+        applyingRef.current = false
+      }
+
+      onReady = () => {
+        bumpSize()
+        if (!isCancelled()) setLoading(false)
+      }
+
+      viewer.addEventListener('position-updated', emitPose)
+      viewer.addEventListener('zoom-updated', emitPose)
+      viewer.addEventListener('before-render', syncFromMain)
+      viewer.addEventListener('ready', onReady)
+
+      if (remapTouch) {
+        detachRemap = attachForceLandscapePan(viewer, {
+          active: () => !isCancelled() && !applyingRef.current,
+          speedMult: 1.35,
+          inertia: 0.45,
+        })
+      }
+
       try {
-        viewerRef.current?.autoSize()
+        if (url !== urlRef.current) {
+          urlRef.current = url
+          const pose = syncPoseRef?.current ?? syncPosePropRef.current
+          await viewer.setPanorama(url, {
+            transition: false,
+            showLoader: false,
+            ...(pose
+              ? { position: { yaw: pose.yaw, pitch: pose.pitch }, zoom: pose.zoom }
+              : {}),
+          })
+        }
+        if (isCancelled()) return
+        bumpSize()
+        syncFromMain()
+        setLoading(false)
       } catch {
-        /* ignore */
+        if (!isCancelled()) {
+          setMode('flat')
+          setLoading(false)
+        }
       }
     }
+
+    void run()
+
+    const onResize = () => safeAutoSize(viewerRef.current)
     window.addEventListener('resize', onResize)
-    const t = window.setTimeout(onResize, 100)
-    const t2 = window.setTimeout(onResize, 400)
+    window.visualViewport?.addEventListener('resize', onResize)
 
     return () => {
-      cancelled = true
+      cancelledRef.current = true
       detachRemap?.()
-      window.clearTimeout(t)
-      window.clearTimeout(t2)
+      timers.forEach((id) => window.clearTimeout(id))
       window.removeEventListener('resize', onResize)
-      viewer.removeEventListener('position-updated', emitPose)
-      viewer.removeEventListener('zoom-updated', emitPose)
-      viewer.removeEventListener('before-render', syncFromMain)
-      try {
-        viewer.setOption('mousemove', true)
-      } catch {
-        /* ignore */
+      window.visualViewport?.removeEventListener('resize', onResize)
+      const viewer = viewerRef.current
+      if (viewer) {
+        try {
+          if (emitPose) viewer.removeEventListener('position-updated', emitPose)
+          if (emitPose) viewer.removeEventListener('zoom-updated', emitPose)
+          if (syncFromMain) viewer.removeEventListener('before-render', syncFromMain)
+          if (onReady) viewer.removeEventListener('ready', onReady)
+        } catch {
+          /* ignore */
+        }
+        try {
+          viewer.setOption('mousemove', true)
+        } catch {
+          /* ignore */
+        }
       }
     }
   }, [mode, url, syncPoseRef, remapTouch])
 
-  // También reaccionar a cambios de syncPose por si no hay ref.
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || mode !== 'pano' || !syncPose) return
@@ -292,6 +368,24 @@ export function CompareSidePano({
     <div className={cn('relative h-full w-full overflow-hidden bg-[#111]', className)}>
       {mode === 'pano' ? (
         <div ref={containerRef} className="absolute inset-0 h-full w-full" />
+      ) : null}
+
+      {mode === 'pano' && loading && url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt=""
+          className="pointer-events-none absolute inset-0 z-[1] h-full w-full object-cover opacity-80"
+          draggable={false}
+        />
+      ) : null}
+
+      {mode === 'pano' && loading ? (
+        <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center bg-black/25">
+          <p className="rounded-md bg-black/50 px-3 py-1.5 text-[11px] tracking-wide text-white/80 uppercase">
+            Cargando 360…
+          </p>
+        </div>
       ) : null}
 
       {mode === 'flat' && url ? (

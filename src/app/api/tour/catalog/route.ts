@@ -196,11 +196,11 @@ async function toCatalogTypology(
       return {
         slug: room.slug,
         label: room.label,
-        url: selected?.url ?? null,
+        url: selected?.url ?? scenes[0]?.url ?? null,
         scenes,
       }
     })
-    .filter((item) => Boolean(item.url) && item.scenes.length > 0)
+    .filter((item) => item.scenes.length > 0 || Boolean(item.url))
   const placed = await loadTypologyHotspots(admin, row.name)
 
   return {
@@ -238,11 +238,11 @@ async function toCatalogTypology(
         return {
           slug,
           label: room.label,
-          url: selected?.url ?? null,
+          url: selected?.url ?? scenes[0]?.url ?? null,
           scenes,
         }
       })
-      .filter((item) => item.scenes.length > 0 && Boolean(item.url)),
+      .filter((item) => item.scenes.length > 0),
     slots: slots.map((room) => ({ slug: room.slug, label: room.label })),
     rooms: catalogRooms,
     hotspots: placed.filter((pin) => {

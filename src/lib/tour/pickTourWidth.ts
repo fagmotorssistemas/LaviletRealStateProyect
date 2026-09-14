@@ -73,10 +73,21 @@ export function pickCatalogPanoUrl(
   light?: string,
 ): string | null {
   if (!pano) return null
+  const wantedFinish = finish || null
+  const wantedLight = light || 'dia'
   const scene =
-    pano.scenes?.find((item) => item.finish === (finish || null) && item.light === light) ??
-    pano.scenes?.find((item) => item.finish == null && item.light === light) ??
-    pano.scenes?.find((item) => item.finish === (finish || null) && item.light === 'dia') ??
+    pano.scenes?.find((item) => item.finish === wantedFinish && item.light === wantedLight) ??
+    pano.scenes?.find(
+      (item) =>
+        (item.finish === wantedFinish ||
+          (wantedFinish === 'nogal' && item.finish === 'acabado-1') ||
+          (wantedFinish === 'acabado-1' && item.finish === 'nogal') ||
+          (wantedFinish === 'roble' && item.finish === 'acabado-2') ||
+          (wantedFinish === 'acabado-2' && item.finish === 'roble')) &&
+        item.light === wantedLight,
+    ) ??
+    pano.scenes?.find((item) => item.finish == null && item.light === wantedLight) ??
+    pano.scenes?.find((item) => item.finish === wantedFinish && item.light === 'dia') ??
     pano.scenes?.[0]
   const variants = scene?.widths ?? pano.variants ?? {}
   if (width >= 8192 && variants['8192']) return tourDisplayUrl(variants['8192'])

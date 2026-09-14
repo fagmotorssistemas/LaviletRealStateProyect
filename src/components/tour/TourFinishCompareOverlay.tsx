@@ -10,6 +10,7 @@ type FinishBadge = {
   slug: string
   name: string
   swatchUrl?: string | null
+  label?: string
 }
 
 type TourFinishCompareOverlayProps = {
@@ -25,7 +26,15 @@ type TourFinishCompareOverlayProps = {
   remapTouch?: boolean
 }
 
-function FinishChip({ item, className }: { item: FinishBadge; className?: string }) {
+function FinishChip({
+  item,
+  label,
+  className,
+}: {
+  item: FinishBadge
+  label?: string
+  className?: string
+}) {
   return (
     <div
       className={cn(
@@ -46,7 +55,7 @@ function FinishChip({ item, className }: { item: FinishBadge; className?: string
           <img src={item.swatchUrl} alt="" className="h-full w-full object-cover" />
         ) : null}
       </span>
-      {item.name}
+      {label || item.name}
     </div>
   )
 }
@@ -114,17 +123,17 @@ export function TourFinishCompareOverlay({
         />
       </div>
 
-      <div className="pointer-events-none absolute top-3 left-3 z-[32] sm:top-4 sm:left-4">
-        <FinishChip item={left} />
+      <div className="pointer-events-none absolute top-[max(0.5rem,env(safe-area-inset-top))] left-[max(0.5rem,env(safe-area-inset-left))] z-[32] sm:top-4 sm:left-4">
+        <FinishChip item={left} label={left.label} />
       </div>
-      <div className="pointer-events-none absolute top-3 right-3 z-[32] sm:top-4 sm:right-[min(100%,21rem)] sm:mr-3">
-        <FinishChip item={right} />
+      <div className="pointer-events-none absolute top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] z-[32] sm:top-4 sm:right-[min(100%,21rem)] sm:mr-3">
+        <FinishChip item={right} label={right.label} />
       </div>
 
       <button
         type="button"
         onClick={onClose}
-        className="pointer-events-auto absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] z-[34] flex h-11 items-center gap-2 rounded-full bg-[#14110e] px-4 text-[11px] font-semibold tracking-[0.1em] text-white uppercase shadow-[0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
+        className="pointer-events-auto absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.5rem,env(safe-area-inset-left))] z-[34] flex h-10 items-center gap-1.5 rounded-full bg-[#14110e] px-3.5 text-[10px] font-semibold tracking-[0.1em] text-white uppercase shadow-[0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/15 transition-transform hover:scale-[1.03] sm:bottom-[max(1rem,env(safe-area-inset-bottom))] sm:left-[max(0.75rem,env(safe-area-inset-left))] sm:h-11 sm:gap-2 sm:px-4 sm:text-[11px]"
         aria-label="Salir de comparación"
         title="Salir de comparación"
       >

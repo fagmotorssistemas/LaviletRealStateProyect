@@ -171,7 +171,7 @@ export function TourFavoritesPanel({
             source: 'favorites_gate',
           },
         })
-        toast.success(`Guardamos el depto. ${context.unitNumber}`)
+        toast.success(`Guardamos el departamento ${context.unitNumber}`)
       } else {
         toast.success('Listo. Ya puede simular su inversión')
       }
@@ -209,7 +209,7 @@ export function TourFavoritesPanel({
       },
     })
     refresh()
-    toast.success(`Agregamos el depto. ${context.unitNumber}`)
+    toast.success(`Agregamos el departamento ${context.unitNumber}`)
   }
 
   return (
@@ -253,7 +253,7 @@ export function TourFavoritesPanel({
             </p>
             {hasCurrentUnit && context?.unitNumber ? (
               <p className="mt-2 text-[12px] text-[#2B1A18]/55">
-                También podemos agregar el depto. {context.unitNumber} a su lista.
+                También podemos agregar el departamento {context.unitNumber} a su lista.
               </p>
             ) : null}
 
@@ -329,7 +329,7 @@ export function TourFavoritesPanel({
                 className="mb-4 flex h-10 w-full items-center justify-center gap-2 rounded-full bg-[#BDA27E] text-[11px] font-semibold tracking-[0.14em] text-[#2B1A18] uppercase"
               >
                 <Heart size={14} strokeWidth={2} />
-                Agregar depto. {context?.unitNumber}
+                Agregar departamento {context?.unitNumber}
               </button>
             ) : null}
 
@@ -357,7 +357,7 @@ export function TourFavoritesPanel({
                       className="min-w-0 flex-1 text-left"
                     >
                       <span className="block text-[13px] font-semibold text-[#2B1A18]">
-                        Depto. {item.unitNumber}
+                        Departamento {item.unitNumber}
                       </span>
                       <span className="mt-0.5 block text-[11px] text-[#2B1A18]/55">
                         {[item.typologyCode, item.floor].filter(Boolean).join(' · ') || 'Favorito'}
@@ -374,7 +374,7 @@ export function TourFavoritesPanel({
                       type="button"
                       onClick={() => remove(item)}
                       className="flex h-9 w-9 shrink-0 items-center justify-center text-[#8a5c58] hover:bg-[#8a5c58]/10"
-                      aria-label={`Eliminar depto. ${item.unitNumber}`}
+                      aria-label={`Eliminar departamento ${item.unitNumber}`}
                       title="Eliminar"
                     >
                       <Trash2 size={15} strokeWidth={1.75} />

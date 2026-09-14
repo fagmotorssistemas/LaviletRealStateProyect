@@ -75,7 +75,7 @@ export function TourInfoRequestModal({
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     if (data.get('consent') !== 'on') {
-      toast.error('Marcá la casilla de política de privacidad')
+      toast.error('Marca la casilla de política de privacidad')
       return
     }
     const motivo =
@@ -117,7 +117,7 @@ export function TourInfoRequestModal({
       toast.error(
         message && !/<!DOCTYPE|<html/i.test(message)
           ? message
-          : 'No se pudo enviar. Intentá de nuevo.',
+          : 'No se pudo enviar. Intenta de nuevo.',
       )
     } finally {
       setPending(false)
@@ -224,7 +224,7 @@ export function TourInfoRequestModal({
               <textarea
                 name="mensaje"
                 rows={4}
-                placeholder="Contanos qué necesitás o cuándo te gustaría visitar"
+                placeholder="Cuéntanos qué necesitas o cuándo te gustaría visitar"
                 className="mt-1.5 w-full resize-none border border-[#2B1A18]/12 bg-white px-3.5 py-3 text-[13px] text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 transition-colors focus:border-[#BDA27E] focus:bg-[#f7f3ee]/50"
               />
             </label>

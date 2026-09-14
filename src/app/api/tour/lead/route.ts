@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: phoneOnly
-            ? 'Marcá la casilla para guardar tu departamento'
+            ? 'Marca la casilla para guardar tu departamento'
             : 'Marca la casilla para enviarte planos y disponibilidad',
         },
         { status: 400 },

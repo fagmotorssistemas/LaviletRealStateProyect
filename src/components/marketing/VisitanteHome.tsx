@@ -132,7 +132,7 @@ export function VisitanteHome() {
           <p className="text-[11px] font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Showroom virtual</p>
           <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Recorre el showroom en 360°</h1>
           <p className="mt-3 max-w-2xl text-sm text-[#2B1A18]/65 sm:text-base">
-            Entrá a las tipologías y los pisos en pantalla completa. Abajo tenés el resto de la información.
+            Entra a las tipologías y los pisos en pantalla completa. Abajo tienes el resto de la información.
           </p>
           <Link
             href="/tour"

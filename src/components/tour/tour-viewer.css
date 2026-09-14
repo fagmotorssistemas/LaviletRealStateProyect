@@ -562,6 +562,14 @@ html.tour-is-force-landscape body {
   }
 }
 
+/* Pantallas bajas: bajar un poco más los paneles Acabado/Luz del comparador
+   sin tocar force-landscape ni WebGL. */
+@media (max-height: 420px) {
+  .tour-compare-scene-controls {
+    bottom: max(3.5rem, calc(env(safe-area-inset-bottom) + 2.75rem)) !important;
+  }
+}
+
 .psv-container {
   background: #111 !important;
   touch-action: none;

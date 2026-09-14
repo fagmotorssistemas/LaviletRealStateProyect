@@ -67,7 +67,7 @@ export function HomeTourSection({
             Recorre el showroom en 360°
           </h1>
           <p className="mt-4 text-[#2B1A18]/65">
-            Entrá a las unidades, cambiá de ambiente y mirá los pisos en pantalla completa. Si te
+            Entra a las unidades, cambia de ambiente y mira los pisos en pantalla completa. Si te
             interesa una tipología, te pedimos WhatsApp para enviarte planos y disponibilidad.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">

@@ -58,6 +58,10 @@ function SwatchThumb({
   )
 }
 
+function finishDisplayLabel(index: number) {
+  return `Acabado ${index + 1}`
+}
+
 function FinishSidePicker({
   label,
   value,
@@ -71,7 +75,11 @@ function FinishSidePicker({
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-  const current = finishes.find((item) => item.slug === value) ?? finishes[0] ?? null
+  const currentIndex = Math.max(
+    0,
+    finishes.findIndex((item) => item.slug === value),
+  )
+  const current = finishes[currentIndex] ?? finishes[0] ?? null
 
   useEffect(() => {
     if (!open) return
@@ -95,7 +103,7 @@ function FinishSidePicker({
       >
         <SwatchThumb option={current} />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#1a2744]">
-          {current.name}
+          {finishDisplayLabel(currentIndex)}
         </span>
         <ChevronDown
           size={16}
@@ -104,7 +112,7 @@ function FinishSidePicker({
       </button>
       {open ? (
         <ul className="absolute z-20 mt-1.5 max-h-52 w-full overflow-y-auto rounded-xl border border-[#e5e7eb] bg-white py-1 shadow-lg">
-          {finishes.map((item) => {
+          {finishes.map((item, index) => {
             const active = item.slug === current.slug
             return (
               <li key={item.slug}>
@@ -122,7 +130,7 @@ function FinishSidePicker({
                   )}
                 >
                   <SwatchThumb option={item} size="sm" />
-                  {item.name}
+                  <span className="min-w-0 flex-1 truncate">{finishDisplayLabel(index)}</span>
                 </button>
               </li>
             )
@@ -185,10 +193,10 @@ export function TourTerminacionesPanel({
     <div
       ref={rootRef}
       className={cn(
-        'pointer-events-auto z-[38] flex w-[min(100%-1.5rem,19.5rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_16px_48px_rgba(15,23,42,0.22)]',
+        'pointer-events-auto z-[140] flex w-[min(100%-1rem,19.5rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_16px_48px_rgba(15,23,42,0.22)]',
         contained
-          ? 'absolute top-3 right-3 bottom-auto max-h-[min(82%,34rem)] sm:top-4 sm:right-4'
-          : 'fixed top-3 right-3 bottom-auto max-h-[min(82dvh,34rem)] sm:top-5 sm:right-5',
+          ? 'absolute top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] bottom-auto max-h-[min(78%,32rem)] sm:top-4 sm:right-4 sm:max-h-[min(82%,34rem)]'
+          : 'fixed top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] bottom-auto max-h-[min(78dvh,32rem)] sm:top-5 sm:right-5 sm:max-h-[min(82dvh,34rem)]',
       )}
       role="dialog"
       aria-label="Elección de terminación"
@@ -292,9 +300,10 @@ export function TourTerminacionesPanel({
             />
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-3">
-            {finishes.map((item) => {
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {finishes.map((item, index) => {
               const active = item.slug === finish
+              const label = finishDisplayLabel(index)
               return (
                 <button
                   key={item.slug}
@@ -328,7 +337,7 @@ export function TourTerminacionesPanel({
                       active ? 'text-[#1a2744]' : 'text-[#6b7280]',
                     )}
                   >
-                    {item.name}
+                    {label}
                   </span>
                 </button>
               )

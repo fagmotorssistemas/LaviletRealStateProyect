@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
-import { ArrowLeftRight, ChevronDown, Reply, X } from 'lucide-react'
+import { ArrowLeftRight, ChevronDown, ChevronLeft, ChevronRight, Moon, Reply, Sun, X } from 'lucide-react'
 import { CompareSidePano, type ComparePanoPose } from '@/components/tour/CompareSidePano'
-import type { TourUnitSummary } from '@/types/tour'
+import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
+import type { TourFinishOption, TourLightMode, TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
 
 function formatPrice(value: number | null) {
@@ -24,6 +25,134 @@ export type ComparadorPreview = {
 }
 
 export type ComparadorContentMode = 'tour' | 'galeria'
+
+export type ComparadorSceneControls = {
+  finishes: TourFinishOption[]
+  finish: string
+  light: TourLightMode
+  onFinish: (slug: string) => void
+  onLight: (light: TourLightMode) => void
+}
+
+/** Controles de acabado y luz en un solo panel unificado. */
+export function TourFinishLightControls({
+  finishes,
+  finish,
+  light,
+  onFinish,
+  onLight,
+  className,
+  tone = 'neutral',
+  showFinish = true,
+  showLight = true,
+  compact = false,
+}: ComparadorSceneControls & {
+  className?: string
+  /** A/B del comparador: acento sutil del lado. */
+  tone?: 'a' | 'b' | 'neutral'
+  showFinish?: boolean
+  showLight?: boolean
+  compact?: boolean
+}) {
+  const shell = cn(
+    'w-full overflow-hidden border border-white/10 bg-[#14110e]/55 shadow-[0_4px_18px_rgba(0,0,0,0.22)] backdrop-blur-md',
+    compact ? 'rounded-lg' : 'rounded-xl',
+    tone === 'a' && 'border-[#8fa8d4]/20',
+    tone === 'b' && 'border-[#8fbf96]/20',
+  )
+  const pad = compact ? 'px-1.5 py-1 sm:px-2 sm:py-1.5' : 'px-2.5 py-2'
+  const labelCls = cn(
+    'font-medium tracking-[0.14em] text-white/40 uppercase',
+    compact ? 'mb-0.5 text-[7px] sm:mb-1 sm:text-[8px]' : 'mb-1.5 text-[9px]',
+  )
+  const btnBase = cn(
+    'inline-flex min-w-0 flex-1 items-center justify-center gap-1 transition',
+    compact
+      ? 'rounded-md px-1 py-1 text-[8px] font-medium tracking-wide sm:gap-1.5 sm:px-1.5 sm:text-[9px]'
+      : 'rounded-md px-2.5 py-1.5 text-[10px] font-medium tracking-wide',
+  )
+  const btnIdle = 'text-white/55 hover:bg-white/[0.06] hover:text-white/85'
+  const btnOn = 'bg-white/14 text-white/95 ring-1 ring-white/15'
+  const swatch = compact
+    ? 'h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5'
+    : 'h-3 w-3 shrink-0 rounded-full'
+  const icon = compact ? 10 : 12
+  const showBoth = showFinish && showLight && finishes.length > 0
+
+  return (
+    <div className={cn(shell, className)}>
+      {/* Compacto: Acabado | Luz en fila para no tapar pantallas chicas / mitades del comparador. */}
+      <div
+        className={cn(
+          'flex w-full',
+          compact && showBoth ? 'flex-row items-stretch' : 'flex-col',
+        )}
+      >
+        {showFinish && finishes.length > 0 ? (
+          <div
+            className={cn(
+              pad,
+              'min-w-0',
+              showBoth && !compact && 'border-b border-white/[0.08]',
+              compact && showBoth && 'flex-1 border-r border-white/[0.08]',
+            )}
+          >
+            <p className={labelCls}>Acabado</p>
+            <div className="flex w-full items-center gap-0.5 sm:gap-1">
+              {finishes.map((item, index) => {
+                const active = item.slug === finish
+                const label = `Acabado ${index + 1}`
+                return (
+                  <button
+                    key={item.slug}
+                    type="button"
+                    onClick={() => onFinish(item.slug)}
+                    className={cn(btnBase, active ? btnOn : btnIdle)}
+                    title={item.name}
+                    aria-label={label}
+                    aria-pressed={active}
+                  >
+                    <span
+                      className={cn(swatch, 'ring-1 ring-white/20')}
+                      style={{ background: finishSwatchStyle(item.slug, item.name) }}
+                    />
+                    <span className="truncate">{label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {showLight ? (
+          <div className={cn(pad, compact && showBoth && 'min-w-0 flex-[0.95]')}>
+            <p className={labelCls}>Luz</p>
+            <div className="grid grid-cols-2 gap-0.5 sm:gap-1">
+              <button
+                type="button"
+                onClick={() => onLight('dia')}
+                className={cn(btnBase, light === 'dia' ? btnOn : btnIdle)}
+                aria-pressed={light === 'dia'}
+              >
+                <Sun size={icon} strokeWidth={1.75} className="opacity-80" />
+                Día
+              </button>
+              <button
+                type="button"
+                onClick={() => onLight('noche')}
+                className={cn(btnBase, light === 'noche' ? btnOn : btnIdle)}
+                aria-pressed={light === 'noche'}
+              >
+                <Moon size={icon} strokeWidth={1.75} className="opacity-80" />
+                Noche
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
 
 type TourComparadorProps = {
   unitA: TourUnitSummary | null
@@ -46,6 +175,8 @@ type TourComparadorProps = {
   onPoseChange?: (pose: ComparePanoPose) => void
   /** Con CSS force-landscape, remapea el dedo también en el lado B. */
   remapTouch?: boolean
+  /** Galería: acabado/luz solo del lado B (independiente de A). */
+  sceneControlsB?: ComparadorSceneControls | null
 }
 
 type PickingSide = 'a' | 'b'
@@ -70,13 +201,14 @@ export function TourComparador({
   syncPoseRef,
   onPoseChange,
   remapTouch = false,
+  sceneControlsB = null,
 }: TourComparadorProps) {
   const [picking, setPicking] = useState<PickingSide | null>(() => {
     if (!unitA) return 'a'
     if (!unitB) return 'b'
     return null
   })
-  const [statsOpen, setStatsOpen] = useState(true)
+  const [statsOpen, setStatsOpen] = useState(false)
   const dragRef = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -144,7 +276,7 @@ export function TourComparador({
         >
           {showPanoB ? (
             <CompareSidePano
-              key={panoBUrl ?? 'empty'}
+              key={`${unitB?.id ?? 'b'}:${panoBUrl ?? 'empty'}`}
               url={panoBUrl}
               className="h-full w-full bg-[#111]"
               syncPose={syncPose}
@@ -167,30 +299,46 @@ export function TourComparador({
                   Sin imágenes para esta tipología
                 </div>
               )}
-              {previewsB.length > 1 ? (
-                <div className="absolute inset-x-0 bottom-3 z-[2] flex justify-center gap-1.5 px-3">
-                  {previewsB.slice(0, 8).map((item, index) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onPreviewIndexB(index)}
-                      className={cn(
-                        'h-9 w-9 shrink-0 overflow-hidden rounded-md ring-1 transition',
-                        index === previewIndexB ? 'ring-white' : 'ring-white/30 opacity-80',
-                      )}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={item.url} alt={item.label} className="h-full w-full object-cover" />
-                    </button>
-                  ))}
+              {sceneControlsB ? (
+                <div
+                  className="tour-compare-scene-controls pointer-events-none absolute bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+3.75rem))] z-[4] flex justify-center px-1.5 sm:bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+5rem))] sm:px-2"
+                  style={{ left: `${splitClamped}%`, right: 0 }}
+                >
+                  <div className="pointer-events-auto w-full max-w-[min(100%,15.5rem)] sm:max-w-[min(100%,18rem)]">
+                    <TourFinishLightControls {...sceneControlsB} tone="b" compact />
+                  </div>
                 </div>
+              ) : null}
+              {previewsB.length > 1 ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onPreviewIndexB((previewIndexB - 1 + previewsB.length) % previewsB.length)
+                    }
+                    className="absolute top-1/2 left-[max(0.35rem,env(safe-area-inset-left))] z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:left-2 sm:h-10 sm:w-10"
+                    aria-label="Imagen anterior"
+                  >
+                    <ChevronLeft size={18} strokeWidth={2} className="sm:hidden" />
+                    <ChevronLeft size={20} strokeWidth={2} className="hidden sm:block" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPreviewIndexB((previewIndexB + 1) % previewsB.length)}
+                    className="absolute top-1/2 right-[max(0.35rem,env(safe-area-inset-right))] z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:right-2 sm:h-10 sm:w-10"
+                    aria-label="Imagen siguiente"
+                  >
+                    <ChevronRight size={18} strokeWidth={2} className="sm:hidden" />
+                    <ChevronRight size={20} strokeWidth={2} className="hidden sm:block" />
+                  </button>
+                </>
               ) : null}
             </div>
           )}
           {showPanoB && !panoBUrl ? (
             <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center bg-[#111]/55 px-6 text-center">
               <p className="max-w-xs text-sm text-white/70">
-                Esta tipología no tiene tour 360 cargado. Elegí otra unidad o subí el 360 en Inventario.
+                Esta tipología no tiene tour 360 cargado. Elige otra unidad o sube el 360 en Inventario.
               </p>
             </div>
           ) : null}
@@ -198,11 +346,11 @@ export function TourComparador({
       ) : null}
 
       {/* Badges clickeables — cambian A/B sin pelear con el menú de modos */}
-      <div className="pointer-events-none absolute top-3 right-3 left-3 z-[32] flex items-start justify-between gap-2 sm:top-4 sm:right-4 sm:left-4">
+      <div className="pointer-events-none absolute top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] left-[max(0.5rem,env(safe-area-inset-left))] z-[32] flex items-start justify-between gap-1.5 sm:top-4 sm:right-4 sm:left-4 sm:gap-2">
         <button
           type="button"
           onClick={() => setPicking('a')}
-          className="pointer-events-auto inline-flex max-w-[min(46vw,15rem)] items-center rounded-full bg-[#1a2744] px-3 py-1.5 text-left text-[11px] font-semibold tracking-wide text-white shadow-md transition hover:brightness-110 sm:text-[12px]"
+          className="pointer-events-auto inline-flex max-w-[min(46vw,15rem)] items-center rounded-full bg-[#1a2744] px-2.5 py-1 text-left text-[10px] font-semibold tracking-wide text-white shadow-md transition hover:brightness-110 sm:px-3 sm:py-1.5 sm:text-[12px]"
           title="Cambiar unidad A"
         >
           <span className="truncate">
@@ -215,7 +363,7 @@ export function TourComparador({
           type="button"
           onClick={() => setPicking('b')}
           className={cn(
-            'pointer-events-auto inline-flex max-w-[min(46vw,15rem)] items-center rounded-full bg-[#3d9b4a] px-3 py-1.5 text-left text-[11px] font-semibold tracking-wide text-white shadow-md transition hover:brightness-110 sm:text-[12px]',
+            'pointer-events-auto inline-flex max-w-[min(46vw,15rem)] items-center rounded-full bg-[#3d9b4a] px-2.5 py-1 text-left text-[10px] font-semibold tracking-wide text-white shadow-md transition hover:brightness-110 sm:px-3 sm:py-1.5 sm:text-[12px]',
             drawerOpen && 'mr-0',
           )}
           title="Cambiar unidad B"
@@ -231,7 +379,7 @@ export function TourComparador({
       <button
         type="button"
         onClick={onClose}
-        className="pointer-events-auto absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] z-[34] inline-flex h-11 items-center gap-2 rounded-full bg-[#14110e] px-3.5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
+        className="pointer-events-auto absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.5rem,env(safe-area-inset-left))] z-[34] inline-flex h-10 items-center gap-1.5 rounded-full bg-[#14110e] px-3 text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/15 transition-transform hover:scale-[1.03] sm:bottom-[max(1rem,env(safe-area-inset-bottom))] sm:left-[max(0.75rem,env(safe-area-inset-left))] sm:h-11 sm:gap-2 sm:px-3.5"
         aria-label={
           unitA
             ? `Volver a la unidad ${unitA.unit_number}`
@@ -243,8 +391,9 @@ export function TourComparador({
             : 'Volver'
         }
       >
-        <Reply size={18} strokeWidth={2} className="-scale-x-100 shrink-0" />
-        <span className="pr-0.5 text-[11px] font-semibold tracking-wide uppercase">
+        <Reply size={16} strokeWidth={2} className="-scale-x-100 shrink-0 sm:hidden" />
+        <Reply size={18} strokeWidth={2} className="-scale-x-100 hidden shrink-0 sm:block" />
+        <span className="pr-0.5 text-[10px] font-semibold tracking-wide uppercase sm:text-[11px]">
           {unitA ? `Volver · ${unitA.unit_number}` : 'Volver'}
         </span>
       </button>
