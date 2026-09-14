@@ -6,6 +6,7 @@ import { Building2, DollarSign, MessageSquareText, RefreshCw, Search, Save } fro
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
+import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
 import { listProjects } from '@/services/inmobiliaria.service'
 import { loadUnitPricesAction, saveUnitPriceAction } from '@/app/inmobiliaria/automatizacion/precios/actions'
 import { botPriceStatus, parseCommercialPrice, type UnitPriceRow } from '@/lib/inmobiliaria/unitPrices'
@@ -27,7 +28,7 @@ export function UnitPricesView() {
   const [mode, setMode] = useState('lanzamiento')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('todos')
-  const [category, setCategory] = useState('viviendas')
+  const [category, setCategory] = useState('todos')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState('')
@@ -41,7 +42,11 @@ export function UnitPricesView() {
       try {
         const ids = await getAccessibleTenantIds(supabase)
         const rows = ids.length ? await listProjects(supabase, ids[0], ids) : []
-        if (active) { setProjects(rows); setProjectId(rows[0]?.id || ''); if (!rows.length) setLoading(false) }
+        if (active) {
+          setProjects(rows)
+          setProjectId(current => rows.some(project => project.id === current) ? current : rows.find(project => project.id === LAVILET_PROJECT_ID)?.id || rows[0]?.id || '')
+          if (!rows.length) setLoading(false)
+        }
       } catch { if (active) { setError('No se pudieron cargar los proyectos'); setLoading(false) } }
     })()
     return () => { active = false }
@@ -81,17 +86,19 @@ export function UnitPricesView() {
     } catch (cause) { toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar el precio') }
     finally { setSaving('') }
   }
-  const scoped = units.filter(unit => category === 'todos' || ['departamento', 'suite'].includes(normalizeUnitCategory(unit.category) || unit.category))
+  const scoped = units.filter(unit => category === 'todos' || (category === 'viviendas'
+    ? ['departamento', 'suite'].includes(normalizeUnitCategory(unit.category) || unit.category)
+    : normalizeUnitCategory(unit.category) === category))
   const visible = scoped.filter(unit => unit.unit_number.toLowerCase().includes(search.trim().toLowerCase())
     && (filter === 'todos' || (filter === 'sin_precio' ? !unit.published_commercial_price : !!unit.published_commercial_price)))
   const label = (unit: UnitPriceRow) => ({ departamento: 'Departamento', suite: 'Suite', local: 'Local' }[normalizeUnitCategory(unit.category) || unit.category] || unit.category)
 
   return <div className={styles.shell}>
-    <AutomationSettingsHeader active="precios" title="Precios por departamento" description="Mantenga un precio comercial por unidad, compartido con el inventario y la conversación del bot."
+    <AutomationSettingsHeader active="precios" title="Precios por unidad" description="Administre los precios de departamentos, suites y locales comerciales, compartidos con el inventario y el bot."
       project={<Select label="Proyecto" value={projectId} disabled={!!saving || loading} options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={event => changeProject(event.target.value)} />} />
     {loading ? <div className="flex justify-center py-20"><Spinner /></div> : error ? <div className={styles.notice} role="alert"><strong>No se pudieron cargar los precios</strong><p>{error}</p><Button variant="outline" onClick={() => projectId ? setRevision(value => value + 1) : setProjectRevision(value => value + 1)}>Reintentar</Button></div> : !projectId ? <p>No hay proyectos disponibles.</p> : <>
       <AutomationSettingsSummary items={[
-        { label: 'Unidades', value: scoped.length, detail: category === 'viviendas' ? 'Departamentos y suites del proyecto' : 'Todas las unidades del proyecto', icon: Building2 },
+        { label: 'Unidades', value: scoped.length, detail: category === 'viviendas' ? 'Departamentos y suites del proyecto' : category === 'local' ? 'Locales comerciales del proyecto' : 'Todas las unidades del proyecto', icon: Building2 },
         { label: 'Con precio guardado', value: scoped.filter(unit => unit.published_commercial_price).length, detail: 'Precio comercial en dólares estadounidenses', icon: DollarSign },
         { label: 'Precios en el bot', value: mode === 'preventa' ? 'Habilitados' : 'En espera', detail: mode === 'preventa' ? 'Solo unidades publicadas y disponibles' : 'El proyecto está en modo lanzamiento', icon: MessageSquareText },
       ]} />
@@ -102,8 +109,8 @@ export function UnitPricesView() {
       </div>
       <section className={styles.panel} aria-label="Edición de precios comerciales">
         <div className={priceStyles.toolbar}>
-          <div className={priceStyles.search}><Search size={16} /><Input id="price-search" aria-label="Buscar número de unidad" placeholder="Buscar departamento, ej. 210" value={search} onChange={event => setSearch(event.target.value)} /></div>
-          <Select aria-label="Tipo de unidad" value={category} options={[{ value: 'viviendas', label: 'Departamentos y suites' }, { value: 'todos', label: 'Todas las unidades' }]} onChange={event => setCategory(event.target.value)} />
+          <div className={priceStyles.search}><Search size={16} /><Input id="price-search" aria-label="Buscar número de unidad" placeholder="Buscar unidad, ej. 210 o LC-05" value={search} onChange={event => setSearch(event.target.value)} /></div>
+          <Select aria-label="Tipo de unidad" value={category} options={[{ value: 'todos', label: 'Todas las unidades' }, { value: 'viviendas', label: 'Departamentos y suites' }, { value: 'local', label: `Locales comerciales (${units.filter(unit => normalizeUnitCategory(unit.category) === 'local').length})` }]} onChange={event => setCategory(event.target.value)} />
           <Select aria-label="Filtrar precios" value={filter} options={[{ value: 'todos', label: 'Todos los precios' }, { value: 'sin_precio', label: 'Sin precio' }, { value: 'con_precio', label: 'Con precio' }]} onChange={event => setFilter(event.target.value)} />
           <Button variant="outline" disabled={!!saving || dirty} onClick={() => setRevision(value => value + 1)}><RefreshCw size={14} /> Actualizar</Button>
         </div>
@@ -113,7 +120,7 @@ export function UnitPricesView() {
             <thead><tr><th>Unidad</th><th>Características</th><th>Precio guardado</th><th>Nuevo precio · USD</th><th>Uso en el bot</th><th><span className="sr-only">Guardar</span></th></tr></thead>
             <tbody>{visible.map(unit => <tr key={unit.id}>
               <td><strong>{unit.unit_number}</strong><small>{label(unit)}</small></td>
-              <td>{unit.bedrooms ? `${unit.bedrooms} dormitorios` : '—'}<small>{unit.area_internal_m2 ? `${unit.area_internal_m2.toLocaleString('es-EC')} m² interiores` : 'Área sin registrar'}</small></td>
+              <td>{unit.bedrooms ? `${unit.bedrooms} dormitorios` : '—'}<small>{unit.floor_number === 0 ? 'Planta baja' : unit.floor_number != null ? `Piso ${unit.floor_number}` : 'Piso sin registrar'}</small><small>{unit.area_internal_m2 ? `${unit.area_internal_m2.toLocaleString('es-EC')} m² interiores` : 'Área sin registrar'}</small></td>
               <td>{unit.published_commercial_price == null ? <span className="text-[#92998a]">Sin precio</span> : formatCurrency(unit.published_commercial_price)}</td>
               <td><Input aria-label={`Precio comercial de ${unit.unit_number} en USD`} inputMode="decimal" maxLength={24} placeholder="Sin precio" value={drafts[unit.id] ?? ''} disabled={!!saving} onChange={event => setDrafts(current => ({ ...current, [unit.id]: event.target.value }))} /></td>
               <td><span className={styles.statusBadge}>{botPriceStatus(unit, mode)}</span></td>

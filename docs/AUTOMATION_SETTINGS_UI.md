@@ -28,6 +28,8 @@ El mapa conserva la selección de punto y el guardado explícito. La pantalla di
 
 Automatización → Precios permite al administrador editar el precio comercial en USD de departamentos y suites, o consultar todas las categorías del proyecto. Guarda `units.published_commercial_price`, el mismo valor del inventario; no crea otro catálogo de precios ni modifica costos o publicación de unidades. Un valor vacío retira el precio (null, no cero). La edición comprueba proyecto, tenant y versión de la unidad para no sobrescribir un cambio concurrente.
 
+La vista abre con Todas las unidades y el proyecto La Vilet cuando es accesible. El filtro Locales comerciales incluye su cantidad y permite verlos por separado; el filtro Departamentos y suites es opcional. Cada fila muestra el piso para facilitar la comparación de precios.
+
 Guardar un precio no cambia el modo comercial. En lanzamiento sigue oculto al bot; en preventa puede utilizarse cuando la unidad está publicada y disponible. El formulario muestra esa condición y enlaza a Reglas y SLA. Las pruebas de precios están incluidas en `npm run test:automation`.
 
 En Inventario, el mismo valor aparece en la columna Precio y en la ficha de la unidad bajo Precio comercial. Para editarlo se abre la unidad, se pulsa el lápiz Editar y se cambia Precio comercial. Si otra pantalla ya estaba abierta, se recarga para ver el dato actualizado. La restricción de lanzamiento es una política comercial configurable mediante el modo, no una exigencia de Kommo: solo tiene sentido retener cifras cuando aún no están aprobadas para comunicarse.
