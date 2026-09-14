@@ -271,7 +271,7 @@ export function AutomationGuionView() {
           <AutomationSettingsSummary items={[
             { label: 'Instrucciones activas', value: topics.filter(topic => topic.is_active && SDR_PROMPT_ORDER.includes(topic.name)).length, detail: 'Guiones que utiliza la conversación', icon: MessageSquareText },
             { label: 'Preguntas orientativas', value: questions.filter(question => question.is_active).length, detail: 'Se adaptan a lo que el lead ya compartió', icon: ListChecks },
-            { label: 'Tipo de respuesta', value: 'Mixta', detail: 'IA comercial y mensajes operativos guiados', icon: Workflow },
+            { label: 'Tipo de respuesta', value: 'IA con reglas', detail: 'Redacción contextual y acciones verificadas', icon: Workflow },
           ]} />
           <AutomationSettingsSections selected={section} onSelect={setSection} sections={[
             { id: 'respuestas', label: 'Cómo responde', detail: 'Tono e instrucciones de la IA', icon: MessageSquareText },
@@ -504,19 +504,19 @@ export function AutomationGuionView() {
           <GuionCard id="operativos" title="Citas y financiamiento" description="Estos procesos combinan decisiones de la IA con textos predefinidos. El mensaje cambia según el paso y los datos reales de cada lead.">
             <div className={styles.messageGrid}>
               <article className={styles.messageCard}>
-                <Landmark size={24} /><span className={styles.statusBadge}>Proceso guiado</span>
+                <Landmark size={24} /><span className={styles.statusBadge}>Redacción con IA</span>
                 <h3>Financiamiento</h3>
-                <p>El sistema elige mensajes para informar las entidades disponibles, registrar la elección y solicitar los datos que faltan.</p>
+                <p>La IA adapta la respuesta a la conversación. El sistema verifica las entidades, la autorización del cliente y el siguiente dato necesario.</p>
                 <ul><li>Las entidades se toman de la configuración vigente.</li><li>Las preguntas dependen de la información ya registrada.</li><li>La consulta sobre crédito directo tiene una respuesta específica.</li></ul>
               </article>
               <article className={styles.messageCard}>
-                <CalendarClock size={24} /><span className={styles.statusBadge}>Textos con datos de la cita</span>
+                <CalendarClock size={24} /><span className={styles.statusBadge}>Propuestas revisadas</span>
                 <h3>Agendamiento de visitas</h3>
-                <p>Las solicitudes, propuestas, confirmaciones y cancelaciones tienen textos definidos para cada estado.</p>
-                <ul><li>La fecha, la hora y el asesor se completan con la cita real.</li><li>La confirmación incluye la ubicación guardada.</li><li>El bot distingue una preferencia de una cita confirmada.</li></ul>
+                <p>Las solicitudes y propuestas se redactan con contexto. El asesor puede revisar hasta tres horarios y el mensaje antes de enviarlos.</p>
+                <ul><li>La fecha y la hora que indicó el cliente se conservan.</li><li>Los mensajes incluyen la dirección y el mapa.</li><li>Una propuesta todavía necesita la elección del cliente para confirmar la cita.</li></ul>
               </article>
             </div>
-            <div className={styles.notice}><strong>¿Qué se puede editar desde Guion?</strong><p>El tono y las instrucciones de las respuestas comerciales. Los textos operativos de citas y financiamiento están definidos en el sistema y todavía no tienen un editor en esta pantalla.</p><p>No hace falta crear más plantillas en Kommo para cambiar la lógica que elige estos mensajes.</p></div>
+            <div className={styles.notice}><strong>¿Qué se puede editar desde Guion?</strong><p>El tono y las instrucciones comerciales. La redacción de citas y financiamiento también utiliza IA, siguiendo el estado real de cada proceso y una revisión que conserva los datos.</p><p>Los horarios y la vista previa de cada propuesta se revisan desde Citas pendientes o Agenda. El envío requiere la acción del asesor.</p></div>
           </GuionCard>
           </AutomationSettingsSections>
         </>
