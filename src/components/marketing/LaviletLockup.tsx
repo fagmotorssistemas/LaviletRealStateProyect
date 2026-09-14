@@ -53,11 +53,13 @@ function LockupLetter({
   letter,
   index,
   variant,
+  quiet = false,
 }: {
   id: string
   letter: string
   index: number
   variant: 'hero' | 'story'
+  quiet?: boolean
 }) {
   const story = variant === 'story'
 
@@ -67,16 +69,24 @@ function LockupLetter({
       className="inline-block cursor-pointer select-none"
       initial={story ? false : { y: 140, scale: 1.85, opacity: 0 }}
       animate={{ y: 0, scale: 1, opacity: 1 }}
-      whileHover={{
-        y: story ? -6 : -18,
-        scale: story ? 1.06 : 1.22,
-        transition: { type: 'spring', stiffness: 620, damping: 9, delay: 0 },
-      }}
-      whileTap={{
-        y: -14,
-        scale: 1.18,
-        transition: { type: 'spring', stiffness: 800, damping: 11, delay: 0 },
-      }}
+      whileHover={
+        quiet
+          ? undefined
+          : {
+              y: story ? -6 : -18,
+              scale: story ? 1.06 : 1.22,
+              transition: { type: 'spring', stiffness: 620, damping: 9, delay: 0 },
+            }
+      }
+      whileTap={
+        quiet
+          ? undefined
+          : {
+              y: -14,
+              scale: 1.18,
+              transition: { type: 'spring', stiffness: 800, damping: 11, delay: 0 },
+            }
+      }
       transition={{
         layout: {
           type: 'spring',
@@ -105,55 +115,108 @@ function LockupLetter({
   )
 }
 
-export function LaviletLockup({ variant }: { variant: 'hero' | 'story' }) {
+export function LaviletLockup({
+  variant,
+  onMist = false,
+  backdrop = false,
+}: {
+  variant: 'hero' | 'story'
+  onMist?: boolean
+  backdrop?: boolean
+}) {
   const story = variant === 'story'
+  const mist = story || onMist
 
   return (
     <div
       className={cn(
-        'flex w-fit flex-col items-start',
-        story ? 'text-[#787D62]' : 'origin-left text-white',
+        'flex w-fit flex-col',
+        backdrop ? 'items-center origin-center' : 'items-start origin-left',
+        story || mist || backdrop
+          ? 'text-[#72735A] mkt-dark:text-[#F2F2F2]'
+          : 'text-white',
       )}
+      style={
+        backdrop
+          ? { filter: 'drop-shadow(0 24px 32px rgb(114 115 90 / 0.2))' }
+          : undefined
+      }
     >
       <motion.p
         layoutId="lockup-suites"
         className={cn(
           'mb-3 font-sans font-medium tracking-[0.42em] uppercase',
-          story ? 'text-[9px] sm:text-[10px]' : 'text-[10px] text-white/80 sm:text-xs',
+          story
+            ? 'text-[9px] sm:text-[10px]'
+            : backdrop
+              ? 'text-[10px] text-[#72735A]/70 sm:text-xs mkt-dark:text-[#F2F2F2]/75'
+              : mist
+                ? 'text-[10px] text-[#72735A]/70 sm:text-xs mkt-dark:text-[#F2F2F2]/75'
+                : 'text-[10px] text-white/80 sm:text-xs',
         )}
       >
         Suites | Apartments
       </motion.p>
       <div
         className={cn(
-          'grid w-fit grid-cols-[auto_auto] grid-rows-2 font-serif font-normal leading-[0.85] tracking-[-0.04em]',
+          'font-serif font-normal leading-[0.85] tracking-[-0.04em]',
+          backdrop ? 'flex w-fit' : 'grid w-fit grid-cols-[auto_auto] grid-rows-2',
           story
             ? 'text-[clamp(3.25rem,8vw,5.25rem)]'
-            : 'text-[clamp(3.25rem,13vw,8rem)]',
+            : backdrop
+              ? 'text-[clamp(2.35rem,8vw+2vh,7.5rem)]'
+              : 'text-[clamp(3.25rem,13vw,8rem)]',
         )}
       >
-        <span className="col-start-1 row-start-1 flex">
-          {LETTERS_LA.map((item, i) => (
-            <LockupLetter
-              key={item.id}
-              id={item.id}
-              letter={item.ch}
-              index={i}
-              variant={variant}
-            />
-          ))}
-        </span>
-        <span className="col-start-2 row-start-2 flex">
-          {LETTERS_VILET.map((item, i) => (
-            <LockupLetter
-              key={item.id}
-              id={item.id}
-              letter={item.ch}
-              index={i + 2}
-              variant={variant}
-            />
-          ))}
-        </span>
+        {backdrop ? (
+          <>
+            {LETTERS_LA.map((item, i) => (
+              <LockupLetter
+                key={item.id}
+                id={item.id}
+                letter={item.ch}
+                index={i}
+                variant={variant}
+                quiet
+              />
+            ))}
+            {LETTERS_VILET.map((item, i) => (
+              <LockupLetter
+                key={item.id}
+                id={item.id}
+                letter={item.ch}
+                index={i + 2}
+                variant={variant}
+                quiet
+              />
+            ))}
+          </>
+        ) : (
+          <>
+            <span className="col-start-1 row-start-1 flex">
+              {LETTERS_LA.map((item, i) => (
+                <LockupLetter
+                  key={item.id}
+                  id={item.id}
+                  letter={item.ch}
+                  index={i}
+                  variant={variant}
+                />
+              ))}
+            </span>
+            <span className="col-start-2 row-start-2 flex">
+              {LETTERS_VILET.map((item, i) => (
+                <LockupLetter
+                  key={item.id}
+                  id={item.id}
+                  letter={item.ch}
+                  index={i + 2}
+                  variant={variant}
+                />
+              ))}
+            </span>
+          </>
+        )}
       </div>
     </div>
   )

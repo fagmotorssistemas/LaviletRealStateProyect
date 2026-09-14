@@ -23,7 +23,7 @@ export function NearbyAutoCarousel() {
           {items.map((place, i) => (
             <article
               key={`${place.id}-${i}`}
-              className="w-[min(78vw,18.5rem)] shrink-0 rounded-2xl bg-white p-5 ring-1 ring-[#2B1A18]/8 sm:w-[20rem] sm:p-6"
+              className="w-[min(78vw,18.5rem)] shrink-0 rounded-2xl bg-[#f7f3ee] p-5 ring-1 ring-[#2B1A18]/8 sm:w-[20rem] sm:p-6"
             >
               <p className="text-[11px] font-medium tracking-[0.18em] text-[#BDA27E] uppercase">
                 {place.tag}

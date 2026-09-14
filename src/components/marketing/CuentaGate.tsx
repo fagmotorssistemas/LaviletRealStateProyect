@@ -22,7 +22,7 @@ export function CuentaGate({ children }: { children: React.ReactNode }) {
   }, [isLoading, user, role, router])
 
   if (isLoading || !user || (role && role !== 'visitante')) {
-    return <div className="min-h-screen bg-[#f7f3ee]" />
+    return <div className="min-h-screen bg-white" />
   }
 
   return children

@@ -19,7 +19,7 @@ const fadeUp = {
 
 export function ProyectosView() {
   return (
-    <div className="relative z-20 overflow-hidden bg-[#f7f3ee]">
+    <div className="relative z-20 overflow-hidden bg-white mkt-dark:bg-[#0a0a0a]">
       <div
         aria-hidden
         className="pointer-events-none absolute top-20 right-0 h-80 w-80 rounded-full bg-[#BDA27E]/15 blur-3xl"
@@ -219,7 +219,7 @@ export function ProyectosView() {
                 key={space.title}
                 variants={fadeUp}
                 custom={i}
-                className="group overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#2B1A18]/8 transition hover:shadow-xl hover:ring-[#BDA27E]/40"
+                className="group overflow-hidden rounded-2xl bg-[#f7f3ee] ring-1 ring-[#2B1A18]/8 transition hover:ring-[#BDA27E]/40"
               >
                 <div className="relative h-56 overflow-hidden">
                   <Image

@@ -19,7 +19,7 @@ const fadeUp = {
 
 export function ProcesoView() {
   return (
-    <div className="relative z-20 overflow-hidden bg-[#f7f3ee]">
+    <div className="relative z-20 overflow-hidden bg-white mkt-dark:bg-[#0a0a0a]">
       <div
         aria-hidden
         className="pointer-events-none absolute top-24 left-0 h-72 w-72 rounded-full bg-[#BDA27E]/12 blur-3xl"
@@ -96,7 +96,7 @@ export function ProcesoView() {
                 variants={fadeUp}
                 custom={i}
                 whileHover={{ y: -6, transition: { duration: 0.35, ease } }}
-                className="group relative overflow-hidden rounded-[1.35rem] bg-white p-6 shadow-sm ring-1 ring-[#2B1A18]/8 sm:p-7"
+                className="group relative overflow-hidden rounded-[1.35rem] bg-[#f7f3ee] p-6 ring-1 ring-[#2B1A18]/8 sm:p-7"
               >
                 <div
                   aria-hidden
@@ -105,7 +105,7 @@ export function ProcesoView() {
                 <p className="font-display text-5xl font-semibold text-[#BDA27E]/30">{step.n}</p>
                 <h2 className="mt-4 text-xl font-semibold text-[#2B1A18]">{step.title}</h2>
                 <p className="mt-2 text-sm leading-relaxed text-[#2B1A18]/65">{step.body}</p>
-                <p className="mt-4 border-t border-[#2B1A18]/8 pt-4 text-sm leading-relaxed text-[#2B1A18]/50">
+                <p className="mt-4 border-t border-[#2B1A18]/10 pt-4 text-sm leading-relaxed text-[#2B1A18]/50">
                   {step.detail}
                 </p>
               </motion.article>
@@ -160,7 +160,7 @@ export function ProcesoView() {
                   {String(i + 1).padStart(2, '0')}
                 </p>
                 <h3 className="mt-3 text-base font-semibold">{pillar.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-white/60">{pillar.body}</p>
+                <p className="mt-2 text-sm leading-relaxed text-white/70">{pillar.body}</p>
               </motion.article>
             ))}
           </motion.div>
@@ -189,7 +189,7 @@ export function ProcesoView() {
               <motion.div key={item.title} variants={fadeUp} custom={i}>
                 <Link
                   href={item.href}
-                  className="group flex h-full flex-col rounded-[1.25rem] bg-white p-6 ring-1 ring-[#2B1A18]/8 transition hover:ring-[#BDA27E]/50 hover:shadow-lg"
+                  className="group flex h-full flex-col rounded-[1.25rem] bg-[#f7f3ee] p-6 ring-1 ring-[#2B1A18]/8 transition hover:ring-[#BDA27E]/50"
                 >
                   <h3 className="text-lg font-semibold text-[#2B1A18]">{item.title}</h3>
                   <p className="mt-2 flex-1 text-sm leading-relaxed text-[#2B1A18]/60">{item.body}</p>

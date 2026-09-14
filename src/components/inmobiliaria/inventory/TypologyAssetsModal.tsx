@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type UIEvent } from 'react'
+import dynamic from 'next/dynamic'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -8,7 +9,6 @@ import {
   listTypologiesImportAction,
   listTypologyAssetsAction,
 } from '@/app/inmobiliaria/inventario-2/actions'
-import { TypologyHotspotEditor } from '@/components/inmobiliaria/inventory/TypologyHotspotEditor'
 import { TypologyFloorZonesPanel } from '@/components/inmobiliaria/inventory/TypologyFloorZonesPanel'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -68,6 +68,21 @@ const DEFAULT_FINISHES = [
   { slug: 'acabado-1', name: 'Acabado 1' },
   { slug: 'acabado-2', name: 'Acabado 2' },
 ] as const
+
+const TypologyHotspotEditor = dynamic(
+  () =>
+    import('@/components/inmobiliaria/inventory/TypologyHotspotEditor').then(
+      (mod) => mod.TypologyHotspotEditor,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[420px] items-center justify-center rounded-md bg-[#1a1814] text-sm text-white/70">
+        Cargando visor 360°…
+      </div>
+    ),
+  },
+)
 
 function labeledFinishes(rows: { slug: string; name: string }[]) {
   const source = rows.length > 0 ? rows : [...DEFAULT_FINISHES]

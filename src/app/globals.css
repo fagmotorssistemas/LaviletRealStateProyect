@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant mkt-dark (&:where([data-mkt-theme="dark"], [data-mkt-theme="dark"] *));
+
 @theme {
   --font-sans: var(--font-satoshi), "Poppins", ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-cormorant), Georgia, "Times New Roman", serif;
@@ -11,8 +13,8 @@
 }
 
 :root {
-  --background: #f7f3ee;
-  --foreground: #555850;
+  --background: #ffffff;
+  --foreground: #2B1A18;
   --primary: #2B1A18;
   --primary-light: #3d2a24;
   --accent: #BDA27E;
@@ -34,6 +36,165 @@
 
 html {
   font-size: 17px;
+}
+
+[data-mkt-theme="light"] {
+  --mkt-bg: #f2f2f2;
+  --mkt-fg: #72735a;
+  --mkt-accent: #8b8c74;
+  --mkt-soft: #a5a694;
+  --mkt-line: #bfbfb8;
+  --mkt-paper: #e8e8e3;
+  color-scheme: light;
+  background-color: var(--mkt-bg);
+  color: var(--mkt-fg);
+}
+
+[data-mkt-theme="dark"] {
+  --mkt-bg: #72735a;
+  --mkt-fg: #f2f2f2;
+  --mkt-accent: #a5a694;
+  --mkt-soft: #bfbfb8;
+  --mkt-line: #8b8c74;
+  --mkt-paper: #8b8c74;
+  color-scheme: dark;
+  background-color: var(--mkt-bg);
+  color: var(--mkt-fg);
+}
+
+[data-mkt-theme] .bg-white {
+  background-color: var(--mkt-bg);
+}
+
+[data-mkt-theme] .bg-white\/90 {
+  background-color: color-mix(in srgb, var(--mkt-bg) 90%, transparent);
+}
+
+[data-mkt-theme] .bg-\[\#f7f3ee\],
+[data-mkt-theme] .bg-\[\#141414\] {
+  background-color: var(--mkt-paper);
+}
+
+[data-mkt-theme] .bg-\[\#0a0a0a\] {
+  background-color: var(--mkt-bg);
+}
+
+[data-mkt-theme] .bg-\[\#2B1A18\] {
+  background-color: var(--mkt-fg);
+}
+
+[data-mkt-theme="light"] .bg-\[\#2B1A18\] {
+  background-color: #72735a;
+  color: #f2f2f2;
+}
+
+[data-mkt-theme="dark"] .bg-\[\#2B1A18\] {
+  background-color: #f2f2f2;
+  color: #72735a;
+}
+
+[data-mkt-theme] .bg-\[\#BDA27E\] {
+  background-color: var(--mkt-accent);
+}
+
+[data-mkt-theme] .hover\:bg-\[\#3d2a24\]:hover,
+[data-mkt-theme] .hover\:bg-\[\#f7f3ee\]:hover {
+  background-color: var(--mkt-accent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\] {
+  color: var(--mkt-fg);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/80 {
+  color: color-mix(in srgb, var(--mkt-fg) 80%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/75 {
+  color: color-mix(in srgb, var(--mkt-fg) 75%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/70 {
+  color: color-mix(in srgb, var(--mkt-fg) 70%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/65 {
+  color: color-mix(in srgb, var(--mkt-fg) 65%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/60 {
+  color: color-mix(in srgb, var(--mkt-fg) 60%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/55 {
+  color: color-mix(in srgb, var(--mkt-fg) 55%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/50 {
+  color: color-mix(in srgb, var(--mkt-fg) 50%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/45 {
+  color: color-mix(in srgb, var(--mkt-fg) 45%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/40 {
+  color: color-mix(in srgb, var(--mkt-fg) 40%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#2B1A18\]\/15 {
+  color: color-mix(in srgb, var(--mkt-fg) 18%, transparent);
+}
+
+[data-mkt-theme] .text-\[\#BDA27E\],
+[data-mkt-theme] .text-\[\#C45C3E\],
+[data-mkt-theme] .hover\:text-\[\#BDA27E\]:hover {
+  color: var(--mkt-accent);
+}
+
+[data-mkt-theme] .border-\[\#2B1A18\]\/10,
+[data-mkt-theme] .border-\[\#2B1A18\]\/8 {
+  border-color: color-mix(in srgb, var(--mkt-fg) 14%, transparent);
+}
+
+[data-mkt-theme] .ring-\[\#2B1A18\]\/10,
+[data-mkt-theme] .ring-\[\#2B1A18\]\/8,
+[data-mkt-theme] .ring-\[\#2B1A18\]\/20 {
+  --tw-ring-color: color-mix(in srgb, var(--mkt-fg) 16%, transparent);
+}
+
+[data-mkt-theme] .bg-\[\#C45C3E\],
+[data-mkt-theme] .bg-\[\#BDA27E\]\/10 {
+  background-color: color-mix(in srgb, var(--mkt-accent) 18%, transparent);
+}
+
+[data-mkt-theme="dark"] #inicio a.bg-white {
+  background-color: #f2f2f2;
+  color: #72735a;
+}
+
+[data-mkt-theme="light"] #inicio a.bg-white {
+  background-color: #f2f2f2;
+  color: #72735a;
+}
+
+[data-mkt-theme] .text-\[\#f4efe8\] {
+  color: var(--mkt-fg);
+}
+
+.story-board-air {
+  perspective: 1600px;
+  perspective-origin: 50% 42%;
+}
+
+.story-air {
+  transform-origin: center center;
+  transform-style: preserve-3d;
+  filter: drop-shadow(0 24px 32px rgb(114 115 90 / 0.2));
+}
+
+[data-mkt-theme="dark"] .story-air {
+  filter: drop-shadow(0 24px 32px rgb(0 0 0 / 0.32));
 }
 
 html {
@@ -66,15 +227,41 @@ body {
   font-weight: 500;
 }
 
+html {
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar {
+  display: none;
+}
+
 * {
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .crm-app {
   background-color: #fcfbf9;
   color: var(--ink);
   font-weight: 500;
+  scrollbar-width: thin;
+  scrollbar-color: #c5c1b7 transparent;
+}
+
+.crm-app::-webkit-scrollbar {
+  display: block;
+  width: 8px;
+  height: 8px;
+}
+
+.crm-app::-webkit-scrollbar-thumb {
+  background: #c5c1b7;
+  border-radius: 99px;
 }
 
 .crm-app :is(.text-gray-900, .text-slate-900, .text-slate-800, .text-slate-700, .text-\[\#2B1A18\]) {

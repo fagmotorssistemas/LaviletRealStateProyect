@@ -45,8 +45,8 @@ export function VisitanteHome() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f3ee] text-[#2B1A18]">
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-[#2B1A18]/8 bg-[#f7f3ee]/90 backdrop-blur-md">
+    <div className="min-h-screen bg-white text-[#2B1A18]">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-[#2B1A18]/8 bg-white/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-6 px-5 sm:px-8 lg:px-12">
           <button
             type="button"
@@ -100,7 +100,7 @@ export function VisitanteHome() {
         </div>
 
         {open && (
-          <div className="border-t border-[#2B1A18]/10 bg-[#f7f3ee] px-5 pb-6 pt-2 md:hidden">
+          <div className="border-t border-[#2B1A18]/10 bg-white px-5 pb-6 pt-2 md:hidden">
             <nav className="flex flex-col gap-1">
               {HOME_TABS.map((item) => (
                 <button
@@ -127,7 +127,7 @@ export function VisitanteHome() {
         )}
       </header>
 
-      <section className="bg-[#f7f3ee] pt-16">
+      <section className="bg-white pt-16">
         <div className="mx-auto max-w-[1400px] px-5 pt-8 pb-10 sm:px-8 lg:px-12">
           <p className="text-[11px] font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Showroom virtual</p>
           <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Recorre el showroom en 360°</h1>
@@ -143,10 +143,10 @@ export function VisitanteHome() {
         </div>
       </section>
 
-      <section id="info" className="scroll-mt-20 border-t border-[#2B1A18]/8 bg-[#f7f3ee]">
+      <section id="info" className="scroll-mt-20 border-t border-[#2B1A18]/10 bg-white">
         <div className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12">
           <div
-            className="flex gap-6 overflow-x-auto border-b border-[#2B1A18]/8 py-4 md:hidden"
+            className="flex gap-6 overflow-x-auto border-b border-[#2B1A18]/10 py-4 md:hidden"
             role="tablist"
             aria-label="Información"
           >

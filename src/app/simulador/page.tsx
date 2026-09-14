@@ -13,7 +13,7 @@ export default function SimuladorPage() {
   return (
     <MarketingShell>
       {/* pt compensates fixed SiteHeader (h-16) so content is not covered */}
-      <div className="px-4 pt-24 pb-12 sm:px-8 sm:pt-28 sm:pb-16">
+      <div className="bg-[#f7f3ee] px-4 pt-24 pb-12 text-[#2B1A18] sm:px-8 sm:pt-28 sm:pb-16">
         <Suspense
           fallback={
             <div className="flex justify-center py-16">

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
+import { ThemeToggle } from './theme'
 import { useAuth } from '@/contexts/AuthContext'
 import { homePathForRole } from '@/lib/inmobiliaria/roleAccess'
 import {
@@ -13,17 +14,23 @@ import {
 } from '@/lib/tour/showroomIdentity'
 import { MARKETING_NAV } from '@/lib/marketing/nav'
 import { cn } from '@/lib/utils'
+import { HERO_LOCKED_EVENT, isHeroLocked } from './heroLock'
 
 const ease = [0.22, 1, 0.36, 1] as const
+const HERO_PATHS = new Set(['/inicio', '/nosotros'])
 
 export function SiteHeader() {
   const pathname = usePathname()
   const reduceMotion = useReducedMotion()
   const { user, profile, isLoading } = useAuth()
+  const waitsForHero = HERO_PATHS.has(pathname)
   const [scrolled, setScrolled] = useState(false)
+  const [pastHero, setPastHero] = useState(false)
+  const [heroLocked, setHeroLocked] = useState(!waitsForHero)
   const [open, setOpen] = useState(false)
   const [hasPhone, setHasPhone] = useState(false)
-  const overHero = (pathname === '/inicio' || pathname === '/nosotros') && !scrolled && !open
+  const headerReady = !waitsForHero || heroLocked || open || pastHero
+  const overHero = waitsForHero && !heroLocked && !scrolled && !open
   const solid = !overHero
   const accountHref = user ? homePathForRole(profile?.role) : '/login'
   const accountLabel = user ? (profile?.role === 'visitante' ? 'Mi cuenta' : 'Panel') : 'Acceso'
@@ -48,7 +55,21 @@ export function SiteHeader() {
   }, [])
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24)
+    if (!waitsForHero) {
+      setHeroLocked(true)
+      return
+    }
+    const onLocked = () => setHeroLocked(true)
+    window.addEventListener(HERO_LOCKED_EVENT, onLocked)
+    setHeroLocked(isHeroLocked())
+    return () => window.removeEventListener(HERO_LOCKED_EVENT, onLocked)
+  }, [pathname, waitsForHero])
+
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 24)
+      setPastHero(window.scrollY > window.innerHeight * 0.85)
+    }
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
@@ -68,23 +89,24 @@ export function SiteHeader() {
   const linkTone = (href: string) =>
     solid
       ? pathname === href
-        ? 'text-[#2B1A18]'
-        : 'text-[#2B1A18]/70 hover:text-[#2B1A18]'
-      : pathname === href
-        ? 'text-white'
-        : 'text-white/85 hover:text-white'
+        ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8]'
+        : 'text-[#2B1A18]/75 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/75 mkt-dark:hover:text-[#f4efe8]'
+      : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:text-white'
 
   return (
     <motion.header
       data-site-header
-      initial={reduceMotion ? false : { y: -16, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.55, ease }}
+      initial={reduceMotion || waitsForHero ? false : { y: -16, opacity: 0 }}
+      animate={headerReady ? { y: 0, opacity: 1 } : { y: -16, opacity: 0 }}
+      transition={{ duration: reduceMotion ? 0.2 : 0.55, ease }}
+      aria-hidden={!headerReady}
+      inert={!headerReady ? true : undefined}
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-500',
         solid
-          ? 'border-b border-[#2B1A18]/8 bg-[#f7f3ee]/90 backdrop-blur-md'
+          ? 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-[#F2F2F2]/12 mkt-dark:bg-[#72735A]/90'
           : 'border-b border-transparent bg-transparent',
+        !headerReady && 'pointer-events-none',
       )}
     >
       <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-4 px-5 sm:px-8 lg:gap-6 lg:px-12">
@@ -96,8 +118,10 @@ export function SiteHeader() {
           <Link
             href="/inicio"
             className={cn(
-              'relative z-10 text-[11px] font-medium tracking-[0.28em] uppercase transition-[color,letter-spacing] duration-300 hover:tracking-[0.34em]',
-              solid ? 'text-[#2B1A18]' : 'text-white',
+              'relative z-10 text-[13px] font-semibold tracking-[0.22em] uppercase transition-[color,letter-spacing] duration-300 hover:tracking-[0.28em] lg:text-[14px]',
+              solid
+                ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8]'
+                : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)]',
             )}
           >
             Lavilet
@@ -117,7 +141,7 @@ export function SiteHeader() {
                 <Link
                   href={item.href}
                   className={cn(
-                    'group relative inline-block py-1 text-[11px] font-medium tracking-[0.22em] uppercase transition-colors duration-300',
+                    'group relative inline-block py-1 text-[13px] font-semibold tracking-[0.16em] uppercase transition-colors duration-300 lg:text-[14px]',
                     linkTone(item.href),
                   )}
                 >
@@ -127,7 +151,7 @@ export function SiteHeader() {
                       layoutId="nav-active-line"
                       className={cn(
                         'absolute inset-x-0 -bottom-0.5 h-px',
-                        solid ? 'bg-[#C45C3E]' : 'bg-white',
+                        solid ? 'bg-[#8B8C74]' : 'bg-white',
                       )}
                       transition={{ type: 'spring', stiffness: 380, damping: 32 }}
                     />
@@ -155,8 +179,10 @@ export function SiteHeader() {
               <Link
                 href={accountHref}
                 className={cn(
-                  'text-[11px] font-medium tracking-[0.18em] uppercase transition-colors duration-300',
-                  solid ? 'text-[#2B1A18]/40 hover:text-[#2B1A18]' : 'text-white/55 hover:text-white',
+                  'text-[13px] font-semibold tracking-[0.14em] uppercase transition-colors duration-300 lg:text-[14px]',
+                  solid
+                    ? 'text-[#2B1A18]/55 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/55 mkt-dark:hover:text-[#f4efe8]'
+                    : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:text-white',
                 )}
               >
                 {accountLabel}
@@ -173,45 +199,65 @@ export function SiteHeader() {
             <Link
               href="/contacto"
               className={cn(
-                'group relative inline-flex items-center text-[11px] font-medium tracking-[0.22em] uppercase transition-colors duration-300',
-                solid ? 'text-[#2B1A18] hover:text-[#BDA27E]' : 'text-white hover:text-[#BDA27E]',
+                'group relative inline-flex items-center text-[13px] font-semibold tracking-[0.16em] uppercase transition-colors duration-300 lg:text-[14px]',
+                solid
+                  ? 'text-[#72735A] hover:text-[#8B8C74] mkt-dark:text-[#F2F2F2] mkt-dark:hover:text-[#BFBFB8]'
+                  : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:text-[#BDA27E]',
               )}
             >
               Agendar visita
               <span
                 className={cn(
                   'ml-2 inline-block h-px w-5 origin-left transition-transform duration-300 group-hover:scale-x-150',
-                  solid ? 'bg-[#BDA27E]' : 'bg-white/70 group-hover:bg-[#BDA27E]',
+                  solid ? 'bg-[#8B8C74]' : 'bg-white/70 group-hover:bg-[#BFBFB8]',
                 )}
               />
             </Link>
           </motion.div>
+          <ThemeToggle
+            className={
+              solid
+                ? 'text-[#2B1A18] hover:bg-[#2B1A18]/5 mkt-dark:text-[#f4efe8] mkt-dark:hover:bg-white/10'
+                : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:bg-white/10'
+            }
+          />
         </div>
 
-        <motion.button
-          type="button"
-          className={cn(
-            'relative z-10 rounded-lg p-2 lg:hidden',
-            solid ? 'text-[#2B1A18]' : 'text-white',
-          )}
-          aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          whileTap={reduceMotion ? undefined : { scale: 0.92 }}
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={open ? 'close' : 'open'}
-              initial={reduceMotion ? false : { opacity: 0, rotate: -40, scale: 0.8 }}
-              animate={{ opacity: 1, rotate: 0, scale: 1 }}
-              exit={reduceMotion ? undefined : { opacity: 0, rotate: 40, scale: 0.8 }}
-              transition={{ duration: 0.2, ease }}
-              className="block"
-            >
-              {open ? <X size={22} /> : <Menu size={22} />}
-            </motion.span>
-          </AnimatePresence>
-        </motion.button>
+        <div className="flex items-center gap-1 lg:hidden">
+          <ThemeToggle
+            className={
+              solid
+                ? 'text-[#2B1A18] hover:bg-[#2B1A18]/5 mkt-dark:text-[#f4efe8] mkt-dark:hover:bg-white/10'
+                : 'text-white hover:bg-white/10'
+            }
+          />
+          <motion.button
+            type="button"
+            className={cn(
+              'relative z-10 rounded-lg p-2',
+              solid
+                ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8]'
+                : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)]',
+            )}
+            aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            whileTap={reduceMotion ? undefined : { scale: 0.92 }}
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={open ? 'close' : 'open'}
+                initial={reduceMotion ? false : { opacity: 0, rotate: -40, scale: 0.8 }}
+                animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                exit={reduceMotion ? undefined : { opacity: 0, rotate: 40, scale: 0.8 }}
+                transition={{ duration: 0.2, ease }}
+                className="block"
+              >
+                {open ? <X size={22} /> : <Menu size={22} />}
+              </motion.span>
+            </AnimatePresence>
+          </motion.button>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -222,7 +268,7 @@ export function SiteHeader() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={reduceMotion ? undefined : { height: 0, opacity: 0 }}
             transition={{ duration: 0.35, ease }}
-            className="overflow-hidden border-t border-[#2B1A18]/10 bg-[#f7f3ee] lg:hidden"
+            className="overflow-hidden border-t border-[#72735A]/12 bg-[#F2F2F2] mkt-dark:border-[#F2F2F2]/12 mkt-dark:bg-[#72735A] lg:hidden"
           >
             <div className="px-5 pb-6 pt-2">
               <nav className="flex flex-col gap-1">
@@ -236,8 +282,10 @@ export function SiteHeader() {
                     <Link
                       href={item.href}
                       className={cn(
-                        'flex items-center justify-between rounded-lg px-3 py-3 text-sm tracking-[0.18em] uppercase transition-colors hover:bg-[#2B1A18]/5',
-                        pathname === item.href ? 'text-[#2B1A18]' : 'text-[#2B1A18]/80',
+                        'flex items-center justify-between rounded-lg px-3 py-3 text-sm tracking-[0.18em] uppercase transition-colors hover:bg-[#2B1A18]/5 mkt-dark:hover:bg-white/5',
+                        pathname === item.href
+                          ? 'text-[#72735A] mkt-dark:text-[#F2F2F2]'
+                          : 'text-[#72735A]/80 mkt-dark:text-[#F2F2F2]/80',
                       )}
                       onClick={() => setOpen(false)}
                     >
@@ -257,14 +305,14 @@ export function SiteHeader() {
               >
                 <Link
                   href="/contacto"
-                  className="px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18] uppercase"
+                  className="px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18] uppercase mkt-dark:text-[#f4efe8]"
                   onClick={() => setOpen(false)}
                 >
                   Agendar visita
                 </Link>
                 <Link
                   href={accountHref}
-                  className="px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18]/40 uppercase"
+                  className="px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18]/40 uppercase mkt-dark:text-[#f4efe8]/40"
                   onClick={() => setOpen(false)}
                 >
                   {accountLabel}
