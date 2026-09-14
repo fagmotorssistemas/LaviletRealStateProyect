@@ -19,7 +19,15 @@ export function isPropertyScopeRedirect(value: string) {
   return property && boundary
 }
 
-export const purchasePriceQuestion = (value: string) => /\b(?:precios?|valores?|vale|valen|cuesta|cuestan|costos?|cotizacion)\b|\bcuanto (?:sale|salen|piden|paga)/.test(normalized(value))
+export const purchasePriceQuestion = (value: string) => /\b(?:precios?|valor(?:es)?|vale|valen|cuesta|cuestan|costos?|cotizacion)\b|\bcuanto (?:sale|salen|piden|paga)/.test(normalized(value))
+
+// Ownership is a housing requirement in a property conversation, not a request
+// to buy another product. Explicit vehicle transactions still keep their scope.
+export function mentionsOwnedVehicle(value: string) {
+  const m = normalized(value)
+  return /\b(?:tengo|tenemos|poseo|cuento con|dispongo de|mis?|nuestros?)\s+(?:(?:un|una|uno|dos|tres|cuatro|varios|varias|\d+)\s+)?(?:carro|auto|vehiculo|coche|camioneta|moto)s?\b/.test(m)
+    && !/\b(?:comprar|compro|compramos|alquilar|rentar|vender|vendo|reparar|reparacion|mecanico|taller)\b/.test(m)
+}
 
 function explicitSubject(m: string): { subject: Subject; category: Category } | null {
   if (propertyContext.test(m) && /\b(?:auto|carro|vehiculo|moto)s?\b/.test(m)) return { subject: 'property', category: null }
@@ -54,7 +62,8 @@ export function salesSubject(current: string, history: unknown = []) {
       continue
     }
     if (row.role !== 'cliente') continue
-    const direct = explicitSubject(m)
+    const ownedInPropertyConversation: boolean = mentionsOwnedVehicle(m) && (subject === 'property' || redirected !== null)
+    const direct: { subject: Subject; category: Category } | null = ownedInPropertyConversation ? { subject: 'property', category: category || redirected } : explicitSubject(m)
     if (direct) {
       subject = direct.subject; category = direct.category; acceptedRedirect = false
       if (direct.subject === 'property') redirected = null

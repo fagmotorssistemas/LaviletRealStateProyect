@@ -13,7 +13,7 @@ export const scope = { tenant_id: LAVILET_TENANT_ID, project_id: LAVILET_PROJECT
 export const db = () => createAdminClient()
 export async function rpc<T = unknown>(name: string, args: Row = {}): Promise<T> {
   const { data, error } = await db().rpc(name, args).abortSignal(AbortSignal.timeout(15_000))
-  if (error) throw new Error(`RPC_${name}_${error.code || 'FAILED'}`)
+  if (error) throw new Error(`RPC_${name}_${error.code || 'FAILED'}`.toUpperCase())
   return data as T
 }
 export async function one(table: string, id: string, scoped = true): Promise<Row> {

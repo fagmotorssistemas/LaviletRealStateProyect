@@ -127,6 +127,22 @@ test('negated property nouns do not override an explicit vehicle request', () =>
   assert.equal(subjects.salesSubject('¿Hay parqueadero para mi carro?').subject, 'property')
 })
 
+test('singular valor identifies a property price question after a scope correction', () => {
+  const history = [{ role: 'cliente', content: 'Quiero una moto' }, { role: 'bot', content: validReply }]
+  assert.equal(subjects.purchasePriceQuestion('Cuál es el valor de los departamentos?'), true)
+  assert.equal(subjects.salesSubject('Y cuál es el valor?', history).subject, 'property')
+  assert.equal(subjects.purchasePriceQuestion('Me interesa el valor de reventa'), true)
+})
+
+test('owned vehicles stay a housing requirement but buying vehicles remains out of scope', () => {
+  const history = [{ role: 'cliente', content: 'Quiero un departamento' }, { role: 'bot', content: 'Hay opciones de dos y tres dormitorios.' }]
+  for (const current of ['Además tengo dos vehículos', 'Tenemos 2 carros y quiero saber cómo funciona el financiamiento', 'Mi moto necesita un estacionamiento']) {
+    assert.equal(subjects.salesSubject(current, history).subject, 'property', current)
+  }
+  assert.equal(subjects.salesSubject('Tengo dos vehículos, quiero comprar una moto', history).subject, 'vehicle')
+  assert.equal(subjects.salesSubject('Quiero alquilar un auto', history).subject, 'vehicle')
+})
+
 test('empty input does not call the model', async () => {
   const module = scopeModule(async () => { throw Error('must not call') })
   assert.equal((await module.classifyBusinessScope(' ')).uncertain, false)

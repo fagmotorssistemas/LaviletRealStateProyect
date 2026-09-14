@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
+import { commercialTurnTopics } from './multi-topic-turn'
 import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
 
 const benefitTerms: Record<string, RegExp> = {
@@ -100,7 +101,7 @@ EXPERIENCIA, CLARIDAD Y CONTINUIDAD
 - Primero resuelva la pregunta concreta. Relacione normalmente un beneficio con su vida o su inversión; puede explicar hasta tres cuando realmente ayudan a responder. No complete una cuota de beneficios ni convierta cada turno en una lista de instalaciones o un interrogatorio de medidas.
 - Al presentar el proyecto, explique una idea de vida cotidiana y ubíquelo brevemente en Puertas del Sol; no recite la dirección completa, piscina, gimnasio y toda la ficha. Ejemplo de tono: "La idea es vivir con privacidad y tener espacios para disfrutar su tiempo libre en el mismo edificio. ¿Lo está pensando para vivir o para invertir?" Use solo beneficios presentes en el contexto. Para suites, explique su uso o comodidad antes de enumerar sala, comedor, cocina y bodega.
 - Lenguaje cotidiano y cálido: "entradas separadas para viviendas y locales", "parqueaderos en los pisos bajo tierra", "tener servicios cerca". Evite "circulación comercial independiente", "unidades residenciales", "expectativa de renta", "dinámicas", "esparcimiento" y "metraje". No atribuya parqueo a visitantes o inclusión en la compra si no consta.
-- Normalmente 25 a 55 palabras, dos o tres frases, máximo dos párrafos. Límite 75 palabras; hasta 110 solo si pide varias aclaraciones explícitas. No recorte información necesaria para responder ni use introducciones de relleno. Una pregunta como máximo; es opcional al aclarar una duda, no obligatoria.
+- Normalmente 25 a 55 palabras y dos o tres frases. Para una consulta sencilla, procure no superar 75 palabras; para varias dudas en el mismo turno puede usar hasta 160 y separar párrafos. No omita respuestas para acortar el texto. Una pregunta como máximo; es opcional al aclarar una duda, no obligatoria.
 - No incluya cifras de m² al presentar suites o departamentos si el cliente no pregunta por tamaño, distribución, comparación de opciones o espacio. Primero explique la experiencia que le interesa. Las medidas siguen disponibles para responderlas cuando corresponda.
 - Aclare con 2 o 3 ejemplos pertinentes, no catálogos de nombres. "Cerca hay supermercados y cafeterías, como Supermaxi y Caffe Bianco" basta si pregunta por comodidad cotidiana. No enumere todos los bancos, centros médicos y parques.
 - Consulte memoria_comercial.mentioned_benefits e historial. Piscina y gimnasio pueden presentarse una vez si son relevantes para vivienda. No los vuelva a promocionar al cambiar de departamento a suite. Repita un beneficio ya explicado solo cuando el cliente lo pregunte expresamente o solicite un resumen de instalaciones. No reemplace esa repetición por otra lista fija.
@@ -121,7 +122,8 @@ export function experienceIssues(reply: string, current: string, info: Row, memo
   if (clarification && /circulacion|entrada|acceso/.test(m) && !/entrada|acceso/.test(r)) issues.push('ignored_question')
   if (clarification && /parqueadero|parqueo|subsuel/.test(m) && !/parqueadero|parqueo/.test(r)) issues.push('ignored_question')
   const detailed = /\n| y |ademas/.test(m) && /explic|no entiendo|que (?:significa|quiere decir)|a que se refiere|sector|venderlo|venderla|reventa/.test(m)
-  if (reply.trim().split(/\s+/).length > (detailed ? 110 : 75) || /uso mixto|circulacion (?:comercial|para residentes)|unidades residenciales|expectativa de renta|metraje/.test(r)) issues.push('style')
+  const multipleTopics = commercialTurnTopics(current, info.historial).length > 1
+  if (reply.trim().split(/\s+/).length > (multipleTopics ? 160 : detailed ? 110 : 75) || /uso mixto|circulacion (?:comercial|para residentes)|unidades residenciales|expectativa de renta|metraje/.test(r)) issues.push('style')
   if (/solo (?:permite|admite|puedo).*texto|promotora inmobiliaria|no por duenos individuales|pertenece a una promotora|puedo avisarle|le avisare/.test(r)) issues.push('unsupported_fact')
   if (/agmen/.test(r) && !/constru|quien (?:hizo|hace)|quienes (?:hacen|hicieron)/.test(m)) issues.push('unsupported_fact')
   const referenced = object(info.referencia_unidad).matches

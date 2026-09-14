@@ -19,14 +19,49 @@ export async function financingContext(lead: Row) {
   return { partners: names, current: object(qualification.data?.[0]) }
 }
 
-export function financingInputs(extracted: Row, current: string, lastReply: string, context: Awaited<ReturnType<typeof financingContext>>, lastStep: Row = {}) {
+/** A budget worry deserves guidance, but does not authorize a credit application. */
+export function hasAffordabilityConcern(current: string) {
   const message = normalized(current)
-  const verifiedConsentStep = lastStep.kind === 'financing_consent' && lastStep.reply === lastReply && /\?/.test(lastReply)
-  const asksConsent = verifiedConsentStep || (/revision|financiamiento|revisar esa opcion/.test(normalized(lastReply)) && /desea continuar|iniciar|iniciemos|revisemos|revisar esa opcion|revision.*\?/.test(lastReply.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()))
+  return /\bno (?:se|estoy segur[oa]) (?:si|de que) (?:me |nos )?(?:alcanz\w*|pued\w* (?:compr\w*|pag\w*|adquir\w*))\b/.test(message)
+    || /\b(?:no|apenas) (?:me|nos) alcanza\b|\b(?:no puedo|no podemos) (?:comprarlo|comprarla|pagarlo|pagarla|costearlo|costearla)\b/.test(message)
+    || /\b(?:se (?:me|nos) (?:sale|va) (?:del|de) presupuesto|fuera de (?:mi|nuestro) presupuesto|no (?:tengo|tenemos) (?:el dinero|dinero suficiente|suficiente dinero))\b/.test(message)
+    || /\b(?:se (?:me |nos )?(?:sale|va) de (?:mi|nuestro|el) presupuesto|(?:supera|sobrepasa) (?:mi|nuestro|el) presupuesto)\b/.test(message)
+    || /\bno (?:tengo|tenemos) suficiente(?: dinero| presupuesto| capital| ahorro)?(?:$| para (?:compr\w*|pag\w*|adquir\w*|la compra)\b)/.test(message)
+    || /(?<!no )\b(?:me parece|nos parece|se me hace|es|esta|son|estan) (?:muy |demasiado |bastante )?car[oa]s?\b/.test(message)
+}
+
+function asksFinancingConsent(lastReply: string, lastStep: Row) {
+  if (lastStep.kind === 'financing_consent' && lastStep.reply === lastReply && /\?/.test(lastReply)) return true
+  const previous = normalized(lastReply)
+  const question = normalized(lastReply.match(/(?:¿|\.)[^?¿.]*\?\s*$/)?.[0] || lastReply)
+  const financialContext = /financ|credito|revision|revisar esa opcion|banco|cooperativa|pichincha|\bjep\b/.test(previous)
+  return /\?/.test(lastReply) && financialContext
+    && /(?:iniciar|iniciemos|revisemos|revisar|revision|evaluar|evaluacion|precalificar|precalificacion)|desea continuar/.test(question)
+    && /le gustaria|desea|quiere|podemos|iniciemos|revisemos/.test(question)
+}
+
+export function financingInputs(extracted: Row, current: string, lastReply: string, context: Awaited<ReturnType<typeof financingContext>>, lastStep: Row = {}) {
+  let message = normalized(current)
+  const jep = context.partners.find(name => /^(?:cooperativa )?jep$/.test(normalized(name)))
+  const contextualJepTypo = !!jep && /\bgep\b/.test(message)
+    && (/\bcooperativa gep\b/.test(message) || /\bjep\b/.test(normalized(lastReply)))
+  if (contextualJepTypo) message = message.replace(/\bgep\b/g, 'jep')
+  const asksConsent = asksFinancingConsent(lastReply, lastStep)
   const conditional = /\b(?:pero|solo|siempre que|credito directo|otra entidad)\b/.test(message) || /[?¿]/.test(current)
-  const consent = asksConsent && /^(si|si claro|claro|si por favor|de acuerdo|continuemos|si continuemos|por supuesto|si por supuesto|hagamoslo|me gustaria)$/.test(message)
-    ? true : conditional ? null : asksConsent ? extracted.financing_consent : null
+  const declined = /^(?:no|ahora no|por ahora no|todavia no|mejor no)\b|\bno (?:quiero|deseo|autorizo|me interesa)\b/.test(message)
+  const explicitReview = /\b(?:quisiera|quiero|deseo|me gustaria|podemos|vamos a) (?:que (?:me |nos )?(?:ayuden|ayude) a )?(?:(?:hacer|iniciar|empezar|continuar|realizar) (?:la |una |el |una nueva )?(?:prueba|revision|evaluacion|precalificacion)|(?:probar|revisar|evaluar|precalificar)(?:lo|la)?\b)/.test(message)
+    || /\b(?:hagamos|iniciemos|empecemos|continuemos) (?:la |una |el )?(?:prueba|revision|evaluacion|precalificacion)\b/.test(message)
+  const plainYes = /^(si|si claro|claro|si por favor|de acuerdo|continuemos|si continuemos|por supuesto|si por supuesto|hagamoslo|me gustaria)$/.test(message)
+  const confirmsReview = /^(?:si|claro|de acuerdo|adelante|por supuesto|acepto|autorizo|hagamoslo|me encantaria)\b/.test(message)
+  const explicitlyFinancialReview = explicitReview && /financ|credito|banco|cooperativa|pichincha|\bjep\b/.test(message)
+  // Choosing a lender alone is not consent. Accept an actual request to review the
+  // case, even when a natural response includes more words than a bare «sí».
+  const consent = conditional || declined ? null
+    : (asksConsent && (plainYes || explicitReview)) || explicitlyFinancialReview ? true
+    : asksConsent && confirmsReview && extracted.financing_consent === true && !hasAffordabilityConcern(current) ? true
+    : null
   let partner = text(extracted.financing_partner)
+  if (contextualJepTypo && /^(?:cooperativa )?gep$/.test(normalized(partner))) partner = jep || ''
   // The extractor can carry an old lender forward; only accept a choice mentioned now.
   if (partner && !normalized(current).includes(normalized(partner.replace(/^(banco|cooperativa)\s+/i, '')))) partner = ''
   if (/jardin\s*(?:azuayo|zauayo)/.test(message)) partner = 'Jardín Azuayo'
@@ -87,14 +122,18 @@ export function financingQuestionReply(current: string, partners: string[], last
   if (/aprob|garanti|asegur/.test(m) && /credito|financ|prestamo/.test(m)) {
     return 'Le acompañamos en el proceso, pero no podemos asegurar la aprobación del crédito. La entidad necesita revisar su caso para confirmarla.'
   }
+  const asksReviewDetails = /\b(?:requisitos|elegible|elegibilidad|califico|calificar)\b|\bque (?:necesito|necesita|necesitamos|piden|solicitan)\b|\bcomo (?:funciona|es|se hace|puedo saber)\b/.test(m)
+    && /credito|financ|prestamo|elegib/.test(m)
+  const reviewDetails = 'Para orientar la revisión de su caso, el equipo puede ayudarle a revisar sus ingresos y capacidad de pago y explicarle los requisitos de la entidad. Le acompañamos en el proceso.'
   if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)
     || (/credito directo/.test(previous) && /pero|o no dan|quiero saber|dispongo|tengo|por que/.test(m))) {
-    return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos ayudarle a explorar un crédito con ' + partners.join(' o ') + '.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}`
+    return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos ayudarle a explorar un crédito con ' + partners.join(' o ') + '.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${asksReviewDetails ? ' ' + reviewDetails : ''}`
   }
   if (/solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(normalized(current)) && !/jardin|pichincha|\bjep\b/.test(normalized(current))) {
     return partners.length ? `Trabajamos con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
       : 'El equipo puede ayudarle a comprobar las opciones vigentes. ¿Con qué entidad le gustaría financiarse?'
   }
+  if (asksReviewDetails) return `${partners.length ? 'Podemos explorar opciones con ' + partners.join(' o ') + '. ' : ''}${reviewDetails} ¿Le gustaría que el equipo le ayude a iniciar la revisión de su caso?`
   return ''
 }
 

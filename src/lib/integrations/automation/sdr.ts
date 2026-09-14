@@ -17,7 +17,9 @@ import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
 import { unitRecommendation } from './unit-recommendation'
-import { withVisitLocation } from './visit-location'
+import { locationRequestKind, withVisitLocation } from './visit-location'
+import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
+import { commercialCoverageIssues } from './multi-topic-turn'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -66,29 +68,34 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
   const attachBrochure = wantsBrochure(current, info.historial)
   const quote = unitPriceQuote(info, current, summary)
+  const turnAnswers = turnAnswerFacts(info, current, summary)
   const budget = statedBudget(current)
   const finance = object(info.financiamiento)
   const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
-  if (!quote && budget !== null && budget < 1000 && partners.length && !/no (?:quiero|necesito|deseo).*financ|sin credito/i.test(current)) {
+  if (!quote && turnAnswers.topics.every(topic => ['affordability', 'financing'].includes(topic)) && budget !== null && budget < 1000 && partners.length && !/no (?:quiero|necesito|deseo).*financ|sin credito/i.test(current)) {
     return { reply: `Podemos acompañarle a revisar opciones de financiamiento con ${partners.join(' o ')}. ¿Le gustaría que iniciemos la revisión de su caso?`, audit: { source: 'budget_financing_guidance', fallback: false } }
   }
   const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true, unidades_cotizadas: quote?.units }, current, summary)
   const finish = (reply: string, audit: Row) => {
-    if (quote?.needsAdvisor || unresolvedCommercialReply(reply)) return { reply, audit: { ...audit, requires_advisor: true, handoff_reason: quote?.needsAdvisor ? 'precio por verificar' : 'consulta sin respuesta verificada' } }
+    if (quote?.needsAdvisor) return { reply, audit: { ...audit, requires_advisor: true, handoff_reason: 'precio por verificar' } }
     // Safe fallbacks must obey the same stopping rule as generated drafts.
-    let answer = plan.action !== 'discover' ? reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || reply : reply
+    const completed = completeTurnAnswer(reply, turnAnswers)
+    if (unresolvedCommercialReply(completed.reply)) return { reply: completed.reply, audit: { ...audit, requires_advisor: true, handoff_reason: 'consulta sin respuesta verificada' } }
+    if (completed.missing.length) return { reply: completed.reply, audit: { ...audit, requires_advisor: true,
+      handoff_reason: 'resolver las consultas pendientes: ' + completed.missing.join(', '), unanswered_topics: completed.missing } }
+    let answer = plan.action !== 'discover' ? completed.reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || completed.reply : completed.reply
     if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
     const shareMaterial = attachBrochure || plan.action === 'share_brochure'
     if (shareMaterial && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure para que pueda explorar la propuesta${info.modo_comercial === 'lanzamiento' ? '; las imágenes ilustran cómo está previsto el proyecto' : ''}: ${BROCHURE_URL}`
     answer += plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''
-    return { reply: withVisitLocation(answer, info), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics } }
+    return { reply: withVisitLocation(answer, info, !!locationRequestKind(current)), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }
   }
   const overview = projectOverviewReply(info, current)
   if (overview && !/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|constructora|entrega|ubicacion|sector|alrededor|cerca/i.test(current)) return finish(overview + `\n\nAquí puede conocer la propuesta con más detalle: ${BROCHURE_URL}`, { source: 'project_overview', brochure_sent: true, fallback: false })
   const mediaExplanation = mediaClarificationReply(current)
   if (mediaExplanation) return {reply:mediaExplanation,audit:{source:'media_clarification',rewritten:false,review_reasons:[],fallback:false}}
   if (fabricatedActionRequest(current)) return {reply:'Para confirmarle una cita o una reserva, primero debe quedar registrada y aprobada en el sistema. Puedo ayudarle a coordinarla.',audit:{source:'action_not_recorded',rewritten:false,review_reasons:[],fallback:false}}
-  if (quote && !/qu[eé] (?:incluye|ofrece|tiene)|cu[aá]ntos dormitorios|c[oó]mo|por qu[eé]|ubicaci[oó]n|d[oó]nde|sector|jard[ií]n|distribuci[oó]n|constructora|due[nñ]o|foto|imagen|modelo|plano|descuento|negocia|cuota|entrada/i.test(current.replace(/jard[ií]n\s*(?:azuayo|zauayo)/gi, ''))) {
+  if (quote && turnAnswers.topics.every(topic => ['price', 'options', 'affordability', 'financing'].includes(topic)) && !/qu[eé] (?:incluye|ofrece|tiene)|cu[aá]ntos dormitorios|c[oó]mo|por qu[eé]|ubicaci[oó]n|d[oó]nde|sector|jard[ií]n|distribuci[oó]n|constructora|due[nñ]o|foto|imagen|modelo|plano|descuento|negocia|cuota|entrada/i.test(current.replace(/jard[ií]n\s*(?:azuayo|zauayo)/gi, ''))) {
     const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
     const financing = mentionsFinancing(current) ? priceFinancingReply(current, { partners, current: object(finance.current) }) : ''
     return finish(quote.reply + (financing ? ' ' + financing : ''), { source: 'unit_price', approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
@@ -105,7 +112,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (plan.positive_after_model) return finish(plan.memory.visit_declined ? 'Me alegra que le haya gustado. Puede explorar los espacios a su ritmo en el recorrido.' : 'Me alegra que le haya gustado. El recorrido le permite explorar la distribución y ver cómo encaja con lo que busca.', { source: 'interest_after_model', fallback: false })
   if (!quote && memory.deferred_fields.includes('presupuesto') && /no (?:sé|se|estoy segur|tengo claro|tengo idea)/i.test(current) && !/sector|jard[ií]n|precio|dormitorio|foto/i.test(current)) {
     const alreadyHelped = /entrada y una cuota|cuota mensual.*c[oó]modo/.test(text(object(info.conversacion).ultima_respuesta))
-    return { reply: alreadyHelped ? 'Está bien, puede definirlo con calma. Por ahora podemos revisar qué opción se adapta a sus necesidades, sin fijar todavía un presupuesto.' : 'Podemos orientarle partiendo de una entrada y una cuota mensual con las que se sienta cómodo, sin comprometerse todavía. ¿Le ayudaría revisar las opciones de financiamiento?', audit: { source: 'budget_guidance', fallback: false } }
+    return finish(alreadyHelped ? 'Está bien, puede definirlo con calma. Por ahora podemos revisar qué opción se adapta a sus necesidades, sin fijar todavía un presupuesto.' : 'Podemos orientarle partiendo de una entrada y una cuota mensual con las que se sienta cómodo, sin comprometerse todavía. ¿Le ayudaría revisar las opciones de financiamiento?', { source: 'budget_guidance', fallback: false })
   }
   const unitReply = catalogReferenceReply(matches, current)
   if (unitReply && !quote) return finish(unitReply, {source:'catalog_reference',rewritten:false,review_reasons:[],fallback:false})
@@ -115,8 +122,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     return { reply: 'La ubicación en Puertas del Sol es parte del atractivo para invertir. Podemos comparar las opciones según sus objetivos, pero no podemos garantizar que el precio suba ni una rentabilidad futura.', audit: { source: 'investment_expectations', rewritten: false, review_reasons: [], fallback: false } }
   }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
-  const input = { ...experienceContext(info, current, memory), tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
+  const input = { ...experienceContext(info, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
   const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES
+    + '\nResponda cada tema de consultas_del_turno en esta respuesta, incluso si llegó en otro mensaje del mismo turno. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. La ubicación se añade únicamente si la pidió o si hay invitación presencial concreta; una mención descriptiva del sector no solicita un mapa.'
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
     + (info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
@@ -129,7 +137,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     await guard()
     const review = await aiJson(reviewer + rules + '\nDevuelva además requiere_asesor=true SOLO si una pregunta inmobiliaria concreta no puede resolverse con los hechos del contexto y debe verificarla el equipo. No lo active por estilo, una preferencia aún sin elegir, preguntas sobre otros negocios, ni enlaces o agenda que el sistema adjunta/procesa. Tampoco por falta de una fecha de entrega: puede explicar que aún no se ha definido. Si hay datos suficientes, corrija el borrador en vez de derivar.', { ...input, respuesta: reply }, reviewSchema)
     if (review.requiere_asesor === true) return { reply: '', audit: { source: 'verified_information_gap', requires_advisor: true, handoff_reason: 'consulta inmobiliaria que requiere información del equipo', fallback: false } }
-    const issues = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan), ...priceReplyIssues(reply, info, current, quote?.prices)]
+    const issues = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan), ...priceReplyIssues(reply, info, current, quote?.prices), ...commercialCoverageIssues(reply, turnAnswers.topics)]
     if (quote?.quoted && !/\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares)/i.test(reply)) issues.push('ignored_question')
     if (quote?.quoted && !quote.financingOffer && !mentionsFinancing(current) && mentionsFinancing(reply)) issues.push('repeated_question')
     if (reply.trim() === text(object(info.conversacion).ultima_respuesta).trim() && !/rep[ií]t|repita|otra vez|no entend[ií]/i.test(current)) issues.push('repeated_question')

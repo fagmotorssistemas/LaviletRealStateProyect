@@ -657,6 +657,116 @@ const priceInfo = (approximate = true) => ({ catalogo: priceCatalog, historial: 
   financiamiento: { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {} },
 })
 
+const contextualInfo = () => ({ ...priceInfo(),
+  politica_visitas: { allowSuggestions: false, launchDestination: 'office' },
+  proyecto: { name: 'La Vilet', address: 'Ricardo Darquea Granda y Elena Landívar' },
+  ubicacion: 'https://www.google.com/maps/search/?api=1&query=-2.892287%2C-79.030259',
+  instalaciones: [{ amenity_name: 'Estacionamientos en subsuelos' }],
+  historial: [{ role: 'bot', content: 'Somos un proyecto de suites, departamentos y locales comerciales.' }],
+})
+
+test('the reported two-message turn answers options, affordability and singular valor together', async t => {
+  live(t)
+  const info = contextualInfo()
+  const h = conversationHarness({ commercialInfo: info, realCommercial: true, financeContext: info.financiamiento,
+    history: info.historial, businessScope: { kind: 'property', reply: '', uncertain: false }, catalog: info.catalogo })
+  h.rows[0].payload.text = 'Entiendo y que opciones tiene? A mi me gustaría compra algo pero no sé si me alcanza'
+  h.rows[1].payload.text = 'Cuál ese el valor de los departamentos?'
+  await h.process(h.rows, async () => {})
+  const sent = h.calls.find(c => c.name === 'patch').args[2]
+  assert.match(sent, /310[.,]000/); assert.match(sent, /550[.,]000/)
+  assert.match(sent, /suites/); assert.match(sent, /locales comerciales/)
+  assert.match(sent, /Banco Pichincha/); assert.match(sent, /Cooperativa JEP/)
+  assert.match(sent, /referencial|aproximad/); assert.match(sent, /lanzamiento/)
+  assert.doesNotMatch(sent, /registrad|aclarar.*presupuesto|no ofrecemos vehículos|Mapa:/)
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+  assert.equal(h.calls.some(c => c.name === 'process_financing_message_v2'), false)
+})
+
+test('a financial shortcut answers map clarification, owned cars and eligibility as well as direct credit', async t => {
+  live(t)
+  const info = contextualInfo()
+  const h = conversationHarness({ commercialInfo: info, financeContext: info.financiamiento, history: info.historial,
+    businessScope: { kind: 'property', reply: '', uncertain: false } })
+  h.rows[0].payload.text = 'Esa ubicación de que es?\nAdemás tengo dos vehículos, y bueno como funciona el financiamiento que necesito para saber si soy no soy elegible'
+  h.rows[1].payload.text = 'Y tienen crédito directo?'
+  await h.process(h.rows, async () => {})
+  const sent = h.calls.find(c => c.name === 'patch').args[2]
+  assert.match(sent, /No ofrecemos crédito directo/)
+  assert.match(sent, /ingresos.*capacidad de pago/)
+  assert.match(sent, /estacionamientos/i); assert.match(sent, /cantidad.*depende de la unidad/)
+  assert.match(sent, /oficina.*terreno donde se construirá La Vilet/)
+  assert.ok(sent.includes(info.proyecto.address)); assert.ok(sent.includes(info.ubicacion))
+  assert.equal(sent.split(info.ubicacion).length, 2)
+  assert.doesNotMatch(sent, /no (?:ofrecemos|vendemos).*vehículos|crédito aprobado/)
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+  assert.equal(h.calls.some(c => ['handoff_lead', 'process_financing_message_v2'].includes(c.name)), false)
+})
+
+test('JEP natural acceptance advances the actual chosen lender and technical failure reaches an advisor', async t => {
+  live(t)
+  const history = [{ role: 'bot', content: 'Podemos revisar su financiamiento con Banco Pichincha o Cooperativa JEP. ¿Le gustaría iniciar la revisión?' }]
+  for (const fails of [false, true]) {
+    const h = conversationHarness({ history, financeContext: contextualInfo().financiamiento,
+      financing: () => { if (fails) throw Error('RPC_PROCESS_FINANCING_MESSAGE_V2_23514'); return { active: true, state: 'identificacion_pendiente', selected_partner_name: 'Cooperativa JEP' } } })
+    h.rows[0].payload.text = 'si, quisiera hacer la prueba conb la cooperativa jep'
+    const result = await h.process([h.rows[0]], async () => {})
+    const request = h.calls.find(c => c.name === 'process_financing_message_v2')
+    assert.equal(request.args.p_financing_consent, true)
+    assert.equal(request.args.p_financing_partner, 'Cooperativa JEP')
+    const sent = h.calls.find(c => c.name === 'patch' && c.args[1] === 457014).args[2]
+    assert.match(sent, /Cooperativa JEP/)
+    assert.doesNotMatch(sent, /aprobado|ya enviamos.*JEP/)
+    assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length, 1)
+    if (fails) {
+      assert.equal(result.source, 'financing_handoff')
+      assert.equal(result.failure_code, 'RPC_PROCESS_FINANCING_MESSAGE_V2_23514')
+      assert.match(sent, /bandeja del equipo|pasado su consulta/)
+      assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+      assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === false))
+    } else { assert.match(sent, /nombre completo.*cédula/); assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false) }
+  }
+})
+
+test('unknown financing states are handed off instead of dropping the client reply', async t => {
+  live(t)
+  const h = conversationHarness({ financeContext: contextualInfo().financiamiento, financing: { active: true, state: 'unexpected_state' } })
+  h.rows[0].payload.text = 'Quiero iniciar una revisión con Cooperativa JEP'
+  const result = await h.process([h.rows[0]], async () => {})
+  assert.equal(result.source, 'financing_handoff')
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+})
+
+test('prices and pets do not append a map merely because the reply says según ubicación y tamaño', async t => {
+  live(t)
+  const h = conversationHarness({ commercialInfo: contextualInfo(), commercialResult: {
+    reply: 'Tenemos locales con valores según ubicación y tamaño. Las mascotas se contemplan para las viviendas.', audit: { fallback: false } } })
+  h.rows[0].payload.text = 'Y locales comerciales?'; h.rows[1].payload.text = 'Tengo mascotas, aceptan mascotas?'
+  await h.process(h.rows, async () => {})
+  assert.doesNotMatch(h.calls.find(c => c.name === 'patch').args[2], /Mapa:|Dirección:|maps/)
+})
+
+test('requested map explanation stands alone and does not trigger a sales form', async t => {
+  live(t)
+  const h = conversationHarness({ commercialInfo: contextualInfo() })
+  h.rows[0].payload.text = 'Esa ubicación de qué es?'
+  const result = await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(c => c.name === 'patch').args[2]
+  assert.equal(result.source, 'location')
+  assert.match(sent, /oficina.*terreno.*La Vilet/); assert.match(sent, /Mapa:/)
+  assert.equal(h.calls.some(c => ['process_financing_message_v2', 'lv_collect_visit_intake'].includes(c.name)), false)
+})
+
+test('rejected drafts still cover options and budget worries without requiring an exact amount', async () => {
+  const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
+    activePrompt: async () => '', draftReply: async () => 'Podemos ayudarle.', aiJson: async () => ({ aprobada: false, motivos: ['ignored_question'] }) } })
+  const result = await commercialReply(contextualInfo(), 'Qué opciones tiene? Quisiera comprar algo pero no sé si me alcanza', {}, async () => {})
+  assert.match(result.reply, /suites.*departamentos.*locales comerciales/s)
+  assert.match(result.reply, /Banco Pichincha.*Cooperativa JEP/s)
+  assert.notEqual(result.audit.requires_advisor, true)
+})
+
 test('greeting-only variants never swallow an actual question, decision or opt-out', () => {
   const { isGreetingOnly } = require('../src/lib/integrations/automation/sdr-rules.ts')
   for (const message of ['Saludos', 'Saludos cordiales', 'Cordiales saludos', 'Saludos, buenas tardes 👋', 'Hola hola', 'Holaaa', 'Holi', 'Buenas buenas', 'Buen día', 'Benos dias', 'Muy buenos días', 'Hola, ¿cómo están?', 'Qué tal?', 'Buenas noches a todos', '.', '👋']) {
@@ -926,7 +1036,7 @@ function conversationHarness(options = {}) {
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
     './visit-parser-health': { visitParserReady: async () => options.parserReady !== false },
-    './operational-copy': { operationalReply: async reply => ({ reply, generated: false }) },
+    './operational-copy': { operationalReply: async reply => ({ reply: options.operationalCopy || reply, generated: !!options.operationalCopy }) },
     './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }) },
     './nutrition': { scheduleNutrition24h: async () => ({ scheduled: false, reason: 'test' }) },
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,

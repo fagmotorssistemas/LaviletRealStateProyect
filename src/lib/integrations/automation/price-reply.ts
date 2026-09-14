@@ -5,11 +5,23 @@ import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { acceptsUnitOptions, mentionsFinancing, salesMemory } from './sales-policy'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 import { purchasePriceQuestion, salesSubject } from './sales-subject'
+import { hasAffordabilityConcern } from './financing'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
-export const asksUnitPrice = (value: string, propertyScope = false) => purchasePriceQuestion(value)
-  && (propertyScope || salesSubject(value).subject !== 'vehicle')
-  && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(normalized(value))
+export function asksUnitPrice(value: string, propertyScope = false) {
+  if (!purchasePriceQuestion(value) || (!propertyScope && salesSubject(value).subject === 'vehicle')) return false
+  // One WhatsApp turn can include several messages/questions. A separate question
+  // about a loan, parking or fees must not erase the requested apartment price.
+  const clauses = value.split(/[¿?\n;!]+|\.\s+|\s+(?:y|adem[aá]s|tambi[eé]n|pero)\s+(?=(?:cu[aá]nt|qu[eé]\b|c[oó]mo\b|d[oó]nde\b|tengo\b|hay\b|tienen\b|necesito\b|aceptan\b))/i)
+  return clauses.some(clause => {
+    const m = normalized(clause)
+    const financeOnly = /\b(?:credito|financiamiento|hipoteca)\b/.test(m)
+      && !/\b(?:suites?|departamentos?|viviendas?|locales?|inmuebles?|propiedades?|\d{3})\b/.test(m)
+      && !/\b(?:no (?:quiero|necesito|deseo)|sin) (?:financiamiento|credito|hipoteca)\b/.test(m)
+    return purchasePriceQuestion(clause) && !financeOnly
+      && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(m)
+  })
+}
 
 // Preserve the stated amount; a low budget is an opportunity to offer guidance,
 // never grounds to infer thousands or claim that financing is already approved.
@@ -92,7 +104,7 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   ], info.historial)
   if (priced.length < selected.length) reply += ' Podemos consultar también el valor de las demás opciones.'
   const budget = statedBudget(current)
-  const lowBudget = budget !== null && budget < Math.min(...priced.map(unit => Number(unit.published_commercial_price)))
+  const lowBudget = hasAffordabilityConcern(current) || (budget !== null && budget < Math.min(...priced.map(unit => Number(unit.published_commercial_price))))
   const finance = object(info.financiamiento)
   const memory = salesMemory(summary._sales_memory, info.historial)
   let financingOffer = ''

@@ -27,7 +27,9 @@ import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wants
 import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
 import { operationalReply } from './operational-copy'
-import { mentionsVisitLocation, withVisitLocation } from './visit-location'
+import { locationAnswer, locationRequestKind, mentionsVisitLocation, withVisitLocation } from './visit-location'
+import { commercialCoverageIssues, commercialTurnTopics } from './multi-topic-turn'
+import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { selectedVisitOption } from './visit-choice'
 import { visitParserReady } from './visit-parser-health'
 import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
@@ -179,11 +181,16 @@ export async function processConversation(rows: Row[], guard: Guard) {
       reply = visitStatusReply(proposals, visitDraft?.status === 'collecting')
       if (reply) audit = { source: 'visit_status' }
     }
-    if (!reply && /^(?:ya |si |bueno |pero |y |esta bien |me dice |por favor )*(?:d[oó]nde(?: queda| est[aá]n| es| est[aá]| se encuentra)?|cu[aá]l es (?:la|su) (?:direcci[oó]n|ubicaci[oó]n)|(?:la )?(?:ubicaci[oó]n|direcci[oó]n)|c[oó]mo llego)[\s?¿.!]*$/i.test(current.trim())) {
+    const locationRequest = locationRequestKind(current)
+    const earlyTopics = commercialTurnTopics(current, context.historial, ['property', 'mixed'].includes(businessScope.kind))
+    if (!reply && locationRequest && earlyTopics.length === 1 && earlyTopics[0] === 'location') {
       const info = await commercialContext(lead, context.historial)
-      if (text(object(info.proyecto).address)) {
-        reply = withVisitLocation(info.modo_comercial === 'lanzamiento' ? 'Puede encontrarnos en nuestra oficina de atención, en el lugar donde se construirá La Vilet.' : 'Esta es la ubicación de La Vilet.', info, true)
+      reply = locationAnswer(info, locationRequest)
+      if (reply) {
         audit = { source: 'location' }
+      } else {
+        reply = await transferToAdvisor('compartir la ubicación verificada del proyecto')
+        audit = { source: 'location_handoff' }
       }
     }
     if (!reply && repair && !/asesor|persona|humano/i.test(current) && !explicitlyRequestsVisit(current) && salesSubject(current).subject !== 'property' && !asksUnitPrice(current)) {
@@ -322,15 +329,27 @@ export async function processConversation(rows: Row[], guard: Guard) {
       }
       const financeAnswer = priceTurn ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
       // A question about a product is not an application or consent to collect personal data.
-      const fin = financeTurn && !financeAnswer ? object(await rpc('process_financing_message_v2', { p_lead_id: lead.id,
+      let fin: Row = {}, financeFailure = ''
+      if (financeTurn && !financeAnswer) {
+        try { fin = object(await rpc('process_financing_message_v2', { p_lead_id: lead.id,
         p_asked_financing: (extracted.events as string[]).includes('asked_financing') || !!financeInput.partner,
         ...Object.fromEntries(['financing_consent', 'financing_partner', 'full_name', 'applicant_type', 'national_id',
           'employment_stability_months', 'job_title', 'monthly_income', 'ruc'].map(key => ['p_' + key, extracted[key]])),
-        p_source_message_id: activeLast.externalId, p_current_message: current })) : {}
+        p_source_message_id: activeLast.externalId, p_current_message: current })) }
+        catch (error) {
+          // Do not replay a financial write whose outcome is uncertain. Preserve
+          // the client's request for a real advisor instead of silently stopping.
+          financeFailure = error instanceof Error && /^RPC_[a-z0-9_]+$/i.test(error.message) ? error.message.toUpperCase() : 'FINANCING_PROCESSING_FAILED'
+        }
+      }
       const visitRequested = (extracted.events as string[]).includes('requested_visit')
         || (canRequestVisit && visitDraft?.status === 'collecting' && !financeTurn
           && (isVisitDetail(current) || needsVisitHelp(current)))
-      if (!visitRequested && (extracted.requested_advisor || fin.ready_for_handoff === true)) {
+      if (financeFailure) {
+        reply = await transferToAdvisor('continuar la revisión de financiamiento' + (financeInput.partner ? ' con ' + financeInput.partner : '') + '; comprobar el avance previo antes de volver a solicitar datos')
+        if (financeInput.partner) reply = `Le ayudaremos a revisar la opción con ${financeInput.partner}. ` + reply
+        audit = { source: 'financing_handoff', failure_code: financeFailure, selected_partner: financeInput.partner }
+      } else if (!visitRequested && (extracted.requested_advisor || fin.ready_for_handoff === true)) {
         reply = await transferToAdvisor(extracted.requested_advisor ? 'pidió hablar con un asesor' : 'información lista para revisión')
         audit = { source: 'advisor_handoff' }
       } else if (visitRequested) {
@@ -354,8 +373,16 @@ export async function processConversation(rows: Row[], guard: Guard) {
         reply = financeAnswer
         audit = { source: 'financing_question' }
       } else if (fin.active === true) {
-        reply = avoidFinancingRepeat(financingReply(fin, finance.partners, financeInput.unsupported), current, text(state.ultima_respuesta), fin, finance.partners)
-        audit = { source: 'financing', state: fin.state, selected_partner: fin.selected_partner_name }
+        try {
+          reply = avoidFinancingRepeat(financingReply(fin, finance.partners, financeInput.unsupported), current, text(state.ultima_respuesta), fin, finance.partners)
+          const selectedPartner = text(fin.selected_partner_name) || financeInput.partner
+          if (selectedPartner && financeInput.partner && !reply.includes(selectedPartner)) reply = `Continuamos con ${selectedPartner}. ` + reply
+          audit = { source: 'financing', state: fin.state || fin.financing_state, selected_partner: selectedPartner }
+        } catch (error) {
+          if (!(error instanceof Error) || error.message !== 'UNKNOWN_FINANCING_STATE') throw error
+          reply = await transferToAdvisor('continuar la revisión de financiamiento y comprobar los datos que faltan' + (financeInput.partner ? ' con ' + financeInput.partner : ''))
+          audit = { source: 'financing_handoff', failure_code: 'UNKNOWN_FINANCING_STATE', selected_partner: financeInput.partner }
+        }
       }
       else {
         const model = unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
@@ -375,13 +402,26 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const info = await commercialContext(lead, context.historial)
     if (info.modo_comercial === 'lanzamiento') reply = launchVisitReply(reply, object(info.politica_visitas).launchDestination === 'office' ? 'office' : 'site')
   }
-  if (['visit_intake', 'visit_status', 'financing', 'financing_question', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model'].includes(text(audit.source))) {
+  if (['financing', 'financing_question', 'financing_handoff', 'visit_intake', 'visit_status'].includes(text(audit.source))) {
+    const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead) }
+    const prepared = turnAnswerFacts(info, current, previousSummary)
+    const completed = completeTurnAnswer(reply, prepared)
+    reply = completed.reply
+    if (completed.missing.length && !finalNotice) {
+      const notice = await transferToAdvisor('responder las consultas adicionales pendientes: ' + completed.missing.join(', '))
+      reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + notice
+      audit = { ...audit, additional_questions_handoff: true }
+    }
+    audit = { ...audit, answered_topics: prepared.topics.filter(topic => !completed.missing.includes(topic)) }
+  }
+  if (['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model'].includes(text(audit.source))) {
     await guard()
     const composed = await operationalReply(reply, current, context.historial, audit)
-    reply = composed.reply
-    audit = { ...audit, ai_operational_copy: composed.generated }
+    const complete = !commercialCoverageIssues(composed.reply, commercialTurnTopics(current, context.historial, ['property', 'mixed'].includes(businessScope.kind))).length
+    if (complete) reply = composed.reply
+    audit = { ...audit, ai_operational_copy: complete && composed.generated }
   }
-  if (!['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification'].includes(text(audit.source)) && (mentionsVisitLocation(reply) || ['visit_intake', 'visit_option_choice'].includes(text(audit.source)))) {
+  if (!['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && (locationRequestKind(current) || mentionsVisitLocation(reply) || ['visit_intake', 'visit_option_choice'].includes(text(audit.source)))) {
     reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
   }
   if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
@@ -418,7 +458,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
   const sentModelId = text(object(audit.unit_model).unit_id)
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply),
-    _last_operational_step: ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'budget_financing_guidance') && /\?/.test(reply)
+    _last_operational_step: ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'financing_question' || audit.source === 'budget_financing_guidance') && /(?:iniciar|iniciemos|revisión|revisemos)/i.test(reply) && /\?/.test(reply)
       ? { kind: 'financing_consent', reply } : {},
     ...(audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),

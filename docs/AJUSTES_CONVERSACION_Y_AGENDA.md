@@ -2,6 +2,20 @@
 
 Actualización del 14 de septiembre de 2026.
 
+## Consultas múltiples, ubicación y continuación financiera
+
+La revisión posterior de las conversaciones identificó tres causas: la expresión de precios reconocía «valores» pero no «valor»; la ruta de crédito directo terminaba sin contestar el resto del turno; y cualquier uso de la palabra «ubicación» podía añadir el mapa. Los mensajes del cliente sí se habían recibido juntos.
+
+Ahora se conservan las consultas de precio, opciones, presupuesto, estacionamiento, ubicación, financiamiento y mascotas tanto en la generación como en las respuestas de respaldo. Los precios y las opciones se completan desde el catálogo permitido. «No sé si me alcanza» permite orientar sobre financiamiento sin convertirlo en consentimiento. «Tengo dos vehículos» se interpreta como necesidad de parqueo dentro de la conversación inmobiliaria; no acredita una cantidad de plazas asignadas a una unidad.
+
+El mapa se adjunta ante una petición de ubicación o un destino presencial concreto. «Según ubicación y tamaño» no lo dispara. Al preguntar «esa ubicación de qué es», se explica que durante lanzamiento corresponde a la oficina de atención y al terreno donde se construirá La Vilet, con la dirección y el enlace configurados.
+
+Una aceptación como «sí, quisiera hacer la prueba con JEP» conserva la entidad y permite continuar la revisión. Elegir una entidad sin aceptar la revisión sigue sin autorizar recoger datos. Si la operación financiera falla o devuelve un estado desconocido, no se repite la escritura: se registra el traspaso real al asesor y solo entonces se informa al cliente. El diagnóstico de RPC conserva el código técnico sin divulgar datos personales. No se garantiza aprobación bancaria.
+
+La evidencia del incidente de JEP mostró un evento recibido en estado incierto y ningún avance posterior de la precalificación. El error antiguo solo guardó `PROCESSING_FAILED`, por lo que no permite atribuirle una causa SQL específica. Esta corrección cubre la recuperación y mejora el diagnóstico; no declara reparado un fallo SQL que no se ha podido identificar.
+
+Pruebas de regresión: `scripts/integrations.test.cjs`, `scripts/multi-topic-turn.test.cjs`, `scripts/financing-context.test.cjs` y `scripts/visit-location.test.cjs`. `scripts/evaluate-multi-topic.cjs --live` comprueba mensajes sintéticos con el catálogo actual y la IA, sin enviar mensajes a clientes ni ejecutar solicitudes financieras.
+
 ## Qué fallaba
 
 - El audio silencioso se había convertido en «¡Gracias por ver el vídeo!». El sistema aceptaba cualquier transcripción no vacía como si fuera una declaración real. Ahora exige metadatos de habla y confianza. Si no supera la comprobación, pide reenviar el audio o escribir, sin iniciar acciones comerciales.
