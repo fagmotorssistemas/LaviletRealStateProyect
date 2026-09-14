@@ -3,7 +3,11 @@ import { ecuadorYmd } from '@/lib/inmobiliaria/agendaTime'
 
 export const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
 export function isGreetingOnly(message: string) {
-  return !normalized(message) || /^(hola|buenos dias|buenas tardes|buenas noches|buen dia|buenas|hola buenos dias|hola buenas tardes|hola buenas noches)$/.test(normalized(message))
+  const value = normalized(message)
+  if (!value) return !/[\p{L}\p{N}]/u.test(message)
+  // Match the WHOLE turn. A salutation before a real question is not a greeting-only turn.
+  const greeting = '(?:hola+|holi|holis|saludos(?: cordiales)?|cordiales saludos|(?:muy )?buen(?:[oa]s?)? (?:dias?|tardes|noches)|benos dias|buenas|que tal|como (?:esta|estan|estas|le va|les va|van)|un gusto saludarle)'
+  return new RegExp(`^(?:${greeting})(?: (?:${greeting}|a todos|a todas|a ustedes|con todos|para todos|equipo|amigos|lavilet|la vilet))*$`).test(value)
 }
 
 export function sdrState(lead: Row, history: unknown, excludedIds: string[] = []) {
@@ -57,7 +61,7 @@ export function styleIssues(reply: string, alreadyWelcomed: boolean): string[] {
   if (alreadyWelcomed && /^(hola\b|buenos d[ií]as\b|buenas (tardes|noches)\b|bienvenid[oa]\b)/i.test(reply.trim())) issues.push('repeated_greeting')
   if ((reply.match(/\?/g) || []).length > 1 || /\p{Extended_Pictographic}/u.test(reply)
     || /soy (?:su|tu|el|la) asesor|mi nombre es/i.test(reply)
-    || /amenidades|gracias por (?:compartir|comentarlo|aclararlo)|entiendo que busca|as[ií] podr[eé] orientarle|acompa[nñ]arle en el proceso/i.test(reply)
+    || /amenidades|gracias por (?:compartir|comentarlo|aclararlo)|entiendo que busca|as[ií] podr[eé] orientarle/i.test(reply)
     || (reply.match(/la\s*vilet/gi) || []).length > 1) issues.push('style')
   return issues
 }

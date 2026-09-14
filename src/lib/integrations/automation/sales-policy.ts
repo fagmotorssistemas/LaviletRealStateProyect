@@ -21,14 +21,20 @@ export function acceptsVisitInvitation(current: string, lastReply: string) {
 export function salesMemory(previous: unknown, history: unknown) {
   const saved = object(previous)
   let invited = saved.visit_invited === true, declined = saved.visit_declined === true, last = ''
+  let financingMentioned = saved.financing_mentioned === true
   for (const row of rows(history)) {
     const content = text(row.content)
+    if (['cliente', 'bot', 'asesor'].includes(text(row.role)) && mentionsFinancing(content)) financingMentioned = true
     if (['bot', 'asesor'].includes(text(row.role))) {
       last = content
       if (invitation(content)) invited = true
     } else if (row.role === 'cliente' && invitation(last) && /^(?:no|no gracias|ahora no|por ahora no|solo (?:quiero )?informacion)/.test(normalized(content))) declined = true
   }
-  return { visit_invited: invited, visit_declined: declined }
+  return { visit_invited: invited, visit_declined: declined, financing_mentioned: financingMentioned }
+}
+
+export function mentionsFinancing(value: string) {
+  return /\b(?:financ\w*|credito\w*|hipotec\w*|pichincha|jep|jardin\s*(?:azuayo|zauayo))\b/.test(normalized(value))
 }
 
 export function rememberSalesReply(previous: unknown, history: unknown, current: string, reply: string) {
@@ -55,7 +61,7 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const sawModel = /\/tour\/modelo-3d\/|\b3D\b/.test(last)
   const topics = salesTopics(current)
   const hasUnit = rows(object(info.referencia_unidad).matches).length === 1
-  const signal = model || (positive(current) && (sawModel || hasUnit)) || (topics.includes('reventa') && topics.length > 1)
+  const signal = info.precio_cotizado === true || model || (positive(current) && (sawModel || hasUnit)) || (topics.includes('reventa') && topics.length > 1)
   const invite = signal && !pendingVisit && !refuses && !memory.visit_invited && !memory.visit_declined
   const twoQuestions = replies.length >= 2 && replies.slice(-2).every(r => discovery(text(r.content)))
   const uncertain = /no (?:se|estoy segur|tengo claro|tengo idea)|no he pensado/.test(m)

@@ -21,6 +21,7 @@ import { fabricatedActionRequest, mediaClarificationReply } from './clarificatio
 import { acceptsVisitInvitation, rememberSalesReply } from './sales-policy'
 import { mediaFailureReply, unreadMediaMarker } from './media-format'
 import { variedReplyOpening } from './response-openings'
+import { asksUnitPrice, unitPriceQuote } from './price-reply'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out"}.
@@ -143,7 +144,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!reply && greeting) {
     const welcome = (await activePrompt('saludo_inicial')).trim()
     reply = state.ya_saludamos ? 'Cuénteme, ¿en qué podemos ayudarle?'
-      : welcome.length <= 140 && !/la\s*vilet|proyecto|vivienda|invertir|local comercial/i.test(welcome)
+      : welcome.length > 0 && welcome.length <= 140 && !/la\s*vilet|proyecto|vivienda|invertir|local comercial|suite|departamento|edificio|puertas del sol|financ|precio|sector/i.test(welcome)
         ? welcome : minimalGreeting(turnGreeting)
     greetingTemplate = true; audit = { source: 'minimal_greeting' }
   }
@@ -204,7 +205,8 @@ export async function processConversation(rows: Row[], guard: Guard) {
       && (explicitlyRequestsVisit(current) || collectingVisit || acceptsVisitInvitation(current, text(state.ultima_respuesta)))
     if (canRequestVisit && acceptsVisitInvitation(current, text(state.ultima_respuesta))) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
     if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
-    const financeTurn = isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)
+    const priceTurn = asksUnitPrice(current)
+    const financeTurn = !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)
     if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
     await guard()
     if (extracted.opt_out) {
@@ -233,7 +235,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
         if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
         lead = { ...lead, ...resetSearch, behavior_signals: signals }
       }
-      const financeAnswer = financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
+      const financeAnswer = priceTurn ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
       // A question about a product is not an application or consent to collect personal data.
       const fin = financeTurn && !financeAnswer ? object(await rpc('process_financing_message_v2', { p_lead_id: lead.id,
         p_asked_financing: (extracted.events as string[]).includes('asked_financing') || !!financeInput.partner,
@@ -258,6 +260,10 @@ export async function processConversation(rows: Row[], guard: Guard) {
         const result = object(await rpc('lv_collect_visit_intake', { p_lead: lead.id, p_message: activeLast.externalId,
           p_needs_help: extracted.visit_needs_help === true || needsVisitHelp(current) }))
         reply = intakeReply(result)
+        if (priceTurn) {
+          const quote = unitPriceQuote({ ...await commercialContext(lead, context.historial), financiamiento: finance, referencia_unidad: reference }, current, summary)
+          if (quote) reply = quote.reply.replace(/\s*¿[^?]+\?\s*$/, '') + ' ' + reply
+        }
         audit = { source: 'visit_intake', action: result.action, preference: result.slot }
       } else if (financeAnswer) {
         reply = financeAnswer

@@ -46,7 +46,7 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
 export function financingReply(fin: Row, partners: string[], unsupported = '') {
   const options = partners.join(' o ')
   if (unsupported) return options
-    ? `Por el momento no tenemos una alianza registrada con ${unsupported}. Podemos acompañarle con ${options}; la aprobación depende de la entidad. ¿Le gustaría revisar esa opción?`
+    ? `Por el momento no tenemos una alianza registrada con ${unsupported}. Contamos con ${options} y le acompañamos en el proceso. ¿Le gustaría revisar esa opción?`
     : `No tenemos una alianza registrada con ${unsupported}. Podemos consultar con el equipo las opciones de financiamiento vigentes. ¿Le gustaría que le ayuden?`
   const messages: Record<string, string> = {
     entidad_pendiente: options ? `Podemos continuar con ${options}. ¿Con cuál le gustaría revisar su financiamiento?` : 'El equipo puede ayudarle a confirmar las entidades disponibles. ¿Le gustaría que le contacten?',
@@ -59,7 +59,7 @@ export function financingReply(fin: Row, partners: string[], unsupported = '') {
     continuacion_pendiente: fin.selected_partner_name
       ? `Podemos continuar con ${text(fin.selected_partner_name)}. ¿Le gustaría que iniciemos la revisión de su caso?`
       : options
-      ? `Sí, podemos orientarle sobre financiamiento con ${options}. La entidad evalúa cada solicitud. ¿Le gustaría que iniciemos una revisión de su caso?`
+      ? `Tenemos opciones de financiamiento con ${options} y le acompañamos en el proceso. ¿Le gustaría que iniciemos una revisión de su caso?`
       : 'Sí, podemos ayudarle a revisar las opciones de financiamiento. ¿Le gustaría que el equipo le oriente?',
   }
   const reply = messages[text(fin.state || fin.financing_state)]
@@ -81,11 +81,14 @@ export function isFinancingTurn(extracted: Row, current: string, lastReply: stri
 
 export function financingQuestionReply(current: string, partners: string[], lastReply = '') {
   const m = normalized(current), previous = normalized(lastReply)
+  if (/aprob|garanti|asegur/.test(m) && /credito|financ|prestamo/.test(m)) {
+    return 'Le acompañamos en el proceso, pero no podemos asegurar la aprobación del crédito. La entidad necesita revisar su caso para confirmarla.'
+  }
   if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)
     || (/credito directo/.test(previous) && /pero|o no dan|quiero saber|dispongo|tengo|por que/.test(m))) {
     const amount = /(?:dispongo|tengo|cuento con).*\b150\b/.test(m)
       ? ' Cuando dice 150, ¿se refiere a $150 o a $150.000?' : ''
-    return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos orientarle con ' + partners.join(' o ') + '; la aprobación depende de la entidad.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${amount}`
+    return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos orientarle con ' + partners.join(' o ') + ' y acompañarle en el proceso.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${amount}`
   }
   if (/solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(normalized(current)) && !/jardin|pichincha|\bjep\b/.test(normalized(current))) {
     return partners.length ? `Por ahora, las alianzas registradas son con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
@@ -104,4 +107,15 @@ export function avoidFinancingRepeat(reply: string, current: string, lastReply: 
     ? `Para continuar falta elegir la entidad: ${partners.join(' o ')}. ¿Cuál prefiere?`
     : 'Aún no tengo una entidad confirmada para ofrecerle. El equipo debe comprobarlo antes de pedirle datos para una revisión.'
   return 'Ese dato todavía no quedó claro. Puede escribirlo de otra forma o indicarme si prefiere continuar la revisión con una persona.'
+}
+
+// A combined price/financing question needs information, not an application.
+export function priceFinancingReply(current: string, context: Awaited<ReturnType<typeof financingContext>>) {
+  if (/\b(?:no (?:quiero|necesito|deseo|me interesa)|sin)\b.*\b(?:financiamiento|credito)\b/.test(normalized(current))) return ''
+  const question = financingQuestionReply(current, context.partners)
+  if (question) return question.replace(/\s*¿[^?]+\?\s*$/, '')
+  const choice = financingInputs({}, current, '', context)
+  if (choice.unsupported) return financingReply({}, context.partners, choice.unsupported).replace(/\s*¿[^?]+\?\s*$/, '')
+  if (choice.partner) return `Podemos revisar el financiamiento con ${choice.partner} y acompañarle en el proceso.`
+  return financingReply({ state: 'continuacion_pendiente' }, context.partners).replace(/\s*¿[^?]+\?\s*$/, '')
 }

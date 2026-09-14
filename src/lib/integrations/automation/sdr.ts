@@ -8,8 +8,11 @@ import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, expe
 import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { unitModelRequestReply } from './unit-model'
-import { salesPlan, salesIssues, salesTopicReply } from './sales-policy'
+import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
+import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
+import { PRICE_REPLY_RULES, priceReplyIssues, unitPriceQuote } from './price-reply'
+import { priceFinancingReply } from './financing'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -24,19 +27,22 @@ export async function commercialContext(lead: Row, history: unknown) {
       .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000)),
     db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
     db().from('location_pois').select('poi_name,poi_category').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('projects').select('name,address,description').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
+    db().from('projects').select('name,address,description,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
     db().from('project_automation_config').select('mode,timezone,business_hours,visit_location_url').match(scope).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
   ])
   if ([units, amenities, places, project, config].some(r => r.error)) throw new Error('COMMERCIAL_CONTEXT_FAILED')
   const settings = object(config.data), mode = text(settings.mode) || 'lanzamiento'
-  const pricesAllowed = mode === 'preventa'
+  const projectData = object(project.data)
+  const pricing = botPricingPolicy(mode, launchPricesVisible(projectData.policies_json))
+  const pricesAllowed = pricing.visible
   const catalog = (units.data || []).map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
   return { lead: { name: conversationalFirstName(text(lead.name)), preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
     preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage }, historial: history,
     conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
-    proyecto: project.data, modo_comercial: mode,
+    proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
+      precios_aproximados: pricing.approximate,
       confirmar_disponibilidad: false, confirmar_visita_sin_resultado: false, agendar_llamadas: false },
     catalogo: catalog, instalaciones: amenities.data, lugares_cercanos: places.data,
     horario_atencion: settings.business_hours,
@@ -46,16 +52,23 @@ export async function commercialContext(lead: Row, history: unknown) {
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
-  const plan = salesPlan(info, current, summary)
+  const quote = unitPriceQuote(info, current, summary)
+  const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true }, current, summary)
   const finish = (reply: string, audit: Row) => {
     // Safe fallbacks must obey the same stopping rule as generated drafts.
-    const answer = plan.action !== 'discover' ? reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || reply : reply
+    let answer = plan.action !== 'discover' ? reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || reply : reply
+    if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
     return { reply: answer + (plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''), audit: { ...audit, sales_action: plan.action, sales_topics: plan.topics } }
   }
   const mediaExplanation = mediaClarificationReply(current)
   if (mediaExplanation) return {reply:mediaExplanation,audit:{source:'media_clarification',rewritten:false,review_reasons:[],fallback:false}}
   if (fabricatedActionRequest(current)) return {reply:'Para confirmarle una cita o una reserva, primero debe quedar registrada y aprobada en el sistema. Puedo ayudarle a coordinarla.',audit:{source:'action_not_recorded',rewritten:false,review_reasons:[],fallback:false}}
-  if (info.posicionamiento_proyecto && !/precio|metros|tama[nñ]o|qu[eé] (?:ofrece|incluye)|[mM]²/i.test(current) && /constructora|qui[eé]n(?:es)?[^?\n]*(?:constru|hizo|hace|hicieron|hacen)/i.test(current)) {
+  if (quote && !/qu[eé] (?:incluye|ofrece|tiene)|cu[aá]ntos dormitorios|c[oó]mo|por qu[eé]|ubicaci[oó]n|d[oó]nde|sector|jard[ií]n|distribuci[oó]n|constructora|due[nñ]o|foto|imagen|modelo|plano|descuento|negocia|cuota|entrada/i.test(current.replace(/jard[ií]n\s*(?:azuayo|zauayo)/gi, ''))) {
+    const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
+    const financing = mentionsFinancing(current) ? priceFinancingReply(current, { partners, current: object(finance.current) }) : ''
+    return finish(quote.reply + (financing ? ' ' + financing : ''), { source: 'unit_price', approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
+  }
+  if (!quote && info.posicionamiento_proyecto && !/precio|metros|tama[nñ]o|qu[eé] (?:ofrece|incluye)|[mM]²/i.test(current) && /constructora|qui[eé]n(?:es)?[^?\n]*(?:constru|hizo|hace|hicieron|hacen)/i.test(current)) {
     const ownerToo = /due[nñ]o|propietario/i.test(current)
     return {reply:'Claro, la constructora que realizó el proyecto es Agmen.' + (ownerToo ? ' El nombre del propietario no lo tengo confirmado.' : ''), audit:{source:'project_builder',rewritten:false,review_reasons:[],fallback:false}}
   }
@@ -63,20 +76,20 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const matches = Array.isArray(reference.matches) ? reference.matches.map(object)
     : resolveCatalogReference((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary._unit_reference).matches
   const modelReply = unitModelRequestReply(matches, current, object(info.modelo_3d).se_adjunta_en_esta_respuesta === true)
-  if (modelReply) return finish(modelReply, { source: 'unit_model_request', rewritten: false, review_reasons: [], fallback: false })
+  if (modelReply && !quote) return finish(modelReply, { source: 'unit_model_request', rewritten: false, review_reasons: [], fallback: false })
   if (plan.positive_after_model) return finish(plan.memory.visit_declined ? 'Me alegra que le haya gustado. Puede explorar los espacios a su ritmo en el recorrido.' : 'Me alegra que le haya gustado. El recorrido le permite explorar la distribución y ver cómo encaja con lo que busca.', { source: 'interest_after_model', fallback: false })
-  if (memory.deferred_fields.includes('presupuesto') && /no (?:sé|se|estoy segur|tengo claro|tengo idea)/i.test(current) && !/sector|jard[ií]n|precio|dormitorio|foto/i.test(current)) {
+  if (!quote && memory.deferred_fields.includes('presupuesto') && /no (?:sé|se|estoy segur|tengo claro|tengo idea)/i.test(current) && !/sector|jard[ií]n|precio|dormitorio|foto/i.test(current)) {
     const alreadyHelped = /entrada y una cuota|cuota mensual.*c[oó]modo/.test(text(object(info.conversacion).ultima_respuesta))
     return { reply: alreadyHelped ? 'Está bien, puede definirlo con calma. Por ahora podemos revisar qué opción se adapta a sus necesidades, sin fijar todavía un presupuesto.' : 'Podemos orientarle partiendo de una entrada y una cuota mensual con las que se sienta cómodo, sin comprometerse todavía. ¿Le ayudaría revisar las opciones de financiamiento?', audit: { source: 'budget_guidance', fallback: false } }
   }
   const unitReply = catalogReferenceReply(matches, current)
-  if (unitReply) return {reply:unitReply, audit:{source:'catalog_reference',rewritten:false,review_reasons:[],fallback:false}}
+  if (unitReply && !quote) return {reply:unitReply, audit:{source:'catalog_reference',rewritten:false,review_reasons:[],fallback:false}}
   if (info.posicionamiento_proyecto && /asegur|garanti/i.test(current) && /precio|rentab|subir|plusval|valori/i.test(current)) {
     return { reply: 'La ubicación en Puertas del Sol es parte del atractivo para invertir. Podemos comparar las opciones según sus objetivos, pero no podemos garantizar que el precio suba ni una rentabilidad futura.', audit: { source: 'investment_expectations', rewritten: false, review_reasons: [], fallback: false } }
   }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
-  const input = { ...experienceContext(info, current, memory), siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
-  const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial)
+  const input = { ...experienceContext(info, current, memory), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
+  const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nEl campo modelo_3d indica si el sistema adjuntará el recorrido de la unidad en ESTA respuesta. Si está presente, responda la consulta brevemente sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces de modelos: el sistema añade el enlace verificado. Si no hay modelo_3d no prometa enviar un modelo. No confunda este recorrido con una cita presencial.'
   const reasons: string[] = []
@@ -85,7 +98,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   for (let attempt = 0; attempt < 2; attempt++) {
     await guard()
     const review = await aiJson(reviewer + rules, { ...input, respuesta: reply }, reviewSchema)
-    const issues = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan)]
+    const issues = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan), ...priceReplyIssues(reply, info, current, quote?.prices)]
+    if (quote?.quoted && !/\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares)/i.test(reply)) issues.push('ignored_question')
+    if (quote?.quoted && !quote.financingOffer && !mentionsFinancing(current) && mentionsFinancing(reply)) issues.push('repeated_question')
     if (reply.trim() === text(object(info.conversacion).ultima_respuesta).trim() && !/rep[ií]t|repita|otra vez|no entend[ií]/i.test(current)) issues.push('repeated_question')
     if (review.aprobada === true && !issues.length) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false })
     reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number])) as string[] : []))
@@ -95,5 +110,5 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
         tarea: 'Reescriba en lenguaje sencillo y breve. Resuelva la consulta actual; no repita beneficios ni preguntas sobre datos que el cliente no sabe. Una pregunta útil es opcional, sin inventar hechos.' }), info.historial)
     }
   }
-  return finish(salesTopicReply(info, current) || commercialFallback(info, current, memory), { rewritten: true, review_reasons: [...new Set(reasons)], fallback: true })
+  return finish(quote?.reply || salesTopicReply(info, current) || commercialFallback(info, current, memory), { rewritten: true, review_reasons: [...new Set(reasons)], fallback: true })
 }

@@ -85,8 +85,170 @@ test('price actions require administrator authorization before querying any proj
   })
   await assert.rejects(actions.loadUnitPricesAction('project-a'), /administrador/)
   await assert.rejects(actions.saveUnitPriceAction({ projectId: 'project-a', unitId: 'unit-a', price: '200000', expectedUpdatedAt: '2026-09-13T00:00:00Z' }), /administrador/)
+  await assert.rejects(actions.saveLaunchPriceVisibilityAction({ projectId: 'project-a', visible: true, expectedUpdatedAt: '2026-09-13T00:00:00Z' }), /administrador/)
 })
 const now = Date.parse('2026-09-09T18:00:00Z')
+const priceCatalog = [
+  { id: 'u502', unit_number: '502', category: 'departamento', bedrooms: 3, published_commercial_price: 310000 },
+  { id: 'u210', unit_number: '210', category: 'suite', bedrooms: 1, published_commercial_price: 250000 },
+  { id: 'u601', unit_number: '601', category: 'departamento', bedrooms: 3, published_commercial_price: 550000 },
+  { id: 'lc05', unit_number: 'LC-05', category: 'local', published_commercial_price: null },
+]
+const priceInfo = (approximate = true) => ({ catalogo: priceCatalog, historial: [], conversacion: {},
+  modo_comercial: approximate ? 'lanzamiento' : 'preventa',
+  politica_comercial: { precios_autorizados: true, precios_aproximados: approximate },
+  financiamiento: { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {} },
+})
+
+test('greeting-only variants never swallow an actual question, decision or opt-out', () => {
+  const { isGreetingOnly } = require('../src/lib/integrations/automation/sdr-rules.ts')
+  for (const message of ['Saludos', 'Saludos cordiales', 'Cordiales saludos', 'Saludos, buenas tardes 👋', 'Hola hola', 'Holaaa', 'Holi', 'Buenas buenas', 'Buen día', 'Benos dias', 'Muy buenos días', 'Hola, ¿cómo están?', 'Qué tal?', 'Buenas noches a todos', '.', '👋']) {
+    assert.equal(isGreetingOnly(message), true, message)
+  }
+  for (const message of ['Saludos, ¿cuánto cuesta el 502?', 'Hola quiero una cita', 'Hola\nNo me envíen más mensajes', 'Buenas tardes, acepto la propuesta', 'Saludos, quiero hablar con un asesor', 'Hola, ¿cómo es el proyecto?', '¿Cómo están los precios?', 'こんにちは']) assert.equal(isGreetingOnly(message), false, message)
+})
+
+test('Saludos uses the minimal greeting through the real conversation flow, even with a commercial greeting prompt', async t => {
+  live(t)
+  for (const message of ['Saludos', 'Saludos cordiales', 'Hola\nBuenas tardes', 'Hola, ¿cómo están?']) {
+    const h = conversationHarness(); h.rows[0].payload.text = message
+    await h.process([h.rows[0]], async () => {})
+    const sent = h.calls.find(c => c.name === 'patch').args[2]
+    assert.match(sent, /ayudarle/)
+    assert.doesNotMatch(sent, /proyecto|Puertas del Sol|vivienda|La Vilet/i)
+    assert.equal(h.calls.filter(c => ['apply_lead_events', 'process_financing_message_v2', 'commercialReply'].includes(c.name)).length, 0)
+  }
+})
+
+test('launch prices hydrate the exact unit from the authorized catalog and invite only once', async () => {
+  const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
+  const p = require('../src/lib/integrations/automation/sales-policy.ts')
+  const info = { ...priceInfo(), referencia_unidad: { matches: [{ id: 'u502', unit_number: '502', published_commercial_price: 1 }] } }
+  const first = await commercialReply(info, 'Saludos, ¿cuánto cuesta el 502?', {}, async () => {})
+  assert.match(first.reply, /precio aproximado.*502.*310[.,]000/)
+  assert.match(first.reply, /lanzamiento.*puede cambiar/)
+  assert.match(first.reply, /Banco Pichincha.*Cooperativa JEP.*acompañamos/)
+  assert.match(first.reply, /coordinar una visita/)
+  assert.doesNotMatch(first.reply, /notificar|enviaremos|confirmada|registrada|aprobación depende/)
+  const memory = p.rememberSalesReply({}, [], '¿Cuánto cuesta el 502?', first.reply)
+  const next = await commercialReply(info, '¿Cuál es el precio del departamento 601?', { _sales_memory: memory }, async () => {})
+  assert.match(next.reply, /550[.,]000/)
+  assert.doesNotMatch(next.reply, /financiamiento|visita|310[.,]000/)
+  assert.equal(first.audit.source, 'unit_price')
+})
+
+test('presale states the price without launch wording; financing already mentioned and visits already pending stay respected', async () => {
+  const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
+  for (const status of ['confirmed', 'awaiting_client', 'awaiting_advisor']) {
+    const info = { ...priceInfo(false), propuestas: [{ status }], historial: [{ role: 'cliente', content: 'No quiero financiamiento' }] }
+    const result = await commercialReply(info, 'Precio de la suite 210', {}, async () => {})
+    assert.match(result.reply, /250[.,]000/)
+    assert.doesNotMatch(result.reply, /aproximado|referencial|lanzamiento|financiamiento|visita/)
+  }
+  const result = await commercialReply(priceInfo(false), 'Precio de la suite 210', { _sales_memory: { visit_declined: true, financing_mentioned: true } }, async () => {})
+  assert.doesNotMatch(result.reply, /visita|financiamiento/)
+})
+
+test('hidden prices and missing/new units never reuse a price from summary, media or an older unit', () => {
+  const { unitPriceQuote } = require('../src/lib/integrations/automation/price-reply.ts')
+  const summary = { _unit_reference: { ids: ['u210'] }, old_price: 999999 }
+  const hidden = { ...priceInfo(), politica_comercial: { precios_autorizados: false }, referencia_unidad: { matches: [priceCatalog[1]] }, historial: [{ role: 'bot', content: 'Cuesta $250.000 USD.' }] }
+  for (const result of [unitPriceQuote(hidden, '¿Su precio?', summary), unitPriceQuote(priceInfo(), 'Precio del departamento 999', summary), unitPriceQuote(priceInfo(), 'Precio del local 05', summary)]) {
+    assert.equal(result.quoted, false)
+    assert.doesNotMatch(result.reply, /\$|250[.,]000|999999/)
+  }
+  assert.match(unitPriceQuote(priceInfo(), '¿Su precio?', summary).reply, /suite 210.*250[.,]000/)
+  const group = unitPriceQuote(priceInfo(), 'Precios de departamentos de 3 dormitorios', summary)
+  assert.match(group.reply, /502.*310[.,]000.*601.*550[.,]000/)
+  assert.doesNotMatch(group.reply, /suite 210|250[.,]000/)
+})
+
+test('a price question with financing is answered once without opening a qualification or notifying an advisor', async t => {
+  live(t)
+  const h = conversationHarness({ realCommercial: true, commercialInfo: priceInfo(), catalog: priceCatalog,
+    financeContext: priceInfo().financiamiento, extracted: { events: ['asked_financing'], financing_consent: true } })
+  h.rows[0].payload.text = 'Precio del departamento 502 y ¿tienen crédito directo?'
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(c => c.name === 'patch').args[2]
+  assert.match(sent, /310[.,]000/)
+  assert.match(sent, /No ofrecemos crédito directo.*Banco Pichincha.*Cooperativa JEP/)
+  assert.equal(h.calls.filter(c => ['process_financing_message_v2', 'lv_collect_visit_intake', 'handoff_lead'].includes(c.name)).length, 0)
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+})
+
+test('financing copy offers accompaniment while questions about guaranteed approval receive an honest answer', () => {
+  const p = require('../src/lib/integrations/automation/financing.ts')
+  const partners = ['Banco Pichincha', 'Cooperativa JEP']
+  for (const reply of [p.financingReply({ state: 'continuacion_pendiente' }, partners), p.financingReply({}, partners, 'Jardín Azuayo'), p.financingQuestionReply('¿Tienen crédito directo?', partners)]) {
+    assert.match(reply, /acompaña/)
+    assert.doesNotMatch(reply, /aprobación depende|evalúa cada solicitud/)
+  }
+  assert.match(p.financingQuestionReply('¿Me garantizan la aprobación del crédito?', partners), /no podemos asegurar.*entidad necesita revisar/)
+})
+
+test('price review rejects hidden, invented or incorrectly qualified prices from generated mixed answers', () => {
+  const { priceReplyIssues } = require('../src/lib/integrations/automation/price-reply.ts')
+  assert.ok(priceReplyIssues('El precio es $310.000 USD.', priceInfo()).length)
+  assert.ok(priceReplyIssues('El precio aproximado de lanzamiento es $1 USD.', priceInfo()).length)
+  assert.ok(priceReplyIssues('El precio es $310.000 USD.', { politica_comercial: {} }).length)
+  assert.ok(priceReplyIssues('El precio aproximado es $310.000 USD.', priceInfo(false)).length)
+  assert.ok(priceReplyIssues('El precio es $550.000 USD.', priceInfo(false), '', [310000]).length)
+  assert.deepEqual(priceReplyIssues('El precio aproximado de lanzamiento es $310.000 USD.', priceInfo()), [])
+  assert.deepEqual(priceReplyIssues('El precio es $310.000 USD.', priceInfo(false)), [])
+})
+
+test('fees, loan payments and unrelated products are not mistaken for a home sale price', () => {
+  const { unitPriceQuote } = require('../src/lib/integrations/automation/price-reply.ts')
+  for (const current of ['¿Cuánto cuesta la alícuota?', '¿Qué valor tiene la cuota mensual?', '¿Cuánto cuesta un carro?', '¿Cuál es la tasa de interés?', '¿Cuál es el precio del arriendo?', '¿Cuánto cuesta un parqueadero?']) assert.equal(unitPriceQuote(priceInfo(), current, { _unit_reference: { ids: ['u502'] } }), null, current)
+})
+
+test('mixed questions keep a verified price and reject a generated fixed launch quote before sending', async () => {
+  let drafts = 0
+  const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
+    activePrompt: async () => '', aiJson: async () => ({ aprobada: true, motivos: [] }),
+    draftReply: async (_prompt, input) => {
+      assert.match(input.respuesta_precio_verificada, /310[.,]000.*referencial de lanzamiento/)
+      drafts++
+      return drafts === 1 ? 'El departamento 502 cuesta $310.000 USD y tiene sala y cocina.'
+        : 'El precio aproximado del departamento 502 es $310.000 USD, un valor referencial de lanzamiento que puede cambiar. Tiene sala y cocina.'
+    },
+  } })
+  const result = await commercialReply({ ...priceInfo(), referencia_unidad: { matches: [priceCatalog[0]] } }, '¿Qué incluye el departamento 502 y cuánto cuesta?', {}, async () => {})
+  assert.equal(drafts, 2)
+  assert.match(result.reply, /aproximado.*310[.,]000.*lanzamiento/)
+  assert.match(result.reply, /sala y cocina/)
+  assert.match(result.reply, /financiamiento.*acompañamos/)
+  assert.match(result.reply, /visita/)
+})
+
+test('combined price turns respect financing refusal, a chosen bank and an unsupported bank', async () => {
+  const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
+  const quote = current => commercialReply(priceInfo(false), current, {}, async () => {})
+  assert.match((await quote('Me interesa el departamento 502, ¿cuánto cuesta?')).reply, /310[.,]000/)
+  assert.doesNotMatch((await quote('Precio del 502, no quiero financiamiento')).reply, /financiamiento|Pichincha|JEP/)
+  const chosen = (await quote('Precio del 502, con la JEP')).reply
+  assert.match(chosen, /310[.,]000.*financiamiento con Cooperativa JEP/)
+  assert.doesNotMatch(chosen, /Pichincha|iniciemos|registrad/)
+  const unsupported = (await quote('Precio del 502, con Jardín Azuayo')).reply
+  assert.match(unsupported, /310[.,]000.*no tenemos una alianza registrada con Jardín Azuayo/)
+})
+
+test('commercial context reads only the explicit price policy and never leaks unrelated project policies', async () => {
+  for (const [mode, visible, allowed, approximate] of [['lanzamiento', false, false, false], ['lanzamiento', true, true, true], ['preventa', false, true, false], ['preventa', true, true, false]]) {
+    const payload = { units: priceCatalog, projects: { name: 'La Vilet', policies_json: { forma_pago: 'legacy-not-authorized', bot_pricing: { launch_prices_visible: visible } } }, project_automation_config: { mode } }
+    const db = () => ({ from(table) {
+      const q = { then(resolve) { return Promise.resolve({ data: payload[table] || [], error: null }).then(resolve) } }
+      for (const method of ['select', 'match', 'eq', 'limit', 'abortSignal', 'maybeSingle']) q[method] = () => q
+      return q
+    } })
+    const { commercialContext } = load('src/lib/integrations/automation/sdr.ts', { './data': { ...data, db } })
+    const info = await commercialContext({}, [])
+    assert.equal(info.politica_comercial.precios_autorizados, allowed)
+    assert.equal(info.politica_comercial.precios_aproximados, approximate)
+    assert.equal(info.catalogo[0].published_commercial_price, allowed ? 310000 : null)
+    assert.doesNotMatch(JSON.stringify(info), /legacy-not-authorized|forma_pago|policies_json/)
+  }
+})
 const later = offset => new Date(now + offset).toISOString()
 function live(t) {
   for (const [key, value] of Object.entries({ AUTOMATION_MODE: 'live', AUTOMATION_N8N_DISABLED: 'true',
@@ -221,8 +383,8 @@ function conversationHarness(options = {}) {
       },
     },
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
-    './sdr': { publishedUnitCatalog: async () => options.catalog || [], commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return {} },
-      commercialReply: async info => { calls.push({ name: 'commercialReply', args: info }); return { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } } } },
+    './sdr': { publishedUnitCatalog: async () => options.catalog || [], commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
+      commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.realCommercial ? require('../src/lib/integrations/automation/sdr.ts').commercialReply(info, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } } } },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error('MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
@@ -380,6 +542,8 @@ test('duplicate inbound messages never produce another reply', async t => {
 })
 test('opt-out is persisted before its final notice and avoids scoring or financing', async t => {
   live(t); const h = conversationHarness({ optOut: true })
+  h.rows[0].payload.text = 'Hola'
+  h.rows[1].payload.text = 'No me envíen más mensajes'
   await h.process(h.rows, async () => {})
   const preference = h.calls.find(c => c.name === 'set_tracking_preference')
   assert.equal(preference.args.p_consent, false)

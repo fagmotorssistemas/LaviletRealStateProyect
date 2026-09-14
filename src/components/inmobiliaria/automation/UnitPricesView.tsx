@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
 import { listProjects } from '@/services/inmobiliaria.service'
-import { loadUnitPricesAction, saveUnitPriceAction } from '@/app/inmobiliaria/automatizacion/precios/actions'
+import { loadUnitPricesAction, saveUnitPriceAction, saveLaunchPriceVisibilityAction } from '@/app/inmobiliaria/automatizacion/precios/actions'
 import { botPriceStatus, parseCommercialPrice, type UnitPriceRow } from '@/lib/inmobiliaria/unitPrices'
 import { normalizeUnitCategory, type Project } from '@/types/inmobiliaria'
 import { formatCurrency } from '@/lib/utils'
@@ -26,6 +26,9 @@ export function UnitPricesView() {
   const [units, setUnits] = useState<UnitPriceRow[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [mode, setMode] = useState('lanzamiento')
+  const [launchVisible, setLaunchVisible] = useState(false)
+  const [savedLaunchVisible, setSavedLaunchVisible] = useState(false)
+  const [projectUpdatedAt, setProjectUpdatedAt] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('todos')
   const [category, setCategory] = useState('todos')
@@ -58,6 +61,7 @@ export function UnitPricesView() {
     void loadUnitPricesAction(projectId).then(data => {
       if (!active) return
       setUnits(data.units); setMode(data.mode)
+      setLaunchVisible(data.launchVisible); setSavedLaunchVisible(data.launchVisible); setProjectUpdatedAt(data.projectUpdatedAt)
       setDrafts(Object.fromEntries(data.units.map(unit => [unit.id, unit.published_commercial_price == null ? '' : String(unit.published_commercial_price)])))
     }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los precios') })
       .finally(() => { if (active) setLoading(false) })
@@ -68,12 +72,25 @@ export function UnitPricesView() {
     try { return parseCommercialPrice(drafts[unit.id] ?? '') !== unit.published_commercial_price }
     catch { return true }
   }
-  const dirty = units.some(changed)
+  const visibilityDirty = launchVisible !== savedLaunchVisible
+  const dirty = units.some(changed) || visibilityDirty
   const changeProject = (value: string) => {
-    if (dirty) { toast.error('Guarde los precios pendientes o pulse Descartar cambios antes de cambiar de proyecto.'); return }
+    if (dirty) { toast.error('Guarde los cambios pendientes o pulse Descartar cambios antes de cambiar de proyecto.'); return }
     setProjectId(value)
   }
-  const discard = () => setDrafts(Object.fromEntries(units.map(unit => [unit.id, unit.published_commercial_price == null ? '' : String(unit.published_commercial_price)])))
+  const discard = () => {
+    setDrafts(Object.fromEntries(units.map(unit => [unit.id, unit.published_commercial_price == null ? '' : String(unit.published_commercial_price)])))
+    setLaunchVisible(savedLaunchVisible)
+  }
+  const saveVisibility = async () => {
+    setSaving('visibility')
+    try {
+      const updated = await saveLaunchPriceVisibilityAction({ projectId, visible: launchVisible, expectedUpdatedAt: projectUpdatedAt })
+      setLaunchVisible(updated.launchVisible); setSavedLaunchVisible(updated.launchVisible); setProjectUpdatedAt(updated.projectUpdatedAt)
+      toast.success('Visibilidad de precios guardada')
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar la visibilidad') }
+    finally { setSaving('') }
+  }
   const save = async (unit: UnitPriceRow) => {
     const price = drafts[unit.id] ?? ''
     try { parseCommercialPrice(price) } catch (cause) { toast.error((cause as Error).message); return }
@@ -100,11 +117,19 @@ export function UnitPricesView() {
       <AutomationSettingsSummary items={[
         { label: 'Unidades', value: scoped.length, detail: category === 'viviendas' ? 'Departamentos y suites del proyecto' : category === 'local' ? 'Locales comerciales del proyecto' : 'Todas las unidades del proyecto', icon: Building2 },
         { label: 'Con precio guardado', value: scoped.filter(unit => unit.published_commercial_price).length, detail: 'Precio comercial en dólares estadounidenses', icon: DollarSign },
-        { label: 'Precios en el bot', value: mode === 'preventa' ? 'Habilitados' : 'En espera', detail: mode === 'preventa' ? 'Solo unidades publicadas y disponibles' : 'El proyecto está en modo lanzamiento', icon: MessageSquareText },
+        { label: 'Precios en el bot', value: mode === 'preventa' ? 'Habilitados' : savedLaunchVisible ? 'Aproximados' : 'Ocultos', detail: mode === 'preventa' ? 'Solo unidades publicadas y disponibles' : 'El proyecto está en modo lanzamiento', icon: MessageSquareText },
       ]} />
       <div className={styles.notice}>
-        <strong>{mode === 'preventa' ? 'El bot puede informar los precios guardados' : 'Puede cargar los precios antes de anunciarlos'}</strong>
-        <p>{mode === 'preventa' ? 'Al guardar, el bot podrá usar el precio de una unidad publicada y disponible en las siguientes consultas.' : 'En modo lanzamiento el bot no informa precios. Para anunciarlos debe cambiar el modo a Preventa en Reglas y SLA; guardar un precio aquí no cambia ese modo.'} <Link href="/inmobiliaria/automatizacion/reglas" className="underline underline-offset-4">Ver reglas</Link></p>
+        <strong>{mode === 'preventa' ? 'El bot puede informar los precios guardados' : 'Decida si anuncia precios durante Lanzamiento'}</strong>
+        <p>{mode === 'preventa' ? 'El bot informa el precio guardado sin la aclaración de lanzamiento. Solo usa unidades publicadas y disponibles.' : 'Si habilita la visibilidad, el bot presenta los precios guardados como aproximados y aclara que pueden cambiar durante Lanzamiento. Si la desactiva, no informa esos valores.'} <Link href="/inmobiliaria/automatizacion/reglas" className="underline underline-offset-4">Ver reglas</Link></p>
+        <div className="flex flex-wrap items-center justify-between gap-4 py-3">
+          <label className="flex items-center gap-3 font-medium" htmlFor="launch-price-visibility">
+            <input id="launch-price-visibility" type="checkbox" className="h-5 w-5 accent-[#34412d]" checked={launchVisible} disabled={!!saving} aria-describedby="launch-price-help" onChange={event => setLaunchVisible(event.target.checked)} />
+            Mostrar precios aproximados en Lanzamiento
+          </label>
+          <Button size="sm" disabled={!!saving || !visibilityDirty} onClick={() => void saveVisibility()}><Save size={14} />{saving === 'visibility' ? 'Guardando…' : 'Guardar visibilidad'}</Button>
+        </div>
+        <p id="launch-price-help">Este ajuste solo se aplica durante Lanzamiento y no cambia la fase del proyecto.{visibilityDirty ? ' La visibilidad tiene cambios sin guardar.' : ''}</p>
         <p>Ingrese el precio total de venta de cada unidad en USD. Este dato es el mismo del inventario; no modifica el costo por m². Deje el campo vacío y guarde para retirar el precio comercial.</p>
       </div>
       <section className={styles.panel} aria-label="Edición de precios comerciales">
@@ -123,7 +148,7 @@ export function UnitPricesView() {
               <td>{unit.bedrooms ? `${unit.bedrooms} dormitorios` : '—'}<small>{unit.floor_number === 0 ? 'Planta baja' : unit.floor_number != null ? `Piso ${unit.floor_number}` : 'Piso sin registrar'}</small><small>{unit.area_internal_m2 ? `${unit.area_internal_m2.toLocaleString('es-EC')} m² interiores` : 'Área sin registrar'}</small></td>
               <td>{unit.published_commercial_price == null ? <span className="text-[#92998a]">Sin precio</span> : formatCurrency(unit.published_commercial_price)}</td>
               <td><Input aria-label={`Precio comercial de ${unit.unit_number} en USD`} inputMode="decimal" maxLength={24} placeholder="Sin precio" value={drafts[unit.id] ?? ''} disabled={!!saving} onChange={event => setDrafts(current => ({ ...current, [unit.id]: event.target.value }))} /></td>
-              <td><span className={styles.statusBadge}>{botPriceStatus(unit, mode)}</span></td>
+              <td><span className={styles.statusBadge}>{botPriceStatus(unit, mode, savedLaunchVisible)}</span></td>
               <td><Button size="sm" disabled={!!saving || !changed(unit)} onClick={() => void save(unit)} aria-label={`Guardar precio de ${unit.unit_number}`}><Save size={14} />{saving === unit.id ? 'Guardando…' : 'Guardar'}</Button></td>
             </tr>)}</tbody>
           </table>

@@ -18,10 +18,27 @@ export function parseCommercialPrice(input: string): number | null {
   return Math.round(number * 100) / 100
 }
 
-export function botPriceStatus(unit: Pick<UnitPriceRow, 'is_published' | 'status' | 'published_commercial_price'>, mode: string) {
+const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+
+export function launchPricesVisible(policies: unknown): boolean {
+  return record(record(policies).bot_pricing).launch_prices_visible === true
+}
+
+export function withLaunchPricesVisibility(policies: unknown, visible: boolean) {
+  const previous = record(policies)
+  return { ...previous, bot_pricing: { ...record(previous.bot_pricing), launch_prices_visible: visible } }
+}
+
+export function botPricingPolicy(mode: string, launchVisible = false) {
+  return { visible: mode === 'preventa' || (mode === 'lanzamiento' && launchVisible), approximate: mode === 'lanzamiento' && launchVisible }
+}
+
+export function botPriceStatus(unit: Pick<UnitPriceRow, 'is_published' | 'status' | 'published_commercial_price'>, mode: string, launchVisible = false) {
   if (!unit.published_commercial_price) return 'Sin precio'
   if (!unit.is_published) return 'Unidad sin publicar'
   if (unit.status !== 'disponible') return 'Unidad no disponible'
-  if (mode !== 'preventa') return 'Oculto al bot en lanzamiento'
+  const policy = botPricingPolicy(mode, launchVisible)
+  if (!policy.visible) return 'Oculto al bot en lanzamiento'
+  if (policy.approximate) return 'El bot lo informa como aproximado'
   return 'El bot puede informarlo'
 }

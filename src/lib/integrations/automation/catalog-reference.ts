@@ -9,6 +9,10 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
   const m = normalized(readable), saved = object(previous)
   const savedIds = Array.isArray(saved.ids) ? saved.ids : []
   const codes = [...m.matchAll(/\b(?:lc|local(?: comercial)?|depart[ae]mento|depto|dpto|apto|apartamento|suite|unidad|piso)\s*(?:numero\s*|n(?:ro|o)?\s*)?(\d{1,4})\b/g)]
+  // «Cuánto cuesta el 502» also names a unit, not an amount or a floor.
+  if (!codes.length && /\b(?:precio|valor|cuesta|cuestan|cost[oa])\b/.test(m)) {
+    codes.push(...m.matchAll(/\b(?:el|del|la|de la)\s+(\d{3,4})\b/g))
+  }
   let matches = catalog.filter(u => codes.some(c => {
     const code = text(u.unit_number).replace(/\D/g, '')
     // Clients use “departamento” and “suite” interchangeably. Match the residential
@@ -59,7 +63,7 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
 export function catalogReferenceReply(matches: Row[], current: string) {
   if (!matches.length) return ''
   const m = normalized(current)
-  if (!/cual|que (?:ofrece|tiene|incluye)|informacion|detalle|\[imagen|\[archivo/.test(m) || /precio|cuanto cuesta|dueno|constructora/.test(m)) return ''
+  if (!/cual|que (?:ofrece|tiene|incluye)|informacion|detalle|\[imagen|\[archivo/.test(m) || /precio|valor|cuanto cuesta|dueno|constructora/.test(m)) return ''
   const first = matches[0], number = (v: unknown) => Number(v).toLocaleString('es-EC', { maximumFractionDigits: 2 })
   const codes = matches.map(u => text(u.unit_number)).sort().join(', ')
   const opening = matches.length === 1 ? `Claro, se trata ${first.category === 'local' ? 'del local' : 'de la unidad'} ${codes}.`
