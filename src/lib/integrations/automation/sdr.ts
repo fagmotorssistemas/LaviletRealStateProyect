@@ -11,8 +11,10 @@ import { unitModelRequestReply } from './unit-model'
 import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
-import { PRICE_REPLY_RULES, priceReplyIssues, unitPriceQuote } from './price-reply'
+import { PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
 import { priceFinancingReply } from './financing'
+import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
+import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -40,6 +42,7 @@ export async function commercialContext(lead: Row, history: unknown) {
     preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage }, historial: history,
     conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
+    politica_visitas: botVisitPolicy(projectData.policies_json, mode),
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       precios_aproximados: pricing.approximate,
@@ -51,14 +54,26 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  const offTopic = vehicleScopeReply(current, info.historial)
+  if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
+  const material = brochureReply(current, info.historial, text(info.modo_comercial))
+  if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
+  const attachBrochure = wantsBrochure(current, info.historial)
   const quote = unitPriceQuote(info, current, summary)
+  const budget = statedBudget(current)
+  const finance = object(info.financiamiento)
+  const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
+  if (!quote && budget !== null && budget < 1000 && partners.length && !/no (?:quiero|necesito|deseo).*financ|sin credito/i.test(current)) {
+    return { reply: `Podemos ayudarle a explorar opciones de financiamiento con ${partners.join(' o ')} y revisar qué alternativa se ajusta a su situación.`, audit: { source: 'budget_financing_guidance', fallback: false } }
+  }
   const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true }, current, summary)
   const finish = (reply: string, audit: Row) => {
     // Safe fallbacks must obey the same stopping rule as generated drafts.
     let answer = plan.action !== 'discover' ? reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || reply : reply
     if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
-    return { reply: answer + (plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''), audit: { ...audit, sales_action: plan.action, sales_topics: plan.topics } }
+    if (attachBrochure && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
+    return { reply: answer + (plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''), audit: { ...audit, ...(attachBrochure ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics } }
   }
   const mediaExplanation = mediaClarificationReply(current)
   if (mediaExplanation) return {reply:mediaExplanation,audit:{source:'media_clarification',rewritten:false,review_reasons:[],fallback:false}}
@@ -70,7 +85,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   if (!quote && info.posicionamiento_proyecto && !/precio|metros|tama[nñ]o|qu[eé] (?:ofrece|incluye)|[mM]²/i.test(current) && /constructora|qui[eé]n(?:es)?[^?\n]*(?:constru|hizo|hace|hicieron|hacen)/i.test(current)) {
     const ownerToo = /due[nñ]o|propietario/i.test(current)
-    return {reply:'Claro, la constructora que realizó el proyecto es Agmen.' + (ownerToo ? ' El nombre del propietario no lo tengo confirmado.' : ''), audit:{source:'project_builder',rewritten:false,review_reasons:[],fallback:false}}
+    return {reply:'La constructora del proyecto es Agmen.' + (ownerToo ? ' El nombre del propietario no lo tengo confirmado.' : ''), audit:{source:'project_builder',rewritten:false,review_reasons:[],fallback:false}}
   }
   const reference = object(info.referencia_unidad)
   const matches = Array.isArray(reference.matches) ? reference.matches.map(object)
@@ -90,6 +105,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
   const input = { ...experienceContext(info, current, memory), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
   const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES
+    + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
+    + (info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nEl campo modelo_3d indica si el sistema adjuntará el recorrido de la unidad en ESTA respuesta. Si está presente, responda la consulta brevemente sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces de modelos: el sistema añade el enlace verificado. Si no hay modelo_3d no prometa enviar un modelo. No confunda este recorrido con una cita presencial.'
   const reasons: string[] = []

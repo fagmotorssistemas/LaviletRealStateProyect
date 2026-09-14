@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { normalized } from './sdr-rules'
 import { isUnitVisualRequest } from './unit-visual-request'
 
@@ -62,19 +63,24 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const topics = salesTopics(current)
   const hasUnit = rows(object(info.referencia_unidad).matches).length === 1
   const signal = info.precio_cotizado === true || model || (positive(current) && (sawModel || hasUnit)) || (topics.includes('reventa') && topics.length > 1)
-  const invite = signal && !pendingVisit && !refuses && !memory.visit_invited && !memory.visit_declined
+  const policy = object(info.politica_visitas)
+  const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
+  const invite = visits.allowSuggestions && signal && !pendingVisit && !refuses && !memory.visit_invited && !memory.visit_declined
   const twoQuestions = replies.length >= 2 && replies.slice(-2).every(r => discovery(text(r.content)))
   const uncertain = /no (?:se|estoy segur|tengo claro|tengo idea)|no he pensado/.test(m)
   const answerOnly = pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
   return { action: invite ? 'invite_visit' : answerOnly ? 'answer_only' : 'discover', topics,
     max_questions: invite || !answerOnly ? 1 : 0,
-    closing: invite ? '¿Le gustaría coordinar una visita para conocerlo en persona?' : '',
+    closing: invite ? visitInvitation(text(info.modo_comercial), visits) : '',
+    visits_allowed: visits.allowSuggestions,
+    launch: info.modo_comercial === 'lanzamiento',
     memory, positive_after_model: positive(current) && (sawModel || hasUnit),
     rules: `Responda primero todas las dudas del mensaje. No siga una lista obligatoria de calificación.
 Use datos ya conocidos de vivir/invertir, dormitorios y presupuesto; pregunte solo UN dato útil que falte, nunca uno aplazado o ya contestado.
 Si aún no sabe su presupuesto, ofrezca ayudarle a ordenar entrada y cuota cómoda, sin aprobar un crédito ni exigir ingresos aquí.
 Presente de uno a tres beneficios relevantes, solo los que ayudan a esta persona; no repita instalaciones ni rellene hasta llegar a tres.
 No suponga que «se ve interesante» acepta una visita. No cree cita ni avise al asesor al ofrecerla.
+${visits.allowSuggestions ? 'Las sugerencias de visita están habilitadas; use únicamente la invitación del sistema.' : 'Las sugerencias de visita están desactivadas. No invite, proponga ni pregunte por visitas; si el cliente la solicita expresamente el sistema coordina esa petición.'}
 El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
 No prometa reventa, arriendo, rentabilidad, disponibilidad, aprobación bancaria ni tiempos sin datos. No invente reservas, anticipos ni pasos legales de compra.
 Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también es una respuesta completa.` }
@@ -82,6 +88,8 @@ Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también
 
 export function salesIssues(reply: string, plan: ReturnType<typeof salesPlan>) {
   const r = normalized(reply), issues: string[] = []
+  if (!plan.visits_allowed && /(?:le gustaria|podemos|puede|le invito|coordin|agend|visitenos).{0,50}(?:visita|visitarnos|conocerlo|conocer el lugar|verlo en persona)/.test(r)) issues.push('unsupported_fact')
+  if (plan.launch && /(?:visitar|recorrer|conocer|ver).{0,30}(?:departamento|suite|vivienda).{0,20}(?:persona|presencial|construid)|(?:departamentos|suites) (?:terminados|construidos) disponibles/.test(r)) issues.push('unsupported_fact')
   if ((plan.action !== 'discover') && /[¿?]/.test(reply)) issues.push('repeated_question')
   if (plan.topics.includes('jardines') && !/jardin|verde/.test(r)) issues.push('ignored_question')
   if (plan.topics.includes('sector') && !/sector|puertas del sol|barrio|cerca|entorno/.test(r)) issues.push('ignored_question')

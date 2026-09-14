@@ -46,8 +46,8 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
 export function financingReply(fin: Row, partners: string[], unsupported = '') {
   const options = partners.join(' o ')
   if (unsupported) return options
-    ? `Por el momento no tenemos una alianza registrada con ${unsupported}. Contamos con ${options} y le acompañamos en el proceso. ¿Le gustaría revisar esa opción?`
-    : `No tenemos una alianza registrada con ${unsupported}. Podemos consultar con el equipo las opciones de financiamiento vigentes. ¿Le gustaría que le ayuden?`
+    ? `Por ahora no trabajamos con ${unsupported}. Podemos ayudarle a revisar un crédito con ${options}. ¿Le gustaría explorar esa alternativa?`
+    : `Por ahora no trabajamos con ${unsupported}. Podemos consultar con el equipo qué alternativas hay. ¿Le gustaría que le ayuden?`
   const messages: Record<string, string> = {
     entidad_pendiente: options ? `Podemos continuar con ${options}. ¿Con cuál le gustaría revisar su financiamiento?` : 'El equipo puede ayudarle a confirmar las entidades disponibles. ¿Le gustaría que le contacten?',
     identificacion_pendiente: 'Para la revisión, ¿me indica su nombre completo y número de cédula, por favor?',
@@ -59,7 +59,7 @@ export function financingReply(fin: Row, partners: string[], unsupported = '') {
     continuacion_pendiente: fin.selected_partner_name
       ? `Podemos continuar con ${text(fin.selected_partner_name)}. ¿Le gustaría que iniciemos la revisión de su caso?`
       : options
-      ? `Tenemos opciones de financiamiento con ${options} y le acompañamos en el proceso. ¿Le gustaría que iniciemos una revisión de su caso?`
+      ? `Podemos ayudarle a revisar un crédito con ${options}. ¿Le gustaría que iniciemos una revisión de su caso?`
       : 'Sí, podemos ayudarle a revisar las opciones de financiamiento. ¿Le gustaría que el equipo le oriente?',
   }
   const reply = messages[text(fin.state || fin.financing_state)]
@@ -86,12 +86,10 @@ export function financingQuestionReply(current: string, partners: string[], last
   }
   if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)
     || (/credito directo/.test(previous) && /pero|o no dan|quiero saber|dispongo|tengo|por que/.test(m))) {
-    const amount = /(?:dispongo|tengo|cuento con).*\b150\b/.test(m)
-      ? ' Cuando dice 150, ¿se refiere a $150 o a $150.000?' : ''
-    return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos orientarle con ' + partners.join(' o ') + ' y acompañarle en el proceso.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${amount}`
+    return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos ayudarle a explorar un crédito con ' + partners.join(' o ') + '.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}`
   }
   if (/solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(normalized(current)) && !/jardin|pichincha|\bjep\b/.test(normalized(current))) {
-    return partners.length ? `Por ahora, las alianzas registradas son con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
+    return partners.length ? `Trabajamos con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
       : 'El equipo puede ayudarle a comprobar las opciones vigentes. ¿Con qué entidad le gustaría financiarse?'
   }
   return ''

@@ -41,6 +41,10 @@ import {
   type ScoringRuleRow,
 } from '@/types/automationRules'
 import type { Project, TeamProfile } from '@/types/inmobiliaria'
+import { Nutrition24hSettings } from './Nutrition24hSettings'
+import { nutrition24hConfig, type Nutrition24hConfig } from '@/lib/inmobiliaria/nutrition24h'
+import { BotVisitSettings } from './BotVisitSettings'
+import { botVisitPolicy, type BotVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 
 function Toggle({
   checked,
@@ -77,6 +81,9 @@ export function AutomationRulesView() {
   const [salespeople, setSalespeople] = useState<ProjectSalespersonRow[]>([])
   const [scoring, setScoring] = useState<ScoringRuleRow[]>([])
   const [nutrition, setNutrition] = useState<NutritionStepRow[]>([])
+  const [nutrition24h, setNutrition24h] = useState<Nutrition24hConfig>(nutrition24hConfig(null))
+  const [projectUpdatedAt, setProjectUpdatedAt] = useState('')
+  const [botVisits, setBotVisits] = useState<BotVisitPolicy>(botVisitPolicy(null, 'lanzamiento'))
   const [addPersonId, setAddPersonId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -114,6 +121,9 @@ export function AutomationRulesView() {
       setSalespeople(payload.salespeople)
       setScoring(payload.scoringRules)
       setNutrition(payload.nutritionSteps)
+      setNutrition24h(payload.nutrition24h)
+      setProjectUpdatedAt(payload.projectUpdatedAt)
+      setBotVisits(payload.botVisits)
       setAddPersonId('')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudieron cargar las reglas')
@@ -298,9 +308,13 @@ export function AutomationRulesView() {
           <AutomationSettingsSections selected={section} onSelect={setSection} sections={[
             { id: 'horario', label: 'Horario y SLA', detail: 'Jornada y plazos de atención', icon: Clock3 },
             { id: 'equipo', label: 'Equipo y rotación', detail: 'Asignación de leads y citas', icon: Users },
+            { id: 'visitas-bot', label: 'Visitas del bot', detail: 'Invitaciones y lugar de atención', icon: Settings2 },
             { id: 'puntaje', label: 'Calificación de leads', detail: 'Puntajes y nivel de interés', icon: ChartNoAxesColumnIncreasing },
-            { id: 'seguimiento', label: 'Seguimiento', detail: 'Secuencia de 4 semanas', icon: CalendarClock },
+            { id: 'seguimiento', label: 'Seguimiento', detail: '24 horas y semanas', icon: CalendarClock },
           ]}>
+          <RulesCard id="visitas-bot" title="Visitas que puede proponer el bot" description="Controle si el bot invita a conocer el terreno o a conversar en la oficina.">
+            {projectId === LAVILET_PROJECT_ID ? <BotVisitSettings key={`${projectId}:${projectUpdatedAt}`} projectId={projectId} initial={botVisits} mode={config.mode} updatedAt={projectUpdatedAt} onSaved={() => loadRules(projectId)} /> : <p>Esta configuración está disponible para La Vilet.</p>}
+          </RulesCard>
           <RulesCard
             id="horario"
             title="Horario y tiempos de atención"
@@ -677,8 +691,8 @@ export function AutomationRulesView() {
 
           <RulesCard
             id="seguimiento"
-            title="Seguimiento de 4 semanas"
-            description="Prepare los temas y las plantillas para dar seguimiento. Esta configuración aún no está conectada al envío automático de mensajes."
+            title="Seguimiento de clientes"
+            description="Configure el mensaje contextual de 24 horas y prepare los temas del seguimiento semanal."
             action={
               nutrition.length ? (
                 <Button onClick={() => void saveNutrition()} disabled={saving !== null}>
@@ -691,6 +705,9 @@ export function AutomationRulesView() {
               )
             }
           >
+            {projectId === LAVILET_PROJECT_ID && <div className="mb-8 border-b border-[#deded4] pb-8"><h3 className="mb-4 text-lg font-semibold">Seguimiento de 24 horas</h3><Nutrition24hSettings key={`${projectId}:${projectUpdatedAt}`} projectId={projectId} initial={nutrition24h} updatedAt={projectUpdatedAt} onSaved={(value, updatedAt) => { setNutrition24h(value); setProjectUpdatedAt(updatedAt) }} /></div>}
+            <h3 className="mb-2 text-lg font-semibold">Secuencia de 4 semanas</h3>
+            <p className="mb-4 text-sm text-[#6f7565]">Esta secuencia semanal aún no está conectada al envío automático.</p>
             <div className={styles.statusLine}>
               <div>
                 <span className={styles.statusBadge} data-active={nutrition.some(step => step.active)}>{nutrition.some(step => step.active) ? 'Hay pasos marcados como activos' : 'Secuencia desactivada'}</span>
