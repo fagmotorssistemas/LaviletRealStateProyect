@@ -153,5 +153,41 @@ test('manual resets preserve other leads, back up context and prevent old follow
       assert.equal(await count('leads'), 2)
       assert.equal((await query("SELECT to_regprocedure('public.lv_reset_lavilet_nataly_lead()')::text AS fn"))[0].fn, 'lv_reset_lavilet_nataly_lead()')
     })
+    await t.test('Pablo installer adds a private, identity-bound reset without executing it or changing Nataly and Carlos', async () => {
+      const pablo = 'e49607f2-ba8d-4a2b-a607-85617072800c'
+      await seed(pablo, 3577404, '+593987077120')
+      const backupsBefore = await count('lv_manual_test_reset_backups')
+      const otherBefore = await query('SELECT to_jsonb(l) AS lead FROM leads l WHERE id<>$1 ORDER BY id', [pablo])
+      const installer = read('20260915120000_manual_pablo_test_reset.sql')
+      assert.equal(fs.readFileSync(path.join(__dirname, '../operations/activar_reinicio_pablo_y_nataly.sql'), 'utf8'), installer)
+      await db.exec(installer)
+      await db.exec(installer)
+      assert.equal(await count('messages'), 1)
+      assert.equal(await count('lv_manual_test_reset_backups'), backupsBefore)
+      for (const role of ['anon', 'authenticated', 'service_role']) {
+        assert.equal((await query("SELECT has_function_privilege($1,'lv_reset_lavilet_pablo_lead()','EXECUTE') AS allowed", [role]))[0].allowed, false)
+      }
+      await db.exec('BEGIN')
+      await db.query("UPDATE leads SET phone='+593000000000' WHERE id=$1", [pablo])
+      await assert.rejects(query('SELECT lv_reset_lavilet_pablo_lead()'), /no coincide/)
+      await db.exec('ROLLBACK')
+      assert.equal(await count('messages'), 1)
+      const result = (await query('SELECT lv_reset_lavilet_pablo_lead() AS result'))[0].result
+      assert.equal(result.lead_id, pablo)
+      assert.equal(result.deleted.events_cancelled_and_scrubbed, 3)
+      assert.equal(await count('messages'), 0)
+      assert.equal(await count('leads'), 3)
+      assert.equal(await count('lv_manual_test_reset_backups'), backupsBefore + 1)
+      assert.deepEqual(await query('SELECT to_jsonb(l) AS lead FROM leads l WHERE id<>$1 ORDER BY id', [pablo]), otherBefore)
+      const after = (await query('SELECT * FROM leads WHERE id=$1', [pablo]))[0]
+      assert.equal(after.kommo_id, 3577404)
+      assert.equal(after.bot_enabled, true)
+      assert.equal(after.handoff_status, 'none')
+      const backup = (await query('SELECT snapshot FROM lv_manual_test_reset_backups WHERE id=$1', [result.backup_id]))[0].snapshot
+      assert.equal(backup.lead.id, pablo)
+      assert.equal(backup.messages[0].content, 'Old conversation')
+      assert.equal((await query('SELECT lv_reset_lavilet_nataly_lead() AS r'))[0].r.lead_id, nataly)
+      assert.equal((await query('SELECT lv_reset_lavilet_pablo_lead() AS r'))[0].r.lead_id, pablo)
+    })
   } finally { await db.close() }
 })
