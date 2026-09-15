@@ -18,6 +18,7 @@ import {
 import { UNIT_STATUS_OPTIONS, type UnitStatus } from '@/types/inmobiliaria'
 import type { TourUnitSummary } from '@/types/tour'
 import { buildFichaSpecRows, formatAreaM2 } from '@/lib/tour/fichaSpecs'
+import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import './tour-viewer.css'
@@ -677,13 +678,13 @@ export function TourFichaDrawer({
                     ))}
                   </div>
 
-                  {expanded && unit.spaces && unit.spaces.length > 0 ? (
+                  {expanded && sanitizeTourSpaces(unit.spaces).length > 0 ? (
                     <div className="mt-3">
                       <p className="mb-1.5 text-[10px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
                         Espacios
                       </p>
                       <div className="flex flex-wrap gap-1.5">
-                        {unit.spaces.map((space) => (
+                        {sanitizeTourSpaces(unit.spaces).map((space) => (
                           <span
                             key={space}
                             className="rounded-full bg-[#f3f4f6] px-2.5 py-1 text-[11px] text-[#4b5563]"

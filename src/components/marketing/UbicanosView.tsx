@@ -8,7 +8,7 @@ import { NearbyAutoCarousel } from './NearbyAutoCarousel'
 const LaviletMap = dynamic(() => import('./LaviletMap').then((m) => m.LaviletMap), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full min-h-[420px] items-center justify-center bg-[#ebe4da] text-sm text-[#2B1A18]/40">
+    <div className="flex h-full min-h-[420px] items-center justify-center bg-[#f7f3ee] text-sm text-[#2B1A18]/40">
       Cargando mapa…
     </div>
   ),
@@ -33,14 +33,14 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
   const lines = addressLines(project)
 
   return (
-    <div className="relative z-20 bg-[#f7f3ee] pt-24 pb-16 sm:pt-28 lg:pb-24">
+    <div className="relative z-20 bg-white pt-24 pb-16 sm:pt-28 lg:pb-24 mkt-dark:bg-[#0a0a0a]">
       <div className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12">
 
         {/* Cabecera horizontal ─ título enorme a la izquierda, datos a la derecha */}
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-end lg:gap-12">
           <div className="min-w-0">
             <p className="text-xs font-medium tracking-[0.28em] text-[#BDA27E] uppercase">Ubícanos</p>
-            <h1 className="mt-3 font-serif text-[clamp(3rem,6.5vw,5.5rem)] leading-[0.9] font-normal tracking-tight text-[#2B1A18]/30 uppercase">
+            <h1 className="mt-3 font-serif text-[clamp(3rem,6.5vw,5.5rem)] leading-[0.9] font-normal tracking-tight text-[#2B1A18]/15 uppercase">
               UBICACION
             </h1>
           </div>
@@ -63,11 +63,11 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
         </div>
 
         {/* Mapa */}
-        <div className="relative mt-10 overflow-hidden bg-[#ebe4da] ring-1 ring-[#2B1A18]/8 lg:mt-12">
+        <div className="relative mt-10 overflow-hidden bg-white ring-1 ring-[#2B1A18]/10 lg:mt-12">
           <div className="relative h-[min(68vh,580px)] min-h-[400px] w-full lg:h-[min(72vh,640px)]">
             <LaviletMap className="absolute inset-0" zoom={16} latitude={project?.latitude ?? undefined} longitude={project?.longitude ?? undefined} />
           </div>
-          <div className="flex flex-col gap-3 border-t border-[#2B1A18]/10 bg-[#f7f3ee]/90 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex flex-col gap-3 border-t border-[#2B1A18]/10 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div>
               <p className="text-sm font-semibold text-[#2B1A18]">
                 {project?.name || SITE.location.label}

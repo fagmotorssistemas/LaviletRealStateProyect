@@ -9,6 +9,7 @@ import type { jsPDF } from 'jspdf'
 import type { TourUnitSummary } from '@/types/tour'
 import { UNIT_STATUS_OPTIONS, type UnitStatus } from '@/types/inmobiliaria'
 import { buildFichaSpecRows } from '@/lib/tour/fichaSpecs'
+import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 
 export type FichaPdfImage = {
   label: string
@@ -271,14 +272,15 @@ export async function downloadFichaTecnicaPdf(params: {
   }
   y += cardH + 8
 
-  if (unit.spaces && unit.spaces.length > 0) {
+  const spaces = sanitizeTourSpaces(unit.spaces)
+  if (spaces.length > 0) {
     setPdfFont(doc, 'bold', 8)
     doc.setTextColor(189, 162, 126)
     doc.text('ESPACIOS', margin, y)
     y += 5
     setPdfFont(doc, 'normal', 9)
     doc.setTextColor(43, 26, 24)
-    const spaceLine = doc.splitTextToSize(unit.spaces.join(' · '), contentW)
+    const spaceLine = doc.splitTextToSize(spaces.join(' · '), contentW)
     doc.text(spaceLine, margin, y)
     y += spaceLine.length * 4.5 + 6
   }

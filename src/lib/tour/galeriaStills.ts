@@ -1,5 +1,5 @@
 import { finishesMatch, pickRoomScene, pickSceneUrl } from '@/lib/tour/roomScene'
-import type { TourFinishOption, TourLightMode, TourTypologyOption } from '@/types/tour'
+import type { TourFinishOption, TourLightMode, TourRoomScene, TourTypologyOption } from '@/types/tour'
 
 export type GaleriaStill = {
   id: string
@@ -18,6 +18,13 @@ export type GaleriaStillsOptions = {
   light?: TourLightMode | null
   /** true = todas las celdas acabado×luz (ficha). Default false con filtros. */
   allScenes?: boolean
+  /**
+   * Galería showroom: un still por ambiente.
+   * Acabado y luz al azar; la etiqueta es solo el nombre del ambiente.
+   */
+  randomPerRoom?: boolean
+  /** Semilla estable para no cambiar la foto al re-render. */
+  seed?: number
 }
 
 function finishLabel(finishes: TourFinishOption[] | undefined, slug: string | null) {
@@ -41,10 +48,28 @@ function stillLabelFromFile(fileName: string) {
     .trim()
 }
 
+function mulberry32(seed: number) {
+  let a = seed >>> 0 || 1
+  return () => {
+    a |= 0
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function pickRandomScene(scenes: TourRoomScene[], rand: () => number): TourRoomScene | undefined {
+  if (scenes.length === 0) return undefined
+  const index = Math.min(scenes.length - 1, Math.floor(rand() * scenes.length))
+  return scenes[index]
+}
+
 /**
  * Imágenes de Galería CRM.
- * Con finish/light: un still por ambiente (acabado y luz no se mezclan).
- * Con allScenes: todas las celdas acabado×luz + extras.
+ * - randomPerRoom: un still por ambiente (acabado/luz random; label = ambiente).
+ * - finish/light: un still por ambiente filtrado.
+ * - allScenes: todas las celdas acabado×luz + extras (ficha).
  */
 export function buildGaleriaStills(
   typology: TourTypologyOption | null | undefined,
@@ -54,8 +79,10 @@ export function buildGaleriaStills(
   if (!typology) return []
 
   const allScenes = options?.allScenes === true
-  const filterFinish = allScenes ? null : (options?.finish ?? null)
-  const filterLight = allScenes ? null : (options?.light ?? null)
+  const randomPerRoom = options?.randomPerRoom === true && !allScenes
+  const filterFinish = allScenes || randomPerRoom ? null : (options?.finish ?? null)
+  const filterLight = allScenes || randomPerRoom ? null : (options?.light ?? null)
+  const rand = mulberry32((options?.seed ?? 1) ^ (typology.code?.length ?? 0) * 9973)
 
   const items: GaleriaStill[] = []
   const seen = new Set<string>()
@@ -84,6 +111,18 @@ export function buildGaleriaStills(
 
   for (const room of rooms) {
     const scenes = [...(room.scenes ?? [])]
+
+    if (randomPerRoom) {
+      const scene = pickRandomScene(scenes, rand)
+      const url = pickSceneUrl(scene) ?? scene?.url ?? room.url
+      if (!url) continue
+      add(`${room.slug}:random`, room.label, url, {
+        roomSlug: room.slug,
+        finish: scene?.finish ?? null,
+        light: scene?.light ?? null,
+      })
+      continue
+    }
 
     if (!allScenes && (filterFinish != null || filterLight != null)) {
       const light = (filterLight ?? 'dia') as TourLightMode
@@ -135,9 +174,12 @@ export function buildGaleriaStills(
     }
   }
 
-  for (const render of typology.renders ?? []) {
-    if (!render.url) continue
-    add(render.id || render.file_name, stillLabelFromFile(render.file_name) || 'Imagen', render.url)
+  // En galería por ambiente no mezclamos renders sueltos (sin sección clara).
+  if (!randomPerRoom) {
+    for (const render of typology.renders ?? []) {
+      if (!render.url) continue
+      add(render.id || render.file_name, stillLabelFromFile(render.file_name) || 'Imagen', render.url)
+    }
   }
 
   return items

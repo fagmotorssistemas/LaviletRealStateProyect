@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+
+const projectRoot = path.resolve(__dirname);
 
 const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "on" },
@@ -7,7 +10,8 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), payment=()",
+    // microphone=(self): el asistente de voz del tour necesita getUserMedia.
+    value: "camera=(), microphone=(self), geolocation=(), payment=()",
   },
   {
     key: "Strict-Transport-Security",
@@ -35,13 +39,22 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
-  allowedDevOrigins: ['localhost', '127.0.0.1', '192.168.0.111'],
+  allowedDevOrigins: [
+    'localhost',
+    '127.0.0.1',
+    '192.168.0.111',
+    '192.168.56.1',
+  ],
   experimental: {
     serverActions: {
       bodySizeLimit: '40mb',
     },
     proxyClientMaxBodySize: '40mb',
   },
+  turbopack: {
+    root: projectRoot,
+  },
+  outputFileTracingRoot: projectRoot,
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.supabase.co' },

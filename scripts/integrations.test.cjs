@@ -1790,7 +1790,7 @@ test('commercial context retains measurements on demand and does not repeat faci
 
 test('known area references identify all matching units without inventing a selection',()=>{
   const {resolveCatalogReference,catalogReferenceReply}=require('../src/lib/integrations/automation/catalog-reference.ts')
-  const catalog=['202','302','402','502'].map(n=>({id:n,unit_number:n,category:'departamento',area_internal_m2:120.83,area_exterior_m2:27.03,spaces:['Sala','Bodega']}))
+  const catalog=['202','302','402','502'].map(n=>({id:n,unit_number:n,category:'departamento',area_internal_m2:120.83,area_exterior_m2:27.03,spaces:['Sala','Cocina']}))
   const ref=resolveCatalogReference(catalog,'Oh cuál es el de 120.83?\nQué ofrece?')
   assert.equal(ref.matches.length,4)
   const reply=catalogReferenceReply(ref.matches,'Cuál es el de 120.83?')

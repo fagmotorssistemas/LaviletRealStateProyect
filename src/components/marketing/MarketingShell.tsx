@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
-import { SiteHeader } from './SiteHeader'
-import { SiteFooter } from './SiteFooter'
+import { MarketingFrame } from './MarketingTheme'
 
 export function MarketingShell({
   children,
@@ -9,11 +8,5 @@ export function MarketingShell({
   children: ReactNode
   showFooter?: boolean
 }) {
-  return (
-    <div className="min-h-screen bg-[#f7f3ee] text-[#2B1A18]">
-      <SiteHeader />
-      {children}
-      {showFooter ? <SiteFooter /> : null}
-    </div>
-  )
+  return <MarketingFrame showFooter={showFooter}>{children}</MarketingFrame>
 }

@@ -15,6 +15,7 @@ import { unitCategoryFilterValues, UNASSIGNED_ASSIGNEE } from '@/types/inmobilia
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import { normalizeSource } from '@/lib/leads/sources'
 import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
+import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 
 /** Bucket público para fotos, planos PDF y documentos de proyecto. */
 export const PROJECT_ASSETS_BUCKET = 'project-assets'
@@ -237,7 +238,7 @@ function mapUnitRow(row: Unit): Unit {
     bathrooms_full: bathroomsFull,
     bathrooms_half: row.bathrooms_half ?? null,
     bathrooms: bathroomsFull,
-    spaces: storedSpaces,
+    spaces: sanitizeTourSpaces(storedSpaces),
     parking_assigned: row.parking_assigned ?? 0,
   }
 }
@@ -400,7 +401,7 @@ function mapUnitImportRow(row: UnitTableRow): UnitImport {
     bedrooms: row.bedrooms,
     bathrooms_full: row.bathrooms_full ?? row.bathrooms,
     bathrooms_half: row.bathrooms_half,
-    spaces: Array.isArray(row.spaces) ? row.spaces : [],
+    spaces: sanitizeTourSpaces(row.spaces),
     created_at: row.created_at,
     price,
     published_commercial_price: price,
@@ -462,7 +463,7 @@ function toUnitsWrite(payload: UnitsImportWrite) {
     bathrooms_full: payload.bathrooms_full,
     bathrooms_half: payload.bathrooms_half,
     bathrooms: payload.bathrooms_full,
-    spaces: payload.spaces,
+    spaces: sanitizeTourSpaces(payload.spaces),
     published_commercial_price: payload.price,
     status: payload.status,
   }
@@ -944,6 +945,9 @@ export async function updateUnitMediaCaption(supabase: SupabaseClient, mediaId: 
 
 function unitWriteRow(payload: Partial<Unit>) {
   const { typology_code: _typology, project: _project, unit_media: _media, ...row } = payload
+  if (Array.isArray(row.spaces)) {
+    row.spaces = sanitizeTourSpaces(row.spaces)
+  }
   return row
 }
 

@@ -23,7 +23,7 @@ export function ProyectosPanel() {
         {FEATURED_SPACES.map((space) => (
           <article
             key={space.title}
-            className="group overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#2B1A18]/8 transition hover:shadow-xl hover:ring-[#BDA27E]/40"
+            className="group overflow-hidden rounded-2xl bg-[#f7f3ee] ring-1 ring-[#2B1A18]/8 transition hover:ring-[#BDA27E]/40"
           >
             <div className="relative h-52 overflow-hidden">
               <Image
@@ -56,26 +56,26 @@ export function NosotrosPanel() {
         <h2 className="mt-3 text-3xl font-bold lowercase leading-tight text-[#C45C3E] sm:text-5xl">
           un lugar donde el tiempo se detiene
         </h2>
-        <div className="mt-6 max-w-xl space-y-1.5 text-[15px] leading-relaxed text-[#2B1A18]/80">
+        <div className="mt-6 max-w-xl space-y-1.5 text-[15px] leading-relaxed text-[#2B1A18]/70">
           {STORY_LINES.map((line) => (
             <p key={line}>{line}</p>
           ))}
         </div>
         <blockquote className="mt-8 max-w-2xl border-l-[3px] border-[#C45C3E] pl-5">
-          <p className="text-base leading-relaxed text-[#2B1A18]/80">
+          <p className="text-base leading-relaxed text-[#2B1A18]/70">
             La Vilet nace de una idea simple: que ganar altura no debería alejarte de la ciudad, sino
             devolvértela entera. En Puertas del Sol, el proyecto ordena su vida alrededor de lo que ya
             está ahí — el Tomebamba a pocos pasos y una terraza que reúne lo que un departamento no
             alcanza a contener solo.
           </p>
-          <footer className="mt-4 text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/45 uppercase">
+          <footer className="mt-4 text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/40 uppercase">
             Lavilet · Historia
           </footer>
         </blockquote>
       </div>
       <ul className="space-y-4">
         {PILLARS.map((pillar) => (
-          <li key={pillar.title} className="rounded-2xl bg-white p-5 ring-1 ring-[#2B1A18]/8">
+          <li key={pillar.title} className="rounded-2xl bg-[#f7f3ee] p-5 ring-1 ring-[#2B1A18]/8">
             <h3 className="text-sm font-semibold tracking-[0.06em] uppercase">{pillar.title}</h3>
             <p className="mt-2 text-sm leading-relaxed text-[#2B1A18]/65">{pillar.body}</p>
           </li>
@@ -156,7 +156,7 @@ export function ContactoPanel() {
           </li>
         </ul>
       </div>
-      <div className="rounded-3xl bg-white p-6 shadow-xl ring-1 ring-[#2B1A18]/8 sm:p-8">
+      <div className="rounded-3xl bg-[#f7f3ee] p-6 text-[#2B1A18] ring-1 ring-[#2B1A18]/8 sm:p-8">
         <h3 className="text-lg font-semibold">Solicita información</h3>
         <p className="mt-1 mb-6 text-sm text-[#2B1A18]/55">Respondemos a la brevedad.</p>
         <ContactForm />

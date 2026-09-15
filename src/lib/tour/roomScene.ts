@@ -1,6 +1,6 @@
 import type { TourLightMode, TourRoomScene } from '@/types/tour'
 import { tourDisplayUrl, type TourWidth } from '@/lib/tour/pickTourWidth'
-import { roomsShareSlot, roomSlugAliases } from '@/lib/tour/tourRooms'
+import { roomsShareSlot, roomSlugAliases, isExcludedTourSpace } from '@/lib/tour/tourRooms'
 
 export const TOUR_SCENE_LIGHTS: { slug: TourLightMode; label: string }[] = [
   { slug: 'dia', label: 'Día' },
@@ -14,7 +14,7 @@ export type RoomSceneKey = {
 }
 
 const ROOM_HEAD_RE =
-  /^(tour-360|vista-[a-z0-9-]+|dormitorio-\d+|bano-completo-\d+|bano-social-\d+|sala|comedor|cocina|estar|estudio|lavado|despensa|terraza|balcon|bodega|dormitorio|bano-completo|bano-social)(?:_(.+))?$/
+  /^(tour-360|vista-[a-z0-9-]+|dormitorio-\d+|bano-completo-\d+|bano-social-\d+|sala|comedor|cocina|estar|estudio|lavado|despensa|terraza|balcon|dormitorio|bano-completo|bano-social)(?:_(.+))?$/
 
 export function sceneToken(finish: string | null | undefined, light: TourLightMode) {
   return finish ? `${finish}_${light}` : light
@@ -56,6 +56,7 @@ export function parseRoomSceneFileName(fileName: string): {
 
   const match = base.match(ROOM_HEAD_RE)
   if (!match) return null
+  if (isExcludedTourSpace(match[1])) return null
   return {
     room: match[1],
     finish: match[2] || null,

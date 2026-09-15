@@ -35,7 +35,7 @@ export function ContactoView({ embedded = false }: { embedded?: boolean }) {
   return (
     <section
       className={cn(
-        'relative z-20 bg-[#f7f3ee]',
+        'relative z-20 bg-white mkt-dark:bg-[#0a0a0a]',
         embedded ? 'py-20 lg:py-28' : 'pt-24 pb-20 sm:pt-28 lg:pb-28',
       )}
     >
@@ -53,7 +53,7 @@ export function ContactoView({ embedded = false }: { embedded?: boolean }) {
 
         <div className="mt-10 grid gap-10 lg:mt-12 lg:grid-cols-12 lg:gap-12 lg:items-start">
           <div className="lg:col-span-5 lg:sticky lg:top-28">
-            <div className="rounded-2xl bg-white/80 p-6 ring-1 ring-[#2B1A18]/8 sm:p-8">
+            <div className="rounded-2xl bg-[#f7f3ee] p-6 text-[#2B1A18] ring-1 ring-[#2B1A18]/8 sm:p-8">
               <p className="text-[11px] font-medium tracking-[0.2em] text-[#BDA27E] uppercase">
                 Solicita una visita
               </p>
@@ -118,12 +118,12 @@ export function ContactoView({ embedded = false }: { embedded?: boolean }) {
               </div>
             </div>
 
-            <div className="grid gap-px overflow-hidden rounded-2xl bg-[#2B1A18]/8 ring-1 ring-[#2B1A18]/8 sm:grid-cols-2">
-              <div className="bg-[#f7f3ee] p-5">
+            <div className="grid gap-px overflow-hidden rounded-2xl bg-[#2B1A18]/8 ring-1 ring-[#2B1A18]/10 sm:grid-cols-2">
+              <div className="bg-white p-5">
                 <div className="flex gap-3">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#BDA27E]" strokeWidth={1.75} />
                   <div>
-                    <p className="text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/45 uppercase">
+                    <p className="text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/40 uppercase">
                       Ubicación
                     </p>
                     <p className="mt-1 text-sm font-medium text-[#2B1A18]">
@@ -140,11 +140,11 @@ export function ContactoView({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
 
-              <div className="bg-[#f7f3ee] p-5">
+              <div className="bg-white p-5">
                 <div className="flex gap-3">
                   <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-[#BDA27E]" strokeWidth={1.75} />
                   <div>
-                    <p className="text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/45 uppercase">
+                    <p className="text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/40 uppercase">
                       Visitas
                     </p>
                     <p className="mt-1 text-sm font-medium text-[#2B1A18]">Con cita en showroom</p>
@@ -159,11 +159,11 @@ export function ContactoView({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
 
-              <div className="bg-[#f7f3ee] p-5">
+              <div className="bg-white p-5">
                 <div className="flex gap-3">
                   <Mail className="mt-0.5 h-4 w-4 shrink-0 text-[#BDA27E]" strokeWidth={1.75} />
                   <div>
-                    <p className="text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/45 uppercase">
+                    <p className="text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/40 uppercase">
                       Correo
                     </p>
                     <a
@@ -176,11 +176,11 @@ export function ContactoView({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
 
-              <div className="bg-[#f7f3ee] p-5">
+              <div className="bg-white p-5">
                 <div className="flex gap-3">
                   <MessageCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#BDA27E]" strokeWidth={1.75} />
                   <div>
-                    <p className="text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/45 uppercase">
+                    <p className="text-[11px] font-medium tracking-[0.16em] text-[#2B1A18]/40 uppercase">
                       WhatsApp
                     </p>
                     {wa ? (

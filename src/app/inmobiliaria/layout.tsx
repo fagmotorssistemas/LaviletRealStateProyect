@@ -22,7 +22,7 @@ export default function InmobiliariaLayout({ children }: { children: React.React
   if (isPublicLeadRoute) {
     return (
       <MarketingShell>
-        <div className="px-4 py-10 sm:px-8 sm:py-14">{children}</div>
+        <div className="bg-[#f7f3ee] px-4 py-10 text-[#2B1A18] sm:px-8 sm:py-14">{children}</div>
       </MarketingShell>
     )
   }
