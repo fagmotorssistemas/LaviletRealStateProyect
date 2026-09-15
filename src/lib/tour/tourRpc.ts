@@ -204,6 +204,54 @@ export async function rpcRevokeMetaAdsConsent(
   return data as { cancelled?: number }
 }
 
+export async function rpcResolveLeadIdForVisitor(
+  admin: SupabaseClient,
+  visitorKey: string,
+): Promise<string | null> {
+  const { data, error } = await admin.rpc('lv_resolve_lead_id_for_visitor', {
+    p_tenant_id: TOUR_TENANT_ID,
+    p_visitor_key: visitorKey,
+  })
+  if (error) throw rpcError('lv_resolve_lead_id_for_visitor', error)
+  return typeof data === 'string' ? data : null
+}
+
+export type RecordMetaAdsConsentResult = {
+  id: string
+  lead_id: string | null
+  visitor_key: string | null
+  ads_consent: boolean
+  consent_version: number
+  nest_status: string
+}
+
+export async function rpcRecordMetaAdsConsent(
+  admin: SupabaseClient,
+  args: {
+    adsConsent: boolean
+    visitorKey?: string | null
+    leadId?: string | null
+    consentVersion?: number | null
+  },
+): Promise<RecordMetaAdsConsentResult> {
+  const { data, error } = await admin.rpc('lv_record_meta_ads_consent', {
+    p_ads_consent: Boolean(args.adsConsent),
+    p_visitor_key: args.visitorKey || null,
+    p_lead_id: args.leadId || null,
+    p_consent_version: args.consentVersion ?? null,
+  })
+  if (error) throw rpcError('lv_record_meta_ads_consent', error)
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown>
+  return {
+    id: String(row.id),
+    lead_id: typeof row.lead_id === 'string' ? row.lead_id : null,
+    visitor_key: typeof row.visitor_key === 'string' ? row.visitor_key : null,
+    ads_consent: Boolean(row.ads_consent),
+    consent_version: Number(row.consent_version),
+    nest_status: String(row.nest_status || 'pending'),
+  }
+}
+
 export async function rpcRecoverMissingMetaLeadOutbox(
   admin: SupabaseClient,
   limit = 50,

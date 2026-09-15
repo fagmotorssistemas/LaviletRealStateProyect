@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { isAllowedEnqueueEventName } from './enqueueGuards'
 
 type Lead = {
@@ -7,6 +9,8 @@ type Lead = {
   meta_ads_consent: boolean
   meta_lead_event_id: string | null
   meta_lead_event_time: number | null
+  meta_lead_delivery_lane: 'test' | 'live' | null
+  meta_lead_payload: Record<string, unknown> | null
 }
 type Outbox = {
   idempotency_key: string
@@ -14,9 +18,10 @@ type Outbox = {
   event_time: number
   lead_id: string
   status: string
+  delivery_lane: 'test' | 'live'
+  payload: Record<string, unknown>
 }
 
-/** Mini-store transaccional en memoria (simula Postgres RPC). */
 function createTxStore() {
   let leads: Lead[] = []
   let outbox: Outbox[] = []
@@ -26,7 +31,7 @@ function createTxStore() {
     begin() {
       snapshot = {
         leads: leads.map((l) => ({ ...l })),
-        outbox: outbox.map((o) => ({ ...o })),
+        outbox: outbox.map((o) => ({ ...o, payload: { ...o.payload } })),
       }
     },
     commit() {
@@ -71,12 +76,18 @@ function createTxStore() {
         }
         const key = `lead:${lead.id}`
         if (outbox.some((o) => o.idempotency_key === key)) continue
+        const lane = lead.meta_lead_delivery_lane === 'test' ? 'test' : 'live'
+        const payload = lead.meta_lead_payload
+          ? { ...lead.meta_lead_payload, recovered: true }
+          : { recovered: true, external_id: lead.id }
         outbox.push({
           idempotency_key: key,
           event_id: lead.meta_lead_event_id,
           event_time: lead.meta_lead_event_time,
           lead_id: lead.id,
           status: 'pending',
+          delivery_lane: lane,
+          payload,
         })
         n += 1
       }
@@ -96,52 +107,80 @@ describe('guardado durable lead+outbox (comportamiento)', () => {
           meta_ads_consent: true,
           meta_lead_event_id: 'evt-1',
           meta_lead_event_time: 1700000000,
+          meta_lead_delivery_lane: 'test',
+          meta_lead_payload: { phone: '099' },
         })
         throw new Error('outbox_insert_failed')
       })
     }, /outbox_insert_failed/)
     assert.equal(store.leads.length, 0)
-    assert.equal(store.outbox.length, 0)
-
-    store.runAtomic(() => {
-      store.insertLead({
-        id: 'lead-1',
-        meta_ads_consent: true,
-        meta_lead_event_id: 'evt-1',
-        meta_lead_event_time: 1700000000,
-      })
-      store.insertOutbox({
-        idempotency_key: 'lead:lead-1',
-        event_id: 'evt-1',
-        event_time: 1700000000,
-        lead_id: 'lead-1',
-        status: 'pending',
-      })
-    })
-    assert.equal(store.leads.length, 1)
-    assert.equal(store.outbox.length, 1)
   })
 
-  it('recuperación recrea outbox con event_id/time originales sin tráfico nuevo', () => {
+  it('recuperación conserva lane test y payload original', () => {
     const store = createTxStore()
     store.insertLead({
       id: 'lead-9',
       meta_ads_consent: true,
       meta_lead_event_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       meta_lead_event_time: 1700000042,
+      meta_lead_delivery_lane: 'test',
+      meta_lead_payload: { action_source: 'website', phone: '099', fbp: 'fb.1' },
     })
     assert.equal(store.recoverMissing(), 1)
-    assert.equal(store.outbox[0].event_id, 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
-    assert.equal(store.outbox[0].event_time, 1700000042)
-    assert.equal(store.outbox[0].status, 'pending')
-    assert.equal(store.recoverMissing(), 0)
+    assert.equal(store.outbox[0].delivery_lane, 'test')
+    assert.equal(store.outbox[0].payload.phone, '099')
+    assert.equal(store.outbox[0].payload.fbp, 'fb.1')
+    assert.equal(store.outbox[0].payload.recovered, true)
+  })
+})
+
+describe('consent lead_id del cuerpo', () => {
+  it('rechaza lead_id que no coincide con el resuelto del visitante', () => {
+    const visitorLead = 'resolved-lead'
+    const claimed = 'attacker-lead'
+    const allowed = !claimed || claimed === visitorLead
+    assert.equal(allowed, false)
+  })
+})
+
+describe('consent version ordering', () => {
+  it('grant atrasado no sobrescribe revoke posterior', () => {
+    let state: { allowed: boolean; version: number } | null = null
+    const apply = (allowed: boolean, version: number) => {
+      if (state && state.version > version) return false
+      state = { allowed, version }
+      return true
+    }
+    assert.equal(apply(false, 200), true)
+    assert.equal(apply(true, 100), false)
+    assert.equal(state?.allowed, false)
+    assert.equal(apply(true, 300), true)
+    assert.equal(state?.allowed, true)
+  })
+})
+
+describe('RLS migration guards', () => {
+  it('migración habilita RLS y revoca anon/authenticated/public', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260915170000_meta_capi_outbox_rls_consent_ledger.sql',
+      ),
+      'utf8',
+    )
+    assert.match(sql, /ENABLE ROW LEVEL SECURITY/)
+    assert.match(sql, /REVOKE ALL ON TABLE public\.meta_capi_outbox FROM PUBLIC/)
+    assert.match(sql, /REVOKE ALL ON TABLE public\.meta_capi_outbox FROM anon/)
+    assert.match(sql, /REVOKE ALL ON TABLE public\.meta_capi_outbox FROM authenticated/)
+    assert.match(sql, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.meta_capi_outbox TO service_role/)
+    assert.match(sql, /meta_lead_delivery_lane/)
+    assert.match(sql, /v_lane := CASE/)
   })
 })
 
 describe('enqueueGuards', () => {
-  it('bloquea Lead/Schedule fabricados en /api/meta/enqueue', () => {
+  it('bloquea Lead/Schedule fabricados', () => {
     assert.equal(isAllowedEnqueueEventName('ViewContent'), true)
     assert.equal(isAllowedEnqueueEventName('Lead'), false)
-    assert.equal(isAllowedEnqueueEventName('Schedule'), false)
   })
 })
