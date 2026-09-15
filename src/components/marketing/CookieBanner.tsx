@@ -7,16 +7,19 @@ import {
   COOKIE_BANNER_ENABLED,
   OPEN_COOKIE_PREFERENCES_EVENT,
   hasCookieConsentChoice,
-  writeConsentCookie,
-  type CookieConsentValue,
+  writeAdsConsentCookie,
+  type AdsConsentValue,
 } from '@/lib/tour/consent'
 
 export function CookieBanner() {
-  const [visible, setVisible] = useState(false)
+  const [visible, setVisible] = useState(() => {
+    if (typeof window === 'undefined') return false
+    if (!COOKIE_BANNER_ENABLED) return false
+    return !hasCookieConsentChoice()
+  })
 
   useEffect(() => {
     if (!COOKIE_BANNER_ENABLED) return
-    setVisible(!hasCookieConsentChoice())
     const open = () => setVisible(true)
     window.addEventListener(OPEN_COOKIE_PREFERENCES_EVENT, open)
     return () => window.removeEventListener(OPEN_COOKIE_PREFERENCES_EVENT, open)
@@ -24,10 +27,17 @@ export function CookieBanner() {
 
   if (!COOKIE_BANNER_ENABLED || !visible) return null
 
-  const choose = (value: CookieConsentValue) => {
-    writeConsentCookie(value)
+  const choose = (value: AdsConsentValue) => {
+    writeAdsConsentCookie(value)
     setVisible(false)
     window.dispatchEvent(new Event('lv-consent-changed'))
+    // Persistencia durable + cancelación de pendientes al retirar
+    void fetch('/api/meta/consent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ads_consent: value === 'full' }),
+      keepalive: true,
+    }).catch(() => {})
   }
 
   return (
@@ -35,10 +45,10 @@ export function CookieBanner() {
       <div className="pointer-events-auto mx-auto flex max-w-4xl flex-col gap-3 rounded-2xl bg-[#2B1A18] px-5 py-4 text-white shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-2 text-sm leading-relaxed text-white/80">
-            <p>Usamos cookies para que el recorrido funcione y para entender qué te interesa.</p>
+            <p>Usamos cookies necesarias para el recorrido y, si aceptas, medición publicitaria (Meta).</p>
             <p>
-              Guardamos qué ambientes visitas y cuánto tiempo, sin saber quién eres. Si nos dejas tus
-              datos, esa información se asocia a tu contacto para poder atenderte mejor.
+              El consentimiento de contacto (guardar WhatsApp/correo) es independiente del
+              consentimiento publicitario.
             </p>
           </div>
           <button
@@ -59,6 +69,13 @@ export function CookieBanner() {
           </Link>
           <button
             type="button"
+            onClick={() => choose('denied')}
+            className="h-10 rounded-lg px-4 text-sm text-white/70 hover:text-white"
+          >
+            Rechazar medición
+          </button>
+          <button
+            type="button"
             onClick={() => choose('minimal')}
             className="h-10 rounded-lg px-4 text-sm text-white/80 ring-1 ring-white/20 hover:text-white"
           >
@@ -69,7 +86,7 @@ export function CookieBanner() {
             onClick={() => choose('full')}
             className="h-10 rounded-lg bg-[#BDA27E] px-4 text-sm font-medium text-[#2B1A18] hover:bg-[#cbb089]"
           >
-            Aceptar
+            Aceptar medición
           </button>
         </div>
       </div>

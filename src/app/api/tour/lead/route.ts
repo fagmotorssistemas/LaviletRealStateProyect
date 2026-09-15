@@ -1,14 +1,39 @@
 import { cookies, headers } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { after } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
-import { LV_CONSENT_COOKIE, LV_VID_COOKIE, LV_VID_MAX_AGE } from '@/lib/tour/trackingIds'
+import {
+  LV_CONTACT_CONSENT_COOKIE,
+  LV_VID_COOKIE,
+  LV_VID_MAX_AGE,
+} from '@/lib/tour/trackingIds'
 import { enrichTourLeadAfterIdentify } from '@/lib/tour/enrichTourLead'
-import { rpcIdentifyTourLead, rpcSetTrackingPreference } from '@/lib/tour/tourRpc'
+import {
+  rpcIdentifyTourLeadWithMetaOutbox,
+  rpcSetTrackingPreference,
+} from '@/lib/tour/tourRpc'
 import { resolveVisitorGeo } from '@/lib/tour/geo'
 import { applyGeoCookies } from '@/lib/tour/visitorCookie'
+import { readServerAdsConsent } from '@/lib/meta/capiServer'
+import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+function isArtificialEmail(email: string) {
+  return /@showroom\.lavilet$/i.test(email) || /^wa\.\d+@/i.test(email)
+}
+
+function isArtificialName(name: string) {
+  return /^whatsapp/i.test(name.trim())
+}
+
+function intendedLane(): 'test' | 'live' {
+  const explicit = process.env.META_CAPI_DELIVERY_LANE?.trim().toLowerCase()
+  if (explicit === 'test' || explicit === 'live') return explicit
+  const mode = process.env.META_MODE?.trim().toLowerCase()
+  return mode === 'test' ? 'test' : 'live'
+}
 
 export async function POST(request: Request) {
   try {
@@ -22,7 +47,6 @@ export async function POST(request: Request) {
       email?: string
       phone?: string
       consent?: boolean
-      /** Solo celular: name/email se generan (misma cookie lv_vid + RPC). */
       mode?: 'full' | 'phone'
       visitor_key?: string
       session_id?: string
@@ -33,6 +57,10 @@ export async function POST(request: Request) {
       light?: string
       unit_id?: string
       unit_number?: string
+      fbp?: string
+      fbc?: string
+      fbclid?: string
+      event_source_url?: string
     }
     try {
       body = (await request.json()) as typeof body
@@ -47,14 +75,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Ingresá un celular válido' }, { status: 400 })
     }
 
-    const name = phoneOnly
+    const rawName = phoneOnly
       ? `WhatsApp ····${digits.slice(-4)}`
       : String(body.name ?? '').trim()
-    const email = phoneOnly
+    const rawEmail = phoneOnly
       ? `wa.${digits}@showroom.lavilet`
       : String(body.email ?? '').trim()
 
-    if (!phoneOnly && (!name || !email)) {
+    if (!phoneOnly && (!rawName || !rawEmail)) {
       return NextResponse.json({ error: 'Completa nombre, correo y WhatsApp' }, { status: 400 })
     }
     if (!body.consent) {
@@ -81,12 +109,52 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Recarga la página e inténtalo de nuevo' }, { status: 400 })
     }
 
-    const geo = await resolveVisitorGeo(await headers(), {
+    const h = await headers()
+    const geo = await resolveVisitorGeo(h, {
       city: jar?.get('lv_city')?.value,
       country: jar?.get('lv_country')?.value,
     })
+    const clientIp = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || undefined
+    const clientUa = h.get('user-agent') || undefined
+    const adsConsent = await readServerAdsConsent()
 
-    const leadId = await rpcIdentifyTourLead(admin, { visitorKey, name, email, phone })
+    const realEmail = !isArtificialEmail(rawEmail) ? rawEmail : undefined
+    const realName = !isArtificialName(rawName) ? rawName : undefined
+
+    // Lead + outbox en una sola transacción Postgres (RPC).
+    const identified = await rpcIdentifyTourLeadWithMetaOutbox(admin, {
+      visitorKey,
+      name: rawName,
+      email: rawEmail,
+      phone,
+      adsConsent,
+      deliveryLane: intendedLane(),
+      payload: {
+        action_source: 'website',
+        event_source_url: body.event_source_url || 'https://www.lavilett.com/tour',
+        phone,
+        email: realEmail,
+        full_name: realName,
+        city: geo.city || undefined,
+        country: geo.country || 'ec',
+        fbp: body.fbp,
+        fbc: body.fbc,
+        fbclid: body.fbclid,
+        client_ip_address: clientIp,
+        client_user_agent: clientUa,
+        content_ids: body.unit_id ? [body.unit_id] : undefined,
+        content_name: body.unit_number ? `Unidad ${body.unit_number}` : undefined,
+        content_category: body.typology_code || undefined,
+        visitor_key: visitorKey,
+      },
+    })
+
+    const leadId = identified.lead_id
+    // external_id se fija al lead; el RPC ya guardó event_id en leads + outbox
+    if (identified.meta_event_id && adsConsent) {
+      // payload.external_id se completa en flush desde lead_id
+    }
+
     try {
       await rpcSetTrackingPreference(admin, {
         leadId,
@@ -96,6 +164,7 @@ export async function POST(request: Request) {
     } catch (error) {
       console.error('set_tracking_preference', error)
     }
+
     try {
       const unitLabel = String(body.unit_number ?? '').trim()
       const interestRoom = body.interest_room
@@ -120,8 +189,20 @@ export async function POST(request: Request) {
     } catch (error) {
       console.error('enrich_tour_lead', error)
     }
-    const response = NextResponse.json({ lead_id: leadId })
-    response.cookies.set(LV_CONSENT_COOKIE, '1', {
+
+    after(() => {
+      void flushLocalMetaOutbox(admin).catch((error) => {
+        console.error('flushLocalMetaOutbox', error)
+      })
+    })
+
+    const emitMetaLead = Boolean(identified.emit_meta_lead && identified.meta_event_id)
+    const response = NextResponse.json({
+      lead_id: leadId,
+      emit_meta_lead: emitMetaLead,
+      meta_event_id: emitMetaLead ? identified.meta_event_id : null,
+    })
+    response.cookies.set(LV_CONTACT_CONSENT_COOKIE, '1', {
       path: '/',
       maxAge: LV_VID_MAX_AGE,
       sameSite: 'lax',
