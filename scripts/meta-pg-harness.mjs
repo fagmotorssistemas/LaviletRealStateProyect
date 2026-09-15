@@ -185,22 +185,62 @@ async function main() {
   assert(out.rows[0].status === 'pending', 'status pending')
   results.push('atomic_save_ok')
 
-  // Fallo atómico: rollback de TX
-  let rolled = false
+  // Fallo real dentro de identify_tour_lead_with_meta_outbox al insertar outbox
+  await exec(`
+    CREATE OR REPLACE FUNCTION public._boom_outbox() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      RAISE EXCEPTION 'forced_outbox_insert_fail';
+    END $$;
+    CREATE TRIGGER trg_boom_meta_outbox
+      BEFORE INSERT ON public.meta_capi_outbox
+      FOR EACH ROW
+      WHEN (NEW.visitor_key = 'visitor-boom')
+      EXECUTE FUNCTION public._boom_outbox();
+  `, 'boom-trigger')
+
+  const beforeLeads = await sql(
+    `SELECT count(*)::int AS c FROM leads WHERE phone_normalized = '0999999999'`,
+    'before-leads',
+  )
+  const beforeVisitors = await sql(
+    `SELECT count(*)::int AS c FROM tour_visitors WHERE visitor_key = 'visitor-boom'`,
+    'before-visitors',
+  )
+  assert(beforeLeads.rows[0].c === 0 && beforeVisitors.rows[0].c === 0, 'precondiciones boom')
+
+  let rpcFailed = false
   try {
-    await db.exec('BEGIN')
     await db.query(`
-      INSERT INTO leads (id, tenant_id, name, phone, phone_normalized)
-      VALUES ('11111111-1111-4111-8111-111111111111', '${tenant}', 'X', '1', '1')
+      SELECT public.identify_tour_lead_with_meta_outbox(
+        '${tenant}'::uuid, 'visitor-boom', 'Boom', 'boom@test.com', '0999999999',
+        '${project}'::uuid, true, NULL, NULL, 'test',
+        '{"action_source":"website","visitor_key":"visitor-boom"}'::jsonb
+      )
     `)
-    await db.query(`SELECT 1/0`)
-  } catch {
-    await db.exec('ROLLBACK')
-    rolled = true
+  } catch (error) {
+    rpcFailed = String(error.message || error).includes('forced_outbox_insert_fail')
   }
-  const orphan = await sql(`SELECT count(*)::int AS c FROM leads WHERE name='X'`, 'orphan')
-  assert(rolled && orphan.rows[0].c === 0, 'rollback atómico')
-  results.push('atomic_rollback_ok')
+  assert(rpcFailed, 'RPC debe fallar al insertar outbox')
+
+  const afterLeads = await sql(
+    `SELECT count(*)::int AS c FROM leads WHERE phone_normalized = '0999999999'`,
+    'after-leads',
+  )
+  const afterVisitors = await sql(
+    `SELECT count(*)::int AS c FROM tour_visitors WHERE visitor_key = 'visitor-boom'`,
+    'after-visitors',
+  )
+  const afterOutbox = await sql(
+    `SELECT count(*)::int AS c FROM meta_capi_outbox WHERE visitor_key = 'visitor-boom'`,
+    'after-outbox',
+  )
+  assert(afterLeads.rows[0].c === 0, 'lead nuevo revertido')
+  assert(afterVisitors.rows[0].c === 0, 'asociación visitante revertida')
+  assert(afterOutbox.rows[0].c === 0, 'outbox no quedó parcial')
+  results.push('rpc_outbox_fail_rolls_back_lead_and_visitor')
+
+  await exec(`DROP TRIGGER IF EXISTS trg_boom_meta_outbox ON public.meta_capi_outbox`, 'drop-boom')
 
   // --- Consent concurrente con secuencia ---
   const c1 = await sql(`SELECT public.lv_record_meta_ads_consent(false, 'visitor-atomic', '${atomicRow.lead_id}'::uuid) AS r`, 'revoke')
