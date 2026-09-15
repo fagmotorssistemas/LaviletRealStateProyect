@@ -265,6 +265,7 @@ function nutritionHarness(options = {}) {
     return q
   }
   const mod = load('src/lib/integrations/automation/nutrition.ts', {
+    './nutrition-week-one': { weekOneMemory: async () => ({ leadIds: ['lead'], outbound: options.outbound || [] }) },
     './config': { assertLive() {}, automationSettings: () => ({ testLeadId: options.testLeadId || null }) },
     './data': { ...data, db: () => ({ from: query }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false }),
       one: async table => table === 'leads' ? lead : { id: 'conv', ...scope, lead_id: lead.id, summary: {} },
@@ -1111,6 +1112,7 @@ function conversationHarness(options = {}) {
     },
     './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }) },
     './nutrition': { scheduleNutrition24h: async () => ({ scheduled: false, reason: 'test' }) },
+    './nutrition-week-one': { scheduleNutritionWeekOne: async () => ({ scheduled: false, reason: 'test' }) },
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
       one: async table => {
         if (options.urgentReadFails && escalationAttempted) throw Error('READ_URGENT_STATE_FAILED')
@@ -1155,6 +1157,44 @@ function conversationHarness(options = {}) {
     name: 'Cliente de prueba', sentAt: new Date(Date.now() - 1000).toISOString(), origin: 'waba', media: null } }))
   return { calls, rows, process: mod.processConversation }
 }
+
+test('a week-one acceptance resumes its unit offer while preserving the original inbound message', async t => {
+  live(t)
+  const { WEEK_ONE_FOLLOWUP_BODY } = require('../src/lib/inmobiliaria/nutritionWeekOne.ts')
+  const h = conversationHarness({ history: [{ id: 'nutrition-offer', role: 'bot', content: WEEK_ONE_FOLLOWUP_BODY.replace('{{1}}', 'conocer la distribución del departamento 202') }], catalog: [{ id: 'unit', category: 'departamento', unit_number: '202' }] })
+  h.rows = h.rows.slice(0, 1); h.rows[0].payload.text = 'Sí, por favor'
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.action, 'accepted')
+  assert.equal(result.nutrition_continuation.topic, 'conocer la distribución del departamento 202')
+  const raw = h.calls.find(c => c.name === 'register_inbound_message').args
+  assert.ok(Object.values(raw).includes('Sí, por favor'))
+  const checked = h.calls.find(c => c.name === 'completeTurnReply').args
+  assert.match(JSON.stringify(checked), /Quiero conocer la distribución del departamento 202/)
+  assert.equal(h.calls.some(c => c.name === 'lv_collect_visit_intake'), false)
+})
+
+test('week-one finance acceptance offers information without collecting credit consent', async t => {
+  live(t)
+  const { WEEK_ONE_FOLLOWUP_BODY } = require('../src/lib/inmobiliaria/nutritionWeekOne.ts')
+  const h = conversationHarness({ history: [{ role: 'bot', content: WEEK_ONE_FOLLOWUP_BODY.replace('{{1}}', 'revisar las opciones de financiamiento disponibles') }], extracted: { financing_consent: true, events: ['asked_financing'] } })
+  h.rows = h.rows.slice(0, 1); h.rows[0].payload.text = 'Perfecto'
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.action, 'accepted')
+  assert.equal(result.nutrition_continuation.topic, 'revisar las opciones de financiamiento disponibles')
+  for (const call of h.calls.filter(c => c.name === 'process_financing_message_v2')) assert.notEqual(call.args.p_financing_consent, true)
+})
+
+test('new questions after week-one followup retain every question and ignore the old offered action', async t => {
+  live(t)
+  const { WEEK_ONE_FOLLOWUP_BODY } = require('../src/lib/inmobiliaria/nutritionWeekOne.ts')
+  const h = conversationHarness({ history: [{ role: 'bot', content: WEEK_ONE_FOLLOWUP_BODY.replace('{{1}}', 'revisar las opciones de financiamiento disponibles') }] })
+  h.rows[0].payload.text = 'Mejor quiero un local, cuánto cuesta?'; h.rows[1].payload.text = 'Y tiene parqueadero?'
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.nutrition_continuation, undefined)
+  assert.equal(h.calls.some(c => c.name === 'process_financing_message_v2'), false)
+  const checked = h.calls.find(c => c.name === 'completeTurnReply').args
+  assert.match(JSON.stringify(checked), /cuánto cuesta/); assert.match(JSON.stringify(checked), /parqueadero/)
+})
 
 test('audio formats use signatures and preserve text plus speech through transcription', async t => {
   const {mediaMime}=require('../src/lib/integrations/automation/media-format.ts')

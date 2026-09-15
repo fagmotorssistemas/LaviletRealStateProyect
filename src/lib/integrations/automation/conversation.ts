@@ -23,6 +23,8 @@ import { mediaFailureReply, unreadMediaMarker } from './media-format'
 import { variedReplyOpening } from './response-openings'
 import { acceptedPriceOption, asksUnitPrice, unitPriceQuote, priceReplyIssues } from './price-reply'
 import { scheduleNutrition24h } from './nutrition'
+import { scheduleNutritionWeekOne } from './nutrition-week-one'
+import { nutritionContinuation } from './nutrition-week-one-rules'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
@@ -114,6 +116,8 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const processingStarted = Date.now()
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
+  const continuation = !inbound.mediaFailed ? nutritionContinuation(current, context.historial) : null
+  if (continuation) current = continuation.message
   let reply = '', finalNotice = false, handoffNotice = '', pendingCommercialHandoff = ''
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
   let greeting = !inbound.mediaFailed && isGreetingOnly(current)
@@ -550,6 +554,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   await setKommoField(last.kommoId, 457014, reply)
   if (!await authorized()) return { action: 'paused_before_salesbot' }
   await launchSalesbot(last.kommoId, 15578)
+  if (continuation) audit.nutrition_continuation = { topic: continuation.topic, source_message_id: continuation.sourceMessageId }
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
     p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
@@ -565,5 +570,8 @@ export async function processConversation(rows: Row[], guard: Guard) {
   let nutrition: Row
   try { nutrition = businessScope.kind === 'out_of_scope' || businessScope.uncertain ? { scheduled: false, reason: 'outside_property_conversation' } : await scheduleNutrition24h(text(lead.id), conversationId, activeLast.externalId) }
   catch { nutrition = { scheduled: false, reason: 'schedule_failed' } }
-  return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError, nutrition }
+  let nutritionWeekOne: Row
+  try { nutritionWeekOne = businessScope.kind === 'out_of_scope' || businessScope.uncertain ? { scheduled: false, reason: 'outside_property_conversation' } : await scheduleNutritionWeekOne(text(lead.id), conversationId, activeLast.externalId) }
+  catch { nutritionWeekOne = { scheduled: false, reason: 'schedule_failed' } }
+  return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError, nutrition, nutrition_week_one: nutritionWeekOne }
 }

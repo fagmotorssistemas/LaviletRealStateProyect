@@ -5,6 +5,7 @@ import { botStopped, getKommoLead, launchSalesbot, setKommoField, verifyNutritio
 import { nutrition24hConfig, nutrition24hReady, nutritionSendTime } from '@/lib/inmobiliaria/nutrition24h'
 import { nutritionLeadEligible, nutritionMessage } from './nutrition-context'
 import type { Guard } from './visits'
+import { weekOneMemory } from './nutrition-week-one'
 
 async function settings() {
   const [project, config] = await Promise.all([
@@ -85,8 +86,10 @@ export async function sendNutrition24h(job: Row, guard: Guard) {
   if (c.due! > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due!).toISOString() }
   // An ambiguous previous attempt is never resent. Cap this touch to once a week
   // even when the client resumes and then goes silent again the following day.
+  const memory = await weekOneMemory(c.lead)
+  if (memory.outbound.some(m => /^template:nutrition_/.test(text(m.model_used)) && Date.now() - Date.parse(text(m.sent_at)) < 7 * 86_400_000)) return { action: 'cancelled', reason: 'previous_followup' }
   const { data: previous, error } = await db().from('lv_integration_events').select('status,result,completed_at')
-    .match(scope).neq('id', job.id).contains('payload', { task: 'nutrition_24h', leadId: payload.leadId }).in('status', ['completed', 'uncertain'])
+    .match(scope).neq('id', job.id).in('payload->>leadId', memory.leadIds).in('payload->>task', ['nutrition_24h', 'nutrition_week_one']).in('status', ['completed', 'uncertain'])
     .order('received_at', { ascending: false }).limit(100)
   if (error) throw Error('NUTRITION_HISTORY_FAILED')
   if (previous?.some(row => row.status === 'uncertain' || (object(row.result).action === 'accepted' && Date.now() - Date.parse(row.completed_at) < 7 * 86_400_000))) return { action: 'cancelled', reason: 'previous_followup' }
