@@ -58,13 +58,13 @@ async function postConsentToNest(input: {
 }
 
 /**
- * Entrega filas pending/failed del ledger a Nest con reintentos.
- * No usa fire-and-forget: el caller debe await o after().
+ * Entrega filas pending/failed del ledger a Nest.
+ * Si falta config DO, deja nest_status=pending (recuperable por el drain de Nest).
  */
 export async function flushConsentLedgerToNest(
   admin: SupabaseClient,
   limit = 20,
-): Promise<{ delivered: number; failed: number; skipped: number }> {
+): Promise<{ delivered: number; failed: number; deferred: number }> {
   const { data: rows, error } = await admin
     .from('meta_ads_consent_ledger')
     .select('id, visitor_key, lead_id, ads_consent, consent_version, nest_status, nest_attempts')
@@ -72,23 +72,24 @@ export async function flushConsentLedgerToNest(
     .order('consent_version', { ascending: true })
     .limit(limit)
 
-  if (error || !rows?.length) return { delivered: 0, failed: 0, skipped: 0 }
+  if (error || !rows?.length) return { delivered: 0, failed: 0, deferred: 0 }
 
   let delivered = 0
   let failed = 0
-  let skipped = 0
+  let deferred = 0
 
   for (const row of rows as ConsentLedgerRow[]) {
     if (!backendBaseUrl() || !internalSecret()) {
+      // No terminal: el drain en DigitalOcean recuperará estos pendientes.
       await admin
         .from('meta_ads_consent_ledger')
         .update({
-          nest_status: 'skipped',
-          last_error: 'not_configured',
+          last_error: 'awaiting_backend_config',
           updated_at: new Date().toISOString(),
         })
         .eq('id', row.id)
-      skipped += 1
+        .eq('nest_status', 'pending')
+      deferred += 1
       continue
     }
 
@@ -114,12 +115,11 @@ export async function flushConsentLedgerToNest(
       await admin
         .from('meta_ads_consent_ledger')
         .update({
-          nest_status: 'skipped',
-          last_error: 'not_configured',
+          last_error: 'awaiting_backend_config',
           updated_at: new Date().toISOString(),
         })
         .eq('id', row.id)
-      skipped += 1
+      deferred += 1
     } else {
       await admin
         .from('meta_ads_consent_ledger')
@@ -134,5 +134,5 @@ export async function flushConsentLedgerToNest(
     }
   }
 
-  return { delivered, failed, skipped }
+  return { delivered, failed, deferred }
 }

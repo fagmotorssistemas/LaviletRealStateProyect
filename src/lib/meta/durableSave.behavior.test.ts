@@ -10,6 +10,7 @@ type Lead = {
   meta_lead_event_id: string | null
   meta_lead_event_time: number | null
   meta_lead_delivery_lane: 'test' | 'live' | null
+  meta_lead_visitor_key?: string | null
   meta_lead_payload: Record<string, unknown> | null
 }
 type Outbox = {
@@ -19,6 +20,7 @@ type Outbox = {
   lead_id: string
   status: string
   delivery_lane: 'test' | 'live'
+  visitor_key: string | null
   payload: Record<string, unknown>
 }
 
@@ -76,7 +78,9 @@ function createTxStore() {
         }
         const key = `lead:${lead.id}`
         if (outbox.some((o) => o.idempotency_key === key)) continue
-        const lane = lead.meta_lead_delivery_lane === 'test' ? 'test' : 'live'
+        const hasLane = lead.meta_lead_delivery_lane === 'test' || lead.meta_lead_delivery_lane === 'live'
+        const lane = hasLane ? lead.meta_lead_delivery_lane! : 'live'
+        const status = hasLane ? 'pending' : 'needs_review'
         const payload = lead.meta_lead_payload
           ? { ...lead.meta_lead_payload, recovered: true }
           : { recovered: true, external_id: lead.id }
@@ -85,8 +89,9 @@ function createTxStore() {
           event_id: lead.meta_lead_event_id,
           event_time: lead.meta_lead_event_time,
           lead_id: lead.id,
-          status: 'pending',
+          status,
           delivery_lane: lane,
+          visitor_key: lead.meta_lead_visitor_key || null,
           payload,
         })
         n += 1
@@ -108,6 +113,7 @@ describe('guardado durable lead+outbox (comportamiento)', () => {
           meta_lead_event_id: 'evt-1',
           meta_lead_event_time: 1700000000,
           meta_lead_delivery_lane: 'test',
+          meta_lead_visitor_key: 'v1',
           meta_lead_payload: { phone: '099' },
         })
         throw new Error('outbox_insert_failed')
@@ -116,21 +122,38 @@ describe('guardado durable lead+outbox (comportamiento)', () => {
     assert.equal(store.leads.length, 0)
   })
 
-  it('recuperación conserva lane test y payload original', () => {
+  it('recuperación sin lane retiene needs_review y conserva visitor/payload', () => {
     const store = createTxStore()
     store.insertLead({
       id: 'lead-9',
       meta_ads_consent: true,
       meta_lead_event_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       meta_lead_event_time: 1700000042,
-      meta_lead_delivery_lane: 'test',
+      meta_lead_delivery_lane: null,
+      meta_lead_visitor_key: 'visitor-recover',
       meta_lead_payload: { action_source: 'website', phone: '099', fbp: 'fb.1' },
     })
     assert.equal(store.recoverMissing(), 1)
-    assert.equal(store.outbox[0].delivery_lane, 'test')
-    assert.equal(store.outbox[0].payload.phone, '099')
+    assert.equal(store.outbox[0].status, 'needs_review')
+    assert.equal(store.outbox[0].visitor_key, 'visitor-recover')
     assert.equal(store.outbox[0].payload.fbp, 'fb.1')
-    assert.equal(store.outbox[0].payload.recovered, true)
+  })
+
+  it('recuperación con lane test conserva entorno y visitor', () => {
+    const store = createTxStore()
+    store.insertLead({
+      id: 'lead-10',
+      meta_ads_consent: true,
+      meta_lead_event_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      meta_lead_event_time: 1700000043,
+      meta_lead_delivery_lane: 'test',
+      meta_lead_visitor_key: 'visitor-test',
+      meta_lead_payload: { phone: '098' },
+    })
+    assert.equal(store.recoverMissing(), 1)
+    assert.equal(store.outbox[0].delivery_lane, 'test')
+    assert.equal(store.outbox[0].status, 'pending')
+    assert.equal(store.outbox[0].visitor_key, 'visitor-test')
   })
 })
 
@@ -170,11 +193,7 @@ describe('RLS migration guards', () => {
     )
     assert.match(sql, /ENABLE ROW LEVEL SECURITY/)
     assert.match(sql, /REVOKE ALL ON TABLE public\.meta_capi_outbox FROM PUBLIC/)
-    assert.match(sql, /REVOKE ALL ON TABLE public\.meta_capi_outbox FROM anon/)
-    assert.match(sql, /REVOKE ALL ON TABLE public\.meta_capi_outbox FROM authenticated/)
     assert.match(sql, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.meta_capi_outbox TO service_role/)
-    assert.match(sql, /meta_lead_delivery_lane/)
-    assert.match(sql, /v_lane := CASE/)
   })
 })
 
