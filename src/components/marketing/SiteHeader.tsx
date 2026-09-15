@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
@@ -29,6 +29,8 @@ export function SiteHeader() {
   const [heroLocked, setHeroLocked] = useState(!waitsForHero)
   const [open, setOpen] = useState(false)
   const [hasPhone, setHasPhone] = useState(false)
+  const [navHidden, setNavHidden] = useState(false)
+  const lastScrollY = useRef(0)
   const headerReady = !waitsForHero || heroLocked || open || pastHero
   const overHero = waitsForHero && !heroLocked && !scrolled && !open
   const solid = !overHero
@@ -66,14 +68,26 @@ export function SiteHeader() {
   }, [pathname, waitsForHero])
 
   useEffect(() => {
+    lastScrollY.current = window.scrollY
     const onScroll = () => {
-      setScrolled(window.scrollY > 24)
-      setPastHero(window.scrollY > window.innerHeight * 0.85)
+      const y = window.scrollY
+      setScrolled(y > 24)
+      setPastHero(y > window.innerHeight * 0.85)
+
+      const delta = y - lastScrollY.current
+      if (open || y < 56) {
+        setNavHidden(false)
+      } else if (delta > 8) {
+        setNavHidden(true)
+      } else if (delta < -8) {
+        setNavHidden(false)
+      }
+      lastScrollY.current = y
     }
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
-  }, [pathname])
+  }, [pathname, open])
 
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : ''
@@ -97,16 +111,18 @@ export function SiteHeader() {
     <motion.header
       data-site-header
       initial={reduceMotion || waitsForHero ? false : { y: -16, opacity: 0 }}
-      animate={headerReady ? { y: 0, opacity: 1 } : { y: -16, opacity: 0 }}
-      transition={{ duration: reduceMotion ? 0.2 : 0.55, ease }}
-      aria-hidden={!headerReady}
-      inert={!headerReady ? true : undefined}
+      animate={
+        !headerReady ? { y: -16, opacity: 0 } : navHidden ? { y: '-110%', opacity: 1 } : { y: 0, opacity: 1 }
+      }
+      transition={{ duration: reduceMotion ? 0.2 : 0.45, ease }}
+      aria-hidden={!headerReady || navHidden}
+      inert={!headerReady || navHidden ? true : undefined}
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-500',
         solid
           ? 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-[#F2F2F2]/12 mkt-dark:bg-[#72735A]/90'
           : 'border-b border-transparent bg-transparent',
-        !headerReady && 'pointer-events-none',
+        (!headerReady || navHidden) && 'pointer-events-none',
       )}
     >
       <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-4 px-5 sm:px-8 lg:gap-6 lg:px-12">

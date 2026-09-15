@@ -124,8 +124,8 @@ export function HeroStage() {
             <div className="h-20 shrink-0 sm:h-24" />
           </div>
 
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-[3] w-[22%] bg-gradient-to-r from-[#bfbfb8] via-[#bfbfb8]/40 to-transparent sm:w-[28%] mkt-dark:from-[#8B8C74] mkt-dark:via-[#8B8C74]/30" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-[3] w-[22%] bg-gradient-to-l from-[#bfbfb8] via-[#bfbfb8]/40 to-transparent sm:w-[28%] mkt-dark:from-[#8B8C74] mkt-dark:via-[#8B8C74]/30" />
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-[3] w-[22%] bg-gradient-to-r from-[#e4e4de] via-[#e4e4de]/40 to-transparent sm:w-[28%] mkt-dark:from-[#72735A] mkt-dark:via-[#72735A]/30" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-[3] w-[22%] bg-gradient-to-l from-[#e4e4de] via-[#e4e4de]/40 to-transparent sm:w-[28%] mkt-dark:from-[#72735A] mkt-dark:via-[#72735A]/30" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-20 bg-gradient-to-t from-[#e4e4de] to-transparent mkt-dark:from-[#72735A]" />
         </motion.div>
 

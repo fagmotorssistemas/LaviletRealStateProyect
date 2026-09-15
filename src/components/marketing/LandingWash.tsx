@@ -6,7 +6,7 @@ export function LandingWash({ children }: { children: ReactNode }) {
     <div className="relative">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#e4e4de_0%,#e4e4de_16%,#f0f0ec_38%,#f2f2f2_58%,#f2f2f2_100%)] mkt-dark:hidden"
+        className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#e4e4de_0%,#e8e8e2_28%,#eeeeea_58%,#f2f2f2_100%)] mkt-dark:hidden"
       />
       <div
         aria-hidden

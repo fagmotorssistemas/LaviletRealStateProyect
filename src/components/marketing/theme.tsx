@@ -44,7 +44,7 @@ export function MarketingThemeProvider({ children }: { children: ReactNode }) {
     <ThemeCtx.Provider value={{ theme, toggle }}>
       <div
         data-mkt-theme={theme}
-        className="min-h-screen overflow-x-hidden bg-[var(--mkt-bg)] text-[var(--mkt-fg)] transition-colors duration-500"
+        className="min-h-screen overflow-x-clip bg-[var(--mkt-bg)] text-[var(--mkt-fg)] transition-colors duration-500"
       >
         {children}
       </div>

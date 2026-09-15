@@ -193,6 +193,12 @@ html {
   filter: drop-shadow(0 24px 32px rgb(114 115 90 / 0.2));
 }
 
+@media (max-width: 1023px) {
+  .story-featured-photo {
+    clip-path: none !important;
+  }
+}
+
 [data-mkt-theme="dark"] .story-air {
   filter: drop-shadow(0 24px 32px rgb(0 0 0 / 0.32));
 }
