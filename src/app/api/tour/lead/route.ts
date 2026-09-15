@@ -14,7 +14,7 @@ import {
 } from '@/lib/tour/tourRpc'
 import { resolveVisitorGeo } from '@/lib/tour/geo'
 import { applyGeoCookies } from '@/lib/tour/visitorCookie'
-import { readServerAdsConsent } from '@/lib/meta/capiServer'
+import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
 
 export const runtime = 'nodejs'
@@ -116,7 +116,9 @@ export async function POST(request: Request) {
     })
     const clientIp = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || undefined
     const clientUa = h.get('user-agent') || undefined
-    const adsConsent = await readServerAdsConsent()
+    // body.consent = casilla de contacto/privacidad (no es ads).
+    // Meta solo usa cookie de medición + ledger del visitante.
+    const adsConsent = await resolveServerAdsConsentForVisitor(admin, visitorKey)
 
     const realEmail = !isArtificialEmail(rawEmail) ? rawEmail : undefined
     const realName = !isArtificialName(rawName) ? rawName : undefined

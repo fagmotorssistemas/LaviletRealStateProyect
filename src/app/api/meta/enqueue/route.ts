@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { after } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { LV_VID_COOKIE, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
-import { readServerAdsConsent } from '@/lib/meta/capiServer'
+import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox, persistMetaConversion } from '@/lib/meta/localOutbox'
 import {
   allowRateLimited,
@@ -41,9 +41,21 @@ export async function POST(request: Request) {
     )
   }
 
-  const adsConsent = await readServerAdsConsent()
+  const jar = await cookies()
+  const visitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || ''
+  if (!visitorKey) {
+    return NextResponse.json({ ok: false, error: 'visitor no identificado' }, { status: 400 })
+  }
+
+  const admin = tryCreateAdminClient()
+  if (!admin) {
+    return NextResponse.json({ ok: false, error: 'admin_unavailable' }, { status: 503 })
+  }
+
+  const adsConsent = await resolveServerAdsConsentForVisitor(admin, visitorKey)
   if (!adsConsent) {
-    return NextResponse.json({ ok: false, skipped: 'no_ads_consent' }, { status: 204 })
+    // 204 no admite cuerpo; el cliente interpreta skipped por status.
+    return new NextResponse(null, { status: 204 })
   }
 
   const unitId = String(body.unit_id || '').trim()
@@ -53,12 +65,6 @@ export async function POST(request: Request) {
   }
   if (!eventId || !isUuid(eventId)) {
     return NextResponse.json({ ok: false, error: 'event_id inválido' }, { status: 400 })
-  }
-
-  const jar = await cookies()
-  const visitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || ''
-  if (!visitorKey) {
-    return NextResponse.json({ ok: false, error: 'visitor no identificado' }, { status: 400 })
   }
 
   const expectedVisitKey = buildUnitVisitKey(visitorKey, unitId)
@@ -71,11 +77,6 @@ export async function POST(request: Request) {
   const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || 'unknown'
   if (!allowRateLimited(rateBucket, `${visitorKey}:${ip}`, Date.now(), RATE_WINDOW_MS, RATE_MAX)) {
     return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
-  }
-
-  const admin = tryCreateAdminClient()
-  if (!admin) {
-    return NextResponse.json({ ok: false, error: 'admin_unavailable' }, { status: 503 })
   }
 
   const { data: unit, error: unitError } = await admin

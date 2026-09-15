@@ -1,4 +1,10 @@
-import { hasAdsConsent, META_PIXEL_ID } from '@/lib/tour/consent'
+import { hasAdsConsent, META_PIXEL_ID, META_PIXEL_SIMULATE } from '@/lib/tour/consent'
+
+declare global {
+  interface Window {
+    __lvMetaPixelLog?: Array<{ at: string; args: unknown[] }>
+  }
+}
 
 export type MetaBrowserEvent = 'PageView' | 'ViewContent' | 'Lead' | 'Schedule'
 
@@ -48,10 +54,21 @@ export function trackMetaPixelEvent(
 ) {
   if (typeof window === 'undefined') return
   if (!META_PIXEL_ID || !hasAdsConsent()) return
-  const fbq = window.fbq
-  if (typeof fbq !== 'function') return
   const id = eventId || newMetaEventId()
   const options = { eventID: id }
+  if (META_PIXEL_SIMULATE) {
+    const entry = {
+      at: new Date().toISOString(),
+      args: params && Object.keys(params).length
+        ? ['track', eventName, params, options]
+        : ['track', eventName, {}, options],
+    }
+    window.__lvMetaPixelLog = [...(window.__lvMetaPixelLog ?? []), entry]
+    console.info('[MetaPixel simulate]', ...entry.args)
+    return id
+  }
+  const fbq = window.fbq
+  if (typeof fbq !== 'function') return
   if (params && Object.keys(params).length) {
     fbq('track', eventName, params, options)
   } else {

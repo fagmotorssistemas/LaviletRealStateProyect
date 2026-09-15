@@ -6,6 +6,8 @@ import {
 
 export const COOKIE_BANNER_ENABLED = process.env.NEXT_PUBLIC_COOKIE_BANNER_ENABLED === 'true'
 export const META_PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID?.trim() ?? ''
+/** Demo local: stub de fbq sin cargar connect.facebook.net ni pixel.gif. */
+export const META_PIXEL_SIMULATE = process.env.NEXT_PUBLIC_META_PIXEL_SIMULATE === 'true'
 
 export const LV_CONSENT_MAX_AGE = 180 * 24 * 60 * 60
 export const OPEN_COOKIE_PREFERENCES_EVENT = 'lv-open-cookie-preferences'
@@ -60,15 +62,37 @@ export function writeConsentCookie(value: CookieConsentValue) {
   writeAdsConsentCookie(value)
 }
 
+/** Persiste ads consent en servidor (ledger + cancelación). Misma cookie lv_vid de la pestaña. */
+export async function persistAdsConsentChoice(adsConsent: boolean): Promise<{
+  ok: boolean
+  status: number
+  body?: { ok?: boolean; lead_id?: string | null; consent_version?: number; error?: string }
+}> {
+  const response = await fetch('/api/meta/consent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ ads_consent: adsConsent }),
+    keepalive: true,
+  })
+  let body: { ok?: boolean; lead_id?: string | null; consent_version?: number; error?: string } | undefined
+  try {
+    body = (await response.json()) as typeof body
+  } catch {
+    body = undefined
+  }
+  if (!response.ok || body?.ok === false) {
+    console.error('persistAdsConsentChoice', response.status, body)
+  }
+  return { ok: response.ok && body?.ok !== false, status: response.status, body }
+}
+
 export function revokeAdsConsent() {
   writeAdsConsentCookie('denied')
   window.dispatchEvent(new Event('lv-consent-changed'))
-  void fetch('/api/meta/consent', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ads_consent: false }),
-    keepalive: true,
-  }).catch(() => {})
+  void persistAdsConsentChoice(false).catch((error) => {
+    console.error('revokeAdsConsent', error)
+  })
 }
 
 export function openCookiePreferences() {

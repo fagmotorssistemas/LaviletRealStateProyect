@@ -1,7 +1,9 @@
 import 'server-only'
 import { cookies, headers } from 'next/headers'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { LV_ADS_CONSENT_COOKIE, LV_CONSENT_COOKIE } from '@/lib/tour/trackingIds'
 import { parseAdsConsentFromCookieValue } from '@/lib/tour/consent'
+import { resolveEffectiveAdsConsent } from '@/lib/meta/effectiveAdsConsent'
 
 export type MetaServerEventName = 'ViewContent' | 'Lead' | 'Schedule'
 
@@ -21,16 +23,49 @@ export function isMetaCapiConfigured() {
   return Boolean(backendBaseUrl() && internalSecret())
 }
 
+/** Solo cookie de medición (`full`). No usa casilla de contacto ni `lv_contact_consent`. */
 export async function readServerAdsConsent(): Promise<boolean> {
   try {
     const jar = await cookies()
     const dedicated = jar.get(LV_ADS_CONSENT_COOKIE)?.value
     if (dedicated) return parseAdsConsentFromCookieValue(dedicated)
     const legacy = jar.get(LV_CONSENT_COOKIE)?.value
+    // Legacy "1" = contacto histórico; no cuenta como ads.
     return parseAdsConsentFromCookieValue(legacy)
   } catch {
     return false
   }
+}
+
+/** Último ads_consent del ledger para el visitante; null si no hay filas. */
+export async function fetchLatestVisitorLedgerAdsConsent(
+  admin: SupabaseClient,
+  visitorKey: string,
+): Promise<boolean | null> {
+  const key = visitorKey.trim()
+  if (!key) return null
+  const { data, error } = await admin
+    .from('meta_ads_consent_ledger')
+    .select('ads_consent')
+    .eq('visitor_key', key)
+    .order('consent_version', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error || !data || typeof data.ads_consent !== 'boolean') return null
+  return data.ads_consent
+}
+
+/**
+ * Cookie de medición ∧ ledger del visitante.
+ * Una revocación vigente en ledger anula cookie `full` stale.
+ */
+export async function resolveServerAdsConsentForVisitor(
+  admin: SupabaseClient,
+  visitorKey: string,
+): Promise<boolean> {
+  const cookieAllowsAds = await readServerAdsConsent()
+  const ledgerAdsConsent = await fetchLatestVisitorLedgerAdsConsent(admin, visitorKey)
+  return resolveEffectiveAdsConsent({ cookieAllowsAds, ledgerAdsConsent })
 }
 
 function sanitizeUrl(raw?: string | null) {

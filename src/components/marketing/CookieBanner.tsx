@@ -1,64 +1,55 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
-import { X } from 'lucide-react'
 import {
   COOKIE_BANNER_ENABLED,
   OPEN_COOKIE_PREFERENCES_EVENT,
   hasCookieConsentChoice,
+  persistAdsConsentChoice,
   writeAdsConsentCookie,
   type AdsConsentValue,
 } from '@/lib/tour/consent'
 
 export function CookieBanner() {
-  const [visible, setVisible] = useState(() => {
-    if (typeof window === 'undefined') return false
-    if (!COOKIE_BANNER_ENABLED) return false
-    return !hasCookieConsentChoice()
-  })
+  const [mounted, setMounted] = useState(false)
+  const [visible, setVisible] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
     if (!COOKIE_BANNER_ENABLED) return
+    // No auto-elige: solo muestra si aún no hay elección explícita.
+    setVisible(!hasCookieConsentChoice())
     const open = () => setVisible(true)
     window.addEventListener(OPEN_COOKIE_PREFERENCES_EVENT, open)
     return () => window.removeEventListener(OPEN_COOKIE_PREFERENCES_EVENT, open)
   }, [])
 
-  if (!COOKIE_BANNER_ENABLED || !visible) return null
+  if (!COOKIE_BANNER_ENABLED || !mounted || !visible) return null
 
   const choose = (value: AdsConsentValue) => {
     writeAdsConsentCookie(value)
     setVisible(false)
     window.dispatchEvent(new Event('lv-consent-changed'))
-    // Persistencia durable + cancelación de pendientes al retirar
-    void fetch('/api/meta/consent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ads_consent: value === 'full' }),
-      keepalive: true,
-    }).catch(() => {})
+    void persistAdsConsentChoice(value === 'full').catch((error) => {
+      console.error('CookieBanner consent persist', error)
+    })
   }
 
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[80] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+  // Portal a body: hermano de .tour-root en immersive (globals.css no lo oculta).
+  return createPortal(
+    <div
+      data-lv-cookie-banner
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[300] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+    >
       <div className="pointer-events-auto mx-auto flex max-w-4xl flex-col gap-3 rounded-2xl bg-[#2B1A18] px-5 py-4 text-white shadow-2xl">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-2 text-sm leading-relaxed text-white/80">
-            <p>Usamos cookies necesarias para el recorrido y, si aceptas, medición publicitaria (Meta).</p>
-            <p>
-              El consentimiento de contacto (guardar WhatsApp/correo) es independiente del
-              consentimiento publicitario.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setVisible(false)}
-            className="shrink-0 rounded-md p-1 text-white/50 hover:text-white"
-            aria-label="Cerrar aviso de cookies"
-          >
-            <X size={16} />
-          </button>
+        <div className="space-y-2 text-sm leading-relaxed text-white/80">
+          <p>Usamos cookies necesarias para el recorrido y, si aceptas, medición publicitaria (Meta).</p>
+          <p>
+            El consentimiento de contacto (guardar WhatsApp/correo) es independiente del
+            consentimiento publicitario.
+          </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
           <Link
@@ -90,6 +81,7 @@ export function CookieBanner() {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

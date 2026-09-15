@@ -6,6 +6,7 @@ import {
   COOKIE_BANNER_ENABLED,
   hasAdsConsent,
   META_PIXEL_ID,
+  META_PIXEL_SIMULATE,
 } from '@/lib/tour/consent'
 import { isMetaPublicPath, trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
 
@@ -14,6 +15,7 @@ declare global {
     fbq?: FbqFn
     _fbq?: FbqFn
     __lvMetaPixelInitialized?: string
+    __lvMetaPixelLog?: Array<{ at: string; args: unknown[] }>
   }
 }
 
@@ -28,10 +30,34 @@ type FbqFn = ((...args: unknown[]) => void) & {
 /**
  * Stub oficial de Meta Pixel (callMethod / queue).
  * Evita reinits en Strict Mode y navegación cliente.
+ * Con META_PIXEL_SIMULATE no carga scripts ni pixel.gif de Facebook.
  */
 function ensureMetaPixel(pixelId: string) {
   if (typeof window === 'undefined') return
   if (window.__lvMetaPixelInitialized === pixelId && typeof window.fbq === 'function') {
+    return
+  }
+
+  if (META_PIXEL_SIMULATE) {
+    if (!window.fbq) {
+      const n = function (...args: unknown[]) {
+        window.__lvMetaPixelLog = [
+          ...(window.__lvMetaPixelLog ?? []),
+          { at: new Date().toISOString(), args },
+        ]
+        console.info('[MetaPixel simulate]', ...args)
+      } as FbqFn
+      n.queue = []
+      n.loaded = true
+      n.version = '2.0'
+      n.push = n
+      window.fbq = n
+      window._fbq = n
+    }
+    if (window.__lvMetaPixelInitialized !== pixelId) {
+      window.fbq?.('init', pixelId)
+      window.__lvMetaPixelInitialized = pixelId
+    }
     return
   }
 
@@ -103,6 +129,7 @@ export function MetaPixel() {
 
   if (!META_PIXEL_ID || !isMetaPublicPath(pathname)) return null
   if (!hasAdsConsent()) return null
+  if (META_PIXEL_SIMULATE) return null
 
   return (
     <noscript>
