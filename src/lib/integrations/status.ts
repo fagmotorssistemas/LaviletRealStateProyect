@@ -2,6 +2,7 @@ import 'server-only'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { LAVILET_KOMMO_ORIGIN, LAVILET_MESSAGE_ROUTES, LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from './lavilet'
 import { automationSettings } from './automation/config'
+import { deliveryHealth } from './automation/delivery-state'
 
 type Check = { ok: boolean; status?: number; reason?: string }
 
@@ -82,6 +83,7 @@ async function openaiStatus() {
 export async function getIntegrationStatus() {
   const [kommo, database, openai] = await Promise.all([kommoStatus(), databaseStatus(), openaiStatus()])
   const settings = automationSettings()
+  const delivery = await deliveryHealth().catch(() => null)
   let runtimeInstalled = false
   try {
     const { error } = await createAdminClient().from('lv_integration_events').select('id', { head: true })
@@ -90,7 +92,8 @@ export async function getIntegrationStatus() {
   } catch { /* La migración puede no estar instalada aún. */ }
   return { checkedAt: new Date().toISOString(), phase: settings.mode, runtimeInstalled,
     applicationSendsEnabled: settings.live && runtimeInstalled && database.ok && database.config?.enabled === true
-      && database.config?.dry_run === false && database.routes?.every(route => route.mappingMatches) === true,
+      && database.config?.dry_run === false && database.routes?.every(route => route.mappingMatches) === true
+      && delivery !== null && !delivery.blocked,
     settings: { mode: settings.mode, ownershipConfirmed: settings.live, testLeadId: settings.testLeadId,
-      globalMaintenance: settings.globalMaintenance }, kommo, database, openai }
+      globalMaintenance: settings.globalMaintenance }, kommo, database, openai, delivery }
 }

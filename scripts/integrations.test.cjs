@@ -1271,7 +1271,9 @@ test('unknown budget receives help and does not repeat the financing offer on th
 
 test('Kommo transient reads retry, permanent credentials errors and writes do not', async t => {
   live(t);const previous=global.fetch;t.after(()=>global.fetch=previous)
-  const {getKommoLead,setKommoField}=load('src/lib/integrations/automation/kommo.ts',{})
+  const {getKommoLead,setKommoField}=load('src/lib/integrations/automation/kommo.ts',{
+    './delivery-state':{...require('../src/lib/integrations/automation/delivery-state.ts'),recordKommoBlock:async()=>{}}
+  })
   let calls=0
   global.fetch=async()=>{calls++;if(calls===1)throw Error('network');if(calls===2)return new Response('',{status:503});return Response.json({id:123})}
   assert.equal((await getKommoLead(123)).id,123);assert.equal(calls,3)

@@ -3,6 +3,7 @@ import { NUTRITION_24H_BODY } from '@/lib/inmobiliaria/nutrition24h'
 import { LAVILET_KOMMO_ORIGIN } from '../lavilet'
 import { assertLive } from './config'
 import { object, type Row } from './data'
+import { accountBlockedStatus, recordKommoBlock, rejectedWriteStatus } from './delivery-state'
 
 export class ProviderError extends Error {
   constructor(public status: number, public uncertain: boolean, public operation = 'unknown') { super(`KOMMO_${status || 'UNAVAILABLE'}`) }
@@ -23,7 +24,12 @@ async function request(path: string, method = 'GET', body?: unknown, attempt = 0
       await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
       return request(path, method, body, attempt + 1)
     }
-    throw new ProviderError(status, method !== 'GET', operation)
+    if (accountBlockedStatus(status)) {
+      // Keep the original provider code even if storing the shared alert fails;
+      // the worker records it on the event as an additional recovery source.
+      try { await recordKommoBlock(status, operation) } catch { /* worker fallback */ }
+    }
+    throw new ProviderError(status, method !== 'GET' && !rejectedWriteStatus(status), operation)
   }
   let response: Response
   try {

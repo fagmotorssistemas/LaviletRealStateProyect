@@ -1,7 +1,8 @@
 import 'server-only'
 import { automationSettings, assertLive } from './config'
 import { autoConfig, db, object, permitted, rpc, scope, text, type Row } from './data'
-import { getKommoLead, launchSalesbot, setKommoField } from './kommo'
+import { getKommoLead, launchSalesbot, setKommoField, ProviderError } from './kommo'
+import { rejectedWriteStatus } from './delivery-state'
 import { prepareVisit, routeSignature, validateVisit } from './visit-rules'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { operationalReply } from './operational-copy'
@@ -107,10 +108,13 @@ export async function sendVisit(jobId: string, guard: Guard) {
     await rpc('lv3_finish', { p_job: jobId, p_token: token, p_status: 'accepted',
       p_detail: 'Kommo aceptó iniciar Salesbot; entrega no confirmada' })
     return { jobId, status: 'accepted' }
-  } catch {
-    await rpc('lv3_finish', { p_job: jobId, p_token: token, p_status: launched ? 'uncertain' : 'failed',
-      p_detail: launched ? 'Comprobar Kommo antes de reintentar' : 'Falló preparación o revalidación' })
-    return { jobId, status: launched ? 'uncertain' : 'failed' }
+  } catch (error) {
+    const rejected = error instanceof ProviderError && !error.uncertain && rejectedWriteStatus(error.status)
+    const status = launched && !rejected ? 'uncertain' : 'failed'
+    const detail = rejected ? `Kommo rechazó la solicitud (${error.status}); no se inició el envío. Revisar antes de reintentar.`
+      : launched ? 'Comprobar Kommo antes de reintentar' : 'Falló preparación o revalidación'
+    await rpc('lv3_finish', { p_job: jobId, p_token: token, p_status: status, p_detail: detail })
+    return { jobId, status }
   }
 }
 

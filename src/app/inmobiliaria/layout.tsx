@@ -6,6 +6,7 @@ import { InmobiliariaSidebar } from '@/components/layout/InmobiliariaSidebar'
 import { InmobiliariaTopbar } from '@/components/layout/InmobiliariaTopbar'
 import { InmobiliariaRouteKey } from '@/components/layout/InmobiliariaRouteKey'
 import { AppointmentInboxBanner } from '@/components/layout/AppointmentInboxBanner'
+import { AutomationDeliveryBanner } from '@/components/layout/AutomationDeliveryBanner'
 import { VisitInboxProvider } from '@/contexts/VisitInboxContext'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
 
@@ -36,6 +37,7 @@ export default function InmobiliariaLayout({ children }: { children: React.React
           <InmobiliariaTopbar />
           <AppointmentInboxBanner />
           <div className="crm-app-canvas min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 pt-[calc(3.5rem+2rem)] sm:px-8 md:pt-8 lg:px-12">
+            <AutomationDeliveryBanner />
             <InmobiliariaRouteKey>{children}</InmobiliariaRouteKey>
           </div>
         </div>

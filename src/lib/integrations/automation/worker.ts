@@ -6,6 +6,7 @@ import { processConversation } from './conversation'
 import { pendingVisits, planVisits, previewVisits, sendVisit } from './visits'
 import { ProviderError } from './kommo'
 import { cancelNutrition24h, sendNutrition24h } from './nutrition'
+import { kommoDeliveryBlock, rejectedWriteStatus } from './delivery-state'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -33,6 +34,8 @@ export async function runAutomation() {
   }
   const results: Row[] = [], started = Date.now()
   try {
+    const block = await kommoDeliveryBlock()
+    if (block) return { mode: 'live', processed: 0, reason: 'kommo_account_blocked', http_status: block.http_status }
     await scheduleTasks()
     // Reservas abandonadas del nuevo ejecutor requieren revisión; nunca reenvío automático.
     const { error } = await db().from('lv_outbox').update({ status: 'uncertain', detail: 'Worker interrumpido; comprobar Kommo' })
@@ -73,21 +76,32 @@ export async function runAutomation() {
           if (settings.globalMaintenance && !settings.testLeadId && config.test_only === false) await rpc('apply_temperature_decay')
           result = { action: 'daily_decay' }
         } else throw new Error('UNSUPPORTED_TASK')
-        await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: result.action === 'cancelled' ? 'cancelled' : 'completed', p_result: result })
+        if (first.kind === 'inbound' && result.action === 'expired') {
+          result = { ...result, reason: 'REPLY_WINDOW_EXPIRED', requires_review: true, delivery_status: 'not_sent' }
+        }
+        await rpc('lv_app_finish', { p_token: token, p_ids: ids,
+          p_status: result.action === 'cancelled' || result.delivery_status === 'not_sent' ? 'cancelled' : 'completed', p_result: result })
         results.push({ kind: first.kind, ...result })
       } catch (error) {
         // Una RPC o petición pudo ejecutar su efecto antes de fallar la conexión.
         // Guardar solo códigos propios, nunca cuerpos de proveedores o datos del cliente.
         const reason = error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'PROCESSING_FAILED'
+        const rejected = error instanceof ProviderError && !error.uncertain && rejectedWriteStatus(error.status)
         const detail = error instanceof ProviderError ? { provider_operation: error.operation, delivery_uncertain: error.uncertain, http_status: error.status } : {}
-        await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: 'uncertain', p_result: { reason, ...detail } })
-        results.push({ kind: first.kind, status: 'uncertain', reason })
+        // A rejected attempt stays visible for advisor review, but must not
+        // permanently lock the contact as if a Salesbot might have been sent.
+        const status = rejected ? 'cancelled' : 'uncertain'
+        await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: status,
+          p_result: { reason, ...detail, requires_review: true, ...(rejected ? { delivery_status: 'rejected', recovery: 'not_replayed' } : {}) } })
+        results.push({ kind: first.kind, status, reason })
       }
+      if (await kommoDeliveryBlock()) return { mode: 'live', processed: results.length, reason: 'kommo_account_blocked', results }
     }
     for (const job of await pendingVisits()) {
       if (Date.now() - started > 150_000) break
       await guard()
       results.push(await sendVisit(text(job.id), guard))
+      if (await kommoDeliveryBlock()) break
     }
     return { mode: 'live', processed: results.length, results }
   } finally {
