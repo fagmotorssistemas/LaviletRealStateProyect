@@ -1,6 +1,7 @@
 import 'server-only'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
+import { commercialMemory, experienceContext, residentialContinuationIssues, RESIDENTIAL_CONTINUITY_RULES, turnWritingRules } from './commercial-experience'
 
 export type TurnCompletenessInput = {
   current: string
@@ -59,6 +60,7 @@ Para una inquietud de capacidad de compra, conteste con opciones de financiamien
 Toda pregunta de la respuesta debe tener propósito, missing_datum (el dato concreto que falta) y next_decision (qué decisión o paso permite). No basta «generar interacción», «mantener conversación» ni «calificar interés». Debe aclarar una referencia, elegir opciones pertinentes, avanzar a una visita/revisión financiera/material solicitado/asesor o obtener un consentimiento necesario. Pregunte como máximo UNA cosa y no pida datos ya dados. Es válido no preguntar: en ese caso question.text, missing_datum y next_decision deben ser cadenas VACÍAS y purpose="none". No escriba «ninguna», «no aplica» ni una pregunta que no esté en reply. Si el lead agradece y da por atendida su consulta («eso era lo que necesitaba»), cierre brevemente; NO reabra con una pregunta comercial aunque pueda imaginarle un propósito. Contestar consultas informativas también es útil: no descarte al cliente por preguntar ni lo presione a agendar.
 Si la base pregunta un dato operativo y preserveOperationalQuestion=true, conserve exactamente el OBJETIVO de esa pregunta, aunque cambie el estilo. No cambie fecha por presupuesto, consentimiento por elección de banco ni convierta «pendiente» en «confirmado». No invente envío, derivación, registro, llamada o evaluación realizada; el código hará esas acciones aparte. No adjunte ubicación por una simple invitación: solo una petición de ubicación o un resultado de cita confirmada la justifican.
 Si falta un dato concreto, conserve las respuestas respaldadas, marque missing_fact y explique brevemente que ese punto debe verificarse, sin afirmar que un asesor ya recibió nada. No sustituya toda la respuesta por «información imprecisa» ni por una derivación genérica.
+La existencia de piscina, gimnasio o jardines NO acredita que su uso sea gratuito, incluido en el precio, sin membresía ni sujeto a una cuota mensual. Si preguntan condiciones de acceso o pagos y no hay una política explícita, ese detalle es missing_fact. No complete esos datos con lo habitual en otros edificios ni con afirmaciones anteriores del bot.
 material_protegido contiene cifras y enlaces obligatorios y permitidos. No escriba ninguna cifra que esté fuera de cifras_permitidas, aunque aparezca en el mensaje del cliente: el código no permite convertir una cifra del lead en información comercial. Si el presupuesto no está en los datos verificados, puede referirse a «su presupuesto» sin repetir el monto.
 No se presente si no se lo preguntan. Nunca afirme ser una persona; si preguntan directamente si es IA, responda con honestidad. Tono amable de usted, sin «nuestra especialidad», sin preguntas de relleno, sin emojis y sin repetir una apertura reciente por obligación.
 Devuelva reply igual a la base si ya cumple. Intente no superar 1200 caracteres, límite absoluto 1500. El propósito y la cobertura son para auditoría interna, no los mencione al cliente. Devuelva solo el JSON del esquema.`
@@ -130,6 +132,7 @@ export function safeRentalCreditBase(base: string, current: string, verified: Ro
 
 export function turnCompletenessIssues(input: TurnCompletenessInput, reply: string, question: Question): string[] {
   const issues: string[] = [], source = input.baseReply, facts = verifiedText(input.verified)
+  issues.push(...residentialContinuationIssues(reply, input.current, { ...input.verified, historial: input.history }))
   if (!reply.trim() || reply.length > 1500) issues.push('length')
   const allowedUrls = new Set([...urls(source), ...urls(facts)])
   if (urls(source).some(url => !urls(reply).includes(url)) || urls(reply).some(url => !allowedUrls.has(url))) issues.push('links_changed')
@@ -177,13 +180,14 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   if (!input.current.trim() || !input.baseReply.trim()) return fallback('skipped_empty')
   const history = (Array.isArray(input.history) ? input.history : []).map(object).slice(-8)
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
+  const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
   const context = { mensaje_actual: input.current, historial_reciente: history, respuesta_base: input.baseReply,
-    contexto_verificado: input.verified, estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
+    contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     material_protegido: { cifras_obligatorias: numbers(input.baseReply), cifras_permitidas: [...new Set([...numbers(input.baseReply), ...numbers(verifiedText(input.verified))])],
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
   let requests: Coverage[] = []
   try {
-    const candidate = await generate(COVERAGE_RULES, context, coverageSchema)
+    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory), context, coverageSchema)
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')
     requests = rows
@@ -195,7 +199,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (issues.length) return fallback('rejected_guard', requests, issues)
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact' || (row.status === 'unanswered' && row.request_type === 'specific_fact')).map(row => row.fragment)])]
     if (reply !== input.baseReply.trim()) {
-      const review = await generate(REVIEW_RULES, { ...context, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, reviewSchema)
+      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES, { ...context, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, reviewSchema)
       const required = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', ...(withoutUrls(reply).includes('?') ? ['question_has_purpose'] : [])]
       if (!required.every(key => review[key] === true)) {
         return fallback('rejected_review', requests)

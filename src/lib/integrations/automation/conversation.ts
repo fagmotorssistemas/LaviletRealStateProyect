@@ -114,7 +114,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const processingStarted = Date.now()
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
-  let reply = '', finalNotice = false
+  let reply = '', finalNotice = false, handoffNotice = '', pendingCommercialHandoff = ''
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
   let greeting = !inbound.mediaFailed && isGreetingOnly(current)
   const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
@@ -140,9 +140,10 @@ export async function processConversation(rows: Row[], guard: Guard) {
     if (error) throw new Error('HANDOFF_PAUSE_FAILED')
     await setKommoField(last.kommoId, 451530, 'true')
     finalNotice = true
-    return lead.handoff_status === 'queued'
+    handoffNotice = lead.handoff_status === 'queued'
       ? 'He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle. Podrá continuar por aquí sin volver a explicar lo que busca.'
       : 'He pasado su consulta a un asesor de nuestro equipo para que le ayude con ese detalle y continúe atendiéndole por aquí.'
+    return handoffNotice
   }
   async function collectVisit(args: Row) {
     if (!await visitParserReady()) {
@@ -296,6 +297,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
         if (lead.bot_enabled !== false) throw new Error('VISIT_URGENT_PAUSE_NOT_VERIFIED')
         finalNotice = true
         reply = text(escalated.message) || 'Entendemos. He pasado su solicitud al equipo para que un asesor se comunique con usted y puedan coordinar la visita directamente.'
+        handoffNotice = reply
         audit = { source: 'visit_urgent_handoff', request_id: escalated.request_id, bot_paused: true,
           recovered_after_error: escalated.recovered_after_error === true }
         await guard()
@@ -453,9 +455,11 @@ export async function processConversation(rows: Row[], guard: Guard) {
         const generated = await commercialReply(info, current, summary, guard)
         audit = generated.audit
         if (audit.requires_advisor === true) {
-          // A missing answer must not erase the independent facts we can supply.
+          // A draft rejection is only a proposed handoff. Finish checking the
+          // available facts before mutating the lead or pausing the conversation.
+          pendingCommercialHandoff = text(audit.handoff_reason) || 'consulta por verificar'
           const partial = completeTurnAnswer('', turnAnswerFacts(info, current, summary)).reply
-          reply = [partial, await transferToAdvisor(text(audit.handoff_reason))].filter(Boolean).join('\n\n')
+          reply = partial || 'Ese detalle debe verificarlo nuestro equipo.'
         } else reply = appendUnitModel(generated.reply, model)
         if (model && reply.includes(model.url)) audit = { ...audit, unit_model: model }
       }
@@ -495,12 +499,24 @@ export async function processConversation(rows: Row[], guard: Guard) {
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
     if (!invalidPrice) reply = reviewed.reply
     else { reviewed.needsAdvisor = true; reviewed.unresolved.push('comparar las categorías y precios consultados sin mezclar unidades') }
-    audit = { ...audit, turn_completeness: reviewed.audit }
-    if (reviewed.needsAdvisor && !finalNotice) {
-      const notice = await transferToAdvisor('resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650))
+    const requests = Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests.map(object) : []
+    const resolvedFromContext = !invalidPrice && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
+      && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
+    const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
+    audit = { ...audit, turn_completeness: reviewed.audit, ...(pendingCommercialHandoff ? {
+      requires_advisor: needsCommercialHandoff, handoff_review: resolvedFromContext ? 'resolved_from_context' : 'needs_advisor',
+      ...(resolvedFromContext ? { handoff_reason: null } : {}),
+    } : {}) }
+    if ((reviewed.needsAdvisor || needsCommercialHandoff) && !finalNotice) {
+      const reason = reviewed.unresolved.length ? 'resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650) : pendingCommercialHandoff
+      const notice = await transferToAdvisor(reason)
       reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + notice
       audit = { ...audit, additional_questions_handoff: true }
     }
+  }
+  // A writer may improve the answer, but cannot hide a handoff already performed.
+  if (handoffNotice && !reply.includes(handoffNotice)) {
+    reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + handoffNotice
   }
   if (!['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
     reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)

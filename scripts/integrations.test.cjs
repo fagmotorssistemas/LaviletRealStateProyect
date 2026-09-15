@@ -666,6 +666,54 @@ const contextualInfo = () => ({ ...priceInfo(),
   historial: [{ role: 'bot', content: 'Somos un proyecto de suites, departamentos y locales comerciales.' }],
 })
 
+test('a rejected commercial draft resolved by the final review never pauses the lead', async t => {
+  live(t)
+  let reviewedBeforeAction = false
+  const h = conversationHarness({ commercialResult: { reply: '', audit: { requires_advisor: true, handoff_reason: 'consulta sin respuesta verificada' } },
+    turnComplete: input => {
+      reviewedBeforeAction = !h.calls.some(c => c.name === 'handoff_lead' || c.name === 'patch' && c.args[1] === 451530)
+      return { reply: 'Sí, contamos con locales comerciales. Podemos revisar las opciones según el uso que busca.', changed: true, needsAdvisor: false, unresolved: [],
+        audit: { status: 'checked', requests: [{ fragment: input.current, status: 'answered' }] } }
+    } })
+  h.rows[0].payload.text = 'Tiene locales comerciales ??'
+  const result = await h.process([h.rows[0]], async () => {})
+  assert.equal(reviewedBeforeAction, true)
+  assert.equal(result.handoff_review, 'resolved_from_context')
+  assert.equal(result.requires_advisor, false)
+  assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false)
+  assert.equal(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === false), false)
+  h.rows[0].payload.text = 'Y cuál es el departamento más barato'
+  h.rows[0].payload.externalId = 'third'
+  assert.equal((await h.process([h.rows[0]], async () => {})).action, 'accepted')
+  assert.equal(h.calls.filter(c => c.name === 'launch').length, 2)
+})
+
+test('a remaining information gap hands off after review and preserves the notice', async t => {
+  live(t)
+  const h = conversationHarness({ commercialResult: { reply: '', audit: { requires_advisor: true } },
+    turnComplete: input => ({ reply: 'El proyecto contempla piscina y gimnasio. Las condiciones y pagos de uso deben verificarse.', changed: true,
+      needsAdvisor: true, unresolved: [input.current], audit: { status: 'checked', requests: [{ status: 'missing_fact' }] } }) })
+  h.rows[0].payload.text = 'La piscina y gimnasio se pagan aparte cada mes?'
+  await h.process([h.rows[0]], async () => {})
+  const names = h.calls.map(c => c.name)
+  assert.ok(names.indexOf('completeTurnReply') < names.indexOf('handoff_lead'))
+  const sent = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
+  assert.match(sent, /condiciones y pagos/)
+  assert.match(sent, /bandeja del equipo/)
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+})
+
+test('a final rewrite cannot hide an explicitly requested advisor handoff', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { requested_advisor: true }, turnComplete: { reply: 'Podemos ayudarle con las opciones del proyecto.', changed: true,
+    needsAdvisor: false, unresolved: [], audit: { status: 'checked', requests: [{ status: 'answered' }] } } })
+  h.rows[0].payload.text = 'Quiero hablar con un asesor'
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
+  assert.match(sent, /bandeja del equipo/)
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+})
+
 test('the reported two-message turn answers options, affordability and singular valor together', async t => {
   live(t)
   const info = contextualInfo()
