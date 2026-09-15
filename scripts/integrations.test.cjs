@@ -1113,6 +1113,7 @@ function conversationHarness(options = {}) {
     './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }) },
     './nutrition': { scheduleNutrition24h: async () => ({ scheduled: false, reason: 'test' }) },
     './nutrition-week-one': { scheduleNutritionWeekOne: async () => ({ scheduled: false, reason: 'test' }) },
+    './nutrition-later': { scheduleNutritionLater: async () => ({ scheduled: false, reason: 'test' }) },
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
       one: async table => {
         if (options.urgentReadFails && escalationAttempted) throw Error('READ_URGENT_STATE_FAILED')
@@ -1182,6 +1183,22 @@ test('week-one finance acceptance offers information without collecting credit c
   assert.equal(result.action, 'accepted')
   assert.equal(result.nutrition_continuation.topic, 'revisar las opciones de financiamiento disponibles')
   for (const call of h.calls.filter(c => c.name === 'process_financing_message_v2')) assert.notEqual(call.args.p_financing_consent, true)
+})
+
+test('week two and three replies retain their real context and do not manufacture consent', async t => {
+  live(t)
+  const { LATER_ROUTES } = require('../src/lib/inmobiliaria/nutritionLater.ts')
+  for (const [week, topic, message] of [[2, 'un nuevo hogar', 'Sí por favor'], [3, 'conocer las alternativas de financiamiento', 'Sí, con JEP'], [3, 'revisar el proceso de compra del inmueble que le interesa', 'Sí por favor']]) {
+    const h = conversationHarness({ history: [{ id: 'offer', role: 'bot', content: LATER_ROUTES[week].body.replace('{{1}}', topic) }], extracted: { financing_consent: true } })
+    h.rows = h.rows.slice(0, 1); h.rows[0].payload.text = message
+    const result = await h.process(h.rows, async () => {})
+    assert.equal(result.action, 'accepted')
+    for (const call of h.calls.filter(c => c.name === 'process_financing_message_v2')) assert.notEqual(call.args.p_financing_consent, true)
+    assert.equal(h.calls.some(c => c.name === 'lv_collect_visit_intake'), false)
+    assert.ok(h.calls.some(c => c.name === 'completeTurnReply'))
+    const original = h.calls.find(c => c.name === 'register_inbound_message').args
+    assert.ok(Object.values(original).includes(message))
+  }
 })
 
 test('new questions after week-one followup retain every question and ignore the old offered action', async t => {

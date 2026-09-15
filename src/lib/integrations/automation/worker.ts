@@ -7,6 +7,8 @@ import { pendingVisits, planVisits, previewVisits, sendVisit } from './visits'
 import { ProviderError } from './kommo'
 import { cancelNutrition24h, sendNutrition24h } from './nutrition'
 import { cancelNutritionWeekOne, sendNutritionWeekOne } from './nutrition-week-one'
+import { cancelNutritionLater, sendNutritionLater } from './nutrition-later'
+import { NUTRITION_TASKS } from '@/lib/inmobiliaria/nutritionLater'
 import { kommoDeliveryBlock, rejectedWriteStatus } from './delivery-state'
 
 async function scheduleTasks() {
@@ -53,10 +55,12 @@ export async function runAutomation() {
           await guard()
           await cancelNutrition24h(Number(object(first.payload).kommoId))
           await cancelNutritionWeekOne(Number(object(first.payload).kommoId))
+          await cancelNutritionLater(Number(object(first.payload).kommoId))
           result = await processConversation(batch, guard)
         }
-        else if (first.kind === 'maintenance' && ['nutrition_24h', 'nutrition_week_one'].includes(text(object(first.payload).task))) {
-          result = object(first.payload).task === 'nutrition_week_one' ? await sendNutritionWeekOne(first, guard) : await sendNutrition24h(first, guard)
+        else if (first.kind === 'maintenance' && NUTRITION_TASKS.includes(text(object(first.payload).task))) {
+          result = object(first.payload).task === 'nutrition_week_one' ? await sendNutritionWeekOne(first, guard)
+            : object(first.payload).task === 'nutrition_24h' ? await sendNutrition24h(first, guard) : await sendNutritionLater(first, guard)
           if (result.action === 'deferred') {
             const { error } = await db().from('lv_integration_events').update({ status: 'pending', available_at: result.nextAt, claim_token: null, claimed_at: null })
               .match(scope).eq('id', first.id).eq('status', 'processing').eq('claim_token', token)

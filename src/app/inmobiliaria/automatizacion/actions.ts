@@ -22,7 +22,8 @@ import type {
 import type { TeamProfile } from '@/types/inmobiliaria'
 import { nutrition24hConfig, withNutrition24h, type Nutrition24hConfig } from '@/lib/inmobiliaria/nutrition24h'
 import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
-import { verifyNutritionTemplate, verifyWeekOneTemplates } from '@/lib/integrations/automation/kommo'
+import { verifyNutritionTemplate, verifyWeekOneTemplates, verifyLaterTemplates } from '@/lib/integrations/automation/kommo'
+import { nutritionLaterConfig, withNutritionLater, type LaterWeek } from '@/lib/inmobiliaria/nutritionLater'
 import { nutritionWeekOneConfig, withNutritionWeekOne, type NutritionWeekOneConfig } from '@/lib/inmobiliaria/nutritionWeekOne'
 import { botVisitPolicy, withBotVisitPolicy, type BotVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 
@@ -76,7 +77,7 @@ export async function loadAutomationRulesAction(projectId: string) {
       loadAutomationRules(client, { tenantId: project.tenant_id, projectId }),
       listTeamProfiles(client),
     ])
-    return { ...rules, profiles: profiles as TeamProfile[], nutrition24h: nutrition24hConfig(project.policies_json), nutritionWeekOne: nutritionWeekOneConfig(project.policies_json), botVisits: botVisitPolicy(project.policies_json, rules.config?.mode || 'lanzamiento'), projectUpdatedAt: project.updated_at as string }
+    return { ...rules, profiles: profiles as TeamProfile[], nutrition24h: nutrition24hConfig(project.policies_json), nutritionWeekOne: nutritionWeekOneConfig(project.policies_json), nutritionLater: nutritionLaterConfig(project.policies_json), botVisits: botVisitPolicy(project.policies_json, rules.config?.mode || 'lanzamiento'), projectUpdatedAt: project.updated_at as string }
   })
 }
 
@@ -182,6 +183,24 @@ export async function markBrochureSharedAction(projectId: string, kommoId: numbe
       .eq('id', lead.id).eq('tenant_id', lead.tenant_id).eq('project_id', projectId).eq('updated_at', lead.updated_at).select('id').maybeSingle()
     if (writeError || !data) throw Error('El lead cambió o no se pudo guardar. Intente de nuevo.')
     return { recorded: true }
+  })
+}
+
+export async function saveNutritionLaterAction(projectId: string, input: Record<LaterWeek, boolean>, expectedUpdatedAt: string) {
+  return withAdminSession(async client => {
+    if (projectId !== LAVILET_PROJECT_ID) throw Error('Esta configuración corresponde a La Vilet.')
+    const { data: project, error } = await client.from('projects').select('tenant_id,policies_json,updated_at').eq('id', projectId).maybeSingle()
+    if (error || !project) throw Error('No se pudo cargar el proyecto.')
+    if (!expectedUpdatedAt || project.updated_at !== expectedUpdatedAt) throw Error('El proyecto cambió. Actualice antes de guardar.')
+    const policies = withNutritionLater(project.policies_json, input)
+    if (input[2] || input[3]) {
+      const approved = await verifyLaterTemplates()
+      for (const week of [2, 3] as const) if (input[week] && !approved[week]) throw Error(`Revise la plantilla de semana ${week}: su aprobación, texto, campo y adjunto deben coincidir.`)
+    }
+    const { data, error: writeError } = await client.from('projects').update({ policies_json: policies, updated_at: new Date().toISOString() })
+      .eq('id', projectId).eq('tenant_id', project.tenant_id).eq('updated_at', expectedUpdatedAt).select('policies_json,updated_at').maybeSingle()
+    if (writeError || !data) throw Error('No se pudo guardar. Actualice y vuelva a intentarlo.')
+    return { config: nutritionLaterConfig(data.policies_json), updatedAt: data.updated_at as string }
   })
 }
 

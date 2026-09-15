@@ -146,6 +146,7 @@ function workerHarness({ blocked = false, failure = null, action = 'accepted' } 
     './delivery-state': { ...state, kommoDeliveryBlock: async () => hasBlock ? { http_status: 402 } : null },
     './nutrition': { cancelNutrition24h: async () => {}, sendNutrition24h: async () => ({}) },
     './nutrition-week-one': { cancelNutritionWeekOne: async () => { calls.push({ name: 'cancel_week_one' }) }, sendNutritionWeekOne: async () => ({}) },
+    './nutrition-later': { cancelNutritionLater: async () => {}, sendNutritionLater: async () => ({}) },
     './conversation': { processConversation: async () => { calls.push({ name: 'process' }); if (failure) { hasBlock = failure.status === 402; throw failure } return { action } } },
     './visits': { pendingVisits: async () => { calls.push({ name: 'visits' }); return [] }, planVisits: async () => 0 },
   })

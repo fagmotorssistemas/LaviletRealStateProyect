@@ -1,4 +1,5 @@
 import 'server-only'
+import { nutritionLaterConfig, NUTRITION_TASKS, LATER_ROUTES } from '@/lib/inmobiliaria/nutritionLater'
 import { nutritionWeekOneConfig, nutritionWeekOneReady, WEEK_ONE_BROCHURE_URL, WEEK_ONE_ROUTES } from '@/lib/inmobiliaria/nutritionWeekOne'
 import { nutritionSendTime } from '@/lib/inmobiliaria/nutrition24h'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
@@ -17,7 +18,7 @@ export async function weekOneSettings() {
     db().from('project_automation_config').select('business_hours,mode').match(scope).maybeSingle(),
   ])
   if (project.error || automation.error) throw Error('WEEK_ONE_SETTINGS_FAILED')
-  return { config: nutritionWeekOneConfig(project.data?.policies_json), hours: automation.data?.business_hours,
+  return { config: nutritionWeekOneConfig(project.data?.policies_json), later: nutritionLaterConfig(project.data?.policies_json), hours: automation.data?.business_hours,
     visits: botVisitPolicy(project.data?.policies_json, automation.data?.mode || 'lanzamiento') }
 }
 
@@ -68,10 +69,11 @@ export async function weekOneMemory(lead: Row) {
   return { leads, leadIds, outbound, latestClientId: latest.data?.[0]?.id, brochureShared: sharedBrochure(outbound, leads) }
 }
 
-async function weekOneContext(payload: Row) {
+export async function weekOneContext(payload: Row, week: 1 | 2 | 3 = 1) {
   const [lead, conversation, settings, auto] = await Promise.all([one('leads', text(payload.leadId)), one('conversations', text(payload.conversationId)), weekOneSettings(), autoConfig()])
   if (conversation.lead_id !== lead.id) throw Error('WEEK_ONE_CONVERSATION_MISMATCH')
-  if (!nutritionWeekOneReady(settings.config) || payload.activatedAt !== settings.config.activatedAt) return { reason: 'disabled_or_changed' } as const
+  const active = week === 1 ? settings.config : settings.later[week]
+  if (!active.enabled || !Number.isFinite(Date.parse(active.activatedAt || '')) || payload.activatedAt !== active.activatedAt) return { reason: 'disabled_or_changed' } as const
   if (!nutritionLeadEligible(lead) || !permitted(auto, lead, automationSettings().testLeadId) || Number(lead.kommo_id) !== Number(payload.kommoId)) return { reason: 'ineligible' } as const
   const memory = await weekOneMemory(lead)
   const [messages, latest, visits, drafts, inputs, jobs, financing, qualifications] = await Promise.all([
@@ -94,14 +96,25 @@ async function weekOneContext(payload: Row) {
   if (visits.data?.length || drafts.data?.length || jobs.data?.length || qualifications.data?.length) return { reason: 'active_coordination' } as const
   if (memory.outbound.some(m => m.role === 'asesor' && Date.parse(text(m.sent_at)) >= Date.parse(text(payload.anchorAt)))) return { reason: 'human_attention' } as const
   if (/^(?:no(?: muchas)? gracias|no|por ahora no|no me interesa)[.!\s]*$/i.test(text(lastClient?.content))) return { reason: 'declined' } as const
-  if (memory.outbound.some(m => object(m.tool_calls).nutrition_week_one)) return { reason: 'week_one_already_sent' } as const
+  const task = week === 1 ? 'nutrition_week_one' : LATER_ROUTES[week].task
+  if (memory.outbound.some(m => object(m.tool_calls)[task])) return { reason: week === 1 ? 'week_one_already_sent' : 'week_already_sent' } as const
+  if (week < 3 && memory.outbound.some(m => object(m.tool_calls).nutrition_week_three || (week === 1 && object(m.tool_calls).nutrition_week_two))) return { reason: 'later_week_already_sent' } as const
   const attempts = await db().from('lv_integration_events').select('status,result,completed_at').match(scope).eq('kind', 'maintenance')
-    .in('payload->>leadId', memory.leadIds).in('payload->>task', ['nutrition_24h', 'nutrition_week_one']).in('status', ['completed', 'uncertain', 'cancelled']).limit(1000)
+    .in('payload->>leadId', memory.leadIds).in('payload->>task', NUTRITION_TASKS).in('status', ['completed', 'uncertain', 'cancelled']).limit(1000)
   if (attempts.error || attempts.data?.length === 1000) throw Error('WEEK_ONE_ATTEMPTS_FAILED')
   if (attempts.data?.some(a => a.status === 'uncertain' || object(a.result).requires_review === true)) return { reason: 'previous_attempt_needs_review' } as const
   const accepted = memory.outbound.filter(m => /^template:nutrition_/.test(text(m.model_used)))
   const lastFollowup = Math.max(0, ...accepted.map(m => Date.parse(text(m.sent_at)) || 0), ...(attempts.data || []).filter(a => object(a.result).action === 'accepted').map(a => Date.parse(a.completed_at || '') || 0))
-  const due = nutritionSendTime(Math.max(Date.now(), Date.parse(text(payload.anchorAt)) + 7 * DAY, lastFollowup + 7 * DAY), settings.hours)
+  let earlierDue = 0
+  if (week > 1) {
+    const earlier = await db().from('lv_integration_events').select('available_at').match(scope).eq('kind', 'maintenance')
+      .in('payload->>leadId', memory.leadIds).eq('payload->>anchorId', text(payload.anchorId))
+      .in('payload->>task', week === 2 ? ['nutrition_week_one'] : ['nutrition_week_one', 'nutrition_week_two'])
+      .in('status', ['pending', 'processing']).order('available_at', { ascending: false }).limit(1)
+    if (earlier.error) throw Error('NUTRITION_EARLIER_WEEK_FAILED')
+    if (earlier.data?.length) earlierDue = Math.max(Date.now() + DAY, Date.parse(earlier.data[0].available_at) + 7 * DAY)
+  }
+  const due = nutritionSendTime(Math.max(Date.now(), Date.parse(text(payload.anchorAt)) + week * 7 * DAY, lastFollowup + 7 * DAY, earlierDue), settings.hours)
   if (!due) return { reason: 'no_business_hours' } as const
   return { reason: '', lead, conversation, settings, memory, history, financing, due } as const
 }

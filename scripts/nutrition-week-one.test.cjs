@@ -16,6 +16,8 @@ function load(relative, mocks) {
 }
 const rules = require('../src/lib/integrations/automation/nutrition-week-one-rules.ts')
 const config = require('../src/lib/inmobiliaria/nutritionWeekOne.ts')
+const laterConfig = require('../src/lib/inmobiliaria/nutritionLater.ts')
+const laterRules = require('../src/lib/integrations/automation/nutrition-later-rules.ts')
 const data = require('../src/lib/integrations/automation/data.ts')
 const c = { ...config.nutritionWeekOneConfig(null), enabled: true, activatedAt: '2026-09-01T00:00:00Z' }
 const catalog = [{ id: 'unit', unit_number: '202', category: 'departamento' }, { id: 'unit2', unit_number: '203', category: 'departamento' }, { id: 'local', unit_number: 'LC-11', category: 'local' }]
@@ -69,20 +71,23 @@ function harness(options = {}) {
   const calls = [], queries = [], jobs = new Map(); let patched = false
   const lead = { ...data.scope, id: 'lead', kommo_id: 123, contact_id: '456', bot_enabled: true, tracking_consent: true, handoff_status: 'none', channel_origin: 'whatsapp', ...options.lead }
   const policy = { ...c, ...options.config }
-  const payload = { task: 'nutrition_week_one', leadId: 'lead', conversationId: 'conv', kommoId: 123, anchorId: 'client', anchorAt: '2026-09-08T15:00:00Z', activatedAt: policy.activatedAt }
+  const week = options.week || 1
+  const laterPolicy = { 2: { enabled: true, activatedAt: '2026-08-01T00:00:00Z' }, 3: { enabled: true, activatedAt: '2026-08-01T00:00:00Z' }, ...options.laterPolicy }
+  const payload = { task: week === 1 ? 'nutrition_week_one' : laterConfig.LATER_ROUTES[week].task, leadId: 'lead', conversationId: 'conv', kommoId: 123, anchorId: 'client', anchorAt: new Date(Date.parse('2026-09-15T15:00:00Z') - week * 7 * 86400000).toISOString(), activatedAt: week === 1 ? policy.activatedAt : laterPolicy[week].activatedAt }
   const bot = { id: 'answer', role: 'bot', content: options.shared ? config.WEEK_ONE_BROCHURE_BODY : 'Tenemos varias opciones.', sent_at: '2026-09-08T15:01:00Z' }
-  const h = [{ id: 'client', role: 'cliente', external_message_id: 'external', content: 'Me interesa el departamento 202', sent_at: payload.anchorAt }, bot]
+  const h = [{ id: 'client', role: 'cliente', external_message_id: 'external', content: options.clientText || 'Me interesa el departamento 202', sent_at: payload.anchorAt }, bot]
   const outbound = [bot, ...(options.outbound || [])]
   const query = table => {
     const filters = [], q = {}; let operation = 'read', value
     for (const method of ['select', 'match', 'eq', 'in', 'order', 'limit', 'not', 'or', 'range', 'contains', 'maybeSingle']) q[method] = (...args) => { filters.push([method, ...args]); return q }
-    q.upsert = v => { operation = 'upsert'; value = v; if (!jobs.has(v.event_key)) jobs.set(v.event_key, v); return q }
+    q.upsert = v => { operation = 'upsert'; value = v; for (const row of Array.isArray(v) ? v : [v]) if (!jobs.has(row.event_key)) jobs.set(row.event_key, row); return q }
     q.update = v => { operation = 'update'; value = v; return q }
     q.then = (resolve, reject) => {
       queries.push({ table, filters, operation, value })
       const eq = key => filters.find(f => f[0] === 'eq' && f[1] === key)?.[2]
       let result = []
-      if (table === 'projects') result = { policies_json: { nutrition_week_one: patched && options.disableAfterPatch ? { ...policy, enabled: false } : policy } }
+      if (table === 'projects') result = { policies_json: { nutrition_week_one: patched && options.disableAfterPatch ? { ...policy, enabled: false } : policy,
+        nutrition_later: patched && options.disableAfterPatch ? { 2: { ...laterPolicy[2], enabled: false }, 3: { ...laterPolicy[3], enabled: false } } : laterPolicy } }
       if (table === 'project_automation_config') result = { business_hours: { '1': { open: '09:00', close: '18:00' }, '2': { open: '09:00', close: '18:00' } }, mode: 'lanzamiento' }
       if (table === 'leads') result = [lead, ...(options.related || [])]
       if (table === 'conversations') result = [{ id: options.newConversation && eq('lead_id') ? 'new' : 'conv' }]
@@ -92,7 +97,7 @@ function harness(options = {}) {
       if (table === 'lv_outbox') result = options.visitJob ? [{ id: 'job' }] : []
       if (table === 'financing_prequalifications') result = options.financeConsent ? [{ id: 'finance' }] : []
       if (table === 'units') result = catalog
-      if (table === 'lv_integration_events') result = eq('kind') === 'inbound' ? options.pendingInput ? [{ id: 'input' }] : [] : options.attempts || []
+      if (table === 'lv_integration_events') result = eq('kind') === 'inbound' ? options.pendingInput ? [{ id: 'input' }] : [] : filters.some(f => f[0] === 'select' && f[1] === 'available_at') ? options.earlier || [] : options.attempts || []
       return Promise.resolve({ data: result, error: null }).then(resolve, reject)
     }
     return q
@@ -103,7 +108,12 @@ function harness(options = {}) {
     './data': { ...data, db: () => ({ from: query }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false }), one: async table => table === 'leads' ? lead : { ...data.scope, id: 'conv', lead_id: lead.id }, rpc: async (name, args) => { calls.push({ name, args }); if (options.receiptFails) throw Error('RECEIPT_FAILED'); return {} } },
     './kommo': { getKommoLead: async () => ({}), botStopped: () => !!options.remoteStopped, verifyWeekOneTemplates: async () => ({ brochure: options.approved !== false, followup: options.approved !== false }), setKommoField: async (...args) => { calls.push({ name: 'patch', args }); patched = true }, launchSalesbot: async (...args) => { calls.push({ name: 'launch', args }); if (options.timeout) throw Error('TIMEOUT') } },
   })
-  return { ...mod, calls, queries, jobs, payload }
+  const later = load('src/lib/integrations/automation/nutrition-later.ts', {
+    './config': { assertLive() {} }, './nutrition-week-one': mod,
+    './data': { ...data, db: () => ({ from: query }), one: async table => table === 'leads' ? lead : { ...data.scope, id: 'conv', lead_id: lead.id }, rpc: async (name, args) => { calls.push({ name, args }); if (options.receiptFails) throw Error('RECEIPT_FAILED'); return {} } },
+    './kommo': { getKommoLead: async () => ({}), botStopped: () => !!options.remoteStopped, verifyLaterTemplates: async () => ({ 2: options.approved !== false, 3: options.approved !== false }), setKommoField: async (...args) => { calls.push({ name: 'patch', args }); patched = true }, launchSalesbot: async (...args) => { calls.push({ name: 'launch', args }); if (options.timeout) throw Error('TIMEOUT') } },
+  })
+  return { ...mod, ...later, calls, queries, jobs, payload }
 }
 const fixedClock = t => t.mock.method(Date, 'now', () => Date.parse('2026-09-15T15:00:00Z'))
 const readyLink = t => t.mock.method(global, 'fetch', async () => ({ ok: true, url: 'https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf', headers: new Headers({ 'content-type': 'application/pdf' }) }))
@@ -176,4 +186,93 @@ test('a missing or private brochure link blocks its campaign instead of sending 
   const h = harness()
   assert.equal((await h.sendNutritionWeekOne({ payload: h.payload }, async () => {})).reason, 'brochure_link_unavailable')
   assert.equal(h.calls.length, 0)
+})
+
+test('week two variable describes purpose without old action verbs or inventing a purpose', () => {
+  assert.equal(laterRules.laterChoice(2, {}, history('No es para vivir, es para invertir'), [], []).topic, 'una propiedad para invertir')
+  assert.equal(laterRules.laterChoice(2, {}, history('Para invertir, no para vivir'), [], []).topic, 'una propiedad para invertir')
+  for (const [lead, input, expected] of [[{}, 'Quiero algo para vivir', 'un nuevo hogar'], [{}, 'Busco un local para mi negocio', 'un local para su negocio'], [{}, 'Para invertir y arrendar', 'una propiedad para invertir'], [{}, 'Busco un local', 'un local comercial'], [{}, 'Gracias', 'el espacio adecuado para usted'], [{ purchase_purpose: 'invertir' }, 'Ahora quiero algo para vivir', 'un nuevo hogar']]) {
+    const choice = laterRules.laterChoice(2, lead, history(input), [], [])
+    assert.equal(choice.topic, expected)
+    assert.match(choice.body, new RegExp('Sabemos que elegir ' + expected))
+  }
+})
+test('week three chooses a new next step, avoids repeating financing and skips exhausted offers', () => {
+  const h = history('Me interesa comprar un departamento pero no sé si me alcanza')
+  assert.equal(laterRules.laterChoice(3, {}, h, [], ['JEP']).action, 'financing_options')
+  const finance = [{ role: 'bot', content: 'Puede revisar financiamiento con JEP.' }]
+  assert.equal(laterRules.laterChoice(3, {}, h, finance, ['JEP']).action, 'purchase_process')
+  const steps = [...finance, { role: 'bot', content: 'Le explico el proceso de compra.' }]
+  assert.equal(laterRules.laterChoice(3, {}, h, steps, ['JEP']).action, 'advisor_conversation')
+  assert.equal(laterRules.laterChoice(3, {}, h, [...steps, { role: 'bot', content: 'Podemos coordinar una conversación con un asesor.' }], ['JEP']), null)
+})
+test('week two and three accepted templates require exact bodies, fields and the known image only', () => {
+  const { approvedLaterTemplate } = require('../src/lib/integrations/automation/kommo.ts')
+  for (const week of [2, 3]) {
+    const route = laterConfig.LATER_ROUTES[week]
+    const template = { id: route.templateId, type: 'waba', content: route.body.replace('{{1}}', `{{lead.cf.${route.fieldId}}}`), attachment: route.attachmentId ? { id: route.attachmentId, type: 'picture' } : null, _embedded: { reviews: [{ status: 'approved' }] } }
+    assert.equal(approvedLaterTemplate(template, week), true)
+    for (const bad of [{ ...template, content: '{{lead.cf.530952}}' }, { ...template, attachment: { id: 'different', type: 'picture' } }, { ...template, _embedded: { reviews: [] } }, { ...template, type: 'amocrm' }]) assert.equal(approvedLaterTemplate(bad, week), false)
+  }
+})
+test('new stages schedule 14 and 21 days, cancel only their pending jobs, never week four', async t => {
+  fixedClock(t)
+  const h = harness({ week: 2 })
+  await h.scheduleNutritionLater('lead', 'conv', 'external'); await h.scheduleNutritionLater('lead', 'conv', 'external')
+  assert.equal(h.jobs.size, 2)
+  assert.deepEqual([...h.jobs.values()].map(j => j.available_at), ['2026-09-15T15:00:00.000Z', '2026-09-22T15:00:00.000Z'])
+  assert.ok([...h.jobs.values()].every(j => j.contact_key === null && !j.payload.task.includes('four')))
+  await h.cancelNutritionLater(123)
+  const cancel = h.queries.find(q => q.operation === 'update')
+  assert.deepEqual(cancel.filters.find(f => f[0] === 'in' && f[1] === 'payload->>task')[2], ['nutrition_week_two', 'nutrition_week_three'])
+  const disabled = harness({ laterPolicy: { 2: { enabled: false }, 3: { enabled: false } } })
+  assert.equal((await disabled.scheduleNutritionLater('lead', 'conv', 'external')).scheduled, false)
+  assert.equal(h.calls.length, 0)
+})
+test('each later week patches its own field and launches only its corresponding bot', async t => {
+  fixedClock(t)
+  for (const week of [2, 3]) {
+    const h = harness({ week, lead: { purchase_purpose: 'vivir' } })
+    const result = await h.sendNutritionLater({ payload: h.payload }, async () => {})
+    assert.equal(result.action, 'accepted')
+    assert.deepEqual(h.calls.find(c => c.name === 'launch').args, [123, week === 2 ? 21446 : 21452])
+    assert.equal(h.calls.find(c => c.name === 'patch').args[1], week === 2 ? 530952 : 530954)
+    const receipt = h.calls.find(c => c.name === 'register_outbound_message').args
+    assert.equal(receipt.p_content, result.body)
+    assert.equal(receipt.p_tool_calls[laterConfig.LATER_ROUTES[week].task].week, week)
+    assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+  }
+})
+test('later weeks respect pauses, previous sends, context changes, approval and uncertainty', async t => {
+  fixedClock(t)
+  for (const week of [2, 3]) for (const options of [{ remoteStopped: true }, { approved: false }, { pendingInput: true }, { visit: true }, { financeConsent: true }, { lead: { tracking_consent: false } }, { inputAfterPatch: true }, { disableAfterPatch: true }, { attempts: [{ status: 'uncertain' }] }, { outbound: [{ role: 'bot', tool_calls: { [laterConfig.LATER_ROUTES[week].task]: { week } } }] }]) {
+    const h = harness({ week, ...options })
+    assert.equal((await h.sendNutritionLater({ payload: h.payload }, async () => {})).action, 'cancelled', JSON.stringify({ week, options }))
+    assert.equal(h.calls.some(c => c.name === 'launch'), false)
+  }
+  const uncertain = harness({ week: 3, timeout: true })
+  await assert.rejects(uncertain.sendNutritionLater({ payload: uncertain.payload }, async () => {}), /TIMEOUT/)
+  assert.equal(uncertain.calls.filter(c => c.name === 'launch').length, 1)
+})
+test('week three waits for deferred earlier weeks and shares a seven-day frequency cap', async t => {
+  fixedClock(t)
+  for (const options of [{ earlier: [{ available_at: '2026-09-17T15:00:00Z' }] }, { attempts: [{ status: 'completed', result: { action: 'accepted' }, completed_at: '2026-09-14T15:00:00Z' }] }]) {
+    const h = harness({ week: 3, ...options })
+    const result = await h.sendNutritionLater({ payload: h.payload }, async () => {})
+    assert.equal(result.action, 'deferred')
+    assert.ok(Date.parse(result.nextAt) >= Date.parse('2026-09-21T15:00:00Z'))
+    assert.equal(h.calls.length, 0)
+  }
+})
+test('answers follow later offers without turning yes into credit consent or overriding new questions', () => {
+  const { financingInputs } = require('../src/lib/integrations/automation/financing.ts')
+  for (const [week, topic] of [[2, 'un nuevo hogar'], [3, 'conocer las alternativas de financiamiento'], [3, 'revisar el proceso de compra del inmueble que le interesa'], [3, 'coordinar una conversación con un asesor']]) {
+    const body = laterConfig.LATER_ROUTES[week].body.replace('{{1}}', topic)
+    const h = [{ id: 'offer', role: 'bot', content: body }]
+    const continuation = rules.nutritionContinuation('Sí, por favor', h)
+    assert.equal(continuation.topic, topic)
+    assert.equal(financingInputs({ financing_consent: true }, continuation.message, body, { partners: ['JEP'], current: {} }).consent, null)
+    assert.equal(financingInputs({ financing_consent: true, financing_partner: 'JEP' }, 'Sí, con JEP', body, { partners: ['JEP'], current: {} }).consent, null)
+    for (const reply of ['No gracias', 'Sí, pero cuánto cuesta y tiene parqueadero?', 'Mañana a las 8', 'Quiero un local']) assert.equal(rules.nutritionContinuation(reply, h), null)
+  }
 })

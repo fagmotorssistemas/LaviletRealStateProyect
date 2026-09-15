@@ -24,6 +24,7 @@ import { variedReplyOpening } from './response-openings'
 import { acceptedPriceOption, asksUnitPrice, unitPriceQuote, priceReplyIssues } from './price-reply'
 import { scheduleNutrition24h } from './nutrition'
 import { scheduleNutritionWeekOne } from './nutrition-week-one'
+import { scheduleNutritionLater } from './nutrition-later'
 import { nutritionContinuation } from './nutrition-week-one-rules'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
@@ -573,5 +574,8 @@ export async function processConversation(rows: Row[], guard: Guard) {
   let nutritionWeekOne: Row
   try { nutritionWeekOne = businessScope.kind === 'out_of_scope' || businessScope.uncertain ? { scheduled: false, reason: 'outside_property_conversation' } : await scheduleNutritionWeekOne(text(lead.id), conversationId, activeLast.externalId) }
   catch { nutritionWeekOne = { scheduled: false, reason: 'schedule_failed' } }
-  return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError, nutrition, nutrition_week_one: nutritionWeekOne }
+  let nutritionLater: Row
+  try { nutritionLater = businessScope.kind === 'out_of_scope' || businessScope.uncertain ? { scheduled: false, reason: 'outside_property_conversation' } : await scheduleNutritionLater(text(lead.id), conversationId, activeLast.externalId) }
+  catch { nutritionLater = { scheduled: false, reason: 'schedule_failed' } }
+  return { action: 'accepted', leadId: lead.id, ...audit, memory_saved: !memoryError, nutrition, nutrition_week_one: nutritionWeekOne, nutrition_later: nutritionLater }
 }

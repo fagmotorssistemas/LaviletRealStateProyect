@@ -2,6 +2,7 @@ import { WEEK_ONE_BROCHURE_BODY, WEEK_ONE_FOLLOWUP_BODY, type NutritionWeekOneCo
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { resolveCatalogReference } from './catalog-reference'
+import { laterContinuation } from './nutrition-later-rules'
 
 export type WeekOneChoice = { kind: 'brochure' | 'followup'; action: string; topic: string; body: string; unitId?: string; reason: string }
 /** Only actual outgoing material counts. A promise or a client's pasted link does not. */
@@ -48,6 +49,8 @@ export function weekOneChoice(c: NutritionWeekOneConfig, lead: Row, history: Row
 
 /** Resolve a bare acceptance against the exact last offer; never turn it into credit consent. */
 export function nutritionContinuation(current: string, history: unknown) {
+  const later = laterContinuation(current, history)
+  if (later) return later
   const rows = (Array.isArray(history) ? history : []).map(object)
   const last = rows.findLast(m => ['bot', 'asesor'].includes(text(m.role)))
   if (!last || last.role !== 'bot') return null

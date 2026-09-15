@@ -6,6 +6,7 @@ import { nutrition24hConfig, nutrition24hReady, nutritionSendTime } from '@/lib/
 import { nutritionLeadEligible, nutritionMessage } from './nutrition-context'
 import type { Guard } from './visits'
 import { weekOneMemory } from './nutrition-week-one'
+import { NUTRITION_TASKS } from '@/lib/inmobiliaria/nutritionLater'
 
 async function settings() {
   const [project, config] = await Promise.all([
@@ -89,7 +90,7 @@ export async function sendNutrition24h(job: Row, guard: Guard) {
   const memory = await weekOneMemory(c.lead)
   if (memory.outbound.some(m => /^template:nutrition_/.test(text(m.model_used)) && Date.now() - Date.parse(text(m.sent_at)) < 7 * 86_400_000)) return { action: 'cancelled', reason: 'previous_followup' }
   const { data: previous, error } = await db().from('lv_integration_events').select('status,result,completed_at')
-    .match(scope).neq('id', job.id).in('payload->>leadId', memory.leadIds).in('payload->>task', ['nutrition_24h', 'nutrition_week_one']).in('status', ['completed', 'uncertain'])
+    .match(scope).neq('id', job.id).in('payload->>leadId', memory.leadIds).in('payload->>task', NUTRITION_TASKS).in('status', ['completed', 'uncertain'])
     .order('received_at', { ascending: false }).limit(100)
   if (error) throw Error('NUTRITION_HISTORY_FAILED')
   if (previous?.some(row => row.status === 'uncertain' || (object(row.result).action === 'accepted' && Date.now() - Date.parse(row.completed_at) < 7 * 86_400_000))) return { action: 'cancelled', reason: 'previous_followup' }

@@ -2,6 +2,7 @@ import { db, object, scope, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isConversationRepair, explicitlyRequestsVisit } from './turn-routing'
 import { acceptsUnitOptions } from './sales-policy'
+import { LATER_ROUTES } from '@/lib/inmobiliaria/nutritionLater'
 
 export async function financingContext(lead: Row) {
   const [partners, qualification] = await Promise.all([
@@ -31,6 +32,11 @@ export function hasAffordabilityConcern(current: string) {
 }
 
 function asksFinancingConsent(lastReply: string, lastStep: Row) {
+  // Nutrition offers information or a conversation, never authorization to apply.
+  if (([2, 3] as const).some(week => {
+    const [before, after] = LATER_ROUTES[week].body.split('{{1}}')
+    return lastReply.trim().startsWith(before) && lastReply.trim().endsWith(after)
+  })) return false
   if (lastStep.kind === 'financing_consent' && lastStep.reply === lastReply && /\?/.test(lastReply)) return true
   const previous = normalized(lastReply)
   const question = normalized(lastReply.match(/(?:¿|\.)[^?¿.]*\?\s*$/)?.[0] || lastReply)
