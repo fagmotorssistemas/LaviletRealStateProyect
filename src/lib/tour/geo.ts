@@ -1,4 +1,5 @@
 import { decodeHeader } from '@/lib/tour/visitorCookie'
+import { isPrivateIp, pickTrustedClientIp } from '@/lib/meta/trustedClientIp'
 
 export type VisitorGeo = {
   city: string | null
@@ -12,18 +13,15 @@ function first(value: string | null | undefined) {
   return text || null
 }
 
-function isPrivateIp(ip: string) {
-  return /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|::1$|::ffff:127\.)/.test(ip)
-}
+export { isPrivateIp } from '@/lib/meta/trustedClientIp'
 
+/**
+ * IP del visitante desde cabeceras de plataforma (Vercel).
+ * Ver `pickTrustedClientIp`.
+ */
 export function clientIp(headers: Headers) {
-  const raw =
-    first(headers.get('x-vercel-forwarded-for')) ||
-    first(headers.get('cf-connecting-ip')) ||
-    first(headers.get('x-real-ip')) ||
-    first(headers.get('x-forwarded-for'))
-  if (!raw) return null
-  return raw.split(',')[0]?.trim() || null
+  const onVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV)
+  return pickTrustedClientIp((name) => headers.get(name), { onVercel })
 }
 
 export function readRequestGeo(headers: Headers, extras?: { city?: string | null; country?: string | null }): VisitorGeo {

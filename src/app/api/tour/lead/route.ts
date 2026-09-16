@@ -12,7 +12,7 @@ import {
   rpcIdentifyTourLeadWithMetaOutbox,
   rpcSetTrackingPreference,
 } from '@/lib/tour/tourRpc'
-import { resolveVisitorGeo } from '@/lib/tour/geo'
+import { resolveVisitorGeo, clientIp } from '@/lib/tour/geo'
 import { applyGeoCookies } from '@/lib/tour/visitorCookie'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
       city: jar?.get('lv_city')?.value,
       country: jar?.get('lv_country')?.value,
     })
-    const clientIp = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || undefined
+    const clientIpAddress = clientIp(h) || undefined
     const clientUa = h.get('user-agent') || undefined
     // body.consent = casilla de contacto/privacidad (no es ads).
     // Meta solo usa cookie de medición + ledger del visitante.
@@ -152,7 +152,7 @@ export async function POST(request: Request) {
         fbp: body.fbp,
         fbc: body.fbc,
         fbclid: body.fbclid,
-        client_ip_address: clientIp,
+        client_ip_address: clientIpAddress,
         client_user_agent: clientUa,
         ...(conservative
           ? {}

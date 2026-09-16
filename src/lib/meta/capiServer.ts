@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { LV_ADS_CONSENT_COOKIE, LV_CONSENT_COOKIE } from '@/lib/tour/trackingIds'
 import { parseAdsConsentFromCookieValue } from '@/lib/tour/consent'
 import { resolveEffectiveAdsConsent } from '@/lib/meta/effectiveAdsConsent'
+import { clientIp as resolveClientIp } from '@/lib/tour/geo'
 
 export type MetaServerEventName = 'ViewContent' | 'Lead' | 'Schedule'
 
@@ -132,16 +133,12 @@ export async function enqueueMetaEvent(
   if (!input.adsConsent) return { ok: false, skipped: 'no_ads_consent' }
   if (!isMetaCapiConfigured()) return { ok: false, skipped: 'not_configured' }
 
-  let clientIp: string | undefined = input.clientIpAddress || undefined
+  let clientIpAddress: string | undefined = input.clientIpAddress || undefined
   let clientUa: string | undefined = input.clientUserAgent || undefined
   if (input.includeRequestContext && input.actionSource === 'website') {
     try {
       const h = await headers()
-      clientIp =
-        clientIp ||
-        h.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        h.get('x-real-ip') ||
-        undefined
+      clientIpAddress = clientIpAddress || resolveClientIp(h) || undefined
       clientUa = clientUa || h.get('user-agent') || undefined
     } catch {
       // ignore
@@ -175,7 +172,7 @@ export async function enqueueMetaEvent(
         fbp: input.fbp || undefined,
         fbc: input.fbc || undefined,
         fbclid: input.fbclid || undefined,
-        client_ip_address: clientIp,
+        client_ip_address: clientIpAddress,
         client_user_agent: clientUa,
         content_ids: input.contentIds,
         content_name: input.contentName || undefined,

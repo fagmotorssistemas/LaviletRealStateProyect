@@ -6,6 +6,7 @@ import { LV_VID_COOKIE, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox, persistMetaConversion } from '@/lib/meta/localOutbox'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
+import { clientIp } from '@/lib/tour/geo'
 import {
   allowRateLimited,
   assertVisitKeyMatchesVisitor,
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
   }
 
   const h = await headers()
-  const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || 'unknown'
+  const ip = clientIp(h) || 'unknown'
   if (!allowRateLimited(rateBucket, `${visitorKey}:${ip}`, Date.now(), RATE_WINDOW_MS, RATE_MAX)) {
     return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
   }
