@@ -56,12 +56,12 @@ export function AutomationDeliveryBanner() {
         {!!health?.pendingMessages && health.blocked && <p className="mt-1">Mensajes pendientes: {health.pendingMessages}.</p>}
         {!!health?.incidentCount && <details className="mt-3">
           <summary className="cursor-pointer font-medium">Revisar {health.incidentCount} {health.incidentCount === 1 ? 'intento sin respuesta confirmada' : 'intentos sin respuesta confirmada'}</summary>
-          <p className="mt-2 text-xs">Compruebe la conversación en Kommo y atienda lo pendiente. Estos intentos no se reenvían automáticamente. Un envío de resultado desconocido requiere revisar el historial antes de desbloquearlo.</p>
+          <p className="mt-2 text-xs">Los fallos temporales de generación se reintentan de forma limitada. Si persisten, la consulta pasa al equipo. Revise los casos pendientes en Kommo; un envío de resultado desconocido nunca se repite sin comprobar el historial.</p>
           <ul className="mt-2 space-y-2">
             {health.incidents.map(item => <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-amber-200 bg-white/60 px-3 py-2">
               {item.kommoId ? <a className="inline-flex items-center gap-1 underline" href={`https://lavilet.kommo.com/leads/detail/${item.kommoId}`} target="_blank" rel="noopener noreferrer">Lead #{item.kommoId}<ExternalLink size={12} /></a> : <span>Automatización</span>}
-              <span className="text-xs">{item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Venció el plazo para responder; necesita atención' : 'Resultado del envío por comprobar'} · {item.reason}</span>
-              {admin && item.delivery !== 'unknown' && !health.blocked && <button type="button" disabled={busy} onClick={() => void update('incident_reviewed', item.id)} className="ml-auto text-xs font-medium underline disabled:opacity-50">Ya atendí esta conversación</button>}
+              <span className="text-xs">{item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Venció el plazo para responder; necesita atención' : item.delivery === 'generation_failed' ? 'Falló la generación de la respuesta; requiere atención' : 'Resultado del envío por comprobar'} · {item.reason}</span>
+              {admin && item.canResolve && !health.blocked && <button type="button" disabled={busy} onClick={() => void update('incident_reviewed', item.id)} className="ml-auto text-xs font-medium underline disabled:opacity-50">Ya atendí esta conversación</button>}
             </li>)}
           </ul>
           {health.incidentCount > health.incidents.length && <p className="mt-2 text-xs">Se muestran los últimos {health.incidents.length} intentos.</p>}

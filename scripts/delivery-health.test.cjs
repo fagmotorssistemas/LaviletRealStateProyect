@@ -133,7 +133,7 @@ test('a new rejection reopens the account block after an administrator allowed a
   assert.equal((await h.deliveryHealth()).httpStatus, 403)
 })
 
-function workerHarness({ blocked = false, failure = null, action = 'accepted' } = {}) {
+function workerHarness({ blocked = false, failure = null, action = 'accepted', recoveryFailure = null } = {}) {
   const calls = []
   let claimed = false, hasBlock = blocked
   const q = { then: resolve => Promise.resolve({ error: null }).then(resolve) }
@@ -143,13 +143,51 @@ function workerHarness({ blocked = false, failure = null, action = 'accepted' } 
       rpc: async (name, args) => { calls.push({ name, args }); if (name === 'lv_app_claim') { if (claimed) return []; claimed = true; return [event('pablo', 'processing', {}, { payload: { kommoId: 3577404 } })] } return true } },
     './config': { assertLive() {}, automationSettings: () => ({ mode: 'live' }) },
     './kommo': provider,
+    './generation-recovery': { ...require('../src/lib/integrations/automation/generation-recovery.ts'), recoverGenerationFailure: async () => {
+      calls.push({ name: 'generation_recovery' }); if (recoveryFailure) throw recoveryFailure
+      return { action: 'advisor_recovery', delivery_status: 'accepted' }
+    } },
     './delivery-state': { ...state, kommoDeliveryBlock: async () => hasBlock ? { http_status: 402 } : null },
     './nutrition': { cancelNutrition24h: async () => {}, sendNutrition24h: async () => ({}) },
+    './nutrition-week-one': { cancelNutritionWeekOne: async () => { calls.push({ name: 'cancel_week_one' }) }, sendNutritionWeekOne: async () => ({}) },
+    './nutrition-later': { cancelNutritionLater: async () => {}, sendNutritionLater: async () => ({}) },
     './conversation': { processConversation: async () => { calls.push({ name: 'process' }); if (failure) { hasBlock = failure.status === 402; throw failure } return { action } } },
     './visits': { pendingVisits: async () => { calls.push({ name: 'visits' }); return [] }, planVisits: async () => 0 },
   })
   return { runAutomation, calls }
 }
+
+test('an exhausted inference fails over to advisor once without replaying the conversation', async () => {
+  const { OpenAIRequestError } = require('../src/lib/integrations/automation/openai-request.ts')
+  const h = workerHarness({ failure: new OpenAIRequestError(503, true, 3) })
+  await h.runAutomation()
+  assert.equal(h.calls.filter(c => c.name === 'process').length, 1)
+  assert.equal(h.calls.filter(c => c.name === 'generation_recovery').length, 1)
+  const finish = h.calls.find(c => c.name === 'lv_app_finish').args
+  assert.equal(finish.p_status, 'completed')
+  assert.equal(finish.p_result.action, 'advisor_recovery')
+})
+
+test('failed recovery separates generation failures from an uncertain fallback launch', async () => {
+  const { OpenAIRequestError } = require('../src/lib/integrations/automation/openai-request.ts')
+  const { GenerationRecoveryError } = require('../src/lib/integrations/automation/generation-recovery.ts')
+  for (const unknown of [false, true]) {
+    const h = workerHarness({ failure: new OpenAIRequestError(503, true, 3), recoveryFailure: new GenerationRecoveryError(Error('RECOVERY_FAILED'), unknown) })
+    await h.runAutomation()
+    const finish = h.calls.find(c => c.name === 'lv_app_finish').args
+    assert.equal(finish.p_status, unknown ? 'uncertain' : 'cancelled')
+    assert.equal(finish.p_result.delivery_status, unknown ? undefined : 'generation_failed')
+  }
+})
+
+test('generation incidents have their own label; legacy uncertain events cannot be blindly dismissed', async () => {
+  const h = databaseHarness([event('legacy', 'uncertain', { reason: 'OPENAI_HTTP_503', requires_review: true }),
+    event('new', 'cancelled', { reason: 'HANDOFF_FAILED', generation_error: 'OPENAI_HTTP_503', delivery_status: 'generation_failed', requires_review: true })])
+  const health = await h.deliveryHealth()
+  assert.ok(health.incidents.every(row => row.delivery === 'generation_failed'))
+  assert.equal(health.incidents.find(row => row.id === 'legacy').canResolve, false)
+  assert.equal(health.incidents.find(row => row.id === 'new').canResolve, true)
+})
 
 test('blocked account leaves all pending leads untouched and releases the worker lease', async () => {
   const h = workerHarness({ blocked: true })

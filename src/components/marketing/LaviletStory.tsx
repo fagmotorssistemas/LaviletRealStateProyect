@@ -4,9 +4,10 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { motion, useInView, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
+import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { LaviletLockup, useLockupDocked } from './LaviletLockup'
+import { AboutLetterPlay } from './AboutLetterPlay'
 
 const LINES = [
   'El hormigón se curva para no interrumpir el paisaje.',
@@ -59,107 +60,180 @@ const ABOUT_BEATS = [
 
 const kineticEase = [0.22, 1, 0.36, 1] as const
 
-function KineticWord({ text, className }: { text: string; className?: string }) {
-  const reduce = useReducedMotion()
-  const ref = useRef<HTMLSpanElement>(null)
-  const inView = useInView(ref, { amount: 0.55, once: false })
-  const words = text.split(/\s+/).filter(Boolean)
+function HeadlineSides({
+  lines,
+  invert = false,
+}: {
+  lines: readonly string[]
+  invert?: boolean
+}) {
+  let offset = 0
 
   return (
-    <motion.span
-      ref={ref}
-      className={cn('inline-block', className)}
-      initial="hidden"
-      animate={inView ? 'show' : 'hidden'}
-      variants={{
-        hidden: {},
-        show: { transition: { staggerChildren: reduce ? 0 : 0.1 } },
-      }}
-    >
-      {words.map((word, index) => (
-        <motion.span
-          key={`${word}-${index}`}
-          className="mr-[0.22em] inline-block origin-bottom last:mr-0"
-          variants={{
-            hidden: reduce ? { opacity: 0.4 } : { opacity: 0, y: 20, filter: 'blur(7px)' },
-            show: {
-              opacity: 1,
-              y: 0,
-              filter: 'blur(0px)',
-              transition: { duration: reduce ? 0.2 : 0.7, ease: kineticEase },
-            },
-          }}
-        >
-          {word}
-        </motion.span>
-      ))}
-    </motion.span>
+    <>
+      {lines.map((line) => {
+        const words = line.split(/\s+/).filter(Boolean)
+        const start = offset
+        offset += words.length
+        return (
+          <span key={line} className="block">
+            {words.map((word, i) => {
+              const index = start + i
+              const fromLeft = invert ? index % 2 === 1 : index % 2 === 0
+              return (
+                <motion.span
+                  key={`${line}-${word}-${i}`}
+                  className="mr-[0.18em] inline-block last:mr-0"
+                  initial={{ x: fromLeft ? -64 : 64, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: fromLeft ? 48 : -48, opacity: 0 }}
+                  transition={{ duration: 0.52, delay: index * 0.07, ease: kineticEase }}
+                >
+                  {word}
+                </motion.span>
+              )
+            })}
+          </span>
+        )
+      })}
+    </>
   )
 }
 
 function AboutEditorial() {
   const reduce = useReducedMotion()
+  const pinRef = useRef<HTMLDivElement>(null)
+  const { scrollYProgress } = useScroll({
+    target: pinRef,
+    offset: ['start start', 'end end'],
+  })
+  const [active, setActive] = useState(0)
+  const beat = ABOUT_BEATS[active] ?? ABOUT_BEATS[0]
+
+  useMotionValueEvent(scrollYProgress, 'change', (value) => {
+    const next = Math.min(
+      ABOUT_BEATS.length - 1,
+      Math.max(0, Math.floor(value * ABOUT_BEATS.length + 1e-6)),
+    )
+    setActive(next)
+  })
+
+  if (reduce) {
+    return (
+      <div className="relative mx-auto max-w-5xl space-y-10 py-4">
+        <p className="sr-only">{ABOUT.join(' ')}</p>
+        {ABOUT_BEATS.map((item) => (
+          <article key={item.kicker} className={cn('grid gap-2', item.align)}>
+            <p className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase">
+              {item.kicker}
+            </p>
+            <h3 className={cn('font-serif text-[clamp(2.4rem,7vw,4.2rem)] leading-[0.88] tracking-[-0.045em]', item.tone)}>
+              {item.lines.join(' ')}
+            </h3>
+            <p className="max-w-md text-[15px] leading-relaxed text-[#2B1A18]/70 mkt-dark:text-[#F2F2F2]/72">
+              {item.note}
+            </p>
+          </article>
+        ))}
+      </div>
+    )
+  }
 
   return (
-    <div className="relative mx-auto max-w-5xl">
-      <p className="sr-only">{ABOUT.join(' ')}</p>
-      <p
-        aria-hidden
-        className="pointer-events-none absolute top-[8%] left-0 font-serif text-[clamp(5.5rem,18vw,13rem)] leading-none text-[#72735A]/[0.07] select-none mkt-dark:text-[#F2F2F2]/[0.08]"
-      >
-        LaVilēt
-      </p>
-
-      <div className="relative space-y-10 sm:space-y-14 lg:space-y-16" aria-hidden="true">
-        {ABOUT_BEATS.map((beat, index) => (
-          <motion.article
-            key={beat.kicker}
-            className={cn('grid gap-2 sm:gap-3', beat.align)}
-            initial={reduce ? false : { opacity: 0, y: 28 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.4 }}
-            transition={{ duration: 0.7, delay: 0.05, ease: kineticEase }}
+    <div
+      ref={pinRef}
+      className="relative mt-10 sm:mt-12 lg:mt-14"
+      style={{ height: `${ABOUT_BEATS.length * 85}vh` }}
+    >
+      <div className="relative sticky top-20 flex min-h-[calc(100svh-5.5rem)] items-center">
+        <AboutLetterPlay />
+        <div
+          className={cn(
+            'relative z-20 w-full overflow-hidden rounded-[1.75rem] px-6 py-12 sm:px-8 sm:py-16 lg:px-12 lg:py-20',
+            'bg-[linear-gradient(165deg,rgba(114,115,90,0.28),rgba(139,140,116,0.16)_46%,rgba(114,115,90,0.24))]',
+            'ring-1 ring-[#72735A]/16 backdrop-blur-md',
+            'mkt-dark:bg-[linear-gradient(165deg,rgba(242,242,242,0.1),rgba(139,140,116,0.22)_48%,rgba(242,242,242,0.08))]',
+            'mkt-dark:ring-[#F2F2F2]/14',
+          )}
+        >
+          <p className="sr-only">{ABOUT.join(' ')}</p>
+          <p
+            aria-hidden
+            className="pointer-events-none absolute top-[10%] left-6 font-serif text-[clamp(4.5rem,14vw,11rem)] leading-none text-[#72735A]/[0.08] select-none mkt-dark:text-[#F2F2F2]/[0.08]"
           >
-            <p className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase mkt-dark:text-[#BFBFB8]">
-              {beat.kicker}
-            </p>
-            <p
-              className={cn(
-                'max-w-lg text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
-                beat.align.includes('right') && 'sm:ml-auto',
-              )}
-            >
-              {beat.lead}
-            </p>
-            <h3
-              className={cn(
-                'font-serif font-normal tracking-[-0.045em] leading-[0.84]',
-                beat.tone,
-                beat.lines.length > 1
-                  ? 'text-[clamp(2.35rem,8.6vw,6.1rem)]'
-                  : 'text-[clamp(2.85rem,11vw,7.2rem)]',
-              )}
-            >
-              {beat.lines.map((line) => (
-                <span key={line} className="block">
-                  <KineticWord text={line} />
-                </span>
-              ))}
-            </h3>
-            <motion.p
-              className={cn(
-                'max-w-md text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
-                beat.align.includes('right') && 'sm:ml-auto',
-              )}
-              initial={reduce ? false : { opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.8 }}
-              transition={{ duration: 0.7, delay: 0.22, ease: kineticEase }}
-            >
-              {beat.note}
-            </motion.p>
-          </motion.article>
-        ))}
+            LaVilēt
+          </p>
+
+          <div className="relative mx-auto min-h-[min(58svh,28rem)] max-w-5xl">
+            <AnimatePresence mode="sync">
+              <motion.article
+                key={beat.kicker}
+                className={cn('absolute inset-0 flex flex-col justify-center gap-3', beat.align)}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.35, ease: kineticEase }}
+              >
+                <motion.p
+                  className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase mkt-dark:text-[#BFBFB8]"
+                  initial={{ x: -40, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 32, opacity: 0 }}
+                  transition={{ duration: 0.45, ease: kineticEase }}
+                >
+                  {beat.kicker}
+                </motion.p>
+                <motion.p
+                  className={cn(
+                    'max-w-lg text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
+                    beat.align.includes('right') && 'sm:ml-auto',
+                  )}
+                  initial={{ x: active % 2 === 0 ? -48 : 48, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: active % 2 === 0 ? 36 : -36, opacity: 0 }}
+                  transition={{ duration: 0.5, ease: kineticEase }}
+                >
+                  {beat.lead}
+                </motion.p>
+                <h3
+                  className={cn(
+                    'font-serif font-normal tracking-[-0.045em] leading-[0.84]',
+                    beat.tone,
+                    beat.lines.length > 1
+                      ? 'text-[clamp(2.35rem,8.6vw,6.1rem)]'
+                      : 'text-[clamp(2.85rem,11vw,7.2rem)]',
+                  )}
+                >
+                  <HeadlineSides lines={beat.lines} invert={active % 2 === 0} />
+                </h3>
+                <motion.p
+                  className={cn(
+                    'max-w-md text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
+                    beat.align.includes('right') && 'sm:ml-auto',
+                  )}
+                  initial={{ x: active % 2 === 0 ? 48 : -48, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: active % 2 === 0 ? -36 : 36, opacity: 0 }}
+                  transition={{ duration: 0.5, delay: 0.08, ease: kineticEase }}
+                >
+                  {beat.note}
+                </motion.p>
+              </motion.article>
+            </AnimatePresence>
+          </div>
+
+          <div className="relative mt-8 flex justify-center gap-2">
+            {ABOUT_BEATS.map((item, index) => (
+              <span
+                key={item.kicker}
+                className={cn(
+                  'h-1.5 rounded-full transition-all duration-300',
+                  index === active ? 'w-8 bg-[#C45C3E]' : 'w-1.5 bg-[#72735A]/35',
+                )}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -545,17 +619,7 @@ export function LaviletStory() {
           ]}
         />
 
-        <aside
-          className={cn(
-            'relative mt-10 w-full overflow-hidden rounded-[1.75rem] px-6 py-16 sm:mt-12 sm:px-8 sm:py-20 lg:mt-14 lg:px-12 lg:py-24',
-            'bg-[linear-gradient(165deg,rgba(114,115,90,0.28),rgba(139,140,116,0.16)_46%,rgba(114,115,90,0.24))]',
-            'ring-1 ring-[#72735A]/16 backdrop-blur-md',
-            'mkt-dark:bg-[linear-gradient(165deg,rgba(242,242,242,0.1),rgba(139,140,116,0.22)_48%,rgba(242,242,242,0.08))]',
-            'mkt-dark:ring-[#F2F2F2]/14',
-          )}
-        >
-          <AboutEditorial />
-        </aside>
+        <AboutEditorial />
       </div>
     </section>
   )

@@ -1,8 +1,10 @@
 import 'server-only'
+import { LATER_ROUTES, type LaterWeek } from '@/lib/inmobiliaria/nutritionLater'
+import { WEEK_ONE_BROCHURE_BODY, WEEK_ONE_FOLLOWUP_BODY, WEEK_ONE_ROUTES } from '@/lib/inmobiliaria/nutritionWeekOne'
 import { NUTRITION_24H_BODY } from '@/lib/inmobiliaria/nutrition24h'
 import { LAVILET_KOMMO_ORIGIN } from '../lavilet'
 import { assertLive } from './config'
-import { object, type Row } from './data'
+import { object, text, type Row } from './data'
 import { accountBlockedStatus, recordKommoBlock, rejectedWriteStatus } from './delivery-state'
 
 export class ProviderError extends Error {
@@ -89,4 +91,46 @@ export async function verifyNutritionTemplate(name: string, fieldId: number) {
     if (templates.length < 50) return matches.length === 1 && approvedNutritionTemplate(matches[0], fieldId)
   }
   return false
+}
+
+export function approvedWeekOneTemplate(template: Row, kind: 'brochure' | 'followup') {
+  const route = WEEK_ONE_ROUTES[kind]
+  const expected = kind === 'brochure' ? WEEK_ONE_BROCHURE_BODY : WEEK_ONE_FOLLOWUP_BODY.replace('{{1}}', `{{lead.cf.${WEEK_ONE_ROUTES.followup.fieldId}}}`)
+  const reviews = object(template._embedded).reviews
+  return template.id === route.templateId && template.type === 'waba'
+    && text(template.content).replace(/\r\n/g, '\n').trim() === expected
+    && !template.attachment
+    && Array.isArray(reviews) && reviews.length > 0 && reviews.map(object).every(r => r.status === 'approved')
+}
+
+export async function verifyWeekOneTemplates() {
+  const found: Row[] = []
+  for (let page = 1; page <= 10; page++) {
+    const response = object(await request(`/api/v4/chats/templates?with=reviews&limit=50&page=${page}`))
+    const templates = object(response._embedded).chat_templates
+    if (!Array.isArray(templates)) break
+    found.push(...templates.map(object))
+    if (templates.length < 50) break
+  }
+  return { brochure: found.some(t => approvedWeekOneTemplate(t, 'brochure')), followup: found.some(t => approvedWeekOneTemplate(t, 'followup')) }
+}
+
+export function approvedLaterTemplate(template: Row, week: LaterWeek) {
+  const route = LATER_ROUTES[week], reviews = object(template._embedded).reviews
+  const attachment = object(template.attachment)
+  return template.id === route.templateId && template.type === 'waba'
+    && text(template.content).replace(/\r\n/g, '\n').trim() === route.body.replace('{{1}}', `{{lead.cf.${route.fieldId}}}`)
+    && (route.attachmentId ? attachment.id === route.attachmentId && attachment.type === 'picture' : !template.attachment)
+    && Array.isArray(reviews) && reviews.length > 0 && reviews.map(object).every(r => r.status === 'approved')
+}
+export async function verifyLaterTemplates() {
+  const result = { 2: false, 3: false }
+  for (let page = 1; page <= 10; page++) {
+    const response = object(await request(`/api/v4/chats/templates?with=reviews&limit=50&page=${page}`))
+    const raw = object(response._embedded).chat_templates
+    if (!Array.isArray(raw)) break
+    for (const week of [2, 3] as const) result[week] ||= raw.some(t => approvedLaterTemplate(object(t), week))
+    if (raw.length < 50) break
+  }
+  return result
 }

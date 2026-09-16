@@ -17,6 +17,16 @@ export const LETTERS_VILET = [
   { id: 'lockup-T-v4', ch: 't' },
 ] as const
 
+const TILE_BG: Record<string, string> = {
+  'lockup-L-la': '#C45C3E',
+  'lockup-A-la': '#BDA27E',
+  'lockup-V-v0': '#72735A',
+  'lockup-I-v1': '#8B8C74',
+  'lockup-L-v2': '#C45C3E',
+  'lockup-E-v3': '#BDA27E',
+  'lockup-T-v4': '#72735A',
+}
+
 const Dock = createContext({ docked: false })
 
 export function useLockupDocked() {
@@ -62,11 +72,17 @@ function LockupLetter({
   quiet?: boolean
 }) {
   const story = variant === 'story'
+  const tile = story ? TILE_BG[id] : undefined
 
   return (
     <motion.span
       layoutId={id}
-      className="inline-block cursor-pointer select-none"
+      className={cn(
+        'inline-block cursor-pointer select-none',
+        tile &&
+          'inline-flex h-[3.6rem] w-[2.85rem] items-center justify-center font-serif text-[2.35rem] leading-none text-[#F2F2F2] sm:h-[4.8rem] sm:w-[3.8rem] sm:text-[3.2rem] lg:h-[5.8rem] lg:w-[4.6rem] lg:text-[3.9rem]',
+      )}
+      style={tile ? { backgroundColor: tile } : undefined}
       initial={story ? false : { y: 140, scale: 1.85, opacity: 0 }}
       animate={{ y: 0, scale: 1, opacity: 1 }}
       whileHover={
@@ -193,7 +209,7 @@ export function LaviletLockup({
           </>
         ) : (
           <>
-            <span className="col-start-1 row-start-1 flex">
+            <span className={cn('col-start-1 row-start-1 flex', story && 'gap-1 sm:gap-1.5')}>
               {LETTERS_LA.map((item, i) => (
                 <LockupLetter
                   key={item.id}
@@ -204,7 +220,7 @@ export function LaviletLockup({
                 />
               ))}
             </span>
-            <span className="col-start-2 row-start-2 flex">
+            <span className={cn('col-start-2 row-start-2 flex', story && 'gap-1 sm:gap-1.5')}>
               {LETTERS_VILET.map((item, i) => (
                 <LockupLetter
                   key={item.id}

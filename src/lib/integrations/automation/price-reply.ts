@@ -3,6 +3,7 @@ import { normalized } from './sdr-rules'
 import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { acceptsUnitOptions, mentionsFinancing, salesMemory } from './sales-policy'
+import { commercialEngagement } from './commercial-engagement'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 import { purchasePriceQuestion, salesSubject } from './sales-subject'
 import { hasAffordabilityConcern } from './financing'
@@ -109,8 +110,9 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   const lowBudget = hasAffordabilityConcern(current) || (budget !== null && budget < Math.min(...priced.map(unit => Number(unit.published_commercial_price))))
   const finance = object(info.financiamiento)
   const memory = salesMemory(summary._sales_memory, info.historial)
+  const engagement = commercialEngagement(current, info.historial, summary._sales_memory)
   let financingOffer = ''
-  if ((!memory.financing_mentioned || lowBudget) && !mentionsFinancing(current) && !/no (?:quiero|necesito|deseo).*financ|sin credito/.test(m) && !Object.keys(object(finance.current)).length) {
+  if ((!engagement.passive || lowBudget) && (!memory.financing_mentioned || lowBudget) && !mentionsFinancing(current) && !/no (?:quiero|necesito|deseo).*financ|sin credito/.test(m) && !Object.keys(object(finance.current)).length) {
     const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
     if (partners.length) financingOffer = variant(lowBudget ? [
       `Si necesita financiar la compra, podemos ayudarle a revisar opciones con ${partners.join(' o ')}.`,

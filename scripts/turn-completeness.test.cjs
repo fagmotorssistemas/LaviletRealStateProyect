@@ -20,6 +20,19 @@ function model(...answers) {
   return { generate, calls }
 }
 
+test('coverage repair cannot add commercial offers to a passive response or drop its requested facts', async () => {
+  const current = 'Cuánto vale el departamento y aceptan mascotas?'
+  const baseReply = 'El precio es $250.000. La política de mascotas debe verificarla el equipo.'
+  const input = { current, baseReply, verified: { _sales_memory: { passive_sales: true }, price: 250000 } }
+  const draft = baseReply + ' También podemos orientarle sobre financiamiento con JEP.'
+  const mock = model({ reply: draft, requests: [covered(current)], question: noQuestion })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.reply, baseReply)
+  assert.equal(result.audit.status, 'rejected_guard')
+  assert.ok(result.audit.issues.includes('unsolicited_sales_offer'))
+  assert.match(mock.calls[0][0], /MODO INFORMATIVO/)
+})
+
 test('answers three independent requests including a concern without question marks, with two bounded calls', async () => {
   const input = { current: 'Qué opciones tienen\nQuisiera comprar pero no sé si me alcanza\nCuál es el valor de las viviendas?', baseReply: 'Tenemos suites y departamentos.', verified: { range: '$210.000 a $550.000', partners: ['Banco Pichincha', 'Cooperativa JEP'], launch: true } }
   const reply = 'Tenemos suites y departamentos desde $210.000 hasta $550.000, como referencia de lanzamiento. Si necesita financiar la compra, podemos acompañarle a revisar opciones con Banco Pichincha o Cooperativa JEP.'
