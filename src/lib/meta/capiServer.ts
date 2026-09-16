@@ -119,6 +119,8 @@ export type EnqueueMetaEventInput = {
  * Encola en lavilet-meta-capi. Nunca lanza al caller de negocio:
  * fallos de Meta/cola se registran y se ignoran para no bloquear el contacto.
  */
+const META_CAPI_HTTP_TIMEOUT_MS = 8_000
+
 export async function enqueueMetaEvent(
   input: EnqueueMetaEventInput,
 ): Promise<{ ok: boolean; skipped?: string; status?: number }> {
@@ -177,6 +179,7 @@ export async function enqueueMetaEvent(
         ads_consent: true,
       }),
       cache: 'no-store',
+      signal: AbortSignal.timeout(META_CAPI_HTTP_TIMEOUT_MS),
     })
     const ok = res.ok || res.status === 202
     console.info('[meta-capi] enqueue http', {
@@ -188,10 +191,14 @@ export async function enqueueMetaEvent(
     return { ok, status: res.status }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'error'
+    const timedOut =
+      (error instanceof Error && error.name === 'TimeoutError') ||
+      /aborted|timeout/i.test(message)
     console.error('[meta-capi] enqueue failed', {
       event_id: input.eventId || null,
       error: message.slice(0, 180),
+      timed_out: timedOut,
     })
-    return { ok: false, skipped: 'network' }
+    return { ok: false, skipped: timedOut ? 'timeout' : 'network' }
   }
 }

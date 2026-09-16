@@ -7,7 +7,8 @@ export { buildUnitVisitKey } from '@/lib/meta/enqueueGuards'
 /**
  * Identidad de visita ViewContent: visitante (lv_vid) + unidad.
  * - Dos visitantes ⇒ dos claves ⇒ dos eventos.
- * - Reintento de la misma visita (mismo storage) ⇒ mismo event_id.
+ * - Reintento de la misma visita (mismo sessionStorage) ⇒ mismo event_id.
+ * - Las cookies solas NO conservan event_id; vive en sessionStorage.
  */
 export function getOrCreateUnitVisitIdentity(unitId: string): {
   visitKey: string
@@ -29,5 +30,18 @@ export function getOrCreateUnitVisitIdentity(unitId: string): {
     return { visitKey, eventId }
   } catch {
     return { visitKey, eventId: newMetaEventId() }
+  }
+}
+
+/** Alinea sessionStorage al event_id canónico devuelto por el servidor (fila existente). */
+export function rememberUnitVisitEventId(unitId: string, eventId: string) {
+  if (typeof window === 'undefined') return
+  if (!eventId || !/^[0-9a-f-]{36}$/i.test(eventId)) return
+  const visitor = getVisitorKey() || 'anon'
+  const visitKey = buildUnitVisitKey(visitor, unitId)
+  try {
+    sessionStorage.setItem(`lv_meta_visit:${visitKey}`, eventId)
+  } catch {
+    // ignore
   }
 }

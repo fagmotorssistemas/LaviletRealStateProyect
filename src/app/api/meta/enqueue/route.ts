@@ -99,8 +99,9 @@ export async function POST(request: Request) {
       ? body.content_category.trim()
       : unit.category || 'unit'
 
+  let canonicalEventId = eventId
   try {
-    await persistMetaConversion(admin, {
+    const persisted = await persistMetaConversion(admin, {
       eventName: 'ViewContent',
       idempotencyKey: visitKey,
       eventId,
@@ -120,17 +121,19 @@ export async function POST(request: Request) {
         client_user_agent: h.get('user-agent') || undefined,
       },
     })
+    // Idempotencia: si la fila ya existía, entregar ese event_id (no el del body si divergió).
+    canonicalEventId = persisted.eventId
   } catch (error) {
     console.error('persist ViewContent', error)
     return NextResponse.json({ ok: false, error: 'persist_failed' }, { status: 500 })
   }
 
-  // Flush síncrono del event_id: evita depender solo de after()/waitUntil.
+  // Flush síncrono acotado del event_id canónico; fallo DO no borra la fila (solo last_error).
   try {
-    await flushLocalMetaOutbox(admin, { eventIds: [eventId], limit: 5 })
+    await flushLocalMetaOutbox(admin, { eventIds: [canonicalEventId], limit: 5 })
   } catch (error) {
     console.error('[meta-outbox] sync flush', {
-      event_id: eventId,
+      event_id: canonicalEventId,
       error: error instanceof Error ? error.message.slice(0, 180) : 'error',
     })
   }
@@ -141,11 +144,14 @@ export async function POST(request: Request) {
       await flushLocalMetaOutbox(admin, { limit: 20 })
     } catch (error) {
       console.error('[meta-outbox] after flush', {
-        event_id: eventId,
+        event_id: canonicalEventId,
         error: error instanceof Error ? error.message.slice(0, 180) : 'error',
       })
     }
   })
 
-  return NextResponse.json({ ok: true, visit_key: visitKey, event_id: eventId }, { status: 202 })
+  return NextResponse.json(
+    { ok: true, visit_key: visitKey, event_id: canonicalEventId },
+    { status: 202 },
+  )
 }

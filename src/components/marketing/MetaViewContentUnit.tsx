@@ -3,7 +3,10 @@
 import { useEffect, useRef } from 'react'
 import { hasAdsConsent } from '@/lib/tour/consent'
 import { getMetaClickIds } from '@/lib/marketing/metaCookies'
-import { getOrCreateUnitVisitIdentity } from '@/lib/marketing/metaVisitIdentity'
+import {
+  getOrCreateUnitVisitIdentity,
+  rememberUnitVisitEventId,
+} from '@/lib/marketing/metaVisitIdentity'
 import { trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
 
 type Props = {
@@ -53,7 +56,17 @@ export function MetaViewContentUnit({ unitId, unitNumber, category }: Props) {
           fbclid: ids.fbclid || undefined,
         }),
         keepalive: true,
-      }).catch(() => {})
+      })
+        .then(async (res) => {
+          if (!res.ok && res.status !== 202) return
+          try {
+            const data = (await res.json()) as { event_id?: string }
+            if (data.event_id) rememberUnitVisitEventId(unitId, data.event_id)
+          } catch {
+            // ignore
+          }
+        })
+        .catch(() => {})
     }
 
     emit()
