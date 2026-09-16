@@ -1,13 +1,12 @@
 /**
- * Pixel behavior: interceptación local (sin red a Meta).
- * Cubre autoConfig, rutas excluidas, ViewContent pre-init y revocación.
+ * Pruebas UNITARIAS con stub fbq (META_PIXEL_SIMULATE).
+ * No generan tráfico real a Meta: solo inspeccionan args en __lvMetaPixelLog.
  */
 import assert from 'node:assert/strict'
 import { describe, it, beforeEach, afterEach } from 'node:test'
 import path from 'node:path'
 import Module from 'node:module'
 
-// Resolver alias @/ como en Next (test-typescript.cjs no lo hace).
 const srcRoot = path.resolve(__dirname, '../..')
 const origResolve = (Module as NodeModule & { _resolveFilename: Function })._resolveFilename
 ;(Module as NodeModule & { _resolveFilename: Function })._resolveFilename = function (
@@ -23,18 +22,15 @@ const origResolve = (Module as NodeModule & { _resolveFilename: Function })._res
 }
 
 type LogEntry = { at: string; args: unknown[] }
-type NetEntry = { at: string; url: string; kind: string }
 
 function installWindow(pathname: string, origin = 'https://www.lavilett.com') {
   const store: { cookie: string } = { cookie: '' }
-  const scripts: Array<{ src: string; dataset: Record<string, string> }> = []
-  ;(globalThis as { window?: unknown; document?: unknown }).window = {
+  const scripts: Array<{ src: string }> = []
+  ;(globalThis as { window?: unknown }).window = {
     location: { pathname, origin, href: `${origin}${pathname}` },
     __lvMetaPixelLog: [] as LogEntry[],
-    __lvMetaPixelNetwork: [] as NetEntry[],
   }
   ;(globalThis as { document?: unknown }).document = {
-    cookie: '',
     get cookie() {
       return store.cookie
     },
@@ -61,8 +57,7 @@ function installWindow(pathname: string, origin = 'https://www.lavilett.com') {
     value: (globalThis as { document: unknown }).document,
     configurable: true,
   })
-  // mirror document.cookie onto window for consent helpers that read document
-  return { scripts, store }
+  return { scripts }
 }
 
 function setPath(pathname: string, origin = 'https://www.lavilett.com') {
@@ -73,7 +68,6 @@ function setPath(pathname: string, origin = 'https://www.lavilett.com') {
 }
 
 function loadPixelModule() {
-  // Fresh module each test (env + window)
   const key = require.resolve('./metaPixel')
   const consentKey = require.resolve('../tour/consent')
   delete require.cache[key]
@@ -89,7 +83,11 @@ function loadConsentModule() {
   return require('../tour/consent') as typeof import('../tour/consent')
 }
 
-describe('Meta Pixel — interceptación local', () => {
+function fbqLog() {
+  return (globalThis.window as { __lvMetaPixelLog: LogEntry[] }).__lvMetaPixelLog
+}
+
+describe('Meta Pixel — unitarias (stub fbq, sin red)', () => {
   const prevSim = process.env.NEXT_PUBLIC_META_PIXEL_SIMULATE
   const prevId = process.env.NEXT_PUBLIC_META_PIXEL_ID
   const prevBanner = process.env.NEXT_PUBLIC_COOKIE_BANNER_ENABLED
@@ -108,96 +106,74 @@ describe('Meta Pixel — interceptación local', () => {
     delete (globalThis as { window?: unknown }).window
   })
 
-  it('autoConfig=false antes de init; ViewContent no se pierde sin mount previo', () => {
+  it('unit: autoConfig=false antes de init; ViewContent sin mount no se pierde', () => {
     const consent = loadConsentModule()
     consent.writeAdsConsentCookie('full')
     const pixel = loadPixelModule()
 
-    // Sin llamar MetaPixel.tsx: solo track (caso ficha abierta antes del effect)
     const eventId = '11111111-1111-4111-8111-111111111111'
     pixel.trackMetaPixelEvent('ViewContent', undefined, eventId)
 
-    const log = (globalThis.window as { __lvMetaPixelLog: LogEntry[] }).__lvMetaPixelLog
-    const cmds = log.map((e) => e.args[0])
-    assert.ok(cmds.includes('set'))
-    assert.ok(cmds.includes('init'))
-    assert.ok(cmds.includes('track'))
-
-    const setCall = log.find((e) => e.args[0] === 'set')
-    assert.deepEqual(setCall?.args.slice(0, 3), ['set', 'autoConfig', false])
-
+    const log = fbqLog()
+    assert.ok(log.some((e) => e.args[0] === 'set' && e.args[1] === 'autoConfig' && e.args[2] === false))
+    assert.ok(log.some((e) => e.args[0] === 'init'))
     const track = log.find((e) => e.args[0] === 'track' && e.args[1] === 'ViewContent')
-    assert.ok(track)
-    assert.equal((track!.args[3] as { eventID: string }).eventID, eventId)
-
-    const net = (globalThis.window as { __lvMetaPixelNetwork: NetEntry[] }).__lvMetaPixelNetwork
-    const tr = net.find((n) => n.kind === 'pixel_tr_simulated')
-    assert.ok(tr?.url.includes('ev=ViewContent'))
-    assert.ok(tr?.url.includes(`eid=${eventId}`))
-    assert.ok(tr?.url.includes('dl=https%3A%2F%2Fwww.lavilett.com%2Ftour') || tr?.url.includes('/tour'))
-    assert.equal(
-      net.some((n) => n.kind === 'script' && n.url.includes('fbevents.js')),
-      false,
-      'simulate no debe cargar fbevents.js',
-    )
+    assert.equal((track?.args[3] as { eventID: string }).eventID, eventId)
   })
 
-  it('tour → /simulador: no PageView ni track en ruta excluida', () => {
+  it('unit: aceptar medición en /simulador no hace init ni carga Pixel', () => {
+    installWindow('/simulador')
     const consent = loadConsentModule()
     consent.writeAdsConsentCookie('full')
     const pixel = loadPixelModule()
 
-    pixel.trackMetaPixelEvent('PageView')
-    let log = (globalThis.window as { __lvMetaPixelLog: LogEntry[] }).__lvMetaPixelLog
-    assert.ok(log.some((e) => e.args[0] === 'track' && e.args[1] === 'PageView'))
+    pixel.applyMetaPixelAdsConsent(true)
+    assert.equal(pixel.canBootstrapMetaPixel('/simulador'), false)
+    assert.equal(pixel.ensureMetaPixel(), false)
 
-    // Navegación a simulador
-    setPath('/simulador')
-    ;(globalThis.window as { __lvMetaPixelLog: LogEntry[] }).__lvMetaPixelLog = []
-    ;(globalThis.window as { __lvMetaPixelNetwork: NetEntry[] }).__lvMetaPixelNetwork = []
-
-    pixel.trackMetaPixelEvent('PageView')
-    pixel.trackMetaPixelEvent('ViewContent', undefined, '22222222-2222-4222-8222-222222222222')
-
-    log = (globalThis.window as { __lvMetaPixelLog: LogEntry[] }).__lvMetaPixelLog
+    const log = fbqLog()
     assert.equal(
-      log.filter((e) => e.args[0] === 'track').length,
+      log.filter((e) => e.args[0] === 'init').length,
       0,
-      'no tracks en /simulador',
+      'no init en /simulador',
     )
-    assert.equal(pixel.isMetaPublicPath('/simulador'), false)
-    assert.equal(pixel.isMetaExcludedPath('/simulador'), true)
+    pixel.trackMetaPixelEvent('PageView')
+    assert.equal(log.filter((e) => e.args[0] === 'track').length, 0)
   })
 
-  it('revocar consentimiento: consent revoke y no más tracks', () => {
+  it('unit: tour → /simulador con Pixel previo → consent revoke (pausa)', () => {
     const consent = loadConsentModule()
     consent.writeAdsConsentCookie('full')
     const pixel = loadPixelModule()
+
     pixel.applyMetaPixelAdsConsent(true)
     pixel.trackMetaPixelEvent('PageView')
+    assert.ok(fbqLog().some((e) => e.args[0] === 'init'))
 
-    consent.writeAdsConsentCookie('denied')
-    pixel.applyMetaPixelAdsConsent(false)
+    setPath('/simulador')
+    pixel.syncMetaPixelToRoute('/simulador')
 
-    const log = (globalThis.window as { __lvMetaPixelLog: LogEntry[] }).__lvMetaPixelLog
+    const log = fbqLog()
     assert.ok(log.some((e) => e.args[0] === 'consent' && e.args[1] === 'revoke'))
-
     const before = log.length
     pixel.trackMetaPixelEvent('PageView')
-    pixel.trackMetaPixelEvent('Lead', {}, '33333333-3333-4333-8333-333333333333')
-    const after = (globalThis.window as { __lvMetaPixelLog: LogEntry[] }).__lvMetaPixelLog
-    assert.equal(after.length, before, 'sin tracks tras revoke')
+    assert.equal(fbqLog().length, before)
   })
 
-  it('conserva eventID compartido con CAPI en options', () => {
+  it('unit: revocar ads y eventID compartido con CAPI', () => {
     const consent = loadConsentModule()
     consent.writeAdsConsentCookie('full')
     const pixel = loadPixelModule()
     const id = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
     pixel.trackMetaPixelEvent('Lead', {}, id)
-    const track = (globalThis.window as { __lvMetaPixelLog: LogEntry[] }).__lvMetaPixelLog.find(
-      (e) => e.args[0] === 'track' && e.args[1] === 'Lead',
-    )
+    const track = fbqLog().find((e) => e.args[0] === 'track' && e.args[1] === 'Lead')
     assert.equal((track?.args[3] as { eventID: string }).eventID, id)
+
+    consent.writeAdsConsentCookie('denied')
+    pixel.applyMetaPixelAdsConsent(false)
+    assert.ok(fbqLog().some((e) => e.args[0] === 'consent' && e.args[1] === 'revoke'))
+    const before = fbqLog().length
+    pixel.trackMetaPixelEvent('Lead', {}, id)
+    assert.equal(fbqLog().length, before)
   })
 })

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Meta Pixel browser harness (local)</title>
+  </head>
+  <body data-path="/">
+    <p>Fixture local — medición bloqueada por Playwright route.abort</p>
+    <script>
+      /**
+       * Espejo mínimo de metaPixel.ts (sin bundler) para probar fbevents.js real
+       * con red de medición abortada. No es Production.
+       */
+      window.__lvMetaPixelLog = []
+      window.__lvHarness = (function () {
+        const PIXEL_ID = '__PIXEL_ID__'
+        const EXCLUDED = ['/simulador', '/inmobiliaria', '/api', '/login']
+        let adsConsent = false
+        let path = document.body.getAttribute('data-path') || '/'
+
+        function isPublic(pathname) {
+          if (!pathname) return false
+          if (EXCLUDED.some((p) => pathname === p || pathname.startsWith(p + '/'))) return false
+          return pathname === '/' || pathname.startsWith('/tour') || pathname.startsWith('/inicio')
+        }
+
+        function canBootstrap() {
+          return Boolean(PIXEL_ID) && adsConsent && isPublic(path)
+        }
+
+        function pushLog(args) {
+          window.__lvMetaPixelLog.push({ at: new Date().toISOString(), args: Array.from(args) })
+        }
+
+        function installStub() {
+          if (window.fbq) return
+          const n = function () {
+            const args = arguments
+            pushLog(args)
+            if (n.callMethod) n.callMethod.apply(n, args)
+            else n.queue.push(args)
+          }
+          n.queue = []
+          n.loaded = true
+          n.version = '2.0'
+          n.push = n
+          window.fbq = n
+          window._fbq = n
+        }
+
+        function ensureScript() {
+          if (document.querySelector('script[data-lv-meta-pixel="1"]')) return
+          const s = document.createElement('script')
+          s.async = true
+          s.src = 'https://connect.facebook.net/en_US/fbevents.js'
+          s.dataset.lvMetaPixel = '1'
+          document.head.appendChild(s)
+        }
+
+        function ensure() {
+          if (!canBootstrap()) return false
+          installStub()
+          ensureScript()
+          if (window.__lvMetaPixelInitialized === PIXEL_ID) return true
+          window.fbq('set', 'autoConfig', false, PIXEL_ID)
+          window.fbq('init', PIXEL_ID)
+          window.__lvMetaPixelInitialized = PIXEL_ID
+          return true
+        }
+
+        function pause() {
+          if (typeof window.fbq === 'function') window.fbq('consent', 'revoke')
+          window.__lvMetaPixelConsent = 'revoke'
+        }
+
+        function applyConsent(granted) {
+          if (!granted) {
+            pause()
+            return
+          }
+          if (!canBootstrap()) {
+            pause()
+            return
+          }
+          if (!ensure()) {
+            pause()
+            return
+          }
+          window.fbq('consent', 'grant')
+          window.__lvMetaPixelConsent = 'grant'
+        }
+
+        function syncRoute(pathname) {
+          path = pathname || path
+          history.replaceState({}, '', pathname)
+          if (!adsConsent || !isPublic(path)) {
+            pause()
+            return
+          }
+          applyConsent(true)
+        }
+
+        function track(eventName, eventId) {
+          if (!canBootstrap()) return null
+          if (!ensure()) return null
+          if (window.__lvMetaPixelConsent !== 'grant') {
+            window.fbq('consent', 'grant')
+            window.__lvMetaPixelConsent = 'grant'
+          }
+          const id = eventId || crypto.randomUUID()
+          const options = { eventID: id }
+          window.fbq('track', eventName, {}, options)
+          window.__lvLastTrackOptions = options
+          return id
+        }
+
+        return {
+          setPath(p) {
+            path = p
+            history.replaceState({}, '', p)
+            document.body.setAttribute('data-path', p)
+          },
+          setConsent(v) {
+            adsConsent = Boolean(v)
+          },
+          applyConsent,
+          syncRoute,
+          track,
+          clearLog() {
+            window.__lvMetaPixelLog = []
+          },
+          snapshot() {
+            return {
+              path,
+              adsConsent,
+              consentFlag: window.__lvMetaPixelConsent || null,
+              initialized: window.__lvMetaPixelInitialized || null,
+              log: window.__lvMetaPixelLog.slice(),
+              lastTrackOptions: window.__lvLastTrackOptions || null,
+              href: location.href,
+              referrer: document.referrer,
+            }
+          },
+        }
+      })()
+    </script>
+  </body>
+</html>

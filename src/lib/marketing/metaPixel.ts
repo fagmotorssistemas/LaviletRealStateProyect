@@ -6,8 +6,8 @@ declare global {
     _fbq?: FbqFn
     __lvMetaPixelInitialized?: string
     __lvMetaPixelConsent?: 'grant' | 'revoke'
+    /** Solo stub de pruebas unitarias / simulate: cola de llamadas fbq, no tráfico real. */
     __lvMetaPixelLog?: Array<{ at: string; args: unknown[] }>
-    __lvMetaPixelNetwork?: Array<{ at: string; url: string; kind: string }>
   }
 }
 
@@ -71,19 +71,19 @@ function currentPathname(): string {
   return window.location?.pathname || ''
 }
 
+/** Consentimiento ads vigente + ruta pública permitida (re-evaluado en cada bootstrap). */
+export function canBootstrapMetaPixel(pathname = currentPathname()): boolean {
+  if (!META_PIXEL_ID) return false
+  if (!hasAdsConsent()) return false
+  if (!isMetaPublicPath(pathname)) return false
+  return true
+}
+
 function pushLog(args: unknown[]) {
   if (typeof window === 'undefined') return
   window.__lvMetaPixelLog = [
     ...(window.__lvMetaPixelLog ?? []),
     { at: new Date().toISOString(), args },
-  ]
-}
-
-function pushNetwork(url: string, kind: string) {
-  if (typeof window === 'undefined') return
-  window.__lvMetaPixelNetwork = [
-    ...(window.__lvMetaPixelNetwork ?? []),
-    { at: new Date().toISOString(), url, kind },
   ]
 }
 
@@ -123,28 +123,34 @@ function installOfficialStub() {
 
 function ensureFbeventsScript() {
   if (typeof document === 'undefined') return
-  if (META_PIXEL_SIMULATE) {
-    pushNetwork('https://connect.facebook.net/en_US/fbevents.js', 'script_skipped_simulate')
-    return
-  }
+  if (META_PIXEL_SIMULATE) return
   const existing = document.querySelector<HTMLScriptElement>('script[data-lv-meta-pixel="1"]')
   if (existing) return
   const script = document.createElement('script')
   script.async = true
   script.src = 'https://connect.facebook.net/en_US/fbevents.js'
   script.dataset.lvMetaPixel = '1'
-  pushNetwork(script.src, 'script')
   const first = document.getElementsByTagName('script')[0]
   first?.parentNode?.insertBefore(script, first)
 }
 
+function pausePixelFires() {
+  if (typeof window === 'undefined') return
+  if (typeof window.fbq === 'function') {
+    window.fbq('consent', 'revoke')
+  }
+  window.__lvMetaPixelConsent = 'revoke'
+}
+
 /**
- * Bootstrap Pixel: stub + autoConfig off + init.
- * No carga fbevents sin consentimiento (caller debe verificar ads).
- * ViewContent/Lead pueden llamar esto antes del mount de <MetaPixel />.
+ * Bootstrap Pixel solo con consentimiento vigente y ruta permitida.
+ * Seguro tras imports async (CookieBanner / revokeAdsConsent): relee cookie + pathname.
+ * En /simulador (u otras excluidas) no carga stub/script ni hace init.
  */
-export function ensureMetaPixel(pixelId = META_PIXEL_ID) {
-  if (typeof window === 'undefined' || !pixelId) return
+export function ensureMetaPixel(pixelId = META_PIXEL_ID): boolean {
+  if (typeof window === 'undefined' || !pixelId) return false
+  if (!canBootstrapMetaPixel()) return false
+
   if (META_PIXEL_SIMULATE) {
     installSimulateFbq()
   } else {
@@ -152,31 +158,50 @@ export function ensureMetaPixel(pixelId = META_PIXEL_ID) {
     ensureFbeventsScript()
   }
 
-  if (window.__lvMetaPixelInitialized === pixelId) return
+  if (window.__lvMetaPixelInitialized === pixelId) return true
 
   // Desactiva recolección automática (clicks / metadata) — control manual de eventos.
   window.fbq?.('set', 'autoConfig', false, pixelId)
   window.fbq?.('init', pixelId)
   window.__lvMetaPixelInitialized = pixelId
+  return true
 }
 
-/** Grant/revoke según docs GDPR de Meta. Sin consentimiento no se hace init. */
+/**
+ * Grant/revoke según docs GDPR de Meta.
+ * grant con cookie full en ruta excluida → no carga Pixel (p. ej. aceptar en /simulador).
+ * revoke siempre pausa si fbq ya existía (navegación a /simulador con script previo).
+ */
 export function applyMetaPixelAdsConsent(granted: boolean) {
   if (typeof window === 'undefined' || !META_PIXEL_ID) return
-  if (granted) {
-    ensureMetaPixel(META_PIXEL_ID)
-    window.fbq?.('consent', 'grant')
-    window.__lvMetaPixelConsent = 'grant'
+  if (!granted) {
+    pausePixelFires()
     return
   }
-  // Revoke: pausa fires. Si aún no hubo init, no cargar el script.
-  if (typeof window.fbq === 'function') {
-    window.fbq('consent', 'revoke')
-  } else if (META_PIXEL_SIMULATE) {
-    installSimulateFbq()
-    window.fbq?.('consent', 'revoke')
+  // Releer consentimiento y ruta en el momento del import async.
+  if (!canBootstrapMetaPixel()) {
+    pausePixelFires()
+    return
   }
-  window.__lvMetaPixelConsent = 'revoke'
+  if (!ensureMetaPixel(META_PIXEL_ID)) {
+    pausePixelFires()
+    return
+  }
+  window.fbq?.('consent', 'grant')
+  window.__lvMetaPixelConsent = 'grant'
+}
+
+/**
+ * Al cambiar de ruta: en excluidas pausa el Pixel aunque el cookie siga en full;
+ * al volver a ruta pública con consent, re-grant + bootstrap si hace falta.
+ */
+export function syncMetaPixelToRoute(pathname = currentPathname()) {
+  if (typeof window === 'undefined' || !META_PIXEL_ID) return
+  if (!hasAdsConsent() || !isMetaPublicPath(pathname)) {
+    pausePixelFires()
+    return
+  }
+  applyMetaPixelAdsConsent(true)
 }
 
 export function trackMetaPixelEvent(
@@ -185,12 +210,10 @@ export function trackMetaPixelEvent(
   eventId?: string,
 ) {
   if (typeof window === 'undefined') return
-  if (!META_PIXEL_ID || !hasAdsConsent()) return
-  const pathname = currentPathname()
-  if (!isMetaPublicPath(pathname)) return
+  if (!canBootstrapMetaPixel()) return
 
   // Evita perder ViewContent/Lead si el evento llega antes del effect de <MetaPixel />.
-  ensureMetaPixel(META_PIXEL_ID)
+  if (!ensureMetaPixel(META_PIXEL_ID)) return
   if (window.__lvMetaPixelConsent !== 'grant') {
     window.fbq?.('consent', 'grant')
     window.__lvMetaPixelConsent = 'grant'
@@ -204,15 +227,8 @@ export function trackMetaPixelEvent(
       : (['track', eventName, {}, options] as const)
 
   if (META_PIXEL_SIMULATE) {
+    // Stub unitario: solo registra args de fbq. No es tráfico real a Meta.
     pushLog([...payload])
-    // URL que el Pixel real usaría (solo registro local; no se envía).
-    const qs = new URLSearchParams({
-      id: META_PIXEL_ID,
-      ev: eventName,
-      eid: id,
-      dl: `${window.location.origin}${pathname}`,
-    })
-    pushNetwork(`https://www.facebook.com/tr?${qs.toString()}`, 'pixel_tr_simulated')
     console.info('[MetaPixel simulate]', ...payload)
     return id
   }

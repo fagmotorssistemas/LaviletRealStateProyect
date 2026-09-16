@@ -10,8 +10,9 @@ import {
 } from '@/lib/tour/consent'
 import {
   applyMetaPixelAdsConsent,
-  ensureMetaPixel,
+  canBootstrapMetaPixel,
   isMetaPublicPath,
+  syncMetaPixelToRoute,
   trackMetaPixelEvent,
 } from '@/lib/marketing/metaPixel'
 
@@ -24,7 +25,7 @@ function shouldTrackPixel(pathname: string) {
   if (!META_PIXEL_ID || !isMetaPublicPath(pathname)) return false
   if (COOKIE_BANNER_ENABLED && !hasAdsConsent()) return false
   if (!COOKIE_BANNER_ENABLED && !hasAdsConsent()) return false
-  return true
+  return canBootstrapMetaPixel(pathname)
 }
 
 export function MetaPixel() {
@@ -32,9 +33,11 @@ export function MetaPixel() {
   const lastPageView = useRef('')
 
   const emitPageViewOnce = (path: string) => {
-    if (!shouldTrackPixel(path)) return
+    if (!shouldTrackPixel(path)) {
+      syncMetaPixelToRoute(path)
+      return
+    }
     applyMetaPixelAdsConsent(true)
-    ensureMetaPixel(META_PIXEL_ID)
     if (lastPageView.current === path) return
     lastPageView.current = path
     trackMetaPixelEvent('PageView')
@@ -47,6 +50,8 @@ export function MetaPixel() {
         lastPageView.current = ''
         return
       }
+      // Aceptar en /simulador: sync no carga Pixel; al salir a ruta pública sí.
+      syncMetaPixelToRoute(pathname)
       emitPageViewOnce(pathname)
     }
     window.addEventListener('lv-consent-changed', onConsent)
@@ -54,8 +59,10 @@ export function MetaPixel() {
   }, [pathname])
 
   useEffect(() => {
-    if (!hasAdsConsent()) {
-      applyMetaPixelAdsConsent(false)
+    // tour → /simulador con script previo: pause (consent revoke) sin borrar cookie ads.
+    syncMetaPixelToRoute(pathname)
+    if (!hasAdsConsent() || !isMetaPublicPath(pathname)) {
+      lastPageView.current = ''
       return
     }
     emitPageViewOnce(pathname)
