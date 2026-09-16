@@ -89,6 +89,10 @@ export async function persistAdsConsentChoice(adsConsent: boolean): Promise<{
 
 export function revokeAdsConsent() {
   writeAdsConsentCookie('denied')
+  // Pausar Pixel (consent revoke) sin tocar CAPI outbox ya encolado.
+  void import('@/lib/marketing/metaPixel')
+    .then((m) => m.applyMetaPixelAdsConsent(false))
+    .catch((error) => console.error('applyMetaPixelAdsConsent', error))
   window.dispatchEvent(new Event('lv-consent-changed'))
   void persistAdsConsentChoice(false).catch((error) => {
     console.error('revokeAdsConsent', error)

@@ -31,6 +31,9 @@ export function CookieBanner() {
   const choose = (value: AdsConsentValue) => {
     writeAdsConsentCookie(value)
     setVisible(false)
+    void import('@/lib/marketing/metaPixel')
+      .then((m) => m.applyMetaPixelAdsConsent(value === 'full'))
+      .catch((error) => console.error('CookieBanner pixel consent', error))
     window.dispatchEvent(new Event('lv-consent-changed'))
     void persistAdsConsentChoice(value === 'full').catch((error) => {
       console.error('CookieBanner consent persist', error)
