@@ -48,6 +48,8 @@ import { TourNavModeModal, type TourNavMode } from '@/components/tour/TourNavMod
 import { TourVoiceAssist } from '@/components/tour/TourVoiceAssist'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
+import { COOKIE_BANNER_ENABLED, openCookiePreferences } from '@/lib/tour/consent'
+import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
 import {
   buildTourRooms,
@@ -2986,6 +2988,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
       <div
         className={cn(
+          /* Bajo la ficha (z-70): el chrome no debe tapar el panel de unidad. */
           'tour-chrome pointer-events-none absolute inset-0 z-20',
           immersive && 'is-immersive',
           (isComparador || isFinishCompare) && 'hidden',
@@ -2994,8 +2997,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         <div
           className={cn(
             'pointer-events-none absolute top-0 left-0 z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5',
+            // Hueco para Preferencias (capa hermana z-90).
+            !embedded && COOKIE_BANNER_ENABLED && 'pt-[max(3.25rem,calc(env(safe-area-inset-top)+2.75rem))] sm:pt-[3.75rem]',
             // En planos: bajar "Volver" para no tapar el toggle 2D/3D.
             showPlanShell && 'pt-[max(3.75rem,calc(env(safe-area-inset-top)+3.25rem))] sm:pt-16',
+            showPlanShell &&
+              !embedded &&
+              COOKIE_BANNER_ENABLED &&
+              'pt-[max(6.5rem,calc(env(safe-area-inset-top)+5.75rem))] sm:pt-[7.25rem]',
           )}
         >
           {/* Desktop: botones sueltos */}
@@ -3386,6 +3395,28 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setFichaOpen(true)
             writeUnitQueryParam(match.unit_number)
           }}
+        />
+      ) : null}
+
+      {/* Hermana de la ficha (no dentro de .tour-chrome): debe poder quedar sobre z-70. */}
+      {!embedded && COOKIE_BANNER_ENABLED && !(isComparador || isFinishCompare) ? (
+        <div className="pointer-events-auto absolute top-0 left-0 z-[90] w-[min(12rem,calc(100vw-1.5rem))] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5">
+          <button
+            type="button"
+            onClick={openCookiePreferences}
+            className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
+          >
+            Preferencias de cookies
+          </button>
+        </div>
+      ) : null}
+
+      {selectedUnit ? (
+        <MetaViewContentUnit
+          enabled={fichaOpen}
+          unitId={selectedUnit.id}
+          unitNumber={selectedUnit.unit_number}
+          category={selectedUnit.category}
         />
       ) : null}
 

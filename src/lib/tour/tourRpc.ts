@@ -136,6 +136,133 @@ export async function rpcIdentifyTourLead(
   return leadId
 }
 
+export type IdentifyTourLeadWithMetaResult = {
+  lead_id: string
+  emit_meta_lead: boolean
+  meta_event_id: string | null
+  meta_event_time: number | null
+  outbox_inserted: boolean
+}
+
+/** Lead + outbox Meta en una sola transacción Postgres. */
+export async function rpcIdentifyTourLeadWithMetaOutbox(
+  admin: SupabaseClient,
+  args: {
+    visitorKey: string
+    name: string
+    email: string
+    phone: string
+    adsConsent: boolean
+    eventId?: string | null
+    eventTime?: number | null
+    deliveryLane?: 'test' | 'live'
+    payload?: Record<string, unknown>
+  },
+): Promise<IdentifyTourLeadWithMetaResult> {
+  const { data, error } = await admin.rpc('identify_tour_lead_with_meta_outbox', {
+    p_tenant_id: TOUR_TENANT_ID,
+    p_visitor_key: args.visitorKey,
+    p_name: args.name,
+    p_email: args.email,
+    p_phone: args.phone,
+    p_project_id: TOUR_PROJECT_ID,
+    p_ads_consent: Boolean(args.adsConsent),
+    p_event_id: args.eventId || null,
+    p_event_time: args.eventTime ?? null,
+    p_delivery_lane: args.deliveryLane || 'live',
+    p_payload: args.payload || {},
+  })
+  if (error) throw rpcError('identify_tour_lead_with_meta_outbox', error)
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null
+  const leadId = typeof row?.lead_id === 'string' ? row.lead_id : null
+  if (!leadId) {
+    throw new Error('identify_tour_lead_with_meta_outbox no devolvió lead_id')
+  }
+  return {
+    lead_id: leadId,
+    emit_meta_lead: Boolean(row?.emit_meta_lead),
+    meta_event_id: typeof row?.meta_event_id === 'string' ? row.meta_event_id : null,
+    meta_event_time:
+      typeof row?.meta_event_time === 'number'
+        ? row.meta_event_time
+        : typeof row?.meta_event_time === 'string'
+          ? Number(row.meta_event_time)
+          : null,
+    outbox_inserted: Boolean(row?.outbox_inserted),
+  }
+}
+
+export async function rpcRevokeMetaAdsConsent(
+  admin: SupabaseClient,
+  args: { leadId?: string | null; visitorKey?: string | null },
+) {
+  const { data, error } = await admin.rpc('lv_revoke_meta_ads_consent', {
+    p_lead_id: args.leadId || null,
+    p_visitor_key: args.visitorKey || null,
+  })
+  if (error) throw rpcError('lv_revoke_meta_ads_consent', error)
+  return data as { cancelled?: number }
+}
+
+export async function rpcResolveLeadIdForVisitor(
+  admin: SupabaseClient,
+  visitorKey: string,
+): Promise<string | null> {
+  const { data, error } = await admin.rpc('lv_resolve_lead_id_for_visitor', {
+    p_tenant_id: TOUR_TENANT_ID,
+    p_visitor_key: visitorKey,
+  })
+  if (error) throw rpcError('lv_resolve_lead_id_for_visitor', error)
+  return typeof data === 'string' ? data : null
+}
+
+export type RecordMetaAdsConsentResult = {
+  id: string
+  lead_id: string | null
+  visitor_key: string | null
+  ads_consent: boolean
+  consent_version: number
+  nest_status: string
+}
+
+export async function rpcRecordMetaAdsConsent(
+  admin: SupabaseClient,
+  args: {
+    adsConsent: boolean
+    visitorKey?: string | null
+    leadId?: string | null
+    consentVersion?: number | null
+  },
+): Promise<RecordMetaAdsConsentResult> {
+  const { data, error } = await admin.rpc('lv_record_meta_ads_consent', {
+    p_ads_consent: Boolean(args.adsConsent),
+    p_visitor_key: args.visitorKey || null,
+    p_lead_id: args.leadId || null,
+    p_consent_version: args.consentVersion ?? null,
+  })
+  if (error) throw rpcError('lv_record_meta_ads_consent', error)
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown>
+  return {
+    id: String(row.id),
+    lead_id: typeof row.lead_id === 'string' ? row.lead_id : null,
+    visitor_key: typeof row.visitor_key === 'string' ? row.visitor_key : null,
+    ads_consent: Boolean(row.ads_consent),
+    consent_version: Number(row.consent_version),
+    nest_status: String(row.nest_status || 'pending'),
+  }
+}
+
+export async function rpcRecoverMissingMetaLeadOutbox(
+  admin: SupabaseClient,
+  limit = 50,
+): Promise<number> {
+  const { data, error } = await admin.rpc('lv_recover_missing_meta_lead_outbox', {
+    p_limit: limit,
+  })
+  if (error) throw rpcError('lv_recover_missing_meta_lead_outbox', error)
+  return typeof data === 'number' ? data : Number(data) || 0
+}
+
 export async function rpcSetTrackingPreference(
   admin: SupabaseClient,
   args: { leadId: string; consent: boolean; reason?: string },
