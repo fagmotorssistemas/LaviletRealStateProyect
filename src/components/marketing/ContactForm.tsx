@@ -15,10 +15,6 @@ const INTEREST_OPTIONS = [
   { value: 'otro', label: 'Aún no lo tengo claro' },
 ]
 
-/**
- * Abre WhatsApp/correo con un borrador. No confirma envío ni guarda lead:
- * no dispara eventos Meta Lead/Schedule.
- */
 export function ContactForm() {
   const [pending, setPending] = useState(false)
 
@@ -98,8 +94,7 @@ export function ContactForm() {
         {pending ? 'Abriendo…' : SITE.whatsapp ? 'Escribir por WhatsApp' : 'Enviar consulta'}
       </Button>
       <p className="text-center text-xs text-[#2B1A18]/45">
-        Al enviar, abriremos {SITE.whatsapp ? 'WhatsApp' : `tu correo hacia ${SITE.email}`} con los
-        datos de esta consulta. Esto no registra automáticamente un lead en Meta.
+        Al enviar, abriremos {SITE.whatsapp ? 'WhatsApp' : `tu correo hacia ${SITE.email}`} con los datos de esta consulta.
       </p>
     </form>
   )
