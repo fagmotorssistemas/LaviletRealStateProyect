@@ -1,3 +1,4 @@
+import { CURRENT_TONE } from './conversation-tone'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
@@ -31,9 +32,9 @@ export function operationalCopyIssues(base: string, draft: string, context: Row 
   return issues
 }
 
-const WRITING_RULES = `Redacte un mensaje breve y humano de coordinación de visitas o financiamiento para el cliente de La Vilet.
+const WRITING_RULES = `${CURRENT_TONE.operationalIntro}
 La base ya fue calculada con las reglas y el estado real del sistema: reformule la expresión, sin tomar nuevas decisiones ni ejecutar acciones.
-Conteste directamente el mensaje actual. Use usted. Una afirmación real del cliente puede recibir «Perfecto», «Con gusto», «De acuerdo» u otra apertura breve si encaja; no elogie cualquier comentario ni repita fórmulas recientes. Evite sonar a formulario.
+${CURRENT_TONE.operationalWriting}
 Conserve íntegramente cada dato, nombre de entidad, dirección, enlace, restricción y objetivo de la base. Copie exactamente los números, fechas y horas, incluyendo formato y signos. No convierta números a palabras ni viceversa. No añada enlaces, horarios, disponibilidad, precios, requisitos o personas.
 Conserve la diferencia entre solicitud pendiente, propuesta que el cliente debe escoger y cita confirmada. No asegure que se agendó, aprobó, reservó, envió o contactó a alguien si no está explícitamente en la base verificada.
 Para financiamiento, acompañe sin prometer aprobación, crédito directo, plazos ni resultados. No cambie una elección de horario por consentimiento financiero ni cambie un dato solicitado por otro.
@@ -45,7 +46,7 @@ const REVIEW_RULES = `Audite una reformulación de un mensaje operativo de La Vi
 Apruebe fiel_a_los_hechos solo si conserva TODOS los hechos, nombres, fechas, horas, ubicaciones, enlaces y condiciones sin añadir supuestos ni garantías de crédito o crédito directo. Un cambio estilístico sí está permitido.
 Apruebe conserva_estado_y_objetivo solo si conserva el estado real: pedir preferencia no es una cita reservada; solicitar validación no es confirmación; el asesor pendiente no ha contactado todavía; consentimiento financiero no es aprobación. La pregunta y el siguiente paso deben cumplir el mismo objetivo de la base sin acciones imaginadas ni preguntas comerciales añadidas.
 Apruebe no_pide_datos_conocidos solo si no solicita otra vez un día, una hora, entidad o dato ya presente inequívocamente en el contexto verificado o en el mensaje actual. «Mañana a las 8» aporta día y hora; el texto del cliente no confirma por sí mismo disponibilidad ni reserva. Si detecta una contradicción en la base, rechace la reformulación; no la arregle inventando.
-Apruebe tono_natural solo si trata de usted, es amable sin entusiasmo artificial ni fórmula repetitiva y responde al turno sin un interrogatorio. No exija ninguna palabra de cortesía en particular.
+${CURRENT_TONE.operationalReview}
 Devuelva las cuatro decisiones booleanas del esquema.`
 
 /** Rephrases verified operational copy; never calls scheduling or financing actions. */

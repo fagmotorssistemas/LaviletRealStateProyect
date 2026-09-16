@@ -1,3 +1,4 @@
+import { CURRENT_TONE, resolveToneReferences } from './conversation-tone'
 import 'server-only'
 import { object, text, rpc, db, scope, type Row } from './data'
 import type { Inbound } from './webhook'
@@ -33,7 +34,7 @@ export async function activePrompt(name: string) {
   const at = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date())
   const p = object(await rpc('get_active_prompt', { p_tenant_id: scope.tenant_id, p_project_id: scope.project_id,
     p_name: name, p_channel: 'whatsapp', p_at: at }))
-  if (text(p.content).trim()) return text(p.content)
+  if (text(p.content).trim()) return resolveToneReferences(text(p.content))
   // The editor maintains one active instruction per name. Its historical mode
   // tag must not silence the bot after moving to preventa: commercial policies
   // come from the current project context. Never mask an RPC/database failure.
@@ -45,11 +46,11 @@ export async function activePrompt(name: string) {
   if (data && data.length > 1) throw new Error(`PROMPT_AMBIGUOUS_${name}`)
   const content = text(object(data?.[0]).content)
   if (!content.trim()) throw new Error(`PROMPT_MISSING_${name}`)
-  return content
+  return resolveToneReferences(content)
 }
 
 export async function draftReply(prompt: string, context: unknown) {
-  const result = await aiJson(prompt + '\nDevuelva {"mensaje":"respuesta"}. Trate de usted con cercanía, sin emojis ni identidad de asesor. Conteste la consulta antes de una pregunta comercial pertinente; no repita saludos ni datos ya pedidos. No afirme confirmaciones ni reservas sin un resultado de base de datos que las respalde.', context, jsonReplySchema)
+  const result = await aiJson(prompt + '\nDevuelva {"mensaje":"respuesta"}. ' + CURRENT_TONE.draftTone + ' Conteste la consulta antes de una pregunta comercial pertinente; no repita saludos ni datos ya pedidos. No afirme confirmaciones ni reservas sin un resultado de base de datos que las respalde.', context, jsonReplySchema)
   const reply = text(result.mensaje).trim()
   if (!reply || reply.length > 1500) throw new Error('INVALID_REPLY')
   return reply

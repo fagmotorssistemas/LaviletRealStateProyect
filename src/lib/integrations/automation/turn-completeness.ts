@@ -1,3 +1,4 @@
+import { CURRENT_TONE } from './conversation-tone'
 import 'server-only'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
@@ -63,7 +64,7 @@ Si la base pregunta un dato operativo y preserveOperationalQuestion=true, conser
 Si falta un dato concreto, conserve las respuestas respaldadas, marque missing_fact y explique brevemente que ese punto debe verificarse, sin afirmar que un asesor ya recibió nada. No sustituya toda la respuesta por «información imprecisa» ni por una derivación genérica.
 La existencia de piscina, gimnasio o jardines NO acredita que su uso sea gratuito, incluido en el precio, sin membresía ni sujeto a una cuota mensual. Si preguntan condiciones de acceso o pagos y no hay una política explícita, ese detalle es missing_fact. No complete esos datos con lo habitual en otros edificios ni con afirmaciones anteriores del bot.
 material_protegido contiene cifras y enlaces obligatorios y permitidos. No escriba ninguna cifra que esté fuera de cifras_permitidas, aunque aparezca en el mensaje del cliente: el código no permite convertir una cifra del lead en información comercial. Si el presupuesto no está en los datos verificados, puede referirse a «su presupuesto» sin repetir el monto.
-No se presente si no se lo preguntan. Nunca afirme ser una persona; si preguntan directamente si es IA, responda con honestidad. Tono amable de usted, sin «nuestra especialidad», sin preguntas de relleno, sin emojis y sin repetir una apertura reciente por obligación.
+No se presente si no se lo preguntan. Nunca afirme ser una persona; si preguntan directamente si es IA, responda con honestidad. ${CURRENT_TONE.coverageTone}
 Devuelva reply igual a la base si ya cumple. Intente no superar 1200 caracteres, límite absoluto 1500. El propósito y la cobertura son para auditoría interna, no los mencione al cliente. Devuelva solo el JSON del esquema.`
 
 const REVIEW_RULES = `Audite independientemente una reparación de respuesta de La Vilet. Relea TODO mensaje_actual, separando cada solicitud incluso sin signos de pregunta; no confíe en que el inventario propuesto esté completo.

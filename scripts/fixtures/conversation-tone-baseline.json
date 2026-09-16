@@ -1,0 +1,13 @@
+{
+  "conversation-style.NATURAL_CONVERSATION_RULES": "f06b01e957c61b8bfd282f315e2a562b3855e5f903b981ba8fdd6f3e6fc498c6",
+  "commercial-experience.COMMERCIAL_EXPERIENCE_RULES": "9eccccd41deebb3bf923c9c17d30983fea11e135cef5d286e7ead4c88849db1f",
+  "operational-copy.WRITING_RULES": "a5965ca481b498a5cffff3b269354988cd8a8c382567ed1670be6d36377b126e",
+  "operational-copy.REVIEW_RULES": "6d16531930fd9ec775a00db57f124dd3bba62cc0d567c65f0f03b00cf1efbb9a",
+  "turn-completeness.COVERAGE_RULES": "78b3a2a97d237fa3985706a0bf1838cd0a50043fb128c39d25bd15e30e168fb5",
+  "turn-completeness.REVIEW_RULES": "8cda097c67bd3440180ad591901a7bcdf2cb2e26a198864c61baebb0c622a203",
+  "business-scope.BUSINESS_SCOPE_RULES": "c7429700d493eff5be45b5c290e3794b0d1fcd159d4b9a49093c12e168a7e9bd",
+  "opening.0": "9af189592006bacf2c0864fec07c7bf47ac9b491f5376ef6df4c3fced5bdd5e1",
+  "opening.1": "63baf4827d36631f7e00d1a2c144a6ec66c681c39ef42fa6164a1fe6f716c201",
+  "opening.2": "5061d9f33fbf06f571ed4298a27f06abc8e3c957ba0c5b4d985305419211221b",
+  "draft": "b68c18896eef08b92a4429e6868d312fed438bf171b1e7e6defb39d04ec0e8a3"
+}

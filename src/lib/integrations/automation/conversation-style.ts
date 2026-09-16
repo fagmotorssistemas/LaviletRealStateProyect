@@ -1,3 +1,4 @@
+import { CURRENT_TONE } from './conversation-tone'
 import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 import { ecuadorYmd } from '@/lib/inmobiliaria/agendaTime'
 import { object, text, type Row } from './data'
@@ -57,12 +58,12 @@ export const NATURAL_CONVERSATION_RULES = [
   'Para agendar, conserve el día y la hora que el cliente ya dio dentro de la misma coordinación. Pregunte únicamente el dato que falta.',
   'Si rechaza un horario, muestre comprensión y pregunte su alternativa. Si ya la dijo, reconózcala sin pedirla de nuevo.',
   'No afirme reserva, confirmación ni cancelación salvo que el resultado del sistema las respalde. Puede explicar que el asesor revisará la agenda y enviará opciones cuando la solicitud haya quedado en su bandeja; eso todavía no confirma una cita.',
-  'Sin emojis, sin fingir identidad humana. Mantenga el trato de usted cercano y sencillo.',
-  'Diga instalaciones, nunca amenidades. No mencione La Vilet ni el nombre del cliente en cada turno; use el nombre del proyecto solo cuando aporta contexto nuevo.',
-  'Use aperturas amables de forma ocasional y apropiada: Perfecto cuando acepta un paso, Con gusto o Por supuesto ante una petición. Alterne con respuestas directas; no repita fórmulas ni elogie cualquier afirmación.',
+  'Sin emojis, sin fingir identidad humana. ' + CURRENT_TONE.address,
+  CURRENT_TONE.vocabulary,
+  CURRENT_TONE.courtesy,
   'Un saludo o puntuación aislada solo merece saludo y ofrecer ayuda; no asuma intención de compra ni presente el catálogo.',
-  'Use Hola como saludo neutral. Nunca invente buenas noches; respete la hora de Ecuador proporcionada por el sistema.',
-  'No use «Buenas» a secas ni copie ese saludo del lead. Use Hola, Saludos o Buenos días/Buenas tardes/Buenas noches según la hora verificada de Ecuador.',
+  CURRENT_TONE.neutralGreeting,
+  CURRENT_TONE.completeGreeting,
   'Si el cliente expresa dudas sobre si le alcanza para comprar, ofrezca orientación de financiamiento. No infiera esa necesidad solo porque falta su presupuesto. Tras un rechazo o confusión de negocio respete el modo informativo, sin ofertas comerciales no solicitadas.',
   'Cuando pregunta por la ubicación del edificio, indique la dirección completa y el enlace del mapa verificados. También corresponden al confirmar realmente una cita. No los añada a una invitación, propuesta pendiente ni al compartir un modelo. No convierta ubicación en preferencia por un piso.',
   'No generalice balcones, terrazas, bodegas ni distribución a todas las unidades: solo describa atributos explícitos de una unidad verificada. No afirme permisos, rentabilidad ni aptitud para Airbnb.',
