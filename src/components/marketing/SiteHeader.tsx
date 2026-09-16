@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
-import { ThemeToggle } from './theme'
+import { ThemeToggle, useMarketingTheme } from './theme'
 import { useAuth } from '@/contexts/AuthContext'
 import { homePathForRole } from '@/lib/inmobiliaria/roleAccess'
 import {
@@ -18,11 +18,14 @@ import { HERO_LOCKED_EVENT, isHeroLocked } from './heroLock'
 
 const ease = [0.22, 1, 0.36, 1] as const
 const HERO_PATHS = new Set(['/inicio', '/nosotros'])
+const HEADER_HIDDEN = new Set(['/proyectos', '/proceso'])
 
 export function SiteHeader() {
   const pathname = usePathname()
   const reduceMotion = useReducedMotion()
   const { user, profile, isLoading } = useAuth()
+  const { theme } = useMarketingTheme()
+  const nuvia = theme === 'dark'
   const waitsForHero = HERO_PATHS.has(pathname)
   const [scrolled, setScrolled] = useState(false)
   const [pastHero, setPastHero] = useState(false)
@@ -33,15 +36,17 @@ export function SiteHeader() {
   const lastScrollY = useRef(0)
   const headerReady = !waitsForHero || heroLocked || open || pastHero
   const overHero = waitsForHero && !heroLocked && !scrolled && !open
-  const solid = !overHero
+  const overPhoto = nuvia && waitsForHero && !pastHero && !open
+  const solid = !overHero && !overPhoto
   const accountHref = user ? homePathForRole(profile?.role) : '/login'
   const accountLabel = user ? (profile?.role === 'visitante' ? 'Mi cuenta' : 'Panel') : 'Acceso'
 
   const navItems = useMemo(
     () =>
-      MARKETING_NAV.filter((item) =>
-        'requiresPhone' in item && item.requiresPhone ? hasPhone : true,
-      ),
+      MARKETING_NAV.filter((item) => {
+        if (HEADER_HIDDEN.has(item.href)) return false
+        return 'requiresPhone' in item && item.requiresPhone ? hasPhone : true
+      }),
     [hasPhone],
   )
 
@@ -120,12 +125,14 @@ export function SiteHeader() {
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-500',
         solid
-          ? 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-[#F2F2F2]/12 mkt-dark:bg-[#72735A]/90'
+          ? 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-white/10 mkt-dark:bg-[#16141c]/75'
           : 'border-b border-transparent bg-transparent',
         (!headerReady || navHidden) && 'pointer-events-none',
       )}
     >
-      <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-4 px-5 sm:px-8 lg:gap-6 lg:px-12">
+      <div
+        className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-4 px-5 sm:px-8 lg:gap-8 lg:px-12"
+      >
         <motion.div
           initial={reduceMotion ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
@@ -134,7 +141,8 @@ export function SiteHeader() {
           <Link
             href="/inicio"
             className={cn(
-              'relative z-10 text-[13px] font-semibold tracking-[0.22em] uppercase transition-[color,letter-spacing] duration-300 hover:tracking-[0.28em] lg:text-[14px]',
+              'relative z-10 text-[13px] tracking-[0.22em] uppercase transition-[color,letter-spacing] duration-300 hover:tracking-[0.28em] lg:text-[14px]',
+              overPhoto ? 'font-medium' : 'font-semibold',
               solid
                 ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8]'
                 : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)]',
@@ -144,7 +152,12 @@ export function SiteHeader() {
           </Link>
         </motion.div>
 
-        <nav className="hidden items-center gap-5 lg:flex xl:gap-8">
+        <nav
+          className={cn(
+            'hidden items-center gap-5 lg:flex xl:gap-8',
+            overPhoto && 'flex-1 justify-center',
+          )}
+        >
           {navItems.map((item, i) => {
             const active = pathname === item.href
             return (
@@ -157,7 +170,8 @@ export function SiteHeader() {
                 <Link
                   href={item.href}
                   className={cn(
-                    'group relative inline-block py-1 text-[13px] font-semibold tracking-[0.16em] uppercase transition-colors duration-300 lg:text-[14px]',
+                    'group relative inline-block py-1 text-[12px] tracking-[0.18em] uppercase transition-colors duration-300 lg:text-[13px]',
+                    overPhoto ? 'font-medium' : 'font-semibold',
                     linkTone(item.href),
                   )}
                 >
@@ -205,31 +219,6 @@ export function SiteHeader() {
               </Link>
             </motion.div>
           )}
-          <motion.div
-            initial={reduceMotion ? false : { opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, delay: 0.48, ease }}
-            whileHover={reduceMotion ? undefined : { y: -1 }}
-            whileTap={reduceMotion ? undefined : { scale: 0.98 }}
-          >
-            <Link
-              href="/contacto"
-              className={cn(
-                'group relative inline-flex items-center text-[13px] font-semibold tracking-[0.16em] uppercase transition-colors duration-300 lg:text-[14px]',
-                solid
-                  ? 'text-[#72735A] hover:text-[#8B8C74] mkt-dark:text-[#F2F2F2] mkt-dark:hover:text-[#BFBFB8]'
-                  : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:text-[#BDA27E]',
-              )}
-            >
-              Agendar visita
-              <span
-                className={cn(
-                  'ml-2 inline-block h-px w-5 origin-left transition-transform duration-300 group-hover:scale-x-150',
-                  solid ? 'bg-[#8B8C74]' : 'bg-white/70 group-hover:bg-[#BFBFB8]',
-                )}
-              />
-            </Link>
-          </motion.div>
           <ThemeToggle
             className={
               solid
@@ -319,13 +308,6 @@ export function SiteHeader() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, delay: 0.28, ease }}
               >
-                <Link
-                  href="/contacto"
-                  className="px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18] uppercase mkt-dark:text-[#f4efe8]"
-                  onClick={() => setOpen(false)}
-                >
-                  Agendar visita
-                </Link>
                 <Link
                   href={accountHref}
                   className="px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18]/40 uppercase mkt-dark:text-[#f4efe8]/40"

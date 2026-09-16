@@ -62,6 +62,12 @@ html {
   color: var(--mkt-fg);
 }
 
+[data-mkt-theme] {
+  --font-sans: var(--font-bodoni), ui-serif, Georgia, serif;
+  --font-display: var(--font-bodoni), ui-serif, Georgia, serif;
+  font-family: var(--font-bodoni), ui-serif, Georgia, serif;
+}
+
 [data-mkt-theme] .bg-white {
   background-color: var(--mkt-bg);
 }

@@ -9,7 +9,7 @@ export function ExploreFloors() {
         </p>
         <h2
           id="explora-plantas"
-          className="mt-6 font-sans text-[clamp(2.15rem,7.4vw,6.35rem)] leading-[0.92] font-bold tracking-[-0.035em] uppercase"
+          className="mt-6 font-serif text-[clamp(2.15rem,7.4vw,6.35rem)] leading-[0.92] font-bold tracking-[-0.035em] uppercase"
         >
           <span className="block text-[#C45C3E]">Recorre el edificio,</span>
           <span className="mt-[0.08em] block">

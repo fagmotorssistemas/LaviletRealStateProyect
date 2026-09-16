@@ -29,7 +29,7 @@ export function SiteFooter() {
     : null
 
   return (
-    <footer className="relative z-20 bg-[#EDEAE2] text-[#2B1A18] mkt-dark:bg-[#5a5b48] mkt-dark:text-[#F2F2F2]">
+    <footer className="relative z-20 bg-[#e8dcc8] text-[#2B1A18] mkt-dark:bg-[#cfc3b3] mkt-dark:text-[#2B1A18]">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-[0.35] mix-blend-multiply mkt-dark:opacity-[0.12] mkt-dark:mix-blend-overlay"
@@ -54,7 +54,7 @@ export function SiteFooter() {
             </p>
             <Link
               href="/ubicanos"
-              className="mt-2 inline-block text-[#72735A] underline decoration-[#72735A]/30 underline-offset-4 hover:text-[#C45C3E] mkt-dark:text-[#F2F2F2]"
+              className="mt-2 inline-block text-[#72735A] underline decoration-[#72735A]/30 underline-offset-4 hover:text-[#C45C3E]"
             >
               Cómo llegar
             </Link>
@@ -95,7 +95,7 @@ export function SiteFooter() {
 
         <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center sm:gap-7 lg:justify-center">
           <FooterWordmark />
-          <p className="max-w-[10.5rem] font-serif text-[1.65rem] leading-[1.05] tracking-[-0.03em] text-[#8B8C74] sm:text-[1.9rem] mkt-dark:text-[#F2F2F2]/55">
+          <p className="max-w-[10.5rem] font-serif text-[1.65rem] leading-[1.05] tracking-[-0.03em] text-[#8B8C74] sm:text-[1.9rem]">
             Si vives aquí,
             <br />
             ya estás.
@@ -107,22 +107,22 @@ export function SiteFooter() {
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center justify-end border-b border-[#72735A]/15 py-3.5 text-sm tracking-[0.04em] transition-colors hover:text-[#C45C3E] mkt-dark:border-[#F2F2F2]/15"
+              className="flex items-center justify-end border-b border-[#72735A]/15 py-3.5 text-sm tracking-[0.04em] transition-colors hover:text-[#C45C3E]"
             >
               {item.label}
             </Link>
           ))}
           <Link
             href="/login"
-            className="flex items-center justify-end border-b border-[#72735A]/15 py-3.5 text-sm tracking-[0.04em] transition-colors hover:text-[#C45C3E] mkt-dark:border-[#F2F2F2]/15"
+            className="flex items-center justify-end border-b border-[#72735A]/15 py-3.5 text-sm tracking-[0.04em] transition-colors hover:text-[#C45C3E]"
           >
             Acceso equipo
           </Link>
         </nav>
       </div>
 
-      <div className="relative border-t border-[#72735A]/15 mkt-dark:border-[#F2F2F2]/12">
-        <div className="mx-auto flex max-w-[1400px] flex-col gap-3 px-5 py-4 text-[11px] tracking-[0.04em] text-[#72735A]/70 sm:flex-row sm:items-center sm:justify-between sm:px-8 mkt-dark:text-[#F2F2F2]/50">
+      <div className="relative border-t border-[#72735A]/15">
+        <div className="mx-auto flex max-w-[1400px] flex-col gap-3 px-5 py-4 text-[11px] tracking-[0.04em] text-[#72735A]/70 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <p>© {year} Lavilet. Todos los derechos reservados.</p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <span>Imágenes referenciales del proyecto.</span>

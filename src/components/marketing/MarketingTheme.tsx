@@ -4,11 +4,10 @@ import type { ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import { SiteHeader } from './SiteHeader'
 import { SiteFooter } from './SiteFooter'
-import { Equipamiento } from './Equipamiento'
 import { EspaciosAccordion } from './EspaciosAccordion'
 import { MarketingThemeProvider } from './theme'
 
-const EQUIPAMIENTO_PATHS = new Set(['/inicio', '/nosotros'])
+const ESPACIOS_PATHS = new Set(['/inicio', '/nosotros'])
 
 export function MarketingFrame({
   children,
@@ -18,18 +17,13 @@ export function MarketingFrame({
   showFooter?: boolean
 }) {
   const pathname = usePathname()
-  const showEquipamiento = EQUIPAMIENTO_PATHS.has(pathname)
+  const showEspacios = ESPACIOS_PATHS.has(pathname)
 
   return (
     <MarketingThemeProvider>
       <SiteHeader />
       {children}
-      {showEquipamiento ? (
-        <>
-          <Equipamiento />
-          <EspaciosAccordion />
-        </>
-      ) : null}
+      {showEspacios ? <EspaciosAccordion /> : null}
       {showFooter ? <SiteFooter /> : null}
     </MarketingThemeProvider>
   )
