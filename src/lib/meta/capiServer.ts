@@ -72,11 +72,16 @@ function sanitizeUrl(raw?: string | null) {
   if (!raw) return undefined
   try {
     const url = new URL(raw)
-    for (const key of [...url.searchParams.keys()]) {
-      if (/phone|tel|email|token|password|otp|code/i.test(key)) {
-        url.searchParams.delete(key)
-      }
-    }
+    if (/^\/simulador(?:\/|$)/i.test(url.pathname)) return undefined
+    const conservative =
+      (process.env.META_CORE_SETUP_CONSERVATIVE ||
+        process.env.NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE ||
+        'true')
+        .trim()
+        .toLowerCase() !== 'false'
+    if (conservative) return url.origin
+    url.search = ''
+    url.hash = ''
     return url.toString()
   } catch {
     return undefined

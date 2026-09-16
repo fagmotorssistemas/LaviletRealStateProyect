@@ -7,6 +7,10 @@ import {
   getOrCreateUnitVisitIdentity,
   rememberUnitVisitEventId,
 } from '@/lib/marketing/metaVisitIdentity'
+import {
+  currentMetaEventSourceUrl,
+  isMetaCoreSetupConservative,
+} from '@/lib/marketing/metaEventSourceUrl'
 import { trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
 
 type Props = {
@@ -31,11 +35,16 @@ export function MetaViewContentUnit({ unitId, unitNumber, category }: Props) {
       if (firedVisitKey.current === visitKey) return
       firedVisitKey.current = visitKey
 
-      const params = {
-        content_ids: [unitId],
-        content_name: `Unidad ${unitNumber}`,
-        content_category: category || 'unit',
-      }
+      // Core Setup: sin parámetros de contenido en Pixel/CAPI.
+      // Simulación Preview: no carga fbevents.js; sanear URL propia ≠ URL de fbevents.
+      const conservative = isMetaCoreSetupConservative()
+      const params = conservative
+        ? undefined
+        : {
+            content_ids: [unitId],
+            content_name: `Unidad ${unitNumber}`,
+            content_category: category || 'unit',
+          }
       trackMetaPixelEvent('ViewContent', params, eventId)
 
       const ids = getMetaClickIds()
@@ -47,10 +56,14 @@ export function MetaViewContentUnit({ unitId, unitNumber, category }: Props) {
           visit_key: visitKey,
           event_id: eventId,
           unit_id: unitId,
-          content_ids: [unitId],
-          content_name: `Unidad ${unitNumber}`,
-          content_category: category || 'unit',
-          event_source_url: window.location.href.split('#')[0],
+          ...(conservative
+            ? {}
+            : {
+                content_ids: [unitId],
+                content_name: `Unidad ${unitNumber}`,
+                content_category: category || 'unit',
+              }),
+          event_source_url: currentMetaEventSourceUrl(),
           fbp: ids.fbp || undefined,
           fbc: ids.fbc || undefined,
           fbclid: ids.fbclid || undefined,

@@ -7,6 +7,10 @@ import {
   isAllowedEnqueueEventName,
   isUuid,
 } from './enqueueGuards'
+import {
+  isMetaFinancingPath,
+  sanitizeMetaEventSourceUrl,
+} from '../marketing/metaEventSourceUrl'
 
 describe('metaVisitIdentity', () => {
   it('dos visitantes generan claves distintas para la misma unidad', () => {
@@ -55,5 +59,23 @@ describe('enqueueGuards', () => {
       assert.equal(allowRateLimited(bucket, key, 1_000 + i, 60_000, 12), true)
     }
     assert.equal(allowRateLimited(bucket, key, 1_020, 60_000, 12), false)
+  })
+})
+
+describe('meta FS / configuración básica', () => {
+  it('sanitiza URL Meta: solo origen bajo Core Setup', () => {
+    assert.equal(isMetaFinancingPath('/simulador'), true)
+    assert.equal(isMetaFinancingPath('/simulador/escenario'), true)
+    assert.equal(isMetaFinancingPath('/tour/unidad/x'), false)
+    assert.equal(
+      sanitizeMetaEventSourceUrl(
+        'https://preview.example/tour/unidad/u1?unidad=208&fbclid=abc#x',
+      ),
+      'https://preview.example',
+    )
+    assert.equal(
+      sanitizeMetaEventSourceUrl('https://preview.example/simulador?unidad=208'),
+      null,
+    )
   })
 })

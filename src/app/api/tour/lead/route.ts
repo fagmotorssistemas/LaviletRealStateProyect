@@ -16,6 +16,7 @@ import { resolveVisitorGeo } from '@/lib/tour/geo'
 import { applyGeoCookies } from '@/lib/tour/visitorCookie'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
+import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -123,6 +124,13 @@ export async function POST(request: Request) {
     const realEmail = !isArtificialEmail(rawEmail) ? rawEmail : undefined
     const realName = !isArtificialName(rawName) ? rawName : undefined
 
+    const conservative =
+      (process.env.META_CORE_SETUP_CONSERVATIVE ||
+        process.env.NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE ||
+        'true')
+        .trim()
+        .toLowerCase() !== 'false'
+
     // Lead + outbox en una sola transacción Postgres (RPC).
     const identified = await rpcIdentifyTourLeadWithMetaOutbox(admin, {
       visitorKey,
@@ -133,7 +141,9 @@ export async function POST(request: Request) {
       deliveryLane: intendedLane(),
       payload: {
         action_source: 'website',
-        event_source_url: body.event_source_url || 'https://www.lavilett.com/tour',
+        event_source_url:
+          sanitizeMetaEventSourceUrl(body.event_source_url) ||
+          'https://www.lavilett.com',
         phone,
         email: realEmail,
         full_name: realName,
@@ -144,9 +154,13 @@ export async function POST(request: Request) {
         fbclid: body.fbclid,
         client_ip_address: clientIp,
         client_user_agent: clientUa,
-        content_ids: body.unit_id ? [body.unit_id] : undefined,
-        content_name: body.unit_number ? `Unidad ${body.unit_number}` : undefined,
-        content_category: body.typology_code || undefined,
+        ...(conservative
+          ? {}
+          : {
+              content_ids: body.unit_id ? [body.unit_id] : undefined,
+              content_name: body.unit_number ? `Unidad ${body.unit_number}` : undefined,
+              content_category: body.typology_code || undefined,
+            }),
         visitor_key: visitorKey,
       },
     })

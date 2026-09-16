@@ -15,6 +15,8 @@ const EXCLUDED_PREFIXES = [
   '/acceso-pendiente',
   '/cuenta',
   '/api',
+  // Simulador de cuota / financiamiento: no PageView ni pixel bajo FS core setup.
+  '/simulador',
 ]
 
 const PUBLIC_PREFIXES = [
@@ -27,7 +29,6 @@ const PUBLIC_PREFIXES = [
   '/nosotros',
   '/ubicanos',
   '/privacidad',
-  '/simulador',
   '/departamento',
 ]
 

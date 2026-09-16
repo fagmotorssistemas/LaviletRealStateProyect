@@ -3,6 +3,7 @@ import { mergeGuestFavoritesIntoPhone } from '@/lib/tour/tourFavorites'
 import { normalizeShowroomPhone, setShowroomIdentity } from '@/lib/tour/showroomIdentity'
 import { hasAdsConsent } from '@/lib/tour/consent'
 import { getMetaClickIds } from '@/lib/marketing/metaCookies'
+import { currentMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 import { trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
 
 export type TourTrackIds = {
@@ -192,7 +193,7 @@ export async function identifyTourLead(input: {
     fbp: clickIds.fbp || undefined,
     fbc: clickIds.fbc || undefined,
     fbclid: clickIds.fbclid || undefined,
-    event_source_url: typeof window !== 'undefined' ? window.location.href.split('#')[0] : undefined,
+    event_source_url: currentMetaEventSourceUrl(),
   })
   let response: Response
   try {

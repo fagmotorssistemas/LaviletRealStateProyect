@@ -5,6 +5,7 @@ import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { LV_VID_COOKIE, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox, persistMetaConversion } from '@/lib/meta/localOutbox'
+import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 import {
   allowRateLimited,
   assertVisitKeyMatchesVisitor,
@@ -90,14 +91,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'inmueble no encontrado' }, { status: 404 })
   }
 
-  const contentName =
-    typeof body.content_name === 'string' && body.content_name.trim()
-      ? body.content_name.trim()
-      : `Unidad ${unit.unit_number}`
-  const contentCategory =
-    typeof body.content_category === 'string' && body.content_category.trim()
-      ? body.content_category.trim()
-      : unit.category || 'unit'
+  // Core Setup: catálogo no viaja en custom_data; solo ids de negocio en outbox local si hace falta.
+  const conservative =
+    (process.env.META_CORE_SETUP_CONSERVATIVE ||
+      process.env.NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE ||
+      'true')
+      .trim()
+      .toLowerCase() !== 'false'
 
   let canonicalEventId = eventId
   try {
@@ -110,10 +110,16 @@ export async function POST(request: Request) {
       payload: {
         action_source: 'website',
         event_source_url:
-          typeof body.event_source_url === 'string' ? body.event_source_url : undefined,
-        content_ids: [unitId],
-        content_name: contentName,
-        content_category: contentCategory,
+          sanitizeMetaEventSourceUrl(
+            typeof body.event_source_url === 'string' ? body.event_source_url : undefined,
+          ) || undefined,
+        ...(conservative
+          ? {}
+          : {
+              content_ids: [unitId],
+              content_name: `Unidad ${unit.unit_number}`,
+              content_category: unit.category || 'unit',
+            }),
         fbp: typeof body.fbp === 'string' ? body.fbp : undefined,
         fbc: typeof body.fbc === 'string' ? body.fbc : undefined,
         fbclid: typeof body.fbclid === 'string' ? body.fbclid : undefined,
