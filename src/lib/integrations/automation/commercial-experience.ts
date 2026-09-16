@@ -119,7 +119,7 @@ export function turnWritingRules(current: string, memory: CommercialMemory) {
   return `\nINSTRUCCIONES CONCRETAS PARA ESTE TURNO:\n${avoid.length ? 'Ya explicamos estos beneficios: ' + avoid.join(', ') + '. No los vuelva a mencionar ni a listar en esta respuesta.' : ''}
 ${topics.length ? 'Antes de otra pregunta, responda TODOS estos puntos: ' + topics.join('; ') + '.' : ''}
 ${needsDimensions(current, memory) ? 'Responda con las medidas del catálogo que sean pertinentes.' : 'No incluya cifras de m² ni pregunte por tamaño. Resuelva la consulta actual sin añadir un párrafo promocional.'}
-Responda normalmente en 25 a 55 palabras. No necesita una pregunta de venta para cerrar cada explicación. No añada saludos si solo está continuando la conversación. Las restricciones de este turno también aplican al borrador corregido.`
+${CURRENT_TONE.turnLength} No necesita una pregunta de venta para cerrar cada explicación. No añada saludos si solo está continuando la conversación. Las restricciones de este turno también aplican al borrador corregido.`
 }
 
 export const PROJECT_POSITIONING = {

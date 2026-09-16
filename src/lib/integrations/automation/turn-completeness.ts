@@ -190,7 +190,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
   let requests: Coverage[] = []
   try {
-    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory) + '\n' + passiveSalesRules(engagement), context, coverageSchema)
+    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory) + '\n' + passiveSalesRules(engagement), context, coverageSchema, undefined, undefined, undefined, 'writing')
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')
     requests = rows
@@ -203,7 +203,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (issues.length) return fallback('rejected_guard', requests, issues)
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact' || (row.status === 'unanswered' && row.request_type === 'specific_fact')).map(row => row.fragment)])]
     if (reply !== input.baseReply.trim()) {
-      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement), { ...context, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, reviewSchema)
+      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement), { ...context, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, reviewSchema, undefined, undefined, undefined, 'review')
       const required = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', ...(withoutUrls(reply).includes('?') ? ['question_has_purpose'] : [])]
       if (!required.every(key => review[key] === true)) {
         return fallback('rejected_review', requests)

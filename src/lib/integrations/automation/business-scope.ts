@@ -103,7 +103,7 @@ export async function classifyBusinessScope(current: string, history: unknown = 
       historial: recent,
       marca_ya_presentada: introduced,
       pista_de_continuidad: salesSubject(current, recent),
-    }, schema)
+    }, schema, undefined, undefined, undefined, 'writing')
     return validateBusinessScope(result, current, introduced)
   } catch (error) {
     if (error instanceof OpenAIRequestError) throw error

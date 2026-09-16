@@ -1,3 +1,4 @@
+import { withConversationTone, conversationToneAudit } from './tone-settings'
 import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
 import { OpenAIRequestError } from './openai-request'
@@ -100,6 +101,9 @@ async function register(events: Inbound[], guard: Guard) {
 }
 
 export async function processConversation(rows: Row[], guard: Guard) {
+  return withConversationTone(() => processConversationWithTone(rows, guard))
+}
+async function processConversationWithTone(rows: Row[], guard: Guard) {
   assertLive()
   const events = rows.map(row => inboundFromRow(row.payload)).sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.externalId.localeCompare(b.externalId))
   const last = events[events.length - 1]
@@ -568,6 +572,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   if (!await authorized()) return { action: 'paused_before_salesbot' }
   await launchSalesbot(last.kommoId, 15578)
   if (continuation) audit.nutrition_continuation = { topic: continuation.topic, source_message_id: continuation.sourceMessageId }
+  audit.conversation_tone = conversationToneAudit()
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
     p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []

@@ -21,10 +21,49 @@ test('runtime applies saved style only to writing tasks; preview override does n
   })
   assert.equal(await configuredToneInstructions('Extraiga datos estructurados'),'Extraiga datos estructurados')
   assert.equal(reads,0)
-  assert.match(await configuredToneInstructions(CURRENT_TONE.operationalWriting),/elegante y sobria/)
+  assert.match(await configuredToneInstructions(CURRENT_TONE.operationalWriting,undefined,'writing'),/elegante y sobria/)
   assert.equal(reads,1)
-  assert.equal(await configuredToneInstructions(CURRENT_TONE.operationalWriting,DEFAULT_TONE),CURRENT_TONE.operationalWriting)
+  assert.equal(await configuredToneInstructions(CURRENT_TONE.operationalWriting,DEFAULT_TONE,'writing'),CURRENT_TONE.operationalWriting)
   assert.equal(reads,1)
+})
+test('turn snapshot survives edits, isolates concurrent leads and audits the actual profile',async()=>{
+  let reads=0, current={style:'elegante',warmth:0,detail:0}
+  const runtime=load('src/lib/integrations/automation/tone-settings.ts',{
+    './data':{db:()=>({}),scope:{tenant_id:'tenant',project_id:'project'}},
+    '@/services/conversationTone.service':{readToneRow:async()=>{reads++;return {content:JSON.stringify({current}),version:reads}},toneState},
+  })
+  let resume,started
+  const waiting=new Promise(resolve=>{resume=resolve}),ready=new Promise(resolve=>{started=resolve})
+  const first=runtime.withConversationTone(async()=>{
+    const writer=await runtime.configuredToneInstructions(CURRENT_TONE.operationalWriting,undefined,'writing')
+    started();await waiting
+    const reviewer=await runtime.configuredToneInstructions(CURRENT_TONE.operationalReview,undefined,'review')
+    assert.match(writer,/elegante y sobria/);assert.match(reviewer,/elegante y sobria/)
+    assert.deepEqual(runtime.conversationToneAudit(),{style:'elegante',warmth:0,detail:0,version:1,source:'saved',applied:true})
+  })
+  await ready;current={style:'cercano',warmth:2,detail:2}
+  await runtime.withConversationTone(async()=>{
+    const reply=await runtime.configuredToneInstructions('Responda la consulta.',undefined,'writing')
+    assert.match(reply,/lenguaje cotidiano/)
+    assert.equal(runtime.conversationToneAudit().version,2)
+  })
+  resume();await first;assert.equal(reads,2);assert.equal(runtime.conversationToneAudit(),null)
+})
+test('custom styles replace competing wording while retaining business constraints; failures preserve original',async()=>{
+  const runtime=load('src/lib/integrations/automation/tone-settings.ts',{
+    './data':{db:()=>{throw Error('offline')},scope:{}},
+  })
+  const originalText=Object.values(CURRENT_TONE).join('\n')
+  assert.equal(await runtime.configuredToneInstructions(originalText,undefined,'writing'),originalText)
+  assert.equal(await runtime.configuredToneInstructions(originalText,{style:'elegante',warmth:0,detail:0},'data'),originalText)
+  const custom=await runtime.configuredToneInstructions(originalText,{style:'elegante',warmth:0,detail:0},'writing')
+  assert.ok(!custom.includes('Normalmente 25 a 55'))
+  assert.ok(!custom.includes('Use aperturas amables de forma ocasional'))
+  assert.match(custom,/No atribuya parqueo a visitantes/)
+  assert.match(custom,/sin emojis ni identidad de asesor/)
+  assert.match(custom,/Una pregunta como m/)
+  assert.match(custom,/No omita respuestas/)
+  assert.match(custom,/reply responde SOLO/)
 })
 test('saving keeps previous style and uses project-scoped compare-and-swap; stale saves never write',async()=>{
   const row={id:1,content:JSON.stringify({current:DEFAULT_TONE}),version:3,updated_at:null},writes=[],filters=[]

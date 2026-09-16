@@ -56,10 +56,10 @@ export async function operationalReply(baseReply: string, current: string, histo
   const recent = (Array.isArray(history) ? history : []).map(object).slice(-8).map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1500) }))
   try {
     const input = { base_verificada: baseReply, mensaje_actual: current.slice(0, 4000), historial_reciente: recent, contexto_verificado: context }
-    const result = await aiJson(WRITING_RULES + openingWritingRules(recent), input, replySchema)
+    const result = await aiJson(WRITING_RULES + openingWritingRules(recent), input, replySchema, undefined, undefined, undefined, 'writing')
     const draft = variedReplyOpening(text(result.mensaje).trim(), recent)
     if (operationalCopyIssues(baseReply, draft, context).length) return fallback
-    const reviewed = await aiJson(REVIEW_RULES, { ...input, redaccion_propuesta: draft }, reviewSchema)
+    const reviewed = await aiJson(REVIEW_RULES, { ...input, redaccion_propuesta: draft }, reviewSchema, undefined, undefined, undefined, 'review')
     if (reviewed.fiel_a_los_hechos !== true || reviewed.conserva_estado_y_objetivo !== true || reviewed.no_pide_datos_conocidos !== true || reviewed.tono_natural !== true) return fallback
     return { reply: draft, generated: draft !== baseReply }
   } catch {

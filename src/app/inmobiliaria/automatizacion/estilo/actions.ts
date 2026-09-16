@@ -37,7 +37,7 @@ export async function previewToneAction(projectId: string, settings: ToneSetting
   }
   const example=examples[scenario]
   if(!example)throw new Error('Seleccione un ejemplo válido')
-  const result=await aiJson(CURRENT_TONE.operationalIntro+'\n'+CURRENT_TONE.operationalWriting+'\n'+CURRENT_TONE.commercialLength+'\nEsta es una vista previa aislada. Responda solo con los hechos del ejemplo y no ejecute ni afirme haber ejecutado ninguna acción.',example,{type:'object',properties:{mensaje:{type:'string'}},required:['mensaje'],additionalProperties:false},undefined,undefined,tone)
+  const result=await aiJson(CURRENT_TONE.operationalIntro+'\n'+CURRENT_TONE.operationalWriting+'\n'+CURRENT_TONE.commercialLength+'\nEsta es una vista previa aislada. Responda solo con los hechos del ejemplo y no ejecute ni afirme haber ejecutado ninguna acción.',example,{type:'object',properties:{mensaje:{type:'string'}},required:['mensaje'],additionalProperties:false},undefined,undefined,tone,'writing')
   if(typeof result.mensaje!=='string'||!result.mensaje.trim()||result.mensaje.length>1500)throw new Error('No se pudo generar la vista previa. Intente nuevamente.')
   return {question:example.question,reply:result.mensaje}
 }

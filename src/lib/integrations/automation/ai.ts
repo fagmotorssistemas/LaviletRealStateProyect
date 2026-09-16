@@ -1,5 +1,5 @@
 import { CURRENT_TONE, resolveToneReferences } from './conversation-tone'
-import { configuredToneInstructions } from './tone-settings'
+import { configuredToneInstructions, type ToneTask } from './tone-settings'
 import type { ToneSettings } from '@/lib/inmobiliaria/conversationTone'
 import 'server-only'
 import { object, text, rpc, db, scope, type Row } from './data'
@@ -9,10 +9,10 @@ import { audioExtensions, clearAudioTranscript, wavHasSignal } from './media-for
 import { requestOpenAI } from './openai-request'
 
 const jsonReplySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
-export async function aiJson(instructions: string, input: unknown, schema?: Row, image?: string, file?: {name: string; data: string}, toneOverride?: ToneSettings): Promise<Row> {
+export async function aiJson(instructions: string, input: unknown, schema?: Row, image?: string, file?: {name: string; data: string}, toneOverride?: ToneSettings, task: ToneTask = 'data'): Promise<Row> {
   const key = process.env.OPENAI_API_KEY, model = process.env.OPENAI_MODEL
   if (!key || !model) throw new Error('OPENAI_NOT_CONFIGURED')
-  instructions = await configuredToneInstructions(instructions, toneOverride)
+  instructions = await configuredToneInstructions(instructions, toneOverride, task)
   const response = await requestOpenAI('https://api.openai.com/v1/responses', { method: 'POST', redirect: 'error',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, store: false, max_output_tokens: 2200,
@@ -53,7 +53,7 @@ export async function activePrompt(name: string) {
 }
 
 export async function draftReply(prompt: string, context: unknown) {
-  const result = await aiJson(prompt + '\nDevuelva {"mensaje":"respuesta"}. ' + CURRENT_TONE.draftTone + ' Conteste la consulta antes de una pregunta comercial pertinente; no repita saludos ni datos ya pedidos. No afirme confirmaciones ni reservas sin un resultado de base de datos que las respalde.', context, jsonReplySchema)
+  const result = await aiJson(prompt + '\nDevuelva {"mensaje":"respuesta"}. ' + CURRENT_TONE.draftTone + ' Conteste la consulta antes de una pregunta comercial pertinente; no repita saludos ni datos ya pedidos. No afirme confirmaciones ni reservas sin un resultado de base de datos que las respalde.', context, jsonReplySchema, undefined, undefined, undefined, 'writing')
   const reply = text(result.mensaje).trim()
   if (!reply || reply.length > 1500) throw new Error('INVALID_REPLY')
   return reply
