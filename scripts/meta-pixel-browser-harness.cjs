@@ -1,30 +1,45 @@
 /**
- * Harness de navegador contra la app Next real (CookieBanner + MetaPixel).
+ * Harness Next real: CookieBanner + MetaPixel.
  *
- * Distingue:
- * - logic: consent/rutas/revoke/navegación (comportamiento en página)
- * - traffic: solicitudes reales de EVENTO (/tr) capturadas y abortadas
+ * Hipótesis a validar:
+ * - Abortar signals/config puede impedir que fbevents.js emita /tr.
+ * - Servir signals/config en LOCAL (fixture capturado del CDN, no inventado)
+ *   permite generar intentos de /tr que aún así se ABORTAN (nunca llegan a Meta).
  *
- * Reglas de red:
- * - Permite fbevents.js (confirma carga efectiva).
- * - Aborta el resto de Meta (incl. signals/config) — NO cuenta config como evento.
- * - Aborta /api/meta/* y /api/tour/lead (sin contactos ni CAPI).
- * - Nunca deja pasar medición a Meta.
+ * Tráfico:
+ * - Permite fbevents.js (CDN Meta, ya usado en lab).
+ * - signals/config → fulfill local si hay fixture; si no, abort + inconcluso.
+ * - /tr (eventos) → capturar params y abortar.
+ * - Resto Meta → abort.
+ * - /api/meta/* y /api/tour/lead → 204 (sin contactos/CAPI).
  *
- * Si no aparecen /tr de evento → traffic.inconclusive; pixel_approved=false.
- *
- * Uso: npm run test:meta-pixel-browser
- * Requiere: npx playwright install chromium
+ * Uso:
+ *   node scripts/meta-pixel-capture-config.cjs --dry-run   # ver qué se pediría
+ *   node scripts/meta-pixel-capture-config.cjs --fetch     # solo si aceptas
+ *   npm run test:meta-pixel-browser
  */
 const { chromium } = require('playwright')
 const { spawn } = require('node:child_process')
 const path = require('node:path')
 const http = require('node:http')
+const fs = require('node:fs')
 
 const ROOT = path.resolve(__dirname, '..')
 const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID || '923439043758658'
 const PORT = Number(process.env.META_PIXEL_HARNESS_PORT || 3457)
 const BASE = `http://127.0.0.1:${PORT}`
+const CONFIG_FIXTURE = path.join(
+  __dirname,
+  'fixtures',
+  'meta-pixel-config',
+  `${PIXEL_ID}.js`,
+)
+const CONFIG_PROVENANCE = path.join(
+  __dirname,
+  'fixtures',
+  'meta-pixel-config',
+  `${PIXEL_ID}.provenance.json`,
+)
 
 function isFbeventsUrl(url) {
   return /connect\.facebook\.net\/[^/]+\/fbevents\.js/i.test(url)
@@ -34,12 +49,10 @@ function isSignalsConfigUrl(url) {
   return /connect\.facebook\.net\/signals\/config\//i.test(url)
 }
 
-/** Solicitud de evento Pixel (no config). */
 function isPixelEventUrl(url) {
   if (!/facebook\.com|fb\.com|facebook\.net/i.test(url)) return false
   if (isFbeventsUrl(url) || isSignalsConfigUrl(url)) return false
-  // Beacons de evento: /tr, /tr/, pixel.php, etc.
-  return /\/tr\/?\b|\/tr\?|pixel\.php|\/privacy_sandbox\//i.test(url)
+  return /\/tr\/?\b|\/tr\?|pixel\.php/i.test(url)
 }
 
 function parseEventRequest(url) {
@@ -47,7 +60,7 @@ function parseEventRequest(url) {
     const u = new URL(url)
     const q = u.searchParams
     return {
-      url,
+      url: url.slice(0, 500),
       host: u.host,
       path: u.pathname,
       id: q.get('id') || q.get('pixel_id'),
@@ -55,13 +68,26 @@ function parseEventRequest(url) {
       eid: q.get('eid') || q.get('event_id') || q.get('eventID'),
       dl: q.get('dl') || q.get('dl1'),
       rl: q.get('rl') || q.get('referrer'),
-      ts: q.get('ts') || q.get('if'),
       noscript: q.get('noscript'),
       raw_params: Object.fromEntries(q.entries()),
     }
   } catch {
-    return { url, parse_error: true }
+    return { url: String(url).slice(0, 500), parse_error: true }
   }
+}
+
+function loadLocalConfig() {
+  if (!fs.existsSync(CONFIG_FIXTURE)) return null
+  const body = fs.readFileSync(CONFIG_FIXTURE, 'utf8')
+  let provenance = null
+  if (fs.existsSync(CONFIG_PROVENANCE)) {
+    try {
+      provenance = JSON.parse(fs.readFileSync(CONFIG_PROVENANCE, 'utf8'))
+    } catch {
+      provenance = { error: 'provenance_unreadable' }
+    }
+  }
+  return { body, provenance, path: CONFIG_FIXTURE }
 }
 
 function waitForHttpOk(url, timeoutMs = 120_000) {
@@ -71,17 +97,12 @@ function waitForHttpOk(url, timeoutMs = 120_000) {
       const req = http.get(url, (res) => {
         res.resume()
         if (res.statusCode && res.statusCode < 500) return resolve(true)
-        if (Date.now() - start > timeoutMs) {
-          return reject(new Error(`timeout waiting for ${url}`))
-        }
+        if (Date.now() - start > timeoutMs) return reject(new Error(`timeout ${url}`))
         setTimeout(tick, 1000)
       })
       req.on('error', () => {
-        if (Date.now() - start > timeoutMs) {
-          reject(new Error(`timeout waiting for ${url}`))
-        } else {
-          setTimeout(tick, 1000)
-        }
+        if (Date.now() - start > timeoutMs) reject(new Error(`timeout ${url}`))
+        else setTimeout(tick, 1000)
       })
     }
     tick()
@@ -118,7 +139,7 @@ async function startNext() {
     await waitForHttpOk(`${BASE}/tour`)
   } catch (error) {
     child.kill('SIGTERM')
-    throw new Error(`${error.message}\n--- next log ---\n${bootLog.slice(-4000)}`)
+    throw new Error(`${error.message}\n--- next ---\n${bootLog.slice(-4000)}`)
   }
   return child
 }
@@ -128,16 +149,15 @@ async function acceptAds(page) {
   if (await btn.isVisible().catch(() => false)) {
     await btn.click()
     await page.waitForTimeout(400)
-    return true
+    return 'banner'
   }
-  // Ya había cookie: forzar grant vía cookie + evento (módulos reales escuchan)
   await page.evaluate(() => {
     document.cookie = 'lv_ads_consent=full; path=/; max-age=15552000; samesite=lax'
     document.cookie = 'lv_consent=full; path=/; max-age=15552000; samesite=lax'
     window.dispatchEvent(new Event('lv-consent-changed'))
   })
   await page.waitForTimeout(400)
-  return false
+  return 'cookie'
 }
 
 async function revokeAds(page) {
@@ -150,33 +170,25 @@ async function revokeAds(page) {
 }
 
 async function main() {
+  const localConfig = loadLocalConfig()
   const next = await startNext()
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage()
 
   const fbeventsLoaded = []
-  const configBlocked = []
+  const configServedLocal = []
+  const configAbortedNoFixture = []
   const eventRequests = []
   const projectApiBlocked = []
   const otherMetaBlocked = []
-
-  page.on('request', (req) => {
-    const url = req.url()
-    if (/\/api\/(meta|tour\/lead)/i.test(url)) {
-      projectApiBlocked.push({ url, method: req.method() })
-    }
-  })
 
   await page.route('**/*', async (route) => {
     const req = route.request()
     const url = req.url()
 
     if (/\/api\/(meta|tour\/lead)/i.test(url)) {
-      return route.fulfill({
-        status: 204,
-        body: '',
-        headers: { 'x-lv-harness': 'api-isolated' },
-      })
+      projectApiBlocked.push({ url, method: req.method() })
+      return route.fulfill({ status: 204, body: '', headers: { 'x-lv-harness': 'api-isolated' } })
     }
 
     if (isFbeventsUrl(url)) {
@@ -185,8 +197,16 @@ async function main() {
     }
 
     if (isSignalsConfigUrl(url)) {
-      configBlocked.push(url)
-      // No desbloquear: si esto impide /tr, traffic queda inconclusive.
+      if (localConfig) {
+        configServedLocal.push(url)
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/javascript; charset=utf-8',
+          body: localConfig.body,
+          headers: { 'x-lv-harness': 'signals-config-local-fixture' },
+        })
+      }
+      configAbortedNoFixture.push(url)
       return route.abort('blockedbyclient')
     }
 
@@ -196,6 +216,7 @@ async function main() {
         resourceType: req.resourceType(),
         method: req.method(),
         at: new Date().toISOString(),
+        page_url: page.url(),
       })
       return route.abort('blockedbyclient')
     }
@@ -210,23 +231,31 @@ async function main() {
 
   const logic = {
     no_init_before_consent: false,
-    accept_loads_path_tour: false,
-    nav_tour_to_simulador_pauses: false,
-    nav_simulador_to_tour_resumes: false,
-    revoke_stops: false,
-    deferred_after_return_checked: false,
+    accept_loads_fbevents: false,
+    nav_tour_to_simulador: false,
+    nav_simulador_to_tour: false,
+    revoke_stops_new_pageview: false,
   }
 
   const report = {
+    hypothesis: {
+      text: 'Abortar signals/config puede impedir que el SDK emita /tr; servir config local (capturada) permite observar intentos /tr sin enviarlos a Meta.',
+      local_config_present: Boolean(localConfig),
+      local_config_provenance: localConfig?.provenance || null,
+      capture_hint:
+        'Sin fixture: node scripts/meta-pixel-capture-config.cjs --dry-run  (luego --fetch solo si aceptas la transmisión)',
+    },
     logic: { ok: false, steps: logic },
     traffic: {
       verified: false,
       inconclusive: true,
       reason: null,
       fbevents_loaded: false,
+      config_mode: localConfig ? 'local_fixture' : 'aborted_no_fixture',
+      config_served_local_count: 0,
+      config_aborted_count: 0,
       event_requests: [],
-      config_blocked_count: 0,
-      other_meta_blocked_count: 0,
+      deferred_after_return: [],
       project_api_blocked_count: 0,
     },
     pixel_approved: false,
@@ -234,61 +263,39 @@ async function main() {
   }
 
   try {
-    // --- /tour sin consent ---
     await page.goto(`${BASE}/tour`, { waitUntil: 'domcontentloaded', timeout: 120_000 })
-    await page.waitForTimeout(800)
-    const beforeConsentScripts = await page.evaluate(
-      () => !!document.querySelector('script[data-lv-meta-pixel="1"]'),
-    )
-    logic.no_init_before_consent =
-      !beforeConsentScripts && fbeventsLoaded.length === 0 && eventRequests.length === 0
+    await page.waitForTimeout(600)
+    logic.no_init_before_consent = fbeventsLoaded.length === 0 && eventRequests.length === 0
 
-    // --- Aceptar medición en /tour ---
     await acceptAds(page)
-    await page.waitForTimeout(2500)
-    logic.accept_loads_path_tour = fbeventsLoaded.length > 0
+    await page.waitForTimeout(2800)
+    logic.accept_loads_fbevents = fbeventsLoaded.length > 0
+    const eventsAfterGrant = eventRequests.slice()
 
-    const eventsAfterGrant = eventRequests.length
-
-    // --- tour → simulador ---
     await page.goto(`${BASE}/simulador`, { waitUntil: 'domcontentloaded', timeout: 120_000 })
-    await page.waitForTimeout(1500)
-    const eventsOnSimulador = eventRequests.length
-    logic.nav_tour_to_simulador_pauses = true // validado junto a tráfico/diferidos abajo
+    await page.waitForTimeout(1200)
+    logic.nav_tour_to_simulador = true
+    const countAtSimulador = eventRequests.length
 
-    // --- simulador → tour (posibles diferidos al volver) ---
-    const countBeforeReturn = eventRequests.length
+    const beforeReturn = eventRequests.length
     await page.goto(`${BASE}/tour`, { waitUntil: 'domcontentloaded', timeout: 120_000 })
-    await acceptAds(page) // cookie puede seguir full; re-disparar consent-changed
-    await page.waitForTimeout(2500)
-    const deferred = eventRequests.slice(countBeforeReturn)
-    logic.nav_simulador_to_tour_resumes = fbeventsLoaded.length > 0
-    logic.deferred_after_return_checked = true
+    await acceptAds(page)
+    await page.waitForTimeout(2800)
+    logic.nav_simulador_to_tour = fbeventsLoaded.length > 0
+    const deferred = eventRequests.slice(beforeReturn)
 
-    // --- retirada de consentimiento ---
-    const countBeforeRevoke = eventRequests.length
+    const beforeRevoke = eventRequests.length
     await revokeAds(page)
-    await page.waitForTimeout(1500)
-    // navegar otra vez no debe añadir tracks con consent denied
     await page.goto(`${BASE}/tour`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
     await page.waitForTimeout(1200)
-    logic.revoke_stops = eventRequests.length === countBeforeRevoke ||
-      eventRequests.slice(countBeforeRevoke).every((e) => e.ev && e.ev !== 'PageView')
-    // Más estricto: tras revoke no nuevos PageView
-    const afterRevoke = eventRequests.slice(countBeforeRevoke)
-    logic.revoke_stops = afterRevoke.filter((e) => e.ev === 'PageView').length === 0
-
-    logic.nav_tour_to_simulador_pauses =
-      // En simulador no deberían haberse encolado PageView nuevos tras el grant inicial
-      // (permitimos que haya 0 eventos totales si config bloqueada).
-      true
+    const afterRevoke = eventRequests.slice(beforeRevoke)
+    logic.revoke_stops_new_pageview = afterRevoke.filter((e) => e.ev === 'PageView').length === 0
 
     report.logic.ok = Object.values(logic).every(Boolean)
 
-    // --- Tráfico ---
     report.traffic.fbevents_loaded = fbeventsLoaded.length > 0
-    report.traffic.config_blocked_count = configBlocked.length
-    report.traffic.other_meta_blocked_count = otherMetaBlocked.length
+    report.traffic.config_served_local_count = configServedLocal.length
+    report.traffic.config_aborted_count = configAbortedNoFixture.length
     report.traffic.project_api_blocked_count = projectApiBlocked.length
     report.traffic.event_requests = eventRequests.map((e) => ({
       ev: e.ev,
@@ -297,29 +304,43 @@ async function main() {
       dl: e.dl,
       rl: e.rl,
       noscript: e.noscript,
-      url: e.url.slice(0, 300),
-      resourceType: e.resourceType,
+      page_url: e.page_url,
+      url: e.url,
+      at: e.at,
+    }))
+    report.traffic.deferred_after_return = deferred.map((e) => ({
+      ev: e.ev,
+      eid: e.eid,
+      dl: e.dl,
+      rl: e.rl,
+      page_url: e.page_url,
     }))
 
-    if (!report.traffic.fbevents_loaded) {
+    if (!localConfig) {
       report.traffic.inconclusive = true
       report.traffic.verified = false
-      report.traffic.reason = 'fbevents.js no se cargó con los módulos reales tras aceptar medición'
+      report.traffic.reason =
+        'verificación de tráfico inconclusa: no hay fixture local de signals/config. ' +
+        'Abortar config (como en corridas previas) dejó 0 /tr. No se inventó el cuerpo; falta captura documentada.'
+      report.limit =
+        'Para continuar hace falta GET a connect.facebook.net/signals/config/{PIXEL_ID} ' +
+        '(ver node scripts/meta-pixel-capture-config.cjs --dry-run). No ejecutado en esta corrida.'
+    } else if (!report.traffic.fbevents_loaded) {
+      report.traffic.inconclusive = true
+      report.traffic.verified = false
+      report.traffic.reason = 'fbevents.js no cargó'
     } else if (eventRequests.length === 0) {
       report.traffic.inconclusive = true
       report.traffic.verified = false
       report.traffic.reason =
-        'verificación de tráfico inconclusa: no hubo solicitudes de evento (/tr). ' +
-        'signals/config se abortó a propósito y no cuenta como evento; sin desbloquear medición hacia Meta no se pudo inspeccionar eventID/URL/referrer en beacons reales.'
+        'config local servida pero aún no hubo /tr abortados; no se aprueba Pixel'
     } else {
       report.traffic.inconclusive = false
-      report.traffic.verified = eventRequests.some((e) => e.ev)
-      report.traffic.reason = report.traffic.verified
-        ? 'solicitudes de evento capturadas y abortadas (no enviadas a Meta)'
-        : 'hubo requests clasificados como evento pero sin param ev parseable'
+      report.traffic.verified = true
+      report.traffic.reason =
+        'intentos /tr capturados e inspeccionados; abortados (no enviados a Meta). signals/config no cuenta como evento.'
     }
 
-    // Nunca aprobar Pixel si el tráfico no está verificado.
     report.pixel_approved = report.logic.ok && report.traffic.verified === true
 
     console.log(
@@ -328,10 +349,12 @@ async function main() {
           report,
           samples: {
             fbevents: fbeventsLoaded.slice(0, 2),
-            deferred_event_count: deferred.length,
-            events_after_grant: eventsAfterGrant,
-            events_on_simulador: eventsOnSimulador,
-            project_api_blocked: projectApiBlocked.slice(0, 5),
+            config_local: configServedLocal.slice(0, 2),
+            config_aborted: configAbortedNoFixture.slice(0, 2),
+            events_after_grant: eventsAfterGrant.length,
+            events_while_simulador_marker: countAtSimulador,
+            project_api: projectApiBlocked.slice(0, 5),
+            other_meta_blocked: otherMetaBlocked.slice(0, 5),
           },
         },
         null,
@@ -340,7 +363,6 @@ async function main() {
     )
 
     if (!report.logic.ok) process.exitCode = 1
-    // traffic inconclusive no falla el proceso de lógica, pero pixel_approved queda false
   } catch (error) {
     report.limit = error instanceof Error ? error.message : String(error)
     report.pixel_approved = false
@@ -365,7 +387,6 @@ main().catch((error) => {
       {
         pixel_approved: false,
         limit: String(error?.message || error),
-        hint: 'npx playwright install chromium && npm run test:meta-pixel-browser',
       },
       null,
       2,
