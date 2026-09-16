@@ -125,6 +125,8 @@ async function main() {
     '20260915160000_meta_lead_atomic_and_consent.sql',
     '20260915170000_meta_capi_outbox_rls_consent_ledger.sql',
     '20260915171000_meta_consent_seq_and_strict_recover.sql',
+    '20260915180000_lead_ads_consent_respects_ledger.sql',
+    '20260915223000_meta_rpc_execute_service_role_only.sql',
   ]
   for (const f of files) {
     const body = readFileSync(join(migrationsDir, f), 'utf8')
@@ -306,6 +308,85 @@ async function main() {
   assert(okLane.rows[0].delivery_lane === 'test', 'lane test no forzada a live')
   assert(okLane.rows[0].visitor_key === 'visitor-test-lane', 'visitor recover')
   results.push('recover_preserves_test_lane')
+
+  // --- Revocación vigente en ledger prevalece sobre cookie (p_ads_consent=true) ---
+  await sql(
+    `SELECT public.lv_record_meta_ads_consent(false, 'visitor-ledger-revoke', NULL) AS r`,
+    'ledger-revoke',
+  )
+  const blockedByLedger = await sql(
+    `
+    SELECT public.identify_tour_lead_with_meta_outbox(
+      '${tenant}'::uuid, 'visitor-ledger-revoke', 'Revoke', 'revoke@test.com', '0991110000',
+      '${project}'::uuid, true, NULL, NULL, 'test',
+      '{"action_source":"website","visitor_key":"visitor-ledger-revoke"}'::jsonb
+    ) AS r
+  `,
+    'identify-with-stale-cookie',
+  )
+  const blockedRow = blockedByLedger.rows[0].r
+  assert(blockedRow.emit_meta_lead === false, 'revocación vigente bloquea emit pese a cookie')
+  assert(blockedRow.outbox_inserted === false, 'sin outbox con ledger revoke')
+  const leadAds = await sql(
+    `SELECT meta_ads_consent FROM leads WHERE id = '${blockedRow.lead_id}'`,
+    'lead-ads-flag',
+  )
+  assert(leadAds.rows[0].meta_ads_consent === false, 'lead.meta_ads_consent alineado a false')
+  const blockedOutbox = await sql(
+    `SELECT count(*)::int AS c FROM meta_capi_outbox WHERE visitor_key = 'visitor-ledger-revoke'`,
+    'blocked-outbox',
+  )
+  assert(blockedOutbox.rows[0].c === 0, 'no hay fila outbox para visitante revocado')
+  results.push('ledger_revoke_beats_cookie')
+
+  // --- RPC Meta: solo service_role (no anon / authenticated) ---
+  const metaRpcProbes = [
+    {
+      name: 'identify_tour_lead_with_meta_outbox',
+      sql: `SELECT public.identify_tour_lead_with_meta_outbox(
+        '${tenant}'::uuid, 'visitor-rpc-role', 'Role', 'role@test.com', '0992220000',
+        '${project}'::uuid, false, NULL, NULL, 'test', '{}'::jsonb
+      )`,
+    },
+    {
+      name: 'lv_recover_missing_meta_lead_outbox',
+      sql: `SELECT public.lv_recover_missing_meta_lead_outbox(1)`,
+    },
+    {
+      name: 'lv_record_meta_ads_consent',
+      sql: `SELECT public.lv_record_meta_ads_consent(false, 'visitor-rpc-role', NULL)`,
+    },
+    {
+      name: 'lv_resolve_lead_id_for_visitor',
+      sql: `SELECT public.lv_resolve_lead_id_for_visitor('${tenant}'::uuid, 'visitor-rpc-role')`,
+    },
+    {
+      name: 'lv_revoke_meta_ads_consent',
+      sql: `SELECT public.lv_revoke_meta_ads_consent(NULL, 'visitor-rpc-role')`,
+    },
+  ]
+
+  for (const role of ['anon', 'authenticated']) {
+    await exec(`SET ROLE ${role}`, `set-role-${role}`)
+    for (const probe of metaRpcProbes) {
+      let denied = false
+      try {
+        await db.query(probe.sql)
+      } catch (error) {
+        const msg = String(error.message || error)
+        denied = /permission denied|must be owner/i.test(msg)
+      }
+      assert(denied, `${role} no debe ejecutar ${probe.name}`)
+    }
+    await exec(`RESET ROLE`, `reset-role-${role}`)
+  }
+
+  await exec(`SET ROLE service_role`, 'set-role-service-rpc')
+  for (const probe of metaRpcProbes) {
+    await db.query(probe.sql)
+  }
+  await exec(`RESET ROLE`, 'reset-role-service-rpc')
+  results.push('meta_rpc_service_role_only')
 
   console.log(JSON.stringify({ ok: true, results }, null, 2))
   await db.close()
