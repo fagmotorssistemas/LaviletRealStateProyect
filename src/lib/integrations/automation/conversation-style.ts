@@ -19,7 +19,7 @@ export function greetingForTurn(current: string, history: unknown, lastBotAt: un
   const now = Date.parse(at)
   if (last && ecuadorYmd(new Date(last)) === ecuadorYmd(new Date(now)) && now - last < 15 * 60_000) return ''
   const value = match[0].toLocaleLowerCase('es')
-  if (/buen[oa]s? (?:dias|días|tardes|noches)/.test(value)) return localGreeting(at)
+  if (value === 'buenas' || /buen[oa]s? (?:dias|días|tardes|noches)/.test(value)) return localGreeting(at)
   return value[0].toLocaleUpperCase('es') + value.slice(1)
 }
 export function localGreeting(at: string) {
@@ -29,6 +29,7 @@ export function localGreeting(at: string) {
 export function naturalConversationReply(reply: string, name: string, greeting: string, at?: string) {
   const full = name.trim(), first = conversationalFirstName(full)
   let result = reply.trim().replace(/\\n/g, '\n').replace(/\bamenidades\b/gi, 'instalaciones').replace(/p\. m\.\.|a\. m\.\./g, value => value.slice(0, -1))
+  result = result.replace(/^buenas(?=\s*[,!.:;]|$)/i, at ? localGreeting(at) : 'Hola')
   if (at) result = result.replace(/^(hola[, .!]*\s*)?buen(?:os días|as tardes|as noches)/i, (_, hola: string) => (hola || '') + localGreeting(at))
   if (full && full !== first) result = result.replace(new RegExp(full.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&'), 'gi'), first)
   if (greeting && !/^(hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas\b)/i.test(result)) result = greeting + '. ' + result
@@ -61,7 +62,8 @@ export const NATURAL_CONVERSATION_RULES = [
   'Use aperturas amables de forma ocasional y apropiada: Perfecto cuando acepta un paso, Con gusto o Por supuesto ante una petición. Alterne con respuestas directas; no repita fórmulas ni elogie cualquier afirmación.',
   'Un saludo o puntuación aislada solo merece saludo y ofrecer ayuda; no asuma intención de compra ni presente el catálogo.',
   'Use Hola como saludo neutral. Nunca invente buenas noches; respete la hora de Ecuador proporcionada por el sistema.',
-  'Si no tiene claro el presupuesto, ofrezca ayudarle a estimarlo según entrada y una cuota cómoda, o explicar opciones de financiamiento. No lo desvíe a tamaños o visita sin resolver su duda.',
+  'No use «Buenas» a secas ni copie ese saludo del lead. Use Hola, Saludos o Buenos días/Buenas tardes/Buenas noches según la hora verificada de Ecuador.',
+  'Si el cliente expresa dudas sobre si le alcanza para comprar, ofrezca orientación de financiamiento. No infiera esa necesidad solo porque falta su presupuesto. Tras un rechazo o confusión de negocio respete el modo informativo, sin ofertas comerciales no solicitadas.',
   'Cuando pregunta por la ubicación del edificio, indique la dirección completa y el enlace del mapa verificados. También corresponden al confirmar realmente una cita. No los añada a una invitación, propuesta pendiente ni al compartir un modelo. No convierta ubicación en preferencia por un piso.',
   'No generalice balcones, terrazas, bodegas ni distribución a todas las unidades: solo describa atributos explícitos de una unidad verificada. No afirme permisos, rentabilidad ni aptitud para Airbnb.',
   'La ausencia de un atributo en el catálogo significa que no está verificado, no que esa unidad carezca de él. Tampoco invente cercanía a servicios o vías principales sin datos que la respalden.',

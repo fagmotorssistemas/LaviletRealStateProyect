@@ -3,6 +3,7 @@ import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { normalized } from './sdr-rules'
 import { isUnitVisualRequest } from './unit-visual-request'
 import { isPropertyScopeRedirect, salesSubject } from './sales-subject'
+import { commercialEngagement, passiveSalesRules } from './commercial-engagement'
 
 const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
 const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
@@ -48,7 +49,8 @@ export function salesMemory(previous: unknown, history: unknown) {
       if (/le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(content))) unitsOffered = true
     } else if (row.role === 'cliente' && invitation(last) && /^(?:no|no gracias|ahora no|por ahora no|solo (?:quiero )?informacion)/.test(normalized(content))) declined = true
   }
-  return { visit_invited: invited, visit_declined: declined, financing_mentioned: financingMentioned, unit_options_offered: unitsOffered }
+  const engagement = commercialEngagement('', history, saved)
+  return { visit_invited: invited, visit_declined: declined, financing_mentioned: financingMentioned, unit_options_offered: unitsOffered, passive_sales: engagement.passive, property_interest: engagement.interested }
 }
 
 export function mentionsFinancing(value: string) {
@@ -71,6 +73,7 @@ export function salesTopics(current: string) {
 export function salesPlan(info: Row, current: string, summary: Row) {
   const history = rows(info.historial), replies = history.filter(r => ['bot', 'asesor'].includes(text(r.role)))
   const memory = salesMemory(summary._sales_memory, history)
+  const engagement = commercialEngagement(current, history, summary._sales_memory)
   const last = text(replies.at(-1)?.content), m = normalized(current)
   const pendingVisit = rows(info.propuestas).some(p => ['confirmed', 'awaiting_advisor', 'awaiting_client'].includes(text(p.status)))
     || object(info.coordinacion_visita).status === 'collecting'
@@ -85,40 +88,41 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const policy = object(info.politica_visitas)
   const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
   const recentInvitation = replies.slice(-3).some(row => invitation(text(row.content)))
-  const invite = visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
+  const invite = !engagement.passive && visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
     && (!memory.visit_invited || replies.length >= 3) && !memory.visit_declined
   // An old offer must not block a useful next step after the client starts a new search.
   const recentUnitOffer = replies.slice(-2).some(row => /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(text(row.content))))
-  const offerUnits = !invite && info.precio_cotizado === true && !pendingVisit && !model && (!memory.unit_options_offered || (replies.length >= 3 && !recentUnitOffer))
+  const offerUnits = !engagement.passive && !invite && info.precio_cotizado === true && !pendingVisit && !model && (!memory.unit_options_offered || (replies.length >= 3 && !recentUnitOffer))
     && !/solo (?:quiero )?(?:el )?precio|no (?:quiero|deseo|necesito).*(?:ver|opcion|modelo|distribucion)/.test(m) && !isUnitVisualRequest(current)
   const quoted = rows(info.unidades_cotizadas)
   const unitClosing = quoted.length === 1
     ? `¿Le gustaría revisar la distribución ${quoted[0].category === 'suite' ? 'de la suite' : quoted[0].category === 'local' ? 'del local' : 'del departamento'} ${text(quoted[0].unit_number)}?`
     : '¿Le gustaría que le muestre una opción de ese rango?'
   const twoQuestions = replies.length >= 2 && replies.slice(-2).every(r => discovery(text(r.content)))
-  const shareBrochure = twoQuestions && !pendingVisit && !invite && !offerUnits
+  const shareBrochure = !engagement.passive && twoQuestions && !pendingVisit && !invite && !offerUnits
     && !replies.some(r => /brochure-la-vilet|brochure|folleto/i.test(text(r.content)))
     && !/no (?:quiero|deseo|necesito).*(?:material|brochure|folleto|informacion)/.test(m)
   const uncertain = /no (?:se|estoy segur|tengo claro|tengo idea)|no he pensado/.test(m)
-  const answerOnly = pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
+  const answerOnly = engagement.passive || pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
   return { action: invite ? 'invite_visit' : offerUnits ? 'offer_units' : shareBrochure ? 'share_brochure' : answerOnly ? 'answer_only' : 'discover', topics,
     question_purpose: invite ? 'Obtener permiso para coordinar la visita, sin confirmarla.' : offerUnits ? 'Elegir una unidad y mostrar su distribución.' : answerOnly ? null : object(info.siguiente_pregunta).purpose || 'Aclarar un dato faltante que cambie la recomendación o el siguiente paso.',
     max_questions: invite || offerUnits || !answerOnly ? 1 : 0,
     closing: invite ? visitInvitation(text(info.modo_comercial), visits) : offerUnits ? unitClosing : '',
     visits_allowed: visits.allowSuggestions,
     launch: info.modo_comercial === 'lanzamiento',
-    memory, positive_after_model: positive(current) && (sawModel || hasUnit),
+    memory, engagement, positive_after_model: positive(current) && (sawModel || hasUnit),
     rules: `Responda primero todas las dudas del mensaje. No siga una lista obligatoria de calificación.
 Use datos ya conocidos de vivir/invertir, dormitorios y presupuesto; pregunte solo UN dato útil que falte, nunca uno aplazado o ya contestado.
 Cada pregunta debe tener un propósito concreto y un uso para la respuesta: seleccionar una unidad, mostrar material pertinente, coordinar una visita, iniciar una revisión financiera consentida o facilitar atención del asesor. Si no cambia ninguna decisión, omita la pregunta. No pregunte para mantener interacción ni clasifique a alguien como poco interesado por hacer preguntas; use decisiones expresas del cliente y respete su ritmo.
 Preguntar uso propio o inversión sirve para orientar la elección de la unidad. No afirme que alquilar generará ingresos aceptados por el banco ni que respalda o mejora la aprobación: faltan políticas verificadas de la entidad. Si preguntan por qué importa, explique el propósito comercial y que cualquier efecto crediticio debe verificarlo la entidad.
-Si aún no sabe su presupuesto, ofrezca ayudarle a ordenar entrada y cuota cómoda, sin aprobar un crédito ni exigir ingresos aquí.
+Si el cliente expresa una duda sobre su capacidad de compra, ofrezca orientación de financiamiento sin aprobar un crédito ni exigir ingresos aquí. La ausencia de presupuesto por sí sola no autoriza esa oferta; respete el modo informativo del turno.
 Presente de uno a tres beneficios relevantes, solo los que ayudan a esta persona; no repita instalaciones ni rellene hasta llegar a tres.
 No suponga que «se ve interesante» acepta una visita. No cree cita ni avise al asesor al ofrecerla.
-${visits.allowSuggestions ? 'Las sugerencias de visita están habilitadas; el sistema añadirá una invitación. El mapa se entrega solo al solicitarlo el cliente o al confirmar realmente la cita, nunca por esta invitación.' : 'Las sugerencias de visita están desactivadas. No invite, proponga ni pregunte por visitas; si el cliente la solicita expresamente el sistema coordina esa petición.'}
+${invite ? 'El sistema añadirá una invitación a una visita. El mapa se entrega solo al solicitarlo el cliente o al confirmar realmente la cita, nunca por esta invitación.' : 'No añada una invitación a visita en este turno; si el cliente la solicita expresamente el sistema coordina esa petición.'}
 El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : offerUnits ? 'responder el precio; el sistema ofrecerá revisar una unidad, NO escriba otra pregunta ni invite a una visita' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
 No prometa reventa, arriendo, rentabilidad, disponibilidad, aprobación bancaria ni tiempos sin datos. No invente reservas, anticipos ni pasos legales de compra.
-Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también es una respuesta completa.` }
+Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también es una respuesta completa.
+${passiveSalesRules(engagement)}` }
 }
 
 export function salesIssues(reply: string, plan: ReturnType<typeof salesPlan>) {

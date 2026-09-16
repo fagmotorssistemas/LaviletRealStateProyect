@@ -2,6 +2,7 @@ import 'server-only'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
 import { commercialMemory, experienceContext, residentialContinuationIssues, RESIDENTIAL_CONTINUITY_RULES, turnWritingRules } from './commercial-experience'
+import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
 
 export type TurnCompletenessInput = {
   current: string
@@ -181,13 +182,14 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const history = (Array.isArray(input.history) ? input.history : []).map(object).slice(-8)
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
+  const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory)
   const context = { mensaje_actual: input.current, historial_reciente: history, respuesta_base: input.baseReply,
     contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     material_protegido: { cifras_obligatorias: numbers(input.baseReply), cifras_permitidas: [...new Set([...numbers(input.baseReply), ...numbers(verifiedText(input.verified))])],
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
   let requests: Coverage[] = []
   try {
-    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory), context, coverageSchema)
+    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory) + '\n' + passiveSalesRules(engagement), context, coverageSchema)
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')
     requests = rows
@@ -196,10 +198,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     // actual client-facing text decides whether there is a question to audit.
     const question = withoutUrls(reply).includes('?') ? declaredQuestion : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
     const issues = turnCompletenessIssues(input, reply, question)
+    if (reply !== input.baseReply.trim() && passiveSalesCopy(reply, input.current, engagement) !== reply) issues.push('unsolicited_sales_offer')
     if (issues.length) return fallback('rejected_guard', requests, issues)
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact' || (row.status === 'unanswered' && row.request_type === 'specific_fact')).map(row => row.fragment)])]
     if (reply !== input.baseReply.trim()) {
-      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES, { ...context, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, reviewSchema)
+      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement), { ...context, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, reviewSchema)
       const required = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', ...(withoutUrls(reply).includes('?') ? ['question_has_purpose'] : [])]
       if (!required.every(key => review[key] === true)) {
         return fallback('rejected_review', requests)

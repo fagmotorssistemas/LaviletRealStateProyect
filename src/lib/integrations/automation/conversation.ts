@@ -29,6 +29,7 @@ import { nutritionContinuation } from './nutrition-week-one-rules'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
+import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
 import { operationalReply } from './operational-copy'
 import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
 import { commercialCoverageIssues, commercialTurnTopics } from './multi-topic-turn'
@@ -126,7 +127,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
   const previousSummary = object(conversationBefore.summary)
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
   if (!inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)) {
-    businessScope = await classifyBusinessScope(current, context.historial)
+    businessScope = await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true)
     if (businessScope.kind === 'out_of_scope') {
       reply = businessScope.reply
       audit = { source: 'business_out_of_scope', business_scope: businessScope.kind }
@@ -146,8 +147,8 @@ export async function processConversation(rows: Row[], guard: Guard) {
     await setKommoField(last.kommoId, 451530, 'true')
     finalNotice = true
     handoffNotice = lead.handoff_status === 'queued'
-      ? 'He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle. Podrá continuar por aquí sin volver a explicar lo que busca.'
-      : 'He pasado su consulta a un asesor de nuestro equipo para que le ayude con ese detalle y continúe atendiéndole por aquí.'
+      ? 'He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle.'
+      : 'He pasado su consulta a un asesor de nuestro equipo para que le ayude con ese detalle.'
     return handoffNotice
   }
   async function collectVisit(args: Row) {
@@ -486,10 +487,12 @@ export async function processConversation(rows: Row[], guard: Guard) {
   }
   if (['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model', 'product_clarification', 'team_attendance'].includes(text(audit.source))) {
     await guard()
-    const composed = await operationalReply(reply, current, context.historial, audit)
+    const engagement = commercialEngagement(current, context.historial, previousSummary._sales_memory)
+    const composed = await operationalReply(reply, current, context.historial, { ...audit, reglas_interes: passiveSalesRules(engagement) })
     const complete = !commercialCoverageIssues(composed.reply, commercialTurnTopics(current, context.historial, ['property', 'mixed'].includes(businessScope.kind))).length
-    if (complete) reply = composed.reply
-    audit = { ...audit, ai_operational_copy: complete && composed.generated }
+    const respectsInterest = passiveSalesCopy(composed.reply, current, engagement) === composed.reply
+    if (complete && respectsInterest) reply = composed.reply
+    audit = { ...audit, ai_operational_copy: complete && respectsInterest && composed.generated, passive_sales: engagement.passive }
   }
   if (!['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification'].includes(text(audit.source))) {
     await guard()
@@ -499,7 +502,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const quote = unitPriceQuote(info, current, previousSummary)
     const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
-      verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
+      verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
       preserveOperationalQuestion: ['financing', 'visit_intake', 'visit_status', 'visit_option_choice'].includes(text(audit.source)) })
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
     if (!invalidPrice) reply = reviewed.reply
@@ -565,6 +568,7 @@ export async function processConversation(rows: Row[], guard: Guard) {
       ? { kind: 'financing_consent', reply } : {},
     ...(audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),
+    _brand_introduced: previousSummary._brand_introduced === true || /la\s*vilet/i.test(reply) || (Array.isArray(context.historial) ? context.historial.map(object) : []).some(row => ['bot', 'asesor'].includes(text(row.role)) && /la\s*vilet/i.test(text(row.content))),
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }
   const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)
   // A scheduling failure must not mark an already accepted reply as uncertain.

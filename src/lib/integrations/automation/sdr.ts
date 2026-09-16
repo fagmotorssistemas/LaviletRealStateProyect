@@ -9,6 +9,7 @@ import { catalogReferenceReply, resolveCatalogReference } from './catalog-refere
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { unitModelRequestReply } from './unit-model'
 import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
+import { passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
 import { acceptedPriceOption, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
@@ -153,7 +154,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     if (reply.trim() === text(object(info.conversacion).ultima_respuesta).trim() && !/rep[ií]t|repita|otra vez|no entend[ií]/i.test(current)) issues.push('repeated_question')
     const reviewIssues = Array.isArray(review.motivos) ? review.motivos.map(text) : []
     const onlyStyle = attempt > 0 && reply.length <= 900 && reviewIssues.length > 0 && reviewIssues.every(reason => ['style', 'missing_next_step'].includes(reason)) && issues.every(reason => reason === 'style')
-    if ((review.aprobada === true && !issues.length) || onlyStyle) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ...(onlyStyle ? { style_review_only: true } : {}) })
+    const unsolicitedOffer = passiveSalesCopy(reply, current, plan.engagement) !== reply
+    if (unsolicitedOffer) issues.push('unsolicited_sales_offer')
+    if ((review.aprobada === true && !issues.length) || (onlyStyle && !unsolicitedOffer)) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ...(onlyStyle ? { style_review_only: true } : {}) })
     reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number])) as string[] : []))
     if (!attempt) {
       await guard()

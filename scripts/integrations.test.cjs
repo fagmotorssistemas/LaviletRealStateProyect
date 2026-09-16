@@ -31,6 +31,84 @@ const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
 
+test('Carlos price curiosity stays passive after refusal even when recent history is truncated', async () => {
+  const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
+  const { rememberSalesReply, salesPlan } = require('../src/lib/integrations/automation/sales-policy.ts')
+  const history = [
+    { role: 'bot', content: 'Somos La Vilet, un proyecto inmobiliario. No gestionamos taxis.' },
+    { role: 'cliente', content: 'No no estoy interesado por el momento' },
+    { role: 'bot', content: 'Entendido, estaremos atentos si necesita información.' },
+  ]
+  const current = 'Comprendo, bueno y qué precio tienen los inmuebles?'
+  const memory = rememberSalesReply({}, history, 'Pero entonces no envía comida?', 'Somos un proyecto inmobiliario y no gestionamos comida.')
+  assert.equal(memory.passive_sales, true)
+  for (const recent of [history, []]) {
+    const info = { ...priceInfo(), historial: recent, politica_visitas: { allowSuggestions: true } }
+    const result = await commercialReply(info, current, { _sales_memory: memory }, async () => {})
+    assert.equal(result.audit.sales_action, 'answer_only')
+    assert.match(result.reply, /\$[\d.,]+/)
+    assert.doesNotMatch(result.reply, /financ|visita|brochure|¿/i)
+    const plan = salesPlan({ ...info, precio_cotizado: true }, current, { _sales_memory: memory })
+    assert.match(plan.rules, /MODO INFORMATIVO/)
+    assert.doesNotMatch(plan.rules, /sistema añadirá una invitación/)
+  }
+})
+
+test('renewed purchase interest reopens guidance while questions alone do not', async () => {
+  const { commercialEngagement } = require('../src/lib/integrations/automation/commercial-engagement.ts')
+  const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
+  const saved = { passive_sales: true }
+  for (const question of ['Comprendo, cuánto vale?', 'Tiene suites?', 'Quiero conocer más de los departamentos antes']) {
+    assert.equal(commercialEngagement(question, [], saved).passive, true)
+  }
+  const current = 'Ahora sí quiero comprar un departamento. ¿Cuánto vale el 502?'
+  assert.equal(commercialEngagement(current, [], saved).interested, true)
+  const result = await commercialReply(priceInfo(), current, { _sales_memory: saved }, async () => {})
+  assert.match(result.reply, /financ/i)
+  const history = [{ role: 'cliente', content: 'Quiero comprar un departamento' }, { role: 'bot', content: 'No ofrecemos crédito directo con el proyecto. Puede consultar las opciones bancarias.' }]
+  assert.equal(commercialEngagement('Cuánto vale?', history).passive, false)
+  const requested = await commercialReply(priceInfo(), '¿Cuánto vale el 502 y tienen crédito directo?', { _sales_memory: saved }, async () => {})
+  assert.match(requested.reply, /No ofrecemos crédito directo/)
+  assert.doesNotMatch(requested.reply, /visita/)
+})
+
+test('operational AI cannot reintroduce finance or visit after a passive price answer', async t => {
+  live(t)
+  const info = priceInfo()
+  const h = conversationHarness({ realCommercial: true, commercialInfo: info, catalog: priceCatalog,
+    summary: { _sales_memory: { passive_sales: true } }, financeContext: info.financiamiento,
+    operationalCopy: 'Los precios van de $250.000 a $550.000. Podemos financiar con JEP. ¿Le gustaría coordinar una visita?' })
+  h.rows[0].payload.text = 'Qué precio tienen los inmuebles?'; h.rows[1].payload.text = ''
+  await h.process(h.rows, async () => {})
+  const sent = h.calls.find(c => c.name === 'register_outbound_message').args
+  assert.match(sent.p_content, /\$[\d.,]+/)
+  assert.doesNotMatch(sent.p_content, /financ|visita|JEP/i)
+  assert.equal(sent.p_tool_calls.passive_sales, true)
+})
+
+test('out-of-scope replies introduce the brand once, including invalid model fallback', async () => {
+  const { validateBusinessScope, classifyBusinessScope } = load('src/lib/integrations/automation/business-scope.ts', {
+    './ai': { aiJson: async (_rules, input) => {
+      assert.equal(input.marca_ya_presentada, true)
+      return { kind: 'out_of_scope', property_fragments: [], reply: 'Entiendo la confusión. Somos La Vilet, un proyecto inmobiliario y no gestionamos pedidos de comida.' }
+    } },
+  })
+  const row = { kind: 'out_of_scope', property_fragments: [], reply: 'Entiendo la confusión. Somos La Vilet, un proyecto inmobiliario y no gestionamos pedidos de comida.' }
+  assert.match(validateBusinessScope(row, 'Envíeme comida').reply, /La Vilet/)
+  assert.doesNotMatch(validateBusinessScope(row, 'Envíeme comida', true).reply, /La Vilet/)
+  assert.doesNotMatch(validateBusinessScope({ ...row, reply: 'Ya reservé su taxi.' }, 'Envíeme taxi', true).reply, /La Vilet|reservé/)
+  assert.doesNotMatch((await classifyBusinessScope('Envíeme comida', [], true)).reply, /La Vilet/)
+})
+
+test('Pablo bare Buenas becomes a complete Ecuador greeting without changing other words', () => {
+  const { greetingForTurn, naturalConversationReply } = require('../src/lib/integrations/automation/conversation-style.ts')
+  for (const [at, expected] of [['2026-09-15T14:00:00Z', 'Buenos días'], ['2026-09-15T23:30:00Z', 'Buenas tardes'], ['2026-09-16T02:00:00Z', 'Buenas noches']]) {
+    assert.equal(greetingForTurn('buenas tiene capuchinos?', [], null, at), expected)
+    assert.equal(naturalConversationReply('Buenas. Gracias por su mensaje.', '', '', at), expected + '. Gracias por su mensaje.')
+  }
+  assert.equal(naturalConversationReply('Hay buenas opciones.', '', ''), 'Hay buenas opciones.')
+})
+
 test('financing consent follows the verified step after a natural AI rewrite', () => {
   const { financingInputs } = require('../src/lib/integrations/automation/financing.ts')
   const reply = 'Podemos acompañarle a explorar alternativas con Banco Pichincha. ¿Desea avanzar?'
@@ -110,6 +188,7 @@ test('unanswerable property questions actually enqueue an advisor and pause the 
   assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === false))
   assert.ok(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530 && c.args[2] === 'true'))
   assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /bandeja del equipo/)
+  assert.doesNotMatch(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /Podrá continuar|sin volver a explicar/)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
 })
 
@@ -490,7 +569,7 @@ test('acknowledging a redirect changes the topic; explicit insistence and unansw
   }
 })
 
-test('the reported acknowledged vehicle conversation quotes homes, offers mortgage guidance and a unit, with one send', async t => {
+test('acknowledging the property scope allows a passive price answer, not unsolicited finance or a visit', async t => {
   live(t)
   const info = { ...priceInfo(), historial: vehicleHistory, politica_visitas: { allowSuggestions: false } }
   const h = conversationHarness({ realCommercial: true, commercialInfo: info, catalog: priceCatalog, history: vehicleHistory,
@@ -500,14 +579,13 @@ test('the reported acknowledged vehicle conversation quotes homes, offers mortga
   await h.process(h.rows, async () => {})
   const sent = h.calls.find(c => c.name === 'patch').args[2]
   assert.match(sent, /250[.,]000|310[.,]000/)
-  assert.match(sent, /financ\w*.*Banco Pichincha.*Cooperativa JEP/)
-  assert.match(sent, /muestre una opción de ese rango/)
+  assert.doesNotMatch(sent, /financ\w*|Banco Pichincha|Cooperativa JEP|muestre una opción de ese rango/)
   assert.doesNotMatch(sent, /vehículo|moto|no vendemos|imprecisa|visita/)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
   assert.equal(h.calls.some(c => ['process_financing_message_v2', 'lv_collect_visit_intake', 'handoff_lead'].includes(c.name)), false)
 })
 
-test('prices recognize vale/valen and credit for a vehicle does not suppress later housing guidance', async () => {
+test('prices recognize vale/valen after scope confusion without treating curiosity as buying interest', async () => {
   const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
   const { salesMemory } = require('../src/lib/integrations/automation/sales-policy.ts')
   const history = [...vehicleHistory, { role: 'cliente', content: 'Entendido' }]
@@ -515,7 +593,7 @@ test('prices recognize vale/valen and credit for a vehicle does not suppress lat
   for (const message of ['Y cuánto valen?', '¿Cuánto vale el 502?', '¿Cuánto salen los departamentos?']) {
     const result = await commercialReply({ ...priceInfo(), historial: history }, message, { _sales_memory: { financing_mentioned: true } }, async () => {})
     assert.equal(result.audit.source, 'unit_price')
-    assert.match(result.reply, /financ\w*/)
+    assert.doesNotMatch(result.reply, /financ\w*|visita|¿/)
     assert.doesNotMatch(result.reply, /vehículos|motos/)
   }
   const legitimate = [...history, { role: 'cliente', content: '¿Financian departamentos?' }, { role: 'bot', content: 'Podemos orientarle sobre financiamiento con JEP.' }]
