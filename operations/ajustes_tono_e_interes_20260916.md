@@ -29,3 +29,7 @@ Conversaciones de Carlos y Pablo del 15 de septiembre: confusión con taxis/comi
 - Las pruebas simulan los envíos; no contactan a los leads. No se modificaron políticas de mascotas ni se reactivaron leads derivados a asesores.
 
 Estos cambios son de aplicación; no requieren ejecutar SQL. Su activación en el bot depende del despliegue de esta versión.
+
+## Integración para publicar
+
+La subida inicial encontró el commit remoto `50b401c` de diseño. Se integró conservando sus cambios. La compilación detectó que ese commit había dejado vacíos cuatro archivos todavía importados por la aplicación: `StatusBadge.tsx`, `VisitanteHome.tsx`, `Modal.tsx` e `inmobiliaria.service.ts`. Se recuperó únicamente el contenido de esos cuatro archivos desde la versión anterior que compilaba. El cambio local del usuario en `src/app/inmobiliaria/layout.tsx` no forma parte de esta corrección.
