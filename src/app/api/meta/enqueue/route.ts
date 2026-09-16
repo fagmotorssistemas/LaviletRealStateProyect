@@ -125,8 +125,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'persist_failed' }, { status: 500 })
   }
 
-  after(() => {
-    void flushLocalMetaOutbox(admin).catch(() => {})
+  // Debe ser async/await para que waitUntil retenga el isolate hasta el flush.
+  after(async () => {
+    try {
+      await flushLocalMetaOutbox(admin, { eventIds: [eventId], limit: 5 })
+    } catch (error) {
+      console.error('[meta-outbox] after flush', {
+        event_id: eventId,
+        error: error instanceof Error ? error.message.slice(0, 180) : 'error',
+      })
+    }
   })
 
   return NextResponse.json({ ok: true, visit_key: visitKey, event_id: eventId }, { status: 202 })

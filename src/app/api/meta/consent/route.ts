@@ -79,10 +79,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'persist_failed' }, { status: 500 })
   }
 
-  after(() => {
-    flushConsentLedgerToNest(admin).catch((error) => {
-      console.error('flushConsentLedgerToNest', error)
-    })
+  after(async () => {
+    try {
+      await flushConsentLedgerToNest(admin)
+    } catch (error) {
+      console.error('flushConsentLedgerToNest', {
+        error: error instanceof Error ? error.message.slice(0, 180) : 'error',
+      })
+    }
   })
 
   const res = NextResponse.json({

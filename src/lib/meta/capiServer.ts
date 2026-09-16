@@ -178,9 +178,20 @@ export async function enqueueMetaEvent(
       }),
       cache: 'no-store',
     })
-    return { ok: res.ok || res.status === 202, status: res.status }
+    const ok = res.ok || res.status === 202
+    console.info('[meta-capi] enqueue http', {
+      event_id: input.eventId || null,
+      event_name: input.eventName,
+      http_status: res.status,
+      ok,
+    })
+    return { ok, status: res.status }
   } catch (error) {
-    console.error('[meta-capi] enqueue failed', error instanceof Error ? error.message : 'error')
+    const message = error instanceof Error ? error.message : 'error'
+    console.error('[meta-capi] enqueue failed', {
+      event_id: input.eventId || null,
+      error: message.slice(0, 180),
+    })
     return { ok: false, skipped: 'network' }
   }
 }

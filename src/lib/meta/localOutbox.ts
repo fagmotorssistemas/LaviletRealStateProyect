@@ -146,15 +146,45 @@ export async function getLeadAdsConsent(
   return Boolean(data.meta_ads_consent)
 }
 
+function sanitizeFlushError(raw: string): string {
+  return raw
+    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/x-internal-secret["']?\s*[:=]\s*["']?[^"'\s]+/gi, 'x-internal-secret:[redacted]')
+    .slice(0, 180)
+}
+
 /** Reenvía pendientes locales a lavilet-meta-capi. No lanza. */
 export async function flushLocalMetaOutbox(
   admin: SupabaseClient,
-  limit = 20,
+  limitOrOpts: number | { limit?: number; eventIds?: string[] } = 20,
 ): Promise<{ forwarded: number; failed: number; skipped: number }> {
-  if (!isMetaCapiConfigured()) return { forwarded: 0, failed: 0, skipped: 0 }
+  const opts =
+    typeof limitOrOpts === 'number' ? { limit: limitOrOpts } : limitOrOpts || {}
+  const limit = opts.limit ?? 20
+  const eventIds = opts.eventIds?.filter((id) => /^[0-9a-f-]{36}$/i.test(id)) || []
 
   const lane = intendedLane()
-  const { data: rows, error } = await admin
+  const configured = isMetaCapiConfigured()
+
+  if (!configured) {
+    console.error('[meta-outbox] flush skipped not_configured', {
+      lane,
+      event_ids: eventIds.slice(0, 5),
+    })
+    if (eventIds.length) {
+      await admin
+        .from('meta_capi_outbox')
+        .update({
+          last_error: 'not_configured',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('status', 'pending')
+        .in('event_id', eventIds)
+    }
+    return { forwarded: 0, failed: eventIds.length ? eventIds.length : 0, skipped: 0 }
+  }
+
+  let q = admin
     .from('meta_capi_outbox')
     .select('*')
     .eq('status', 'pending')
@@ -162,7 +192,30 @@ export async function flushLocalMetaOutbox(
     .order('created_at', { ascending: true })
     .limit(limit)
 
-  if (error || !rows?.length) return { forwarded: 0, failed: 0, skipped: 0 }
+  if (eventIds.length) {
+    q = admin
+      .from('meta_capi_outbox')
+      .select('*')
+      .eq('status', 'pending')
+      .in('event_id', eventIds)
+      .order('created_at', { ascending: true })
+      .limit(Math.max(limit, eventIds.length))
+  }
+
+  const { data: rows, error } = await q
+
+  if (error) {
+    console.error('[meta-outbox] flush query', {
+      lane,
+      error: sanitizeFlushError(error.message),
+    })
+    return { forwarded: 0, failed: 0, skipped: 0 }
+  }
+
+  if (!rows?.length) {
+    console.info('[meta-outbox] flush empty', { lane, event_ids: eventIds.slice(0, 5) })
+    return { forwarded: 0, failed: 0, skipped: 0 }
+  }
 
   let forwarded = 0
   let failed = 0
@@ -182,6 +235,10 @@ export async function flushLocalMetaOutbox(
             })
             .eq('id', row.id)
           skipped += 1
+          console.info('[meta-outbox] flush cancel', {
+            event_id: row.event_id,
+            reason: 'ads_consent_revoked',
+          })
           continue
         }
       }
@@ -227,6 +284,12 @@ export async function flushLocalMetaOutbox(
       input.clientUserAgent = payload.client_user_agent
     }
 
+    console.info('[meta-outbox] flush attempt', {
+      event_id: row.event_id,
+      lane: row.delivery_lane,
+      event_name: row.event_name,
+    })
+
     const result = await enqueueMetaEvent(input)
     if (result.ok) {
       await admin
@@ -239,6 +302,10 @@ export async function flushLocalMetaOutbox(
         })
         .eq('id', row.id)
       forwarded += 1
+      console.info('[meta-outbox] flush ok', {
+        event_id: row.event_id,
+        http_status: result.status ?? 202,
+      })
     } else if (result.skipped === 'no_ads_consent') {
       await admin
         .from('meta_capi_outbox')
@@ -249,15 +316,25 @@ export async function flushLocalMetaOutbox(
         })
         .eq('id', row.id)
       skipped += 1
+      console.info('[meta-outbox] flush cancel', {
+        event_id: row.event_id,
+        reason: 'no_ads_consent',
+      })
     } else {
+      const errCode = result.skipped || `http_${result.status || 0}`
       await admin
         .from('meta_capi_outbox')
         .update({
-          last_error: result.skipped || `http_${result.status || 0}`,
+          last_error: sanitizeFlushError(errCode),
           updated_at: new Date().toISOString(),
         })
         .eq('id', row.id)
       failed += 1
+      console.error('[meta-outbox] flush fail', {
+        event_id: row.event_id,
+        http_status: result.status ?? null,
+        error: sanitizeFlushError(errCode),
+      })
     }
   }
 

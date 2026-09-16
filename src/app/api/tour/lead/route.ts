@@ -192,10 +192,14 @@ export async function POST(request: Request) {
       console.error('enrich_tour_lead', error)
     }
 
-    after(() => {
-      void flushLocalMetaOutbox(admin).catch((error) => {
-        console.error('flushLocalMetaOutbox', error)
-      })
+    after(async () => {
+      try {
+        await flushLocalMetaOutbox(admin)
+      } catch (error) {
+        console.error('[meta-outbox] after flush lead', {
+          error: error instanceof Error ? error.message.slice(0, 180) : 'error',
+        })
+      }
     })
 
     const emitMetaLead = Boolean(identified.emit_meta_lead && identified.meta_event_id)
