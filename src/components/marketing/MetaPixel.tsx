@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import {
   COOKIE_BANNER_ENABLED,
@@ -58,7 +58,8 @@ export function MetaPixel() {
     return () => window.removeEventListener('lv-consent-changed', onConsent)
   }, [pathname])
 
-  useEffect(() => {
+  // useLayoutEffect: pausar/reanudar antes del paint y antes de que plugins (ob3) disparen /tr.
+  useLayoutEffect(() => {
     // tour → /simulador con script previo: pause (consent revoke) sin borrar cookie ads.
     syncMetaPixelToRoute(pathname)
     if (!hasAdsConsent() || !isMetaPublicPath(pathname)) {

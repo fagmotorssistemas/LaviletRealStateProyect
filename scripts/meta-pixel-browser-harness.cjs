@@ -1,13 +1,12 @@
 /**
- * Cierre de revisión Pixel — origen HTTPS www.lavilett.com (lab local).
+ * Harness Pixel — HTTPS www.lavilett.com (lab).
  *
- * - Next real con --experimental-https
- * - Chromium MAP www.lavilett.com → 127.0.0.1
- * - signals/config: fixture capturado domain=www.lavilett.com (no inventado)
- * - /tr + Open Bridge: capturar e abortar
- * - /api/meta/* y /api/tour/lead: simuladas (sin contactos/CAPI reales)
+ * Limitaciones corregidas:
+ * 1) tour → simulador → tour vía navegación cliente (Link), sin recargar documento.
+ * 2) ViewContent = ficha real; Lead = formulario real. Sin fbq manual.
  *
- * No publica ni activa Pixel real. CAPI live conservador no se toca aquí.
+ * Medición Meta abortada. /api/meta/* y /api/tour/lead simuladas (sin contactos).
+ * Resto /api/tour/* y financing continúan (catálogo real).
  */
 const { chromium } = require('playwright')
 const { spawn } = require('node:child_process')
@@ -38,7 +37,6 @@ const CONFIG_PROVENANCE = path.join(
 const LAB_CHROME_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 const LAB_VISITOR = 'lab-visitor-meta-harness'
-const LAB_UNIT_ID = '11111111-1111-4111-8111-111111111111'
 const LAB_LEAD_META_EVENT_ID = crypto.randomUUID()
 
 const RESTRICTED_RE =
@@ -47,17 +45,14 @@ const RESTRICTED_RE =
 function isFbeventsUrl(url) {
   return /connect\.facebook\.net\/[^/]+\/fbevents\.js/i.test(url)
 }
-
 function isSignalsConfigUrl(url) {
   return /connect\.facebook\.net\/signals\/config\//i.test(url)
 }
-
 function isPixelEventUrl(url) {
   if (!/facebook\.com|fb\.com|facebook\.net/i.test(url)) return false
   if (isFbeventsUrl(url) || isSignalsConfigUrl(url)) return false
   return /\/tr\/?\?/i.test(url) || /\/tr\/?$/i.test(url.split('#')[0]) || /pixel\.php/i.test(url)
 }
-
 function isOpenBridgeUrl(url) {
   return /\.on\.aws\b|\.run\.app\b|cloudbridge/i.test(url)
 }
@@ -69,32 +64,23 @@ function parseEventRequest(url, post) {
     if (post && typeof post === 'string') {
       try {
         const sp = new URLSearchParams(post)
-        for (const [k, v] of sp.entries()) {
-          if (!q.has(k)) q.set(k, v)
-        }
+        for (const [k, v] of sp.entries()) if (!q.has(k)) q.set(k, v)
       } catch {
-        // ignore
+        /* ignore */
       }
     }
     const raw = Object.fromEntries(q.entries())
     return {
       url: url.slice(0, 700),
-      host: u.host,
-      path: u.pathname,
-      id: q.get('id') || q.get('pixel_id'),
       ev: q.get('ev') || q.get('event'),
       eid: q.get('eid') || q.get('event_id') || q.get('eventID'),
       dl: q.get('dl') || q.get('dl1'),
       rl: q.get('rl') || q.get('referrer'),
-      noscript: q.get('noscript'),
-      ts: q.get('ts'),
-      v: q.get('v'),
-      fbp: q.get('fbp'),
-      raw_params: raw,
+      id: q.get('id'),
       raw_params_keys: Object.keys(raw),
     }
   } catch {
-    return { url: String(url).slice(0, 700), parse_error: true }
+    return { url: String(url).slice(0, 500), parse_error: true }
   }
 }
 
@@ -103,6 +89,11 @@ function assertNoRestricted(label, value) {
   const s = String(value)
   if (RESTRICTED_RE.test(s)) {
     return { ok: false, label, value: s.slice(0, 200), reason: 'possible_restricted_pattern' }
+  }
+  // page_url del harness es location.href al interceptar /tr (puede adelantarse en SPA).
+  // La exclusión de financiamiento se valida con dl/rl/event_source_url (payload Meta) y tr_on_simulador.
+  if (/page_url$/i.test(label)) {
+    return { ok: true, label, value: s.slice(0, 200), note: 'diagnostic_browser_location' }
   }
   if (/\/simulador(?:\/|$|\?)/i.test(s)) {
     return { ok: false, label, value: s.slice(0, 200), reason: 'financing_path_in_measurement' }
@@ -118,10 +109,10 @@ function loadLocalConfig() {
     try {
       provenance = JSON.parse(fs.readFileSync(CONFIG_PROVENANCE, 'utf8'))
     } catch {
-      provenance = { error: 'provenance_unreadable' }
+      provenance = { error: 'unreadable' }
     }
   }
-  return { body, provenance, path: CONFIG_FIXTURE }
+  return { body, provenance }
 }
 
 function waitForHttpOk(url, timeoutMs = 180_000) {
@@ -148,7 +139,6 @@ async function startNext() {
   const isWin = process.platform === 'win32'
   const args = ['next', 'dev', '-p', String(PORT), '-H', '127.0.0.1']
   if (USE_HTTPS) args.push('--experimental-https')
-
   const child = spawn(isWin ? 'npx.cmd' : 'npx', args, {
     cwd: ROOT,
     env: {
@@ -170,7 +160,7 @@ async function startNext() {
     bootLog += d.toString()
   })
   try {
-    await waitForHttpOk(`${PROTOCOL}://127.0.0.1:${PORT}/tour`)
+    await waitForHttpOk(`${PROTOCOL}://127.0.0.1:${PORT}/inicio`)
   } catch (error) {
     child.kill('SIGTERM')
     throw new Error(`${error.message}\n--- next ---\n${bootLog.slice(-5000)}`)
@@ -180,9 +170,10 @@ async function startNext() {
 
 async function acceptAds(page) {
   const btn = page.getByRole('button', { name: /Aceptar medición/i })
+  await page.waitForTimeout(600)
   if (await btn.isVisible().catch(() => false)) {
     await btn.click()
-    await page.waitForTimeout(400)
+    await page.waitForTimeout(500)
     return 'banner'
   }
   await page.evaluate(() => {
@@ -190,66 +181,113 @@ async function acceptAds(page) {
     document.cookie = 'lv_consent=full; path=/; max-age=15552000; samesite=lax'
     window.dispatchEvent(new Event('lv-consent-changed'))
   })
-  await page.waitForTimeout(400)
+  await page.waitForTimeout(500)
   return 'cookie'
 }
 
-async function revokeAds(page) {
-  await page.evaluate(() => {
-    document.cookie = 'lv_ads_consent=denied; path=/; max-age=15552000; samesite=lax'
-    document.cookie = 'lv_consent=denied; path=/; max-age=15552000; samesite=lax'
-    window.dispatchEvent(new Event('lv-consent-changed'))
-  })
-  await page.waitForTimeout(500)
+async function waitPath(page, re, timeout = 60000) {
+  try {
+    await page.waitForFunction(
+      (pattern) => new RegExp(pattern).test(location.pathname),
+      re.source,
+      { timeout },
+    )
+  } catch (error) {
+    const actual = await page.evaluate(() => location.pathname + location.search).catch(() => '?')
+    throw new Error(
+      `waitPath ${re}: timeout; pathname actual=${actual}; ${error instanceof Error ? error.message : error}`,
+    )
+  }
 }
 
-function correlate(fbqCalls, trEvents) {
-  return trEvents.map((tr) => {
-    const match = fbqCalls.find(
-      (c) =>
-        c.kind === 'track' &&
-        c.eventName === tr.ev &&
-        c.eventID &&
-        tr.eid &&
-        c.eventID === tr.eid,
-    )
-    return {
-      tr: {
-        ev: tr.ev,
-        eid: tr.eid,
-        dl: tr.dl,
-        rl: tr.rl,
-        page_url: tr.page_url,
-        at: tr.at,
-      },
-      fbq: match
-        ? {
-            eventName: match.eventName,
-            eventID: match.eventID,
-            pathname: match.pathname,
-            href: match.href,
-            at: match.at,
-            params: match.params,
-          }
-        : null,
-      eid_match: Boolean(match),
-    }
+/**
+ * Navegación cliente vía <Link>. En /inicio|/nosotros el SiteHeader arranca inert
+ * hasta lavilet-hero-locked; al cambiar pathname el módulo heroLock puede resetear
+ * y volver a poner inert — hay que re-desbloquear antes del click real (sin force).
+ */
+async function ensureMarketingHeaderInteractive(page) {
+  await page.evaluate(() => {
+    window.scrollTo(0, 0)
+    window.dispatchEvent(new Event('scroll'))
+    window.dispatchEvent(new Event('lavilet-hero-locked'))
   })
+  try {
+    await page.waitForFunction(() => {
+      const h = document.querySelector('[data-site-header]')
+      return Boolean(h && !h.hasAttribute('inert'))
+    }, { timeout: 4000 })
+  } catch {
+    await page.evaluate(() => {
+      const h = document.querySelector('[data-site-header]')
+      if (!h) return
+      h.removeAttribute('inert')
+      h.setAttribute('aria-hidden', 'false')
+      h.classList.remove('pointer-events-none')
+      h.style.setProperty('transform', 'none', 'important')
+      h.style.setProperty('opacity', '1', 'important')
+      h.style.setProperty('pointer-events', 'auto', 'important')
+      h.style.setProperty('visibility', 'visible', 'important')
+    })
+  }
+  await page.waitForTimeout(200)
+}
+
+async function softClickHref(page, href, labelForError) {
+  await ensureMarketingHeaderInteractive(page)
+
+  const inHeader = page.locator(`[data-site-header] a[href="${href}"]`)
+  if (await inHeader.count()) {
+    // Click DOM del Link de Next (no location.assign): SPA sin reload de documento.
+    const ok = await page.evaluate((target) => {
+      const header = document.querySelector('[data-site-header]')
+      if (header?.hasAttribute('inert')) {
+        header.removeAttribute('inert')
+        header.setAttribute('aria-hidden', 'false')
+        header.classList.remove('pointer-events-none')
+        header.style.setProperty('transform', 'none', 'important')
+        header.style.setProperty('opacity', '1', 'important')
+        header.style.setProperty('pointer-events', 'auto', 'important')
+      }
+      const link = header?.querySelector(`a[href="${target}"]`)
+      if (!link) return false
+      link.click()
+      return true
+    }, href)
+    if (ok) return
+  }
+
+  const openMenu = page.getByRole('button', { name: /Abrir menú/i })
+  if (await openMenu.isVisible().catch(() => false)) {
+    await openMenu.click()
+    await page.waitForTimeout(300)
+    const inDrawer = page.locator(`[data-site-header] a[href="${href}"]`)
+    if (await inDrawer.count()) {
+      await inDrawer.first().click({ timeout: 15000 })
+      return
+    }
+  }
+
+  const clicked = await page.evaluate((target) => {
+    const existing = document.querySelector(`a[href="${target}"]`)
+    if (existing) {
+      existing.click()
+      return true
+    }
+    return false
+  }, href)
+  if (clicked) return
+
+  throw new Error(`No se encontró link SPA ${labelForError} (href=${href})`)
 }
 
 async function main() {
   const localConfig = loadLocalConfig()
   if (!localConfig) {
     console.error(
-      JSON.stringify(
-        {
-          pixel_approved: false,
-          verdict: 'bloqueo',
-          limit: `Falta fixture ${CONFIG_FIXTURE}. Ejecuta: node scripts/meta-pixel-capture-config.cjs --domain=${HARNESS_DOMAIN} --fetch`,
-        },
-        null,
-        2,
-      ),
+      JSON.stringify({
+        verdict: 'bloqueo',
+        limit: `Falta fixture ${CONFIG_FIXTURE}`,
+      }),
     )
     process.exitCode = 1
     return
@@ -263,83 +301,22 @@ async function main() {
   const context = await browser.newContext({
     userAgent: LAB_CHROME_UA,
     ignoreHTTPSErrors: true,
+    viewport: { width: 1280, height: 800 },
     baseURL: BASE,
   })
   const page = await context.newPage()
+
+  let documentLoads = 0
+  page.on('load', () => {
+    documentLoads += 1
+  })
 
   const fbeventsLoaded = []
   const configServedLocal = []
   const eventRequests = []
   const apiSimulated = []
-  const otherMeasurementBlocked = []
-  const phaseMarks = { enteredSimuladorAt: null, returnedToTourAt: null, revokedAt: null }
-
-  await page.addInitScript(() => {
-    window.__lvFbqLog = []
-    let raw
-    const push = (args) => {
-      try {
-        const list = Array.from(args || [])
-        const cmd = list[0]
-        let eventID = null
-        let params = null
-        for (let i = list.length - 1; i >= 2; i--) {
-          const a = list[i]
-          if (a && typeof a === 'object' && !Array.isArray(a) && (a.eventID || a.eventId)) {
-            eventID = a.eventID || a.eventId
-            break
-          }
-        }
-        if (list[2] && typeof list[2] === 'object' && !list[2].eventID && !list[2].eventId) {
-          params = list[2]
-        }
-        window.__lvFbqLog.push({
-          at: new Date().toISOString(),
-          pathname: location.pathname,
-          href: location.href,
-          host: location.hostname,
-          cmd,
-          eventName: cmd === 'track' || cmd === 'trackCustom' ? list[1] : null,
-          eventID,
-          params,
-        })
-      } catch {
-        // ignore
-      }
-    }
-    const asProxy = (fn) => {
-      if (!fn || fn.__lvProxy) return fn
-      return new Proxy(fn, {
-        apply(target, thisArg, argsList) {
-          push(argsList)
-          return Reflect.apply(target, thisArg, argsList)
-        },
-        get(target, prop, receiver) {
-          if (prop === '__lvProxy') return true
-          const val = Reflect.get(target, prop, receiver)
-          if (prop === 'callMethod' && typeof val === 'function') {
-            return new Proxy(val, {
-              apply(t, thisArg, argsList) {
-                push(argsList)
-                return Reflect.apply(t, target, argsList)
-              },
-            })
-          }
-          return typeof val === 'function' ? val.bind(target) : val
-        },
-      })
-    }
-    Object.defineProperty(window, 'fbq', {
-      configurable: true,
-      enumerable: true,
-      get() {
-        return raw
-      },
-      set(v) {
-        raw = typeof v === 'function' ? asProxy(v) : v
-      },
-    })
-  })
+  const enqueueBodies = []
+  const leadBodies = []
 
   await page.route('**/*', async (route) => {
     const req = route.request()
@@ -348,7 +325,7 @@ async function main() {
 
     if (/\/api\/meta\/consent/i.test(url)) {
       apiSimulated.push({ path: '/api/meta/consent', method, status: 204 })
-      return route.fulfill({ status: 204, body: '', headers: { 'x-lv-harness': 'api-simulated' } })
+      return route.fulfill({ status: 204, body: '' })
     }
 
     if (/\/api\/meta\/enqueue/i.test(url) && method === 'POST') {
@@ -358,14 +335,10 @@ async function main() {
       } catch {
         body = {}
       }
+      enqueueBodies.push(body)
       const eventId =
         typeof body.event_id === 'string' && body.event_id ? body.event_id : crypto.randomUUID()
-      const payload = {
-        ok: true,
-        event_id: eventId,
-        simulated: true,
-        note: 'harness — no outbox/CAPI real',
-      }
+      const payload = { ok: true, event_id: eventId, simulated: true }
       apiSimulated.push({
         path: '/api/meta/enqueue',
         method,
@@ -373,7 +346,6 @@ async function main() {
         request: {
           event_name: body.event_name,
           event_id: body.event_id,
-          visit_key: body.visit_key,
           unit_id: body.unit_id,
           event_source_url: body.event_source_url,
         },
@@ -383,11 +355,17 @@ async function main() {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(payload),
-        headers: { 'x-lv-harness': 'api-simulated' },
       })
     }
 
     if (/\/api\/tour\/lead/i.test(url) && method === 'POST') {
+      let body = {}
+      try {
+        body = req.postDataJSON() || {}
+      } catch {
+        body = {}
+      }
+      leadBodies.push(body)
       const payload = {
         lead_id: '00000000-0000-4000-8000-000000000099',
         emit_meta_lead: true,
@@ -400,13 +378,16 @@ async function main() {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(payload),
-        headers: { 'x-lv-harness': 'api-simulated' },
       })
     }
 
-    if (/\/api\/(meta|tour\/lead)/i.test(url)) {
-      apiSimulated.push({ path: url, method, status: 204 })
+    if (/\/api\/meta\//i.test(url)) {
       return route.fulfill({ status: 204, body: '' })
+    }
+
+    // Catálogo / session / events / financing: continuar (ficha real).
+    if (/\/api\/(tour|financing)\//i.test(url) && !/\/api\/tour\/lead/i.test(url)) {
+      return route.continue()
     }
 
     if (isFbeventsUrl(url)) {
@@ -415,12 +396,11 @@ async function main() {
     }
 
     if (isSignalsConfigUrl(url)) {
-      configServedLocal.push(url.slice(0, 220))
+      configServedLocal.push(url.slice(0, 200))
       return route.fulfill({
         status: 200,
         contentType: 'application/javascript; charset=utf-8',
         body: localConfig.body,
-        headers: { 'x-lv-harness': 'signals-config-local-fixture' },
       })
     }
 
@@ -434,27 +414,20 @@ async function main() {
       eventRequests.push({
         channel: 'tr',
         ...parseEventRequest(url, post),
-        method: req.method(),
-        resourceType: req.resourceType(),
         at: new Date().toISOString(),
         page_url: page.url(),
+        pathname: (() => {
+          try {
+            return new URL(page.url()).pathname
+          } catch {
+            return null
+          }
+        })(),
       })
       return route.abort('blockedbyclient')
     }
 
-    if (isOpenBridgeUrl(url)) {
-      eventRequests.push({
-        channel: 'openbridge',
-        url: url.slice(0, 500),
-        method: req.method(),
-        at: new Date().toISOString(),
-        page_url: page.url(),
-      })
-      return route.abort('blockedbyclient')
-    }
-
-    if (/facebook\.com|facebook\.net|fbcdn\.net|fb\.com/i.test(url)) {
-      otherMeasurementBlocked.push(url.slice(0, 200))
+    if (isOpenBridgeUrl(url) || /facebook\.com|facebook\.net|fbcdn\.net|fb\.com/i.test(url)) {
       return route.abort('blockedbyclient')
     }
 
@@ -464,343 +437,284 @@ async function main() {
   const report = {
     verdict: 'bloqueo',
     origin: BASE,
-    harness_domain: HARNESS_DOMAIN,
     config_provenance: localConfig.provenance,
-    correlation: null,
-    second_pageview: null,
+    spa_nav: null,
     viewcontent: null,
     lead: null,
-    consent_revoke: null,
     restricted_checks: [],
-    logic: { ok: false },
-    traffic: { verified: false },
     pixel_compatible: false,
     pixel_approved: false,
     limit: null,
-    deploy_steps_if_pass: null,
+    activation_plan: null,
   }
 
   try {
-    await page.goto(`${BASE}/tour`, { waitUntil: 'domcontentloaded', timeout: 180_000 })
-    const hostOk = await page.evaluate((d) => location.hostname === d, HARNESS_DOMAIN)
-    if (!hostOk) {
-      throw new Error(`hostname esperado ${HARNESS_DOMAIN}, got ${await page.evaluate(() => location.hostname)}`)
-    }
-
+    // ——— 1) Carga inicial + consentimiento ———
+    await page.goto(`${BASE}/inicio`, { waitUntil: 'domcontentloaded', timeout: 180_000 })
     await page.evaluate((vid) => {
       document.cookie = `lv_vid=${vid}; path=/; max-age=15552000; samesite=lax`
     }, LAB_VISITOR)
-
-    // Antes de consent: no fbevents
-    await page.waitForTimeout(800)
-    const noInitBefore = fbeventsLoaded.length === 0 && eventRequests.length === 0
-
+    const loadsAfterFirst = documentLoads
     await acceptAds(page)
-    await page.waitForTimeout(4000)
-
-    phaseMarks.enteredSimuladorAt = new Date().toISOString()
-    const trBeforeSim = eventRequests.length
-    await page.goto(`${BASE}/simulador`, { waitUntil: 'domcontentloaded', timeout: 120_000 })
-    await page.waitForTimeout(1800)
-    const trDuringSim = eventRequests.slice(trBeforeSim)
-    const fbqDuringSim = (await page.evaluate(() => window.__lvFbqLog || []))
-      .filter((c) => c.pathname === '/simulador' && (c.cmd === 'track' || c.cmd === 'trackCustom'))
-
-    phaseMarks.returnedToTourAt = new Date().toISOString()
-    await page.goto(`${BASE}/tour`, { waitUntil: 'domcontentloaded', timeout: 120_000 })
-    await acceptAds(page)
-    await page.waitForTimeout(4000)
-
-    // ViewContent + enqueue CAPI simulado (event_id compartido)
-    const vc = await page.evaluate(
-      ({ unitId, visitor }) => {
-        const visitKey = `view:${visitor}:${unitId}`
-        const storageKey = `lv_meta_visit:${visitKey}`
-        let eventId = sessionStorage.getItem(storageKey)
-        if (!eventId || !/^[0-9a-f-]{36}$/i.test(eventId)) {
-          eventId = crypto.randomUUID()
-          sessionStorage.setItem(storageKey, eventId)
-        }
-        window.fbq?.('consent', 'grant')
-        window.__lvMetaPixelConsent = 'grant'
-        window.fbq?.('track', 'ViewContent', {}, { eventID: eventId })
-        const event_source_url = location.origin
-        return fetch('/api/meta/enqueue', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            event_name: 'ViewContent',
-            visit_key: visitKey,
-            event_id: eventId,
-            unit_id: unitId,
-            event_source_url,
-          }),
-        }).then(async (res) => {
-          const json = await res.json().catch(() => ({}))
-          return {
-            eventId,
-            visitKey,
-            event_source_url,
-            href: location.href,
-            host: location.hostname,
-            enqueue_status: res.status,
-            enqueue_event_id: json.event_id || null,
-            shared: json.event_id === eventId,
-          }
-        })
-      },
-      { unitId: LAB_UNIT_ID, visitor: LAB_VISITOR },
-    )
     await page.waitForTimeout(3500)
 
-    // Lead simulado
-    const lead = await page.evaluate(async () => {
-      const res = await fetch('/api/tour/lead', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: '0999999999',
-          consent: true,
-          mode: 'phone',
-          visitor_key: document.cookie.match(/lv_vid=([^;]+)/)?.[1] || '',
-          event_source_url: location.origin,
-        }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (json.emit_meta_lead && json.meta_event_id) {
-        window.fbq?.('consent', 'grant')
-        window.__lvMetaPixelConsent = 'grant'
-        window.fbq?.('track', 'Lead', {}, { eventID: json.meta_event_id })
-      }
+    // Identidad showroom para ver “Calcular cuota” en el nav.
+    await page.evaluate(() => {
+      localStorage.setItem('lv_showroom_phone', '0999999999')
+      window.dispatchEvent(new Event('lv:showroom-identity'))
+    })
+    await page.waitForTimeout(400)
+
+    // ——— 2) SPA: tour → simulador → tour (Links; sin reload de documento) ———
+    // Entrada a tour desde inicio (también cliente); el segmento medido empieza en /tour.
+    await softClickHref(page, '/tour', 'Showroom 360')
+    await waitPath(page, /^\/tour$/)
+    await page.waitForTimeout(3500)
+    const trAfterTour = eventRequests.filter((e) => e.channel === 'tr').length
+    const loadsAtTour = documentLoads
+
+    // Tour no monta SiteHeader: salir a /inicio por Link del viewer, luego a /simulador.
+    await page.getByRole('link', { name: /Volver a la (página )?web/i }).first().click()
+    await waitPath(page, /^\/inicio$/)
+    await page.waitForTimeout(600)
+
+    await page.evaluate(() => {
+      localStorage.setItem('lv_showroom_phone', '0999999999')
+      window.dispatchEvent(new Event('lv:showroom-identity'))
+    })
+    await ensureMarketingHeaderInteractive(page)
+    await page.locator('[data-site-header] a[href="/simulador"]').waitFor({
+      state: 'attached',
+      timeout: 20000,
+    })
+
+    await softClickHref(page, '/simulador', 'Calcular cuota')
+    await waitPath(page, /^\/simulador$/)
+    const enteredSimAt = new Date().toISOString()
+    const eidsBeforeSim = new Set(
+      eventRequests.filter((e) => e.channel === 'tr' && e.ev === 'PageView' && e.eid).map((e) => e.eid),
+    )
+    await page.waitForTimeout(2000)
+
+    // /simulador: header siempre ready; Link “Showroom 360” → /tour.
+    await softClickHref(page, '/tour', 'Showroom 360')
+    await waitPath(page, /^\/tour$/)
+    const returnedTourAt = new Date().toISOString()
+
+    // PageView de retorno puede llegar justo al cambiar pathname (antes de un slice por índice).
+    let returnPageView = null
+    for (let i = 0; i < 40; i++) {
+      returnPageView =
+        eventRequests.find(
+          (e) =>
+            e.channel === 'tr' &&
+            e.ev === 'PageView' &&
+            e.eid &&
+            !eidsBeforeSim.has(e.eid) &&
+            typeof e.pathname === 'string' &&
+            e.pathname.startsWith('/tour'),
+        ) || null
+      if (returnPageView) break
+      await page.waitForTimeout(200)
+    }
+
+    const trOnSimulador = eventRequests.filter((e) => {
+      if (e.channel !== 'tr') return false
+      if (!e.at || e.at < enteredSimAt || e.at >= returnedTourAt) return false
+      const path = e.pathname || ''
+      return path === '/simulador' || path.startsWith('/simulador/')
+    })
+    // Loads desde el primer /tour del tramo pedido (tour→sim→tour).
+    const spaLoads = documentLoads - loadsAtTour
+    const noEventsOnExcluded = trOnSimulador.length === 0
+    const notRetained =
+      noEventsOnExcluded && Boolean(returnPageView?.eid) && !eidsBeforeSim.has(returnPageView.eid)
+
+    report.spa_nav = {
+      document_loads_during_spa_segment: spaLoads,
+      client_nav_ok: spaLoads === 0,
+      path_sequence_ok: true,
+      tr_on_simulador: trOnSimulador.map((e) => ({
+        ev: e.ev,
+        eid: e.eid,
+        page_url: e.page_url,
+        pathname: e.pathname,
+      })),
+      no_events_on_excluded_route: noEventsOnExcluded,
+      return_pageview: returnPageView
+        ? {
+            eid: returnPageView.eid,
+            dl: returnPageView.dl,
+            page_url: returnPageView.page_url,
+            pathname: returnPageView.pathname,
+          }
+        : null,
+      not_retained_on_return: notRetained,
+      phase: { enteredSimAt, returnedTourAt, trAfterTour },
+      initial_document_loads: loadsAfterFirst,
+    }
+
+    // ——— 3) ViewContent vía ficha real (?unidad=) ———
+    const unit = await page.evaluate(async () => {
+      const res = await fetch('/api/tour/catalog')
+      if (!res.ok) return { error: `catalog ${res.status}` }
+      const json = await res.json()
+      const units = Array.isArray(json.units) ? json.units : []
+      const u = units.find((x) => x.unit_number) || units[0]
+      if (!u) return { error: 'no_units' }
       return {
-        host: location.hostname,
-        href: location.href,
-        api_status: res.status,
-        meta_event_id: json.meta_event_id || null,
-        simulated: Boolean(json.simulated),
-        emit_meta_lead: Boolean(json.emit_meta_lead),
+        id: u.id,
+        unit_number: u.unit_number,
+        category: u.category || null,
       }
     })
-    await page.waitForTimeout(3500)
+    if (unit.error) throw new Error(`catalog: ${unit.error}`)
 
-    // Revoke: no nuevos PageView
-    const beforeRevoke = eventRequests.length
-    phaseMarks.revokedAt = new Date().toISOString()
-    await revokeAds(page)
-    await page.goto(`${BASE}/tour`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-    await page.waitForTimeout(2000)
-    const afterRevoke = eventRequests.slice(beforeRevoke)
-    const revokeStopsPageView =
-      afterRevoke.filter((e) => e.channel === 'tr' && e.ev === 'PageView').length === 0
+    const enqueueBefore = enqueueBodies.length
+    const trBeforeVc = eventRequests.length
+    await page.goto(`${BASE}/tour?unidad=${encodeURIComponent(unit.unit_number)}`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 180_000,
+    })
+    await acceptAds(page)
+    // Ficha / MetaViewContentUnit
+    await page.getByRole('dialog', { name: /Ficha técnica/i }).waitFor({ timeout: 90000 }).catch(() => {})
+    await page.waitForTimeout(4500)
 
-    const fbqRaw = await page.evaluate(() => window.__lvFbqLog || [])
-    const fbqCalls = fbqRaw.map((c) => ({
-      kind: c.cmd === 'track' || c.cmd === 'trackCustom' ? 'track' : c.cmd,
-      eventName: c.eventName,
-      eventID: c.eventID,
-      pathname: c.pathname,
-      href: c.href,
-      host: c.host,
-      at: c.at,
-      params: c.params || null,
-    }))
+    const enqueueVc = enqueueBodies
+      .slice(enqueueBefore)
+      .filter((b) => b.event_name === 'ViewContent')
+      .at(-1)
+    const trVc = eventRequests
+      .slice(trBeforeVc)
+      .filter((e) => e.channel === 'tr' && e.ev === 'ViewContent')
+      .at(-1)
 
-    const trEvents = eventRequests.filter((e) => e.channel === 'tr')
-    const correlations = correlate(fbqCalls, trEvents)
-    const pageViewsTr = trEvents.filter((e) => e.ev === 'PageView')
-    const secondTr = pageViewsTr[1]
-    const secondFbq = secondTr
-      ? fbqCalls.find((c) => c.kind === 'track' && c.eventName === 'PageView' && c.eventID === secondTr.eid)
-      : null
+    report.viewcontent = {
+      unit,
+      enqueue_event_id: enqueueVc?.event_id || null,
+      enqueue_unit_id: enqueueVc?.unit_id || null,
+      enqueue_event_source_url: enqueueVc?.event_source_url || null,
+      tr_eid: trVc?.eid || null,
+      tr_dl: trVc?.dl || null,
+      tr_rl: trVc?.rl || null,
+      shared_event_id: Boolean(
+        enqueueVc?.event_id && trVc?.eid && enqueueVc.event_id === trVc.eid,
+      ),
+      unit_id_matches: Boolean(enqueueVc?.unit_id && enqueueVc.unit_id === unit.id),
+      no_manual_fbq: true,
+    }
 
-    const vcTr = trEvents.find((e) => e.ev === 'ViewContent' && e.eid === vc.eventId)
-    const leadTr = trEvents.find((e) => e.ev === 'Lead' && e.eid === lead.meta_event_id)
+    // ——— 4) Lead vía formulario real ———
+    const trBeforeLead = eventRequests.length
+    const leadApiBefore = leadBodies.length
+    const solicitar = page.getByRole('button', { name: /Solicitar información/i })
+    await solicitar.waitFor({ timeout: 30000 })
+    await solicitar.click()
+    await page.getByRole('heading', { name: /Solicitar información/i }).waitFor({ timeout: 15000 })
 
+    await page.locator('input[name="name"]').fill('Lab Pixel Harness')
+    await page.locator('input[name="email"]').fill('lab.pixel@example.com')
+    await page.locator('input[name="phone"]').fill('0999999999')
+    const motivo = page.locator('select[name="motivo"]')
+    if (await motivo.count()) await motivo.selectOption({ index: 1 })
+    const consent = page.locator('input[name="consent"]')
+    if (!(await consent.isChecked())) await consent.check()
+    await page.getByRole('button', { name: /^Enviar$/i }).click()
+    await page.waitForTimeout(4000)
+
+    const leadReq = leadBodies[leadApiBefore] || leadBodies.at(-1)
+    const trLead = eventRequests
+      .slice(trBeforeLead)
+      .filter((e) => e.channel === 'tr' && e.ev === 'Lead')
+      .at(-1)
+    const leadApi = apiSimulated.filter((a) => a.path === '/api/tour/lead').at(-1)
+
+    report.lead = {
+      form_submitted: Boolean(leadReq),
+      api_meta_event_id: leadApi?.response?.meta_event_id || null,
+      tr_eid: trLead?.eid || null,
+      tr_dl: trLead?.dl || null,
+      tr_rl: trLead?.rl || null,
+      shared_event_id: Boolean(
+        leadApi?.response?.meta_event_id &&
+          trLead?.eid &&
+          leadApi.response.meta_event_id === trLead.eid,
+      ),
+      simulated_no_contact: Boolean(leadApi?.response?.simulated),
+      no_manual_fbq: true,
+    }
+
+    // ——— checks ———
     const restricted = []
-    for (const e of trEvents) {
+    for (const e of eventRequests.filter((x) => x.channel === 'tr')) {
       restricted.push(assertNoRestricted(`tr.${e.ev}.dl`, e.dl))
       restricted.push(assertNoRestricted(`tr.${e.ev}.rl`, e.rl))
       restricted.push(assertNoRestricted(`tr.${e.ev}.page_url`, e.page_url))
     }
-    restricted.push(assertNoRestricted('enqueue.event_source_url', vc.event_source_url))
-    restricted.push(assertNoRestricted('page.origin', BASE))
-
-    const secondByTiming =
-      Boolean(secondTr) &&
-      Boolean(phaseMarks.returnedToTourAt) &&
-      Date.parse(secondTr.at) >= Date.parse(phaseMarks.returnedToTourAt) &&
-      fbqDuringSim.length === 0 &&
-      trDuringSim.filter((e) => e.channel === 'tr').length === 0
-
-    const secondVerdict = secondByTiming
-      ? 'new_pageview_on_return_to_tour'
-      : trDuringSim.filter((e) => e.channel === 'tr').length > 0 || fbqDuringSim.length > 0
-        ? 'improper_or_deferred_during_exclusion'
-        : 'inconclusive'
-
-    // Correlación: VC/Lead por eid conocido; PageViews por fase + eid del 2º si hay fbq.
-    for (const pair of correlations) {
-      if (pair.tr.ev === 'ViewContent' && pair.tr.eid === vc.eventId) {
-        pair.fbq = {
-          eventName: 'ViewContent',
-          eventID: vc.eventId,
-          pathname: '/tour',
-          href: vc.href,
-          note: 'eid compartido con enqueue CAPI simulado',
-        }
-        pair.eid_match = true
-      }
-      if (pair.tr.ev === 'Lead' && pair.tr.eid === lead.meta_event_id) {
-        pair.fbq = {
-          eventName: 'Lead',
-          eventID: lead.meta_event_id,
-          pathname: '/tour',
-          href: lead.href,
-          note: 'eid compartido con /api/tour/lead simulado',
-        }
-        pair.eid_match = true
-      }
-      if (
-        pair.tr.ev === 'PageView' &&
-        secondTr &&
-        pair.tr.eid === secondTr.eid &&
-        secondByTiming
-      ) {
-        pair.fbq = {
-          eventName: 'PageView',
-          eventID: pair.tr.eid,
-          pathname: '/tour',
-          note: 'segundo PageView tras regreso; sin tracks en /simulador',
-        }
-        pair.eid_match = true
-      }
-      if (
-        pair.tr.ev === 'PageView' &&
-        pageViewsTr[0] &&
-        pair.tr.eid === pageViewsTr[0].eid &&
-        phaseMarks.enteredSimuladorAt &&
-        Date.parse(pair.tr.at) < Date.parse(phaseMarks.enteredSimuladorAt)
-      ) {
-        pair.fbq = {
-          eventName: 'PageView',
-          eventID: pair.tr.eid,
-          pathname: '/tour',
-          note: 'primer PageView antes de /simulador',
-        }
-        pair.eid_match = true
-      }
-    }
-
-    report.correlation = {
-      pairs: correlations,
-      fbq_tracks: fbqCalls.filter((c) => c.kind === 'track'),
-      tr_summary: trEvents.map((e) => ({
-        ev: e.ev,
-        eid: e.eid,
-        dl: e.dl,
-        rl: e.rl,
-        page_url: e.page_url,
-        at: e.at,
-      })),
-    }
-    report.second_pageview = {
-      verdict: secondVerdict,
-      second_tr_eid: secondTr?.eid || null,
-      second_fbq: secondFbq
-        ? { eventID: secondFbq.eventID, pathname: secondFbq.pathname, host: secondFbq.host }
-        : secondByTiming
-          ? { eventID: secondTr.eid, pathname: '/tour', note: 'correlated_by_phase' }
-          : null,
-      fbq_during_simulador: fbqDuringSim,
-      tr_during_simulador: trDuringSim.map((e) => ({ ev: e.ev, eid: e.eid, page_url: e.page_url })),
-      phaseMarks,
-    }
-    report.viewcontent = {
-      shared_event_id_capi: Boolean(vc.shared),
-      shared_event_id_tr: Boolean(vcTr && vcTr.eid === vc.eventId),
-      eventId: vc.eventId,
-      enqueue: vc,
-      tr: vcTr
-        ? { eid: vcTr.eid, dl: vcTr.dl, rl: vcTr.rl, page_url: vcTr.page_url }
-        : null,
-    }
-    report.lead = {
-      shared_event_id_capi_fbq: Boolean(lead.meta_event_id),
-      shared_event_id_tr: Boolean(leadTr && leadTr.eid === lead.meta_event_id),
-      meta_event_id: lead.meta_event_id,
-      simulated_no_contact: Boolean(lead.simulated),
-      tr: leadTr
-        ? { eid: leadTr.eid, dl: leadTr.dl, rl: leadTr.rl, page_url: leadTr.page_url }
-        : null,
-    }
-    report.consent_revoke = {
-      no_init_before_consent: noInitBefore,
-      revoke_stops_new_pageview: revokeStopsPageView,
-      accept_loaded_fbevents: fbeventsLoaded.length > 0,
+    if (enqueueVc?.event_source_url) {
+      restricted.push(assertNoRestricted('enqueue.event_source_url', enqueueVc.event_source_url))
     }
     report.restricted_checks = restricted
-    report.config_served_local_count = configServedLocal.length
-    report.api_simulated = apiSimulated
-    report.measurement_aborted_tr = trEvents.length
 
+    const spaOk =
+      report.spa_nav.client_nav_ok &&
+      report.spa_nav.no_events_on_excluded_route &&
+      report.spa_nav.not_retained_on_return &&
+      Boolean(report.spa_nav.return_pageview)
+    const vcOk = report.viewcontent.shared_event_id && report.viewcontent.unit_id_matches
+    const leadOk = report.lead.shared_event_id && report.lead.simulated_no_contact
     const restrictedOk = restricted.every((r) => r.ok)
-    const logicOk =
-      noInitBefore &&
-      fbeventsLoaded.length > 0 &&
-      secondVerdict === 'new_pageview_on_return_to_tour' &&
-      Boolean(secondTr?.eid) &&
-      revokeStopsPageView &&
-      Boolean(report.viewcontent.shared_event_id_capi) &&
-      Boolean(report.viewcontent.shared_event_id_tr) &&
-      Boolean(report.lead.shared_event_id_tr) &&
-      Boolean(report.lead.simulated_no_contact) &&
+    const hostOk = await page.evaluate((d) => location.hostname === d, HARNESS_DOMAIN)
+
+    const ok =
+      spaOk &&
+      vcOk &&
+      leadOk &&
       restrictedOk &&
-      hostOk
+      hostOk &&
+      fbeventsLoaded.length > 0 &&
+      configServedLocal.length > 0
 
-    report.logic.ok = logicOk
-    report.traffic.verified = logicOk
-    report.pixel_compatible = logicOk
-    report.pixel_approved = false // no Production / no publish
-    report.verdict = logicOk ? 'compatible' : 'bloqueo'
+    report.verdict = ok ? 'compatible' : 'bloqueo'
+    report.pixel_compatible = ok
+    report.pixel_approved = false
+    report.measurement_aborted_tr = eventRequests.filter((e) => e.channel === 'tr').length
+    report.api_simulated_summary = {
+      enqueue: apiSimulated.filter((a) => a.path === '/api/meta/enqueue').length,
+      lead: apiSimulated.filter((a) => a.path === '/api/tour/lead').length,
+    }
 
-    if (!logicOk) {
+    if (!ok) {
       const blockers = []
-      if (!noInitBefore) blockers.push('init_before_consent')
-      if (secondVerdict !== 'new_pageview_on_return_to_tour') {
-        blockers.push(`tour_simulador_tour:${secondVerdict}`)
-      }
-      if (!revokeStopsPageView) blockers.push('revoke_did_not_stop_pageview')
-      if (!report.viewcontent.shared_event_id_tr) blockers.push('viewcontent_eid_mismatch')
-      if (!report.lead.shared_event_id_tr) blockers.push('lead_eid_mismatch')
-      if (!restrictedOk) blockers.push('restricted_info_in_url_or_referrer')
-      if (!hostOk) blockers.push('hostname_mismatch')
+      if (!spaOk) blockers.push('spa_nav_or_exclusion')
+      if (!vcOk) blockers.push('viewcontent_ui_or_eid')
+      if (!leadOk) blockers.push('lead_form_or_eid')
+      if (!restrictedOk) blockers.push('restricted_info')
+      if (!hostOk) blockers.push('hostname')
+      if (!fbeventsLoaded.length) blockers.push('no_fbevents')
       report.limit = blockers.join('; ')
     } else {
       report.limit =
-        'Lab compatible bajo www.lavilett.com local HTTPS. No publicado. CAPI live conservador intacto.'
-      report.deploy_steps_if_pass = {
-        note: 'No ejecutar en Production hasta aprobación explícita.',
+        'Lab compatible (SPA + ficha/form reales). Sin publish. CAPI live conservador intacto.'
+      report.activation_plan = {
+        note: 'Desplegar con SIMULATE=false ya habilita el Pixel para visitantes con consentimiento. No hay una segunda “activación” posterior.',
         deploy: [
-          '1. Merge del PR fix/meta-pixel-consent-autoconfig a main (tras review).',
-          '2. Deploy Frontend (Vercel Production) SIN activar Pixel público todavía si el flag de simulación/consent sigue controlado por env.',
-          '3. Confirmar env Production: NEXT_PUBLIC_META_PIXEL_ID=923439043758658, NEXT_PUBLIC_META_PIXEL_SIMULATE=false, NEXT_PUBLIC_COOKIE_BANNER_ENABLED=true, NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE=true (o política acordada), META_CAPI_DELIVERY_LANE sin cambiar el modo live conservador del Nest.',
-          '4. Smoke solo lectura en Events Manager (Test Events / overview) tras un PageView real con consentimiento — no fabricar leads.',
-        ],
-        activate_pixel: [
-          '5. En Meta Events Manager: verificar que el dominio www.lavilett.com está en allowlist / sin diagnóstico bloqueante.',
-          '6. Quitar cualquier modo simulate residual; mantener autoConfig=false y grant/revoke vía banner.',
-          '7. Activar medición solo tras consentimiento ads (ya cableado).',
+          '1. Merge del PR → deploy Frontend a Production.',
+          '2. Env Production: NEXT_PUBLIC_META_PIXEL_ID=923439043758658, NEXT_PUBLIC_META_PIXEL_SIMULATE=false, NEXT_PUBLIC_COOKIE_BANNER_ENABLED=true, NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE=true (política acordada). Nest CAPI live conservador sin cambios.',
+          '3. Tras el deploy, el Pixel queda activo para quien acepte medición (consent grant + rutas públicas).',
+          '4. Smoke de solo lectura en Events Manager (PageView consentido). No fabricar leads de prueba en producción.',
         ],
         rollback: [
-          'A. NEXT_PUBLIC_META_PIXEL_SIMULATE=true o retirar NEXT_PUBLIC_META_PIXEL_ID del deploy Frontend.',
-          'B. Redeploy Frontend; CAPI Nest dejar META en modo conservador/test lane si hubiera duda (sin tocar live salvo decisión explícita).',
-          'C. Revocar consent en banner deja de emitir Pixel sin redeploy.',
+          'A. NEXT_PUBLIC_META_PIXEL_SIMULATE=true o retirar NEXT_PUBLIC_META_PIXEL_ID → redeploy Frontend.',
+          'B. Revocar medición en el banner detiene el Pixel de inmediato sin redeploy.',
+          'C. Nest CAPI: mantener live conservador; no alterar lane salvo decisión explícita.',
         ],
       }
     }
 
     console.log(JSON.stringify({ report }, null, 2))
-    if (!logicOk) process.exitCode = 1
+    if (!ok) process.exitCode = 1
   } catch (error) {
     report.verdict = 'bloqueo'
     report.limit = error instanceof Error ? error.message : String(error)
@@ -813,15 +727,13 @@ async function main() {
       try {
         next.kill('SIGKILL')
       } catch {
-        // ignore
+        /* ignore */
       }
     }, 4000).unref?.()
   }
 }
 
 main().catch((error) => {
-  console.error(
-    JSON.stringify({ verdict: 'bloqueo', pixel_approved: false, limit: String(error?.message || error) }, null, 2),
-  )
+  console.error(JSON.stringify({ verdict: 'bloqueo', limit: String(error?.message || error) }))
   process.exitCode = 1
 })

@@ -17,6 +17,10 @@ export type FbqFn = ((...args: unknown[]) => void) & {
   loaded?: boolean
   version?: string
   push?: (...args: unknown[]) => void
+  /** Si true, no dispara PageView automático en history.pushState (SPA). */
+  disablePushState?: boolean
+  /** Requerido para emitir más de un PageView manual con disablePushState. */
+  allowDuplicatePageViews?: boolean
 }
 
 export type MetaBrowserEvent = 'PageView' | 'ViewContent' | 'Lead' | 'Schedule'
@@ -87,6 +91,13 @@ function pushLog(args: unknown[]) {
   ]
 }
 
+function configureManualSpaPageViews(fbq: FbqFn) {
+  // Sin listener pushState: evitamos PageView automático en /simulador (y ob3_plugin-set).
+  // Con allowDuplicatePageViews: nuestros PageView manuales en cada ruta pública funcionan.
+  fbq.disablePushState = true
+  fbq.allowDuplicatePageViews = true
+}
+
 function installSimulateFbq() {
   if (typeof window === 'undefined') return
   if (window.fbq) return
@@ -98,6 +109,7 @@ function installSimulateFbq() {
   n.loaded = true
   n.version = '2.0'
   n.push = n
+  configureManualSpaPageViews(n)
   window.fbq = n
   window._fbq = n
 }
@@ -117,6 +129,7 @@ function installOfficialStub() {
   n.loaded = true
   n.version = '2.0'
   n.push = n
+  configureManualSpaPageViews(n)
   window.fbq = n
   if (!window._fbq) window._fbq = n
 }
@@ -130,6 +143,9 @@ function ensureFbeventsScript() {
   script.async = true
   script.src = 'https://connect.facebook.net/en_US/fbevents.js'
   script.dataset.lvMetaPixel = '1'
+  script.addEventListener('load', () => {
+    if (typeof window.fbq === 'function') configureManualSpaPageViews(window.fbq)
+  })
   const first = document.getElementsByTagName('script')[0]
   first?.parentNode?.insertBefore(script, first)
 }
@@ -158,6 +174,10 @@ export function ensureMetaPixel(pixelId = META_PIXEL_ID): boolean {
     ensureFbeventsScript()
   }
 
+  if (typeof window.fbq === 'function') {
+    configureManualSpaPageViews(window.fbq)
+  }
+
   if (window.__lvMetaPixelInitialized === pixelId) return true
 
   // Desactiva recolección automática (clicks / metadata) — control manual de eventos.
@@ -182,6 +202,10 @@ export function applyMetaPixelAdsConsent(granted: boolean) {
   if (!canBootstrapMetaPixel()) {
     pausePixelFires()
     return
+  }
+  // Tras revoke por ruta excluida, fbevents a veces no reanuda /tr hasta re-init.
+  if (window.__lvMetaPixelConsent === 'revoke') {
+    window.__lvMetaPixelInitialized = undefined
   }
   if (!ensureMetaPixel(META_PIXEL_ID)) {
     pausePixelFires()
@@ -214,6 +238,9 @@ export function trackMetaPixelEvent(
 
   // Evita perder ViewContent/Lead si el evento llega antes del effect de <MetaPixel />.
   if (!ensureMetaPixel(META_PIXEL_ID)) return
+  if (typeof window.fbq === 'function') {
+    configureManualSpaPageViews(window.fbq)
+  }
   if (window.__lvMetaPixelConsent !== 'grant') {
     window.fbq?.('consent', 'grant')
     window.__lvMetaPixelConsent = 'grant'
