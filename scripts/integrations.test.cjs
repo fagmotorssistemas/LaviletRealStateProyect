@@ -1237,6 +1237,47 @@ function conversationHarness(options = {}) {
   return { calls, rows, process: mod.processConversation }
 }
 
+test('room synonyms and common apartment spelling select the requested catalogue prices', () => {
+  const { unitPriceQuote } = require('../src/lib/integrations/automation/price-reply.ts')
+  for (const wording of ['3 cuartos', 'tres cuartos', '3 habitaciones', 'tres dormitorios']) {
+    const quote = unitPriceQuote(priceInfo(), `Cuánto valen los Departmentos? Quiero uno de ${wording} para mi familia`, {})
+    assert.equal(quote.quoted, true, wording)
+    assert.ok(quote.units.every(unit => unit.category === 'departamento' && unit.bedrooms === 3), wording)
+    assert.deepEqual(quote.prices, [310000, 550000], wording)
+  }
+  const absent = unitPriceQuote(priceInfo(), 'Precio de departamentos de cinco cuartos', {})
+  assert.equal(absent.quoted, false)
+  assert.notEqual(absent.needsAdvisor, true)
+  assert.match(absent.reply, /No encuentro opciones de 5 dormitorios/)
+})
+
+test('rejected price rewrites retain the verified answer without pausing; real missing facts still hand off', async t => {
+  live(t)
+  for (const missing of [false, true]) {
+    const current = 'Cuánto valen los departamentos? Quiero uno de 3 cuartos para mi familia' + (missing ? '. ¿Cuánto cuesta la alícuota?' : '')
+    const quote = require('../src/lib/integrations/automation/price-reply.ts').unitPriceQuote(priceInfo(), current, {})
+    const h = conversationHarness({ commercialResult: { reply: quote.reply, audit: {source:'unit_price'} }, commercialInfo: priceInfo(),
+      turnComplete: input => ({ reply: 'El precio es $1 USD.', changed: true,
+        needsAdvisor: missing, unresolved: missing ? ['¿Cuánto cuesta la alícuota?'] : [],
+        audit: { status: 'checked', requests: [{ status: 'answered', evidence: 'El precio es $1 USD.' }] } }) })
+    h.rows[0].payload.text = current
+    const result = await h.process([h.rows[0]], async () => {})
+    const sent = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
+    assert.doesNotMatch(sent, /\$1 USD/)
+    assert.match(sent, /310[.,]000/)
+    assert.equal(result.turn_completeness.status, 'rejected_price_guard')
+    assert.equal(h.calls.some(c => c.name === 'handoff_lead'), missing)
+    assert.equal(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530), missing)
+    if (!missing) assert.doesNotMatch(sent, /pasado su consulta|bandeja del equipo/)
+  }
+})
+
+test('Kommo stop text values false and legacy false1 do not stop the bot', () => {
+  const { botStopped } = require('../src/lib/integrations/automation/kommo.ts')
+  for (const value of ['false', 'false1', false, 0, '0']) assert.equal(botStopped({custom_fields_values:[{field_id:451530,values:[{value}]}]}),false)
+  for (const value of ['true', true, 1, '1']) assert.equal(botStopped({custom_fields_values:[{field_id:451530,values:[{value}]}]}),true)
+})
+
 test('a week-one acceptance resumes its unit offer while preserving the original inbound message', async t => {
   live(t)
   const { WEEK_ONE_FOLLOWUP_BODY } = require('../src/lib/inmobiliaria/nutritionWeekOne.ts')

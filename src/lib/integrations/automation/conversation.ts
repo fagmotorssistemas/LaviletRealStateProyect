@@ -508,7 +508,14 @@ export async function processConversation(rows: Row[], guard: Guard) {
       preserveOperationalQuestion: ['financing', 'visit_intake', 'visit_status', 'visit_option_choice'].includes(text(audit.source)) })
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
     if (!invalidPrice) reply = reviewed.reply
-    else { reviewed.needsAdvisor = true; reviewed.unresolved.push('comparar las categorías y precios consultados sin mezclar unidades') }
+    else {
+      // Reject the rewrite, not the conversation. A valid catalogue quote does
+      // not become an information gap because an AI draft changed its prices.
+      // Keep genuine missing facts flagged by the review (e.g. an unknown fee).
+      reviewed.audit = { ...reviewed.audit, status: 'rejected_price_guard',
+        candidate_requests: reviewed.audit.requests, requests: [],
+        issues: ['unsupported_price_rewrite'], retained_verified_reply: true }
+    }
     const requests = Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests.map(object) : []
     const resolvedFromContext = !invalidPrice && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))

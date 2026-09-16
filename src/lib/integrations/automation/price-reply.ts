@@ -55,10 +55,12 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   }
   const catalog = rows(info.catalogo)
   const topic = salesSubject(current, info.historial)
-  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite' : /\bdepart[ae]mentos?\b/.test(m) ? 'departamento'
+  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite' : /\bdepart[ae]?mentos?\b/.test(m) ? 'departamento'
     : /\bviviendas?\b/.test(m) || topic.acceptedRedirect ? 'vivienda' : ''
   const matchesCategory = (unit: Row, value: string) => value === 'vivienda' ? ['suite', 'departamento'].includes(text(unit.category)) : unit.category === value
-  const bedrooms = m.match(/\b([123]) (?:dormitorios?|habitaciones?)\b/)
+  const bedroomWords: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 }
+  const bedroomMatch = m.match(/\b(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:dormitorios?|habitaciones?|cuartos?)\b/)
+  const bedrooms = bedroomMatch ? Number(bedroomWords[bedroomMatch[1]] || bedroomMatch[1]) : 0
   const resolved = resolveCatalogReference(catalog, current, summary._unit_reference, info.historial)
   const reference = object(info.referencia_unidad)
   const referenceIds = rows(reference.matches).map(unit => unit.id)
@@ -66,7 +68,7 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   const remembered = resolved.matches.length ? resolved.matches : catalog.filter(unit => (referenceIds.length ? referenceIds : savedIds).includes(unit.id))
   let selected: Row[]
   if (resolved.hasUnitMention || reference.hasUnitMention === true) selected = resolved.matches
-  else if (category || bedrooms) selected = catalog.filter(unit => (!category || matchesCategory(unit, category)) && (!bedrooms || Number(unit.bedrooms) === Number(bedrooms[1])))
+  else if (category || bedrooms) selected = catalog.filter(unit => (!category || matchesCategory(unit, category)) && (!bedrooms || Number(unit.bedrooms) === bedrooms))
   else if (remembered.length && (!topic.category || remembered.every(unit => matchesCategory(unit, topic.category!)))) {
     selected = remembered
   } else {
@@ -74,6 +76,10 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
     const preferredBedrooms = preferred === 'local' ? 0 : Number(object(info.lead).preferred_bedrooms)
     selected = preferred ? catalog.filter(unit => matchesCategory(unit, preferred) && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
     if (!preferred) return { reply: '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false }
+  }
+  if (!selected.length && bedrooms && !resolved.hasUnitMention && reference.hasUnitMention !== true) {
+    const alternatives = [...new Set(catalog.filter(unit => category ? matchesCategory(unit, category) : ['suite', 'departamento'].includes(text(unit.category))).map(unit => Number(unit.bedrooms)).filter(value => value > 0))].sort((a, b) => a - b)
+    if (alternatives.length) return { reply: `No encuentro opciones de ${bedrooms} dormitorios en nuestro catálogo disponible. Tenemos opciones de ${alternatives.join(' o ')} dormitorios. ¿Le gustaría revisar alguna de ellas?`, quoted: false }
   }
   const priced = selected.filter(unit => Number.isFinite(Number(unit.published_commercial_price)) && Number(unit.published_commercial_price) > 0)
   if (!priced.length) return { reply: '', quoted: false, needsAdvisor: true }
@@ -95,7 +101,7 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
     const values = priced.map(unit => Number(unit.published_commercial_price))
     const min = Math.min(...values), max = Math.max(...values)
     const leadBedrooms = Number(object(info.lead).preferred_bedrooms)
-    const count = bedrooms ? Number(bedrooms[1]) : !category ? leadBedrooms : 0
+    const count = bedrooms || (!category ? leadBedrooms : 0)
     const subject = count ? `Las opciones de ${count} dormitorios` : 'Las opciones que estamos revisando'
     const intro = variant([subject, count ? `Para ${count} dormitorios, los valores` : 'Para estas opciones, los valores', 'En estas opciones, los precios'], info.historial)
     reply = `${intro} ${min === max ? `parten de ${money(min)}` : `van de ${money(min)} a ${money(max)}`} USD.`
