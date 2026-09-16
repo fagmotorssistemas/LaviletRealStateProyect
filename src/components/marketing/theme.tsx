@@ -44,7 +44,7 @@ export function MarketingThemeProvider({ children }: { children: ReactNode }) {
     <ThemeCtx.Provider value={{ theme, toggle }}>
       <div
         data-mkt-theme={theme}
-        className="min-h-screen overflow-x-clip bg-[var(--mkt-bg)] text-[var(--mkt-fg)] transition-colors duration-500"
+        className="min-h-screen overflow-x-clip bg-[var(--mkt-bg)] font-serif text-[var(--mkt-fg)] transition-colors duration-500"
       >
         {children}
       </div>
@@ -60,7 +60,8 @@ export function ThemeToggle({ className }: { className?: string }) {
     <button
       type="button"
       onClick={toggle}
-      aria-label={dark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+      aria-label={dark ? 'Cambiar a modo 1' : 'Cambiar a modo 2'}
+      title={dark ? 'Modo 1 — vidrio' : 'Modo 2 — experiencia'}
       className={cn(
         'inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors',
         className,

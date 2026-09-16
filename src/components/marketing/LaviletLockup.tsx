@@ -146,26 +146,32 @@ export function LaviletLockup({
   return (
     <div
       className={cn(
-        'flex w-fit flex-col',
-        backdrop ? 'items-center origin-center' : 'items-start origin-left',
-        story || mist || backdrop
+        'flex w-fit flex-col items-start origin-left',
+        story
           ? 'text-[#72735A] mkt-dark:text-[#F2F2F2]'
-          : 'text-white',
+          : backdrop || (mist && variant === 'hero')
+            ? 'text-[#2B1A18] mkt-dark:text-[#F2F2F2]'
+            : mist
+              ? 'text-[#72735A] mkt-dark:text-[#F2F2F2]'
+              : 'text-white',
       )}
       style={
         backdrop
-          ? { filter: 'drop-shadow(0 24px 32px rgb(114 115 90 / 0.2))' }
+          ? {
+              filter:
+                'drop-shadow(0 1px 0 rgb(242 242 242)) drop-shadow(0 0 14px rgb(242 242 242 / 0.9)) drop-shadow(0 8px 22px rgb(242 242 242 / 0.75))',
+            }
           : undefined
       }
     >
       <motion.p
         layoutId="lockup-suites"
         className={cn(
-          'mb-3 font-sans font-medium tracking-[0.42em] uppercase',
+          'mb-3 font-serif font-medium tracking-[0.42em] uppercase',
           story
             ? 'text-[9px] sm:text-[10px]'
-            : backdrop
-              ? 'text-[10px] text-[#72735A]/70 sm:text-xs mkt-dark:text-[#F2F2F2]/75'
+              : backdrop
+              ? 'text-[10px] text-[#2B1A18]/70 sm:text-xs mkt-dark:text-[#F2F2F2]/80'
               : mist
                 ? 'text-[10px] text-[#72735A]/70 sm:text-xs mkt-dark:text-[#F2F2F2]/75'
                 : 'text-[10px] text-white/80 sm:text-xs',

@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { LaviletLockup, useLockupDocked } from './LaviletLockup'
 import { AboutLetterPlay } from './AboutLetterPlay'
@@ -102,21 +102,16 @@ function HeadlineSides({
 
 function AboutEditorial() {
   const reduce = useReducedMotion()
-  const pinRef = useRef<HTMLDivElement>(null)
-  const { scrollYProgress } = useScroll({
-    target: pinRef,
-    offset: ['start start', 'end end'],
-  })
   const [active, setActive] = useState(0)
   const beat = ABOUT_BEATS[active] ?? ABOUT_BEATS[0]
 
-  useMotionValueEvent(scrollYProgress, 'change', (value) => {
-    const next = Math.min(
-      ABOUT_BEATS.length - 1,
-      Math.max(0, Math.floor(value * ABOUT_BEATS.length + 1e-6)),
-    )
-    setActive(next)
-  })
+  useEffect(() => {
+    if (reduce) return
+    const id = window.setInterval(() => {
+      setActive((current) => (current + 1) % ABOUT_BEATS.length)
+    }, 5200)
+    return () => window.clearInterval(id)
+  }, [reduce])
 
   if (reduce) {
     return (
@@ -140,99 +135,95 @@ function AboutEditorial() {
   }
 
   return (
-    <div
-      ref={pinRef}
-      className="relative mt-10 sm:mt-12 lg:mt-14"
-      style={{ height: `${ABOUT_BEATS.length * 85}vh` }}
-    >
-      <div className="relative sticky top-20 flex min-h-[calc(100svh-5.5rem)] items-center">
-        <AboutLetterPlay />
-        <div
-          className={cn(
-            'relative z-20 w-full overflow-hidden rounded-[1.75rem] px-6 py-12 sm:px-8 sm:py-16 lg:px-12 lg:py-20',
-            'bg-[linear-gradient(165deg,rgba(114,115,90,0.28),rgba(139,140,116,0.16)_46%,rgba(114,115,90,0.24))]',
-            'ring-1 ring-[#72735A]/16 backdrop-blur-md',
-            'mkt-dark:bg-[linear-gradient(165deg,rgba(242,242,242,0.1),rgba(139,140,116,0.22)_48%,rgba(242,242,242,0.08))]',
-            'mkt-dark:ring-[#F2F2F2]/14',
-          )}
-        >
-          <p className="sr-only">{ABOUT.join(' ')}</p>
-          <p
-            aria-hidden
-            className="pointer-events-none absolute top-[10%] left-6 font-serif text-[clamp(4.5rem,14vw,11rem)] leading-none text-[#72735A]/[0.08] select-none mkt-dark:text-[#F2F2F2]/[0.08]"
-          >
-            LaVilēt
-          </p>
+    <div className="relative mt-10 sm:mt-12 lg:mt-14">
+      <div
+        className={cn(
+          'relative isolate w-full overflow-hidden rounded-[1.75rem] px-5 py-8 sm:px-8 sm:py-12 lg:px-12 lg:py-16',
+          'bg-[linear-gradient(165deg,rgba(114,115,90,0.28),rgba(139,140,116,0.16)_46%,rgba(114,115,90,0.24))]',
+          'ring-1 ring-[#72735A]/16 backdrop-blur-md',
+          'mkt-dark:bg-[linear-gradient(165deg,rgba(242,242,242,0.1),rgba(139,140,116,0.22)_48%,rgba(242,242,242,0.08))]',
+          'mkt-dark:ring-[#F2F2F2]/14',
+        )}
+      >
+        <p className="sr-only">{ABOUT.join(' ')}</p>
+        <div className="relative z-20 mb-5 h-[6.5rem] sm:mb-7 sm:h-[7.25rem] lg:h-[8rem]">
+          <AboutLetterPlay />
+        </div>
 
-          <div className="relative mx-auto min-h-[min(58svh,28rem)] max-w-5xl">
-            <AnimatePresence mode="sync">
-              <motion.article
-                key={beat.kicker}
-                className={cn('absolute inset-0 flex flex-col justify-center gap-3', beat.align)}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.35, ease: kineticEase }}
+        <div className="relative z-10 mx-auto min-h-[16.5rem] max-w-5xl sm:min-h-[20rem] lg:min-h-[22rem]">
+          <AnimatePresence mode="sync">
+            <motion.article
+              key={beat.kicker}
+              className={cn(
+                'absolute inset-0 flex flex-col justify-center gap-2 sm:gap-3',
+                beat.align,
+              )}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35, ease: kineticEase }}
+            >
+              <motion.p
+                className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase mkt-dark:text-[#BFBFB8]"
+                initial={{ x: -40, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 32, opacity: 0 }}
+                transition={{ duration: 0.45, ease: kineticEase }}
               >
-                <motion.p
-                  className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase mkt-dark:text-[#BFBFB8]"
-                  initial={{ x: -40, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: 32, opacity: 0 }}
-                  transition={{ duration: 0.45, ease: kineticEase }}
-                >
-                  {beat.kicker}
-                </motion.p>
-                <motion.p
-                  className={cn(
-                    'max-w-lg text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
-                    beat.align.includes('right') && 'sm:ml-auto',
-                  )}
-                  initial={{ x: active % 2 === 0 ? -48 : 48, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: active % 2 === 0 ? 36 : -36, opacity: 0 }}
-                  transition={{ duration: 0.5, ease: kineticEase }}
-                >
-                  {beat.lead}
-                </motion.p>
-                <h3
-                  className={cn(
-                    'font-serif font-normal tracking-[-0.045em] leading-[0.84]',
-                    beat.tone,
-                    beat.lines.length > 1
-                      ? 'text-[clamp(2.35rem,8.6vw,6.1rem)]'
-                      : 'text-[clamp(2.85rem,11vw,7.2rem)]',
-                  )}
-                >
-                  <HeadlineSides lines={beat.lines} invert={active % 2 === 0} />
-                </h3>
-                <motion.p
-                  className={cn(
-                    'max-w-md text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
-                    beat.align.includes('right') && 'sm:ml-auto',
-                  )}
-                  initial={{ x: active % 2 === 0 ? 48 : -48, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: active % 2 === 0 ? -36 : 36, opacity: 0 }}
-                  transition={{ duration: 0.5, delay: 0.08, ease: kineticEase }}
-                >
-                  {beat.note}
-                </motion.p>
-              </motion.article>
-            </AnimatePresence>
-          </div>
-
-          <div className="relative mt-8 flex justify-center gap-2">
-            {ABOUT_BEATS.map((item, index) => (
-              <span
-                key={item.kicker}
+                {beat.kicker}
+              </motion.p>
+              <motion.p
                 className={cn(
-                  'h-1.5 rounded-full transition-all duration-300',
-                  index === active ? 'w-8 bg-[#C45C3E]' : 'w-1.5 bg-[#72735A]/35',
+                  'max-w-lg text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
+                  beat.align.includes('right') && 'sm:ml-auto',
                 )}
-              />
-            ))}
-          </div>
+                initial={{ x: active % 2 === 0 ? -48 : 48, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: active % 2 === 0 ? 36 : -36, opacity: 0 }}
+                transition={{ duration: 0.5, ease: kineticEase }}
+              >
+                {beat.lead}
+              </motion.p>
+              <h3
+                className={cn(
+                  'font-serif font-normal tracking-[-0.045em] leading-[0.84]',
+                  beat.tone,
+                  beat.lines.length > 1
+                    ? 'text-[clamp(2rem,8vw,5.4rem)]'
+                    : 'text-[clamp(2.35rem,9.5vw,6.4rem)]',
+                )}
+              >
+                <HeadlineSides lines={beat.lines} invert={active % 2 === 0} />
+              </h3>
+              <motion.p
+                className={cn(
+                  'max-w-md text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
+                  beat.align.includes('right') && 'sm:ml-auto',
+                )}
+                initial={{ x: active % 2 === 0 ? 48 : -48, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: active % 2 === 0 ? -36 : 36, opacity: 0 }}
+                transition={{ duration: 0.5, delay: 0.08, ease: kineticEase }}
+              >
+                {beat.note}
+              </motion.p>
+            </motion.article>
+          </AnimatePresence>
+        </div>
+
+        <div className="relative mt-8 flex justify-center gap-2">
+          {ABOUT_BEATS.map((item, index) => (
+            <button
+              key={item.kicker}
+              type="button"
+              aria-label={item.kicker}
+              onClick={() => setActive(index)}
+              className={cn(
+                'h-1.5 rounded-full transition-all duration-300',
+                index === active ? 'w-8 bg-[#C45C3E]' : 'w-1.5 bg-[#72735A]/35 hover:bg-[#72735A]/55',
+              )}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -243,6 +234,8 @@ const INTERIOR = {
   featured: '/lavilet-exterior.jpg',
   terraza:
     'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_terraza.png',
+  wall:
+    'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/fondoooparalavilet.png',
 } as const
 
 function useWideBoard() {
@@ -344,7 +337,7 @@ function StoryCard({
           sizes="(max-width: 1024px) 100vw, 28vw"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-        <h3 className="absolute inset-x-0 bottom-0 p-5 font-display text-[1.35rem] leading-[1.15] font-semibold text-white sm:p-6 sm:text-2xl">
+        <h3 className="absolute inset-x-0 bottom-0 p-5 font-serif text-[1.35rem] leading-[1.15] font-semibold text-white sm:p-6 sm:text-2xl">
           {title}
         </h3>
       </AirPiece>
@@ -378,7 +371,7 @@ function PromoCard({
       >
         <div>
           <p className="text-[11px] font-medium tracking-[0.22em] text-[#8B8C74] uppercase mkt-dark:text-[#F2F2F2]/75">Showroom</p>
-          <h3 className="mt-2.5 font-display text-[1.55rem] leading-[1.12] font-semibold sm:mt-3 sm:text-[1.85rem]">
+          <h3 className="mt-2.5 font-serif text-[1.55rem] leading-[1.12] font-semibold sm:mt-3 sm:text-[1.85rem]">
             {title}
           </h3>
           <p className="mt-2.5 text-sm leading-relaxed text-[#2B1A18]/65 sm:mt-3 mkt-dark:text-[#f4efe8]/65">
@@ -420,7 +413,7 @@ function StoryHeading({
       </p>
       <h2
         className={cn(
-          'mt-2 font-display leading-[0.96] font-semibold tracking-tight text-balance',
+          'mt-2 font-serif leading-[0.96] font-semibold tracking-tight text-balance',
           stepped
             ? 'text-[clamp(1.72rem,7.6vw,2.35rem)] leading-[1.04] text-[#2B1A18] lg:text-[3.15rem] lg:leading-[0.96] mkt-dark:text-[#f4efe8]'
             : 'max-w-xl text-[clamp(1.7rem,7.2vw,2.1rem)] text-white sm:text-5xl lg:text-[3.35rem]',
@@ -573,14 +566,22 @@ export function LaviletStory() {
   const docked = useLockupDocked()
 
   return (
-    <section id="nosotros" className="relative z-20 scroll-mt-28 py-16 lg:py-24">
+    <section id="nosotros" className="relative z-20 overflow-hidden scroll-mt-28 bg-[#e8dcc8] py-16 lg:py-24 mkt-dark:bg-[#cfc3b3]">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[100svh]">
+        <img
+          src={INTERIOR.wall}
+          alt=""
+          className="h-full w-full object-cover object-[left_center]"
+        />
+        <div className="absolute inset-0 bg-[#f3ece4]/28 backdrop-blur-[8px] mkt-dark:bg-[#8c8478]/24" />
+      </div>
       <div className="relative z-10 mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12">
         <div className="grid items-end gap-8 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10 lg:gap-12">
           <div className="flex min-h-[9rem] min-w-[16rem] items-end sm:min-h-[12rem] sm:min-w-[22rem]">
             {docked && <LaviletLockup variant="story" />}
           </div>
 
-          <p className="max-w-lg pb-1 font-sans text-[clamp(1.02rem,1.45vw,1.2rem)] font-semibold leading-[1.45] tracking-[-0.02em] text-[#72735A] mkt-dark:text-[#F2F2F2]">
+          <p className="max-w-lg pb-1 font-serif text-[clamp(1.02rem,1.45vw,1.2rem)] font-semibold leading-[1.45] tracking-[-0.02em] text-[#72735A] mkt-dark:text-[#F2F2F2]">
             {LINES.map((line) => (
               <span key={line} className="mt-2 block first:mt-0">
                 {line}

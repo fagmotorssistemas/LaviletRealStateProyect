@@ -15,14 +15,17 @@ const PLAY = [
 
 type Phase = 'run' | 'hide' | 'form'
 
-const TILE = 52
-const GAP = 4
-const BLOCK_W = 5 * TILE + 4 * GAP
+function metrics(width: number) {
+  const tile = Math.round(Math.min(56, Math.max(32, width / 11)))
+  const gap = Math.max(3, Math.round(tile * 0.08))
+  const blockW = 5 * tile + 4 * gap
+  return { tile, gap, blockW }
+}
 
-function formPos(col: number, row: number) {
+function formPos(col: number, row: number, tile: number, gap: number, blockW: number) {
   return {
-    x: -BLOCK_W / 2 + col * (TILE + GAP),
-    y: row * (TILE + GAP),
+    x: -blockW / 2 + col * (tile + gap),
+    y: row * (tile + gap),
   }
 }
 
@@ -75,15 +78,16 @@ export function AboutLetterPlay() {
     }
   }, [inView, reduce])
 
-  const travel = Math.max(box.w * 0.78, 420)
-  const topY = -box.h / 2 + 36
-  const bottomY = box.h / 2 - 52
-  const smileForm = formPos(5, 1)
+  const { tile, gap, blockW } = metrics(box.w)
+  const travel = Math.max(box.w * 0.72, 280)
+  const topY = -box.h / 2 + tile * 0.62
+  const bottomY = box.h / 2 - tile * 0.72
+  const smileForm = formPos(5, 1, tile, gap, blockW)
 
   return (
-    <div ref={wrapRef} className="pointer-events-none absolute inset-0 z-10 overflow-hidden" aria-hidden>
+    <div ref={wrapRef} className="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-hidden>
       {PLAY.map((letter, index) => {
-        const formed = formPos(letter.col, letter.row)
+        const formed = formPos(letter.col, letter.row, tile, gap, blockW)
         const fromLeft = index % 2 === 0
         const startX = fromLeft ? -travel : travel
         const endX = fromLeft ? travel : -travel
@@ -94,6 +98,7 @@ export function AboutLetterPlay() {
             key={letter.ch + letter.col + letter.row}
             bg={letter.bg}
             phase={phase}
+            size={tile}
             form={{ x: formed.x, y: topY + formed.y }}
             run={{ startX, endX, runY, tilt: letter.tilt, delay: index * 0.16 }}
             hideDelay={index * 0.03}
@@ -106,6 +111,7 @@ export function AboutLetterPlay() {
       <PlayTile
         bg="#BDA27E"
         phase={phase}
+        size={tile}
         round
         upright
         form={{ x: smileForm.x, y: topY + smileForm.y }}
@@ -148,6 +154,7 @@ function PlayTile({
   run,
   hideDelay,
   formDelay,
+  size,
   round = false,
   upright = false,
   children,
@@ -158,19 +165,28 @@ function PlayTile({
   run: { startX: number; endX: number; runY: number; tilt: number; delay: number }
   hideDelay: number
   formDelay: number
+  size: number
   round?: boolean
   upright?: boolean
   children: ReactNode
 }) {
   const spin = upright ? 0 : undefined
+  const face = round ? size : Math.round(size * 0.86)
   return (
     <motion.span
       className={
         round
-          ? 'absolute top-1/2 left-1/2 inline-flex h-[2.55rem] w-[2.55rem] items-center justify-center rounded-full sm:h-[3.1rem] sm:w-[3.1rem]'
-          : 'absolute top-1/2 left-1/2 inline-flex h-[2.55rem] w-[2.2rem] items-center justify-center font-serif text-[1.7rem] leading-none text-[#F2F2F2] sm:h-[3.1rem] sm:w-[2.7rem] sm:text-[2.15rem]'
+          ? 'absolute top-1/2 left-1/2 inline-flex items-center justify-center rounded-full'
+          : 'absolute top-1/2 left-1/2 inline-flex items-center justify-center font-serif leading-none text-[#F2F2F2]'
       }
-      style={{ backgroundColor: bg }}
+      style={{
+        backgroundColor: bg,
+        width: face,
+        height: size,
+        fontSize: round ? undefined : size * 0.62,
+        marginLeft: -face / 2,
+        marginTop: -size / 2,
+      }}
       initial={false}
       animate={
         phase === 'form'
@@ -178,7 +194,7 @@ function PlayTile({
           : phase === 'run'
             ? {
                 x: [run.startX, run.endX],
-                y: [run.runY, run.runY - 16, run.runY + 8, run.runY - 12, run.runY],
+                y: [run.runY, run.runY - Math.min(10, size * 0.22), run.runY + 6, run.runY - 8, run.runY],
                 rotate: upright ? 0 : [run.tilt, -run.tilt, run.tilt, 0],
                 opacity: 1,
                 scale: 1,

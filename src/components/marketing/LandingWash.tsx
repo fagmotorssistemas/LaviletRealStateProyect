@@ -6,11 +6,11 @@ export function LandingWash({ children }: { children: ReactNode }) {
     <div className="relative">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#e4e4de_0%,#e8e8e2_28%,#eeeeea_58%,#f2f2f2_100%)] mkt-dark:hidden"
+        className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#e8dcc8_0%,#ead9c4_42%,#efe8dc_100%)] mkt-dark:hidden"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(180deg,#72735A_0%,#72735A_100%)] mkt-dark:block"
+        className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(180deg,#cfc3b3_0%,#d4c8b8_48%,#cfc3b3_100%)] mkt-dark:block"
       />
       <div className="relative z-10">{children}</div>
     </div>

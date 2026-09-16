@@ -261,7 +261,7 @@ export function LifestyleStrip() {
   const [open, setOpen] = useState<Clip | null>(null)
 
   return (
-    <section className="relative z-20 pb-16 lg:pb-24" aria-label="Momentos de LaVilēt">
+    <section className="relative z-20 pb-16 lg:pb-24 pt-8 lg:pt-12" aria-label="Momentos de LaVilēt">
       <div className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
           {CLIPS.map((clip) => (

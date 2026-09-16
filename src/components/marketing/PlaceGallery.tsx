@@ -251,7 +251,7 @@ function StackedGallery({
   return (
     <section
       ref={sectionRef}
-      className="relative z-20 space-y-1.5 bg-[#e4e4de] mkt-dark:bg-[#72735A]"
+      className="relative z-20 space-y-1.5 bg-[#e4e4de] pb-20 mkt-dark:bg-[#72735A] sm:pb-28"
       aria-label="La ciudad alrededor"
     >
       <div className="relative h-[78vh] min-h-[28rem]">
