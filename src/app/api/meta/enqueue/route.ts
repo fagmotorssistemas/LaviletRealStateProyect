@@ -125,10 +125,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'persist_failed' }, { status: 500 })
   }
 
-  // Debe ser async/await para que waitUntil retenga el isolate hasta el flush.
+  // Flush síncrono del event_id: evita depender solo de after()/waitUntil.
+  try {
+    await flushLocalMetaOutbox(admin, { eventIds: [eventId], limit: 5 })
+  } catch (error) {
+    console.error('[meta-outbox] sync flush', {
+      event_id: eventId,
+      error: error instanceof Error ? error.message.slice(0, 180) : 'error',
+    })
+  }
+
+  // Retención extra post-respuesta por si hay más pendientes de la misma lane.
   after(async () => {
     try {
-      await flushLocalMetaOutbox(admin, { eventIds: [eventId], limit: 5 })
+      await flushLocalMetaOutbox(admin, { limit: 20 })
     } catch (error) {
       console.error('[meta-outbox] after flush', {
         event_id: eventId,
