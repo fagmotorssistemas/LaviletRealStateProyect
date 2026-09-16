@@ -46,6 +46,7 @@ const nextConfig: NextConfig = {
     '127.0.0.1',
     '192.168.0.111',
     '192.168.56.1',
+    'www.lavilett.com',
   ],
   experimental: {
     serverActions: {
