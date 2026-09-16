@@ -1,4 +1,6 @@
 import { CURRENT_TONE, resolveToneReferences } from './conversation-tone'
+import { configuredToneInstructions } from './tone-settings'
+import type { ToneSettings } from '@/lib/inmobiliaria/conversationTone'
 import 'server-only'
 import { object, text, rpc, db, scope, type Row } from './data'
 import type { Inbound } from './webhook'
@@ -7,9 +9,10 @@ import { audioExtensions, clearAudioTranscript, wavHasSignal } from './media-for
 import { requestOpenAI } from './openai-request'
 
 const jsonReplySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
-export async function aiJson(instructions: string, input: unknown, schema?: Row, image?: string, file?: {name: string; data: string}): Promise<Row> {
+export async function aiJson(instructions: string, input: unknown, schema?: Row, image?: string, file?: {name: string; data: string}, toneOverride?: ToneSettings): Promise<Row> {
   const key = process.env.OPENAI_API_KEY, model = process.env.OPENAI_MODEL
   if (!key || !model) throw new Error('OPENAI_NOT_CONFIGURED')
+  instructions = await configuredToneInstructions(instructions, toneOverride)
   const response = await requestOpenAI('https://api.openai.com/v1/responses', { method: 'POST', redirect: 'error',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, store: false, max_output_tokens: 2200,

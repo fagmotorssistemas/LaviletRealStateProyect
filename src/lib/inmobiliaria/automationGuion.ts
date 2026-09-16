@@ -2,6 +2,7 @@ export const GUION_START = '# GUION CRM START'
 export const GUION_END = '# GUION CRM END'
 
 const ENGINEER_PROMPT_NAMES = new Set([
+  'conversation_tone_settings',
   'respuesta_comercial',
   'clasificador_intenciones',
   'extractor_eventos',

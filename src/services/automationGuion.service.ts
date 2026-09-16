@@ -32,7 +32,7 @@ export async function loadAutomationGuion(
   throwIf(topicsRes.error)
 
   const topics = ((topicsRes.data ?? []) as TopicPromptRow[]).filter(
-    (row) => row.name !== 'guion_preguntas',
+    (row) => row.name !== 'guion_preguntas' && row.name !== 'conversation_tone_settings',
   )
 
   return {
