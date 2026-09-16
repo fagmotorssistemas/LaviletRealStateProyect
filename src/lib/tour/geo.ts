@@ -1,5 +1,5 @@
 import { decodeHeader } from '@/lib/tour/visitorCookie'
-import { isPrivateIp, pickTrustedClientIp } from '@/lib/meta/trustedClientIp'
+import { isPublicClientIp, pickTrustedClientIp } from '@/lib/meta/trustedClientIp'
 
 export type VisitorGeo = {
   city: string | null
@@ -13,7 +13,7 @@ function first(value: string | null | undefined) {
   return text || null
 }
 
-export { isPrivateIp } from '@/lib/meta/trustedClientIp'
+export { isPrivateIp, isPublicClientIp } from '@/lib/meta/trustedClientIp'
 
 /**
  * IP del visitante desde cabeceras de plataforma (Vercel).
@@ -40,7 +40,7 @@ export function readRequestGeo(headers: Headers, extras?: { city?: string | null
 }
 
 async function lookupGeo(ip: string | null): Promise<VisitorGeo> {
-  const key = ip && !isPrivateIp(ip) ? ip : 'self'
+  const key = ip && isPublicClientIp(ip) ? ip : 'self'
   const cached = geoCache.get(key)
   if (cached) return cached
 

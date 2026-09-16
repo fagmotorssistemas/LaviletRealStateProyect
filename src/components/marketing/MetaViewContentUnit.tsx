@@ -12,6 +12,10 @@ import {
   isMetaCoreSetupConservative,
 } from '@/lib/marketing/metaEventSourceUrl'
 import { trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
+import {
+  claimViewContentSend,
+  shouldSkipViewContent,
+} from '@/lib/meta/viewContentFireGate'
 
 type Props = {
   unitId: string
@@ -42,8 +46,7 @@ export function MetaViewContentUnit({
       if (!enabled || !unitId || !hasAdsConsent()) return
 
       const { visitKey, eventId } = getOrCreateUnitVisitIdentity(unitId)
-      if (firedVisitKey.current === visitKey) return
-      firedVisitKey.current = visitKey
+      if (shouldSkipViewContent(firedVisitKey.current, visitKey)) return
 
       // Core Setup: sin parámetros de contenido en Pixel/CAPI.
       // Simulación Preview: no carga fbevents.js; sanear URL propia ≠ URL de fbevents.
@@ -66,7 +69,9 @@ export function MetaViewContentUnit({
           if (cancelled) return
           ids = getMetaClickIds()
         }
-        if (cancelled) return
+        // Solo marcar fired tras la espera: cerrar ficha cancela sin bloquear reintento
+        // (mismo event_id en sessionStorage ⇒ dedupe Meta, sin duplicar outbox).
+        if (!claimViewContentSend(firedVisitKey, visitKey, cancelled)) return
 
         void fetch('/api/meta/enqueue', {
           method: 'POST',
