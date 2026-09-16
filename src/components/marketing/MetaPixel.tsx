@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import {
   COOKIE_BANNER_ENABLED,
@@ -8,98 +8,24 @@ import {
   META_PIXEL_ID,
   META_PIXEL_SIMULATE,
 } from '@/lib/tour/consent'
-import { isMetaPublicPath, trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
-
-declare global {
-  interface Window {
-    fbq?: FbqFn
-    _fbq?: FbqFn
-    __lvMetaPixelInitialized?: string
-    __lvMetaPixelLog?: Array<{ at: string; args: unknown[] }>
-  }
-}
-
-type FbqFn = ((...args: unknown[]) => void) & {
-  callMethod?: (...args: unknown[]) => void
-  queue: unknown[]
-  loaded?: boolean
-  version?: string
-  push?: (...args: unknown[]) => void
-}
+import {
+  applyMetaPixelAdsConsent,
+  canBootstrapMetaPixel,
+  isMetaPublicPath,
+  syncMetaPixelToRoute,
+  trackMetaPixelEvent,
+} from '@/lib/marketing/metaPixel'
 
 /**
- * Stub oficial de Meta Pixel (callMethod / queue).
- * Evita reinits en Strict Mode y navegación cliente.
+ * PageView en rutas públicas con consentimiento ads.
+ * Init + autoConfig=false viven en metaPixel.ts (compartido con ViewContent/Lead).
  * Con META_PIXEL_SIMULATE no carga scripts ni pixel.gif de Facebook.
  */
-function ensureMetaPixel(pixelId: string) {
-  if (typeof window === 'undefined') return
-  if (window.__lvMetaPixelInitialized === pixelId && typeof window.fbq === 'function') {
-    return
-  }
-
-  if (META_PIXEL_SIMULATE) {
-    if (!window.fbq) {
-      const n = function (...args: unknown[]) {
-        window.__lvMetaPixelLog = [
-          ...(window.__lvMetaPixelLog ?? []),
-          { at: new Date().toISOString(), args },
-        ]
-        console.info('[MetaPixel simulate]', ...args)
-      } as FbqFn
-      n.queue = []
-      n.loaded = true
-      n.version = '2.0'
-      n.push = n
-      window.fbq = n
-      window._fbq = n
-    }
-    if (window.__lvMetaPixelInitialized !== pixelId) {
-      window.fbq?.('init', pixelId)
-      window.__lvMetaPixelInitialized = pixelId
-    }
-    return
-  }
-
-  const f = window
-  if (!f.fbq) {
-    const n = function (...args: unknown[]) {
-      const fbq = n as FbqFn
-      if (fbq.callMethod) {
-        fbq.callMethod(...args)
-      } else {
-        fbq.queue.push(args)
-      }
-    } as FbqFn
-    n.queue = []
-    n.loaded = true
-    n.version = '2.0'
-    n.push = n
-    f.fbq = n
-    if (!f._fbq) f._fbq = n
-  }
-
-  const existing = document.querySelector<HTMLScriptElement>('script[data-lv-meta-pixel="1"]')
-  if (!existing) {
-    const script = document.createElement('script')
-    script.async = true
-    script.src = 'https://connect.facebook.net/en_US/fbevents.js'
-    script.dataset.lvMetaPixel = '1'
-    const first = document.getElementsByTagName('script')[0]
-    first?.parentNode?.insertBefore(script, first)
-  }
-
-  if (window.__lvMetaPixelInitialized !== pixelId) {
-    window.fbq?.('init', pixelId)
-    window.__lvMetaPixelInitialized = pixelId
-  }
-}
-
 function shouldTrackPixel(pathname: string) {
   if (!META_PIXEL_ID || !isMetaPublicPath(pathname)) return false
   if (COOKIE_BANNER_ENABLED && !hasAdsConsent()) return false
   if (!COOKIE_BANNER_ENABLED && !hasAdsConsent()) return false
-  return true
+  return canBootstrapMetaPixel(pathname)
 }
 
 export function MetaPixel() {
@@ -107,8 +33,11 @@ export function MetaPixel() {
   const lastPageView = useRef('')
 
   const emitPageViewOnce = (path: string) => {
-    if (!shouldTrackPixel(path)) return
-    ensureMetaPixel(META_PIXEL_ID)
+    if (!shouldTrackPixel(path)) {
+      syncMetaPixelToRoute(path)
+      return
+    }
+    applyMetaPixelAdsConsent(true)
     if (lastPageView.current === path) return
     lastPageView.current = path
     trackMetaPixelEvent('PageView')
@@ -116,14 +45,27 @@ export function MetaPixel() {
 
   useEffect(() => {
     const onConsent = () => {
-      // Consentimiento en la página actual: PageView sin duplicar el path ya emitido.
+      if (!hasAdsConsent()) {
+        applyMetaPixelAdsConsent(false)
+        lastPageView.current = ''
+        return
+      }
+      // Aceptar en /simulador: sync no carga Pixel; al salir a ruta pública sí.
+      syncMetaPixelToRoute(pathname)
       emitPageViewOnce(pathname)
     }
     window.addEventListener('lv-consent-changed', onConsent)
     return () => window.removeEventListener('lv-consent-changed', onConsent)
   }, [pathname])
 
-  useEffect(() => {
+  // useLayoutEffect: pausar/reanudar antes del paint y antes de que plugins (ob3) disparen /tr.
+  useLayoutEffect(() => {
+    // tour → /simulador con script previo: pause (consent revoke) sin borrar cookie ads.
+    syncMetaPixelToRoute(pathname)
+    if (!hasAdsConsent() || !isMetaPublicPath(pathname)) {
+      lastPageView.current = ''
+      return
+    }
     emitPageViewOnce(pathname)
   }, [pathname])
 
