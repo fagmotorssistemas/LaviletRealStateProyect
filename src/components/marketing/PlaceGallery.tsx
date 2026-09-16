@@ -7,6 +7,7 @@ import { ArrowDown, ArrowRight } from 'lucide-react'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { NEARBY_PLACES } from '@/lib/marketing/nearbyPlaces'
+import { AboutTitleMark } from './FooterWordmark'
 
 const TERRAZA =
   'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_terraza.png'
@@ -148,9 +149,7 @@ function AboutPanel({ full = false }: { full?: boolean }) {
       <PaperGrain />
       <div className="relative">
         <p className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase">Nosotros</p>
-        <h2 className="mt-3 font-serif text-[clamp(3.4rem,10vw,7rem)] leading-[0.8] font-normal tracking-[-0.05em] text-[#72735A]">
-          Lavilet
-        </h2>
+        <AboutTitleMark />
 
         <div className="mt-8 flex flex-wrap gap-x-8 gap-y-5 sm:mt-10">
           {STATS.map((stat) => (
