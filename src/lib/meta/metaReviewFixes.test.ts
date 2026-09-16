@@ -1,0 +1,88 @@
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+import {
+  allowRateLimited,
+  assertVisitKeyMatchesVisitor,
+  buildUnitVisitKey,
+  isAllowedEnqueueEventName,
+  isUuid,
+} from './enqueueGuards'
+import {
+  isMetaFinancingPath,
+  sanitizeMetaEventSourceUrl,
+} from '../marketing/metaEventSourceUrl'
+
+describe('metaVisitIdentity', () => {
+  it('dos visitantes generan claves distintas para la misma unidad', () => {
+    const unit = '11111111-1111-4111-8111-111111111111'
+    const a = buildUnitVisitKey('visitor-a', unit)
+    const b = buildUnitVisitKey('visitor-b', unit)
+    assert.notEqual(a, b)
+    assert.equal(a, `view:visitor-a:${unit}`)
+    assert.equal(b, `view:visitor-b:${unit}`)
+  })
+
+  it('reintento de la misma visita conserva la clave', () => {
+    const unit = '22222222-2222-4222-8222-222222222222'
+    const first = buildUnitVisitKey('same-visitor', unit)
+    const retry = buildUnitVisitKey('same-visitor', unit)
+    assert.equal(first, retry)
+  })
+})
+
+describe('enqueueGuards', () => {
+  it('solo permite ViewContent (bloquea Lead/Schedule fabricados)', () => {
+    assert.equal(isAllowedEnqueueEventName('ViewContent'), true)
+    assert.equal(isAllowedEnqueueEventName('Lead'), false)
+    assert.equal(isAllowedEnqueueEventName('Schedule'), false)
+    assert.equal(isAllowedEnqueueEventName('Purchase'), false)
+  })
+
+  it('valida visit_key contra visitante + unidad', () => {
+    const unit = '33333333-3333-4333-8333-333333333333'
+    assert.equal(
+      assertVisitKeyMatchesVisitor(`view:vid-1:${unit}`, 'vid-1', unit),
+      true,
+    )
+    assert.equal(
+      assertVisitKeyMatchesVisitor(`view:other:${unit}`, 'vid-1', unit),
+      false,
+    )
+  })
+
+  it('valida UUID y rate limit', () => {
+    assert.equal(isUuid('44444444-4444-4444-8444-444444444444'), true)
+    assert.equal(isUuid('not-a-uuid'), false)
+    const bucket = new Map()
+    const key = 'v:ip'
+    for (let i = 0; i < 12; i += 1) {
+      assert.equal(allowRateLimited(bucket, key, 1_000 + i, 60_000, 12), true)
+    }
+    assert.equal(allowRateLimited(bucket, key, 1_020, 60_000, 12), false)
+  })
+})
+
+describe('meta FS / configuración básica', () => {
+  it('sanitiza URL Meta: solo origen bajo Core Setup', () => {
+    assert.equal(isMetaFinancingPath('/simulador'), true)
+    assert.equal(isMetaFinancingPath('/simulador/escenario'), true)
+    assert.equal(isMetaFinancingPath('/tour/unidad/x'), false)
+    assert.equal(
+      sanitizeMetaEventSourceUrl(
+        'https://preview.example/tour/unidad/u1?unidad=208&fbclid=abc#x',
+      ),
+      'https://preview.example',
+    )
+    assert.equal(
+      sanitizeMetaEventSourceUrl('https://preview.example/simulador?unidad=208'),
+      null,
+    )
+  })
+
+  it('ViewContent en /tour usa la misma clave visitante+unidad (idempotencia)', () => {
+    const unit = 'a974716f-fd87-4cd7-aaa7-a7793a33fb3b'
+    const key = buildUnitVisitKey('55ce38b3-6f30-40a6-8910-412959dece2f', unit)
+    assert.equal(key, `view:55ce38b3-6f30-40a6-8910-412959dece2f:${unit}`)
+    assert.equal(isAllowedEnqueueEventName('ViewContent'), true)
+  })
+})

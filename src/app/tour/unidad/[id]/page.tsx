@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { loadPublicUnitReference, unitReferenceSpecs } from '@/lib/tour/unitReference'
 import { unitModelUrl, UNIT_MODEL_PATH } from '@/lib/tour/unitModels'
+import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
 import styles from './unit-reference.module.css'
 
 export const dynamic = 'force-dynamic'
@@ -36,6 +37,7 @@ export default async function UnitReferencePage({ params }: { params: Promise<{ 
   const spaces = [...new Set((Array.isArray(unit.spaces) ? unit.spaces : []).filter(s => typeof s === 'string' && s.trim()))]
 
   return <main className={styles.page}>
+    <MetaViewContentUnit unitId={unit.id} unitNumber={unit.unit_number} category={unit.category} />
     <header className={styles.header}>
       <Link href="/inicio" className={styles.brand} aria-label="La Vilet, inicio">LA VILET</Link>
       <span>Puertas del Sol · Cuenca</span>

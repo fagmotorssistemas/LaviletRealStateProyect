@@ -1,6 +1,10 @@
 import type { TourEventType } from '@/lib/tour/trackingIds'
 import { mergeGuestFavoritesIntoPhone } from '@/lib/tour/tourFavorites'
 import { normalizeShowroomPhone, setShowroomIdentity } from '@/lib/tour/showroomIdentity'
+import { hasAdsConsent } from '@/lib/tour/consent'
+import { getMetaClickIds } from '@/lib/marketing/metaCookies'
+import { currentMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
+import { trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
 
 export type TourTrackIds = {
   visitor_id: string
@@ -180,10 +184,16 @@ export async function identifyTourLead(input: {
   unit_id?: string | null
   unit_number?: string | null
 }) {
+  const clickIds = getMetaClickIds()
+
   const body = JSON.stringify({
     ...input,
     visitor_key: getVisitorKey(),
     session_id: ids?.session_id ?? null,
+    fbp: clickIds.fbp || undefined,
+    fbc: clickIds.fbc || undefined,
+    fbclid: clickIds.fbclid || undefined,
+    event_source_url: currentMetaEventSourceUrl(),
   })
   let response: Response
   try {
@@ -195,10 +205,21 @@ export async function identifyTourLead(input: {
   } catch (error) {
     throw new Error(humanApiError(error, 'No se pudo guardar el contacto. Revisa tu conexión e inténtalo de nuevo.'))
   }
-  const json = await readJsonResponse<{ lead_id?: string; error?: string }>(response)
+  const json = await readJsonResponse<{
+    lead_id?: string
+    error?: string
+    emit_meta_lead?: boolean
+    meta_event_id?: string | null
+  }>(response)
   if (!response.ok || !json.lead_id) {
     throw new Error(humanApiError(json.error, 'No se pudo guardar el contacto'))
   }
+
+  // Pixel Lead solo tras guardado OK y conversión nueva confirmada por el servidor.
+  if (json.emit_meta_lead && json.meta_event_id && hasAdsConsent()) {
+    trackMetaPixelEvent('Lead', {}, json.meta_event_id)
+  }
+
   mergeGuestFavoritesIntoPhone(normalizeShowroomPhone(input.phone))
   setShowroomIdentity(input.phone, json.lead_id)
   logTourEvent({
@@ -214,6 +235,8 @@ export async function identifyTourLead(input: {
       mode: input.mode ?? 'full',
       unit_id: input.unit_id ?? null,
       unit_number: input.unit_number ?? null,
+      emit_meta_lead: Boolean(json.emit_meta_lead),
+      meta_event_id: json.meta_event_id ?? null,
     },
   })
   return json.lead_id

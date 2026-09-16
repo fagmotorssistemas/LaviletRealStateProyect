@@ -133,7 +133,7 @@ function AmenityCard({
       onMouseMove={reduce ? undefined : onMove}
       onMouseLeave={onLeave}
       style={reduce ? undefined : { x, y, rotateX, rotateY, transformPerspective: 700 }}
-      className="group relative flex aspect-square flex-col items-center justify-center rounded-[1.4rem] bg-[#f2f2f2]/70 ring-1 ring-[#72735A]/12 transition-colors hover:bg-[#f2f2f2]/95 hover:ring-[#72735A]/22 mkt-dark:bg-white/8 mkt-dark:ring-white/15 mkt-dark:hover:bg-white/14 mkt-dark:hover:ring-white/30"
+      className="group relative flex aspect-square flex-col items-center justify-center rounded-[1.4rem] bg-[#f3ece4]/75 ring-1 ring-[#c4b7a4]/35 transition-colors hover:bg-[#f3ece4]/95 hover:ring-[#c4b7a4]/55 mkt-dark:bg-[#ead9c4]/28 mkt-dark:ring-[#ead9c4]/30 mkt-dark:hover:bg-[#ead9c4]/40 mkt-dark:hover:ring-[#ead9c4]/45"
       initial={reduce ? false : { opacity: 0, y: 28, scale: 0.92 }}
       whileInView={{ opacity: 1, y: 0, scale: 1 }}
       viewport={{ once: true, amount: 0.35 }}

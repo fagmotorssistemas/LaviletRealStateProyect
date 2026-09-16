@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from 'react'
 import { motion, useInView, useReducedMotion } from 'framer-motion'
+import { cn } from '@/lib/utils'
 
 const FOOTER_LETTERS = [
   { ch: 'L', bg: '#C45C3E', row: 0, tilt: -11 },
@@ -121,46 +122,48 @@ function FooterTile({
   )
 }
 
-export function AboutTitleMark() {
+export function AboutTitleMark({ size = 'lg' }: { size?: 'md' | 'lg' }) {
   const reduce = useReducedMotion()
   const wrapRef = useRef<HTMLHeadingElement>(null)
-  const inView = useInView(wrapRef, { amount: 0.45, once: false })
+  const inView = useInView(wrapRef, { amount: 0.35, once: true })
   const topRow = FOOTER_LETTERS.filter((letter) => letter.row === 0)
   const bottomRow = FOOTER_LETTERS.filter((letter) => letter.row === 1)
+  const tileClass =
+    size === 'lg'
+      ? 'h-[3.6rem] w-[2.85rem] text-[2.35rem] sm:h-[4.8rem] sm:w-[3.8rem] sm:text-[3.2rem] lg:h-[5.8rem] lg:w-[4.6rem] lg:text-[3.9rem]'
+      : 'h-[2.7rem] w-[2.15rem] text-[1.7rem] sm:h-[3.4rem] sm:w-[2.7rem] sm:text-[2.2rem] lg:h-[4rem] lg:w-[3.2rem] lg:text-[2.7rem]'
 
   return (
     <h2 ref={wrapRef} className="mt-3">
       <span className="sr-only">La Vilēt</span>
-      {reduce ? (
-        <span className="block font-serif text-[clamp(3.4rem,10vw,7rem)] leading-[0.8] font-normal tracking-[-0.05em] text-[#72735A]">
-          La Vilēt
+      <span className="block" aria-hidden>
+        <span className="flex gap-1 sm:gap-1.5">
+          {topRow.map((letter, i) => (
+            <TitleTile
+              key={letter.ch}
+              letter={letter}
+              index={i}
+              from={-1}
+              inView={reduce || inView}
+              className={tileClass}
+              reduce={Boolean(reduce)}
+            />
+          ))}
         </span>
-      ) : (
-        <span className="block" aria-hidden>
-          <span className="flex gap-1 sm:gap-1.5">
-            {topRow.map((letter, i) => (
-              <TitleTile
-                key={letter.ch}
-                letter={letter}
-                index={i}
-                from={-1}
-                inView={inView}
-              />
-            ))}
-          </span>
-          <span className="mt-1 flex gap-1 sm:gap-1.5">
-            {bottomRow.map((letter, i) => (
-              <TitleTile
-                key={letter.ch}
-                letter={letter}
-                index={i + topRow.length}
-                from={1}
-                inView={inView}
-              />
-            ))}
-          </span>
+        <span className="mt-1 flex gap-1 sm:gap-1.5">
+          {bottomRow.map((letter, i) => (
+            <TitleTile
+              key={letter.ch}
+              letter={letter}
+              index={i + topRow.length}
+              from={1}
+              inView={reduce || inView}
+              className={tileClass}
+              reduce={Boolean(reduce)}
+            />
+          ))}
         </span>
-      )}
+      </span>
     </h2>
   )
 }
@@ -170,11 +173,15 @@ function TitleTile({
   index,
   from,
   inView,
+  className,
+  reduce,
 }: {
   letter: (typeof FOOTER_LETTERS)[number]
   index: number
   from: number
   inView: boolean
+  className: string
+  reduce: boolean
 }) {
   return (
     <motion.span
@@ -182,16 +189,23 @@ function TitleTile({
       animate={
         inView
           ? { x: 0, opacity: 1, rotate: 0 }
-          : { x: from * 88, opacity: 0, rotate: letter.tilt }
+          : { x: from * 72, opacity: 0, rotate: letter.tilt }
       }
-      transition={{
-        type: 'spring',
-        stiffness: 86,
-        damping: 14,
-        mass: 0.9,
-        delay: inView ? index * 0.045 : (COUNT - 1 - index) * 0.03,
-      }}
-      className="inline-flex h-[3.6rem] w-[2.85rem] items-center justify-center font-serif text-[2.35rem] leading-none text-[#F2F2F2] sm:h-[4.8rem] sm:w-[3.8rem] sm:text-[3.2rem] lg:h-[5.8rem] lg:w-[4.6rem] lg:text-[3.9rem]"
+      transition={
+        reduce
+          ? { duration: 0 }
+          : {
+              type: 'spring',
+              stiffness: 86,
+              damping: 14,
+              mass: 0.9,
+              delay: inView ? index * 0.045 : 0,
+            }
+      }
+      className={cn(
+        'inline-flex items-center justify-center font-serif leading-none text-[#F2F2F2]',
+        className,
+      )}
       style={{ backgroundColor: letter.bg }}
     >
       {letter.ch}

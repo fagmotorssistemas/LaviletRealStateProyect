@@ -62,6 +62,12 @@ html {
   color: var(--mkt-fg);
 }
 
+[data-mkt-theme] {
+  --font-sans: var(--font-bodoni), ui-serif, Georgia, serif;
+  --font-display: var(--font-bodoni), ui-serif, Georgia, serif;
+  font-family: var(--font-bodoni), ui-serif, Georgia, serif;
+}
+
 [data-mkt-theme] .bg-white {
   background-color: var(--mkt-bg);
 }
@@ -215,7 +221,8 @@ html.tour-is-immersive [data-site-header] {
 }
 
 /* Solo aplica cuando .tour-root es hijo directo de body (TourViewer lo reparenta). */
-html.tour-is-immersive body > *:not(.tour-root) {
+/* El banner de cookies vive en body (portal) y debe seguir usable sobre el tour. */
+html.tour-is-immersive body > *:not(.tour-root):not([data-lv-cookie-banner]) {
   visibility: hidden !important;
   pointer-events: none !important;
 }
@@ -224,6 +231,12 @@ html.tour-is-immersive body > *:not(.tour-root) {
 html.tour-is-immersive .tour-root {
   visibility: visible !important;
   pointer-events: auto !important;
+}
+
+html.tour-is-immersive [data-lv-cookie-banner] {
+  visibility: visible !important;
+  pointer-events: auto !important;
+  z-index: 300 !important;
 }
 
 body {
