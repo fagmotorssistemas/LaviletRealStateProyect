@@ -11,19 +11,17 @@ Estado: cambios preparados para revisión. Migración **no** aplicada a Producti
 | ¿Kommo CRM entrega `ctwa_clid`? | **No en la forma documentada / de referencia** del webhook `message[add]` usado por La Vilet. Meta Cloud API sí lo envía en `messages[].referral` del **primer** mensaje. |
 | ¿Qué hacemos si Kommo algún día lo reenvía? | Se captura, se guarda first-touch con `field_path` (origen), no se borra en mensajes posteriores, reintentos no duplican. |
 
-## Payload de referencia (anonimizado)
+## Payload de referencia
 
-### Kommo CRM (`message[add]`) — lo que usa el receptor
+### Fixture CRM (**sintético**)
 
-Campos típicos: `account.id`, `message.add[]` con `id`, `entity_id` / `element_id`, `contact_id`, `chat_id`, `text`, `created_at`, `origin` (`waba`/`whatsapp`), `author.type=external`, adjuntos opcionales.
+`KOMMO_CRM_INBOUND_SYNTHETIC_FIXTURE` — forma `message[add]` alineada con la integración/tests. **No es captura del webhook real de Kommo** y **no demuestra** qué campos entrega Kommo en producción. Marcado con `_fixture_kind: synthetic_kommo_crm_shape`.
 
-**No incluye** `referral` ni `ctwa_clid` en la referencia de integración. Ver `KOMMO_CRM_INBOUND_REFERENCE_ANON` en `src/lib/integrations/automation/ctwa-from-kommo.ts`.
+### Fixture Meta Cloud API (**sintético**)
 
-### Meta Cloud API — dónde sí está el clid
+`META_CLOUD_CTWA_REFERRAL_SYNTHETIC_FIXTURE` — dónde Meta documenta `referral.ctwa_clid`. No es webhook Kommo.
 
-`entry[].changes[].value.messages[].referral.ctwa_clid` (+ `source_id`, `source_type`, etc.). Ver `META_CLOUD_CTWA_REFERRAL_REFERENCE_ANON` en el mismo archivo.
-
-Limitación textual: `KOMMO_CTWA_LIMITATION`.
+Limitación: `KOMMO_CTWA_LIMITATION`.
 
 ## Cambios de código (revisión)
 
@@ -45,11 +43,12 @@ Cubre: sin CTWA → flujo OK; captura si hay referral; first-touch; reintento id
 
 ## Evidencia de resiliencia (tests)
 
-`npm run test:ctwa-kommo` incluye:
+`npm run test:ctwa-kommo`:
 
-1. **RPC ausente / schema cache**: `preserveCtwaForContact` captura el error, devuelve `rpc_unavailable` y **no lanza** → el caller CRM sigue.
-2. **Orden**: `register_inbound_message` antes que `lv_app_preserve_ctwa` → el mensaje ya está persistido aunque falle la atribución.
-3. **Duplicados**: `is_duplicate === true` sigue cortando la respuesta del bot; el soft-fail de CTWA no añade un segundo envío.
-4. **Sin CTWA**: `ctwa: null` → `noop_no_clid` **sin llamar RPC** → no puede borrar una atribución previa; `preserveCtwaCapture(existing, null)` conserva el first-touch.
+1. **Códigos**: `CTWA_RPC_MISSING` vs `CTWA_TIMEOUT` vs `CTWA_DB_ERROR` (sin lanzar al CRM).
+2. **Log seguro**: fallos en JSON con `code`/`reason`; sin clid, teléfono ni contactId.
+3. **`processConversation` simulado**: RPC ausente, error DB, timeout → `bot_paused` tras registrar; duplicado → `action: duplicate` sin contexto de respuesta.
+4. **SQL (PGlite)**: dos mensajes distintos del mismo contacto → una sola fila, clid de la primera captura; reintento del mismo `external_message_id` → `duplicate_retry`.
+5. **Sin CTWA**: `CTWA_NOOP` sin llamar RPC; `preserveCtwaCapture(existing, null)` conserva first-touch.
 
-Migración: preparada, **no** aplicada a Production en este PR.
+Migración: preparada, **no** aplicada a Production. Unicidad atómica vía `EXCEPTION WHEN unique_violation` + `ORDER BY captured_at, id`.

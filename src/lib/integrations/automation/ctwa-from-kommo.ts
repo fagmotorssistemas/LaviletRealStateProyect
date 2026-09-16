@@ -127,11 +127,15 @@ export function preserveCtwaCapture(
 }
 
 /**
- * Payload de referencia: forma CRM de Kommo usada por La Vilet (message[add]).
- * Anonimizado / sintético. No incluye ctwa_clid — refleja la limitación documentada
- * del webhook CRM (a diferencia del webhook Meta Cloud API).
+ * Payload **sintético** de forma CRM Kommo (`message[add]`) alineado con la
+ * integración La Vilet / tests. No es una captura de webhook real de Kommo;
+ * **no demuestra** qué campos entrega Kommo en producción.
+ * Sirve solo para contrastar la forma esperada del normalizador.
  */
-export const KOMMO_CRM_INBOUND_REFERENCE_ANON = {
+export const KOMMO_CRM_INBOUND_SYNTHETIC_FIXTURE = {
+  _fixture_kind: 'synthetic_kommo_crm_shape',
+  _fixture_note:
+    'Sintético: no es evidencia de payload real de Kommo. Validar con captura anonimizada del webhook CRM cuando exista.',
   account: { id: 36919007, subdomain: 'example' },
   message: {
     add: [
@@ -147,19 +151,20 @@ export const KOMMO_CRM_INBOUND_REFERENCE_ANON = {
         origin: 'waba',
         type: 'incoming',
         author: { type: 'external', name: 'Cliente' },
-        // Campos típicos observados / documentados en la integración.
-        // No hay bloque referral ni ctwa_clid en esta forma CRM.
       },
     ],
   },
 } as const
 
+/** @deprecated Usar KOMMO_CRM_INBOUND_SYNTHETIC_FIXTURE */
+export const KOMMO_CRM_INBOUND_REFERENCE_ANON = KOMMO_CRM_INBOUND_SYNTHETIC_FIXTURE
+
 /**
- * Forma Meta Cloud API (referencia): dónde SÍ vive ctwa_clid.
- * No es un webhook Kommo; sirve para contrastar la limitación del CRM.
- * Valores anonimizados.
+ * Fixture **sintético** Meta Cloud API: dónde SÍ documenta Meta el ctwa_clid.
+ * No es un webhook Kommo.
  */
-export const META_CLOUD_CTWA_REFERRAL_REFERENCE_ANON = {
+export const META_CLOUD_CTWA_REFERRAL_SYNTHETIC_FIXTURE = {
+  _fixture_kind: 'synthetic_meta_cloud_api_shape',
   entry: [
     {
       changes: [
@@ -190,5 +195,8 @@ export const META_CLOUD_CTWA_REFERRAL_REFERENCE_ANON = {
   ],
 } as const
 
+/** @deprecated Usar META_CLOUD_CTWA_REFERRAL_SYNTHETIC_FIXTURE */
+export const META_CLOUD_CTWA_REFERRAL_REFERENCE_ANON = META_CLOUD_CTWA_REFERRAL_SYNTHETIC_FIXTURE
+
 export const KOMMO_CTWA_LIMITATION =
-  'El webhook CRM de Kommo (message[add]) usado por La Vilet no documenta ni, en la forma de referencia, entrega referral.ctwa_clid. Meta Cloud API sí lo envía en el primer mensaje entrante. Sin ese reenvío por Kommo, el CRM no puede conservar un ctwa_clid que nunca recibió; no se inventa ni se atribuye a anuncios/orgánico por omisión.'
+  'Limitación: el fixture CRM es sintético y aún no demuestra qué entrega el webhook real de Kommo. La documentación pública de message[add] / Chats no declara referral.ctwa_clid; Meta Cloud API sí lo envía en el primer mensaje. Sin captura real anonimizada de Kommo, el CRM no debe inventar el dato ni atribuir ads/orgánico por omisión.'

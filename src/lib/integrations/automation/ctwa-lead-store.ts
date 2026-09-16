@@ -2,9 +2,78 @@ import 'server-only'
 import { object, rpc, scope, text } from './data'
 import type { CtwaCapture } from './ctwa-from-kommo'
 
+/** Códigos estables; no incluyen clid, teléfono ni IDs de contacto. */
+export type CtwaPersistCode =
+  | 'CTWA_NOOP'
+  | 'CTWA_INSERTED'
+  | 'CTWA_PRESERVED'
+  | 'CTWA_DUPLICATE_RETRY'
+  | 'CTWA_RPC_MISSING'
+  | 'CTWA_TIMEOUT'
+  | 'CTWA_DB_ERROR'
+  | 'CTWA_UNEXPECTED'
+
+export type CtwaPersistResult = {
+  ok: boolean
+  code: CtwaPersistCode
+  /** Acción RPC si aplica; nunca contiene PII. */
+  action: string
+}
+
+function classifyCtwaPersistError(error: unknown): CtwaPersistCode {
+  const message = error instanceof Error ? error.message : String(error)
+  const name = error instanceof Error ? error.name : ''
+  if (
+    name === 'TimeoutError' ||
+    name === 'AbortError' ||
+    /timeout|timed out|aborted/i.test(message)
+  ) {
+    return 'CTWA_TIMEOUT'
+  }
+  // data.rpc formatea RPC_<NAME>_<CODE> (p. ej. PGRST202 / 42883).
+  if (
+    /RPC_LV_APP_PRESERVE_CTWA_(PGRST202|42883|42P01)\b/i.test(message) ||
+    /function .*lv_app_preserve_ctwa.* does not exist/i.test(message) ||
+    /Could not find the function.*lv_app_preserve_ctwa/i.test(message) ||
+    /schema cache/i.test(message)
+  ) {
+    return 'CTWA_RPC_MISSING'
+  }
+  if (/^RPC_LV_APP_PRESERVE_CTWA_/i.test(message) || /\bPGRST\d+\b|\b23\d{3}\b|\b42\w{3}\b/.test(message)) {
+    return 'CTWA_DB_ERROR'
+  }
+  return 'CTWA_UNEXPECTED'
+}
+
+/** Log seguro: solo código y motivo genérico; sin clid, teléfono ni contactId. */
+export function logCtwaPersistFailure(code: CtwaPersistCode, reason: string) {
+  console.error(
+    JSON.stringify({
+      scope: 'ctwa_attribution',
+      code,
+      reason: String(reason).slice(0, 120),
+    }),
+  )
+}
+
+function mapRpcAction(action: string): CtwaPersistCode {
+  switch (action) {
+    case 'inserted':
+      return 'CTWA_INSERTED'
+    case 'preserved_existing':
+      return 'CTWA_PRESERVED'
+    case 'duplicate_retry':
+      return 'CTWA_DUPLICATE_RETRY'
+    case 'noop_empty':
+      return 'CTWA_NOOP'
+    default:
+      return 'CTWA_INSERTED'
+  }
+}
+
 /**
  * Persiste ctwa_clid first-touch vía RPC preparada.
- * Si la migración aún no está aplicada, no falla el flujo CRM (solo omite captura).
+ * Nunca interrumpe la atención CRM: todos los fallos se clasifican y se registran sin PII.
  * No dispara Pixel ni CAPI.
  */
 export async function preserveCtwaForContact(input: {
@@ -12,8 +81,10 @@ export async function preserveCtwaForContact(input: {
   kommoId: number
   externalMessageId: string
   ctwa: CtwaCapture | null | undefined
-}): Promise<{ action: string; clid: string | null }> {
-  if (!input.ctwa?.clid) return { action: 'noop_no_clid', clid: null }
+}): Promise<CtwaPersistResult> {
+  if (!input.ctwa?.clid) {
+    return { ok: true, code: 'CTWA_NOOP', action: 'noop_no_clid' }
+  }
   try {
     const result = object(
       await rpc('lv_app_preserve_ctwa', {
@@ -29,17 +100,15 @@ export async function preserveCtwaForContact(input: {
         p_external_message_id: input.externalMessageId,
       }),
     )
-    return {
-      action: text(result.action) || 'unknown',
-      clid: text(result.ctwa_clid) || input.ctwa.clid,
-    }
+    const action = text(result.action) || 'unknown'
+    return { ok: true, code: mapRpcAction(action), action }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    // Migración no aplicada / función ausente: el mensaje CRM debe continuar.
-    if (/lv_app_preserve_ctwa|function .* does not exist|schema cache/i.test(message)) {
-      return { action: 'rpc_unavailable', clid: null }
-    }
-    throw error
+    const code = classifyCtwaPersistError(error)
+    logCtwaPersistFailure(
+      code,
+      error instanceof Error ? error.name || 'Error' : 'non_error_throw',
+    )
+    return { ok: false, code, action: 'failed' }
   }
 }
 
@@ -53,7 +122,21 @@ export async function getStoredCtwaClid(contactId: number): Promise<string | nul
     )
     if (result.found !== true) return null
     return text(result.ctwa_clid) || null
-  } catch {
+  } catch (error) {
+    const code = classifyCtwaPersistError(error)
+    // Reutilizar clasificación; get usa otra RPC — mapear missing genérico.
+    const getCode =
+      /lv_app_get_ctwa|PGRST202|42883|does not exist|schema cache/i.test(
+        error instanceof Error ? error.message : String(error),
+      )
+        ? 'CTWA_RPC_MISSING'
+        : code === 'CTWA_TIMEOUT'
+          ? 'CTWA_TIMEOUT'
+          : 'CTWA_DB_ERROR'
+    logCtwaPersistFailure(getCode, 'get_ctwa_failed')
     return null
   }
 }
+
+/** Solo para tests unitarios de clasificación. */
+export const __test = { classifyCtwaPersistError, mapRpcAction }
