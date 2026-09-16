@@ -2,6 +2,7 @@ import 'server-only'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
 import { salesSubject } from './sales-subject'
+import { OpenAIRequestError } from './openai-request'
 
 export type BusinessScopeKind = 'property' | 'out_of_scope' | 'mixed' | 'neutral'
 export type BusinessScopeDecision = {
@@ -103,7 +104,8 @@ export async function classifyBusinessScope(current: string, history: unknown = 
       pista_de_continuidad: salesSubject(current, recent),
     }, schema)
     return validateBusinessScope(result, current, introduced)
-  } catch {
+  } catch (error) {
+    if (error instanceof OpenAIRequestError) throw error
     return uncertainDecision()
   }
 }

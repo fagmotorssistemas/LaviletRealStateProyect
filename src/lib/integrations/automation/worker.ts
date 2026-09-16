@@ -10,6 +10,8 @@ import { cancelNutritionWeekOne, sendNutritionWeekOne } from './nutrition-week-o
 import { cancelNutritionLater, sendNutritionLater } from './nutrition-later'
 import { NUTRITION_TASKS } from '@/lib/inmobiliaria/nutritionLater'
 import { kommoDeliveryBlock, rejectedWriteStatus } from './delivery-state'
+import { OpenAIRequestError } from './openai-request'
+import { GenerationRecoveryError, recoverGenerationFailure } from './generation-recovery'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -89,16 +91,32 @@ export async function runAutomation() {
           p_status: result.action === 'cancelled' || result.delivery_status === 'not_sent' ? 'cancelled' : 'completed', p_result: result })
         results.push({ kind: first.kind, ...result })
       } catch (error) {
+        const generationFailure = error instanceof OpenAIRequestError
+        let failure = error, recoveryUncertain = false
+        if (generationFailure && first.kind === 'inbound') {
+          try {
+            const recovery = await recoverGenerationFailure(batch, guard, error.message)
+            await rpc('lv_app_finish', { p_token: token, p_ids: ids,
+              p_status: recovery.delivery_status === 'not_sent' ? 'cancelled' : 'completed', p_result: recovery })
+            results.push({ kind: first.kind, ...recovery })
+            continue
+          } catch (recoveryError) {
+            recoveryUncertain = !(recoveryError instanceof GenerationRecoveryError) || recoveryError.deliveryUncertain
+            failure = recoveryError instanceof GenerationRecoveryError ? recoveryError.original : recoveryError
+          }
+        }
         // Una RPC o petición pudo ejecutar su efecto antes de fallar la conexión.
         // Guardar solo códigos propios, nunca cuerpos de proveedores o datos del cliente.
-        const reason = error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'PROCESSING_FAILED'
-        const rejected = error instanceof ProviderError && !error.uncertain && rejectedWriteStatus(error.status)
-        const detail = error instanceof ProviderError ? { provider_operation: error.operation, delivery_uncertain: error.uncertain, http_status: error.status } : {}
+        const reason = failure instanceof Error && /^[A-Z0-9_]+$/.test(failure.message) ? failure.message : 'PROCESSING_FAILED'
+        const rejected = failure instanceof ProviderError && !failure.uncertain && rejectedWriteStatus(failure.status)
+        const detail = failure instanceof ProviderError ? { provider_operation: failure.operation, delivery_uncertain: failure.uncertain, http_status: failure.status } : {}
+        const generationNotSent = generationFailure && !recoveryUncertain && !(failure instanceof ProviderError && failure.uncertain)
         // A rejected attempt stays visible for advisor review, but must not
         // permanently lock the contact as if a Salesbot might have been sent.
-        const status = rejected ? 'cancelled' : 'uncertain'
+        const status = rejected || generationNotSent ? 'cancelled' : 'uncertain'
         await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: status,
-          p_result: { reason, ...detail, requires_review: true, ...(rejected ? { delivery_status: 'rejected', recovery: 'not_replayed' } : {}) } })
+          p_result: { reason, ...detail, requires_review: true, ...(generationFailure ? { generation_error: error.message } : {}),
+            ...(rejected ? { delivery_status: 'rejected', recovery: 'not_replayed' } : generationNotSent ? { delivery_status: 'generation_failed' } : {}) } })
         results.push({ kind: first.kind, status, reason })
       }
       if (await kommoDeliveryBlock()) return { mode: 'live', processed: results.length, reason: 'kommo_account_blocked', results }

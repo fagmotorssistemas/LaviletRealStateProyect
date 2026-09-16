@@ -1,5 +1,6 @@
 import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
+import { OpenAIRequestError } from './openai-request'
 import { assertLive, automationSettings } from './config'
 import { normalizeEvents, validateIntent } from './conversation-rules'
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
@@ -71,6 +72,7 @@ async function register(events: Inbound[], guard: Guard) {
     let content = event.text
     if (event.media) {
       try { content = await mediaText(event) } catch (error) {
+        if (error instanceof OpenAIRequestError) throw error
         mediaFailed = true
         mediaErrors.push(error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'MEDIA_PROCESSING_FAILED')
         content = [event.text, unreadMediaMarker(event.media)].filter(Boolean).join('\n')

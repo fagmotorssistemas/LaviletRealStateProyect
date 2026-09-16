@@ -41,7 +41,7 @@ export async function kommoDeliveryBlock() {
 export async function deliveryHealth() {
   const [block, incidents, pending] = await Promise.all([
     kommoDeliveryBlock(),
-    db().from('lv_integration_events').select('id,contact_key,kind,result,completed_at,received_at', { count: 'exact' }).match(scope)
+    db().from('lv_integration_events').select('id,contact_key,kind,status,result,completed_at,received_at', { count: 'exact' }).match(scope)
       .neq('kind', 'lock').or('status.eq.uncertain,and(status.eq.cancelled,result->>requires_review.eq.true)')
       .order('received_at', { ascending: false }).limit(50).abortSignal(AbortSignal.timeout(10_000)),
     db().from('lv_integration_events').select('id', { count: 'exact', head: true }).match(scope)
@@ -56,7 +56,9 @@ export async function deliveryHealth() {
     const rejected = rejectedWriteStatus(status)
     return { id: row.id, kommoId: Number.isSafeInteger(kommoId) && kommoId > 0 ? kommoId : null,
       reason: text(result.reason), at: row.completed_at || row.received_at,
-      delivery: rejected ? 'rejected' as const : result.delivery_status === 'not_sent' ? 'not_sent' as const : 'unknown' as const }
+      canResolve: row.status === 'cancelled' && result.requires_review === true,
+      delivery: rejected ? 'rejected' as const : result.delivery_status === 'not_sent' ? 'not_sent' as const
+        : result.delivery_status === 'generation_failed' || /^OPENAI_(?:HTTP_|NETWORK_ERROR)/.test(text(result.reason)) ? 'generation_failed' as const : 'unknown' as const }
   })
   return { blocked: !!block, httpStatus: Number(block?.http_status) || null,
     detectedAt: text(block?.detected_at) || null, pendingMessages: pending.count || 0,
