@@ -78,4 +78,11 @@ describe('meta FS / configuración básica', () => {
       null,
     )
   })
+
+  it('ViewContent en /tour usa la misma clave visitante+unidad (idempotencia)', () => {
+    const unit = 'a974716f-fd87-4cd7-aaa7-a7793a33fb3b'
+    const key = buildUnitVisitKey('55ce38b3-6f30-40a6-8910-412959dece2f', unit)
+    assert.equal(key, `view:55ce38b3-6f30-40a6-8910-412959dece2f:${unit}`)
+    assert.equal(isAllowedEnqueueEventName('ViewContent'), true)
+  })
 })

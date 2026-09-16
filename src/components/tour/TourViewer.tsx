@@ -49,6 +49,7 @@ import { TourVoiceAssist } from '@/components/tour/TourVoiceAssist'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import { COOKIE_BANNER_ENABLED, openCookiePreferences } from '@/lib/tour/consent'
+import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
 import {
   buildTourRooms,
@@ -3408,6 +3409,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             Preferencias de cookies
           </button>
         </div>
+      ) : null}
+
+      {selectedUnit ? (
+        <MetaViewContentUnit
+          enabled={fichaOpen}
+          unitId={selectedUnit.id}
+          unitNumber={selectedUnit.unit_number}
+          category={selectedUnit.category}
+        />
       ) : null}
 
       {showPlanShell || showUnitChrome ? (

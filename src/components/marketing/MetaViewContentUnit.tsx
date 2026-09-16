@@ -17,19 +17,27 @@ type Props = {
   unitId: string
   unitNumber: string
   category?: string | null
+  /** Solo emitir cuando la ficha está visible (p. ej. drawer abierto en /tour). */
+  enabled?: boolean
 }
 
 /**
  * ViewContent al consultar ficha real.
  * Identidad = visitante + unidad (no global por unitId).
  * Si el consentimiento llega en la página actual, emite sin duplicar la misma visita.
+ * No se dispara por abrir el formulario de Lead ni por re-renders sin cambio de visita.
  */
-export function MetaViewContentUnit({ unitId, unitNumber, category }: Props) {
+export function MetaViewContentUnit({
+  unitId,
+  unitNumber,
+  category,
+  enabled = true,
+}: Props) {
   const firedVisitKey = useRef<string | null>(null)
 
   useEffect(() => {
     const emit = () => {
-      if (!unitId || !hasAdsConsent()) return
+      if (!enabled || !unitId || !hasAdsConsent()) return
 
       const { visitKey, eventId } = getOrCreateUnitVisitIdentity(unitId)
       if (firedVisitKey.current === visitKey) return
@@ -85,7 +93,7 @@ export function MetaViewContentUnit({ unitId, unitNumber, category }: Props) {
     emit()
     window.addEventListener('lv-consent-changed', emit)
     return () => window.removeEventListener('lv-consent-changed', emit)
-  }, [unitId, unitNumber, category])
+  }, [unitId, unitNumber, category, enabled])
 
   return null
 }
