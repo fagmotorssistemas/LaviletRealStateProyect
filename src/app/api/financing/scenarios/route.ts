@@ -3,12 +3,18 @@ import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { LV_VID_COOKIE } from '@/lib/tour/trackingIds'
 import {
+  DOWN_PAYMENT_MAX_PCT,
+  DOWN_PAYMENT_MIN_PCT,
+  FINANCING_YEARS_MAX,
+  FINANCING_YEARS_MIN,
+} from '@/lib/financing/calculator'
+import {
   createAndAnalyzeScenario,
   listScenariosForLead,
-  resolveLeadId,
+  resolveAuthorizedLeadId,
   resolveUnitByParam,
 } from '@/lib/financing/financingServer'
-import { FINANCING_PROJECT_ID } from '@/types/financingSimulator'
+import { FINANCING_PROJECT_ID, type ExpenseBreakdown, type RateType, type SimulationMode } from '@/types/financingSimulator'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,7 +32,7 @@ export async function GET(request: Request) {
     const jar = await cookies()
     const visitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || null
 
-    const leadId = await resolveLeadId(admin, {
+    const leadId = await resolveAuthorizedLeadId(admin, {
       leadId: leadParam,
       phone,
       visitorKey,
@@ -53,14 +59,25 @@ export async function POST(request: Request) {
     let body: {
       unit_id?: string
       unit_param?: string
-      financing_partner_id?: string
-      mode?: 'cash' | 'financed'
+      financing_partner_id?: string | null
+      mode?: SimulationMode
       down_payment_percent?: number
       financing_years?: number
       estimated_monthly_rent?: number
+      vacancy_rate?: number
       annual_expenses?: number
+      annual_management?: number
+      annual_income_tax_estimate?: number | null
+      expense_breakdown?: ExpenseBreakdown
+      applied_interest_rate?: number
+      rate_type?: RateType
+      acquisition_costs?: number
+      annual_other_financial?: number
+      monthly_extra_charges?: number
       unit_price?: number
       project_id?: string
+      calculation_version?: string
+      assumptions_json?: Record<string, unknown>
       phone?: string
       lead_id?: string
     }
@@ -72,7 +89,7 @@ export async function POST(request: Request) {
 
     const jar = await cookies()
     const visitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || null
-    const leadId = await resolveLeadId(admin, {
+    const leadId = await resolveAuthorizedLeadId(admin, {
       leadId: body.lead_id,
       phone: body.phone,
       visitorKey,
@@ -90,7 +107,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unidad no válida' }, { status: 400 })
     }
 
-    const mode = body.mode === 'cash' || !body.financing_partner_id ? 'cash' : 'financed'
+    const rawMode = body.mode
+    let mode: SimulationMode
+    if (rawMode === 'cash') mode = 'cash'
+    else if (rawMode === 'manual') mode = 'manual'
+    else if (rawMode === 'financed') mode = 'financed'
+    else if (body.financing_partner_id) mode = 'financed'
+    else if (body.applied_interest_rate != null) mode = 'manual'
+    else mode = 'cash'
+
+    if (mode === 'financed' && !body.financing_partner_id) {
+      return NextResponse.json(
+        { error: 'Modo financiado requiere institución; use mode:manual para tasa propia' },
+        { status: 400 },
+      )
+    }
+
     const estimatedMonthlyRent = Number(body.estimated_monthly_rent)
     const unitPrice = Number(body.unit_price)
     if (!(estimatedMonthlyRent >= 0 && estimatedMonthlyRent <= 20000)) {
@@ -101,52 +133,77 @@ export async function POST(request: Request) {
     }
 
     const hdrs = await headers()
+    const common = {
+      leadId,
+      unitId: unit.id,
+      projectId: body.project_id || unit.project_id || FINANCING_PROJECT_ID,
+      estimatedMonthlyRent,
+      vacancyRate: body.vacancy_rate != null ? Number(body.vacancy_rate) : undefined,
+      annualExpenses: body.annual_expenses != null ? Number(body.annual_expenses) : null,
+      annualManagement: body.annual_management != null ? Number(body.annual_management) : null,
+      annualIncomeTaxEstimate:
+        body.annual_income_tax_estimate != null ? Number(body.annual_income_tax_estimate) : null,
+      expenseBreakdown: body.expense_breakdown ?? null,
+      appliedInterestRate:
+        body.applied_interest_rate != null ? Number(body.applied_interest_rate) : null,
+      rateType: body.rate_type ?? 'nominal_annual',
+      acquisitionCosts: body.acquisition_costs != null ? Number(body.acquisition_costs) : null,
+      annualOtherFinancial:
+        body.annual_other_financial != null ? Number(body.annual_other_financial) : null,
+      monthlyExtraCharges:
+        body.monthly_extra_charges != null ? Number(body.monthly_extra_charges) : null,
+      unitPrice,
+      calculationVersion: body.calculation_version,
+      assumptionsJson: body.assumptions_json ?? null,
+      ip: hdrs.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+      userAgent: hdrs.get('user-agent'),
+    }
 
     if (mode === 'cash') {
-      const result = await createAndAnalyzeScenario(admin, {
-        leadId,
-        unitId: unit.id,
-        mode: 'cash',
-        estimatedMonthlyRent,
-        annualExpenses:
-          body.annual_expenses != null ? Number(body.annual_expenses) : null,
-        unitPrice,
-        projectId: body.project_id || unit.project_id || FINANCING_PROJECT_ID,
-        ip: hdrs.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
-        userAgent: hdrs.get('user-agent'),
-      })
+      const result = await createAndAnalyzeScenario(admin, { ...common, mode: 'cash' })
       return NextResponse.json({
         scenario: result.scenario,
         analysis: result.analysis,
+        preview: result.preview,
         lead_id: leadId,
       })
     }
 
     const downPaymentPercent = Number(body.down_payment_percent)
     const financingYears = Number(body.financing_years)
-    if (!(downPaymentPercent >= 10 && downPaymentPercent <= 50)) {
-      return NextResponse.json({ error: 'La entrada debe estar entre 10% y 50%' }, { status: 400 })
+    if (
+      !(
+        downPaymentPercent >= DOWN_PAYMENT_MIN_PCT &&
+        downPaymentPercent <= DOWN_PAYMENT_MAX_PCT
+      )
+    ) {
+      return NextResponse.json(
+        { error: `La entrada debe estar entre ${DOWN_PAYMENT_MIN_PCT}% y ${DOWN_PAYMENT_MAX_PCT}%` },
+        { status: 400 },
+      )
     }
-    if (!(financingYears >= 5 && financingYears <= 30)) {
-      return NextResponse.json({ error: 'El plazo debe estar entre 5 y 30 años' }, { status: 400 })
+    if (!(financingYears >= FINANCING_YEARS_MIN && financingYears <= FINANCING_YEARS_MAX)) {
+      return NextResponse.json(
+        { error: `El plazo debe estar entre ${FINANCING_YEARS_MIN} y ${FINANCING_YEARS_MAX} años` },
+        { status: 400 },
+      )
+    }
+    if (mode === 'manual' && !(Number(body.applied_interest_rate) >= 0)) {
+      return NextResponse.json({ error: 'Indica una tasa para la simulación manual' }, { status: 400 })
     }
 
     const result = await createAndAnalyzeScenario(admin, {
-      leadId,
-      unitId: unit.id,
-      partnerId: String(body.financing_partner_id ?? ''),
-      projectId: body.project_id || unit.project_id || FINANCING_PROJECT_ID,
+      ...common,
+      mode,
+      partnerId: mode === 'financed' ? String(body.financing_partner_id) : null,
       downPaymentPercent,
       financingYears,
-      estimatedMonthlyRent,
-      unitPrice,
-      ip: hdrs.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
-      userAgent: hdrs.get('user-agent'),
     })
 
     return NextResponse.json({
       scenario: result.scenario,
       analysis: result.analysis,
+      preview: result.preview,
       lead_id: leadId,
     })
   } catch (error) {
@@ -173,7 +230,7 @@ export async function DELETE(request: Request) {
 
     const jar = await cookies()
     const visitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || null
-    const leadId = await resolveLeadId(admin, {
+    const leadId = await resolveAuthorizedLeadId(admin, {
       leadId: leadParam,
       phone,
       visitorKey,

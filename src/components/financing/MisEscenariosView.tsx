@@ -12,7 +12,13 @@ import {
 import { Spinner } from '@/components/ui/Spinner'
 import { cn } from '@/lib/utils'
 
-export function MisEscenariosView({ embedded = false }: { embedded?: boolean }) {
+export function MisEscenariosView({
+  embedded = false,
+  onReopen,
+}: {
+  embedded?: boolean
+  onReopen?: (scenario: FinancingScenario) => void
+}) {
   const [loading, setLoading] = useState(true)
   const [scenarios, setScenarios] = useState<FinancingScenario[]>([])
   const [identified, setIdentified] = useState(false)
@@ -108,8 +114,8 @@ export function MisEscenariosView({ embedded = false }: { embedded?: boolean }) 
               <tr>
                 <th className="px-3 py-2.5">Depto.</th>
                 <th className="px-3 py-2.5">Alquiler</th>
-                <th className="px-3 py-2.5">Saldo / año</th>
-                <th className="px-3 py-2.5">Retorno</th>
+                <th className="px-3 py-2.5">Flujo / año</th>
+                <th className="px-3 py-2.5">Retorno de caja</th>
                 <th className="px-3 py-2.5" />
               </tr>
             </thead>
@@ -125,13 +131,24 @@ export function MisEscenariosView({ embedded = false }: { embedded?: boolean }) 
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">{formatPercent(row.roi_percent)}</td>
                   <td className="px-3 py-2.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => void removeScenario(row.id)}
-                      className="text-[11px] font-semibold tracking-wide text-rose-700 uppercase"
-                    >
-                      Eliminar
-                    </button>
+                    <div className="flex justify-end gap-3">
+                      {onReopen ? (
+                        <button
+                          type="button"
+                          onClick={() => onReopen(row)}
+                          className="text-[11px] font-semibold tracking-wide text-[#1a2744] uppercase"
+                        >
+                          Reabrir
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void removeScenario(row.id)}
+                        className="text-[11px] font-semibold tracking-wide text-rose-700 uppercase"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -23,7 +23,7 @@ export function ComparisonTable({
             <th className="px-3 py-2.5">Tasa</th>
             <th className="px-3 py-2.5">Cuota</th>
             <th className="px-3 py-2.5">Saldo al año</th>
-            <th className="px-3 py-2.5">Retorno</th>
+            <th className="px-3 py-2.5">Retorno de caja</th>
           </tr>
         </thead>
         <tbody>
