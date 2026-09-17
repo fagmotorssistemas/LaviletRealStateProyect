@@ -73,18 +73,19 @@ function LockupLetter({
 }) {
   const story = variant === 'story'
   const tile = story ? TILE_BG[id] : undefined
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
 
   return (
     <motion.span
-      layoutId={id}
+      layoutId={isMobile ? undefined : id}
       className={cn(
         'inline-block cursor-pointer select-none',
         tile &&
           'inline-flex h-[3.6rem] w-[2.85rem] items-center justify-center font-serif text-[2.35rem] leading-none text-[#F2F2F2] sm:h-[4.8rem] sm:w-[3.8rem] sm:text-[3.2rem] lg:h-[5.8rem] lg:w-[4.6rem] lg:text-[3.9rem]',
       )}
       style={tile ? { backgroundColor: tile } : undefined}
-      initial={story ? false : { y: 140, scale: 1.85, opacity: 0 }}
-      animate={{ y: 0, scale: 1, opacity: 1 }}
+      initial={story ? { opacity: 0, x: -40 } : { y: 140, scale: 1.85, opacity: 0 }}
+      animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
       whileHover={
         quiet
           ? undefined
@@ -111,6 +112,12 @@ function LockupLetter({
           mass: 0.65,
           delay: index * 0.11,
         },
+        x: {
+          type: 'spring',
+          stiffness: 380,
+          damping: 25,
+          delay: index * 0.08,
+        },
         y: {
           type: 'spring',
           stiffness: story ? 420 : 780,
@@ -124,6 +131,10 @@ function LockupLetter({
           damping: story ? 12 : 16,
           delay: story ? index * 0.11 : 0.2 + index * 0.11,
         },
+        opacity: {
+          duration: 0.4,
+          delay: index * 0.08,
+        }
       }}
     >
       {letter}
