@@ -1,25 +1,28 @@
 /**
- * Schedule (Meta) — integración con confirmación real de visitas.
+ * Schedule (Meta) — evaluación tras confirmación de visitas.
  *
- * Emisión solo desde operación de negocio verificada (cita confirmada),
- * nunca desde /api/meta/enqueue.
+ * Separación:
+ * - Este módulo solo **evalúa** (y registra códigos sin PII).
+ * - La cola activa (outbox / flush Nest / Pixel) está desconectada.
  *
- * Por defecto: modo revisión (evalúa, no persiste, no flushea a Meta).
- * Persistencia local solo con META_SCHEDULE_PERSIST=true y opts.persist !== false.
- * Nunca envía eventos reales desde este módulo (no llama flush).
+ * WhatsApp: `business_messaging` es la intención futura de action_source;
+ * la entrega sigue `whatsapp_delivery_pending_nest_contract` hasta verificar
+ * el contrato completo Nest/Meta. Cambiar solo action_source no completa la integración.
+ *
+ * Nunca persiste ni envía eventos reales.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getLeadAdsConsent, persistMetaConversion } from '@/lib/meta/localOutbox'
+import { getLeadAdsConsent } from './localOutbox'
 import {
   evaluateScheduleEligibility,
-  isSchedulePersistEnabled,
   type ScheduleEligibility,
-} from '@/lib/meta/scheduleEligibility'
+} from './scheduleEligibility'
+import { notifyScheduleIfRequestConfirmed as notifyIfConfirmed } from './scheduleAgendaHook'
 
-export const SCHEDULE_META_INTEGRATION_STATUS = 'review_mode_no_persist' as const
+export const SCHEDULE_META_INTEGRATION_STATUS = 'evaluation_only_queue_separated' as const
 
-/** @deprecated Preferir SCHEDULE_META_INTEGRATION_STATUS */
+/** @deprecated */
 export const SCHEDULE_META_PENDING_HOOK =
   'pending_confirmed_visit_business_hook' as const
 
@@ -33,33 +36,20 @@ function logScheduleSafe(code: string, reason: string) {
   )
 }
 
-export type ScheduleEnqueueResult = {
+export type ScheduleEvaluateResult = {
   ok: boolean
   reason: string
-  eventId?: string
   eligibility?: ScheduleEligibility
 }
 
 /**
- * Tras guardar una cita confirmada: evalúa Schedule.
- * No asume consentimiento por aceptar la cita.
- * No incluye horarios, lugar ni datos personales en logs.
+ * Carga cita + consent y evalúa. No escribe outbox ni flushea Meta.
  */
-export async function enqueueScheduleForConfirmedAppointment(
+export async function evaluateScheduleForConfirmedAppointment(
   supabase: SupabaseClient,
   appointmentId: string,
-  opts?: {
-    /** Forzar evaluación aunque persist esté off (default true para el gancho). */
-    evaluate?: boolean
-    /** Escribir outbox local. Requiere META_SCHEDULE_PERSIST=true. */
-    persist?: boolean
-    /**
-     * @deprecated Usar persist + META_SCHEDULE_PERSIST.
-     * force=true sin persist habilitado solo evalúa (compat).
-     */
-    force?: boolean
-  },
-): Promise<ScheduleEnqueueResult> {
+  deps?: { getLeadAdsConsent?: typeof getLeadAdsConsent },
+): Promise<ScheduleEvaluateResult> {
   const id = String(appointmentId || '').trim()
   if (!id) {
     return { ok: false, reason: 'missing_appointment' }
@@ -80,7 +70,8 @@ export async function enqueueScheduleForConfirmedAppointment(
     return { ok: false, reason: 'appointment_without_lead' }
   }
 
-  const adsConsent = await getLeadAdsConsent(supabase, appointment.lead_id)
+  const readConsent = deps?.getLeadAdsConsent || getLeadAdsConsent
+  const adsConsent = await readConsent(supabase, appointment.lead_id)
   const eligibility = evaluateScheduleEligibility({
     appointmentId: appointment.id,
     status: appointment.status,
@@ -89,81 +80,64 @@ export async function enqueueScheduleForConfirmedAppointment(
     adsConsent,
   })
 
-  if (!eligibility.eligible) {
-    logScheduleSafe('skipped', eligibility.reason)
-    return { ok: false, reason: eligibility.reason, eligibility }
-  }
+  logScheduleSafe(
+    eligibility.businessOk ? 'evaluated' : 'skipped',
+    eligibility.reason,
+  )
 
-  const persistWanted = opts?.persist === true || opts?.force === true
-  const persistAllowed = isSchedulePersistEnabled() && persistWanted
-
-  if (!persistAllowed) {
-    logScheduleSafe('review', SCHEDULE_META_INTEGRATION_STATUS)
-    return {
-      ok: false,
-      reason: SCHEDULE_META_INTEGRATION_STATUS,
-      eligibility,
-    }
-  }
-
-  // Persistencia local únicamente. No flush a Meta desde aquí.
-  // Payload mínimo: sin horarios/lugar de la cita; identificadores para matching CAPI.
-  const { data: lead } = await supabase
-    .from('leads')
-    .select('id, phone, name, email')
-    .eq('id', appointment.lead_id)
-    .maybeSingle()
-
-  if (!lead?.phone) {
-    logScheduleSafe('skipped', 'lead_without_phone')
-    return { ok: false, reason: 'lead_without_phone', eligibility }
-  }
-
-  try {
-    const persisted = await persistMetaConversion(supabase, {
-      eventName: 'Schedule',
-      idempotencyKey: eligibility.idempotencyKey,
-      leadId: lead.id,
-      adsConsentRequired: true,
-      payload: {
-        action_source: eligibility.actionSource,
-        phone: lead.phone,
-        email: lead.email,
-        full_name: lead.name,
-        external_id: lead.id,
-        // No incluir start_time, meeting_place, ni texto de la cita.
-        appointment_channel: eligibility.channelKind,
-      },
-    })
-    logScheduleSafe(
-      persisted.inserted ? 'persisted' : 'duplicate',
-      eligibility.channelKind,
-    )
-    return {
-      ok: true,
-      reason: persisted.inserted ? 'persisted' : 'duplicate',
-      eventId: persisted.eventId,
-      eligibility,
-    }
-  } catch {
-    logScheduleSafe('persist_failed', 'outbox_error')
-    return { ok: false, reason: 'persist_failed', eligibility }
+  return {
+    ok: eligibility.businessOk,
+    reason: eligibility.reason,
+    eligibility,
   }
 }
 
 /**
- * Gancho post-confirmación: nunca lanza ni bloquea la agenda.
- * Por defecto solo evalúa (review); no envía eventos reales.
+ * Cola activa desconectada. No persiste.
+ * WhatsApp nunca encola aquí (contrato Nest/Meta pendiente).
+ */
+export async function enqueueScheduleForConfirmedAppointment(
+  supabase: SupabaseClient,
+  appointmentId: string,
+  deps?: { getLeadAdsConsent?: typeof getLeadAdsConsent },
+): Promise<ScheduleEvaluateResult> {
+  const evaluated = await evaluateScheduleForConfirmedAppointment(supabase, appointmentId, deps)
+  if (!evaluated.eligibility?.businessOk) {
+    return evaluated
+  }
+  const reason =
+    evaluated.eligibility.channelKind === 'whatsapp'
+      ? evaluated.reason
+      : SCHEDULE_META_INTEGRATION_STATUS
+  logScheduleSafe('queue_separated', reason)
+  return {
+    ok: false,
+    reason,
+    eligibility: evaluated.eligibility,
+  }
+}
+
+/**
+ * Gancho post-confirmación: solo evaluación. Nunca lanza ni encola.
  */
 export async function afterAppointmentConfirmedForSchedule(
   supabase: SupabaseClient,
   appointmentId: string | null | undefined,
-): Promise<void> {
+): Promise<ScheduleEvaluateResult | void> {
   const id = String(appointmentId || '').trim()
   if (!id) return
   try {
-    await enqueueScheduleForConfirmedAppointment(supabase, id)
+    return await evaluateScheduleForConfirmedAppointment(supabase, id)
   } catch {
     logScheduleSafe('hook_error', 'swallowed')
   }
+}
+
+/** Tras save de request: solo si status === confirmed. */
+export async function notifyScheduleIfRequestConfirmed(
+  supabase: SupabaseClient,
+  request: { status?: string | null; appointment_id?: string | null } | null | undefined,
+  notify: typeof afterAppointmentConfirmedForSchedule = afterAppointmentConfirmedForSchedule,
+): Promise<boolean> {
+  return notifyIfConfirmed(supabase, request, notify)
 }

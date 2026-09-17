@@ -1,135 +1,190 @@
 /**
- * Schedule enqueue en modo revisión (mocks). Sin outbox ni Meta reales.
+ * Gancho Schedule: propuesta excluida, confirmación incluida, fallo sin evento.
+ * Mocks; sin Production ni citas en BD.
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { createRequire } from 'node:module'
-import path from 'node:path'
-import fs from 'node:fs'
-import Module from 'node:module'
-import ts from 'typescript'
+import {
+  notifyScheduleIfRequestConfirmed,
+  evaluateScheduleForConfirmedAppointment,
+  enqueueScheduleForConfirmedAppointment,
+} from './scheduleIntegration'
+import {
+  SCHEDULE_QUEUE_INACTIVE,
+  WHATSAPP_SCHEDULE_DELIVERY_PENDING,
+} from './scheduleEligibility'
 
-const root = path.resolve(process.cwd())
-const require = createRequire(import.meta.url)
+const APPT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+const LEAD = '11111111-2222-4333-8444-555555555555'
 
-function loadEnqueue(mocks: Record<string, unknown>) {
-  const filename = path.join(root, 'src/lib/meta/scheduleIntegration.ts')
-  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  }).outputText
-  const m = { exports: {} }
-  const localRequire = Module.createRequire(filename)
-  const prev = Module._load
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  Module._load = function (id: string, parent: any, isMain: boolean) {
-    if (id === 'server-only') return {}
-    if (id.startsWith('@/')) {
-      const mapped = path.join(root, 'src', id.slice(2))
-      if (mapped in mocks || id in mocks) return (mocks[id] || mocks[mapped]) as unknown
-      // Prefer eligibility real module
-      if (id === '@/lib/meta/scheduleEligibility') {
-        return localRequire(path.join(root, 'src/lib/meta/scheduleEligibility.ts'))
+function supabaseAppointment(channel: string, consent: boolean | null) {
+  const leadRow = { id: LEAD, meta_ads_consent: consent }
+  const appointmentRow = {
+    id: APPT,
+    lead_id: LEAD,
+    status: 'aceptado',
+    channel,
+    confirmed_by_client: true,
+  }
+  return {
+    from: (table: string) => {
+      const row = table === 'appointments' ? appointmentRow : table === 'leads' ? leadRow : null
+      if (!row) throw new Error(`unexpected table ${table}`)
+      const builder: {
+        select: () => typeof builder
+        eq: () => typeof builder
+        maybeSingle: () => Promise<{ data: unknown; error: null }>
+      } = {
+        select: () => builder,
+        eq: () => builder,
+        maybeSingle: async () => ({ data: row, error: null }),
       }
-    }
-    if (id in mocks) return mocks[id]
-    return prev.call(this, id, parent, isMain)
-  }
-  try {
-    // eslint-disable-next-line no-new-func
-    new Function('require', 'module', 'exports', source)(
-      (id: string) => {
-        if (id === 'server-only') return {}
-        if (id === '@/lib/meta/localOutbox') return mocks['@/lib/meta/localOutbox']
-        if (id === '@/lib/meta/scheduleEligibility') {
-          return require(path.join(root, 'src/lib/meta/scheduleEligibility.ts'))
-        }
-        if (id in mocks) return mocks[id]
-        return localRequire(id)
-      },
-      m,
-      m.exports,
-    )
-    return m.exports as typeof import('./scheduleIntegration')
-  } finally {
-    Module._load = prev
-  }
+      return builder
+    },
+  } as never
 }
 
-describe('enqueueScheduleForConfirmedAppointment (revisión)', () => {
-  it('WhatsApp elegible con consent: no persiste; reason review_mode_no_persist', async () => {
-    let persistCalls = 0
-    const { enqueueScheduleForConfirmedAppointment } = loadEnqueue({
-      '@/lib/meta/localOutbox': {
-        getLeadAdsConsent: async () => true,
-        persistMetaConversion: async () => {
-          persistCalls += 1
-          throw new Error('no debe persistir en revisión')
-        },
+/** Mismo contrato que acceptClientVisitTime / advisorAcceptRequest respecto al gancho. */
+async function runAcceptClientVisitTime(
+  rpc: () => Promise<{ data: unknown; error: unknown }>,
+  notifyCalls: string[],
+) {
+  const { data, error } = await rpc()
+  if (error) throw error instanceof Error ? error : new Error(String(error))
+  const request = data as { status?: string; appointment_id?: string }
+  await notifyScheduleIfRequestConfirmed({} as never, request, async (_s, id) => {
+    notifyCalls.push(String(id))
+  })
+  return request
+}
+
+async function runAdvisorAcceptRequest(
+  rpc: () => Promise<{ data: unknown; error: unknown }>,
+  notifyCalls: string[],
+) {
+  const { data, error } = await rpc()
+  if (error) throw error instanceof Error ? error : new Error(String(error))
+  const request = data as { status?: string; appointment_id?: string }
+  await notifyScheduleIfRequestConfirmed({} as never, request, async (_s, id) => {
+    notifyCalls.push(String(id))
+  })
+  return request
+}
+
+describe('notifyScheduleIfRequestConfirmed (gancho)', () => {
+  it('propuesta awaiting_client excluida: no notifica', async () => {
+    let calls = 0
+    const notified = await notifyScheduleIfRequestConfirmed(
+      {} as never,
+      { status: 'awaiting_client', appointment_id: APPT },
+      async () => {
+        calls += 1
       },
-    })
-
-    const result = await enqueueScheduleForConfirmedAppointment(
-      {
-        from: () => ({
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
-                data: {
-                  id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-                  lead_id: '11111111-2222-4333-8444-555555555555',
-                  status: 'aceptado',
-                  channel: 'whatsapp',
-                  confirmed_by_client: true,
-                },
-                error: null,
-              }),
-            }),
-          }),
-        }),
-      } as never,
-      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
     )
-
-    assert.equal(result.ok, false)
-    assert.equal(result.reason, 'review_mode_no_persist')
-    assert.equal(result.eligibility?.actionSource, 'business_messaging')
-    assert.equal(persistCalls, 0)
+    assert.equal(notified, false)
+    assert.equal(calls, 0)
   })
 
-  it('sin consent: skipped; sin persist', async () => {
-    let persistCalls = 0
-    const { enqueueScheduleForConfirmedAppointment } = loadEnqueue({
-      '@/lib/meta/localOutbox': {
-        getLeadAdsConsent: async () => null,
-        persistMetaConversion: async () => {
-          persistCalls += 1
-          return { inserted: true, eventId: 'x', rowId: 'y' }
-        },
+  it('confirmación definitiva incluida: notifica una vez', async () => {
+    let calls = 0
+    let seenId = ''
+    const notified = await notifyScheduleIfRequestConfirmed(
+      {} as never,
+      { status: 'confirmed', appointment_id: APPT },
+      async (_sb, id) => {
+        calls += 1
+        seenId = String(id)
       },
-    })
-
-    const result = await enqueueScheduleForConfirmedAppointment(
-      {
-        from: () => ({
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
-                data: {
-                  id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-                  lead_id: '11111111-2222-4333-8444-555555555555',
-                  status: 'aceptado',
-                  channel: 'web',
-                },
-                error: null,
-              }),
-            }),
-          }),
-        }),
-      } as never,
-      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
     )
+    assert.equal(notified, true)
+    assert.equal(calls, 1)
+    assert.equal(seenId, APPT)
+  })
 
-    assert.equal(result.reason, 'ads_consent_missing')
-    assert.equal(persistCalls, 0)
+  it('fallo de guardado (sin request): sin evento', async () => {
+    let calls = 0
+    assert.equal(
+      await notifyScheduleIfRequestConfirmed({} as never, null, async () => {
+        calls += 1
+      }),
+      false,
+    )
+    assert.equal(calls, 0)
+  })
+})
+
+describe('flujo accept / advisor (contrato del gancho)', () => {
+  it('confirmación definitiva: gancho recibe appointment_id', async () => {
+    const notifyCalls: string[] = []
+    await runAcceptClientVisitTime(
+      async () => ({ data: { status: 'confirmed', appointment_id: APPT }, error: null }),
+      notifyCalls,
+    )
+    assert.deepEqual(notifyCalls, [APPT])
+  })
+
+  it('propuesta awaiting_client: sin gancho', async () => {
+    const notifyCalls: string[] = []
+    await runAdvisorAcceptRequest(
+      async () => ({ data: { status: 'awaiting_client', appointment_id: APPT }, error: null }),
+      notifyCalls,
+    )
+    assert.deepEqual(notifyCalls, [])
+  })
+
+  it('fallo de guardado (RPC error): sin gancho ni evento', async () => {
+    const notifyCalls: string[] = []
+    await assert.rejects(
+      () =>
+        runAcceptClientVisitTime(
+          async () => ({ data: null, error: new Error('SAVE_FAILED') }),
+          notifyCalls,
+        ),
+      /SAVE_FAILED/,
+    )
+    assert.deepEqual(notifyCalls, [])
+  })
+})
+
+describe('evaluación separada de cola (sin persistencia ni envío)', () => {
+  const consentTrue = async () => true as boolean | null
+
+  it('WhatsApp: negocio OK, entrega pending Nest; enqueue no ok', async () => {
+    const evaluated = await evaluateScheduleForConfirmedAppointment(
+      supabaseAppointment('whatsapp', true),
+      APPT,
+      { getLeadAdsConsent: consentTrue },
+    )
+    assert.equal(evaluated.reason, WHATSAPP_SCHEDULE_DELIVERY_PENDING)
+    assert.equal(evaluated.ok, true)
+    assert.equal(evaluated.eligibility?.queueable, false)
+    assert.equal(evaluated.eligibility?.actionSource, 'business_messaging')
+
+    const enqueued = await enqueueScheduleForConfirmedAppointment(
+      supabaseAppointment('whatsapp', true),
+      APPT,
+      { getLeadAdsConsent: consentTrue },
+    )
+    assert.equal(enqueued.ok, false)
+    assert.equal(enqueued.reason, WHATSAPP_SCHEDULE_DELIVERY_PENDING)
+  })
+
+  it('web: evaluación OK, cola inactiva separada', async () => {
+    const evaluated = await evaluateScheduleForConfirmedAppointment(
+      supabaseAppointment('web', true),
+      APPT,
+      { getLeadAdsConsent: consentTrue },
+    )
+    assert.equal(evaluated.ok, true)
+    assert.equal(evaluated.reason, SCHEDULE_QUEUE_INACTIVE)
+    assert.equal(evaluated.eligibility?.queueable, false)
+
+    const enqueued = await enqueueScheduleForConfirmedAppointment(
+      supabaseAppointment('web', true),
+      APPT,
+      { getLeadAdsConsent: consentTrue },
+    )
+    assert.equal(enqueued.ok, false)
+    assert.equal(enqueued.reason, 'evaluation_only_queue_separated')
   })
 })

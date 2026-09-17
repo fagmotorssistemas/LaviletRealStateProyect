@@ -2,8 +2,11 @@
  * Elegibilidad Schedule (Meta) tras confirmación de cita.
  * Sin I/O ni PII: solo reglas de negocio para revisión / tests.
  *
- * Consentimiento publicitario ≠ aceptar la cita.
- * WhatsApp ≠ conversión web (action_source distinto).
+ * - Consentimiento publicitario ≠ aceptar la cita.
+ * - WhatsApp ≠ conversión web.
+ * - Cambiar action_source a business_messaging **no** completa la entrega:
+ *   la cola WhatsApp queda pendiente del contrato Nest/Meta.
+ * - La evaluación está separada de la cola activa (outbox/flush).
  */
 
 export type ScheduleChannelKind = 'web' | 'whatsapp' | 'unknown'
@@ -14,6 +17,13 @@ export type ScheduleActionSource =
   | 'system_generated'
   | 'other'
 
+/** Motivo estable cuando WhatsApp aún no puede encolarse. */
+export const WHATSAPP_SCHEDULE_DELIVERY_PENDING =
+  'whatsapp_delivery_pending_nest_contract' as const
+
+/** Evaluación OK pero cola activa desconectada (revisión). */
+export const SCHEDULE_QUEUE_INACTIVE = 'evaluation_ok_queue_inactive' as const
+
 export type ScheduleEligibilityInput = {
   appointmentId: string
   /** appointments.status */
@@ -23,16 +33,23 @@ export type ScheduleEligibilityInput = {
   leadId: string | null | undefined
   /**
    * leads.meta_ads_consent.
-   * Solo `true` autoriza. `null`/`undefined` = no comprobado; `false` = revocado/negado.
+   * Solo `true` pasa el filtro de negocio. `null` = no comprobado; `false` = negado.
    * Aceptar la cita no implica consentimiento.
    */
   adsConsent: boolean | null | undefined
 }
 
 export type ScheduleEligibility = {
-  eligible: boolean
+  /** Pasó filtros de negocio (estado confirmado, lead, consent, canal conocido). */
+  businessOk: boolean
+  /**
+   * Puede escribirse en la cola activa (outbox).
+   * Siempre false mientras la cola esté separada / WhatsApp sin contrato Nest.
+   */
+  queueable: boolean
   reason: string
   channelKind: ScheduleChannelKind
+  /** Intención futura de action_source; no implica entrega lista. */
   actionSource: ScheduleActionSource
   idempotencyKey: string
 }
@@ -52,7 +69,7 @@ export function classifyAppointmentChannel(
   return 'unknown'
 }
 
-/** WhatsApp nunca se presenta como website. Canal desconocido → other (conservador). */
+/** WhatsApp nunca como website. Desconocido → other (conservador). */
 export function actionSourceForScheduleChannel(
   kind: ScheduleChannelKind,
 ): ScheduleActionSource {
@@ -69,8 +86,8 @@ export function isConfirmedAppointmentStatus(status: string | null | undefined):
 }
 
 /**
- * Decide si un Schedule sería elegible tras un guardado exitoso.
- * No asume consentimiento por el hecho de confirmar/aceptar la cita.
+ * Evalúa negocio + si la cola activa podría usarse.
+ * Por diseño actual: `queueable` siempre false (cola separada; WhatsApp pendiente Nest/Meta).
  */
 export function evaluateScheduleEligibility(
   input: ScheduleEligibilityInput,
@@ -80,34 +97,61 @@ export function evaluateScheduleEligibility(
   const channelKind = classifyAppointmentChannel(input.channel)
   const actionSource = actionSourceForScheduleChannel(channelKind)
 
-  const base = { channelKind, actionSource, idempotencyKey }
+  const base = {
+    businessOk: false,
+    queueable: false as boolean,
+    channelKind,
+    actionSource,
+    idempotencyKey,
+  }
 
   if (!appointmentId) {
-    return { eligible: false, reason: 'missing_appointment', ...base }
+    return { ...base, reason: 'missing_appointment' }
   }
   if (!input.leadId) {
-    return { eligible: false, reason: 'appointment_without_lead', ...base }
+    return { ...base, reason: 'appointment_without_lead' }
   }
   if (!isConfirmedAppointmentStatus(input.status)) {
-    return { eligible: false, reason: 'not_confirmed_status', ...base }
+    return { ...base, reason: 'not_confirmed_status' }
   }
   if (channelKind === 'unknown') {
-    return { eligible: false, reason: 'unknown_channel', ...base }
-  }
-  if (input.adsConsent === true) {
-    return { eligible: true, reason: 'eligible', ...base }
+    return { ...base, reason: 'unknown_channel' }
   }
   if (input.adsConsent === false) {
-    return { eligible: false, reason: 'ads_consent_false', ...base }
+    return { ...base, reason: 'ads_consent_false' }
   }
-  return { eligible: false, reason: 'ads_consent_missing', ...base }
+  if (input.adsConsent !== true) {
+    return { ...base, reason: 'ads_consent_missing' }
+  }
+
+  // Negocio OK. Cola activa separada: no encolar desde este módulo.
+  if (channelKind === 'whatsapp') {
+    return {
+      ...base,
+      businessOk: true,
+      queueable: false,
+      reason: WHATSAPP_SCHEDULE_DELIVERY_PENDING,
+    }
+  }
+
+  return {
+    ...base,
+    businessOk: true,
+    queueable: false,
+    reason: SCHEDULE_QUEUE_INACTIVE,
+  }
 }
 
-/** Persistencia local (outbox) solo si se autoriza explícitamente; por defecto off. */
+/** La cola activa (outbox/flush) no se usa en esta revisión. */
+export function isScheduleQueueActive(
+  _env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return false
+}
+
+/** @deprecated Cola separada; siempre false. */
 export function isSchedulePersistEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return String(env.META_SCHEDULE_PERSIST || '')
-    .trim()
-    .toLowerCase() === 'true'
+  return isScheduleQueueActive(env)
 }
