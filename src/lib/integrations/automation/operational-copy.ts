@@ -1,8 +1,9 @@
 import { CURRENT_TONE } from './conversation-tone'
+import { financingCollectionIssues, FINANCING_COLLECTION_RULE } from './financing-continuation'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
-import { isVisitCopy, VISIT_COPY_RULES, visitCopyIssues } from './visit-copy'
+import { isVisitCopy, VISIT_COPY_RULES, VISIT_NATURAL_RULES, visitCopyIssues } from './visit-copy'
 
 const replySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
 const reviewSchema = { type: 'object', properties: {
@@ -17,6 +18,7 @@ const same = (left: string[], right: string[]) => JSON.stringify(left) === JSON.
 
 export function operationalCopyIssues(base: string, draft: string, context: Row = {}) {
   const issues: string[] = [], value = normalized(draft), source = normalized(base)
+  if(financingCollectionIssues(draft,context,text(context.current_message))) issues.push('financing_collection_padding')
   if (isVisitCopy(context)) issues.push(...visitCopyIssues(base, draft))
   if (!draft.trim() || draft.length > 1200) issues.push('length')
   if ((draft.match(/\?/g) || []).length > 1 || ((base.match(/\?/g) || []).length === 0 && draft.includes('?'))) issues.push('question_count')
@@ -58,10 +60,10 @@ export async function operationalReply(baseReply: string, current: string, histo
   const recent = (Array.isArray(history) ? history : []).map(object).slice(-8).map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1500) }))
   try {
     const input = { base_verificada: baseReply, mensaje_actual: current.slice(0, 4000), historial_reciente: recent, contexto_verificado: context }
-    const visitRules = isVisitCopy(context) ? VISIT_COPY_RULES : ''
+    const visitRules = (isVisitCopy(context) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + FINANCING_COLLECTION_RULE
     const result = await aiJson(WRITING_RULES + openingWritingRules(recent) + visitRules, input, replySchema, undefined, undefined, undefined, 'writing')
     const draft = variedReplyOpening(text(result.mensaje).trim(), recent)
-    if (operationalCopyIssues(baseReply, draft, context).length) return fallback
+    if (operationalCopyIssues(baseReply, draft, {...context,current_message:current}).length) return fallback
     const reviewed = await aiJson(REVIEW_RULES + visitRules, { ...input, redaccion_propuesta: draft }, reviewSchema, undefined, undefined, undefined, 'review')
     if (reviewed.fiel_a_los_hechos !== true || reviewed.conserva_estado_y_objetivo !== true || reviewed.no_pide_datos_conocidos !== true || reviewed.tono_natural !== true) return fallback
     return { reply: draft, generated: draft !== baseReply }

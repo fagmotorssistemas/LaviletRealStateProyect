@@ -22,7 +22,7 @@ export async function visitContext(jobId: string) {
     if (office.error || !office.data) throw new Error('VISIT_OFFICE_CONTEXT_FAILED')
     address = text(office.data.address)
   }
-  return { ...result, address, mode: config.data?.mode,
+  return { ...result, address, mode: config.data?.mode, estado_proyecto: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).readiness,
     launch_destination: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).launchDestination }
 }
 

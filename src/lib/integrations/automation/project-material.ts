@@ -38,9 +38,10 @@ export function wantsBrochure(current: string, history: unknown = []) {
     && /(?:compart|envi|mand|pas)[a-z]*.{0,45}(?:informaci[oó]n|material|brochure|folleto)/i.test(last)
 }
 
-export function brochureReply(current: string, history: unknown, mode: string) {
+export function brochureReply(current: string, history: unknown, mode: string, physicalStateConfigured = false) {
   if (!wantsBrochure(current, history)) return ''
   if (/precio|cuesta|financ|credito|entrega|cuando|fecha|dormitorio|sector|ubicacion|\b\d{3}\b|foto|modelo|plano|visita|cita|agendar/.test(normalized(current))) return ''
+  if(physicalStateConfigured) return `Le comparto el brochure para conocer la propuesta y sus espacios. Sus representaciones del diseño no son una constancia del avance de obra:\n\n${BROCHURE_URL}`
   const launch = mode === 'lanzamiento'
   return launch
     ? `Le comparto el brochure para que pueda conocer la propuesta y sus espacios. Las imágenes muestran cómo está previsto el proyecto; todavía no hay departamentos construidos.\n\n${BROCHURE_URL}`

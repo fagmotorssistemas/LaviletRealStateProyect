@@ -6,9 +6,10 @@ export function isConversationRepair(current: string) {
   if (/que significa|a que se refiere|que quiere decir|explic|no entiendo (?:el|la|los|las|eso de)\b/.test(normalized(current))) return false
   return /^[¿?\s]+$/.test(current.trim()) || /ya (?:te |le |lo |se lo |les |si )?(?:dije|respondi)|(?:por que )?repites|repite lo mismo|eso no (?:fue|es) lo que|no (?:me )?entend/.test(normalized(current))
 }
-export function asksVisitStatus(current: string) {
+export function asksVisitStatus(current: string, lastReply = '') {
   if (/cancel|reagend|reprogram|cambiar/.test(normalized(current))) return false
   return /(?:ya quedamos|(?:esta|quedo|esta o no|quedo o no).*confirmad|tenemos.*cita|cita.*confirmad)/.test(normalized(current))
+    || (/cuando|a que hora|cuanto (?:tiempo|tardan)/.test(normalized(current)) && /confirm|respuesta/.test(normalized(current)) && /visita|cita|horario/.test(normalized(lastReply + ' ' + current)))
 }
 export function asksTeamAttendance(current: string) {
   const value = normalized(current)
@@ -32,6 +33,8 @@ export function explicitlyRequestsVisit(current: string) {
     const value = normalized(clause)
     if (!value || /\b(?:no|tampoco|ni) (?:quiero|quisiera|puedo|podemos|deseo|me interesa|me gustaria|necesito)\b/.test(value)) return false
     if (hasUnrelatedAppointmentTarget(value)) return false
+    if (/\b(?:no|tampoco)\s+(?:coordinamos|agendamos|programamos|coordinemos|agendemos)\b/.test(value)) return false
+    if (/^(?:(?:mejor|entonces|si|bueno|de acuerdo|por favor)\s+)*(?:coordinamos|agendamos|programamos)\s+(?:una|la)\s+(?:visita|cita)(?:\s+por favor)?$/.test(value)) return true
     if (/\b(?:puedo|podemos|podria|podriamos|se puede|es posible) (?:hacer |realizar |tener |solicitar |coordinar |agendar )?(?:una |la )?(?:visita|visitar|cita|ir|venir|pasar)\b/.test(value)) return true
     if (/\b(?:quiero|quisiera|necesito) (?:saber|consultar|confirmar|revisar)\b/.test(value) || /\b(?:ya|ayer) (?:agende|agendamos|coordine|coordinamos|reserve|reservamos)\b/.test(value)) return false
     if (/\b(?:quiero|quisiera|deseo|me interesa|me gustaria|necesito)\b.*\b(?:visita|visitar|cita|ir a (?:verlo|verla|conocerlo|conocerla)|(?:verlo|verla|conocerlo|conocerla) en persona|(?:ir|pasar|acercarme) (?:a|por) (?:la |su )?oficina)\b/.test(value)) return true
@@ -58,7 +61,7 @@ export function visitStatusReply(proposals: Row[], collecting: boolean) {
     ? `Sí, su cita está confirmada para ${formatVisitWhen(when)} Le esperamos.`
     : 'Sí, su cita está confirmada. Le esperamos.'
   if (collecting) return 'Estamos coordinando el cambio de horario; la nueva fecha todavía no está confirmada.'
-  if (p.status === 'awaiting_advisor') return 'Su solicitud está registrada y el asesor está revisando el horario. Le confirmaremos por aquí cuando la acepte.'
+  if (p.status === 'awaiting_advisor') return 'Su solicitud está pendiente de revisión. Aún no tengo una hora de confirmación; le avisaremos por aquí cuando el equipo verifique la disponibilidad.'
   if (p.status === 'awaiting_client') return when
     ? `Tenemos una propuesta para ${formatVisitWhen(when)} ¿Le queda bien ese horario?`
     : 'El asesor le envió una propuesta y estamos esperando su confirmación. ¿Le queda bien ese horario?'

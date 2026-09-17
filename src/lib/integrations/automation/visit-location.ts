@@ -42,6 +42,7 @@ export function locationAnswer(info: Row, kind: LocationRequestKind = 'request')
   const address = text(object(info.proyecto).address || info.address).trim()
   const map = text(info.ubicacion || info.map_url).trim()
   if (!address && !/^https:\/\//.test(map)) return ''
+  if(info.estado_proyecto) return withVisitLocation('Esta es la dirección de atención registrada para el proyecto. Las visitas se coordinan según los lugares habilitados.',info,true)
   const launch = info.modo_comercial === 'lanzamiento'
   const intro = launch
     ? kind === 'clarification'

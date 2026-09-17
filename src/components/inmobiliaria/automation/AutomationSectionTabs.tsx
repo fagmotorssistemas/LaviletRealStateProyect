@@ -4,13 +4,14 @@ import Link from 'next/link'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import styles from './AutomationWorkspace.module.css'
 
-export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' }) {
+export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' }) {
   const { isAdmin } = useRoleAccess()
   const tabs = [
     { id: 'monitoreo', href: '/inmobiliaria/automatizacion', label: 'Monitoreo' },
     ...(isAdmin ? [
       { id: 'reglas', href: '/inmobiliaria/automatizacion/reglas', label: 'Reglas y SLA' },
       { id: 'guion', href: '/inmobiliaria/automatizacion/guion', label: 'Guion del bot' },
+      { id: 'proyecto', href: '/inmobiliaria/automatizacion/proyecto', label: 'Estado del proyecto' },
       { id: 'estilo', href: '/inmobiliaria/automatizacion/estilo', label: 'Estilo de conversación' },
       { id: 'precios', href: '/inmobiliaria/automatizacion/precios', label: 'Precios' },
       { id: 'ubicacion', href: '/inmobiliaria/automatizacion/ubicacion', label: 'Ubicación' },

@@ -1,14 +1,34 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import type { FinancingConfig, InvestmentPreview } from '@/types/financingSimulator'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type {
+  ExpenseBreakdown,
+  FinancingConfig,
+  FinancingPartner,
+  FinancingScenario,
+  InvestmentPreview,
+  RateType,
+  SimulationMode,
+} from '@/types/financingSimulator'
 import {
-  buildCashInvestmentPreview,
-  defaultAnnualExpenses,
-  suggestedRentForBedrooms,
-  suggestedRentFromUnitPrice,
-  suggestedUnitPrice,
+  CALCULATION_VERSION,
+  DOWN_PAYMENT_MAX_PCT,
+  DOWN_PAYMENT_MIN_PCT,
+  FINANCING_YEARS_MAX,
+  FINANCING_YEARS_MIN,
+  buildInvestmentPreview,
+  clampDownPaymentPercent,
+  clampFinancingYears,
+  expenseBreakdownFromConfig,
+  suggestMonthlyRent,
+  sumExpenseBreakdown,
 } from '@/lib/financing/calculator'
+import {
+  priceFlagsAfterScenarioSave,
+  resolveCalculatorUnitPrice,
+} from '@/lib/financing/calculatorUnitPrice'
+import { resolveSimulationMode } from '@/lib/financing/scenarioPersist'
+import { assessScenarioFidelity, finiteOr, finiteOrNull } from '@/lib/financing/scenarioFidelity'
 import {
   getShowroomLeadId,
   getShowroomPhone,
@@ -24,99 +44,421 @@ type UnitRow = {
   category?: string | null
 }
 
-export function useFinancingCalculator(unitParam: string) {
+export type UnitCalcState = {
+  /** empty = aún no bootstrap; bootstrap = defaults de catálogo; scenario = reopen; user = edits */
+  initSource: 'empty' | 'bootstrap' | 'scenario' | 'user'
+  monthlyRent: number
+  vacancyRate: number
+  expenses: ExpenseBreakdown
+  annualManagement: number
+  annualIncomeTaxEstimate: number
+  acquisitionCosts: number
+  annualOtherFinancialCosts: number
+  monthlyExtraCharges: number
+  mode: SimulationMode
+  partnerId: string | null
+  downPaymentPercent: number
+  financingYears: number
+  interestRate: number
+  rateType: RateType
+  hypotheticalPrice: number | null
+  /** Precio del escenario guardado (histórico). */
+  scenarioUnitPrice: number | null
+  /** false = usar scenarioUnitPrice; true = precio publicado/hipotético actual. */
+  useCurrentPublishedPrice: boolean
+  fidelityMessage: string | null
+  savedResults: {
+    annualNetCashFlow: number | null
+    cashOnCashReturn: number | null
+    monthlyPayment: number | null
+  } | null
+}
+
+const defaultUnitState = (): UnitCalcState => ({
+  initSource: 'empty',
+  monthlyRent: 0,
+  vacancyRate: 0.05,
+  expenses: { propertyTax: 0, maintenance: 0, insurance: 0, other: 0, total: 0 },
+  annualManagement: 0,
+  annualIncomeTaxEstimate: 0,
+  acquisitionCosts: 0,
+  annualOtherFinancialCosts: 0,
+  monthlyExtraCharges: 0,
+  mode: 'cash',
+  partnerId: null,
+  downPaymentPercent: 30,
+  financingYears: 20,
+  interestRate: 0,
+  rateType: 'nominal_annual',
+  hypotheticalPrice: null,
+  scenarioUnitPrice: null,
+  useCurrentPublishedPrice: true,
+  fidelityMessage: null,
+  savedResults: null,
+})
+
+export function useFinancingCalculator(
+  unitParam: string,
+  opts?: { initialMode?: SimulationMode; initialSection?: 'financing' | 'rent' | null },
+) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [config, setConfig] = useState<FinancingConfig | null>(null)
+  const [partners, setPartners] = useState<FinancingPartner[]>([])
   const [unit, setUnit] = useState<UnitRow | null>(null)
-  const [monthlyRent, setMonthlyRent] = useState(1200)
-  const [annualExpenses, setAnnualExpenses] = useState(0)
-  const [unitPrice, setUnitPrice] = useState(120000)
+  const [byUnit, setByUnit] = useState<Record<string, UnitCalcState>>({})
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [identified, setIdentified] = useState(false)
+  const [focusSection, setFocusSection] = useState<'financing' | 'rent' | null>(
+    opts?.initialSection ?? null,
+  )
+  const bootstrapGen = useRef(0)
+
+  const unitKey = unitParam.trim() || '_none'
 
   useEffect(() => {
     setIdentified(isShowroomIdentified())
   }, [])
 
   useEffect(() => {
+    if (opts?.initialMode || opts?.initialSection) {
+      setByUnit((prev) => {
+        const cur = prev[unitKey] ?? defaultUnitState()
+        if (cur.initSource === 'scenario' || cur.initSource === 'user') {
+          return {
+            ...prev,
+            [unitKey]: {
+              ...cur,
+              mode:
+                opts.initialMode === 'financed' || opts.initialMode === 'manual'
+                  ? opts.initialMode
+                  : cur.mode,
+            },
+          }
+        }
+        return {
+          ...prev,
+          [unitKey]: {
+            ...cur,
+            mode: opts.initialMode === 'financed' || opts.initialMode === 'manual' ? opts.initialMode : cur.mode,
+          },
+        }
+      })
+      if (opts.initialSection) setFocusSection(opts.initialSection)
+    }
+  }, [opts?.initialMode, opts?.initialSection, unitKey])
+
+  useEffect(() => {
     let cancelled = false
+    const gen = ++bootstrapGen.current
     ;(async () => {
       setLoading(true)
       setError(null)
+      setSaveMessage(null)
       try {
         const response = await fetch(`/api/financing/bootstrap?unit=${encodeURIComponent(unitParam)}`)
         const json = (await response.json()) as {
           config?: FinancingConfig | null
           unit?: UnitRow | null
+          partners?: FinancingPartner[]
           error?: string
         }
         if (!response.ok) throw new Error(json.error || 'No se pudo cargar')
-        if (cancelled) return
+        if (cancelled || gen !== bootstrapGen.current) return
         const nextConfig = json.config ?? null
+        const nextUnit = json.unit ?? null
+        const nextPartners = json.partners ?? []
         setConfig(nextConfig)
-        setUnit(json.unit ?? null)
-        const beds = json.unit?.bedrooms ?? 1
-        const price = Number(json.unit?.published_commercial_price) || suggestedUnitPrice(beds)
-        setUnitPrice(price)
-        if (nextConfig) {
-          const fromBeds = suggestedRentForBedrooms(nextConfig, beds)
-          const fromPrice = suggestedRentFromUnitPrice(price)
-          setMonthlyRent(fromBeds > 0 ? fromBeds : fromPrice)
-          setAnnualExpenses(defaultAnnualExpenses(price, nextConfig))
-        } else {
-          setMonthlyRent(suggestedRentFromUnitPrice(price))
-          setAnnualExpenses(0)
-        }
+        setUnit(nextUnit)
+        setPartners(nextPartners)
+
+        // Key canónica: siempre unit_number del bootstrap o el param tipado como número.
+        const key = (nextUnit?.unit_number || unitParam).trim() || '_none'
+        setByUnit((prev) => {
+          const existing = prev[key] ?? prev[unitKey]
+          // Solo completar si aún no hay inicialización explícita.
+          if (existing && existing.initSource !== 'empty') {
+            // Migrar key si hacía falta
+            if (!prev[key] && existing) {
+              const { [unitKey]: _, ...rest } = prev
+              return { ...rest, [key]: existing }
+            }
+            return prev
+          }
+          const published = Number(nextUnit?.published_commercial_price)
+          const hasPrice = Number.isFinite(published) && published > 0
+          const price = hasPrice ? published : 0
+          const expenses = nextConfig
+            ? expenseBreakdownFromConfig(price || 0, nextConfig)
+            : { propertyTax: 0, maintenance: 0, insurance: 0, other: 0, total: 0 }
+          const rent = suggestMonthlyRent({
+            config: nextConfig,
+            unitPrice: price,
+            bedrooms: nextUnit?.bedrooms,
+            category: nextUnit?.category,
+          })
+          const recommended = nextPartners.find((p) => p.is_recommended) ?? nextPartners[0] ?? null
+          const base = existing ?? defaultUnitState()
+          return {
+            ...prev,
+            [key]: {
+              ...base,
+              initSource: 'bootstrap',
+              monthlyRent: rent.amount,
+              vacancyRate: Number(nextConfig?.vacancy_rate ?? 0.05),
+              expenses,
+              mode:
+                opts?.initialMode === 'financed' || opts?.initialMode === 'manual'
+                  ? opts.initialMode
+                  : 'cash',
+              partnerId: recommended?.id ?? null,
+              interestRate: recommended ? Number(recommended.annual_interest_rate) : 0,
+              financingYears: recommended
+                ? clampFinancingYears(20, recommended)
+                : 20,
+              downPaymentPercent: 30,
+              hypotheticalPrice: hasPrice ? null : null,
+              scenarioUnitPrice: null,
+              useCurrentPublishedPrice: true,
+              fidelityMessage: null,
+              savedResults: null,
+            },
+          }
+        })
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Error de carga')
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && gen === bootstrapGen.current) setLoading(false)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [unitParam])
+  }, [unitParam, opts?.initialMode])
 
-  const suggestedRent = useMemo(() => {
-    if (!config) return suggestedRentFromUnitPrice(unitPrice)
-    const fromBeds = suggestedRentForBedrooms(config, unit?.bedrooms)
-    const fromPrice = suggestedRentFromUnitPrice(unitPrice)
-    return fromBeds > 0 ? fromBeds : fromPrice
-  }, [config, unit?.bedrooms, unitPrice])
+  const state = byUnit[unitKey] ?? byUnit[unit?.unit_number ?? ''] ?? defaultUnitState()
 
-  const suggestedExpenses = useMemo(
-    () => (config ? defaultAnnualExpenses(unitPrice, config) : 0),
-    [config, unitPrice],
+  const patchState = (partial: Partial<UnitCalcState>, markUser = true) => {
+    setByUnit((prev) => {
+      const cur = prev[unitKey] ?? defaultUnitState()
+      return {
+        ...prev,
+        [unitKey]: {
+          ...cur,
+          ...partial,
+          initSource: markUser
+            ? cur.initSource === 'empty'
+              ? 'user'
+              : cur.initSource === 'bootstrap'
+                ? 'user'
+                : cur.initSource === 'scenario'
+                  ? 'user'
+                  : 'user'
+            : (partial.initSource ?? cur.initSource),
+        },
+      }
+    })
+  }
+
+  const publishedPrice = Number(unit?.published_commercial_price)
+  const hasPublishedPrice = Number.isFinite(publishedPrice) && publishedPrice > 0
+
+  /** Fuente de precio explícita: no depende de initSource (editar no debe saltar al publicado). */
+  const unitPrice = resolveCalculatorUnitPrice({
+    useCurrentPublishedPrice: state.useCurrentPublishedPrice,
+    scenarioUnitPrice: state.scenarioUnitPrice,
+    publishedPrice: hasPublishedPrice ? publishedPrice : null,
+    hypotheticalPrice: state.hypotheticalPrice,
+  })
+
+  const priceMissing = unitPrice <= 0
+  const priceDiffersFromPublished =
+    hasPublishedPrice &&
+    state.scenarioUnitPrice != null &&
+    Math.abs(state.scenarioUnitPrice - publishedPrice) > 0.01 &&
+    !state.useCurrentPublishedPrice
+
+  const rentSuggestion = useMemo(
+    () =>
+      suggestMonthlyRent({
+        config,
+        unitPrice,
+        bedrooms: unit?.bedrooms,
+        category: unit?.category,
+      }),
+    [config, unitPrice, unit?.bedrooms, unit?.category],
   )
 
-  const preview: InvestmentPreview | null = useMemo(() => {
+  const selectedPartner = useMemo(
+    () => partners.find((p) => p.id === state.partnerId) ?? null,
+    [partners, state.partnerId],
+  )
+
+  const effectiveInterestRate = useMemo(() => {
+    if (state.mode === 'manual') return state.interestRate
+    if (state.mode === 'financed' && selectedPartner) return state.interestRate
+    return state.interestRate
+  }, [state.mode, state.interestRate, selectedPartner])
+
+  const annualOperatingExpenses = sumExpenseBreakdown(state.expenses)
+
+  const livePreview: InvestmentPreview | null = useMemo(() => {
     if (!config) return null
-    return buildCashInvestmentPreview({
+    if (unitPrice <= 0) return null
+    const mode: SimulationMode =
+      state.mode === 'cash'
+        ? 'cash'
+        : state.mode === 'manual' || !state.partnerId
+          ? 'manual'
+          : 'financed'
+    return buildInvestmentPreview({
+      mode,
       unitPrice,
-      estimatedMonthlyRent: monthlyRent,
-      annualExpenses,
-      config,
+      estimatedMonthlyRent: state.monthlyRent,
+      vacancyRate: state.vacancyRate,
+      annualOperatingExpenses,
+      annualManagement: state.annualManagement,
+      annualIncomeTaxEstimate: state.annualIncomeTaxEstimate || null,
+      acquisitionCosts: state.acquisitionCosts,
+      annualOtherFinancialCosts: state.annualOtherFinancialCosts,
+      monthlyExtraCharges: state.monthlyExtraCharges,
+      downPaymentPercent: state.downPaymentPercent,
+      financingYears: state.financingYears,
+      interestRate: effectiveInterestRate,
+      rateType: state.rateType,
     })
-  }, [config, unitPrice, monthlyRent, annualExpenses])
+  }, [
+    config,
+    unitPrice,
+    state.mode,
+    state.partnerId,
+    state.monthlyRent,
+    state.vacancyRate,
+    annualOperatingExpenses,
+    state.annualManagement,
+    state.annualIncomeTaxEstimate,
+    state.acquisitionCosts,
+    state.annualOtherFinancialCosts,
+    state.monthlyExtraCharges,
+    state.downPaymentPercent,
+    state.financingYears,
+    effectiveInterestRate,
+    state.rateType,
+  ])
+
+  /** Legacy/unknown: preferir resultados guardados para métricas principales. */
+  const preview: InvestmentPreview | null = useMemo(() => {
+    if (!livePreview) return null
+    if (state.initSource === 'scenario' && state.savedResults && state.fidelityMessage) {
+      return {
+        ...livePreview,
+        annualNetCashFlow: finiteOr(state.savedResults.annualNetCashFlow, livePreview.annualNetCashFlow),
+        monthlyCashFlow: roundDiv12(finiteOr(state.savedResults.annualNetCashFlow, livePreview.annualNetCashFlow)),
+        cashOnCashReturn: finiteOrNull(state.savedResults.cashOnCashReturn) ?? livePreview.cashOnCashReturn,
+        roiPercent: finiteOrNull(state.savedResults.cashOnCashReturn) ?? livePreview.roiPercent,
+        monthlyPayment: finiteOr(state.savedResults.monthlyPayment, livePreview.monthlyPayment),
+      }
+    }
+    return livePreview
+  }, [livePreview, state.initSource, state.savedResults, state.fidelityMessage])
+
+  function setPartnerId(id: string | null) {
+    const partner = partners.find((p) => p.id === id) ?? null
+    patchState({
+      partnerId: id,
+      mode: id
+        ? state.mode === 'cash'
+          ? 'financed'
+          : state.mode === 'manual'
+            ? 'manual'
+            : 'financed'
+        : state.mode === 'cash'
+          ? 'cash'
+          : 'manual',
+      interestRate: partner ? Number(partner.annual_interest_rate) : state.interestRate,
+      financingYears: partner ? clampFinancingYears(state.financingYears, partner) : state.financingYears,
+      savedResults: null,
+      fidelityMessage: null,
+    })
+  }
+
+  function setMode(mode: SimulationMode) {
+    if (mode === 'cash') {
+      patchState({ mode: 'cash', savedResults: null, fidelityMessage: null })
+      return
+    }
+    if (mode === 'manual') {
+      patchState({ mode: 'manual', partnerId: null, savedResults: null, fidelityMessage: null })
+      return
+    }
+    const partner = selectedPartner ?? partners[0] ?? null
+    patchState({
+      mode: partner ? 'financed' : 'manual',
+      partnerId: partner?.id ?? null,
+      interestRate: partner ? Number(partner.annual_interest_rate) : state.interestRate > 0 ? state.interestRate : 7.8,
+      financingYears: partner
+        ? clampFinancingYears(state.financingYears > 0 ? state.financingYears : 20, partner)
+        : state.financingYears > 0
+          ? state.financingYears
+          : 20,
+      savedResults: null,
+      fidelityMessage: null,
+    })
+  }
+
+  function setExpenses(partial: Partial<ExpenseBreakdown>) {
+    const next = { ...state.expenses, ...partial }
+    next.total = sumExpenseBreakdown(next)
+    patchState({ expenses: next, savedResults: null, fidelityMessage: null })
+  }
+
+  function useSuggestedExpenses() {
+    if (!config) return
+    const next = expenseBreakdownFromConfig(unitPrice, config)
+    patchState({ expenses: next, savedResults: null, fidelityMessage: null })
+  }
+
+  function applyCurrentPublishedPrice() {
+    patchState({
+      useCurrentPublishedPrice: true,
+      savedResults: null,
+      fidelityMessage: null,
+    })
+  }
 
   async function saveScenario() {
-    if (!unit || !preview || !config) return
+    if (!unit || !livePreview || !config) return
+    if (priceMissing || unitPrice <= 0) {
+      setSaveMessage('Indica un precio hipotético para guardar')
+      return
+    }
     setSaving(true)
     setSaveMessage(null)
     try {
+      const saveMode: SimulationMode =
+        state.mode === 'cash' ? 'cash' : state.partnerId && state.mode === 'financed' ? 'financed' : 'manual'
       const response = await fetch('/api/financing/scenarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           unit_id: unit.id,
-          mode: 'cash',
-          estimated_monthly_rent: monthlyRent,
-          annual_expenses: annualExpenses,
+          mode: saveMode,
+          financing_partner_id: saveMode === 'financed' ? state.partnerId : null,
+          down_payment_percent: livePreview.downPaymentPercent,
+          financing_years: livePreview.financingYears || null,
+          estimated_monthly_rent: state.monthlyRent,
+          vacancy_rate: state.vacancyRate,
+          annual_expenses: annualOperatingExpenses,
+          annual_management: state.annualManagement,
+          annual_income_tax_estimate: state.annualIncomeTaxEstimate || null,
+          expense_breakdown: state.expenses,
+          applied_interest_rate: livePreview.interestRate,
+          rate_type: state.rateType,
+          acquisition_costs: state.acquisitionCosts,
+          annual_other_financial: state.annualOtherFinancialCosts,
+          monthly_extra_charges: state.monthlyExtraCharges,
           unit_price: unitPrice,
-          project_id: unit.project_id,
           phone: getShowroomPhone() || undefined,
           lead_id: getShowroomLeadId() || undefined,
         }),
@@ -124,7 +466,16 @@ export function useFinancingCalculator(unitParam: string) {
       const json = (await response.json()) as { error?: string; lead_id?: string }
       if (!response.ok) throw new Error(json.error || 'No se pudo guardar')
       setIdentified(true)
-      setSaveMessage('Cálculo guardado')
+      setSaveMessage('Escenario guardado')
+      patchState(
+        {
+          ...priceFlagsAfterScenarioSave(unitPrice),
+          fidelityMessage: null,
+          savedResults: null,
+          initSource: 'user',
+        },
+        false,
+      )
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'No se pudo guardar')
     } finally {
@@ -132,24 +483,186 @@ export function useFinancingCalculator(unitParam: string) {
     }
   }
 
+  function loadFromScenario(row: FinancingScenario | Record<string, unknown>) {
+    const scenario = row as FinancingScenario
+    const mode = resolveSimulationMode(scenario)
+    const rent = finiteOrNull(scenario.estimated_monthly_rent)
+    const vacancy = finiteOrNull(scenario.vacancy_rate_snapshot)
+    const rate = finiteOrNull(scenario.applied_interest_rate)
+    const years = finiteOrNull(scenario.financing_years)
+    const down = finiteOrNull(scenario.down_payment_percent)
+    const savedPrice = finiteOrNull(scenario.unit_price)
+    const management = finiteOrNull(scenario.annual_management)
+    const tax = finiteOrNull(scenario.annual_income_tax_estimate)
+    const acquisition = finiteOrNull(scenario.acquisition_costs)
+    const otherFin = finiteOrNull(scenario.annual_other_financial)
+    const extra = finiteOrNull(scenario.monthly_extra_charges)
+
+    const expenses: ExpenseBreakdown =
+      scenario.expense_breakdown ??
+      (scenario.annual_expenses != null
+        ? {
+            propertyTax: 0,
+            maintenance: 0,
+            insurance: 0,
+            other: finiteOr(scenario.annual_expenses, 0),
+            total: finiteOr(scenario.annual_expenses, 0),
+          }
+        : state.expenses)
+
+    const fidelity = assessScenarioFidelity(scenario)
+    const isExact = fidelity.kind === 'exact'
+
+    patchState(
+      {
+        initSource: 'scenario',
+        monthlyRent: rent ?? state.monthlyRent,
+        vacancyRate: vacancy ?? state.vacancyRate,
+        expenses,
+        annualManagement: management ?? 0,
+        annualIncomeTaxEstimate: tax ?? 0,
+        acquisitionCosts: acquisition ?? 0,
+        annualOtherFinancialCosts: otherFin ?? 0,
+        monthlyExtraCharges: extra ?? 0,
+        mode,
+        partnerId: scenario.financing_partner_id ?? null,
+        downPaymentPercent: down != null ? clampDownPaymentPercent(down) : state.downPaymentPercent,
+        financingYears: years != null ? years : state.financingYears,
+        interestRate: rate ?? 0,
+        rateType:
+          scenario.rate_type === 'effective_annual' || scenario.rate_type === 'nominal_annual'
+            ? scenario.rate_type
+            : 'nominal_annual',
+        scenarioUnitPrice: savedPrice,
+        useCurrentPublishedPrice: false,
+        hypotheticalPrice: !hasPublishedPrice && savedPrice != null ? savedPrice : state.hypotheticalPrice,
+        fidelityMessage: isExact ? null : fidelity.message,
+        savedResults: isExact
+          ? null
+          : {
+              annualNetCashFlow: finiteOrNull(scenario.annual_net_cash_flow),
+              cashOnCashReturn: finiteOrNull(scenario.roi_percent),
+              monthlyPayment: finiteOrNull(scenario.monthly_payment),
+            },
+      },
+      false,
+    )
+  }
+
   return {
     loading,
     error,
     config,
     unit,
-    monthlyRent,
-    setMonthlyRent,
-    annualExpenses,
-    setAnnualExpenses,
-    suggestedRent,
-    suggestedExpenses,
+    partners,
+    selectedPartner,
+    state,
+    patchState,
+    setMode,
+    setPartnerId,
+    setExpenses,
+    useSuggestedExpenses,
+    monthlyRent: state.monthlyRent,
+    setMonthlyRent: (v: number) =>
+      patchState({ monthlyRent: Math.max(0, v), savedResults: null, fidelityMessage: null }),
+    vacancyRate: state.vacancyRate,
+    setVacancyRate: (v: number) =>
+      patchState({
+        vacancyRate: Math.min(1, Math.max(0, v)),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
+    annualExpenses: annualOperatingExpenses,
+    setAnnualExpenses: (total: number) =>
+      setExpenses({
+        propertyTax: 0,
+        maintenance: 0,
+        insurance: 0,
+        other: Math.max(0, total),
+        total: Math.max(0, total),
+      }),
+    suggestedRent: rentSuggestion.amount,
+    rentSuggestion,
+    suggestedExpenses: config ? expenseBreakdownFromConfig(unitPrice, config).total : 0,
     unitPrice,
-    setUnitPrice,
+    setUnitPrice: (value: number) => {
+      if (hasPublishedPrice && state.useCurrentPublishedPrice) return
+      const price = Math.max(0, value)
+      if (config) {
+        patchState({
+          hypotheticalPrice: price,
+          scenarioUnitPrice: price,
+          useCurrentPublishedPrice: false,
+          expenses: expenseBreakdownFromConfig(price, config),
+          savedResults: null,
+          fidelityMessage: null,
+        })
+      } else {
+        patchState({
+          hypotheticalPrice: price,
+          scenarioUnitPrice: price,
+          useCurrentPublishedPrice: false,
+          savedResults: null,
+          fidelityMessage: null,
+        })
+      }
+    },
+    priceMissing,
+    hasPublishedPrice,
+    priceDiffersFromPublished,
+    scenarioUnitPrice: state.scenarioUnitPrice,
+    useCurrentPublishedPrice: state.useCurrentPublishedPrice,
+    applyCurrentPublishedPrice,
+    fidelityMessage: state.fidelityMessage,
+    calculationVersion: CALCULATION_VERSION,
+    downPaymentPercent: state.downPaymentPercent,
+    setDownPaymentPercent: (v: number) =>
+      patchState({
+        downPaymentPercent: clampDownPaymentPercent(v),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
+    financingYears: state.financingYears,
+    setFinancingYears: (v: number) =>
+      patchState({
+        financingYears: clampFinancingYears(v, selectedPartner),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
+    interestRate: state.interestRate,
+    setInterestRate: (v: number) =>
+      patchState({
+        interestRate: Math.max(0, v),
+        mode:
+          state.partnerId && Math.abs(v - Number(selectedPartner?.annual_interest_rate || 0)) > 0.001
+            ? 'manual'
+            : state.mode === 'cash'
+              ? 'cash'
+              : state.mode,
+        savedResults: null,
+        fidelityMessage: null,
+      }),
+    rateType: state.rateType,
+    setRateType: (v: RateType) => patchState({ rateType: v, savedResults: null, fidelityMessage: null }),
+    mode: state.mode === 'cash' ? 'cash' : state.mode === 'manual' || !state.partnerId ? 'manual' : 'financed',
     preview,
     comparison: [] as const,
     identified,
     saving,
     saveMessage,
     saveScenario,
+    loadFromScenario,
+    focusSection,
+    setFocusSection,
+    limits: {
+      downPaymentMin: DOWN_PAYMENT_MIN_PCT,
+      downPaymentMax: DOWN_PAYMENT_MAX_PCT,
+      yearsMin: selectedPartner?.min_financing_years ?? FINANCING_YEARS_MIN,
+      yearsMax: selectedPartner?.max_financing_years ?? FINANCING_YEARS_MAX,
+    },
   }
+}
+
+function roundDiv12(annual: number) {
+  return Math.round((annual / 12 + Number.EPSILON) * 100) / 100
 }

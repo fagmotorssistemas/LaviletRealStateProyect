@@ -109,7 +109,7 @@ export function AboutLetterPlay() {
         )
       })}
       <PlayTile
-        bg="#BDA27E"
+        bg="transparent"
         phase={phase}
         size={tile}
         round
@@ -133,14 +133,14 @@ export function AboutLetterPlay() {
 
 function SmileFace() {
   return (
-    <svg viewBox="0 0 32 32" className="h-[1.35rem] w-[1.35rem] sm:h-[1.6rem] sm:w-[1.6rem]" aria-hidden>
-      <circle cx="11" cy="12" r="2" fill="#F2F2F2" />
-      <circle cx="21" cy="12" r="2" fill="#F2F2F2" />
+    <svg viewBox="0 0 32 32" className="h-[2rem] w-[2rem] sm:h-[2.25rem] sm:w-[2.25rem]" aria-hidden>
+      <circle cx="11" cy="12" r="2.5" fill="#BDA27E" />
+      <circle cx="21" cy="12" r="2.5" fill="#BDA27E" />
       <path
         d="M10 20c2.2 3.2 9.8 3.2 12 0"
         fill="none"
-        stroke="#F2F2F2"
-        strokeWidth="2.2"
+        stroke="#BDA27E"
+        strokeWidth="2.5"
         strokeLinecap="round"
       />
     </svg>

@@ -6,7 +6,7 @@ import { isPropertyScopeRedirect, salesSubject } from './sales-subject'
 import { commercialEngagement, passiveSalesRules } from './commercial-engagement'
 
 const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
-const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
+const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|prefiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
 const positive = (v: string) => /^(?:(?:si|claro|perfecto|bueno) )?(?:se ve interesante|me (?:gusta|interesa|encanta)|esta interesante|muy interesante|me parece (?:bien|interesante))$/.test(normalized(v))
 const discovery = (v: string) => /[¿?]/.test(v) && /presupuesto|para vivir|como inversion|para invertir|cuantos dormitorios|que.*prioriz|que.*importante|cuando.*decision/.test(normalized(v))
 
@@ -16,15 +16,22 @@ export function acceptsUnitOptions(current: string, lastReply: string) {
 }
 
 export function acceptsVisitInvitation(current: string, lastReply: string) {
-  if (!invitation(lastReply)) return false
-  const m = normalized(current)
-  if (/^(?:si(?: claro| por favor| me gustaria| quiero| gracias)?|claro|de acuerdo|esta bien|me parece bien|perfecto|hagamoslo)$/.test(m)) return true
+  if (/\bo (?:prefiere|desea|quiere|coordinar|agendar)\b/.test(normalized(lastReply)) && /material|imagenes|fotos|detalles/.test(normalized(lastReply))) return false
+  const scheduling = /(?:dia|fecha).*horario|dia.*hora|fecha.*hora/.test(normalized(lastReply)) && /visita|cita|recibirle/.test(normalized(lastReply))
+  if (!invitation(lastReply) && !scheduling) return false
+  const m = normalized(current).replace(/\s+(?:puede ser|le parece|por favor)$/, '')
+  if (/^(?:listo )?(?:si(?: claro| por favor| me gustaria| quiero| gracias)?|claro|de acuerdo|esta bien|me parece bien|perfecto|hagamoslo|listo)$/.test(m)) return true
   // A proposed day/hour or a request for scheduling help also answers an invitation.
   // Questions about prices, business hours or other topics do not accept it.
   if (/precio|presupuesto|financ|credito|cuesta|atienden|horario de atencion|pero|\bno puedo\b/.test(m)) return false
   if (/\b(?:cuando|a que hora|que dias?)\b.*\b(?:puedo|podria|pueden)\b/.test(m)) return true
   return /^(?:si )?(?:manana|hoy|pasado manana|(?:el )?(?:lunes|martes|miercoles|jueves|viernes|sabado)|(?:el )?\d{1,2} de \w+|a las \d{1,2})(?:\s+(?:a|las|por|en|la|el|de|tarde|manana|horas|am|pm|\d{1,2}))*$/.test(m)
     || /^(?:no (?:se|estoy segur[oa])(?: (?:cuando|que dia|a que hora))?|digame (?:usted|ud)|que (?:dia|hora) (?:pueden|tienen)|sugierame (?:un dia|una hora|un horario))$/.test(m)
+}
+export function ambiguousVisitAcceptance(current:string,lastReply:string) {
+  return /^(?:listo )?(?:si|esta bien|de acuerdo|listo|perfecto)$/.test(normalized(current))
+    && !acceptsVisitInvitation(current,lastReply)
+    && /(?:puede|podria) (?:acercarse|visitarnos)|(?:si le interesa|si desea).*(?:visita|oficina)|\bo (?:prefiere|desea|quiere|coordinar|agendar).*visita/.test(normalized(lastReply))
 }
 
 export function salesMemory(previous: unknown, history: unknown) {
@@ -87,6 +94,7 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const signal = info.precio_cotizado === true || model || concreteInterest || (positive(current) && (sawModel || hasUnit || /brochure|folleto/i.test(last))) || (topics.includes('reventa') && topics.length > 1)
   const policy = object(info.politica_visitas)
   const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
+  if (policy.readiness) visits.readiness = policy.readiness as NonNullable<typeof visits.readiness>
   const recentInvitation = replies.slice(-3).some(row => invitation(text(row.content)))
   const invite = !engagement.passive && visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
     && (!memory.visit_invited || replies.length >= 3) && !memory.visit_declined

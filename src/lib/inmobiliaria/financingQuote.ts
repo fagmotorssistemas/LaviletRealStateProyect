@@ -1,10 +1,10 @@
-/** Cuota francesa: tasa anual en % y plazo en meses. */
+/** Cuota francesa: delega al calculador central (tasa nominal anual). */
+import { calculateMonthlyPayment, round2 } from '@/lib/financing/calculator'
+
 export function frenchMonthlyPayment(principal: number, annualRatePct: number, months: number): number {
   if (!(principal > 0) || !(months > 0)) return 0
-  const r = annualRatePct / 100 / 12
-  if (r === 0) return principal / months
-  const factor = (1 + r) ** months
-  return (principal * r * factor) / (factor - 1)
+  const years = months / 12
+  return calculateMonthlyPayment(principal, annualRatePct, years, 'nominal_annual')
 }
 
 export function quoteTotals(params: {
@@ -53,7 +53,13 @@ export function buildAmortizationSchedule(
     const interest = balance * r
     const amort = Math.min(balance, payment - interest)
     balance = Math.max(0, balance - amort)
-    rows.push({ n, payment, interest, principal: amort, balance })
+    rows.push({
+      n,
+      payment: round2(payment),
+      interest: round2(interest),
+      principal: round2(amort),
+      balance: round2(balance),
+    })
   }
   return rows
 }

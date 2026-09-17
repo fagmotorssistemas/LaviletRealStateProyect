@@ -265,7 +265,7 @@ export function commercialFallback(info: Row, current: string, memory: Commercia
 export function projectOverviewReply(info: Row, current: string) {
   if (!/(?:informacion|detalles|cuenteme|cuentame|hablame).*(?:proyecto|edificio)/.test(normalized(current)) || !info.posicionamiento_proyecto) return ''
   return 'La Vilet es un proyecto de viviendas y locales comerciales en Puertas del Sol, Cuenca, pensado para disfrutar de privacidad y comodidad.'
-    + (info.modo_comercial === 'lanzamiento' ? ' Estamos en lanzamiento y la construcción aún no ha comenzado.' : '')
+    + (!info.estado_proyecto && info.modo_comercial === 'lanzamiento' ? ' Estamos en lanzamiento y la construcción aún no ha comenzado.' : '')
 }
 
 export function unresolvedCommercialReply(reply: string) {

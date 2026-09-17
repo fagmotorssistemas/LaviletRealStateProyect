@@ -1,7 +1,10 @@
-export type BotVisitPolicy = { allowSuggestions: boolean; launchDestination: 'site' | 'office' }
+import { botReadiness, projectReadiness, readinessInvitation, type ProjectReadiness } from './projectReadiness'
+export type BotVisitPolicy = { allowSuggestions: boolean; launchDestination: 'site' | 'office'; readiness?: ProjectReadiness }
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 export function botVisitPolicy(policies: unknown, mode: string): BotVisitPolicy {
   const p = record(record(policies).bot_visits)
+  const state = projectReadiness(policies,mode)
+  if(state.configured)return {allowSuggestions:typeof p.allow_suggestions==='boolean'?p.allow_suggestions:mode!=='lanzamiento',launchDestination:state.value.primaryPlace==='office'?'office':'site',readiness:botReadiness(state.value)}
   return { allowSuggestions: typeof p.allow_suggestions === 'boolean' ? p.allow_suggestions : mode !== 'lanzamiento',
     launchDestination: p.launch_destination === 'office' ? 'office' : 'site' }
 }
@@ -11,6 +14,7 @@ export function withBotVisitPolicy(policies: unknown, policy: BotVisitPolicy) {
 }
 export function visitInvitation(mode: string, policy: BotVisitPolicy) {
   if (!policy.allowSuggestions) return ''
+  if (policy.readiness) return readinessInvitation(policy.readiness)
   if (mode !== 'lanzamiento') return '¿Le gustaría coordinar una visita para conocer el proyecto en persona?'
   return policy.launchDestination === 'office'
     ? '¿Le gustaría coordinar una visita a nuestra oficina para revisar el proyecto?'

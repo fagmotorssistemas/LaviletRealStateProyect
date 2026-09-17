@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ArrowRight, Building2, Trees, Waves } from 'lucide-react'
 import { notifyHeroLocked, resetHeroLock } from './heroLock'
+import { HeroEditorial } from './HeroEditorial'
 import { LaviletLockup, useLockupDocked } from './LaviletLockup'
 import { useMarketingTheme } from './theme'
 
@@ -36,28 +37,30 @@ const NUVIA_LETTERS = [
 ] as const
 
 const NUVIA_LETTER_CLASS =
-  'inline-block font-serif text-[clamp(2.9rem,10vw,8.8rem)] font-bold leading-[0.8] uppercase'
+  'block font-serif text-[clamp(1.45rem,11cqi,4.6rem)] font-bold leading-none uppercase'
 
 function NuviaWordmark() {
   const reduce = useReducedMotion()
 
   return (
-    <p className="relative z-20 mt-3 flex w-max max-w-[min(68vw,52rem)] origin-left items-end gap-[0.04em]">
+    <p
+      aria-label="La Vilēt"
+      className="relative z-20 mt-2 flex w-full max-w-[min(100%,38rem)] origin-left items-end justify-between gap-[0.02em] sm:mt-3"
+    >
       {NUVIA_LETTERS.map((letter, i) => (
         <motion.span
           key={`${letter.ch}-${i}`}
-          className="group relative inline-block origin-center cursor-pointer select-none"
-          whileHover={reduce ? undefined : { scale: 1.14, zIndex: 8, filter: 'brightness(1.12)' }}
+          aria-hidden
+          className="group relative inline-block min-w-0 shrink origin-center cursor-pointer select-none"
+          whileHover={reduce ? undefined : { scale: 1.1, zIndex: 8, filter: 'brightness(1.12)' }}
           transition={{ type: 'spring', stiffness: 420, damping: 22 }}
         >
           <span
-            aria-hidden
-            className={`${NUVIA_LETTER_CLASS} text-transparent transition-[filter] duration-300 [text-shadow:0_10px_24px_rgba(20,16,12,0.25)] [-webkit-text-stroke:0.014em_rgba(248,244,236,0.82)] group-hover:[-webkit-text-stroke:0.018em_rgba(255,252,246,0.95)]`}
+            className={`${NUVIA_LETTER_CLASS} text-transparent transition-[filter] duration-300 [text-shadow:0_8px_18px_rgba(20,16,12,0.22)] [-webkit-text-stroke:0.014em_rgba(248,244,236,0.82)] group-hover:[-webkit-text-stroke:0.018em_rgba(255,252,246,0.95)]`}
           >
             {letter.ch}
           </span>
           <span
-            aria-hidden
             className={`${NUVIA_LETTER_CLASS} absolute inset-0 bg-cover bg-center bg-no-repeat bg-clip-text text-transparent`}
             style={{
               backgroundImage: `url(${letter.src})`,
@@ -77,12 +80,14 @@ export function HeroStage() {
   const lockedRef = useRef(false)
   const docked = useLockupDocked()
   const { theme } = useMarketingTheme()
+  const editorial = theme === '3'
   const nuvia = theme === 'dark'
   const [headline, setHeadline] = useState(false)
   const [showBrand, setShowBrand] = useState(false)
   const [showImage, setShowImage] = useState(false)
 
   useEffect(() => {
+    if (editorial) return
     const showHeadline = window.setTimeout(() => setHeadline(true), 2000)
     const hideHeadline = window.setTimeout(() => setHeadline(false), 5300)
     const showName = window.setTimeout(() => {
@@ -93,7 +98,7 @@ export function HeroStage() {
       window.clearTimeout(hideHeadline)
       window.clearTimeout(showName)
     }
-  }, [])
+  }, [editorial])
 
   function lockStill() {
     if (lockedRef.current) return
@@ -104,6 +109,10 @@ export function HeroStage() {
   }
 
   useEffect(() => {
+    if (editorial) {
+      notifyHeroLocked()
+      return
+    }
     resetHeroLock()
     const video = videoRef.current
     if (!video) return
@@ -124,7 +133,9 @@ export function HeroStage() {
       video.removeEventListener('error', lockStill)
       video.removeEventListener('timeupdate', onTime)
     }
-  }, [])
+  }, [editorial])
+
+  if (editorial) return <HeroEditorial />
 
   return (
     <section id="inicio" className="relative min-h-svh scroll-mt-0">
@@ -154,19 +165,16 @@ export function HeroStage() {
         >
           {nuvia ? (
             <>
-              <Image
-                src={HERO_PHOTO}
-                alt="Fachada Lavilet"
-                fill
-                unoptimized
-                preload
-                className="object-cover object-[62%_center]"
-                sizes="100vw"
-              />
-              <div
-                aria-hidden
-                className="absolute inset-0 bg-[linear-gradient(90deg,rgba(232,214,190,0.22)_0%,rgba(232,214,190,0.08)_46%,transparent_72%)]"
-              />
+              <div className="absolute inset-0 bg-[#cfdce8]">
+                <Image
+                  src={HERO_PHOTO}
+                  alt="Fachada Lavilet"
+                  fill
+                  priority
+                  className="object-contain object-right"
+                  sizes="100vw"
+                />
+              </div>
             </>
           ) : (
             <>
@@ -177,8 +185,7 @@ export function HeroStage() {
                   src={HERO_PHOTO}
                   alt="Fachada Lavilet"
                   fill
-                  unoptimized
-                  preload
+                  priority
                   className="object-cover object-[68%_center]"
                   sizes="75vw"
                 />
@@ -253,7 +260,7 @@ export function HeroStage() {
           {showImage && nuvia && (
             <motion.div
               key="locked-nuvia"
-              className="absolute inset-0 z-20"
+              className="absolute inset-0 z-20 overflow-hidden"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -261,52 +268,50 @@ export function HeroStage() {
             >
               <div
                 aria-hidden
-                className="absolute inset-y-0 left-0 w-full backdrop-blur-[18px] sm:w-[48%] lg:w-[46%]"
+                className="absolute inset-x-0 bottom-0 h-[min(78%,36rem)] backdrop-blur-[10px] [mask-image:linear-gradient(to_top,black_62%,transparent)] sm:inset-y-0 sm:left-0 sm:h-auto sm:w-[min(48%,34rem)] sm:[mask-image:linear-gradient(to_right,black_68%,transparent)] lg:w-[min(42%,36rem)]"
               />
-              <div className="absolute inset-y-0 left-0 w-full overflow-visible sm:w-[48%] lg:w-[46%]">
-                <div
-                  aria-hidden
-                  className="absolute inset-0 bg-[#ead9c4]/50 sm:bg-[linear-gradient(90deg,rgba(237,220,198,0.56)_0%,rgba(237,220,198,0.4)_70%,rgba(237,220,198,0.06)_100%)]"
-                />
-                <p
-                  aria-hidden
-                  className="pointer-events-none absolute top-1/2 left-2 hidden -translate-y-1/2 font-serif text-[clamp(4.2rem,11vh,7.8rem)] leading-none tracking-[0.16em] text-white/5 uppercase [writing-mode:vertical-rl] rotate-180 select-none lg:left-4 lg:block"
-                >
-                  experience
-                </p>
+              <div
+                aria-hidden
+                className="absolute inset-0 bg-[linear-gradient(to_top,rgba(237,220,198,0.58)_0%,rgba(237,220,198,0.22)_46%,transparent_78%)] sm:bg-[linear-gradient(90deg,rgba(237,220,198,0.48)_0%,rgba(237,220,198,0.22)_36%,rgba(237,220,198,0.04)_52%,transparent_64%)]"
+              />
+              <p
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 left-3 hidden -translate-y-1/2 font-serif text-[clamp(3.2rem,8vh,6.4rem)] leading-none tracking-[0.16em] text-white/5 uppercase [writing-mode:vertical-rl] rotate-180 select-none xl:left-5 xl:block"
+              >
+                experience
+              </p>
 
-                <div className="relative flex min-h-svh w-full flex-col justify-end overflow-visible px-6 pt-24 pb-[max(1.75rem,env(safe-area-inset-bottom))] sm:justify-center sm:px-10 lg:px-14">
-                  <p className="text-[11px] font-medium tracking-[0.42em] text-white/72 uppercase">
-                    Residencias
-                  </p>
-                  <NuviaWordmark />
-                  <p className="mt-6 max-w-sm text-[17px] leading-snug text-white/92 sm:text-[19px]">
-                    Más que una estadía, una experiencia.
-                  </p>
-                  <ul className="mt-8 space-y-3.5">
-                    {NUVIA_FEATURES.map(({ label, Icon }) => (
-                      <li
-                        key={label}
-                        className="flex items-center gap-3 text-[13px] tracking-[0.06em] text-white/88"
-                      >
-                        <Icon size={16} strokeWidth={1.5} className="shrink-0 text-white/80" />
-                        {label}
-                      </li>
-                    ))}
-                  </ul>
-                  <Link
-                    href="/proyectos"
-                    className="mt-9 inline-flex h-12 w-fit items-center rounded-full border border-white/70 bg-white/12 px-7 text-[12px] font-medium tracking-[0.16em] text-white uppercase transition-colors hover:bg-white/22"
-                  >
-                    Ver disponibilidad
-                    <ArrowRight size={15} className="ml-2" />
-                  </Link>
-                </div>
+              <div className="@container relative flex h-full w-full flex-col justify-end px-5 pt-20 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:w-[min(100%,38rem)] sm:justify-center sm:px-10 sm:pt-24 lg:w-[min(46%,40rem)] lg:px-14">
+                <p className="text-[10px] font-medium tracking-[0.38em] text-white/78 uppercase sm:text-[11px] sm:tracking-[0.42em]">
+                  Residencias
+                </p>
+                <NuviaWordmark />
+                <p className="mt-4 max-w-sm text-[15px] leading-snug text-white/92 sm:mt-6 sm:text-[18px] lg:text-[19px]">
+                  Más que una estadía, una experiencia.
+                </p>
+                <ul className="mt-5 space-y-2.5 sm:mt-8 sm:space-y-3.5">
+                  {NUVIA_FEATURES.map(({ label, Icon }) => (
+                    <li
+                      key={label}
+                      className="flex items-center gap-2.5 text-[12px] tracking-[0.04em] text-white/88 sm:gap-3 sm:text-[13px] sm:tracking-[0.06em]"
+                    >
+                      <Icon size={15} strokeWidth={1.5} className="shrink-0 text-white/80" />
+                      {label}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href="/proyectos"
+                  className="mt-6 inline-flex h-11 w-fit items-center rounded-full border border-white/70 bg-white/12 px-5 text-[11px] font-medium tracking-[0.16em] text-white uppercase transition-colors hover:bg-white/22 sm:mt-9 sm:h-12 sm:px-7 sm:text-[12px]"
+                >
+                  Ver disponibilidad
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
               </div>
 
               <Link
                 href="#nosotros"
-                className="absolute right-6 bottom-8 hidden items-center text-[12px] font-medium tracking-[0.18em] text-white/85 uppercase transition-colors hover:text-white sm:right-10 lg:inline-flex"
+                className="absolute right-4 bottom-5 hidden items-center text-[11px] font-medium tracking-[0.18em] text-white/85 uppercase [text-shadow:0_1px_12px_rgba(0,0,0,0.45)] transition-colors hover:text-white md:inline-flex lg:right-10 lg:bottom-8 lg:text-[12px]"
               >
                 Descubre LaVilēt
                 <ArrowRight size={14} className="ml-2" />

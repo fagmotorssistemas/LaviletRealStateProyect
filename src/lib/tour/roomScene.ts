@@ -165,6 +165,15 @@ export function pickRoomScene(
   )
 }
 
+/** Prioriza WebP (convertido) sobre PNG/JPG pesados del mismo ambiente. */
+function sceneFilePreference(fileName: string): number {
+  const ext = (fileName.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
+  if (ext === 'webp') return 3
+  if (ext === 'jpg' || ext === 'jpeg') return 2
+  if (ext === 'png') return 1
+  return 0
+}
+
 export function buildRoomScenes(
   assets: Array<{ file_name: string; url: string }>,
   room: string,
@@ -194,9 +203,14 @@ export function buildRoomScenes(
         current.file_name = item.file_name
       }
     } else {
-      current.url = item.url
-      current.file_name = item.file_name
-      if (room === 'tour-360') {
+      const preferNew =
+        !current.file_name ||
+        sceneFilePreference(item.file_name) >= sceneFilePreference(current.file_name)
+      if (preferNew) {
+        current.url = item.url
+        current.file_name = item.file_name
+      }
+      if (room === 'tour-360' && preferNew) {
         current.widths = { ...current.widths, '4096': item.url }
       }
     }

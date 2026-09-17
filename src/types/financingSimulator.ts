@@ -32,6 +32,17 @@ export type FinancingConfig = {
   disclaimer_text: string | null
 }
 
+export type SimulationMode = 'cash' | 'financed' | 'manual'
+export type RateType = 'nominal_annual' | 'effective_annual'
+
+export type ExpenseBreakdown = {
+  propertyTax: number
+  maintenance: number
+  insurance: number
+  other: number
+  total: number
+}
+
 export type FinancingScenario = {
   id: string
   tenant_id: string | null
@@ -58,6 +69,20 @@ export type FinancingScenario = {
   status: string | null
   created_at: string | null
   updated_at: string | null
+  /** Columnas nuevas (migración pendiente). */
+  simulation_mode?: SimulationMode | null
+  vacancy_rate_snapshot?: number | null
+  annual_management?: number | null
+  annual_income_tax_estimate?: number | null
+  expense_breakdown?: ExpenseBreakdown | null
+  assumptions_json?: Record<string, unknown> | null
+  calculation_version?: string | null
+  rate_type?: RateType | null
+  annual_other_financial?: number | null
+  acquisition_costs?: number | null
+  monthly_extra_charges?: number | null
+  /** Visitante (lv_vid) que creó el escenario; filtra listado/borrado frente a claim por teléfono. */
+  created_by_visitor_key?: string | null
   financing_partners?: Pick<FinancingPartner, 'partner_name' | 'annual_interest_rate'> | null
   units?: { unit_number: string; published_commercial_price: number | null } | null
   leads?: { phone: string | null; name: string | null } | null
@@ -76,6 +101,9 @@ export type FinancingCalculationLog = {
 }
 
 export type InvestmentPreview = {
+  calculationVersion: string
+  mode: SimulationMode
+  rateType: RateType
   unitPrice: number
   downPaymentPercent: number
   downPaymentAmount: number
@@ -83,14 +111,48 @@ export type InvestmentPreview = {
   interestRate: number
   financingYears: number
   monthlyPayment: number
+  monthlyExtraCharges: number
+  monthlyDebtService: number
   annualMortgagePaid: number
-  annualExpenses: number
+  annualExtraCharges: number
+  annualOtherFinancialCosts: number
+  annualDebtService: number
+  acquisitionCosts: number
+  initialCashOutlay: number
+  vacancyRate: number
+  annualPotentialRental: number
+  annualEffectiveRental: number
+  /** Alias de annualEffectiveRental (compat con UI/RPC antiguos). */
   annualGrossRental: number
+  annualOperatingExpenses: number
+  annualManagement: number
+  annualExpenses: number
+  annualOperatingResult: number
+  annualCashFlowBeforeTax: number
+  annualIncomeTaxEstimate: number
+  annualCashFlowAfterTax: number
   annualNetCashFlow: number
+  monthlyCashFlow: number
+  buyerTopUpMonthly: number
+  /** Resultado operativo / precio. */
+  operatingYieldOnPrice: number | null
+  /** Flujo anual / efectivo inicial aportado. */
+  cashOnCashReturn: number | null
+  /** Alias de cashOnCashReturn (compat). */
   roiPercent: number | null
+  debtCoverageRatio: number | null
   paybackYears: number | null
+  paybackLabel: string | null
   breakevenMonth: number | null
   isProfitable: boolean
+  assumptions: {
+    vacancyAppliedOnce: boolean
+    incomeTaxIncluded: boolean
+    rateType: RateType
+    rateIsBankOffer: boolean
+    recoveryMethod: string
+    excludesAppreciationAndSale: boolean
+  }
 }
 
 export const FINANCING_PROJECT_ID = 'b1b2c3d4-0001-4000-8000-000000000001'

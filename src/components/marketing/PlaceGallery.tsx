@@ -7,6 +7,7 @@ import { ArrowDown, ArrowRight } from 'lucide-react'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { NEARBY_PLACES } from '@/lib/marketing/nearbyPlaces'
+import { LaviletLockup } from './LaviletLockup'
 import { AboutTitleMark } from './FooterWordmark'
 
 const TERRAZA =
@@ -15,7 +16,7 @@ const TERRAZA =
 const STATS = [
   { value: '1', label: 'sector', note: 'Puertas del Sol' },
   { value: '2', label: 'vidas', note: 'vivir y emprender' },
-  { value: '1', label: 'río', note: 'Tomebamba' },
+  { value: '3', label: 'ríos', note: 'Tomebamba' },
 ] as const
 
 const PLACE_CARDS = NEARBY_PLACES.slice(0, 3)
@@ -146,7 +147,6 @@ function AboutPanel({ full = false }: { full?: boolean }) {
         full ? 'min-h-[32rem] w-full' : 'w-[min(100vw,42rem)] sm:w-[56vw] lg:w-[48vw]',
       )}
     >
-      <PaperGrain />
       <div className="relative">
         <p className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase">Nosotros</p>
         <AboutTitleMark />
@@ -186,33 +186,76 @@ function AboutPanel({ full = false }: { full?: boolean }) {
   )
 }
 
+const VIVIENDA_STATS = [
+  {
+    count: '36',
+    type: 'suites',
+    floors: '(planta baja - plantas 2-3-4-5)',
+    desc: 'Suites 1 dormitorio, 1 Baño, Sala, Comedor, Cocina, Área de Lavado, Balcón, Bodega, 1 parqueadero subterraneo.',
+    price: 'Desde 49,86m²',
+  },
+  {
+    count: '6',
+    type: 'dptos. 2hab',
+    floors: '(plantas 3-4-5-6)',
+    desc: 'Departamentos de 2 Dormitorios, 2 Baños, Sala, Comedor, Cocina, Área de Lavado, Balcón, Bodega, 1 Parqueadero subterraneo.',
+    price: 'Desde 99,71m²',
+  },
+  {
+    count: '7',
+    type: 'dptos. 3hab',
+    floors: '(plantas 2-3-4-5-6)',
+    desc: 'Departamento de 3 Dormitorios, 2.5 - 3.5 Baños, Sala, Comedor, Cocina, Área de Lavado, Balcón/Terraza, Bodega, 2 Parqueaderos subterráneos.',
+    price: 'Desde 120,83m²',
+  },
+]
+
 function CardsPanel({ full = false }: { full?: boolean }) {
+  const reduce = useReducedMotion()
+
   return (
     <article
       className={cn(
-        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-7 py-12 sm:px-12 lg:px-14',
-        full ? 'min-h-[32rem] w-full' : 'w-[min(100vw,40rem)] sm:w-[52vw] lg:w-[44vw]',
+        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-7 py-12 sm:px-12 lg:px-16',
+        full ? 'min-h-[32rem] w-full' : 'w-[min(100vw,42rem)] sm:w-[56vw] lg:w-[48vw]',
       )}
     >
-      <PaperGrain />
-      <div className="relative">
-        <p className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase">El lugar</p>
-        <h2 className="mt-3 font-serif text-[clamp(2.4rem,6vw,4.2rem)] leading-[0.9] font-normal tracking-[-0.04em] text-[#72735A]">
-          A unos pasos
-        </h2>
-        <div className="mt-8 space-y-4">
-          {PLACE_CARDS.map((place) => (
-            <div
-              key={place.id}
-              className="rounded-[1.15rem] bg-[#f7f4ee]/85 px-5 py-4 ring-1 ring-[#72735A]/10"
-            >
-              <p className="text-[10px] font-medium tracking-[0.22em] text-[#C45C3E] uppercase">
-                {place.tag}
+      <div className="relative flex flex-col items-center text-center">
+        <motion.div 
+          className="scale-[0.8] sm:scale-90 lg:scale-100"
+          initial={reduce ? false : { x: -100, opacity: 0 }}
+          whileInView={reduce ? undefined : { x: 0, opacity: 1 }}
+          viewport={{ once: false, amount: 0.3 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 25, duration: 0.8 }}
+        >
+          <LaviletLockup variant="story" />
+        </motion.div>
+        <p className="mt-4 sm:mt-6 text-[11px] sm:text-[13px] font-medium tracking-[0.2em] text-[#8B8C74] uppercase">
+          49 unidades de vivienda
+        </p>
+        
+        <div className="mt-10 sm:mt-16 grid w-full grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-6 lg:gap-10">
+          {VIVIENDA_STATS.map((stat, i) => (
+            <div key={i} className="flex flex-col items-center">
+              <p className="font-serif text-[clamp(2.8rem,5vw,3.8rem)] leading-none text-[#72735A]">
+                {stat.count}
               </p>
-              <h3 className="mt-1 font-serif text-2xl leading-tight tracking-[-0.03em] text-[#72735A]">
-                {place.title}
-              </h3>
-              <p className="mt-1 text-sm leading-relaxed text-[#2B1A18]/68">{place.body}</p>
+              <p className="mt-2 text-[1.1rem] sm:text-[1.3rem] font-medium tracking-wide text-[#72735A] text-center">
+                {stat.type}
+              </p>
+              <p className="mt-2 text-[10px] sm:text-[11px] text-[#8B8C74] text-center">
+                {stat.floors}
+              </p>
+              
+              <div className="my-5 sm:my-6 h-1 w-full max-w-[8rem] sm:max-w-none bg-[#72735A]" />
+              
+              <p className="text-[12px] sm:text-[13px] lg:text-[14px] leading-relaxed text-[#2B1A18]/70 text-center sm:text-left">
+                {stat.desc}
+              </p>
+              
+              <p className="mt-4 sm:mt-auto pt-2 sm:pt-6 text-[13px] sm:text-[14px] text-[#8B8C74]">
+                {stat.price}
+              </p>
             </div>
           ))}
         </div>
@@ -229,7 +272,7 @@ function Track({
   trackRef?: Ref<HTMLDivElement>
 }) {
   return (
-    <div ref={trackRef} className="flex h-full w-max gap-1.5">
+    <div ref={trackRef} className="flex h-full w-max">
       <PhotoPanel slide={PHOTOS[0]} />
       <PhotoPanel slide={PHOTOS[1]} />
       <AboutPanel />

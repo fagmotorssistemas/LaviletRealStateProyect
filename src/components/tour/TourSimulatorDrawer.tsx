@@ -18,9 +18,12 @@ type TourSimulatorDrawerProps = {
   units: TourUnitSummary[]
   onSelectUnit?: (unit: TourUnitSummary) => void
   contained?: boolean
+  /** Abrir en sección de financiamiento (acceso desde botón Financiamiento). */
+  initialMode?: 'cash' | 'financed' | 'manual'
+  initialSection?: 'financing' | 'rent' | null
 }
 
-/** Panel lateral del simulador (mismo patrón que la ficha técnica). */
+/** Panel lateral unificado: Simulador de inversión (contado + financiamiento). */
 export function TourSimulatorDrawer({
   open,
   onClose,
@@ -28,12 +31,17 @@ export function TourSimulatorDrawer({
   units,
   onSelectUnit,
   contained = false,
+  initialMode,
+  initialSection,
 }: TourSimulatorDrawerProps) {
   const reduceMotion = useReducedMotion()
   const [showSaved, setShowSaved] = useState(false)
   const [identified, setIdentified] = useState(false)
   const [picking, setPicking] = useState(false)
   const [localUnit, setLocalUnit] = useState(unitNumber?.trim() || '')
+  const [reopenScenario, setReopenScenario] = useState<import('@/types/financingSimulator').FinancingScenario | null>(
+    null,
+  )
 
   const sortedUnits = useMemo(
     () =>
@@ -51,7 +59,12 @@ export function TourSimulatorDrawer({
     }
     setIdentified(isShowroomIdentified())
     const next = unitNumber?.trim() || ''
-    setLocalUnit(next)
+    setLocalUnit((prev) => {
+      if (prev && next && prev !== next) {
+        setReopenScenario(null)
+      }
+      return next
+    })
     setPicking(!next && sortedUnits.length > 0)
   }, [open, unitNumber, sortedUnits.length])
 
@@ -69,6 +82,7 @@ export function TourSimulatorDrawer({
     setLocalUnit(unit.unit_number)
     setPicking(false)
     setShowSaved(false)
+    setReopenScenario(null)
     onSelectUnit?.(unit)
   }
 
@@ -121,7 +135,7 @@ export function TourSimulatorDrawer({
                 <Calculator size={15} strokeWidth={1.75} className="shrink-0 text-[#1a2744]" />
                 <div className="min-w-0">
                   <p className="truncate text-[11px] font-semibold tracking-[0.14em] text-[#1a2744] uppercase">
-                    Simulador
+                    Simulador de inversión
                   </p>
                   <p className="truncate text-[11px] text-[#8a8176]">
                     {unitParam ? `Unidad ${unitParam}` : 'Elija una unidad'}
@@ -206,12 +220,29 @@ export function TourSimulatorDrawer({
               ) : showSaved && identified ? (
                 <div className="space-y-3">
                   <h2 className="font-serif text-xl text-[#1f1a14]">Cálculos guardados</h2>
-                  <MisEscenariosView embedded />
+                  <MisEscenariosView
+                    embedded
+                    onReopen={(scenario) => {
+                      const unitNo = scenario.units?.unit_number
+                      if (unitNo) setLocalUnit(unitNo)
+                      setReopenScenario(scenario)
+                      setShowSaved(false)
+                      setPicking(false)
+                    }}
+                  />
                 </div>
               ) : (
                 <InvestmentConfigurator
+                  key={
+                    reopenScenario
+                      ? `reopen-${reopenScenario.id}`
+                      : `${unitParam}-${initialMode ?? 'cash'}-${initialSection ?? 'rent'}`
+                  }
                   unitParam={unitParam}
                   stacked
+                  initialMode={initialMode}
+                  initialSection={initialSection}
+                  initialScenario={reopenScenario}
                   onOpenSaved={
                     identified
                       ? () => {

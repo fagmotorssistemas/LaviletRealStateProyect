@@ -30,6 +30,7 @@ export function asksUnitPrice(value: string, propertyScope = false) {
 export function statedBudget(current: string) {
   const m = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
   const amount = m.match(/\b(?:cuento con|dispongo de|tengo|presupuesto(?: es)?(?: de)?)(?:\s+solo)?\s*\$?\s*(\d(?:[\d.,]*\d)?)(?:\s*(mil|miles|k)\b)?/)
+    ?? m.match(/\b(?:quiero|busco|quisiera) (?:uno|una|un local|un departamento|una suite) (?:de |entre |por |hasta )?(?:unos? |unas? |alrededor de )?\$?\s*(\d(?:[\d.,]*\d)?)(?:\s*(mil|miles|k)\b)?/)
   if (!amount) return null
   const after = m.slice((amount.index || 0) + amount[0].length)
   if (/^\s*(?:dormitorios?|habitaciones?|hijos?|personas?|anos?|metros?|m2|m²|departamentos?|locales?|suites?)\b/.test(after)) return null
@@ -37,6 +38,24 @@ export function statedBudget(current: string) {
   let value: number | null
   try { value = parseCommercialPrice(amount[1]) } catch { return null }
   return value ? value * (amount[2] ? 1000 : 1) : null
+}
+
+export function budgetOptionsReply(info:Row,current:string):string {
+  const budget=statedBudget(current), policy=object(info.politica_comercial)
+  const simple=current.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()
+  if(!/^(?:(?:quiero|busco|quisiera) (?:uno|una|un local|un departamento|una suite) (?:de |entre |por |hasta )?(?:unos? |unas? |alrededor de )?|(?:cuento con|dispongo de|tengo|presupuesto(?: es)?(?: de)?)(?: solo)?\s+)\$?\s*\d(?:[\d.,]*\d)?(?:\s*(?:mil|miles|k))?(?:\s*(?:dolares|usd))?[.!]?$/.test(simple))return ''
+  if(budget===null || policy.precios_autorizados!==true || /[¿?\n]|credito|financ|ingreso|cuota|entrada|metros|dormitorio|terraza|balcon|vista|piso|planta|\b(?:entre\s+\d+.*\by\b|LC[- ]?\d+)/i.test(current))return ''
+  const category=text(object(info.lead).preferred_category)
+  if(!['local','suite','departamento'].includes(category))return ''
+  const catalog=rows(info.catalogo).filter(u=>u.category===category && u.is_published!==false && (!u.status||u.status==='disponible') && Number(u.published_commercial_price)>0)
+  if(!catalog.length)return ''
+  const within=catalog.filter(u=>Number(u.published_commercial_price)<=budget).sort((a,b)=>Number(b.published_commercial_price)-Number(a.published_commercial_price)).slice(0,3)
+  const chosen=within.length?within:[...catalog].sort((a,b)=>Number(a.published_commercial_price)-Number(b.published_commercial_price)).slice(0,1)
+  const money=(v:unknown)=>'$'+Number(v).toLocaleString('es-EC',{maximumFractionDigits:2})
+  const amounts=chosen.map(u=>`${u.unit_number}: ${money(u.published_commercial_price)}`).join('; ')
+  const note=policy.precios_aproximados===true?' Son precios referenciales de lanzamiento y pueden variar.':''
+  if(within.length)return `Estas opciones están dentro de ese monto: ${amounts}.${note} ¿Cuál le gustaría revisar?`
+  return `La opción de menor precio del catálogo es ${amounts}; supera ese monto en ${money(Number(chosen[0].published_commercial_price)-budget)}.${note} ¿Tiene flexibilidad para considerar esa diferencia?`
 }
 
 function variant(options: string[], history: unknown) {

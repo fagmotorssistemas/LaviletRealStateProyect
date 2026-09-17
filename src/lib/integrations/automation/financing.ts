@@ -8,7 +8,7 @@ export async function financingContext(lead: Row) {
   const [partners, qualification] = await Promise.all([
     db().from('project_financing_partners').select('public_enabled,test_only,test_phone,public_name,financing_options')
       .match(scope).eq('public_enabled', true),
-    db().from('financing_prequalifications').select('explicit_consent,selected_partner_name,status')
+    db().from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,job_title,employment_stability_months,applicant_type,monthly_income')
       .match(scope).eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(1),
   ])
   if (partners.error || qualification.error) throw new Error('FINANCING_CONTEXT_FAILED')
