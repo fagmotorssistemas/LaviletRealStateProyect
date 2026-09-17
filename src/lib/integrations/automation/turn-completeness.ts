@@ -1,4 +1,5 @@
 import { CURRENT_TONE } from './conversation-tone'
+import { isVisitCopy, VISIT_COPY_RULES, visitCopyIssues } from './visit-copy'
 import 'server-only'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
@@ -95,13 +96,23 @@ function verifiedText(value: unknown): string {
 
 // Preserve supplied facts before the independent semantic review. The reviewer
 // still rejects any unsupported relationship invented around those figures.
+export function protectedSentences(value: string): string[] {
+  // Mask interior abbreviation dots only; preserve the final sentence boundary.
+  const marker = '\uE000'
+  if (value.includes(marker)) return [value]
+  return value.replace(/\b([ap])\.\s*m\./gi, match => match.replace('.', marker))
+    .split(/(?<=[.!?])\s+|\n+/).map(part => part.replaceAll(marker, '.'))
+}
 function restoreProtectedBase(base: string, candidate: string): string {
   const spellings = new Map(numbers(base).map(value => [numericValue(value), value]))
   let reply = candidate.replace(/https?:\/\/[^\s<>]+|\b\d+(?:[.,:/-]\d+)*\b/g, value => value.startsWith('http') ? value : spellings.get(numericValue(value)) || value)
   const missing = numbers(base).filter(value => !numbers(reply).includes(value))
   const missingUrls = urls(base).filter(value => !urls(reply).includes(value))
   if (!missing.length && !missingUrls.length) return reply
-  const preserved = base.split(/(?<=[.!?])\s+|\n+/).filter(sentence => numbers(sentence).some(value => missing.includes(value)) || urls(sentence).some(value => missingUrls.includes(value)))
+  const preserved = protectedSentences(base).filter(sentence => numbers(sentence).some(value => missing.includes(value)) || urls(sentence).some(value => missingUrls.includes(value)))
+  // A partially rewritten date/price sentence must not be concatenated with its
+  // original. Let the fact guard reject it and retain the complete verified base.
+  if (preserved.some(sentence => numbers(sentence).some(value => numbers(reply).includes(value)))) return reply
   // Do not reintroduce a sales question as a side effect of protecting a fact.
   if (preserved.some(sentence => withoutUrls(sentence).includes('?'))) return reply
   reply = [...preserved, reply].join(' ')
@@ -121,7 +132,7 @@ function unsupportedRentalClaim(sentence: string, current: string, verified: Row
 
 /** A bad AI draft is not an authority for unverified bank underwriting claims. */
 export function safeRentalCreditBase(base: string, current: string, verified: Row): { reply: string; removed: boolean; unresolved: string[] } {
-  const sentences = base.split(/(?<=[.!?])\s+|\n+/)
+  const sentences = protectedSentences(base)
   const kept = sentences.filter(sentence => !unsupportedRentalClaim(sentence, current, verified))
   if (kept.length === sentences.length) return { reply: base, removed: false, unresolved: [] }
   const explanation = 'El uso del local ayuda a orientar la elección; cualquier efecto en la evaluación financiera debe revisarlo la entidad.'
@@ -134,6 +145,7 @@ export function safeRentalCreditBase(base: string, current: string, verified: Ro
 
 export function turnCompletenessIssues(input: TurnCompletenessInput, reply: string, question: Question): string[] {
   const issues: string[] = [], source = input.baseReply, facts = verifiedText(input.verified)
+  if (isVisitCopy(input.audit ?? {})) issues.push(...visitCopyIssues(source, reply))
   issues.push(...residentialContinuationIssues(reply, input.current, { ...input.verified, historial: input.history }))
   if (!reply.trim() || reply.length > 1500) issues.push('length')
   const allowedUrls = new Set([...urls(source), ...urls(facts)])
@@ -190,7 +202,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
   let requests: Coverage[] = []
   try {
-    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory) + '\n' + passiveSalesRules(engagement), context, coverageSchema, undefined, undefined, undefined, 'writing')
+    const visitRules = isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES : ''
+    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory) + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')
     requests = rows
@@ -203,7 +216,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (issues.length) return fallback('rejected_guard', requests, issues)
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact' || (row.status === 'unanswered' && row.request_type === 'specific_fact')).map(row => row.fragment)])]
     if (reply !== input.baseReply.trim()) {
-      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement), { ...context, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, reviewSchema, undefined, undefined, undefined, 'review')
+      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement) + visitRules, { ...context, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, reviewSchema, undefined, undefined, undefined, 'review')
       const required = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', ...(withoutUrls(reply).includes('?') ? ['question_has_purpose'] : [])]
       if (!required.every(key => review[key] === true)) {
         return fallback('rejected_review', requests)

@@ -11,6 +11,8 @@ Module._load = function (id, parent, main) {
 }
 require('./test-typescript.cjs')
 const { completeTurnReply, turnCompletenessIssues, safeRentalCreditBase } = require('../src/lib/integrations/automation/turn-completeness.ts')
+const { protectedSentences } = require('../src/lib/integrations/automation/turn-completeness.ts')
+const { operationalCopyIssues } = require('../src/lib/integrations/automation/operational-copy.ts')
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [] }
@@ -19,6 +21,37 @@ function model(...answers) {
   const generate = async (...args) => { calls.push(args); const next = answers[calls.length - 1]; if (next instanceof Error) throw next; return next }
   return { generate, calls }
 }
+
+test('visit rewrite missing the date keeps the complete base instead of splicing duplicate hours', async () => {
+  const current = 'Me parece bien mañana a las 4 de la tarde'
+  const baseReply = 'Revisaremos la disponibilidad para mañana, viernes 18 de septiembre a las 4 p. m. en nuestra oficina. Le avisaremos cuando el equipo confirme el horario.'
+  const candidate = 'Hemos recibido su preferencia para mañana a las 4 p. m. en nuestra oficina. Le avisaremos cuando el equipo confirme.'
+  const mock = model({reply:candidate,requests:[covered(current)],question:noQuestion},approved)
+  const result = await completeTurnReply({current,baseReply,verified:{},audit:{source:'visit_intake'}},mock.generate)
+  assert.equal(result.reply,baseReply)
+  assert.equal(result.audit.status,'rejected_guard')
+  assert.equal((result.reply.match(/4 p\. m\./g)||[]).length,1)
+  assert.equal(result.needsAdvisor,false)
+})
+test('sentence protection keeps both morning and afternoon abbreviations intact',()=>{
+  for(const time of ['4 p. m.','9 a. m.','16:00.']) {
+    const parts=protectedSentences(`Horario: ${time} Confirmaremos disponibilidad.`)
+    assert.equal(parts[0],`Horario: ${time}`)
+  }
+})
+test('appointment guards preserve office, pending status and complete times in both writing stages',()=>{
+  const base='Revisaremos disponibilidad para recibirle en nuestra oficina mañana a las 4 p. m.'
+  for(const [draft,issue] of [
+    ['Gracias por confirmar. Revisaremos disponibilidad mañana a las 4 p. m. en nuestra oficina.','ambiguous_visit_confirmation'],
+    ['Revisaremos disponibilidad para visitar el proyecto mañana a las 4 p. m.','visit_location_changed'],
+    ['Revisaremos disponibilidad mañana a las 4 p. en nuestra oficina.','truncated_visit_time'],
+  ]) {
+    assert.ok(operationalCopyIssues(base,draft,{source:'visit_intake'}).includes(issue))
+    assert.ok(turnCompletenessIssues({current:'mañana',baseReply:base,verified:{},audit:{source:'visit_intake'}},draft,noQuestion).includes(issue))
+  }
+  assert.deepEqual(operationalCopyIssues(base,'Recibimos su preferencia para mañana a las 4 p. m. en nuestra oficina; revisaremos disponibilidad.',{source:'visit_intake'}),[])
+  assert.deepEqual(operationalCopyIssues('Su cita está confirmada en nuestra oficina a las 4 p. m.','Su cita está confirmada en nuestra oficina a las 4 p. m.',{action:'visit_confirm'}),[])
+})
 
 test('coverage repair cannot add commercial offers to a passive response or drop its requested facts', async () => {
   const current = 'Cuánto vale el departamento y aceptan mascotas?'
