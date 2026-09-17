@@ -16,6 +16,7 @@ import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import { normalizeSource } from '@/lib/leads/sources'
 import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
+import { afterAppointmentConfirmedForSchedule } from '@/lib/meta/scheduleIntegration'
 
 /** Bucket público para fotos, planos PDF y documentos de proyecto. */
 export const PROJECT_ASSETS_BUCKET = 'project-assets'
@@ -1576,7 +1577,11 @@ export async function confirmAppointment(
     p_notes: payload.notes,
     p_unit_ids: payload.unitIds,
   })
-  if (!error) return data as Appointment
+  if (!error) {
+    const confirmed = data as Appointment
+    await afterAppointmentConfirmedForSchedule(supabase, confirmed?.id || payload.appointmentId)
+    return confirmed
+  }
   if (!isMissingRpc(error)) throwRpc(error)
 
   const notes = [payload.meetingPlace ? `Lugar: ${payload.meetingPlace.trim()}` : '', payload.notes.trim()]
@@ -1602,6 +1607,7 @@ export async function confirmAppointment(
   if (updateError) throw updateError
   if (!updated) throw new Error('La solicitud ya fue confirmada o no admite confirmación')
   await replaceAppointmentUnitsFallback(supabase, payload.appointmentId, payload.unitIds)
+  await afterAppointmentConfirmedForSchedule(supabase, payload.appointmentId)
   return updated as Appointment
 }
 
@@ -1694,7 +1700,11 @@ export async function markRequestReviewed(supabase: SupabaseClient, requestId: s
 export async function advisorAcceptRequest(supabase: SupabaseClient, requestId: string) {
   const { data, error } = await supabase.rpc('lv_advisor_accept_request', { p_request_id: requestId })
   throwRpc(error)
-  return data as AppointmentRescheduleRequest
+  const request = data as AppointmentRescheduleRequest
+  if (request?.status === 'confirmed') {
+    await afterAppointmentConfirmedForSchedule(supabase, request.appointment_id)
+  }
+  return request
 }
 
 export async function getVisitSchedulingOptions(supabase: SupabaseClient, requestId: string, day?: string) {
@@ -1711,7 +1721,11 @@ export async function acceptClientVisitTime(supabase: SupabaseClient, input: {
     p_expected_end: input.endTime, p_source_message_id: input.sourceMessageId,
   })
   throwRpc(error)
-  return data as AppointmentRescheduleRequest
+  const request = data as AppointmentRescheduleRequest
+  if (request?.status === 'confirmed') {
+    await afterAppointmentConfirmedForSchedule(supabase, request.appointment_id)
+  }
+  return request
 }
 
 export async function advisorProposeRequest(
