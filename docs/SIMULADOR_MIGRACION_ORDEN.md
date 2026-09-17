@@ -12,6 +12,7 @@
    - Aplica en orden:
      1. `supabase-local/supabase/migrations/20260101000000_local_financing_baseline.sql`
      2. `supabase-local/supabase/migrations/20260917120000_investment_simulator_assumptions.sql`
+     3. `supabase-local/supabase/migrations/20260917180000_financing_scenario_visitor_scope.sql`
 3. Crear `.env.local` (no commitear) con URL/keys de `supabase status --workdir supabase-local`.
 4. `npm run dev`
 5. `node scripts/financing-local-e2e.cjs`
@@ -19,9 +20,16 @@
 ## Remoto (cuando se autorice — no ahora)
 
 1. Backup de `financing_scenarios`.
-2. Aplicar **solo** `supabase/migrations/20260917120000_investment_simulator_assumptions.sql` (`ADD COLUMN IF NOT EXISTS`; no borra datos).
-3. Desplegar app con investment-v2 (rama/commit de este PR).
-4. Smoke POST/GET/DELETE.
+2. Aplicar en orden (ADD COLUMN IF NOT EXISTS; no borra datos):
+   1. `supabase/migrations/20260917120000_investment_simulator_assumptions.sql`
+   2. `supabase/migrations/20260917180000_financing_scenario_visitor_scope.sql`
+3. Registrar el SHA real de Production previo al deploy (campo abajo).
+4. Desplegar app con investment-v2 (rama/commit de este PR).
+5. Smoke POST/GET/DELETE **solo** tras migración (no en Preview compartido).
+
+## Preview Vercel (compartido)
+
+Preview usa el mismo Supabase que Production. **No** ejecutar allí pruebas de escritura, identificación, guardado/borrado ni migraciones. Evidencia de persistencia = local.
 
 ## Reversión operativa (preserva columnas y datos v2)
 

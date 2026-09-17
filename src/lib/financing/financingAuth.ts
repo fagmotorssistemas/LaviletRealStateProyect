@@ -15,7 +15,7 @@ export function isMissingInvestmentV2SchemaError(
 
 export function migrationRequiredError() {
   return new Error(
-    'Guardado investment-v2 requiere la migración local supabase/migrations/20260917120000_investment_simulator_assumptions.sql (columnas simulation_mode, vacancy_rate_snapshot, calculation_version, etc.). No se confirmó un guardado incompleto.',
+    'Guardado investment-v2 requiere migraciones locales: 20260917120000_investment_simulator_assumptions.sql y 20260917180000_financing_scenario_visitor_scope.sql (columnas simulation_mode, vacancy_rate_snapshot, calculation_version, created_by_visitor_key, etc.). No se confirmó un guardado incompleto.',
   )
 }
 

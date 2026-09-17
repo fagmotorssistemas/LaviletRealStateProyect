@@ -312,10 +312,14 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
     paybackLabel = 'No recuperable con el flujo actual'
   }
 
-  const breakevenMonth =
+  // Misma cota que paybackYears: no afirmar un mes de equilibrio fuera del horizonte del crédito.
+  const rawBreakevenMonth =
     annualNetCashFlow > 0 && initialCashOutlay > 0
       ? Math.ceil((initialCashOutlay * 12) / annualNetCashFlow)
       : null
+  const maxMonths = mode === 'cash' ? Number.POSITIVE_INFINITY : financingYears * 12
+  const breakevenMonth =
+    rawBreakevenMonth != null && rawBreakevenMonth <= maxMonths ? rawBreakevenMonth : null
 
   // Compat: roiPercent = retorno de caja (no llamar “rentabilidad total” en UI).
   const roiPercent = cashOnCashReturn

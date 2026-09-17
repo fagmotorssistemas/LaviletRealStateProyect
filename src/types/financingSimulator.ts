@@ -81,6 +81,8 @@ export type FinancingScenario = {
   annual_other_financial?: number | null
   acquisition_costs?: number | null
   monthly_extra_charges?: number | null
+  /** Visitante (lv_vid) que creó el escenario; filtra listado/borrado frente a claim por teléfono. */
+  created_by_visitor_key?: string | null
   financing_partners?: Pick<FinancingPartner, 'partner_name' | 'annual_interest_rate'> | null
   units?: { unit_number: string; published_commercial_price: number | null } | null
   leads?: { phone: string | null; name: string | null } | null

@@ -13,6 +13,10 @@ const migrationPath = path.join(
   root,
   'supabase/migrations/20260917120000_investment_simulator_assumptions.sql',
 )
+const visitorMigrationPath = path.join(
+  root,
+  'supabase/migrations/20260917180000_financing_scenario_visitor_scope.sql',
+)
 
 describe('migración investment-v2 en PGlite (persistencia local real de esquema)', () => {
   it('añade columnas v2 y permite insert con supuestos; sin triggers que sobrescriban', async () => {
@@ -51,13 +55,14 @@ describe('migración investment-v2 en PGlite (persistencia local real de esquema
 
     const sql = fs.readFileSync(migrationPath, 'utf8')
     await db.exec(sql)
+    await db.exec(fs.readFileSync(visitorMigrationPath, 'utf8'))
 
     const cols = await db.query<{ column_name: string }>(
       `select column_name from information_schema.columns
        where table_name = 'financing_scenarios'
          and column_name in (
            'simulation_mode','vacancy_rate_snapshot','calculation_version',
-           'rate_type','assumptions_json','expense_breakdown'
+           'rate_type','assumptions_json','expense_breakdown','created_by_visitor_key'
          )
        order by column_name`,
     )
@@ -65,6 +70,7 @@ describe('migración investment-v2 en PGlite (persistencia local real de esquema
     assert.deepEqual(names, [
       'assumptions_json',
       'calculation_version',
+      'created_by_visitor_key',
       'expense_breakdown',
       'rate_type',
       'simulation_mode',

@@ -4,10 +4,13 @@ import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { normalizeShowroomPhone } from '@/lib/tour/showroomIdentity'
 import {
   CALCULATION_VERSION,
+  FINANCING_YEARS_MAX,
+  FINANCING_YEARS_MIN,
   buildInvestmentPreview,
   clampDownPaymentPercent,
   clampFinancingYears,
   defaultAnnualExpenses,
+  roundMoney,
 } from '@/lib/financing/calculator'
 import {
   FINANCING_PROJECT_ID,
@@ -24,6 +27,7 @@ import {
   migrationRequiredError,
   resolveAuthorizedLeadId as resolveAuthorizedLeadIdCore,
 } from '@/lib/financing/financingAuth'
+import { ScenarioValidationError } from '@/lib/financing/scenarioValidate'
 
 export {
   isMissingInvestmentV2SchemaError,
@@ -58,19 +62,13 @@ export async function fetchFinancingConfig(
 export async function resolveUnitByParam(admin: SupabaseClient, rawId: string) {
   const id = String(rawId ?? '').trim()
   if (!id) return null
-  const byId = await admin
-    .from('units')
-    .select(
-      'id, tenant_id, project_id, unit_number, published_commercial_price, bedrooms, category, status, is_published',
-    )
-    .eq('id', id)
-    .maybeSingle()
+  const selectCols =
+    'id, tenant_id, project_id, unit_number, published_commercial_price, bedrooms, category, status, is_published'
+  const byId = await admin.from('units').select(selectCols).eq('id', id).maybeSingle()
   if (byId.data) return byId.data
   const byNumber = await admin
     .from('units')
-    .select(
-      'id, tenant_id, project_id, unit_number, published_commercial_price, bedrooms, category, status, is_published',
-    )
+    .select(selectCols)
     .eq('unit_number', id)
     .eq('project_id', TOUR_PROJECT_ID)
     .limit(1)
@@ -78,11 +76,35 @@ export async function resolveUnitByParam(admin: SupabaseClient, rawId: string) {
   return byNumber.data ?? null
 }
 
-/**
- * Autoriza escenarios solo con identidad de servidor confiable:
- * cookie lv_vid → tour_visitors.lead_id.
- * lead_id/teléfono del cliente no bastan por sí solos.
- */
+export function assertUnitAccessibleForTour(
+  unit: {
+    id: string
+    project_id: string | null
+    tenant_id?: string | null
+    is_published?: boolean | null
+    status?: string | null
+  } | null,
+) {
+  if (!unit?.id) throw new ScenarioValidationError('Unidad no válida')
+  if (unit.project_id && unit.project_id !== TOUR_PROJECT_ID && unit.project_id !== FINANCING_PROJECT_ID) {
+    throw new ScenarioValidationError('Unidad fuera del proyecto autorizado')
+  }
+  if (unit.tenant_id && unit.tenant_id !== TOUR_TENANT_ID && unit.tenant_id !== FINANCING_TENANT_ID) {
+    throw new ScenarioValidationError('Unidad fuera del tenant autorizado')
+  }
+  if (unit.is_published === false) {
+    throw new ScenarioValidationError('Unidad no publicada')
+  }
+  const status = String(unit.status || '').toLowerCase()
+  if (status && !['available', 'disponible', 'reserved', 'reservado', 'published'].includes(status)) {
+    // Permitimos available/reserved típicos del tour; bloqueamos vendido/cancelado.
+    if (['sold', 'vendido', 'blocked', 'bloqueado', 'withdrawn'].includes(status)) {
+      throw new ScenarioValidationError('Unidad no disponible para simular')
+    }
+  }
+  return unit
+}
+
 export async function resolveAuthorizedLeadId(
   admin: SupabaseClient,
   input: {
@@ -112,26 +134,26 @@ export async function resolveLeadId(
 
 export type CreateScenarioInput = {
   leadId: string
+  visitorKey: string
   unitId: string
   partnerId?: string | null
+  /** Ignorado si difiere de unit.project_id; se fuerza desde la unidad. */
   projectId?: string
   mode: SimulationMode
   downPaymentPercent?: number
   financingYears?: number
   estimatedMonthlyRent: number
-  vacancyRate?: number
-  annualExpenses?: number | null
-  annualManagement?: number | null
+  vacancyRate: number
+  annualOperatingExpenses: number
+  annualManagement: number
   annualIncomeTaxEstimate?: number | null
   expenseBreakdown?: ExpenseBreakdown | null
   appliedInterestRate?: number | null
-  rateType?: RateType
-  acquisitionCosts?: number | null
-  annualOtherFinancial?: number | null
-  monthlyExtraCharges?: number | null
+  rateType: RateType
+  acquisitionCosts: number
+  annualOtherFinancial: number
+  monthlyExtraCharges: number
   unitPrice: number
-  calculationVersion?: string
-  assumptionsJson?: Record<string, unknown> | null
   ip?: string | null
   userAgent?: string | null
 }
@@ -140,13 +162,15 @@ function scenarioInsertFromPreview(
   input: CreateScenarioInput,
   preview: ReturnType<typeof buildInvestmentPreview>,
   partnerId: string | null,
+  projectId: string,
 ) {
   return {
     tenant_id: FINANCING_TENANT_ID,
     lead_id: input.leadId,
     unit_id: input.unitId,
     financing_partner_id: partnerId,
-    project_id: input.projectId || FINANCING_PROJECT_ID,
+    project_id: projectId,
+    created_by_visitor_key: input.visitorKey,
     down_payment_percent: preview.downPaymentPercent,
     financing_years: preview.mode === 'cash' ? null : preview.financingYears,
     estimated_monthly_rent: input.estimatedMonthlyRent,
@@ -166,14 +190,14 @@ function scenarioInsertFromPreview(
     status: 'saved',
     ip_address: input.ip || null,
     user_agent: input.userAgent || null,
-    // Columnas v2 (migración requerida). Si faltan, el insert falla con mensaje explícito.
     simulation_mode: preview.mode,
     vacancy_rate_snapshot: preview.vacancyRate,
     annual_management: preview.annualManagement,
     annual_income_tax_estimate: preview.annualIncomeTaxEstimate || null,
     expense_breakdown: input.expenseBreakdown ?? null,
-    assumptions_json: input.assumptionsJson ?? preview.assumptions,
-    calculation_version: input.calculationVersion || CALCULATION_VERSION,
+    // Solo servidor: snapshot de la fórmula ejecutada.
+    assumptions_json: preview.assumptions,
+    calculation_version: CALCULATION_VERSION,
     rate_type: preview.rateType,
     annual_other_financial: preview.annualOtherFinancialCosts,
     acquisition_costs: preview.acquisitionCosts,
@@ -182,14 +206,20 @@ function scenarioInsertFromPreview(
 }
 
 export async function createAndAnalyzeScenario(admin: SupabaseClient, input: CreateScenarioInput) {
-  const projectId = input.projectId || FINANCING_PROJECT_ID
+  if (!input.visitorKey?.trim()) {
+    throw new ScenarioValidationError('Falta identidad de visitante')
+  }
 
-  const [unit, config] = await Promise.all([
-    admin.from('units').select('id, project_id').eq('id', input.unitId).maybeSingle(),
-    fetchFinancingConfig(admin, projectId),
-  ])
+  const { data: unitRow, error: unitError } = await admin
+    .from('units')
+    .select('id, project_id, tenant_id, is_published, status')
+    .eq('id', input.unitId)
+    .maybeSingle()
+  if (unitError) throw unitError
+  const unit = assertUnitAccessibleForTour(unitRow)
+  const projectId = String(unit.project_id || FINANCING_PROJECT_ID)
 
-  if (!unit.data?.id) throw new Error('La unidad no existe')
+  const config = await fetchFinancingConfig(admin, projectId)
   if (!config) throw new Error('No hay configuración de financiamiento para el proyecto')
 
   let mode: SimulationMode = input.mode
@@ -197,7 +227,7 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
 
   if (mode === 'financed') {
     if (!input.partnerId) {
-      throw new Error('Modo financiado requiere institución, o use simulación manual')
+      throw new ScenarioValidationError('Modo financiado requiere institución, o use simulación manual')
     }
     const { data: partnerData } = await admin
       .from('financing_partners')
@@ -205,24 +235,22 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
       .eq('id', input.partnerId)
       .eq('active', true)
       .maybeSingle()
-    if (!partnerData?.id) throw new Error('El banco no es válido o está inactivo')
+    if (!partnerData?.id) throw new ScenarioValidationError('El banco no es válido o está inactivo')
+    if (
+      partnerData.tenant_id &&
+      partnerData.tenant_id !== FINANCING_TENANT_ID &&
+      partnerData.tenant_id !== TOUR_TENANT_ID
+    ) {
+      throw new ScenarioValidationError('Institución fuera del ámbito autorizado')
+    }
     partner = partnerData as FinancingPartner
   } else if (mode === 'manual') {
-    if (!(Number(input.appliedInterestRate) >= 0)) {
-      throw new Error('Simulación manual requiere tasa de interés')
+    if (!(Number(input.appliedInterestRate) >= 0) || !Number.isFinite(Number(input.appliedInterestRate))) {
+      throw new ScenarioValidationError('Simulación manual requiere tasa de interés')
     }
-  } else {
-    mode = 'cash'
+  } else if (mode !== 'cash') {
+    throw new ScenarioValidationError('mode inválido')
   }
-
-  const vacancyRate =
-    input.vacancyRate != null ? Number(input.vacancyRate) : Number(config.vacancy_rate || 0)
-  const annualOperatingExpenses =
-    input.annualExpenses != null && Number.isFinite(Number(input.annualExpenses))
-      ? Math.max(0, Number(input.annualExpenses))
-      : input.expenseBreakdown != null
-        ? Math.max(0, Number(input.expenseBreakdown.total) || 0)
-        : defaultAnnualExpenses(input.unitPrice, config)
 
   const interestRate =
     mode === 'cash'
@@ -236,24 +264,32 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
   const financingYears =
     mode === 'cash' ? 0 : clampFinancingYears(input.financingYears ?? 20, partner)
 
+  if (mode !== 'cash' && partner) {
+    const minY = partner.min_financing_years ?? FINANCING_YEARS_MIN
+    const maxY = partner.max_financing_years ?? FINANCING_YEARS_MAX
+    if (financingYears < minY || financingYears > maxY) {
+      throw new ScenarioValidationError(`El plazo debe estar entre ${minY} y ${maxY} años para esta institución`)
+    }
+  }
+
   const previewFinal = buildInvestmentPreview({
     mode,
     unitPrice: input.unitPrice,
     estimatedMonthlyRent: input.estimatedMonthlyRent,
-    vacancyRate,
-    annualOperatingExpenses,
-    annualManagement: input.annualManagement ?? 0,
+    vacancyRate: input.vacancyRate,
+    annualOperatingExpenses: input.annualOperatingExpenses,
+    annualManagement: input.annualManagement,
     annualIncomeTaxEstimate: input.annualIncomeTaxEstimate,
-    acquisitionCosts: input.acquisitionCosts ?? 0,
-    annualOtherFinancialCosts: input.annualOtherFinancial ?? 0,
-    monthlyExtraCharges: input.monthlyExtraCharges ?? 0,
+    acquisitionCosts: input.acquisitionCosts,
+    annualOtherFinancialCosts: input.annualOtherFinancial,
+    monthlyExtraCharges: input.monthlyExtraCharges,
     downPaymentPercent: clampDownPaymentPercent(input.downPaymentPercent ?? 30),
     financingYears,
     interestRate,
-    rateType: input.rateType ?? 'nominal_annual',
+    rateType: input.rateType,
   })
 
-  const fullRow = scenarioInsertFromPreview(input, previewFinal, partner?.id ?? null)
+  const fullRow = scenarioInsertFromPreview(input, previewFinal, partner?.id ?? null, projectId)
 
   const { data: scenario, error: insertError } = await admin
     .from('financing_scenarios')
@@ -267,9 +303,6 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
     }
     throw insertError ?? new Error('No se pudo guardar el escenario')
   }
-
-  // No reinterpretar con RPC remoto: el preview TypeScript es la fuente de verdad v2.
-  // Si existe calculate_investment_analysis, no lo usamos para sobreescribir valores guardados.
 
   const { data: refreshed } = await admin
     .from('financing_scenarios')
@@ -286,6 +319,36 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
   }
 }
 
+/**
+ * Lista escenarios del lead **y** del visitante actual.
+ * Deduplicar lead por teléfono no concede acceso a escenarios de otro visitor_key.
+ * Filas legacy sin created_by_visitor_key no se exponen por la API pública.
+ */
+export async function listScenariosForVisitor(
+  admin: SupabaseClient,
+  leadId: string,
+  visitorKey: string,
+) {
+  const key = visitorKey.trim()
+  if (!key) return [] as FinancingScenario[]
+  const { data, error } = await admin
+    .from('financing_scenarios')
+    .select(
+      '*, financing_partners(partner_name, annual_interest_rate), units(unit_number, published_commercial_price)',
+    )
+    .eq('lead_id', leadId)
+    .eq('created_by_visitor_key', key)
+    .order('created_at', { ascending: false })
+  if (error) {
+    if (isMissingInvestmentV2SchemaError(error) || /created_by_visitor_key/i.test(error.message || '')) {
+      throw migrationRequiredError()
+    }
+    throw error
+  }
+  return (data ?? []) as FinancingScenario[]
+}
+
+/** @deprecated Preferir listScenariosForVisitor. */
 export async function listScenariosForLead(admin: SupabaseClient, leadId: string) {
   const { data, error } = await admin
     .from('financing_scenarios')
@@ -296,4 +359,36 @@ export async function listScenariosForLead(admin: SupabaseClient, leadId: string
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as FinancingScenario[]
+}
+
+export async function deleteScenarioForVisitor(
+  admin: SupabaseClient,
+  input: { scenarioId: string; leadId: string; visitorKey: string },
+) {
+  const { data: row } = await admin
+    .from('financing_scenarios')
+    .select('id, lead_id, created_by_visitor_key')
+    .eq('id', input.scenarioId)
+    .maybeSingle()
+  if (
+    !row ||
+    row.lead_id !== input.leadId ||
+    String(row.created_by_visitor_key || '') !== input.visitorKey.trim()
+  ) {
+    return { ok: false as const, status: 404 as const }
+  }
+  const { error } = await admin.from('financing_scenarios').delete().eq('id', input.scenarioId)
+  if (error) throw error
+  return { ok: true as const }
+}
+
+export function operatingExpensesOrDefault(
+  unitPrice: number,
+  config: FinancingConfig,
+  annualOperatingExpenses: number | undefined,
+  breakdown: ExpenseBreakdown | null,
+) {
+  if (annualOperatingExpenses != null) return roundMoney(annualOperatingExpenses)
+  if (breakdown) return breakdown.total
+  return defaultAnnualExpenses(unitPrice, config)
 }

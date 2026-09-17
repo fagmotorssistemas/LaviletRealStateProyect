@@ -80,6 +80,26 @@ export function InvestmentConfigurator({
           <p className="text-sm text-[#6b645c]">
             {calc.priceMissing ? 'Sin precio publicado' : `Precio ${formatMoney(calc.unitPrice)}`}
           </p>
+          {calc.fidelityMessage ? (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
+              {calc.fidelityMessage}
+            </p>
+          ) : null}
+          {calc.priceDiffersFromPublished ? (
+            <div className="rounded-xl border border-[#BDA27E]/40 bg-[#BDA27E]/10 px-3 py-2.5 text-sm text-[#4a433c]">
+              <p>
+                Escenario histórico con precio {formatMoney(calc.scenarioUnitPrice)}. Publicado ahora:{' '}
+                {formatMoney(calc.unit?.published_commercial_price)}.
+              </p>
+              <button
+                type="button"
+                onClick={() => calc.applyCurrentPublishedPrice()}
+                className="mt-2 text-[11px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase"
+              >
+                Actualizar al precio publicado
+              </button>
+            </div>
+          ) : null}
         </header>
 
         {/* 1. Unidad y precio */}

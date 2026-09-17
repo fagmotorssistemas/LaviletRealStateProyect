@@ -10,6 +10,7 @@ import {
   isShowroomIdentified,
 } from '@/lib/tour/showroomIdentity'
 import { Spinner } from '@/components/ui/Spinner'
+import { assessScenarioFidelity } from '@/lib/financing/scenarioFidelity'
 import { cn } from '@/lib/utils'
 
 export function MisEscenariosView({
@@ -120,9 +121,18 @@ export function MisEscenariosView({
               </tr>
             </thead>
             <tbody>
-              {scenarios.map((row) => (
+              {scenarios.map((row) => {
+                const fidelity = assessScenarioFidelity(row)
+                return (
                 <tr key={row.id} className="border-t border-[#f0ebe3]">
-                  <td className="px-3 py-2.5">{row.units?.unit_number ?? '—'}</td>
+                  <td className="px-3 py-2.5">
+                    <span>{row.units?.unit_number ?? '—'}</span>
+                    {fidelity.kind !== 'exact' ? (
+                      <span className="mt-0.5 block text-[10px] text-amber-800">
+                        {fidelity.kind === 'legacy' ? 'Histórico' : 'Versión desconocida'}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2.5 tabular-nums">
                     {formatMoney(row.estimated_monthly_rent)}
                   </td>
@@ -151,7 +161,7 @@ export function MisEscenariosView({
                     </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>

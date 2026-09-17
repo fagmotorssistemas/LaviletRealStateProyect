@@ -118,6 +118,7 @@ async function main() {
   // Contado
   const cash = await postScenario(a, {
     mode: 'cash',
+    rate_type: 'nominal_annual',
     estimated_monthly_rent: 1200,
     vacancy_rate: 0.05,
     annual_expenses: 4280,
@@ -136,7 +137,9 @@ async function main() {
   assert.equal(cash.json.scenario.simulation_mode, 'cash')
   assert.equal(Number(cash.json.scenario.vacancy_rate_snapshot), 0.05)
   assert.equal(Number(cash.json.scenario.annual_net_cash_flow), 9400)
+  assert.ok(Math.abs(Number(cash.json.scenario.roi_percent) - 3.03) < 0.02)
   assert.equal(cash.json.scenario.calculation_version, 'investment-v2')
+  assert.equal(cash.json.scenario.created_by_visitor_key, a.visitorKey)
   const cashId = cash.json.scenario.id
 
   // Financiado
@@ -156,6 +159,7 @@ async function main() {
   assert.equal(fin.json.preview.mode, 'financed')
   assert.ok(Math.abs(Number(fin.json.scenario.monthly_payment) - 1562.12) < 0.05)
   assert.ok(Math.abs(Number(fin.json.scenario.annual_net_cash_flow) + 9345.44) < 0.15)
+  assert.ok(Math.abs(Number(fin.json.scenario.roi_percent) + 10.05) < 0.05)
   assert.equal(Number(fin.json.scenario.applied_interest_rate), 7.8)
   const finId = fin.json.scenario.id
 
@@ -180,6 +184,73 @@ async function main() {
   assert.equal(Number(man.json.scenario.vacancy_rate_snapshot), 0.08)
   const manId = man.json.scenario.id
 
+  // Ceros válidos: alquiler 0, vacancia 0 y 100%, tasa 0
+  const zeroRent = await postScenario(a, {
+    mode: 'cash',
+    rate_type: 'nominal_annual',
+    estimated_monthly_rent: 0,
+    vacancy_rate: 0,
+    annual_expenses: 0,
+    unit_price: 310000,
+  })
+  assert.equal(zeroRent.res.status, 200, JSON.stringify(zeroRent.json))
+  assert.equal(Number(zeroRent.json.scenario.estimated_monthly_rent), 0)
+  assert.equal(Number(zeroRent.json.scenario.vacancy_rate_snapshot), 0)
+  assert.equal(Number(zeroRent.json.scenario.annual_expenses), 0)
+
+  const fullVacancy = await postScenario(a, {
+    mode: 'manual',
+    down_payment_percent: 30,
+    financing_years: 20,
+    estimated_monthly_rent: 1000,
+    vacancy_rate: 1,
+    annual_expenses: 100,
+    applied_interest_rate: 0,
+    rate_type: 'nominal_annual',
+    unit_price: 250000,
+  })
+  assert.equal(fullVacancy.res.status, 200, JSON.stringify(fullVacancy.json))
+  assert.equal(Number(fullVacancy.json.scenario.vacancy_rate_snapshot), 1)
+  assert.equal(Number(fullVacancy.json.scenario.applied_interest_rate), 0)
+
+  // Validaciones 400
+  const badMode = await postScenario(a, {
+    mode: 'contado',
+    estimated_monthly_rent: 1000,
+    unit_price: 310000,
+    rate_type: 'nominal_annual',
+    annual_expenses: 1000,
+  })
+  assert.equal(badMode.res.status, 400, JSON.stringify(badMode.json))
+
+  const badRateType = await postScenario(a, {
+    mode: 'manual',
+    down_payment_percent: 30,
+    financing_years: 20,
+    estimated_monthly_rent: 1000,
+    unit_price: 310000,
+    applied_interest_rate: 8,
+    rate_type: 'tir',
+    annual_expenses: 1000,
+  })
+  assert.equal(badRateType.res.status, 400, JSON.stringify(badRateType.json))
+
+  const badBreakdown = await postScenario(a, {
+    mode: 'cash',
+    rate_type: 'nominal_annual',
+    estimated_monthly_rent: 1000,
+    unit_price: 310000,
+    annual_expenses: 5000,
+    expense_breakdown: {
+      propertyTax: 100,
+      maintenance: 100,
+      insurance: 100,
+      other: 100,
+      total: 400,
+    },
+  })
+  assert.equal(badBreakdown.res.status, 400, JSON.stringify(badBreakdown.json))
+
   // Reabrir vía GET: supuestos presentes
   const listed = await listScenarios(a)
   assert.equal(listed.res.status, 200)
@@ -190,10 +261,12 @@ async function main() {
   assert.equal(reopenedManual.simulation_mode, 'manual')
   assert.equal(Number(reopenedManual.applied_interest_rate), 9.25)
   assert.equal(Number(reopenedManual.annual_expenses), 5000)
+  assert.equal(Number(reopenedManual.unit_price), 310000)
 
   // B guarda uno propio
   const bCash = await postScenario(b, {
     mode: 'cash',
+    rate_type: 'nominal_annual',
     estimated_monthly_rent: 900,
     vacancy_rate: 0,
     annual_expenses: 1000,
@@ -210,6 +283,19 @@ async function main() {
   const bList = await listScenarios(b)
   assert.ok(!(bList.json.scenarios || []).some((s) => s.id === cashId))
   assert.ok((bList.json.scenarios || []).some((s) => s.id === bId))
+
+  // Claim: visitante nuevo con teléfono de A (mismo lead CRM) NO ve escenarios de A
+  const claimer = await identifyVisitor('claimer', a.phone)
+  assert.equal(claimer.leadId, a.leadId, 'dedupe comercial reutiliza lead')
+  assert.notEqual(claimer.visitorKey, a.visitorKey)
+  const claimList = await listScenarios(claimer)
+  assert.equal(claimList.res.status, 200)
+  assert.ok(
+    !(claimList.json.scenarios || []).some((s) => s.id === cashId || s.id === finId),
+    'claim por teléfono no concede escenarios ajenos',
+  )
+  const claimDel = await deleteScenario(claimer, cashId)
+  assert.ok(claimDel.res.status === 401 || claimDel.res.status === 404, claimDel.res.status)
 
   // Sin cookie
   const noCookie = await listScenarios(a, { cookie: null })

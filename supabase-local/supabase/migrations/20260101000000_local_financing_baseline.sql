@@ -186,6 +186,7 @@ create table if not exists public.financing_scenarios (
   status varchar,
   ip_address inet,
   user_agent text,
+  created_by_visitor_key text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

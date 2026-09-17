@@ -1,4 +1,4 @@
-# Simulador de inversión unificado — notas de entrega
+# Simulador de inversión unificado — notas de entrega (cierre PR #6)
 
 Rama: `feature/simulador-inversion-unificado`.
 
@@ -9,73 +9,44 @@ Rama: `feature/simulador-inversion-unificado`.
 | Next.js | `http://127.0.0.1:3000` (`npm run dev`) |
 | Supabase local | `supabase-local/` → API `http://127.0.0.1:54331`, DB `54332` |
 | Proyecto Docker | `lavilet-local-financing` |
-| Identidades E2E | flujo real `lv_vid` + lead (script `scripts/financing-local-e2e.cjs`) |
+| Identidades E2E | flujo real `lv_vid` + lead (`scripts/financing-local-e2e.cjs`) |
 
-**No** se aplicaron migraciones remotas ni se publicó/mergeó.
+**No** migraciones remotas, **no** merge, **no** Production. Preview Vercel comparte Supabase de Production: **sin** pruebas de escritura allí.
 
-## Persistencia real (Supabase local)
+## Correcciones de cierre
 
-`node scripts/financing-local-e2e.cjs` → **OK**
+1. **Reopen / precio:** `loadFromScenario` restaura `unit_price` guardado; el precio publicado no lo pisa. Botón explícito «Actualizar al precio publicado».
+2. **Ceros / init:** `initSource` (`empty` \| `bootstrap` \| `scenario` \| `user`) reemplaza heurística placeholder por ceros; `finiteOrNull` conserva alquiler/gastos/tasa 0.
+3. **Legacy:** `assessScenarioFidelity` + UI (badge/aviso); resultados guardados se conservan; no se presenta reconstrucción exacta si falta versión v2.
+4. **Contrato API:** `scenarioValidate` — mode/rate_type listas cerradas → 400; números finitos/límites; breakdown vs `annual_expenses` coherentes; `calculation_version`/`assumptions_json` solo servidor; `project_id` del body ignorado.
+5. **Auth privada:** columna `created_by_visitor_key`; GET/DELETE filtran por visitante. Deduplicar lead por teléfono **no** concede escenarios ajenos.
+6. **Cálculo:** `breakeven_month` alineado con horizonte de recuperación; etiquetas de flujo antes de IR.
 
-- POST/GET/DELETE contado, financiado y tasa manual
-- Guardar y reabrir reproduce supuestos y resultados
-- Dos visitantes con cookies distintas: cada uno solo ve los suyos
-- Sin cookie / cookie inventada / lead_id o teléfono del otro → rechazado
-- Identidades generadas por el flujo real de la app (no mocks de auth)
+## Caso de referencia
 
-PGlite cubre migración SQL en unit tests; **no** sustituye este E2E contra rutas Next + Kong local.
+| Modo | Esperado | Evidencia |
+|------|----------|-----------|
+| Contado | flujo 9400, retorno 3.03% | unit tests + E2E local |
+| Financiado | cuota ≈1562.12, flujo ≈−9345.44, retorno ≈−10.05% | unit tests + E2E local |
 
-## Tour real Next (drawer integrado)
-
-Verificado en el tour `/tour` (no HTML de preview):
-
-| Check | Resultado |
-|-------|-----------|
-| Acceso «Simular inversión» | OK |
-| Acceso «Financiamiento» | OK (mismo drawer) |
-| Contado / financiado / tasa manual | OK |
-| Cambio de unidad (Cambiar → 101/202) | OK (picker con `allUnits`) |
-| Guardar → Guardados → Reabrir | OK (modo manual 9.5 %, flujo −6.62 %) |
-| Cierre drawer | OK |
-| Preferencias de cookies ocultas con drawer abierto; reaparecen al cerrar | OK |
-| Escritorio (1280×800) y móvil (390×812) | OK |
-
-### Capturas del tour real
-
-- `docs/capture-tour-real-cash.png`
-- `docs/capture-tour-real-financed.png`
-- `docs/capture-tour-real-desktop-financed.png`
-- `docs/capture-tour-real-mobile.png`
-- `docs/capture-tour-real-mobile-financed.png`
-- `docs/capture-tour-real-reopen-manual.png`
-- `docs/capture-tour-real-unit-change-101.png`
-
-Previews HTML independientes quedan solo como referencia histórica; la aceptación es el tour real.
-
-## Correcciones en esta verificación
-
-1. `TourViewer`: catálogo/unidades aunque no haya panoramas; picker del simulador usa `allUnits`.
-2. `useFinancingCalculator`: bootstrap no deja alquiler/gastos en 0 tras placeholder vacío.
-3. `TourSimulatorDrawer`: reabrir no remontaba el configurador al limpiar el escenario (se perdía modo/tasa).
-
-## Orden migración / despliegue / reversión
-
-Ver `docs/SIMULADOR_MIGRACION_ORDEN.md`.
-
-- **Local:** baseline `supabase-local` + assumptions.
-- **Remoto (cuando se autorice):** solo `supabase/migrations/20260917120000_investment_simulator_assumptions.sql`.
-- **Reversión operativa:** restaurar app al **SHA de Production registrado antes del deploy definitivo** (ver `docs/SIMULADOR_MIGRACION_ORDEN.md`). `4270bf1` es solo la base histórica de esta rama. **No** DROP de columnas; escenarios v2 se conservan.
-- **Limpieza destructiva (opcional, explícita):** `supabase/rollbacks/20260917120000_investment_simulator_assumptions_DESTRUCTIVE_drop_v2_columns.sql` — no forma parte del rollback operativo.
-- **Preview Vercel:** usa el mismo Supabase que Production (`*.supabase.co` del proyecto Lavilet). No probar POST/DELETE de escenarios ni aplicar migración allí; evidencia completa = local + E2E ya ejecutado.
-
-## Pruebas de lógica
+## Comandos
 
 ```bash
-npm run test:financing
+npx tsc --noEmit
+npm run build
+npm run test:financing   # 25 tests
+node scripts/financing-local-e2e.cjs
 ```
 
-Resultado post-fixes tour (2026-09-17): **19/19 pass**. También `npx tsc --noEmit` exit 0 y `npm run build` exit 0 (Next.js 16.2.0).
+## Migraciones (orden)
 
-## Evidencia E2E local (ya ejecutada; no sustituida)
+Local / remoto autorizado:
 
-`node scripts/financing-local-e2e.cjs` contra Next `127.0.0.1:3000` + Supabase local `lavilet-local-financing` → **OK** (contado/financiado/manual, auth 2 visitantes). Conservar ese resultado; no hace falta re-ejecutarlo para esta entrega de revisión salvo que cambie el API de escenarios.
+1. `20260917120000_investment_simulator_assumptions.sql`
+2. `20260917180000_financing_scenario_visitor_scope.sql`
+
+Reversión operativa = rollback de **app** al SHA de Production registrado; **no** DROP de columnas. Ver `docs/SIMULADOR_MIGRACION_ORDEN.md`.
+
+## Capturas tour real
+
+- `docs/capture-tour-real-*.png` (cash, financed, desktop, mobile, reopen-manual, unit-change)

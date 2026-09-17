@@ -40,10 +40,10 @@ export function ResultCards({ preview }: { preview: InvestmentPreview }) {
   return (
     <div className="space-y-3">
       <p className="text-[11px] text-[#8a8176]">
-        Resultados antes de impuesto a la renta
+        Flujo de caja y retorno mostrados <strong>antes de impuesto a la renta</strong>
         {preview.annualIncomeTaxEstimate > 0
           ? ` · IR estimado anual: ${formatMoney(preview.annualIncomeTaxEstimate)} → flujo después IR ${formatMoneyExact(preview.annualCashFlowAfterTax)}`
-          : ''}
+          : ' (IR no incluido salvo que lo indique)'}
         .
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -101,6 +101,11 @@ export function ResultCards({ preview }: { preview: InvestmentPreview }) {
         <p className="mt-1 text-[10px] text-[#8a8176]">
           Supuesto: flujo constante; sin apreciación ni venta. No extrapola cuotas más allá del
           plazo del crédito.
+          {preview.breakevenMonth != null
+            ? ` Equilibrio estimado: mes ${preview.breakevenMonth}.`
+            : preview.paybackYears == null && preview.annualNetCashFlow > 0
+              ? ' El mes de equilibrio queda fuera del plazo del crédito (o no aplica).'
+              : ''}
         </p>
       </div>
     </div>

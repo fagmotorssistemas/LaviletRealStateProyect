@@ -28,6 +28,9 @@ export function ClientSimulatorPage() {
   const [selectedUnit, setSelectedUnit] = useState(initialUnit)
   const [identified, setIdentified] = useState(false)
   const [showSaved, setShowSaved] = useState(openSaved)
+  const [reopenScenario, setReopenScenario] = useState<
+    import('@/types/financingSimulator').FinancingScenario | null
+  >(null)
 
   useEffect(() => {
     setIdentified(isShowroomIdentified())
@@ -105,7 +108,15 @@ export function ClientSimulatorPage() {
       {showSaved && identified ? (
         <section className="space-y-3">
           <h2 className="font-serif text-xl text-[#1f1a14]">Cálculos guardados</h2>
-          <MisEscenariosView embedded />
+          <MisEscenariosView
+            embedded
+            onReopen={(scenario) => {
+              const unitNo = scenario.units?.unit_number
+              if (unitNo) setSelectedUnit(unitNo)
+              setReopenScenario(scenario)
+              setShowSaved(false)
+            }}
+          />
         </section>
       ) : null}
 
@@ -113,13 +124,18 @@ export function ClientSimulatorPage() {
         <div className="space-y-4">
           <button
             type="button"
-            onClick={() => setSelectedUnit('')}
+            onClick={() => {
+              setSelectedUnit('')
+              setReopenScenario(null)
+            }}
             className="text-sm font-medium text-[#6b645c] hover:text-[#1a2744]"
           >
             ← Elegir otro departamento
           </button>
           <InvestmentConfigurator
+            key={reopenScenario ? `reopen-${reopenScenario.id}` : selectedUnit}
             unitParam={selectedUnit}
+            initialScenario={reopenScenario}
             onOpenSaved={
               identified
                 ? () => {

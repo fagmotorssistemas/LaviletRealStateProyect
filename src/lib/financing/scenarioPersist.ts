@@ -41,23 +41,36 @@ export function resolveSimulationMode(row: SavedScenarioLike): SimulationMode {
 /** Reconstruye el preview investment-v2 desde una fila guardada (reabrir). */
 export function previewFromSavedScenario(row: SavedScenarioLike) {
   const mode = resolveSimulationMode(row)
+  const rent = row.estimated_monthly_rent
   const input: BuildInvestmentInput = {
     mode,
-    unitPrice: Number(row.unit_price) || 0,
-    estimatedMonthlyRent: Number(row.estimated_monthly_rent) || 0,
+    unitPrice: row.unit_price != null && Number.isFinite(Number(row.unit_price)) ? Number(row.unit_price) : 0,
+    estimatedMonthlyRent:
+      rent != null && Number.isFinite(Number(rent)) ? Number(rent) : 0,
     vacancyRate: row.vacancy_rate_snapshot != null ? Number(row.vacancy_rate_snapshot) : 0,
     annualOperatingExpenses:
       row.annual_expenses != null
         ? Number(row.annual_expenses)
-        : Number(row.expense_breakdown?.total) || 0,
-    annualManagement: Number(row.annual_management) || 0,
+        : row.expense_breakdown?.total != null
+          ? Number(row.expense_breakdown.total)
+          : 0,
+    annualManagement: row.annual_management != null ? Number(row.annual_management) : 0,
     annualIncomeTaxEstimate: row.annual_income_tax_estimate,
-    acquisitionCosts: Number(row.acquisition_costs) || 0,
-    annualOtherFinancialCosts: Number(row.annual_other_financial) || 0,
-    monthlyExtraCharges: Number(row.monthly_extra_charges) || 0,
-    downPaymentPercent: Number(row.down_payment_percent) || 30,
-    financingYears: Number(row.financing_years) || 20,
-    interestRate: Number(row.applied_interest_rate) || 0,
+    acquisitionCosts: row.acquisition_costs != null ? Number(row.acquisition_costs) : 0,
+    annualOtherFinancialCosts: row.annual_other_financial != null ? Number(row.annual_other_financial) : 0,
+    monthlyExtraCharges: row.monthly_extra_charges != null ? Number(row.monthly_extra_charges) : 0,
+    downPaymentPercent:
+      row.down_payment_percent != null && Number.isFinite(Number(row.down_payment_percent))
+        ? Number(row.down_payment_percent)
+        : 30,
+    financingYears:
+      row.financing_years != null && Number.isFinite(Number(row.financing_years))
+        ? Number(row.financing_years)
+        : 20,
+    interestRate:
+      row.applied_interest_rate != null && Number.isFinite(Number(row.applied_interest_rate))
+        ? Number(row.applied_interest_rate)
+        : 0,
     rateType: row.rate_type ?? 'nominal_annual',
   }
   return buildInvestmentPreview(input)

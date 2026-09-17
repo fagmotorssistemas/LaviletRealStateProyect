@@ -1,15 +1,17 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ExpenseBreakdown,
   FinancingConfig,
   FinancingPartner,
+  FinancingScenario,
   InvestmentPreview,
   RateType,
   SimulationMode,
 } from '@/types/financingSimulator'
 import {
+  CALCULATION_VERSION,
   DOWN_PAYMENT_MAX_PCT,
   DOWN_PAYMENT_MIN_PCT,
   FINANCING_YEARS_MAX,
@@ -22,6 +24,7 @@ import {
   sumExpenseBreakdown,
 } from '@/lib/financing/calculator'
 import { resolveSimulationMode } from '@/lib/financing/scenarioPersist'
+import { assessScenarioFidelity, finiteOr, finiteOrNull } from '@/lib/financing/scenarioFidelity'
 import {
   getShowroomLeadId,
   getShowroomPhone,
@@ -38,6 +41,8 @@ type UnitRow = {
 }
 
 export type UnitCalcState = {
+  /** empty = aún no bootstrap; bootstrap = defaults de catálogo; scenario = reopen; user = edits */
+  initSource: 'empty' | 'bootstrap' | 'scenario' | 'user'
   monthlyRent: number
   vacancyRate: number
   expenses: ExpenseBreakdown
@@ -53,9 +58,20 @@ export type UnitCalcState = {
   interestRate: number
   rateType: RateType
   hypotheticalPrice: number | null
+  /** Precio del escenario guardado (histórico). */
+  scenarioUnitPrice: number | null
+  /** false = usar scenarioUnitPrice; true = precio publicado/hipotético actual. */
+  useCurrentPublishedPrice: boolean
+  fidelityMessage: string | null
+  savedResults: {
+    annualNetCashFlow: number | null
+    cashOnCashReturn: number | null
+    monthlyPayment: number | null
+  } | null
 }
 
 const defaultUnitState = (): UnitCalcState => ({
+  initSource: 'empty',
   monthlyRent: 0,
   vacancyRate: 0.05,
   expenses: { propertyTax: 0, maintenance: 0, insurance: 0, other: 0, total: 0 },
@@ -71,6 +87,10 @@ const defaultUnitState = (): UnitCalcState => ({
   interestRate: 0,
   rateType: 'nominal_annual',
   hypotheticalPrice: null,
+  scenarioUnitPrice: null,
+  useCurrentPublishedPrice: true,
+  fidelityMessage: null,
+  savedResults: null,
 })
 
 export function useFinancingCalculator(
@@ -82,7 +102,6 @@ export function useFinancingCalculator(
   const [config, setConfig] = useState<FinancingConfig | null>(null)
   const [partners, setPartners] = useState<FinancingPartner[]>([])
   const [unit, setUnit] = useState<UnitRow | null>(null)
-  /** Estado por unidad para no mezclar al cambiar. */
   const [byUnit, setByUnit] = useState<Record<string, UnitCalcState>>({})
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -90,6 +109,7 @@ export function useFinancingCalculator(
   const [focusSection, setFocusSection] = useState<'financing' | 'rent' | null>(
     opts?.initialSection ?? null,
   )
+  const bootstrapGen = useRef(0)
 
   const unitKey = unitParam.trim() || '_none'
 
@@ -101,6 +121,18 @@ export function useFinancingCalculator(
     if (opts?.initialMode || opts?.initialSection) {
       setByUnit((prev) => {
         const cur = prev[unitKey] ?? defaultUnitState()
+        if (cur.initSource === 'scenario' || cur.initSource === 'user') {
+          return {
+            ...prev,
+            [unitKey]: {
+              ...cur,
+              mode:
+                opts.initialMode === 'financed' || opts.initialMode === 'manual'
+                  ? opts.initialMode
+                  : cur.mode,
+            },
+          }
+        }
         return {
           ...prev,
           [unitKey]: {
@@ -115,6 +147,7 @@ export function useFinancingCalculator(
 
   useEffect(() => {
     let cancelled = false
+    const gen = ++bootstrapGen.current
     ;(async () => {
       setLoading(true)
       setError(null)
@@ -128,7 +161,7 @@ export function useFinancingCalculator(
           error?: string
         }
         if (!response.ok) throw new Error(json.error || 'No se pudo cargar')
-        if (cancelled) return
+        if (cancelled || gen !== bootstrapGen.current) return
         const nextConfig = json.config ?? null
         const nextUnit = json.unit ?? null
         const nextPartners = json.partners ?? []
@@ -136,17 +169,19 @@ export function useFinancingCalculator(
         setUnit(nextUnit)
         setPartners(nextPartners)
 
+        // Key canónica: siempre unit_number del bootstrap o el param tipado como número.
         const key = (nextUnit?.unit_number || unitParam).trim() || '_none'
         setByUnit((prev) => {
-          const existing = prev[key]
-          // Si solo hay placeholder (p.ej. initialMode antes del bootstrap), completar datos.
-          const isPlaceholder =
-            !existing ||
-            (existing.monthlyRent === 0 &&
-              existing.expenses.total === 0 &&
-              existing.hypotheticalPrice == null &&
-              !(Number(nextUnit?.published_commercial_price) > 0 && existing.monthlyRent > 0))
-          if (existing && !isPlaceholder) return prev
+          const existing = prev[key] ?? prev[unitKey]
+          // Solo completar si aún no hay inicialización explícita.
+          if (existing && existing.initSource !== 'empty') {
+            // Migrar key si hacía falta
+            if (!prev[key] && existing) {
+              const { [unitKey]: _, ...rest } = prev
+              return { ...rest, [key]: existing }
+            }
+            return prev
+          }
           const published = Number(nextUnit?.published_commercial_price)
           const hasPrice = Number.isFinite(published) && published > 0
           const price = hasPrice ? published : 0
@@ -165,34 +200,32 @@ export function useFinancingCalculator(
             ...prev,
             [key]: {
               ...base,
-              monthlyRent: rent.amount || base.monthlyRent,
-              vacancyRate: Number(nextConfig?.vacancy_rate ?? base.vacancyRate ?? 0.05),
-              expenses: expenses.total > 0 ? expenses : base.expenses,
+              initSource: 'bootstrap',
+              monthlyRent: rent.amount,
+              vacancyRate: Number(nextConfig?.vacancy_rate ?? 0.05),
+              expenses,
               mode:
                 opts?.initialMode === 'financed' || opts?.initialMode === 'manual'
                   ? opts.initialMode
-                  : base.mode === 'cash'
-                    ? 'cash'
-                    : base.mode,
-              partnerId: base.partnerId ?? recommended?.id ?? null,
-              interestRate:
-                base.interestRate > 0
-                  ? base.interestRate
-                  : recommended
-                    ? Number(recommended.annual_interest_rate)
-                    : 0,
+                  : 'cash',
+              partnerId: recommended?.id ?? null,
+              interestRate: recommended ? Number(recommended.annual_interest_rate) : 0,
               financingYears: recommended
-                ? clampFinancingYears(base.financingYears || 20, recommended)
-                : base.financingYears || 20,
-              downPaymentPercent: base.downPaymentPercent || 30,
-              hypotheticalPrice: hasPrice ? null : base.hypotheticalPrice,
+                ? clampFinancingYears(20, recommended)
+                : 20,
+              downPaymentPercent: 30,
+              hypotheticalPrice: hasPrice ? null : null,
+              scenarioUnitPrice: null,
+              useCurrentPublishedPrice: true,
+              fidelityMessage: null,
+              savedResults: null,
             },
           }
         })
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Error de carga')
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && gen === bootstrapGen.current) setLoading(false)
       }
     })()
     return () => {
@@ -200,23 +233,53 @@ export function useFinancingCalculator(
     }
   }, [unitParam, opts?.initialMode])
 
-  const state = byUnit[unitKey] ?? defaultUnitState()
+  const state = byUnit[unitKey] ?? byUnit[unit?.unit_number ?? ''] ?? defaultUnitState()
 
-  const patchState = (partial: Partial<UnitCalcState>) => {
-    setByUnit((prev) => ({
-      ...prev,
-      [unitKey]: { ...(prev[unitKey] ?? defaultUnitState()), ...partial },
-    }))
+  const patchState = (partial: Partial<UnitCalcState>, markUser = true) => {
+    setByUnit((prev) => {
+      const cur = prev[unitKey] ?? defaultUnitState()
+      return {
+        ...prev,
+        [unitKey]: {
+          ...cur,
+          ...partial,
+          initSource: markUser
+            ? cur.initSource === 'empty'
+              ? 'user'
+              : cur.initSource === 'bootstrap'
+                ? 'user'
+                : cur.initSource === 'scenario'
+                  ? 'user'
+                  : 'user'
+            : (partial.initSource ?? cur.initSource),
+        },
+      }
+    })
   }
 
   const publishedPrice = Number(unit?.published_commercial_price)
   const hasPublishedPrice = Number.isFinite(publishedPrice) && publishedPrice > 0
-  const unitPrice = hasPublishedPrice
-    ? publishedPrice
-    : state.hypotheticalPrice != null && state.hypotheticalPrice > 0
-      ? state.hypotheticalPrice
-      : 0
-  const priceMissing = !hasPublishedPrice && !(state.hypotheticalPrice != null && state.hypotheticalPrice > 0)
+
+  const unitPrice = (() => {
+    if (
+      state.initSource === 'scenario' &&
+      !state.useCurrentPublishedPrice &&
+      state.scenarioUnitPrice != null &&
+      state.scenarioUnitPrice > 0
+    ) {
+      return state.scenarioUnitPrice
+    }
+    if (hasPublishedPrice) return publishedPrice
+    if (state.hypotheticalPrice != null && state.hypotheticalPrice > 0) return state.hypotheticalPrice
+    return 0
+  })()
+
+  const priceMissing = unitPrice <= 0
+  const priceDiffersFromPublished =
+    hasPublishedPrice &&
+    state.scenarioUnitPrice != null &&
+    Math.abs(state.scenarioUnitPrice - publishedPrice) > 0.01 &&
+    !state.useCurrentPublishedPrice
 
   const rentSuggestion = useMemo(
     () =>
@@ -236,16 +299,13 @@ export function useFinancingCalculator(
 
   const effectiveInterestRate = useMemo(() => {
     if (state.mode === 'manual') return state.interestRate
-    if (state.mode === 'financed' && selectedPartner) {
-      // Si el usuario editó la tasa respecto a la institución, se trata como manual implícito al guardar.
-      return state.interestRate
-    }
+    if (state.mode === 'financed' && selectedPartner) return state.interestRate
     return state.interestRate
   }, [state.mode, state.interestRate, selectedPartner])
 
   const annualOperatingExpenses = sumExpenseBreakdown(state.expenses)
 
-  const preview: InvestmentPreview | null = useMemo(() => {
+  const livePreview: InvestmentPreview | null = useMemo(() => {
     if (!config) return null
     if (unitPrice <= 0) return null
     const mode: SimulationMode =
@@ -289,49 +349,88 @@ export function useFinancingCalculator(
     state.rateType,
   ])
 
+  /** Legacy/unknown: preferir resultados guardados para métricas principales. */
+  const preview: InvestmentPreview | null = useMemo(() => {
+    if (!livePreview) return null
+    if (state.initSource === 'scenario' && state.savedResults && state.fidelityMessage) {
+      return {
+        ...livePreview,
+        annualNetCashFlow: finiteOr(state.savedResults.annualNetCashFlow, livePreview.annualNetCashFlow),
+        monthlyCashFlow: roundDiv12(finiteOr(state.savedResults.annualNetCashFlow, livePreview.annualNetCashFlow)),
+        cashOnCashReturn: finiteOrNull(state.savedResults.cashOnCashReturn) ?? livePreview.cashOnCashReturn,
+        roiPercent: finiteOrNull(state.savedResults.cashOnCashReturn) ?? livePreview.roiPercent,
+        monthlyPayment: finiteOr(state.savedResults.monthlyPayment, livePreview.monthlyPayment),
+      }
+    }
+    return livePreview
+  }, [livePreview, state.initSource, state.savedResults, state.fidelityMessage])
+
   function setPartnerId(id: string | null) {
     const partner = partners.find((p) => p.id === id) ?? null
     patchState({
       partnerId: id,
-      mode: id ? (state.mode === 'cash' ? 'financed' : state.mode === 'manual' ? 'manual' : 'financed') : state.mode === 'cash' ? 'cash' : 'manual',
+      mode: id
+        ? state.mode === 'cash'
+          ? 'financed'
+          : state.mode === 'manual'
+            ? 'manual'
+            : 'financed'
+        : state.mode === 'cash'
+          ? 'cash'
+          : 'manual',
       interestRate: partner ? Number(partner.annual_interest_rate) : state.interestRate,
       financingYears: partner ? clampFinancingYears(state.financingYears, partner) : state.financingYears,
+      savedResults: null,
+      fidelityMessage: null,
     })
   }
 
   function setMode(mode: SimulationMode) {
     if (mode === 'cash') {
-      patchState({ mode: 'cash' })
+      patchState({ mode: 'cash', savedResults: null, fidelityMessage: null })
       return
     }
     if (mode === 'manual') {
-      patchState({ mode: 'manual', partnerId: null })
+      patchState({ mode: 'manual', partnerId: null, savedResults: null, fidelityMessage: null })
       return
     }
-    // financed
     const partner = selectedPartner ?? partners[0] ?? null
     patchState({
       mode: partner ? 'financed' : 'manual',
       partnerId: partner?.id ?? null,
-      interestRate: partner ? Number(partner.annual_interest_rate) : state.interestRate || 7.8,
-      financingYears: partner ? clampFinancingYears(state.financingYears || 20, partner) : state.financingYears || 20,
+      interestRate: partner ? Number(partner.annual_interest_rate) : state.interestRate > 0 ? state.interestRate : 7.8,
+      financingYears: partner
+        ? clampFinancingYears(state.financingYears > 0 ? state.financingYears : 20, partner)
+        : state.financingYears > 0
+          ? state.financingYears
+          : 20,
+      savedResults: null,
+      fidelityMessage: null,
     })
   }
 
   function setExpenses(partial: Partial<ExpenseBreakdown>) {
     const next = { ...state.expenses, ...partial }
     next.total = sumExpenseBreakdown(next)
-    patchState({ expenses: next })
+    patchState({ expenses: next, savedResults: null, fidelityMessage: null })
   }
 
   function useSuggestedExpenses() {
     if (!config) return
     const next = expenseBreakdownFromConfig(unitPrice, config)
-    patchState({ expenses: next })
+    patchState({ expenses: next, savedResults: null, fidelityMessage: null })
+  }
+
+  function applyCurrentPublishedPrice() {
+    patchState({
+      useCurrentPublishedPrice: true,
+      savedResults: null,
+      fidelityMessage: null,
+    })
   }
 
   async function saveScenario() {
-    if (!unit || !preview || !config) return
+    if (!unit || !livePreview || !config) return
     if (priceMissing || unitPrice <= 0) {
       setSaveMessage('Indica un precio hipotético para guardar')
       return
@@ -348,23 +447,20 @@ export function useFinancingCalculator(
           unit_id: unit.id,
           mode: saveMode,
           financing_partner_id: saveMode === 'financed' ? state.partnerId : null,
-          down_payment_percent: preview.downPaymentPercent,
-          financing_years: preview.financingYears || null,
+          down_payment_percent: livePreview.downPaymentPercent,
+          financing_years: livePreview.financingYears || null,
           estimated_monthly_rent: state.monthlyRent,
           vacancy_rate: state.vacancyRate,
           annual_expenses: annualOperatingExpenses,
           annual_management: state.annualManagement,
           annual_income_tax_estimate: state.annualIncomeTaxEstimate || null,
           expense_breakdown: state.expenses,
-          applied_interest_rate: preview.interestRate,
+          applied_interest_rate: livePreview.interestRate,
           rate_type: state.rateType,
           acquisition_costs: state.acquisitionCosts,
           annual_other_financial: state.annualOtherFinancialCosts,
           monthly_extra_charges: state.monthlyExtraCharges,
           unit_price: unitPrice,
-          project_id: unit.project_id,
-          calculation_version: preview.calculationVersion,
-          assumptions_json: preview.assumptions,
           phone: getShowroomPhone() || undefined,
           lead_id: getShowroomLeadId() || undefined,
         }),
@@ -373,6 +469,16 @@ export function useFinancingCalculator(
       if (!response.ok) throw new Error(json.error || 'No se pudo guardar')
       setIdentified(true)
       setSaveMessage('Escenario guardado')
+      patchState(
+        {
+          scenarioUnitPrice: unitPrice,
+          useCurrentPublishedPrice: true,
+          fidelityMessage: null,
+          savedResults: null,
+          initSource: 'user',
+        },
+        false,
+      )
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'No se pudo guardar')
     } finally {
@@ -380,54 +486,70 @@ export function useFinancingCalculator(
     }
   }
 
-  function loadFromScenario(row: {
-    estimated_monthly_rent?: number | null
-    unit_price?: number | null
-    down_payment_percent?: number | null
-    financing_years?: number | null
-    applied_interest_rate?: number | null
-    financing_partner_id?: string | null
-    simulation_mode?: SimulationMode | null
-    vacancy_rate_snapshot?: number | null
-    annual_expenses?: number | null
-    annual_management?: number | null
-    annual_income_tax_estimate?: number | null
-    expense_breakdown?: ExpenseBreakdown | null
-    rate_type?: RateType | null
-    acquisition_costs?: number | null
-    annual_other_financial?: number | null
-    monthly_extra_charges?: number | null
-  }) {
-    const mode = resolveSimulationMode(row)
-    const expenses =
-      row.expense_breakdown ??
-      (row.annual_expenses != null
+  function loadFromScenario(row: FinancingScenario | Record<string, unknown>) {
+    const scenario = row as FinancingScenario
+    const mode = resolveSimulationMode(scenario)
+    const rent = finiteOrNull(scenario.estimated_monthly_rent)
+    const vacancy = finiteOrNull(scenario.vacancy_rate_snapshot)
+    const rate = finiteOrNull(scenario.applied_interest_rate)
+    const years = finiteOrNull(scenario.financing_years)
+    const down = finiteOrNull(scenario.down_payment_percent)
+    const savedPrice = finiteOrNull(scenario.unit_price)
+    const management = finiteOrNull(scenario.annual_management)
+    const tax = finiteOrNull(scenario.annual_income_tax_estimate)
+    const acquisition = finiteOrNull(scenario.acquisition_costs)
+    const otherFin = finiteOrNull(scenario.annual_other_financial)
+    const extra = finiteOrNull(scenario.monthly_extra_charges)
+
+    const expenses: ExpenseBreakdown =
+      scenario.expense_breakdown ??
+      (scenario.annual_expenses != null
         ? {
             propertyTax: 0,
             maintenance: 0,
             insurance: 0,
-            other: Number(row.annual_expenses) || 0,
-            total: Number(row.annual_expenses) || 0,
+            other: finiteOr(scenario.annual_expenses, 0),
+            total: finiteOr(scenario.annual_expenses, 0),
           }
         : state.expenses)
-    patchState({
-      monthlyRent: Number(row.estimated_monthly_rent) || state.monthlyRent,
-      vacancyRate: row.vacancy_rate_snapshot != null ? Number(row.vacancy_rate_snapshot) : state.vacancyRate,
-      expenses,
-      annualManagement: Number(row.annual_management) || 0,
-      annualIncomeTaxEstimate: Number(row.annual_income_tax_estimate) || 0,
-      acquisitionCosts: Number(row.acquisition_costs) || 0,
-      annualOtherFinancialCosts: Number(row.annual_other_financial) || 0,
-      monthlyExtraCharges: Number(row.monthly_extra_charges) || 0,
-      mode,
-      partnerId: row.financing_partner_id ?? null,
-      downPaymentPercent: clampDownPaymentPercent(Number(row.down_payment_percent) || 30),
-      financingYears: Number(row.financing_years) || 20,
-      interestRate: Number(row.applied_interest_rate) || 0,
-      rateType: row.rate_type ?? 'nominal_annual',
-      hypotheticalPrice:
-        !hasPublishedPrice && row.unit_price != null ? Number(row.unit_price) : state.hypotheticalPrice,
-    })
+
+    const fidelity = assessScenarioFidelity(scenario)
+    const isExact = fidelity.kind === 'exact'
+
+    patchState(
+      {
+        initSource: 'scenario',
+        monthlyRent: rent ?? state.monthlyRent,
+        vacancyRate: vacancy ?? state.vacancyRate,
+        expenses,
+        annualManagement: management ?? 0,
+        annualIncomeTaxEstimate: tax ?? 0,
+        acquisitionCosts: acquisition ?? 0,
+        annualOtherFinancialCosts: otherFin ?? 0,
+        monthlyExtraCharges: extra ?? 0,
+        mode,
+        partnerId: scenario.financing_partner_id ?? null,
+        downPaymentPercent: down != null ? clampDownPaymentPercent(down) : state.downPaymentPercent,
+        financingYears: years != null ? years : state.financingYears,
+        interestRate: rate ?? 0,
+        rateType:
+          scenario.rate_type === 'effective_annual' || scenario.rate_type === 'nominal_annual'
+            ? scenario.rate_type
+            : 'nominal_annual',
+        scenarioUnitPrice: savedPrice,
+        useCurrentPublishedPrice: false,
+        hypotheticalPrice: !hasPublishedPrice && savedPrice != null ? savedPrice : state.hypotheticalPrice,
+        fidelityMessage: isExact ? null : fidelity.message,
+        savedResults: isExact
+          ? null
+          : {
+              annualNetCashFlow: finiteOrNull(scenario.annual_net_cash_flow),
+              cashOnCashReturn: finiteOrNull(scenario.roi_percent),
+              monthlyPayment: finiteOrNull(scenario.monthly_payment),
+            },
+      },
+      false,
+    )
   }
 
   return {
@@ -444,9 +566,15 @@ export function useFinancingCalculator(
     setExpenses,
     useSuggestedExpenses,
     monthlyRent: state.monthlyRent,
-    setMonthlyRent: (v: number) => patchState({ monthlyRent: Math.max(0, v) }),
+    setMonthlyRent: (v: number) =>
+      patchState({ monthlyRent: Math.max(0, v), savedResults: null, fidelityMessage: null }),
     vacancyRate: state.vacancyRate,
-    setVacancyRate: (v: number) => patchState({ vacancyRate: Math.min(1, Math.max(0, v)) }),
+    setVacancyRate: (v: number) =>
+      patchState({
+        vacancyRate: Math.min(1, Math.max(0, v)),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
     annualExpenses: annualOperatingExpenses,
     setAnnualExpenses: (total: number) =>
       setExpenses({
@@ -461,29 +589,64 @@ export function useFinancingCalculator(
     suggestedExpenses: config ? expenseBreakdownFromConfig(unitPrice, config).total : 0,
     unitPrice,
     setUnitPrice: (value: number) => {
-      if (hasPublishedPrice) return
+      if (hasPublishedPrice && state.useCurrentPublishedPrice) return
       const price = Math.max(0, value)
       if (config) {
-        patchState({ hypotheticalPrice: price, expenses: expenseBreakdownFromConfig(price, config) })
+        patchState({
+          hypotheticalPrice: price,
+          scenarioUnitPrice: price,
+          useCurrentPublishedPrice: false,
+          expenses: expenseBreakdownFromConfig(price, config),
+          savedResults: null,
+          fidelityMessage: null,
+        })
       } else {
-        patchState({ hypotheticalPrice: price })
+        patchState({
+          hypotheticalPrice: price,
+          scenarioUnitPrice: price,
+          useCurrentPublishedPrice: false,
+          savedResults: null,
+          fidelityMessage: null,
+        })
       }
     },
     priceMissing,
     hasPublishedPrice,
+    priceDiffersFromPublished,
+    scenarioUnitPrice: state.scenarioUnitPrice,
+    useCurrentPublishedPrice: state.useCurrentPublishedPrice,
+    applyCurrentPublishedPrice,
+    fidelityMessage: state.fidelityMessage,
+    calculationVersion: CALCULATION_VERSION,
     downPaymentPercent: state.downPaymentPercent,
-    setDownPaymentPercent: (v: number) => patchState({ downPaymentPercent: clampDownPaymentPercent(v) }),
+    setDownPaymentPercent: (v: number) =>
+      patchState({
+        downPaymentPercent: clampDownPaymentPercent(v),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
     financingYears: state.financingYears,
     setFinancingYears: (v: number) =>
-      patchState({ financingYears: clampFinancingYears(v, selectedPartner) }),
+      patchState({
+        financingYears: clampFinancingYears(v, selectedPartner),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
     interestRate: state.interestRate,
     setInterestRate: (v: number) =>
       patchState({
         interestRate: Math.max(0, v),
-        mode: state.partnerId && Math.abs(v - Number(selectedPartner?.annual_interest_rate || 0)) > 0.001 ? 'manual' : state.mode === 'cash' ? 'cash' : state.mode,
+        mode:
+          state.partnerId && Math.abs(v - Number(selectedPartner?.annual_interest_rate || 0)) > 0.001
+            ? 'manual'
+            : state.mode === 'cash'
+              ? 'cash'
+              : state.mode,
+        savedResults: null,
+        fidelityMessage: null,
       }),
     rateType: state.rateType,
-    setRateType: (v: RateType) => patchState({ rateType: v }),
+    setRateType: (v: RateType) => patchState({ rateType: v, savedResults: null, fidelityMessage: null }),
     mode: state.mode === 'cash' ? 'cash' : state.mode === 'manual' || !state.partnerId ? 'manual' : 'financed',
     preview,
     comparison: [] as const,
@@ -497,8 +660,12 @@ export function useFinancingCalculator(
     limits: {
       downPaymentMin: DOWN_PAYMENT_MIN_PCT,
       downPaymentMax: DOWN_PAYMENT_MAX_PCT,
-      yearsMin: FINANCING_YEARS_MIN,
-      yearsMax: FINANCING_YEARS_MAX,
+      yearsMin: selectedPartner?.min_financing_years ?? FINANCING_YEARS_MIN,
+      yearsMax: selectedPartner?.max_financing_years ?? FINANCING_YEARS_MAX,
     },
   }
+}
+
+function roundDiv12(annual: number) {
+  return Math.round((annual / 12 + Number.EPSILON) * 100) / 100
 }

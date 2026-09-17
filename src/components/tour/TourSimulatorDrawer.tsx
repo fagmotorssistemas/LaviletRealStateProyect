@@ -59,7 +59,12 @@ export function TourSimulatorDrawer({
     }
     setIdentified(isShowroomIdentified())
     const next = unitNumber?.trim() || ''
-    setLocalUnit(next)
+    setLocalUnit((prev) => {
+      if (prev && next && prev !== next) {
+        setReopenScenario(null)
+      }
+      return next
+    })
     setPicking(!next && sortedUnits.length > 0)
   }, [open, unitNumber, sortedUnits.length])
 
