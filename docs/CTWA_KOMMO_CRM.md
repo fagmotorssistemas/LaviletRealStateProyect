@@ -1,6 +1,6 @@
 # WhatsApp → Kommo → CRM y `ctwa_clid`
 
-Estado: cambios preparados para revisión. Migración **no** aplicada a Production. Pixel y CAPI intactos.
+Estado: migración CTWA aplicada en Production (`whatsapp_ctwa_attribution`) y app en `main` desplegada. **CTWA real no verificado** (fixtures sintéticos). Pixel y CAPI intactos.
 
 ## Conclusión
 
@@ -61,9 +61,11 @@ Migración: preparada, **no** aplicada a Production. Unicidad atómica vía `EXC
 - **Conversación**: el flujo simulado usa lead con **bot pausado** (`bot_enabled: false` → `action: bot_paused`) para verificar que el registro inbound y el soft-fail CTWA no cortan la atención. No ejercita una respuesta comercial completa ni envío a Kommo/WhatsApp.
 - Sin migración en Production, sin publicación y sin mensajes reales.
 
-## Plan de despliegue y reversión (PR #4) — **no ejecutado**
+## Plan de despliegue y reversión (PR #4) — **ejecutado** (2026-09-17)
 
-Estado de este plan: **preparado para cuando se autorice**. Todavía **no** aplicar migración, merge ni publish.
+Migración CTWA sola + verificación RLS/grants OK → merge `main` (`8b63f4d`) → fix typecheck (`7c93f7c`) → Vercel Production Ready. **CTWA real sigue sin verificar.** Reversión por defecto: solo app; conservar schema/datos CTWA.
+
+Estado de este plan: **completado en Production para schema+app**. Todavía **no** implica atribución CTWA operativa.
 
 ### Limitación explícita (bloqueante de expectativas)
 
