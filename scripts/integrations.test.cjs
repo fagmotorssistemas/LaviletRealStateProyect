@@ -1323,7 +1323,7 @@ test('room synonyms and common apartment spelling select the requested catalogue
   const absent = unitPriceQuote(priceInfo(), 'Precio de departamentos de cinco cuartos', {})
   assert.equal(absent.quoted, false)
   assert.notEqual(absent.needsAdvisor, true)
-  assert.match(absent.reply, /No encuentro opciones de 5 dormitorios/)
+  assert.match(absent.reply, /(?:No encuentro opciones de 5 dormitorios|no contamos con departamentos disponibles de 5 dormitorios)/)
 })
 
 test('rejected price rewrites retain the verified answer without pausing; real missing facts still hand off', async t => {

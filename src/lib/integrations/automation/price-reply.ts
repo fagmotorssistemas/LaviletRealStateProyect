@@ -8,6 +8,7 @@ import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 import { purchasePriceQuestion, salesSubject } from './sales-subject'
 import { hasAffordabilityConcern } from './financing'
 import { asksForHouse } from './product-fit'
+import { unitAlternative } from './unit-alternatives'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 export function asksUnitPrice(value: string, propertyScope = false) {
@@ -97,6 +98,8 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
     if (!preferred) return { reply: '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false }
   }
   if (!selected.length && bedrooms && !resolved.hasUnitMention && reference.hasUnitMention !== true) {
+    const recommendation=unitAlternative(info,current,statedBudget(current))
+    if(recommendation)return {reply:recommendation.reply,quoted:false}
     const alternatives = [...new Set(catalog.filter(unit => category ? matchesCategory(unit, category) : ['suite', 'departamento'].includes(text(unit.category))).map(unit => Number(unit.bedrooms)).filter(value => value > 0))].sort((a, b) => a - b)
     if (alternatives.length) return { reply: `No encuentro opciones de ${bedrooms} dormitorios en nuestro catálogo disponible. Tenemos opciones de ${alternatives.join(' o ')} dormitorios. ¿Le gustaría revisar alguna de ellas?`, quoted: false }
   }
