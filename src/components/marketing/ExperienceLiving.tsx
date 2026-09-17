@@ -90,7 +90,6 @@ function ExperiencePoster({
           src={item.image}
           alt={item.label}
           fill
-          unoptimized={item.image.startsWith('http')}
           className="object-cover"
           sizes="360px"
         />
@@ -130,38 +129,35 @@ function ExperienceStage({
   reduce: boolean | null
 }) {
   return (
-    <div className="relative z-10 mx-auto min-h-svh w-full max-w-[1680px] px-6 py-8 sm:px-10 lg:px-14">
-      <div className="relative flex min-h-[calc(100svh-4rem)] flex-col lg:min-h-[calc(100svh-2rem)]">
-        <div className="grid flex-1 items-start gap-10 pb-16 lg:grid-cols-[minmax(16rem,0.95fr)_auto_minmax(15rem,0.85fr)] lg:gap-x-6 lg:pt-[5vh] xl:gap-x-10">
-          <div className="max-w-[32rem]">
-            <p className="text-[11px] font-medium tracking-[0.32em] text-[#f4efe8]/70 uppercase">
-              Naturaleza · Arquitectura · Bienestar
-            </p>
+    <div className="relative z-10 mx-auto min-h-svh w-full max-w-[1680px] px-5 py-6 sm:px-10 lg:px-14 lg:py-8">
+      <div className="relative flex min-h-[calc(100svh-3rem)] flex-col lg:min-h-[calc(100svh-4rem)]">
+        <div className="flex flex-col lg:grid flex-1 items-start gap-8 lg:gap-10 pb-8 lg:pb-16 lg:grid-cols-[minmax(16rem,0.95fr)_auto_minmax(15rem,0.85fr)] lg:gap-x-6 lg:pt-[5vh] xl:gap-x-10">
+          <div className="relative z-20 w-full max-w-[32rem]">
             <h2
               id="experiencia-title"
-              className="mt-4 font-serif text-[clamp(3.6rem,6.4vw,6.15rem)] leading-[0.86] font-normal tracking-[-0.04em] text-[#f4efe8]"
+              className="mt-2 lg:mt-4 font-serif text-[clamp(2.8rem,6.4vw,6.15rem)] leading-[0.86] font-normal tracking-[-0.04em] text-[#f4efe8]"
             >
               Experiencia
             </h2>
-            <p className="mt-6 font-serif text-[1.55rem] leading-none text-[#f4efe8]/90 sm:text-[1.8rem]">
+            <p className="mt-2 lg:mt-6 font-serif text-[1.2rem] lg:text-[1.55rem] leading-none text-[#f4efe8]/90 sm:text-[1.8rem]">
               Vivir en La Vilet.
             </p>
-            <span className="mt-8 block h-px w-10 bg-[#f4efe8]/55" />
+            <span className="mt-4 lg:mt-8 block h-px w-10 bg-[#f4efe8]/55" />
 
-            <p className="mt-16 max-w-[15.5rem] text-[16px] leading-snug text-[#f4efe8]/88 sm:text-[17px]">
+            <p className="mt-6 lg:mt-16 max-w-[15.5rem] text-[15px] lg:text-[16px] leading-snug text-[#f4efe8]/88 sm:text-[17px]">
               Última planta alta. Un lugar para desconectarse y encontrarse.
             </p>
             <Link
               href="/proyectos"
-              className="mt-12 inline-flex items-center gap-2 rounded-full border border-[#f4efe8]/55 px-6 py-2.5 text-[14px] text-[#f4efe8] transition-colors hover:border-[#f4efe8] hover:bg-[#f4efe8]/10"
+              className="mt-6 lg:mt-12 inline-flex items-center gap-2 rounded-full border border-[#f4efe8]/55 px-5 py-2 lg:px-6 lg:py-2.5 text-[13px] lg:text-[14px] text-[#f4efe8] transition-colors hover:border-[#f4efe8] hover:bg-[#f4efe8]/10"
             >
               Conocer más
               <ArrowRight size={15} />
             </Link>
           </div>
 
-          <div className="relative mx-auto mt-12 h-[38rem] w-full max-w-[40rem] lg:mt-48 lg:h-[42rem] lg:w-[50rem] lg:max-w-none">
-            <div className="absolute top-0 left-0 z-10 w-[18.5rem] sm:w-[21rem]">
+          <div className="relative z-10 mx-auto mt-4 lg:mt-48 h-[34rem] sm:h-[38rem] w-full max-w-[24rem] sm:max-w-[40rem] lg:h-[42rem] lg:w-[50rem] lg:max-w-none">
+            <div className="absolute top-0 left-0 z-10 w-[14rem] sm:w-[16rem] lg:w-[21rem]">
               <div className="relative aspect-[4/5]">
                 {reduce ? (
                   <ExperiencePoster item={left} instant />
@@ -173,7 +169,7 @@ function ExperienceStage({
               </div>
             </div>
 
-            <div className="absolute top-[14rem] left-[16.5rem] z-20 w-[18.5rem] sm:top-[16rem] sm:left-[24rem] sm:w-[21rem]">
+            <div className="absolute top-[13.5rem] left-[4.5rem] sm:top-[15rem] sm:left-[8rem] z-20 w-[14rem] sm:w-[16rem] lg:top-[16rem] lg:left-[24rem] lg:w-[21rem]">
               <div className="relative aspect-[4/5]">
                 {reduce ? (
                   <ExperiencePoster item={right} instant />
@@ -186,7 +182,7 @@ function ExperienceStage({
             </div>
           </div>
 
-          <div className="max-w-[18rem] lg:mt-[18rem] lg:justify-self-end">
+          <div className="hidden lg:block max-w-[18rem] lg:mt-[18rem] lg:justify-self-end">
             <p className="max-w-[15.5rem] border-l border-[#f4efe8]/30 pl-5 text-[16px] leading-snug text-[#f4efe8]/88">
               Espacios pensados para un equilibrio entre lo urbano y lo natural.
             </p>
@@ -251,7 +247,7 @@ export function ExperienceLiving() {
       <div
         ref={trackRef}
         className="relative"
-        style={{ height: reduce ? 'auto' : `${AMENITIES.length * 80}svh` }}
+        style={{ height: reduce ? 'auto' : `${AMENITIES.length * 50}svh` }}
       >
         <div className={cn('relative overflow-hidden', reduce ? 'min-h-svh' : 'sticky top-0 min-h-svh')}>
           <div aria-hidden className="absolute inset-0 bg-[#6d6f57]" />
@@ -285,28 +281,27 @@ export function ExperienceLiving() {
 
           <div
             aria-hidden
-            className="pointer-events-none absolute top-[-2%] left-1/2 z-[1] h-[52%] w-[min(38vw,22rem)] -translate-x-1/2 overflow-hidden rounded-[1.4rem] opacity-65"
+            className="pointer-events-none absolute top-0 left-0 z-[1] h-[50%] w-full lg:top-[-2%] lg:left-1/2 lg:h-[52%] lg:w-[min(38vw,22rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-30 lg:opacity-65"
           >
             <Image
               src="/lavilet-exterior.jpg"
               alt=""
               fill
               className="object-cover object-center"
-              sizes="22rem"
+              sizes="(max-width: 1024px) 100vw, 22rem"
             />
           </div>
 
           <div
             aria-hidden
-            className="pointer-events-none absolute bottom-[-4%] left-1/2 z-[1] h-[50%] w-[min(36vw,20rem)] -translate-x-1/2 overflow-hidden rounded-[1.4rem] opacity-55"
+            className="pointer-events-none absolute bottom-0 left-0 z-[1] h-[50%] w-full lg:bottom-[-4%] lg:left-1/2 lg:h-[50%] lg:w-[min(36vw,20rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-20 lg:opacity-55"
           >
             <Image
               src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1400&q=80"
               alt=""
               fill
-              unoptimized
               className="object-cover object-center"
-              sizes="18rem"
+              sizes="(max-width: 1024px) 100vw, 18rem"
             />
           </div>
 

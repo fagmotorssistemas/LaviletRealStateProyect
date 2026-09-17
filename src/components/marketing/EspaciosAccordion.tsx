@@ -86,7 +86,7 @@ export function EspaciosAccordion() {
       </div>
 
       <div className="relative h-[min(88vh,920px)] w-full overflow-hidden">
-        <div className="flex h-full w-full">
+        <div className="flex flex-col lg:flex-row h-full w-full">
           {SPACES.map((space, index) => {
             const isActive = index === active
             const isHover = hover === index && !isActive
@@ -99,7 +99,7 @@ export function EspaciosAccordion() {
                 type="button"
                 aria-pressed={isActive}
                 aria-label={`${space.title}. ${space.body}`}
-                className="relative min-w-[5.25rem] overflow-hidden text-left sm:min-w-[6.75rem]"
+                className="relative min-h-[4.5rem] lg:min-h-0 lg:min-w-[6.75rem] overflow-hidden text-left"
                 style={{
                   flexGrow: grow,
                   flexShrink: 1,
@@ -132,28 +132,36 @@ export function EspaciosAccordion() {
 
                 <div
                   className={cn(
-                    'absolute inset-0 flex flex-col p-4 sm:p-6',
-                    isActive ? 'justify-end' : 'items-center justify-between py-5',
+                    'absolute inset-0 flex p-4 lg:p-6',
+                    isActive 
+                      ? 'flex-col justify-end' 
+                      : 'flex-row items-center justify-between lg:flex-col lg:py-5',
                   )}
                 >
-                  <span className="text-[11px] font-medium tracking-[0.28em]">
-                    {n}
-                  </span>
-
                   {isActive ? (
-                    <div className="max-w-xl pr-8">
-                      <p className="font-serif text-[clamp(1.8rem,4vw,3.1rem)] leading-[0.9] tracking-[-0.04em]">
-                        {space.title}
-                      </p>
-                      <p className="mt-3 max-w-sm text-sm leading-relaxed text-[#F2F2F2]/85 sm:text-[15px]">
-                        {space.body}
-                      </p>
-                    </div>
+                    <>
+                      <span className="text-[11px] font-medium tracking-[0.28em] mb-2">
+                        {n}
+                      </span>
+                      <div className="max-w-xl pr-8">
+                        <p className="font-serif text-[clamp(1.8rem,4vw,3.1rem)] leading-[0.9] tracking-[-0.04em]">
+                          {space.title}
+                        </p>
+                        <p className="mt-3 max-w-sm text-sm leading-relaxed text-[#F2F2F2]/85 sm:text-[15px]">
+                          {space.body}
+                        </p>
+                      </div>
+                    </>
                   ) : (
                     <>
-                      <span className="[writing-mode:vertical-rl] rotate-180 font-serif text-[11px] tracking-[0.22em] uppercase sm:text-xs">
-                        {space.title}
-                      </span>
+                      <div className="flex items-center gap-4 lg:flex-col lg:gap-0">
+                        <span className="text-[11px] font-medium tracking-[0.28em]">
+                          {n}
+                        </span>
+                        <span className="font-serif text-[11px] tracking-[0.22em] uppercase lg:[writing-mode:vertical-rl] lg:rotate-180 sm:text-xs lg:mt-4">
+                          {space.title}
+                        </span>
+                      </div>
                       <span className="text-lg leading-none" aria-hidden>
                         +
                       </span>

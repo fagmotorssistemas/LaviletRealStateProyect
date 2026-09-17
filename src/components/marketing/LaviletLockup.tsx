@@ -169,7 +169,7 @@ export function LaviletLockup({
         className={cn(
           'mb-3 font-serif font-medium tracking-[0.42em] uppercase',
           story
-            ? 'text-[9px] sm:text-[10px]'
+            ? 'hidden'
               : backdrop
               ? 'text-[10px] text-[#2B1A18]/70 sm:text-xs mkt-dark:text-[#F2F2F2]/80'
               : mist
@@ -215,7 +215,7 @@ export function LaviletLockup({
           </>
         ) : (
           <>
-            <span className={cn('col-start-1 row-start-1 flex', story && 'gap-1 sm:gap-1.5')}>
+            <span className={cn('col-start-1 row-start-1 flex gap-1 sm:gap-1.5', !story && 'gap-1.5 sm:gap-2')}>
               {LETTERS_LA.map((item, i) => (
                 <LockupLetter
                   key={item.id}
@@ -226,7 +226,7 @@ export function LaviletLockup({
                 />
               ))}
             </span>
-            <span className={cn('col-start-2 row-start-2 flex', story && 'gap-1 sm:gap-1.5')}>
+            <span className={cn('col-start-2 row-start-2 flex gap-1 sm:gap-1.5', !story && 'gap-1.5 sm:gap-2')}>
               {LETTERS_VILET.map((item, i) => (
                 <LockupLetter
                   key={item.id}
