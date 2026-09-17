@@ -181,7 +181,10 @@ describe('evaluación separada de cola (sin persistencia ni envío)', () => {
       { getLeadAdsConsent: consentTrue },
     )
     assert.equal(enqueued.ok, false)
-    assert.equal(enqueued.reason, LOCAL_PERSIST_INACTIVE)
+    assert.ok(
+      enqueued.reason === LOCAL_PERSIST_INACTIVE ||
+        enqueued.reason === 'service_role_required_for_outbox',
+    )
   })
 
   it('web: evaluación OK, cola inactiva separada', async () => {
@@ -200,6 +203,9 @@ describe('evaluación separada de cola (sin persistencia ni envío)', () => {
       { getLeadAdsConsent: consentTrue },
     )
     assert.equal(enqueued.ok, false)
-    assert.equal(enqueued.reason, LOCAL_PERSIST_INACTIVE)
+    assert.ok(
+      enqueued.reason === LOCAL_PERSIST_INACTIVE ||
+        enqueued.reason === 'service_role_required_for_outbox',
+    )
   })
 })

@@ -39,6 +39,7 @@ function supabaseMock(opts: {
       }
       builder.order = self
       builder.limit = self
+      builder.update = () => builder
       builder.maybeSingle = async () => {
         if (table === 'appointments') {
           return {
@@ -48,8 +49,10 @@ function supabaseMock(opts: {
               status: 'aceptado',
               channel: opts.channel,
               confirmed_by_client: true,
+              confirmed_at: '2026-09-17T15:00:00.000Z',
               tenant_id: TENANT,
               project_id: PROJECT,
+              meta_schedule_event_id: null,
             },
             error: null,
           }
@@ -80,6 +83,9 @@ function supabaseMock(opts: {
           return { data: null, error: null }
         }
         throw new Error(table)
+      }
+      builder.then = (resolve: (v: unknown) => void) => {
+        resolve({ data: null, error: null })
       }
       return builder
     },
@@ -123,43 +129,39 @@ describe('loadCtwaClidForAppointmentScope', () => {
 describe('prepareScheduleDeliveryAfterConfirmation', () => {
   it('sin flag: no persiste', async () => {
     let persistCalls = 0
-    const result = await prepareScheduleDeliveryAfterConfirmation(
-      supabaseMock({ channel: 'web', consent: true }),
-      APPT,
-      {
-        getLeadAdsConsent: async () => true,
-        persist: async () => {
-          persistCalls += 1
-          return { inserted: true, eventId: 'e1', rowId: 'r1', status: OUTBOX_REVIEW_HOLD_STATUS }
-        },
+    const sb = supabaseMock({ channel: 'web', consent: true })
+    const result = await prepareScheduleDeliveryAfterConfirmation(sb, APPT, {
+      getLeadAdsConsent: async () => true,
+      adminClient: sb,
+      persist: async () => {
+        persistCalls += 1
+        return { inserted: true, eventId: 'e1', rowId: 'r1', status: OUTBOX_REVIEW_HOLD_STATUS }
       },
-    )
+    })
     assert.equal(persistCalls, 0)
     assert.equal(result.reason, LOCAL_PERSIST_INACTIVE)
   })
 
   it('persist review_hold con dedupe; nunca pending flushable', async () => {
     const statuses: string[] = []
-    const result = await prepareScheduleDeliveryAfterConfirmation(
-      supabaseMock({ channel: 'web', consent: true }),
-      APPT,
-      {
-        getLeadAdsConsent: async () => true,
-        allowLocalPersist: true,
-        persist: async (_sb, input) => {
-          assert.equal(input.status, OUTBOX_REVIEW_HOLD_STATUS)
-          assert.equal(isOutboxStatusFlushable(input.status!), false)
-          assert.equal(input.idempotencyKey, scheduleIdempotencyKey(APPT))
-          statuses.push(input.status!)
-          return {
-            inserted: true,
-            eventId: 'e-web',
-            rowId: 'r-web',
-            status: OUTBOX_REVIEW_HOLD_STATUS,
-          }
-        },
+    const sb = supabaseMock({ channel: 'web', consent: true })
+    const result = await prepareScheduleDeliveryAfterConfirmation(sb, APPT, {
+      getLeadAdsConsent: async () => true,
+      allowLocalPersist: true,
+      adminClient: sb,
+      persist: async (_sb, input) => {
+        assert.equal(input.status, OUTBOX_REVIEW_HOLD_STATUS)
+        assert.equal(isOutboxStatusFlushable(input.status!), false)
+        assert.equal(input.idempotencyKey, scheduleIdempotencyKey(APPT))
+        statuses.push(input.status!)
+        return {
+          inserted: true,
+          eventId: 'e-web',
+          rowId: 'r-web',
+          status: OUTBOX_REVIEW_HOLD_STATUS,
+        }
       },
-    )
+    })
     assert.equal(result.ok, true)
     assert.equal(result.reason, 'persisted_review_hold')
     assert.equal(result.outboxStatus, OUTBOX_REVIEW_HOLD_STATUS)
@@ -167,23 +169,21 @@ describe('prepareScheduleDeliveryAfterConfirmation', () => {
   })
 
   it('WhatsApp sin CTWA: bloqueo required en el plan', async () => {
-    const result = await prepareScheduleDeliveryAfterConfirmation(
-      supabaseMock({ channel: 'whatsapp', consent: true, ctwa: null }),
-      APPT,
-      {
-        getLeadAdsConsent: async () => true,
-        allowLocalPersist: true,
-        ctwaClient: null,
-        wabaId: 'waba-1',
-        messagingDatasetId: 'dataset-1',
-        persist: async (_sb, input) => ({
-          inserted: true,
-          eventId: 'e-wa',
-          rowId: 'r-wa',
-          status: input.status || OUTBOX_REVIEW_HOLD_STATUS,
-        }),
-      },
-    )
+    const sb = supabaseMock({ channel: 'whatsapp', consent: true, ctwa: null })
+    const result = await prepareScheduleDeliveryAfterConfirmation(sb, APPT, {
+      getLeadAdsConsent: async () => true,
+      allowLocalPersist: true,
+      adminClient: sb,
+      ctwaClient: null,
+      wabaId: 'waba-1',
+      messagingDatasetId: 'dataset-1',
+      persist: async (_sb, input) => ({
+        inserted: true,
+        eventId: 'e-wa',
+        rowId: 'r-wa',
+        status: input.status || OUTBOX_REVIEW_HOLD_STATUS,
+      }),
+    })
     assert.ok(result.plan?.blockers.includes(WHATSAPP_CTWA_CLID_REQUIRED))
     assert.equal(result.plan?.canFlushNest, false)
   })
@@ -197,6 +197,7 @@ describe('prepareScheduleDeliveryAfterConfirmation', () => {
     const result = await prepareScheduleDeliveryAfterConfirmation(sb, APPT, {
       getLeadAdsConsent: async () => true,
       allowLocalPersist: true,
+      adminClient: sb,
       ctwaClient: sb,
       wabaId: 'waba-1',
       messagingDatasetId: 'dataset-1',

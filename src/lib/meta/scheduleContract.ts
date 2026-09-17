@@ -19,6 +19,27 @@ import {
   type ScheduleEligibility,
   WHATSAPP_SCHEDULE_DELIVERY_PENDING,
 } from './scheduleEligibility'
+import {
+  LOCAL_PERSIST_INACTIVE,
+  FLUSH_NEST_INACTIVE,
+  DELIVERY_PIPELINE_INACTIVE,
+  HISTORICAL_REVIEW_HOLD_NOT_AUTO_PROMOTED,
+  isScheduleLocalPersistEnabled,
+  isScheduleDeliveryEnabled,
+  isScheduleFlushEnabled,
+  isScheduleRecoverEnabled,
+} from './scheduleFlags'
+
+export {
+  LOCAL_PERSIST_INACTIVE,
+  FLUSH_NEST_INACTIVE,
+  DELIVERY_PIPELINE_INACTIVE,
+  HISTORICAL_REVIEW_HOLD_NOT_AUTO_PROMOTED,
+  isScheduleLocalPersistEnabled,
+  isScheduleDeliveryEnabled,
+  isScheduleFlushEnabled,
+  isScheduleRecoverEnabled,
+}
 
 /** Nest tipa/mapea messaging fields; entrega BM Schedule sigue OFF (nombre + flush). */
 export const NEST_MISSING_MESSAGING_FIELDS =
@@ -46,10 +67,6 @@ export const WHATSAPP_SCHEDULE_EVENT_NAME_UNVERIFIED =
   'whatsapp_schedule_event_name_unverified' as const
 
 export const WEB_PHONE_MISSING = 'web_phone_missing' as const
-
-export const LOCAL_PERSIST_INACTIVE = 'local_persist_inactive_review' as const
-
-export const FLUSH_NEST_INACTIVE = 'flush_nest_inactive' as const
 
 export type ScheduleIdentifierInput = {
   eligibility: ScheduleEligibility
@@ -199,18 +216,4 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
     blockers,
     payload: null,
   }
-}
-
-export function isScheduleLocalPersistEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return String(env.META_SCHEDULE_LOCAL_PERSIST || '')
-    .trim()
-    .toLowerCase() === 'true'
-}
-
-export function isScheduleFlushEnabled(
-  _env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return false
 }

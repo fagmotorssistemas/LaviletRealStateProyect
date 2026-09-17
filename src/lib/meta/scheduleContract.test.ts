@@ -114,8 +114,15 @@ describe('planScheduleDelivery — web vs WhatsApp', () => {
     assert.ok(plan.blockers.includes(WHATSAPP_PHONE_MISSING))
   })
 
-  it('activación: local persist off; flush siempre off', () => {
+  it('activación: local persist off; flush requiere delivery+flush', () => {
     assert.equal(isScheduleLocalPersistEnabled({}), false)
     assert.equal(isScheduleFlushEnabled({ META_SCHEDULE_FLUSH: 'true' }), false)
+    assert.equal(
+      isScheduleFlushEnabled({
+        META_SCHEDULE_DELIVERY_ENABLED: 'true',
+        META_SCHEDULE_FLUSH: 'true',
+      }),
+      true,
+    )
   })
 })
