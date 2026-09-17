@@ -1,7 +1,7 @@
 /**
- * Preparación + recuperación durable + pipeline web gated de Schedule.
- * Persistencia outbox solo vía service_role (no sesión asesor).
- * review_hold históricos nunca se promueven en lote.
+ * Preparación Schedule: escrituras solo con controles ON.
+ * Intent atómico inmutable vía RPC; fallo Meta no afecta la cita.
+ * Promote/flush solo con delivery on; nunca pending si delivery off.
  */
 
 import { randomUUID } from 'crypto'
@@ -16,6 +16,7 @@ import {
 } from './localOutbox'
 import { evaluateScheduleEligibility, type ScheduleEligibility } from './scheduleEligibility'
 import {
+  ALL_SCHEDULE_CONTROLS_OFF,
   DELIVERY_PIPELINE_INACTIVE,
   FLUSH_NEST_INACTIVE,
   HISTORICAL_REVIEW_HOLD_NOT_AUTO_PROMOTED,
@@ -27,6 +28,7 @@ import {
   planScheduleDelivery,
   type ScheduleDeliveryPlan,
 } from './scheduleContract'
+import { isScheduleWritePathEnabled } from './scheduleFlags'
 
 export type SchedulePrepareResult = {
   ok: boolean
@@ -38,8 +40,10 @@ export type SchedulePrepareResult = {
   outboxStatus?: string
   persistAttempts?: number
   intentSaved?: boolean
+  intentImmutable?: boolean
   promoted?: boolean
   flushed?: boolean
+  wroteSchedule?: boolean
 }
 
 const PERSIST_MAX_ATTEMPTS = 3
@@ -66,7 +70,6 @@ function confirmationUnixSeconds(confirmedAt: string | null | undefined): number
   return Math.floor(Date.now() / 1000)
 }
 
-/** Cliente service_role para outbox/intent. La sesión CRM no tiene GRANT. */
 export function resolveScheduleAdminClient(
   deps?: { adminClient?: SupabaseClient | null },
 ): SupabaseClient | null {
@@ -101,10 +104,10 @@ export type ScheduleDeliveryDeps = {
   getLeadAdsConsent?: typeof getLeadAdsConsent
   loadCtwa?: typeof loadCtwaClidForAppointmentScope
   ctwaClient?: SupabaseClient | null
-  /** service_role para outbox + intent. Null = no persistir. */
   adminClient?: SupabaseClient | null
   persist?: typeof persistMetaConversion
   flush?: typeof flushLocalMetaOutbox
+  registerIntent?: typeof registerMetaScheduleIntent
   wabaId?: string | null
   messagingDatasetId?: string | null
   allowLocalPersist?: boolean
@@ -112,6 +115,72 @@ export type ScheduleDeliveryDeps = {
   allowFlush?: boolean
   persistAttempts?: number
   sleep?: (ms: number) => Promise<void>
+}
+
+export type IntentRegisterResult = {
+  ok: boolean
+  inserted: boolean
+  eventId: string
+  eventTime: number
+  channel: string
+  reason?: string
+}
+
+/**
+ * Registra intent una sola vez (RPC). Inmutable ante concurrencia.
+ * Fallo → no lanza a la cita; el caller decide.
+ */
+export async function registerMetaScheduleIntent(
+  admin: SupabaseClient,
+  input: {
+    appointmentId: string
+    eventId: string
+    eventTime: number
+    lane: 'test' | 'live'
+    channelKind: string
+    payload: Record<string, unknown>
+  },
+): Promise<IntentRegisterResult> {
+  const { data, error } = await admin.rpc('lv_register_meta_schedule_intent', {
+    p_appointment_id: input.appointmentId,
+    p_event_id: input.eventId,
+    p_event_time: input.eventTime,
+    p_lane: input.lane,
+    p_channel: input.channelKind,
+    p_payload: input.payload,
+  })
+
+  if (error) {
+    logSafe('intent_rpc_failed', error.message.slice(0, 80))
+    return {
+      ok: false,
+      inserted: false,
+      eventId: input.eventId,
+      eventTime: input.eventTime,
+      channel: input.channelKind,
+      reason: 'intent_rpc_failed',
+    }
+  }
+
+  const row = (data || {}) as Record<string, unknown>
+  if (row.ok === false) {
+    return {
+      ok: false,
+      inserted: false,
+      eventId: input.eventId,
+      eventTime: input.eventTime,
+      channel: input.channelKind,
+      reason: String(row.reason || 'intent_rejected'),
+    }
+  }
+
+  return {
+    ok: true,
+    inserted: Boolean(row.inserted),
+    eventId: String(row.event_id || input.eventId),
+    eventTime: Number(row.event_time || input.eventTime),
+    channel: String(row.channel || input.channelKind),
+  }
 }
 
 async function persistReviewHoldWithRetry(
@@ -136,45 +205,7 @@ async function persistReviewHoldWithRetry(
   throw lastError instanceof Error ? lastError : new Error('persist_failed')
 }
 
-async function saveScheduleIntent(
-  admin: SupabaseClient,
-  appointment: {
-    id: string
-    meta_schedule_event_id?: string | null
-    confirmed_at?: string | null
-  },
-  payload: Record<string, unknown>,
-  lane: 'test' | 'live',
-): Promise<{ eventId: string; eventTime: number; saved: boolean }> {
-  const eventId =
-    (appointment.meta_schedule_event_id &&
-    /^[0-9a-f-]{36}$/i.test(appointment.meta_schedule_event_id)
-      ? appointment.meta_schedule_event_id
-      : null) || randomUUID()
-  const eventTime = confirmationUnixSeconds(appointment.confirmed_at)
-
-  const { error } = await admin
-    .from('appointments')
-    .update({
-      meta_schedule_event_id: eventId,
-      meta_schedule_event_time: eventTime,
-      meta_schedule_delivery_lane: lane,
-      meta_schedule_payload: payload,
-      meta_schedule_intent_at: new Date().toISOString(),
-    })
-    .eq('id', appointment.id)
-
-  if (error) {
-    logSafe('intent_save_failed', error.message.slice(0, 80))
-    return { eventId, eventTime, saved: false }
-  }
-  return { eventId, eventTime, saved: true }
-}
-
-/**
- * Promueve SOLO la fila review_hold de esta cita a pending tras revalidar.
- * No escanea ni promueve review_hold históricos.
- */
+/** Promote solo con delivery on + revalidación. Nunca si delivery off. */
 export async function promoteScheduleReviewHoldForAppointment(
   admin: SupabaseClient,
   appointmentId: string,
@@ -184,11 +215,7 @@ export async function promoteScheduleReviewHoldForAppointment(
   if (!id) return { ok: false, reason: 'missing_appointment', promoted: false }
 
   if (!(deps.allowDelivery === true || isScheduleDeliveryEnabled())) {
-    return {
-      ok: false,
-      reason: DELIVERY_PIPELINE_INACTIVE,
-      promoted: false,
-    }
+    return { ok: false, reason: DELIVERY_PIPELINE_INACTIVE, promoted: false }
   }
 
   const { data: appointment, error } = await admin
@@ -220,11 +247,10 @@ export async function promoteScheduleReviewHoldForAppointment(
     }
   }
 
-  const key = eligibility.idempotencyKey
   const { data: row } = await admin
     .from('meta_capi_outbox')
     .select('id, status, event_id')
-    .eq('idempotency_key', key)
+    .eq('idempotency_key', eligibility.idempotencyKey)
     .maybeSingle()
 
   if (!row) return { ok: false, reason: 'outbox_row_missing', promoted: false }
@@ -245,9 +271,7 @@ export async function promoteScheduleReviewHoldForAppointment(
     .eq('id', row.id)
     .eq('status', OUTBOX_REVIEW_HOLD_STATUS)
 
-  if (updErr) {
-    return { ok: false, reason: 'promote_failed', promoted: false }
-  }
+  if (updErr) return { ok: false, reason: 'promote_failed', promoted: false }
 
   logSafe('promoted_current_only', HISTORICAL_REVIEW_HOLD_NOT_AUTO_PROMOTED)
   return { ok: true, reason: 'promoted_to_pending', promoted: true }
@@ -261,10 +285,14 @@ export async function prepareScheduleDeliveryAfterConfirmation(
   const id = String(appointmentId || '').trim()
   if (!id) return { ok: false, reason: 'missing_appointment' }
 
+  const persistOn = deps.allowLocalPersist === true || isScheduleLocalPersistEnabled()
+  const deliveryOn = deps.allowDelivery === true || isScheduleDeliveryEnabled()
+  const anyWrite = persistOn || deliveryOn || isScheduleWritePathEnabled()
+
   const { data: appointment, error } = await supabase
     .from('appointments')
     .select(
-      'id, lead_id, status, channel, confirmed_by_client, confirmed_at, tenant_id, project_id, meta_schedule_event_id',
+      'id, lead_id, status, channel, confirmed_by_client, confirmed_at, tenant_id, project_id, meta_schedule_event_id, meta_schedule_event_time',
     )
     .eq('id', id)
     .maybeSingle()
@@ -325,7 +353,48 @@ export async function prepareScheduleDeliveryAfterConfirmation(
 
   if (!eligibility.businessOk) {
     logSafe('skipped', eligibility.reason)
-    return { ok: false, reason: eligibility.reason, eligibility, plan }
+    return { ok: false, reason: eligibility.reason, eligibility, plan, wroteSchedule: false }
+  }
+
+  // Controles todos off → cero escrituras Schedule.
+  if (!persistOn && !anyWrite) {
+    logSafe('no_writes', ALL_SCHEDULE_CONTROLS_OFF)
+    return {
+      ok: false,
+      reason: ALL_SCHEDULE_CONTROLS_OFF,
+      eligibility,
+      plan: {
+        ...plan,
+        blockers: [...plan.blockers, ALL_SCHEDULE_CONTROLS_OFF, LOCAL_PERSIST_INACTIVE],
+      },
+      wroteSchedule: false,
+    }
+  }
+
+  if (!persistOn) {
+    logSafe('plan_only', LOCAL_PERSIST_INACTIVE)
+    return {
+      ok: false,
+      reason: LOCAL_PERSIST_INACTIVE,
+      eligibility,
+      plan: {
+        ...plan,
+        blockers: plan.blockers.includes(LOCAL_PERSIST_INACTIVE)
+          ? plan.blockers
+          : [...plan.blockers, LOCAL_PERSIST_INACTIVE],
+      },
+      wroteSchedule: false,
+    }
+  }
+
+  if (!plan.canPersistReviewHold || !plan.payload) {
+    return {
+      ok: false,
+      reason: plan.blockers[0] || 'not_persistable',
+      eligibility,
+      plan,
+      wroteSchedule: false,
+    }
   }
 
   const admin = resolveScheduleAdminClient(deps)
@@ -336,6 +405,7 @@ export async function prepareScheduleDeliveryAfterConfirmation(
       reason: 'service_role_required_for_outbox',
       eligibility,
       plan,
+      wroteSchedule: false,
     }
   }
 
@@ -345,38 +415,38 @@ export async function prepareScheduleDeliveryAfterConfirmation(
       : 'live'
 
   const basePayload = {
-    ...(plan.payload || {}),
+    ...plan.payload,
     tenant_id: appointment.tenant_id || undefined,
     project_id: appointment.project_id || undefined,
     appointment_id: appointment.id,
+    channel_kind: plan.channelKind,
   }
 
-  // Intent durable siempre (aunque persist esté off / falle): conserva fecha real.
-  const intent = await saveScheduleIntent(admin, appointment, basePayload, lane)
+  // event_id/time: reutilizar inmutables si ya existen; si no, proponer (RPC decide).
+  const proposedEventId =
+    (appointment.meta_schedule_event_id &&
+    /^[0-9a-f-]{36}$/i.test(appointment.meta_schedule_event_id)
+      ? appointment.meta_schedule_event_id
+      : null) || randomUUID()
+  const proposedEventTime =
+    typeof appointment.meta_schedule_event_time === 'number' &&
+    appointment.meta_schedule_event_time > 0
+      ? appointment.meta_schedule_event_time
+      : confirmationUnixSeconds(appointment.confirmed_at)
 
-  const persistAllowed =
-    (deps.allowLocalPersist === true || isScheduleLocalPersistEnabled()) &&
-    plan.canPersistReviewHold &&
-    plan.payload
+  const register = deps.registerIntent || registerMetaScheduleIntent
+  const intent = await register(admin, {
+    appointmentId: appointment.id,
+    eventId: proposedEventId,
+    eventTime: proposedEventTime,
+    lane,
+    channelKind: plan.channelKind,
+    payload: basePayload,
+  })
 
-  if (!persistAllowed) {
-    const reason = plan.canPersistReviewHold
-      ? LOCAL_PERSIST_INACTIVE
-      : plan.blockers[0] || 'not_persistable'
-    logSafe('plan_only', reason)
-    return {
-      ok: false,
-      reason,
-      eligibility,
-      plan: {
-        ...plan,
-        blockers: plan.blockers.includes(LOCAL_PERSIST_INACTIVE)
-          ? plan.blockers
-          : [...plan.blockers, LOCAL_PERSIST_INACTIVE],
-      },
-      eventId: intent.eventId,
-      intentSaved: intent.saved,
-    }
+  // Fallo de intent no revierte la cita (ya confirmada).
+  if (!intent.ok) {
+    logSafe('intent_failed_cita_ok', intent.reason || 'intent_failed')
   }
 
   let persistedRow: {
@@ -406,24 +476,25 @@ export async function prepareScheduleDeliveryAfterConfirmation(
       plan.channelKind,
     )
   } catch {
-    logSafe('persist_failed', 'outbox_error_after_retries')
+    // Persist falló tras confirmación: intent puede existir para recover.
+    logSafe('persist_failed_after_confirm', 'outbox_error_cita_ok')
     return {
       ok: false,
       reason: 'persist_failed',
       eligibility,
       plan,
       eventId: intent.eventId,
-      intentSaved: intent.saved,
+      intentSaved: intent.ok,
+      intentImmutable: intent.ok && !intent.inserted,
       persistAttempts: deps.persistAttempts ?? PERSIST_MAX_ATTEMPTS,
+      wroteSchedule: intent.ok,
     }
   }
 
   let promoted = false
   let flushed = false
-  const deliveryOn = deps.allowDelivery === true || isScheduleDeliveryEnabled()
-  const flushOn = deps.allowFlush === true || isScheduleFlushEnabled()
 
-  // Solo web + delivery on: promover ESTA cita (no históricos).
+  // Solo promote/flush con delivery on (nunca pending si delivery off).
   if (deliveryOn && plan.channelKind === 'web') {
     const promo = await promoteScheduleReviewHoldForAppointment(admin, id, {
       ...deps,
@@ -431,18 +502,16 @@ export async function prepareScheduleDeliveryAfterConfirmation(
       getLeadAdsConsent: readConsent,
     })
     promoted = promo.promoted
-    if (!promo.ok && promo.reason !== 'already_pending') {
-      logSafe('promote_skipped', promo.reason)
-    }
-  } else if (!deliveryOn) {
+  } else {
     logSafe('delivery_gated', DELIVERY_PIPELINE_INACTIVE)
   }
 
-  if (flushOn && plan.channelKind === 'web' && persistedRow.eventId) {
+  const flushOn = deps.allowFlush === true || isScheduleFlushEnabled()
+  if (flushOn && deliveryOn && plan.channelKind === 'web' && persistedRow.eventId) {
     const flush = deps.flush || flushLocalMetaOutbox
     await flush(admin, { limit: 5, eventIds: [persistedRow.eventId] })
     flushed = true
-  } else if (!flushOn) {
+  } else {
     logSafe('flush_gated', FLUSH_NEST_INACTIVE)
   }
 
@@ -455,7 +524,7 @@ export async function prepareScheduleDeliveryAfterConfirmation(
       canFlushNest: false,
       blockers: [
         ...plan.blockers.filter((b) => b !== FLUSH_NEST_INACTIVE),
-        ...(flushOn ? [] : [FLUSH_NEST_INACTIVE]),
+        ...(flushOn && deliveryOn ? [] : [FLUSH_NEST_INACTIVE]),
         ...(deliveryOn ? [] : [DELIVERY_PIPELINE_INACTIVE]),
         HISTORICAL_REVIEW_HOLD_NOT_AUTO_PROMOTED,
       ],
@@ -464,13 +533,14 @@ export async function prepareScheduleDeliveryAfterConfirmation(
     eventId: persistedRow.eventId,
     outboxStatus: promoted ? OUTBOX_FLUSHABLE_STATUS : OUTBOX_REVIEW_HOLD_STATUS,
     persistAttempts: persistedRow.attempts,
-    intentSaved: intent.saved,
+    intentSaved: intent.ok,
+    intentImmutable: intent.ok && !intent.inserted,
     promoted,
     flushed,
+    wroteSchedule: true,
   }
 }
 
-/** Recover vía RPC service_role (inserta review_hold; nunca pending). */
 export async function recoverMissingScheduleOutboxViaRpc(
   admin: SupabaseClient,
   limit = 50,
@@ -485,8 +555,11 @@ export async function recoverMissingScheduleOutboxViaRpc(
     logSafe('recover_rpc_failed', error.message.slice(0, 80))
     return { ok: false, recovered: 0, reason: 'recover_rpc_failed' }
   }
-  const recovered = typeof data === 'number' ? data : Number(data) || 0
-  return { ok: true, recovered, reason: 'recovered' }
+  return {
+    ok: true,
+    recovered: typeof data === 'number' ? data : Number(data) || 0,
+    reason: 'recovered',
+  }
 }
 
 export async function recoverMissingScheduleReviewHold(

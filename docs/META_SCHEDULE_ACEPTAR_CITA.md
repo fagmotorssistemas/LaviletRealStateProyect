@@ -21,12 +21,20 @@ Reversiones en `supabase/rollbacks/…_down.sql` (conservan datos outbox/CTWA).
 
 ## Controles (todos desactivados por defecto)
 
+Con **todos** off: **cero** escrituras Schedule (ni intent ni outbox).
+
 | Variable | Efecto |
 | --- | --- |
-| `META_SCHEDULE_LOCAL_PERSIST=true` | Inserta `review_hold` |
-| `META_SCHEDULE_DELIVERY_ENABLED=true` | Permite promote de **esta** cita a `pending` tras revalidar |
-| `META_SCHEDULE_FLUSH=true` | Flush→Nest solo si delivery también on |
-| `META_SCHEDULE_RECOVER_ENABLED=true` | Nest/cron llama `lv_recover_missing_meta_schedule_outbox` |
+| `META_SCHEDULE_LOCAL_PERSIST=true` | Intent atómico + `review_hold` |
+| `META_SCHEDULE_DELIVERY_ENABLED=true` | Promote cita actual + drain Nest de Schedule |
+| `META_SCHEDULE_FLUSH=true` | Flush FE→Nest (exige delivery) |
+| `META_SCHEDULE_RECOVER_ENABLED=true` | RPC recover → `review_hold` o `needs_review` |
+
+Intent (`lv_register_meta_schedule_intent`): una sola vez; `event_id`/`event_time` inmutables. Fallo Meta no revierte la cita.
+
+Recover revalida canal; sin evidencia → `needs_review` + motivo (`channel_pending_evidence`, etc.); **nunca** asume `website`.
+
+Migraciones en secuencia: `17152000` (review_hold **+** needs_review) → `17160000` (intent/recover).
 
 ## Recuperación durable
 

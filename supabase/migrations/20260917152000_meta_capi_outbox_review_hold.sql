@@ -1,5 +1,5 @@
 -- Preparada para revisión. NO aplicar a Production en este cambio.
--- Permite filas Schedule de revisión que el flush local y el drain Nest no deben enviar.
+-- Permite review_hold SIN eliminar needs_review (estado ya existente).
 BEGIN;
 
 ALTER TABLE public.meta_capi_outbox
@@ -7,9 +7,16 @@ ALTER TABLE public.meta_capi_outbox
 
 ALTER TABLE public.meta_capi_outbox
   ADD CONSTRAINT meta_capi_outbox_status_check
-  CHECK (status IN ('pending', 'forwarded', 'cancelled', 'dead', 'review_hold'));
+  CHECK (status IN (
+    'pending',
+    'forwarded',
+    'cancelled',
+    'dead',
+    'needs_review',
+    'review_hold'
+  ));
 
 COMMENT ON COLUMN public.meta_capi_outbox.status IS
-  'pending=cola activa (flush/Nest). review_hold=solo revisión; consumidores deben excluirla.';
+  'pending=cola activa. review_hold=revisión Schedule. needs_review=retenido. forwarded/cancelled/dead=terminal.';
 
 COMMIT;

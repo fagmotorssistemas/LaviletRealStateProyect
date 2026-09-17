@@ -13,7 +13,7 @@ import {
   SCHEDULE_QUEUE_INACTIVE,
   WHATSAPP_SCHEDULE_DELIVERY_PENDING,
 } from './scheduleEligibility'
-import { LOCAL_PERSIST_INACTIVE } from './scheduleContract'
+import { LOCAL_PERSIST_INACTIVE, ALL_SCHEDULE_CONTROLS_OFF } from './scheduleContract'
 
 const APPT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 const LEAD = '11111111-2222-4333-8444-555555555555'
@@ -183,6 +183,7 @@ describe('evaluación separada de cola (sin persistencia ni envío)', () => {
     assert.equal(enqueued.ok, false)
     assert.ok(
       enqueued.reason === LOCAL_PERSIST_INACTIVE ||
+        enqueued.reason === ALL_SCHEDULE_CONTROLS_OFF ||
         enqueued.reason === 'service_role_required_for_outbox',
     )
   })
@@ -205,6 +206,7 @@ describe('evaluación separada de cola (sin persistencia ni envío)', () => {
     assert.equal(enqueued.ok, false)
     assert.ok(
       enqueued.reason === LOCAL_PERSIST_INACTIVE ||
+        enqueued.reason === ALL_SCHEDULE_CONTROLS_OFF ||
         enqueued.reason === 'service_role_required_for_outbox',
     )
   })

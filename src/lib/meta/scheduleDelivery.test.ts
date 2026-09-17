@@ -127,19 +127,29 @@ describe('loadCtwaClidForAppointmentScope', () => {
 })
 
 describe('prepareScheduleDeliveryAfterConfirmation', () => {
-  it('sin flag: no persiste', async () => {
+  it('sin flag: no persiste ni escribe', async () => {
     let persistCalls = 0
+    let intentCalls = 0
     const sb = supabaseMock({ channel: 'web', consent: true })
     const result = await prepareScheduleDeliveryAfterConfirmation(sb, APPT, {
       getLeadAdsConsent: async () => true,
       adminClient: sb,
+      allowLocalPersist: false,
+      registerIntent: async () => {
+        intentCalls += 1
+        throw new Error('no')
+      },
       persist: async () => {
         persistCalls += 1
         return { inserted: true, eventId: 'e1', rowId: 'r1', status: OUTBOX_REVIEW_HOLD_STATUS }
       },
     })
     assert.equal(persistCalls, 0)
-    assert.equal(result.reason, LOCAL_PERSIST_INACTIVE)
+    assert.equal(intentCalls, 0)
+    assert.ok(
+      result.reason === LOCAL_PERSIST_INACTIVE ||
+        result.reason === 'all_schedule_controls_off',
+    )
   })
 
   it('persist review_hold con dedupe; nunca pending flushable', async () => {
@@ -149,6 +159,13 @@ describe('prepareScheduleDeliveryAfterConfirmation', () => {
       getLeadAdsConsent: async () => true,
       allowLocalPersist: true,
       adminClient: sb,
+      registerIntent: async (input) => ({
+        ok: true,
+        inserted: true,
+        eventId: input.eventId,
+        eventTime: input.eventTime,
+        channel: input.channelKind,
+      }),
       persist: async (_sb, input) => {
         assert.equal(input.status, OUTBOX_REVIEW_HOLD_STATUS)
         assert.equal(isOutboxStatusFlushable(input.status!), false)
@@ -177,6 +194,13 @@ describe('prepareScheduleDeliveryAfterConfirmation', () => {
       ctwaClient: null,
       wabaId: 'waba-1',
       messagingDatasetId: 'dataset-1',
+      registerIntent: async (input) => ({
+        ok: true,
+        inserted: true,
+        eventId: input.eventId,
+        eventTime: input.eventTime,
+        channel: 'whatsapp',
+      }),
       persist: async (_sb, input) => ({
         inserted: true,
         eventId: 'e-wa',
@@ -201,6 +225,13 @@ describe('prepareScheduleDeliveryAfterConfirmation', () => {
       ctwaClient: sb,
       wabaId: 'waba-1',
       messagingDatasetId: 'dataset-1',
+      registerIntent: async (input) => ({
+        ok: true,
+        inserted: true,
+        eventId: input.eventId,
+        eventTime: input.eventTime,
+        channel: 'whatsapp',
+      }),
       persist: async (_s, input) => ({
         inserted: true,
         eventId: 'e-ctwa',

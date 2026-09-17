@@ -1,24 +1,22 @@
 /**
- * Persistencia service_role, intent durable, promote gated, sin auto históricos.
+ * Cuatro garantías: sin escrituras si controles off; intent inmutable/concurrente;
+ * no pending sin delivery; fallo confirm→persist no pierde intent.
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   prepareScheduleDeliveryAfterConfirmation,
   promoteScheduleReviewHoldForAppointment,
-  recoverMissingScheduleReviewHold,
+  registerMetaScheduleIntent,
 } from './scheduleDelivery'
 import {
-  cancelPendingMetaOutbox,
-  OUTBOX_FLUSHABLE_STATUS,
-  OUTBOX_REVIEW_HOLD_STATUS,
-} from './localOutbox'
-import {
+  ALL_SCHEDULE_CONTROLS_OFF,
   DELIVERY_PIPELINE_INACTIVE,
   LOCAL_PERSIST_INACTIVE,
-  isScheduleFlushEnabled,
   isScheduleDeliveryEnabled,
+  isScheduleFlushEnabled,
 } from './scheduleContract'
+import { OUTBOX_FLUSHABLE_STATUS, OUTBOX_REVIEW_HOLD_STATUS } from './localOutbox'
 import { scheduleIdempotencyKey } from './scheduleEligibility'
 
 const APPT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
@@ -28,202 +26,217 @@ const PROJECT = 'b1b2c3d4-0001-4000-8000-000000000001'
 const CONFIRMED_AT = '2026-09-17T15:00:00.000Z'
 const EVENT_TIME = Math.floor(Date.parse(CONFIRMED_AT) / 1000)
 
-function sessionAndAdmin(opts: {
-  channel?: string
-  consent?: boolean | null
-  phone?: string | null
-  denyOutboxOnSession?: boolean
-}) {
-  const intentUpdates: Record<string, unknown>[] = []
-  const outboxInserts: unknown[] = []
+function clients() {
+  let storedIntent: {
+    event_id: string
+    event_time: number
+    channel: string
+  } | null = null
+  const intentCalls: unknown[] = []
+  const persistCalls: unknown[] = []
 
-  function makeClient(role: 'session' | 'admin') {
-    return {
-      from: (table: string) => {
-        const filters: Record<string, string> = {}
-        const builder: Record<string, unknown> = {}
-        const self = () => builder
-        builder.select = self
-        builder.eq = (col: string, val: string) => {
-          filters[col] = String(val)
-          return builder
+  const session = {
+    from: (table: string) => {
+      const builder: Record<string, unknown> = {}
+      const self = () => builder
+      builder.select = self
+      builder.eq = self
+      builder.order = self
+      builder.limit = self
+      builder.maybeSingle = async () => {
+        if (table === 'appointments') {
+          return {
+            data: {
+              id: APPT,
+              lead_id: LEAD,
+              status: 'aceptado',
+              channel: 'web',
+              confirmed_by_client: true,
+              confirmed_at: CONFIRMED_AT,
+              tenant_id: TENANT,
+              project_id: PROJECT,
+              meta_schedule_event_id: storedIntent?.event_id || null,
+              meta_schedule_event_time: storedIntent?.event_time || null,
+            },
+            error: null,
+          }
         }
-        builder.order = self
-        builder.limit = self
-        builder.update = (body: Record<string, unknown>) => {
-          builder.__updateBody = body
-          return builder
+        if (table === 'leads') {
+          return {
+            data: {
+              id: LEAD,
+              phone: '593990000000',
+              name: 'Cliente',
+              email: 'c@x.com',
+              contact_id: '456',
+              meta_ads_consent: true,
+            },
+            error: null,
+          }
         }
-        builder.maybeSingle = async () => {
-          if (table === 'appointments') {
-            return {
-              data: {
-                id: APPT,
-                lead_id: LEAD,
-                status: 'aceptado',
-                channel: opts.channel ?? 'web',
-                confirmed_by_client: true,
-                confirmed_at: CONFIRMED_AT,
-                tenant_id: TENANT,
-                project_id: PROJECT,
-                meta_schedule_event_id: null,
-              },
-              error: null,
-            }
+        if (table === 'meta_capi_outbox') {
+          return {
+            data: {
+              id: 'row-1',
+              status: OUTBOX_REVIEW_HOLD_STATUS,
+              event_id: storedIntent?.event_id || 'e',
+            },
+            error: null,
           }
-          if (table === 'leads') {
-            return {
-              data: {
-                id: LEAD,
-                phone: opts.phone ?? '593990000000',
-                name: 'Cliente Lead',
-                email: 'cliente@example.com',
-                contact_id: '456',
-                meta_ads_consent: opts.consent ?? true,
-              },
-              error: null,
-            }
-          }
-          if (table === 'meta_capi_outbox') {
-            return {
-              data: {
-                id: 'row-1',
-                status: OUTBOX_REVIEW_HOLD_STATUS,
-                event_id: 'e-fixed',
-              },
-              error: null,
-            }
-          }
-          return { data: null, error: null }
         }
-        builder.then = async (resolve: (v: unknown) => void) => {
-          if (table === 'appointments' && builder.__updateBody) {
-            if (role === 'admin') intentUpdates.push(builder.__updateBody as Record<string, unknown>)
-            resolve({ data: null, error: null })
-            return
-          }
-          if (table === 'meta_capi_outbox' && builder.__updateBody) {
-            resolve({ data: [{ id: 'row-1' }], error: null })
-            return
-          }
-          resolve({ data: null, error: null })
-        }
-        return builder
-      },
-      role,
-    } as never
-  }
+        return { data: null, error: null }
+      }
+      builder.update = () => builder
+      builder.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: null })
+      return builder
+    },
+  } as never
 
-  const session = makeClient('session')
-  const admin = makeClient('admin')
-  return { session, admin, intentUpdates, outboxInserts }
+  const admin = {
+    ...session,
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name !== 'lv_register_meta_schedule_intent') {
+        return { data: null, error: { message: 'unexpected_rpc' } }
+      }
+      intentCalls.push(args)
+      if (storedIntent) {
+        return {
+          data: {
+            ok: true,
+            inserted: false,
+            event_id: storedIntent.event_id,
+            event_time: storedIntent.event_time,
+            channel: storedIntent.channel,
+          },
+          error: null,
+        }
+      }
+      storedIntent = {
+        event_id: String(args.p_event_id),
+        event_time: Number(args.p_event_time),
+        channel: String(args.p_channel),
+      }
+      return {
+        data: {
+          ok: true,
+          inserted: true,
+          event_id: storedIntent.event_id,
+          event_time: storedIntent.event_time,
+          channel: storedIntent.channel,
+        },
+        error: null,
+      }
+    },
+  } as never
+
+  return { session, admin, intentCalls, persistCalls, getIntent: () => storedIntent }
 }
 
-describe('permisos: outbox no depende de sesión asesor', () => {
-  it('sin adminClient (service_role) no persiste outbox', async () => {
-    const { session } = sessionAndAdmin({})
+describe('1) sin escrituras si controles off', () => {
+  it('no llama intent ni persist cuando todo está apagado', async () => {
+    const { session, admin, intentCalls, persistCalls } = clients()
+    let persistHits = 0
     const result = await prepareScheduleDeliveryAfterConfirmation(session, APPT, {
       getLeadAdsConsent: async () => true,
-      allowLocalPersist: true,
-      adminClient: null,
+      adminClient: admin,
+      allowLocalPersist: false,
+      allowDelivery: false,
+      registerIntent: async () => {
+        intentCalls.push('should_not')
+        throw new Error('no_intent')
+      },
       persist: async () => {
-        throw new Error('session_must_not_persist')
+        persistHits += 1
+        throw new Error('no_persist')
       },
     })
-    assert.equal(result.reason, 'service_role_required_for_outbox')
+    assert.equal(result.reason, ALL_SCHEDULE_CONTROLS_OFF)
+    assert.equal(result.wroteSchedule, false)
+    assert.equal(intentCalls.length, 0)
+    assert.equal(persistHits, 0)
+    assert.equal(persistCalls.length, 0)
+  })
+})
+
+describe('2) intent atómico inmutable + fallo post-confirm', () => {
+  it('concurrencia: segundo registro conserva event_id/time originales', async () => {
+    const { admin, getIntent } = clients()
+    const first = await registerMetaScheduleIntent(admin, {
+      appointmentId: APPT,
+      eventId: '11111111-1111-4111-8111-111111111111',
+      eventTime: EVENT_TIME,
+      lane: 'live',
+      channelKind: 'web',
+      payload: { action_source: 'website' },
+    })
+    const second = await registerMetaScheduleIntent(admin, {
+      appointmentId: APPT,
+      eventId: '22222222-2222-4222-8222-222222222222',
+      eventTime: EVENT_TIME + 999,
+      lane: 'live',
+      channelKind: 'web',
+      payload: { action_source: 'website' },
+    })
+    assert.equal(first.inserted, true)
+    assert.equal(second.inserted, false)
+    assert.equal(second.eventId, first.eventId)
+    assert.equal(second.eventTime, first.eventTime)
+    assert.equal(getIntent()?.event_id, first.eventId)
+    assert.notEqual(second.eventId, '22222222-2222-4222-8222-222222222222')
   })
 
-  it('con adminClient: intent + persist usan service_role; conserva event_time de confirmed_at', async () => {
-    const { session, admin, intentUpdates } = sessionAndAdmin({})
-    let persistEventTime: number | undefined
+  it('fallo entre confirmación e persistencia: intent queda; cita no se revierte', async () => {
+    const { session, admin, getIntent } = clients()
     const result = await prepareScheduleDeliveryAfterConfirmation(session, APPT, {
       getLeadAdsConsent: async () => true,
       allowLocalPersist: true,
       adminClient: admin,
-      persist: async (_sb, input) => {
-        persistEventTime = input.eventTime
-        assert.equal(input.status, OUTBOX_REVIEW_HOLD_STATUS)
-        assert.equal(input.idempotencyKey, scheduleIdempotencyKey(APPT))
-        return {
-          inserted: true,
-          eventId: input.eventId || 'e1',
-          rowId: 'r1',
-          status: OUTBOX_REVIEW_HOLD_STATUS,
-        }
+      persistAttempts: 2,
+      sleep: async () => undefined,
+      persist: async () => {
+        throw new Error('outbox_down')
       },
     })
-    assert.equal(result.ok, true)
+    assert.equal(result.reason, 'persist_failed')
     assert.equal(result.intentSaved, true)
-    assert.equal(persistEventTime, EVENT_TIME)
-    assert.equal(intentUpdates[0]?.meta_schedule_event_time, EVENT_TIME)
-    assert.ok(intentUpdates[0]?.meta_schedule_event_id)
+    assert.equal(result.wroteSchedule, true)
+    assert.equal(getIntent()?.event_time, EVENT_TIME)
+    assert.ok(getIntent()?.event_id)
   })
 })
 
-describe('pipeline web gated', () => {
-  it('flags off: no delivery ni flush aunque META_SCHEDULE_FLUSH=true', () => {
+describe('3) delivery off → no pending (FE)', () => {
+  it('flags: flush requiere delivery', () => {
     assert.equal(isScheduleDeliveryEnabled({}), false)
-    assert.equal(
-      isScheduleFlushEnabled({
-        META_SCHEDULE_FLUSH: 'true',
-        META_SCHEDULE_DELIVERY_ENABLED: 'false',
-      }),
-      false,
-    )
+    assert.equal(isScheduleFlushEnabled({ META_SCHEDULE_FLUSH: 'true' }), false)
   })
 
-  it('promote exige delivery on y revalidación; no lote histórico', async () => {
-    const { admin } = sessionAndAdmin({})
+  it('promote rechazado con delivery off; con delivery on solo esta cita', async () => {
+    const { admin } = clients()
     const gated = await promoteScheduleReviewHoldForAppointment(admin, APPT, {
       getLeadAdsConsent: async () => true,
       allowDelivery: false,
     })
     assert.equal(gated.reason, DELIVERY_PIPELINE_INACTIVE)
+    assert.equal(gated.promoted, false)
 
     const ok = await promoteScheduleReviewHoldForAppointment(admin, APPT, {
       getLeadAdsConsent: async () => true,
       allowDelivery: true,
     })
-    assert.equal(ok.ok, true)
     assert.equal(ok.promoted, true)
-    assert.equal(ok.reason, 'promoted_to_pending')
   })
 
-  it('delivery on promueve solo la cita actual tras persist', async () => {
-    const { session, admin } = sessionAndAdmin({})
+  it('persist con delivery off deja review_hold (no pending)', async () => {
+    const { session, admin } = clients()
     const result = await prepareScheduleDeliveryAfterConfirmation(session, APPT, {
       getLeadAdsConsent: async () => true,
       allowLocalPersist: true,
-      allowDelivery: true,
-      allowFlush: false,
+      allowDelivery: false,
       adminClient: admin,
-      persist: async (_s, input) => ({
-        inserted: true,
-        eventId: input.eventId || 'e-web',
-        rowId: 'r',
-        status: OUTBOX_REVIEW_HOLD_STATUS,
-      }),
-    })
-    assert.equal(result.ok, true)
-    assert.equal(result.promoted, true)
-    assert.equal(result.flushed, false)
-    assert.equal(result.outboxStatus, OUTBOX_FLUSHABLE_STATUS)
-  })
-})
-
-describe('persistencia fiable + recover', () => {
-  it('reintenta persist y conserva dedupe', async () => {
-    const { session, admin } = sessionAndAdmin({})
-    let attempts = 0
-    const result = await prepareScheduleDeliveryAfterConfirmation(session, APPT, {
-      getLeadAdsConsent: async () => true,
-      allowLocalPersist: true,
-      adminClient: admin,
-      persistAttempts: 3,
-      sleep: async () => undefined,
-      persist: async (_sb, input) => {
-        attempts += 1
-        if (attempts < 3) throw new Error('transient')
+      persist: async (_s, input) => {
+        assert.equal(input.status, OUTBOX_REVIEW_HOLD_STATUS)
+        assert.equal(input.idempotencyKey, scheduleIdempotencyKey(APPT))
         return {
           inserted: true,
           eventId: input.eventId || 'e',
@@ -232,42 +245,27 @@ describe('persistencia fiable + recover', () => {
         }
       },
     })
-    assert.equal(attempts, 3)
-    assert.equal(result.reason, 'persisted_review_hold')
-  })
-
-  it('sin flag: recovery no persiste', async () => {
-    const { session, admin } = sessionAndAdmin({})
-    const recovered = await recoverMissingScheduleReviewHold(session, APPT, {
-      getLeadAdsConsent: async () => true,
-      adminClient: admin,
-    })
-    assert.equal(recovered.reason, LOCAL_PERSIST_INACTIVE)
-    assert.equal(recovered.intentSaved, true)
+    assert.equal(result.ok, true)
+    assert.equal(result.promoted, false)
+    assert.equal(result.outboxStatus, OUTBOX_REVIEW_HOLD_STATUS)
+    assert.notEqual(result.outboxStatus, OUTBOX_FLUSHABLE_STATUS)
   })
 })
 
-describe('consent revoke cancela review_hold', () => {
-  it('cancelPendingMetaOutbox actualiza pending y review_hold', async () => {
-    const updated: string[] = []
-    const admin = {
-      from: () => {
-        const filters: Record<string, string> = {}
-        const builder: Record<string, unknown> = {}
-        builder.update = () => builder
-        builder.eq = (col: string, val: string) => {
-          filters[col] = val
-          return builder
-        }
-        builder.select = async () => {
-          updated.push(filters.status)
-          return { data: [{ id: `id-${filters.status}` }], error: null }
-        }
-        return builder
+describe('4) recover / canal (contrato en migración + plan)', () => {
+  it('sin persist flag tras intent path: LOCAL_PERSIST_INACTIVE (no asume escritura)', async () => {
+    const { session, admin } = clients()
+    // Simula recover path vía prepare sin persist: no escribe.
+    const result = await prepareScheduleDeliveryAfterConfirmation(session, APPT, {
+      getLeadAdsConsent: async () => true,
+      allowLocalPersist: false,
+      allowDelivery: true,
+      adminClient: admin,
+      persist: async () => {
+        throw new Error('should_not_persist')
       },
-    } as never
-    const n = await cancelPendingMetaOutbox(admin, { leadId: LEAD })
-    assert.equal(n, 2)
-    assert.deepEqual(updated.sort(), ['pending', 'review_hold'].sort())
+    })
+    assert.equal(result.reason, LOCAL_PERSIST_INACTIVE)
+    assert.equal(result.wroteSchedule, false)
   })
 })

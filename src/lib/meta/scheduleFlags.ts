@@ -1,6 +1,6 @@
 /**
  * Controles Schedule (todos OFF por defecto).
- * Pipeline web completo existe en código; no envía sin flags explícitos.
+ * Sin flags: ninguna escritura Schedule (intent/outbox).
  */
 
 export const LOCAL_PERSIST_INACTIVE = 'local_persist_inactive_review' as const
@@ -9,8 +9,9 @@ export const DELIVERY_PIPELINE_INACTIVE = 'schedule_delivery_pipeline_inactive' 
 export const PROMOTE_REQUIRES_REVALIDATION = 'promote_requires_revalidation' as const
 export const HISTORICAL_REVIEW_HOLD_NOT_AUTO_PROMOTED =
   'historical_review_hold_not_auto_promoted' as const
+export const ALL_SCHEDULE_CONTROLS_OFF = 'all_schedule_controls_off' as const
 
-/** Persistencia review_hold (revisión). Default off. */
+/** Persistencia review_hold + registro de intent. Default off. */
 export function isScheduleLocalPersistEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -20,8 +21,8 @@ export function isScheduleLocalPersistEnabled(
 }
 
 /**
- * Pipeline web hasta Nest (promote explícito de la cita actual + flush).
- * Default off. No promueve review_hold históricos en lote.
+ * Entrega efectiva (promote→pending + flush FE + drain Nest Schedule).
+ * Default off. Sin esto no se pasa a pending ni se drena Schedule.
  */
 export function isScheduleDeliveryEnabled(
   env: NodeJS.ProcessEnv = process.env,
@@ -31,10 +32,7 @@ export function isScheduleDeliveryEnabled(
     .toLowerCase() === 'true'
 }
 
-/**
- * Flush outbox→Nest solo si delivery está on Y flush explícito.
- * Default off aunque META_SCHEDULE_FLUSH=true (doble candado).
- */
+/** Flush FE→Nest solo con delivery on + flush explícito. */
 export function isScheduleFlushEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -44,11 +42,22 @@ export function isScheduleFlushEnabled(
     .toLowerCase() === 'true'
 }
 
-/** Recover automático de intents faltantes (Nest drain / cron). Default off. */
+/** Recover de intents faltantes. Default off. */
 export function isScheduleRecoverEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return String(env.META_SCHEDULE_RECOVER_ENABLED || '')
     .trim()
     .toLowerCase() === 'true'
+}
+
+/** ¿Algún control permite escritura Schedule? */
+export function isScheduleWritePathEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    isScheduleLocalPersistEnabled(env) ||
+    isScheduleDeliveryEnabled(env) ||
+    isScheduleRecoverEnabled(env)
+  )
 }

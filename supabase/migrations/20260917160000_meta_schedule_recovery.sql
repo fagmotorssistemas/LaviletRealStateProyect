@@ -1,12 +1,9 @@
 -- Preparada para revisión. NO aplicar a Production en este cambio.
--- Intent durable Schedule + recover automático (review_hold, sin promover a pending).
--- Incluye needs_review en el CHECK (quedó fuera en review_hold).
+-- Intent durable Schedule (inmutable) + recover que revalida canal (nunca asume website).
 
 BEGIN;
 
--- ---------------------------------------------------------------------------
--- 1) Status outbox: needs_review + review_hold
--- ---------------------------------------------------------------------------
+-- CHECK ya incluye needs_review+review_hold tras 20260917152000; se reafirma.
 ALTER TABLE public.meta_capi_outbox
   DROP CONSTRAINT IF EXISTS meta_capi_outbox_status_check;
 
@@ -21,12 +18,6 @@ ALTER TABLE public.meta_capi_outbox
     'review_hold'
   ));
 
-COMMENT ON COLUMN public.meta_capi_outbox.status IS
-  'pending=cola activa. review_hold=revisión Schedule (no flush). needs_review=retenido. forwarded/cancelled/dead=terminal.';
-
--- ---------------------------------------------------------------------------
--- 2) Intent durable en appointments (fecha real de confirmación)
--- ---------------------------------------------------------------------------
 ALTER TABLE public.appointments
   ADD COLUMN IF NOT EXISTS meta_schedule_event_id uuid,
   ADD COLUMN IF NOT EXISTS meta_schedule_event_time bigint,
@@ -36,23 +27,112 @@ ALTER TABLE public.appointments
       OR meta_schedule_delivery_lane IN ('test', 'live')
     ),
   ADD COLUMN IF NOT EXISTS meta_schedule_payload jsonb,
+  ADD COLUMN IF NOT EXISTS meta_schedule_channel text,
   ADD COLUMN IF NOT EXISTS meta_schedule_intent_at timestamptz;
 
 COMMENT ON COLUMN public.appointments.meta_schedule_event_id IS
-  'event_id CAPI Schedule; se fija en la confirmación del cliente y se reutiliza en recover/dedupe.';
+  'event_id CAPI Schedule; inmutable tras el primer registro autorizado.';
 COMMENT ON COLUMN public.appointments.meta_schedule_event_time IS
-  'Unix seconds de la confirmación real (confirmed_at), no Date.now() en recover.';
-COMMENT ON COLUMN public.appointments.meta_schedule_payload IS
-  'Payload de revisión Schedule (sin PII del asesor). Base para recover si falla outbox.';
+  'Unix seconds de confirmed_at; inmutable tras el primer registro.';
+COMMENT ON COLUMN public.appointments.meta_schedule_channel IS
+  'Canal evidenciado al registrar el intent (web|whatsapp|pending); recover lo revalida.';
 
 CREATE INDEX IF NOT EXISTS idx_appointments_meta_schedule_recover
   ON public.appointments (meta_schedule_intent_at)
   WHERE meta_schedule_event_id IS NOT NULL
     AND confirmed_by_client IS TRUE;
 
--- ---------------------------------------------------------------------------
--- 3) Recover: inserta review_hold faltante; NUNCA pending (no auto-promueve)
--- ---------------------------------------------------------------------------
+-- Registra intent una sola vez. No falla la cita: solo service_role post-confirm.
+CREATE OR REPLACE FUNCTION public.lv_register_meta_schedule_intent(
+  p_appointment_id uuid,
+  p_event_id uuid,
+  p_event_time bigint,
+  p_lane text,
+  p_channel text,
+  p_payload jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  a public.appointments%ROWTYPE;
+  v_lane text;
+  v_channel text;
+BEGIN
+  IF p_appointment_id IS NULL OR p_event_id IS NULL OR p_event_time IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'invalid_args');
+  END IF;
+
+  SELECT * INTO a FROM public.appointments WHERE id = p_appointment_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'appointment_not_found');
+  END IF;
+
+  IF a.confirmed_by_client IS NOT TRUE OR a.status NOT IN ('aceptado', 'reprogramado') THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'not_client_confirmed');
+  END IF;
+
+  -- Ya registrado: devolver valores inmutables (concurrencia / reintento).
+  IF a.meta_schedule_event_id IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'ok', true,
+      'inserted', false,
+      'event_id', a.meta_schedule_event_id,
+      'event_time', a.meta_schedule_event_time,
+      'channel', a.meta_schedule_channel,
+      'delivery_lane', a.meta_schedule_delivery_lane
+    );
+  END IF;
+
+  v_lane := CASE WHEN p_lane IN ('test', 'live') THEN p_lane ELSE 'live' END;
+  v_channel := lower(trim(COALESCE(p_channel, '')));
+  IF v_channel NOT IN ('web', 'whatsapp', 'pending') THEN
+    v_channel := 'pending';
+  END IF;
+
+  UPDATE public.appointments
+  SET
+    meta_schedule_event_id = p_event_id,
+    meta_schedule_event_time = p_event_time,
+    meta_schedule_delivery_lane = v_lane,
+    meta_schedule_payload = COALESCE(p_payload, '{}'::jsonb),
+    meta_schedule_channel = v_channel,
+    meta_schedule_intent_at = now()
+  WHERE id = p_appointment_id
+    AND meta_schedule_event_id IS NULL;
+
+  IF NOT FOUND THEN
+    -- Carrera: otro worker ganó el UPDATE.
+    SELECT * INTO a FROM public.appointments WHERE id = p_appointment_id;
+    RETURN jsonb_build_object(
+      'ok', true,
+      'inserted', false,
+      'event_id', a.meta_schedule_event_id,
+      'event_time', a.meta_schedule_event_time,
+      'channel', a.meta_schedule_channel,
+      'delivery_lane', a.meta_schedule_delivery_lane
+    );
+  END IF;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'inserted', true,
+    'event_id', p_event_id,
+    'event_time', p_event_time,
+    'channel', v_channel,
+    'delivery_lane', v_lane
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.lv_register_meta_schedule_intent(uuid, uuid, bigint, text, text, jsonb)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.lv_register_meta_schedule_intent(uuid, uuid, bigint, text, text, jsonb)
+  TO service_role;
+
+-- Recover: revalida canal; sin evidencia → needs_review (nunca asume website).
 CREATE OR REPLACE FUNCTION public.lv_recover_missing_meta_schedule_outbox(
   p_limit integer DEFAULT 50
 )
@@ -68,6 +148,10 @@ DECLARE
   v_lane text;
   v_payload jsonb;
   v_key text;
+  v_channel text;
+  v_action text;
+  v_status text;
+  v_error text;
 BEGIN
   FOR r IN
     SELECT
@@ -77,9 +161,10 @@ BEGIN
       a.meta_schedule_event_time AS event_time,
       a.meta_schedule_delivery_lane AS delivery_lane,
       a.meta_schedule_payload AS stored_payload,
+      a.meta_schedule_channel AS intent_channel,
       a.tenant_id,
       a.project_id,
-      a.channel,
+      a.channel AS appointment_channel,
       l.phone,
       l.name,
       l.email,
@@ -104,10 +189,52 @@ BEGIN
       WHEN r.delivery_lane IN ('test', 'live') THEN r.delivery_lane
       ELSE 'live'
     END;
+
     v_payload := COALESCE(r.stored_payload, '{}'::jsonb);
+    v_channel := lower(trim(COALESCE(
+      NULLIF(r.intent_channel, ''),
+      CASE lower(trim(COALESCE(r.appointment_channel, '')))
+        WHEN 'web' THEN 'web'
+        WHEN 'website' THEN 'web'
+        WHEN 'whatsapp' THEN 'whatsapp'
+        WHEN 'waba' THEN 'whatsapp'
+        ELSE 'pending'
+      END
+    )));
+
+    v_action := lower(trim(COALESCE(v_payload ->> 'action_source', '')));
+
+    -- Revalidar canal: no inventar website.
+    IF v_channel = 'web' THEN
+      IF v_action = '' OR v_action = 'website' THEN
+        v_action := 'website';
+        v_status := 'review_hold';
+        v_error := 'recovered_missing_schedule_outbox';
+      ELSE
+        v_status := 'needs_review';
+        v_error := 'recovered_channel_action_mismatch';
+      END IF;
+    ELSIF v_channel = 'whatsapp' THEN
+      v_status := 'needs_review';
+      v_error := 'whatsapp_schedule_delivery_blocked';
+      IF v_action = '' THEN
+        v_action := 'business_messaging';
+      END IF;
+    ELSE
+      v_status := 'needs_review';
+      v_error := 'channel_pending_evidence';
+      v_action := COALESCE(NULLIF(v_action, ''), 'other');
+    END IF;
+
+    -- Sin teléfono / payload insuficiente → retener.
+    IF NULLIF(trim(COALESCE(r.phone, v_payload ->> 'phone', '')), '') IS NULL THEN
+      v_status := 'needs_review';
+      v_error := 'recovered_insufficient_payload_phone';
+    END IF;
+
     IF v_payload = '{}'::jsonb THEN
       v_payload := jsonb_build_object(
-        'action_source', 'website',
+        'action_source', v_action,
         'phone', r.phone,
         'full_name', r.name,
         'email', r.email,
@@ -116,10 +243,15 @@ BEGIN
         'appointment_id', r.appointment_id::text,
         'tenant_id', r.tenant_id,
         'project_id', r.project_id,
+        'channel_kind', v_channel,
         'recovered', true
       );
     ELSE
-      v_payload := v_payload || jsonb_build_object('recovered', true);
+      v_payload := v_payload || jsonb_build_object(
+        'recovered', true,
+        'action_source', COALESCE(NULLIF(v_payload ->> 'action_source', ''), v_action),
+        'channel_kind', v_channel
+      );
     END IF;
 
     INSERT INTO public.meta_capi_outbox (
@@ -139,11 +271,11 @@ BEGIN
       'Schedule',
       r.event_time,
       v_payload,
-      'review_hold',
+      v_status,
       v_lane,
       r.lead_id,
       true,
-      'recovered_missing_schedule_outbox'
+      v_error
     )
     ON CONFLICT (idempotency_key) DO NOTHING;
 
@@ -163,6 +295,6 @@ GRANT EXECUTE ON FUNCTION public.lv_recover_missing_meta_schedule_outbox(integer
   TO service_role;
 
 COMMENT ON FUNCTION public.lv_recover_missing_meta_schedule_outbox(integer) IS
-  'Recupera Schedule faltante en outbox como review_hold (nunca pending). Conserva event_time de confirmación. Solo service_role.';
+  'Recupera Schedule faltante. Revalida canal; sin evidencia → needs_review (nunca asume website). Conserva event_id/time. Solo service_role.';
 
 COMMIT;
