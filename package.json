@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/print-env-banner.cjs && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "env:remote": "node scripts/restore-remote-env-local.cjs",
+    "env:local-financing": "node scripts/use-local-financing-env.cjs",
     "tour:resize": "node scripts/tour-resize.mjs",
     "test:meta-pg": "node scripts/meta-pg-harness.mjs",
     "test:integrations": "node --test scripts/integrations.test.cjs",

@@ -50,8 +50,10 @@ export type UnitCalcState = {
   monthlyRent: number
   vacancyRate: number
   expenses: ExpenseBreakdown
-  annualManagement: number
-  annualIncomeTaxEstimate: number
+  /** Incluye IR 25% sobre alquiler efectivo. */
+  includeIncomeTax: boolean
+  /** Incluye comisión gestor 8% sobre alquiler efectivo. */
+  includePropertyManager: boolean
   acquisitionCosts: number
   annualOtherFinancialCosts: number
   monthlyExtraCharges: number
@@ -79,8 +81,8 @@ const defaultUnitState = (): UnitCalcState => ({
   monthlyRent: 0,
   vacancyRate: 0.05,
   expenses: { propertyTax: 0, maintenance: 0, insurance: 0, other: 0, total: 0 },
-  annualManagement: 0,
-  annualIncomeTaxEstimate: 0,
+  includeIncomeTax: true,
+  includePropertyManager: true,
   acquisitionCosts: 0,
   annualOtherFinancialCosts: 0,
   monthlyExtraCharges: 0,
@@ -318,8 +320,8 @@ export function useFinancingCalculator(
       estimatedMonthlyRent: state.monthlyRent,
       vacancyRate: state.vacancyRate,
       annualOperatingExpenses,
-      annualManagement: state.annualManagement,
-      annualIncomeTaxEstimate: state.annualIncomeTaxEstimate || null,
+      includeIncomeTax: state.includeIncomeTax,
+      includePropertyManager: state.includePropertyManager,
       acquisitionCosts: state.acquisitionCosts,
       annualOtherFinancialCosts: state.annualOtherFinancialCosts,
       monthlyExtraCharges: state.monthlyExtraCharges,
@@ -336,8 +338,8 @@ export function useFinancingCalculator(
     state.monthlyRent,
     state.vacancyRate,
     annualOperatingExpenses,
-    state.annualManagement,
-    state.annualIncomeTaxEstimate,
+    state.includeIncomeTax,
+    state.includePropertyManager,
     state.acquisitionCosts,
     state.annualOtherFinancialCosts,
     state.monthlyExtraCharges,
@@ -450,8 +452,8 @@ export function useFinancingCalculator(
           estimated_monthly_rent: state.monthlyRent,
           vacancy_rate: state.vacancyRate,
           annual_expenses: annualOperatingExpenses,
-          annual_management: state.annualManagement,
-          annual_income_tax_estimate: state.annualIncomeTaxEstimate || null,
+          annual_management: livePreview.annualManagement,
+          annual_income_tax_estimate: livePreview.annualIncomeTaxEstimate || null,
           expense_breakdown: state.expenses,
           applied_interest_rate: livePreview.interestRate,
           rate_type: state.rateType,
@@ -459,6 +461,11 @@ export function useFinancingCalculator(
           annual_other_financial: state.annualOtherFinancialCosts,
           monthly_extra_charges: state.monthlyExtraCharges,
           unit_price: unitPrice,
+          assumptions_json: {
+            ...livePreview.assumptions,
+            includeIncomeTax: state.includeIncomeTax,
+            includePropertyManager: state.includePropertyManager,
+          },
           phone: getShowroomPhone() || undefined,
           lead_id: getShowroomLeadId() || undefined,
         }),
@@ -497,6 +504,15 @@ export function useFinancingCalculator(
     const acquisition = finiteOrNull(scenario.acquisition_costs)
     const otherFin = finiteOrNull(scenario.annual_other_financial)
     const extra = finiteOrNull(scenario.monthly_extra_charges)
+    const assumptions = (scenario.assumptions_json ?? {}) as Record<string, unknown>
+    const includeIncomeTax =
+      typeof assumptions.includeIncomeTax === 'boolean'
+        ? assumptions.includeIncomeTax
+        : tax != null && tax > 0
+    const includePropertyManager =
+      typeof assumptions.includePropertyManager === 'boolean'
+        ? assumptions.includePropertyManager
+        : management != null && management > 0
 
     const expenses: ExpenseBreakdown =
       scenario.expense_breakdown ??
@@ -519,8 +535,8 @@ export function useFinancingCalculator(
         monthlyRent: rent ?? state.monthlyRent,
         vacancyRate: vacancy ?? state.vacancyRate,
         expenses,
-        annualManagement: management ?? 0,
-        annualIncomeTaxEstimate: tax ?? 0,
+        includeIncomeTax,
+        includePropertyManager,
         acquisitionCosts: acquisition ?? 0,
         annualOtherFinancialCosts: otherFin ?? 0,
         monthlyExtraCharges: extra ?? 0,

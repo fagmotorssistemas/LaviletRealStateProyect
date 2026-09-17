@@ -54,8 +54,8 @@ export function previewFromSavedScenario(row: SavedScenarioLike) {
         : row.expense_breakdown?.total != null
           ? Number(row.expense_breakdown.total)
           : 0,
-    annualManagement: row.annual_management != null ? Number(row.annual_management) : 0,
-    annualIncomeTaxEstimate: row.annual_income_tax_estimate,
+    includeIncomeTax: Number(row.annual_income_tax_estimate || 0) > 0,
+    includePropertyManager: Number(row.annual_management || 0) > 0,
     acquisitionCosts: row.acquisition_costs != null ? Number(row.acquisition_costs) : 0,
     annualOtherFinancialCosts: row.annual_other_financial != null ? Number(row.annual_other_financial) : 0,
     monthlyExtraCharges: row.monthly_extra_charges != null ? Number(row.monthly_extra_charges) : 0,

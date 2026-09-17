@@ -5,6 +5,7 @@ import { useFinancingCalculator } from '@/hooks/useFinancingCalculator'
 import { ParameterSliders } from '@/components/financing/ParameterSliders'
 import { ResultCards } from '@/components/financing/ResultCards'
 import { DesglozeAnual } from '@/components/financing/DesglozeAnual'
+import { ViabilidadAlerta } from '@/components/financing/ViabilidadAlerta'
 import { Disclaimer } from '@/components/financing/Disclaimer'
 import { formatMoney, formatMoneyExact } from '@/lib/financing/calculator'
 import { Spinner } from '@/components/ui/Spinner'
@@ -281,33 +282,22 @@ export function InvestmentConfigurator({
             onExpensesChange={calc.setExpenses}
             suggestedExpenses={calc.suggestedExpenses}
             onUseSuggestedExpenses={calc.useSuggestedExpenses}
-            annualManagement={calc.state.annualManagement}
-            onManagementChange={(v) => calc.patchState({ annualManagement: v })}
+            includePropertyManager={calc.state.includePropertyManager}
+            onIncludePropertyManagerChange={(v) =>
+              calc.patchState({ includePropertyManager: v, savedResults: null, fidelityMessage: null })
+            }
+            includeIncomeTax={calc.state.includeIncomeTax}
+            onIncludeIncomeTaxChange={(v) =>
+              calc.patchState({ includeIncomeTax: v, savedResults: null, fidelityMessage: null })
+            }
+            coverage={calc.preview?.monthlyCoverage ?? null}
+            showCoveragePayment={modality !== 'cash'}
             unitPrice={calc.unitPrice}
             onUnitPriceChange={calc.setUnitPrice}
             priceEditable={false}
             priceMissing={false}
             showPrice={false}
           />
-          <label className="block space-y-1">
-            <span className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-              IR estimado anual (opcional)
-            </span>
-            <input
-              type="number"
-              min={0}
-              step={50}
-              value={calc.state.annualIncomeTaxEstimate || ''}
-              placeholder="0 = solo antes de IR"
-              onChange={(event) =>
-                calc.patchState({ annualIncomeTaxEstimate: Number(event.target.value) || 0 })
-              }
-              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
-            />
-            <p className="text-[11px] text-[#8a8176]">
-              No se impone un 25% automático. Por defecto: antes de impuesto a la renta.
-            </p>
-          </label>
         </div>
 
         {/* 6. Guardar */}
@@ -344,6 +334,25 @@ export function InvestmentConfigurator({
         </p>
         {calc.preview ? (
           <>
+            <ViabilidadAlerta
+              preview={calc.preview}
+              input={{
+                mode: calc.preview.mode,
+                unitPrice: calc.unitPrice,
+                estimatedMonthlyRent: calc.monthlyRent,
+                vacancyRate: calc.vacancyRate,
+                annualOperatingExpenses: calc.state.expenses.total,
+                includeIncomeTax: calc.state.includeIncomeTax,
+                includePropertyManager: calc.state.includePropertyManager,
+                downPaymentPercent: calc.downPaymentPercent,
+                financingYears: calc.financingYears,
+                interestRate: calc.interestRate,
+                rateType: calc.rateType,
+                acquisitionCosts: calc.state.acquisitionCosts,
+                annualOtherFinancialCosts: calc.state.annualOtherFinancialCosts,
+                monthlyExtraCharges: calc.state.monthlyExtraCharges,
+              }}
+            />
             <ResultCards preview={calc.preview} />
             <DesglozeAnual preview={calc.preview} />
           </>

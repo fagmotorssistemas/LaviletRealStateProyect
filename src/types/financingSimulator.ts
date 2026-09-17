@@ -43,6 +43,16 @@ export type ExpenseBreakdown = {
   total: number
 }
 
+export type MonthlyCoverageStatus = 'covers' | 'borderline' | 'insufficient'
+export type ViabilityLevel = 'viable' | 'borderline' | 'critical'
+
+export type MonthlyCoverage = {
+  monthlyRent: number
+  monthlyPayment: number
+  difference: number
+  status: MonthlyCoverageStatus
+}
+
 export type FinancingScenario = {
   id: string
   tenant_id: string | null
@@ -121,6 +131,7 @@ export type InvestmentPreview = {
   initialCashOutlay: number
   vacancyRate: number
   annualPotentialRental: number
+  annualVacancyCost: number
   annualEffectiveRental: number
   /** Alias de annualEffectiveRental (compat con UI/RPC antiguos). */
   annualGrossRental: number
@@ -131,13 +142,17 @@ export type InvestmentPreview = {
   annualCashFlowBeforeTax: number
   annualIncomeTaxEstimate: number
   annualCashFlowAfterTax: number
+  /** Saldo anual real (tras vacancia, ops, gestor, IR y deuda). */
   annualNetCashFlow: number
   monthlyCashFlow: number
   buyerTopUpMonthly: number
-  /** Resultado operativo / precio. */
+  totalAnnualCosts: number
+  /** Resultado operativo / precio (sin deuda ni IR). */
   operatingYieldOnPrice: number | null
-  /** Flujo anual / efectivo inicial aportado. */
+  /** ROI sobre entrada / efectivo inicial (saldo ÷ entrada). */
   cashOnCashReturn: number | null
+  /** ROI sobre precio total (saldo ÷ precio). */
+  roiOnTotalPrice: number | null
   /** Alias de cashOnCashReturn (compat). */
   roiPercent: number | null
   debtCoverageRatio: number | null
@@ -145,9 +160,19 @@ export type InvestmentPreview = {
   paybackLabel: string | null
   breakevenMonth: number | null
   isProfitable: boolean
+  monthlyCoverage: MonthlyCoverage
+  viabilityLevel: ViabilityLevel
+  includeIncomeTax: boolean
+  includePropertyManager: boolean
+  incomeTaxRate: number
+  managementFeeRate: number
   assumptions: {
     vacancyAppliedOnce: boolean
     incomeTaxIncluded: boolean
+    incomeTaxRate: number
+    managementFeeRate: number
+    includeIncomeTax: boolean
+    includePropertyManager: boolean
     rateType: RateType
     rateIsBankOffer: boolean
     recoveryMethod: string

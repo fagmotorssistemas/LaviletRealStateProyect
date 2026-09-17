@@ -78,7 +78,7 @@ import { useTourSceneTracking } from '@/hooks/useTourSceneTracking'
 import { TourLeadGate } from '@/components/tour/TourLeadGate'
 import { logTourEvent } from '@/lib/tour/visitorTracking'
 import {
-  isShowroomIdentified,
+  canAccessShowroomTools,
   SHOWROOM_IDENTITY_EVENT,
 } from '@/lib/tour/showroomIdentity'
 import {
@@ -857,7 +857,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   }, [])
 
   useEffect(() => {
-    const sync = () => setShowroomIdentified(isShowroomIdentified())
+    const sync = () => setShowroomIdentified(canAccessShowroomTools())
     sync()
     window.addEventListener(SHOWROOM_IDENTITY_EVENT, sync)
     window.addEventListener('storage', sync)
@@ -1396,7 +1396,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     setFichaExpanded(false)
     ensureUnitForTools()
     setSimulatorEntry({ mode: 'cash', section: 'rent' })
-    if (!isShowroomIdentified()) {
+    if (!canAccessShowroomTools()) {
       setPhoneUnlock({ open: true, intent: 'simulator' })
       return
     }
@@ -1408,7 +1408,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     setFichaExpanded(false)
     ensureUnitForTools()
     setSimulatorEntry({ mode: 'financed', section: 'financing' })
-    if (!isShowroomIdentified()) {
+    if (!canAccessShowroomTools()) {
       setPhoneUnlock({ open: true, intent: 'financing' })
       return
     }
