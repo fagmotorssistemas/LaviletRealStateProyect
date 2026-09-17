@@ -70,6 +70,19 @@ test('visit preference survives an office question and submits the proposed Satu
   }
 })
 
+test('a misspelled appointment request for unit 202 enters scheduling instead of comparison or a model',async t=>{
+  live(t)
+  const h=conversationHarness({extracted:{events:['requested_visit']}})
+  const current='HolA QUIERO AGENDAR UNA CIRA PARA VER EL DEPARTAMENTO 202'
+  h.rows[0].payload.text=current
+  await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.filter(c=>c.name==='lv_collect_visit_intake').length,1)
+  const sent=h.calls.find(c=>c.name==='register_outbound_message').args
+  assert.equal(sent.p_tool_calls.source,'visit_intake')
+  assert.doesNotMatch(sent.p_content,/comparar|modelo-3d/)
+  assert.ok(h.calls.some(c=>c.name==='register_inbound_message'&&Object.values(c.args).includes(current)))
+})
+
 test('unverified visit receipt creates a handoff instead of reporting a successful registration',async t=>{
   live(t)
   for(const intake of [{action:'submitted',request_id:null},{action:'submitted',request_id:'nonexistent'}]) {

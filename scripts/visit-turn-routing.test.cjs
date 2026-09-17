@@ -52,6 +52,9 @@ test('conversational visit requests respect context, refusals and verified recei
 test('permission to visit remains actionable alongside a project information request', () => {
   for (const message of [
     'Deme detalles del proyecto\nY puedo hacer una visita?',
+    'HolA QUIERO AGENDAR UNA CIRA PARA VER EL DEPARTAMENTO 202',
+    'Quiero coordinar una sita para ver el departamento 202',
+    'Quiero agendar para ver el departamento 202',
     'Deme detalles del proyecto. ¿Y puedo hacer una visita?',
     '¿Podría realizar una visita?',
     '¿Es posible visitar la oficina?',
@@ -79,6 +82,7 @@ test('bookings from other businesses never initiate a property appointment', () 
     'Agendemos una visita al veterinario',
     'Quiero agendar una limpieza de alfombras',
     'Quiero programar una entrega de flores',
+    'Quiero agendar una cira con el dentista',
   ]) assert.equal(explicitlyRequestsVisit(message), false, message)
   assert.equal(hasUnrelatedAppointmentTarget('Agendemos la revisión de mi moto'), true)
   assert.equal(hasUnrelatedAppointmentTarget('¿Hay restaurantes cerca del proyecto? Y puedo hacer una visita?'), false)
@@ -87,6 +91,8 @@ test('bookings from other businesses never initiate a property appointment', () 
 test('a refusal, a past booking or a request about an existing appointment is not a new visit', () => {
   for (const message of [
     'No quiero una visita',
+    'No quiero agendar una cira para ver el departamento 202',
+    'Quiero saber cómo agendar una cira',
     'Tampoco me gustaría visitar',
     'No puedo ir',
     'Ya agendé una cita',
