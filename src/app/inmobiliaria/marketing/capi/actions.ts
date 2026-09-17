@@ -1,19 +1,20 @@
 'use server'
 
 import { assertCanAccessCrmPath } from '@/lib/auth/session'
+import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
+import { createClient } from '@/lib/supabase/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import {
   listMetaCapiOutbox,
+  type MetaCapiListFilters,
   type MetaCapiOutboxResult,
-  type MetaCapiStatusFilter,
 } from '@/services/metaCapiOutbox.service'
 
 const PATH = '/inmobiliaria/marketing/capi'
 
-export async function fetchMetaCapiBitacora(params?: {
-  filter?: MetaCapiStatusFilter
-  hours?: number
-}): Promise<{ ok: true; data: MetaCapiOutboxResult } | { ok: false; error: string }> {
+export async function fetchMetaCapiBitacora(
+  filters?: MetaCapiListFilters,
+): Promise<{ ok: true; data: MetaCapiOutboxResult } | { ok: false; error: string }> {
   try {
     await assertCanAccessCrmPath(PATH)
     const admin = tryCreateAdminClient()
@@ -23,9 +24,14 @@ export async function fetchMetaCapiBitacora(params?: {
         error: 'Falta cliente admin (service_role) para leer meta_capi_outbox',
       }
     }
+    const userClient = await createClient()
+    const tenantIds = await getAccessibleTenantIds(userClient)
+    if (tenantIds.length === 0) {
+      return { ok: false, error: 'Sin tenants accesibles para esta sesión' }
+    }
     const data = await listMetaCapiOutbox(admin, {
-      filter: params?.filter ?? 'all',
-      hours: params?.hours ?? 24,
+      accessibleTenantIds: tenantIds,
+      filters: filters ?? {},
     })
     return { ok: true, data }
   } catch (error) {

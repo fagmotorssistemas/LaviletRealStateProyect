@@ -6,20 +6,27 @@ import { fetchMetaCapiBitacora } from '@/app/inmobiliaria/marketing/capi/actions
 import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
+import { Pagination } from '@/components/ui/Pagination'
 import { cn } from '@/lib/utils'
 import type {
+  MetaCapiListFilters,
   MetaCapiOutboxKpis,
+  MetaCapiOutboxResult,
   MetaCapiOutboxRow,
-  MetaCapiStatusFilter,
+  MetaCapiStatusBucket,
 } from '@/services/metaCapiOutbox.service'
 
-function formatWhen(iso: string) {
+function formatWhen(iso: string | null | undefined, timeZone: string) {
+  if (!iso) return '—'
   try {
     return new Intl.DateTimeFormat('es-EC', {
       day: 'numeric',
       month: 'short',
+      year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone,
+      timeZoneName: 'short',
     }).format(new Date(iso))
   } catch {
     return iso
@@ -30,10 +37,12 @@ function KpiCard({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string
   value: string | number
-  tone?: 'good' | 'bad' | 'muted'
+  tone?: 'good' | 'bad' | 'warn' | 'muted'
+  hint?: string
 }) {
   return (
     <div className="rounded-2xl border border-[#ece6dc] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(40,30,20,0.04)]">
@@ -43,63 +52,78 @@ function KpiCard({
           'mt-1 text-2xl font-semibold tabular-nums text-[#1f1a14]',
           tone === 'good' && 'text-emerald-700',
           tone === 'bad' && 'text-rose-700',
+          tone === 'warn' && 'text-amber-800',
           tone === 'muted' && 'text-[#6b645c]',
         )}
       >
         {value}
       </p>
+      {hint ? <p className="mt-1 text-[10px] text-[#8a8176]">{hint}</p> : null}
     </div>
   )
 }
 
+const STATUS_OPTIONS: { value: MetaCapiStatusBucket; label: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'delivered_backend', label: 'Entregados backend' },
+  { value: 'pending', label: 'Pendientes' },
+  { value: 'blocked_config', label: 'Bloqueados config' },
+  { value: 'retained', label: 'Retenidos' },
+  { value: 'cancelled', label: 'Cancelados' },
+  { value: 'failed', label: 'Fallidos' },
+]
+
 export function MetaCapiBitacoraView() {
-  const [filter, setFilter] = useState<MetaCapiStatusFilter>('all')
-  const [kpis, setKpis] = useState<MetaCapiOutboxKpis | null>(null)
-  const [rows, setRows] = useState<MetaCapiOutboxRow[]>([])
-  const [totalFiltered, setTotalFiltered] = useState(0)
+  const [filters, setFilters] = useState<MetaCapiListFilters>({
+    statusBucket: 'all',
+    lane: 'all',
+    page: 1,
+    pageSize: 50,
+  })
+  const [data, setData] = useState<MetaCapiOutboxResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [fetchedAt, setFetchedAt] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
-  const load = useCallback((nextFilter: MetaCapiStatusFilter = filter) => {
+  const load = useCallback((next: MetaCapiListFilters) => {
     startTransition(async () => {
-      const result = await fetchMetaCapiBitacora({ filter: nextFilter, hours: 24 })
+      const result = await fetchMetaCapiBitacora(next)
       if (!result.ok) {
         setError(result.error)
-        setKpis(null)
-        setRows([])
-        setTotalFiltered(0)
+        setData(null)
         return
       }
       setError(null)
-      setKpis(result.data.kpis)
-      setRows(result.data.rows)
-      setTotalFiltered(result.data.totalFiltered)
-      setFetchedAt(result.data.fetchedAt)
+      setData(result.data)
     })
-  }, [filter])
+  }, [])
 
   useEffect(() => {
-    load('all')
-    // Solo al montar
+    load(filters)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const onFilter = (value: MetaCapiStatusFilter) => {
-    setFilter(value)
-    load(value)
+  const patchFilters = (partial: Partial<MetaCapiListFilters>, reload = true) => {
+    setFilters((prev) => {
+      const next = { ...prev, ...partial }
+      if (reload) load(next)
+      return next
+    })
   }
+
+  const kpis: MetaCapiOutboxKpis | null = data?.kpis ?? null
+  const rows: MetaCapiOutboxRow[] = data?.rows ?? []
+  const tz = data?.timezone ?? 'America/Guayaquil'
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="CAPI Meta"
         eyebrow="Marketing"
-        description="Conversiones encoladas y enviadas a Meta (últimas 24 h). Atribución Click-to-WhatsApp cuando hay ctwa_clid."
+        description="Historial de meta_capi_outbox con alcance por tenant. «Entregado al backend» no implica recepción verificada en Graph ni atribución publicitaria."
         actions={
           <button
             type="button"
-            onClick={() => load(filter)}
+            onClick={() => load(filters)}
             disabled={pending}
             className="inline-flex h-10 items-center gap-2 rounded-full border border-[#d9d0c3] bg-white px-4 text-[11px] font-semibold tracking-[0.12em] text-[#1f1a14] uppercase disabled:opacity-50"
           >
@@ -110,14 +134,39 @@ export function MetaCapiBitacoraView() {
       />
 
       {kpis ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard label={`Total eventos (${kpis.windowHours}h)`} value={kpis.total} />
-          <KpiCard label="Enviados" value={kpis.sent} tone="good" />
-          <KpiCard label="Fallidos" value={kpis.failed} tone={kpis.failed > 0 ? 'bad' : 'muted'} />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
+          <KpiCard label="Total (filtro)" value={kpis.total} />
           <KpiCard
-            label="% error"
-            value={`${kpis.errorPct}%`}
-            tone={kpis.errorPct > 0 ? 'bad' : 'good'}
+            label="Entregados al backend"
+            value={kpis.deliveredBackend}
+            tone="good"
+            hint="forwarded → Nest; no Graph verificado"
+          />
+          <KpiCard label="Pendientes" value={kpis.pending} tone="muted" />
+          <KpiCard
+            label="Bloqueados config"
+            value={kpis.blockedConfig}
+            tone={kpis.blockedConfig > 0 ? 'warn' : 'muted'}
+            hint="p. ej. not_configured"
+          />
+          <KpiCard label="Retenidos" value={kpis.retained} tone="warn" />
+          <KpiCard label="Cancelados" value={kpis.cancelled} tone="muted" />
+          <KpiCard label="Fallidos (dead)" value={kpis.failed} tone={kpis.failed > 0 ? 'bad' : 'muted'} />
+          <KpiCard
+            label="% fallidos dead"
+            value={
+              kpis.hasConfigBlocks && kpis.failed === 0
+                ? 'N/D'
+                : kpis.deadErrorPct == null
+                  ? '—'
+                  : `${kpis.deadErrorPct}%`
+            }
+            tone={kpis.hasConfigBlocks && kpis.failed === 0 ? 'warn' : kpis.failed > 0 ? 'bad' : 'good'}
+            hint={
+              kpis.hasConfigBlocks && kpis.failed === 0
+                ? 'Hay bloqueos not_configured: no interpretar 0% como salud'
+                : undefined
+            }
           />
         </div>
       ) : pending ? (
@@ -126,38 +175,205 @@ export function MetaCapiBitacoraView() {
         </div>
       ) : null}
 
-      {fetchedAt && !error ? (
-        <p className="text-[11px] text-[#8a8176]">
-          Actualizado {formatWhen(fetchedAt)}
-          {kpis && kpis.pending > 0 ? ` · ${kpis.pending} pendientes en cola` : ''}
-        </p>
+      {data?.metaOfficialMetrics ? (
+        <div className="rounded-2xl border border-dashed border-[#d9d0c3] bg-[#fcfbf9] px-4 py-3 text-sm text-[#4a433c]">
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
+            Métricas oficiales Meta (Pixel / Events Manager)
+          </p>
+          <p className="mt-1">{data.metaOfficialMetrics.reason}</p>
+          <p className="mt-1 text-[11px] text-[#8a8176]">
+            PageView no pasa por la outbox CAPI. No se inventan filas PageView aquí.
+          </p>
+        </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 rounded-full border border-[#ece6dc] bg-[#f7f3ee] p-1">
-          {(
-            [
-              ['all', 'Todos'],
-              ['sent', 'Enviados'],
-              ['failed', 'Fallidos'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => onFilter(value)}
-              className={cn(
-                'rounded-full px-3.5 py-1.5 text-[11px] font-semibold tracking-[0.1em] uppercase transition-colors',
-                filter === value
-                  ? 'bg-[#1a2744] text-white'
-                  : 'text-[#6b645c] hover:text-[#1f1a14]',
-              )}
-            >
-              {label}
-            </button>
-          ))}
+      {data?.absence ? (
+        <div className="rounded-2xl border border-[#ece6dc] bg-white px-4 py-3 text-sm text-[#4a433c]">
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
+            Cobertura de tipos (todo el historial en alcance)
+          </p>
+          <p className="mt-2 tabular-nums">
+            ViewContent {data.absence.viewContentCount} · Lead {data.absence.leadCount} · Schedule{' '}
+            {data.absence.scheduleCount}
+          </p>
+          <p className="mt-1 text-[11px] text-[#8a8176]">
+            Leads con ads consent: {data.absence.leadsWithAdsConsent} · con meta_lead_event_id:{' '}
+            {data.absence.leadsWithMetaEventId} · flags Schedule persist=
+            {String(data.absence.scheduleFlags.localPersist)} delivery=
+            {String(data.absence.scheduleFlags.delivery)} flush=
+            {String(data.absence.scheduleFlags.flush)} · WhatsApp Schedule bloqueado
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-[#6b645c]">
+            {data.absence.notes.map((note) => (
+              <li key={note.slice(0, 48)}>{note}</li>
+            ))}
+          </ul>
         </div>
-        <p className="text-[11px] tabular-nums text-[#8a8176]">{totalFiltered} registros</p>
+      ) : null}
+
+      {data?.notConfigured?.length ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="text-[10px] font-semibold tracking-[0.14em] uppercase">
+            Diagnóstico not_configured ({data.notConfigured.length})
+          </p>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-[12px]">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-amber-800/80">
+                  <th className="py-1 pr-2">event_id</th>
+                  <th className="py-1 pr-2">Lane</th>
+                  <th className="py-1 pr-2">Registro</th>
+                  <th className="py-1 pr-2">Origen probable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.notConfigured.map((row) => (
+                  <tr key={row.eventId} className="border-t border-amber-200/60">
+                    <td className="py-1.5 pr-2 font-mono text-[11px]">{row.eventId}</td>
+                    <td className="py-1.5 pr-2">{row.deliveryLane}</td>
+                    <td className="py-1.5 pr-2">{formatWhen(row.createdAt, tz)}</td>
+                    <td className="py-1.5 pr-2">{row.likelyOrigin}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[11px]">
+            No se reenvían ni reclasifican automáticamente. Nest: sin evidencia de recepción en este
+            front.
+          </p>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-[#ece6dc] bg-[#f7f3ee] p-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <label className="block space-y-1 text-[11px]">
+            <span className="font-semibold tracking-[0.12em] text-[#6b645c] uppercase">Desde</span>
+            <input
+              type="date"
+              value={filters.dateFrom?.slice(0, 10) || ''}
+              onChange={(e) =>
+                patchFilters({ dateFrom: e.target.value || null, page: 1 }, false)
+              }
+              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block space-y-1 text-[11px]">
+            <span className="font-semibold tracking-[0.12em] text-[#6b645c] uppercase">Hasta</span>
+            <input
+              type="date"
+              value={filters.dateTo?.slice(0, 10) || ''}
+              onChange={(e) => patchFilters({ dateTo: e.target.value || null, page: 1 }, false)}
+              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block space-y-1 text-[11px]">
+            <span className="font-semibold tracking-[0.12em] text-[#6b645c] uppercase">Evento</span>
+            <select
+              value={filters.eventName || 'all'}
+              onChange={(e) =>
+                patchFilters({
+                  eventName: e.target.value === 'all' ? null : e.target.value,
+                  page: 1,
+                })
+              }
+              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
+            >
+              <option value="all">Todos</option>
+              {(data?.eventNames ?? ['ViewContent', 'Lead', 'Schedule']).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1 text-[11px]">
+            <span className="font-semibold tracking-[0.12em] text-[#6b645c] uppercase">Estado</span>
+            <select
+              value={filters.statusBucket || 'all'}
+              onChange={(e) =>
+                patchFilters({ statusBucket: e.target.value as MetaCapiStatusBucket, page: 1 })
+              }
+              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1 text-[11px]">
+            <span className="font-semibold tracking-[0.12em] text-[#6b645c] uppercase">Lane</span>
+            <select
+              value={filters.lane || 'all'}
+              onChange={(e) =>
+                patchFilters({
+                  lane: e.target.value as 'all' | 'test' | 'live',
+                  page: 1,
+                })
+              }
+              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
+            >
+              <option value="all">Todas</option>
+              <option value="test">test</option>
+              <option value="live">live</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block min-w-[10rem] flex-1 space-y-1 text-[11px]">
+            <span className="font-semibold tracking-[0.12em] text-[#6b645c] uppercase">Origen</span>
+            <select
+              value={filters.origin || 'all'}
+              onChange={(e) =>
+                patchFilters({
+                  origin: e.target.value === 'all' ? null : e.target.value,
+                  page: 1,
+                })
+              }
+              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
+            >
+              <option value="all">Todos</option>
+              {(data?.origins ?? []).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => load({ ...filters, page: 1 })}
+            className="inline-flex h-10 items-center rounded-full bg-[#1a2744] px-4 text-[11px] font-semibold tracking-[0.12em] text-white uppercase"
+          >
+            Aplicar fechas
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const reset: MetaCapiListFilters = {
+                statusBucket: 'all',
+                lane: 'all',
+                page: 1,
+                pageSize: 50,
+                dateFrom: null,
+                dateTo: null,
+                eventName: null,
+                origin: null,
+              }
+              setFilters(reset)
+              load(reset)
+            }}
+            className="inline-flex h-10 items-center rounded-full border border-[#d9d0c3] bg-white px-4 text-[11px] font-semibold tracking-[0.12em] uppercase"
+          >
+            Limpiar
+          </button>
+          <p className="ml-auto text-[11px] tabular-nums text-[#8a8176]">
+            {data ? `${data.totalFiltered} registros · TZ ${tz}` : null}
+            {data?.fetchedAt ? ` · ${formatWhen(data.fetchedAt, tz)}` : null}
+          </p>
+        </div>
       </div>
 
       <section className="overflow-hidden rounded-2xl border border-[#ece6dc] bg-white">
@@ -167,14 +383,10 @@ export function MetaCapiBitacoraView() {
           </div>
         ) : error ? (
           <div className="p-6">
-            <EmptyState
-              icon={Megaphone}
-              title="No se pudo cargar CAPI"
-              description={error}
-            >
+            <EmptyState icon={Megaphone} title="No se pudo cargar CAPI" description={error}>
               <button
                 type="button"
-                onClick={() => load(filter)}
+                onClick={() => load(filters)}
                 className="inline-flex h-10 items-center rounded-full border border-[#d9d0c3] bg-white px-4 text-[11px] font-semibold tracking-[0.12em] uppercase"
               >
                 Reintentar
@@ -185,54 +397,90 @@ export function MetaCapiBitacoraView() {
           <div className="p-6">
             <EmptyState
               icon={Megaphone}
-              title="Sin eventos en esta ventana"
-              description="No hay filas en meta_capi_outbox para el filtro y las últimas 24 horas."
+              title="Sin eventos en este alcance"
+              description="No hay filas en meta_capi_outbox para los filtros y tenants de la sesión."
             />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[#ece6dc] bg-[#f7f3ee] text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
-                  <th className="px-4 py-3">Teléfono</th>
-                  <th className="px-4 py-3">Fecha</th>
-                  <th className="px-4 py-3">Evento</th>
-                  <th className="px-4 py-3">Estado</th>
-                  <th className="px-4 py-3">Detalle</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} className="border-t border-[#f0ebe3]">
-                    <td className="px-4 py-3 font-medium tabular-nums text-[#1f1a14]">
-                      {row.phone || '—'}
-                    </td>
-                    <td className="px-4 py-3 tabular-nums text-[#6b645c]">{formatWhen(row.createdAt)}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-md bg-[#1a2744]/8 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-[#1a2744]">
-                        {row.eventName}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.1em] uppercase',
-                          row.uiBucket === 'sent' && 'bg-emerald-100 text-emerald-800',
-                          row.uiBucket === 'failed' && 'bg-rose-100 text-rose-800',
-                          row.uiBucket === 'other' && 'bg-amber-100 text-amber-900',
-                        )}
-                      >
-                        {row.statusLabel}
-                      </span>
-                    </td>
-                    <td className="max-w-[220px] truncate px-4 py-3 font-mono text-[11px] text-[#8a8176]" title={row.detail}>
-                      {row.detail}
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[960px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#ece6dc] bg-[#f7f3ee] text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
+                    <th className="px-3 py-3">Teléfono</th>
+                    <th className="px-3 py-3">Evento (hora)</th>
+                    <th className="px-3 py-3">Registro</th>
+                    <th className="px-3 py-3">Entrega backend</th>
+                    <th className="px-3 py-3">Evento</th>
+                    <th className="px-3 py-3">Estado</th>
+                    <th className="px-3 py-3">Lane</th>
+                    <th className="px-3 py-3">Recepción Meta</th>
+                    <th className="px-3 py-3">Detalle</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.id} className="border-t border-[#f0ebe3]">
+                      <td className="px-3 py-2.5 font-medium tabular-nums text-[#1f1a14]">
+                        {row.phone || '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] tabular-nums text-[#6b645c]">
+                        {formatWhen(row.eventAt, tz)}
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] tabular-nums text-[#6b645c]">
+                        {formatWhen(row.registeredAt, tz)}
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] tabular-nums text-[#6b645c]">
+                        {formatWhen(row.forwardedAt, tz)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="rounded-md bg-[#1a2744]/8 px-2 py-0.5 text-[11px] font-semibold text-[#1a2744]">
+                          {row.eventName}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span
+                          className={cn(
+                            'inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.08em] uppercase',
+                            row.statusBucket === 'delivered_backend' && 'bg-emerald-100 text-emerald-800',
+                            row.statusBucket === 'failed' && 'bg-rose-100 text-rose-800',
+                            row.statusBucket === 'blocked_config' && 'bg-amber-100 text-amber-900',
+                            row.statusBucket === 'retained' && 'bg-orange-100 text-orange-900',
+                            row.statusBucket === 'cancelled' && 'bg-stone-200 text-stone-700',
+                            row.statusBucket === 'pending' && 'bg-sky-100 text-sky-900',
+                          )}
+                        >
+                          {row.statusLabel}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-[11px] text-[#6b645c]">
+                        {row.deliveryLane}
+                      </td>
+                      <td className="max-w-[140px] px-3 py-2.5 text-[11px] text-[#6b645c]" title={row.receptionLabel}>
+                        {row.receptionLabel}
+                      </td>
+                      <td
+                        className="max-w-[180px] truncate px-3 py-2.5 font-mono text-[11px] text-[#8a8176]"
+                        title={row.detail}
+                      >
+                        {row.detail}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {data ? (
+              <div className="border-t border-[#ece6dc] px-4 py-3">
+                <Pagination
+                  page={data.page}
+                  pageSize={data.pageSize}
+                  total={data.totalFiltered}
+                  onPageChange={(page) => patchFilters({ page })}
+                />
+              </div>
+            ) : null}
+          </>
         )}
       </section>
     </div>

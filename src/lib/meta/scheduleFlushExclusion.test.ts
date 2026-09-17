@@ -102,6 +102,7 @@ describe('flushLocalMetaOutbox vs review_hold', () => {
     }
 
     process.env.META_CAPI_DELIVERY_LANE = 'live'
+    process.env.VERCEL_ENV = 'production'
     const result = await flushLocalMetaOutbox(supabase as never, 20)
     assert.equal(result.forwarded, 1)
     assert.equal(result.skipped, 1)
