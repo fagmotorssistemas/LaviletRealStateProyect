@@ -6,7 +6,7 @@
 
 | Pieza | Rama | SHA |
 | --- | --- | --- |
-| Frontend | `feat/meta-schedule-aceptar-cita` | `2aa342344665fcf6dd2a84682359b9e7904d57b6` |
+| Frontend | `feat/meta-schedule-aceptar-cita` | `c8f802a83c1c7b60a47914b0bae9887b52651608` (tip local; código `2aa3423…`) |
 | Nest | `fix/supabase-drain-exclude-review-hold` | `e076f5a5eb698a418eb6f03c0fbd8686f6e21d43` |
 
 Diff local vs remoto: FE tip no publicado; Nest `ahead 1` sin push.
