@@ -17,6 +17,19 @@ export type LocalOutboxRow = {
   ads_consent_required: boolean
 }
 
+/** Único estado que flush local / drain Nest deben consumir. */
+export const OUTBOX_FLUSHABLE_STATUS = 'pending' as const
+
+/** Persistencia de revisión Schedule web: fuera de la cola activa. */
+export const OUTBOX_REVIEW_HOLD_STATUS = 'review_hold' as const
+
+/** Retención (p. ej. WhatsApp Schedule bloqueado por Meta BM). */
+export const OUTBOX_NEEDS_REVIEW_STATUS = 'needs_review' as const
+
+export function isOutboxStatusFlushable(status: string | null | undefined): boolean {
+  return String(status || '') === OUTBOX_FLUSHABLE_STATUS
+}
+
 function intendedLane(): 'test' | 'live' {
   // Lane fijada en origen; Nest solo entrega la que coincida con META_MODE.
   const explicit = process.env.META_CAPI_DELIVERY_LANE?.trim().toLowerCase()
@@ -28,6 +41,7 @@ function intendedLane(): 'test' | 'live' {
 /**
  * Persistencia local atómica por idempotency_key.
  * inserted=true ⇒ conversión nueva (disparar Pixel con event_id).
+ * Por defecto status=pending (cola activa). Schedule de revisión debe usar review_hold.
  */
 export async function persistMetaConversion(
   admin: SupabaseClient,
@@ -40,19 +54,31 @@ export async function persistMetaConversion(
     leadId?: string | null
     visitorKey?: string | null
     adsConsentRequired?: boolean
+    /** pending = cola activa; review_hold / needs_review = excluidos de flush/drain. */
+    status?:
+      | typeof OUTBOX_FLUSHABLE_STATUS
+      | typeof OUTBOX_REVIEW_HOLD_STATUS
+      | typeof OUTBOX_NEEDS_REVIEW_STATUS
+    lastError?: string | null
   },
-): Promise<{ inserted: boolean; eventId: string; rowId: string | null }> {
+): Promise<{ inserted: boolean; eventId: string; rowId: string | null; status: string }> {
   const eventId = input.eventId && /^[0-9a-f-]{36}$/i.test(input.eventId) ? input.eventId : randomUUID()
   const eventTime = input.eventTime || Math.floor(Date.now() / 1000)
+  const status = input.status || OUTBOX_FLUSHABLE_STATUS
 
   const { data: existing } = await admin
     .from('meta_capi_outbox')
-    .select('id, event_id')
+    .select('id, event_id, status')
     .eq('idempotency_key', input.idempotencyKey)
     .maybeSingle()
 
   if (existing?.event_id) {
-    return { inserted: false, eventId: existing.event_id, rowId: existing.id }
+    return {
+      inserted: false,
+      eventId: existing.event_id,
+      rowId: existing.id,
+      status: existing.status || status,
+    }
   }
 
   const { data, error } = await admin
@@ -63,13 +89,14 @@ export async function persistMetaConversion(
       event_name: input.eventName,
       event_time: eventTime,
       payload: input.payload,
-      status: 'pending',
+      status,
       delivery_lane: intendedLane(),
       lead_id: input.leadId || null,
       visitor_key: input.visitorKey || null,
       ads_consent_required: input.adsConsentRequired !== false,
+      last_error: input.lastError ?? null,
     })
-    .select('id, event_id')
+    .select('id, event_id, status')
     .single()
 
   if (error) {
@@ -77,46 +104,59 @@ export async function persistMetaConversion(
     if (error.code === '23505') {
       const { data: again } = await admin
         .from('meta_capi_outbox')
-        .select('id, event_id')
+        .select('id, event_id, status')
         .eq('idempotency_key', input.idempotencyKey)
         .maybeSingle()
       if (again?.event_id) {
-        return { inserted: false, eventId: again.event_id, rowId: again.id }
+        return {
+          inserted: false,
+          eventId: again.event_id,
+          rowId: again.id,
+          status: again.status || status,
+        }
       }
     }
     throw error
   }
 
-  return { inserted: true, eventId: data.event_id, rowId: data.id }
+  return { inserted: true, eventId: data.event_id, rowId: data.id, status: data.status || status }
 }
 
 export async function cancelPendingMetaOutbox(
   admin: SupabaseClient,
   opts: { leadId?: string | null; visitorKey?: string | null },
 ): Promise<number> {
-  let q = admin
-    .from('meta_capi_outbox')
-    .update({
-      status: 'cancelled',
-      updated_at: new Date().toISOString(),
-      last_error: 'ads_consent_revoked',
-    })
-    .eq('status', 'pending')
-    .eq('ads_consent_required', true)
+  // pending + holds: al revocar consent no deben sobrevivir para un flush futuro.
+  const statuses = [
+    OUTBOX_FLUSHABLE_STATUS,
+    OUTBOX_REVIEW_HOLD_STATUS,
+    OUTBOX_NEEDS_REVIEW_STATUS,
+  ] as const
+  let cancelled = 0
 
-  if (opts.leadId) q = q.eq('lead_id', opts.leadId)
-  else if (opts.visitorKey) q = q.eq('visitor_key', opts.visitorKey)
-  else {
-    // Sin ámbito: cancelar todos los pendientes que requieren consent (retirada global del visitante actual se pasa visitorKey)
-    return 0
-  }
+  for (const status of statuses) {
+    let q = admin
+      .from('meta_capi_outbox')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+        last_error: 'ads_consent_revoked',
+      })
+      .eq('status', status)
+      .eq('ads_consent_required', true)
 
-  const { data, error } = await q.select('id')
-  if (error) {
-    console.error('[meta-outbox] cancel', error.message)
-    return 0
+    if (opts.leadId) q = q.eq('lead_id', opts.leadId)
+    else if (opts.visitorKey) q = q.eq('visitor_key', opts.visitorKey)
+    else return cancelled
+
+    const { data, error } = await q.select('id')
+    if (error) {
+      console.error('[meta-outbox] cancel', error.message)
+      continue
+    }
+    cancelled += data?.length ?? 0
   }
-  return data?.length ?? 0
+  return cancelled
 }
 
 export async function setLeadAdsConsent(
@@ -222,6 +262,16 @@ export async function flushLocalMetaOutbox(
   let skipped = 0
 
   for (const row of rows as LocalOutboxRow[]) {
+    // Defensa en profundidad: nunca reenviar review_hold u otros no flushables.
+    if (!isOutboxStatusFlushable(row.status)) {
+      skipped += 1
+      console.info('[meta-outbox] flush skip non_flushable', {
+        event_id: row.event_id,
+        status: row.status,
+      })
+      continue
+    }
+
     if (row.ads_consent_required) {
       if (row.lead_id) {
         const consent = await getLeadAdsConsent(admin, row.lead_id)
@@ -274,6 +324,17 @@ export async function flushLocalMetaOutbox(
       deliveryLane: row.delivery_lane,
       visitorKey: row.visitor_key,
       leadId: row.lead_id,
+    }
+
+    if (typeof payload.messaging_channel === 'string' && payload.messaging_channel === 'whatsapp') {
+      input.messagingChannel = 'whatsapp'
+    }
+    if (typeof payload.ctwa_clid === 'string') input.ctwaClid = payload.ctwa_clid
+    if (typeof payload.whatsapp_business_account_id === 'string') {
+      input.whatsappBusinessAccountId = payload.whatsapp_business_account_id
+    }
+    if (typeof payload.messaging_dataset_id === 'string') {
+      input.messagingDatasetId = payload.messaging_dataset_id
     }
 
     // IP/UA ya van en payload si se capturaron al persistir
