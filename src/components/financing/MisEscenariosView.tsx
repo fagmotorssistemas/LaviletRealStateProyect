@@ -10,9 +10,16 @@ import {
   isShowroomIdentified,
 } from '@/lib/tour/showroomIdentity'
 import { Spinner } from '@/components/ui/Spinner'
+import { assessScenarioFidelity } from '@/lib/financing/scenarioFidelity'
 import { cn } from '@/lib/utils'
 
-export function MisEscenariosView({ embedded = false }: { embedded?: boolean }) {
+export function MisEscenariosView({
+  embedded = false,
+  onReopen,
+}: {
+  embedded?: boolean
+  onReopen?: (scenario: FinancingScenario) => void
+}) {
   const [loading, setLoading] = useState(true)
   const [scenarios, setScenarios] = useState<FinancingScenario[]>([])
   const [identified, setIdentified] = useState(false)
@@ -108,15 +115,24 @@ export function MisEscenariosView({ embedded = false }: { embedded?: boolean }) 
               <tr>
                 <th className="px-3 py-2.5">Depto.</th>
                 <th className="px-3 py-2.5">Alquiler</th>
-                <th className="px-3 py-2.5">Saldo / año</th>
-                <th className="px-3 py-2.5">Retorno</th>
+                <th className="px-3 py-2.5">Flujo / año</th>
+                <th className="px-3 py-2.5">Retorno de caja</th>
                 <th className="px-3 py-2.5" />
               </tr>
             </thead>
             <tbody>
-              {scenarios.map((row) => (
+              {scenarios.map((row) => {
+                const fidelity = assessScenarioFidelity(row)
+                return (
                 <tr key={row.id} className="border-t border-[#f0ebe3]">
-                  <td className="px-3 py-2.5">{row.units?.unit_number ?? '—'}</td>
+                  <td className="px-3 py-2.5">
+                    <span>{row.units?.unit_number ?? '—'}</span>
+                    {fidelity.kind !== 'exact' ? (
+                      <span className="mt-0.5 block text-[10px] text-amber-800">
+                        {fidelity.kind === 'legacy' ? 'Histórico' : 'Versión desconocida'}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2.5 tabular-nums">
                     {formatMoney(row.estimated_monthly_rent)}
                   </td>
@@ -125,16 +141,27 @@ export function MisEscenariosView({ embedded = false }: { embedded?: boolean }) 
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">{formatPercent(row.roi_percent)}</td>
                   <td className="px-3 py-2.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => void removeScenario(row.id)}
-                      className="text-[11px] font-semibold tracking-wide text-rose-700 uppercase"
-                    >
-                      Eliminar
-                    </button>
+                    <div className="flex justify-end gap-3">
+                      {onReopen ? (
+                        <button
+                          type="button"
+                          onClick={() => onReopen(row)}
+                          className="text-[11px] font-semibold tracking-wide text-[#1a2744] uppercase"
+                        >
+                          Reabrir
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void removeScenario(row.id)}
+                        className="text-[11px] font-semibold tracking-wide text-rose-700 uppercase"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
