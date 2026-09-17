@@ -64,8 +64,9 @@ Ver `docs/SIMULADOR_MIGRACION_ORDEN.md`.
 
 - **Local:** baseline `supabase-local` + assumptions.
 - **Remoto (cuando se autorice):** solo `supabase/migrations/20260917120000_investment_simulator_assumptions.sql`.
-- **Reversión operativa:** restaurar app a `4270bf1` (main pre-PR); **no** DROP de columnas; escenarios v2 se conservan.
+- **Reversión operativa:** restaurar app al **SHA de Production registrado antes del deploy definitivo** (ver `docs/SIMULADOR_MIGRACION_ORDEN.md`). `4270bf1` es solo la base histórica de esta rama. **No** DROP de columnas; escenarios v2 se conservan.
 - **Limpieza destructiva (opcional, explícita):** `supabase/rollbacks/20260917120000_investment_simulator_assumptions_DESTRUCTIVE_drop_v2_columns.sql` — no forma parte del rollback operativo.
+- **Preview Vercel:** usa el mismo Supabase que Production (`*.supabase.co` del proyecto Lavilet). No probar POST/DELETE de escenarios ni aplicar migración allí; evidencia completa = local + E2E ya ejecutado.
 
 ## Pruebas de lógica
 
