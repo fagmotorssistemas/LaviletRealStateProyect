@@ -8,8 +8,9 @@ import { roomSceneFileName } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import type { TypologyAssetKind } from '@/types/inmobiliaria'
 
-export const TYPOLOGY_UPLOAD_MAX_BYTES = 200 * 1024 * 1024
-export const TYPOLOGY_UPLOAD_MAX_MB = 200
+/** Tope alto para panoramas 360 (el límite real suele estar en el bucket de Supabase). */
+export const TYPOLOGY_UPLOAD_MAX_BYTES = 512 * 1024 * 1024
+export const TYPOLOGY_UPLOAD_MAX_MB = 512
 
 export type TypologyUploadMeta = {
   typologyCode: string
