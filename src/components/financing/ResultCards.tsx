@@ -1,113 +1,101 @@
 'use client'
 
 import type { InvestmentPreview } from '@/types/financingSimulator'
-import { formatMoney, formatMoneyExact, formatPercent } from '@/lib/financing/calculator'
+import { formatMoneyExact, formatPercent } from '@/lib/financing/calculator'
 import { cn } from '@/lib/utils'
 
 export function ResultCards({ preview }: { preview: InvestmentPreview }) {
-  const cards = [
-    {
-      label: 'Alquiler efectivo / año',
-      value: formatMoney(preview.annualEffectiveRental),
-    },
-    {
-      label: 'Resultado operativo / año',
-      value: formatMoney(preview.annualOperatingResult),
-    },
-    {
-      label: 'Flujo de caja / año',
-      value: formatMoneyExact(preview.annualNetCashFlow),
-      tone: preview.annualNetCashFlow >= 0 ? 'good' : 'bad',
-    },
-    {
-      label: 'Flujo / mes',
-      value: formatMoneyExact(preview.monthlyCashFlow),
-      tone: preview.monthlyCashFlow >= 0 ? 'good' : 'bad',
-    },
-    {
-      label: 'Retorno de caja',
-      value: formatPercent(preview.cashOnCashReturn),
-      tone: (preview.cashOnCashReturn ?? 0) >= 0 ? 'good' : 'bad',
-      hint: 'Flujo anual ÷ efectivo inicial aportado',
-    },
-    {
-      label: 'Rendimiento operativo',
-      value: formatPercent(preview.operatingYieldOnPrice),
-      hint: 'Resultado operativo ÷ precio',
-    },
-  ] as const
+  const entradaLabel =
+    preview.mode === 'cash'
+      ? 'ROI sobre precio (contado)'
+      : `ROI sobre entrada (${preview.downPaymentPercent.toFixed(0)}%)`
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] text-[#8a8176]">
-        Flujo de caja y retorno mostrados <strong>antes de impuesto a la renta</strong>
-        {preview.annualIncomeTaxEstimate > 0
-          ? ` · IR estimado anual: ${formatMoney(preview.annualIncomeTaxEstimate)} → flujo después IR ${formatMoneyExact(preview.annualCashFlowAfterTax)}`
-          : ' (IR no incluido salvo que lo indique)'}
-        .
-      </p>
+      <div className="overflow-hidden rounded-2xl border border-[#ece6dc] bg-[#fcfbf9]">
+        <div className="border-b border-[#ece6dc] bg-[#f7f3ee] px-4 py-2.5 text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
+          Retorno estimado
+        </div>
+        <div className="space-y-3 px-4 py-3">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
+                {entradaLabel}
+              </p>
+              <p
+                className={cn(
+                  'mt-1 text-2xl font-semibold tabular-nums',
+                  (preview.cashOnCashReturn ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700',
+                )}
+              >
+                {formatPercent(preview.cashOnCashReturn)}
+              </p>
+              <p className="mt-0.5 text-[10px] text-[#8a8176]">Saldo anual ÷ efectivo aportado</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
+                ROI sobre precio total
+              </p>
+              <p
+                className={cn(
+                  'mt-1 text-2xl font-semibold tabular-nums',
+                  (preview.roiOnTotalPrice ?? 0) >= 0 ? 'text-[#1f1a14]' : 'text-rose-700',
+                )}
+              >
+                {formatPercent(preview.roiOnTotalPrice)}
+              </p>
+              <p className="mt-0.5 text-[10px] text-[#8a8176]">Saldo anual ÷ precio</p>
+            </div>
+          </div>
+          <div className="border-t border-[#ece6dc] pt-3">
+            <p className="text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
+              Período de recuperación de la entrada
+            </p>
+            <p className="mt-1 text-sm font-semibold text-[#1f1a14]">
+              {preview.paybackLabel ||
+                (preview.paybackYears != null
+                  ? `${preview.paybackYears.toFixed(1)} años`
+                  : 'No recuperable con el flujo actual')}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-2">
-        {cards.map((card) => (
-          <div
-            key={card.label}
+        <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-3">
+          <p className="text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
+            Saldo anual real
+          </p>
+          <p
             className={cn(
-              'rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-3',
-              'tone' in card && card.tone === 'good' && 'border-emerald-200/80',
-              'tone' in card && card.tone === 'bad' && 'border-rose-200/80',
+              'mt-1 text-xl font-semibold tabular-nums',
+              preview.annualNetCashFlow >= 0 ? 'text-emerald-700' : 'text-rose-700',
             )}
           >
-            <p className="text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-              {card.label}
-            </p>
-            <p
-              className={cn(
-                'mt-1 text-xl font-semibold text-[#1f1a14]',
-                'tone' in card && card.tone === 'good' && 'text-emerald-700',
-                'tone' in card && card.tone === 'bad' && 'text-rose-700',
-              )}
-            >
-              {card.value}
-            </p>
-            {'hint' in card && card.hint ? (
-              <p className="mt-1 text-[10px] text-[#8a8176]">{card.hint}</p>
-            ) : null}
-          </div>
-        ))}
+            {formatMoneyExact(preview.annualNetCashFlow)}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-3">
+          <p className="text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
+            Saldo / mes
+          </p>
+          <p
+            className={cn(
+              'mt-1 text-xl font-semibold tabular-nums',
+              preview.monthlyCashFlow >= 0 ? 'text-emerald-700' : 'text-rose-700',
+            )}
+          >
+            {formatMoneyExact(preview.monthlyCashFlow)}
+          </p>
+        </div>
       </div>
 
       {preview.buyerTopUpMonthly > 0 ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-          El comprador debería complementar aprox.{' '}
-          <strong>{formatMoneyExact(preview.buyerTopUpMonthly)}</strong> / mes con el flujo actual.
-          {preview.debtCoverageRatio != null ? (
-            <span className="mt-1 block text-[11px] text-rose-800/80">
-              Cobertura (resultado operativo ÷ servicio de deuda):{' '}
-              {preview.debtCoverageRatio.toFixed(2)}×
-            </span>
-          ) : null}
+          Complemento estimado del comprador:{' '}
+          <strong>{formatMoneyExact(preview.buyerTopUpMonthly)}</strong> / mes.
         </div>
       ) : null}
-
-      <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-3">
-        <p className="text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-          Recuperación (simple)
-        </p>
-        <p className="mt-1 text-sm font-semibold text-[#1f1a14]">
-          {preview.paybackLabel ||
-            (preview.paybackYears != null
-              ? `${preview.paybackYears.toFixed(1)} años`
-              : 'No recuperable con el flujo actual')}
-        </p>
-        <p className="mt-1 text-[10px] text-[#8a8176]">
-          Supuesto: flujo constante; sin apreciación ni venta. No extrapola cuotas más allá del
-          plazo del crédito.
-          {preview.breakevenMonth != null
-            ? ` Equilibrio estimado: mes ${preview.breakevenMonth}.`
-            : preview.paybackYears == null && preview.annualNetCashFlow > 0
-              ? ' El mes de equilibrio queda fuera del plazo del crédito (o no aplica).'
-              : ''}
-        </p>
-      </div>
     </div>
   )
 }

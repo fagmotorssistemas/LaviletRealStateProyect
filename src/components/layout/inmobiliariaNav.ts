@@ -10,12 +10,13 @@ import {
   BarChart3,
   Compass,
   Activity,
+  Megaphone,
   type LucideIcon,
 } from 'lucide-react'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
 import type { UserRole } from '@/types/inmobiliaria'
 
-export type CrmModuleId = 'ventas' | 'contabilidad'
+export type CrmModuleId = 'ventas' | 'contabilidad' | 'marketing'
 
 export interface CrmNavItem {
   label: string
@@ -54,13 +55,23 @@ export const crmModules: {
       { label: 'Contratos', href: '/inmobiliaria/contratos', icon: FileText },
     ],
   },
+  {
+    id: 'marketing',
+    label: 'Marketing',
+    href: '/inmobiliaria/marketing/capi',
+    items: [
+      { label: 'CAPI Meta', href: '/inmobiliaria/marketing/capi', icon: Megaphone },
+    ],
+  },
 ]
 
 export function moduleFromPath(pathname: string): CrmModuleId {
   const match = crmModules.find((module) =>
     module.items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`)),
   )
-  return match?.id ?? 'ventas'
+  if (match) return match.id
+  if (pathname.startsWith('/inmobiliaria/marketing')) return 'marketing'
+  return 'ventas'
 }
 
 export function itemsForModule(

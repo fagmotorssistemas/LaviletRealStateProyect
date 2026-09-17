@@ -3,12 +3,19 @@ import type {
   FinancingConfig,
   FinancingPartner,
   InvestmentPreview,
+  MonthlyCoverage,
   RateType,
   SimulationMode,
+  ViabilityLevel,
 } from '@/types/financingSimulator'
 
 /** Versión de fórmulas; escenarios históricos deben conservar la suya. */
-export const CALCULATION_VERSION = 'investment-v2'
+export const CALCULATION_VERSION = 'investment-v3'
+
+/** IR sobre alquiler efectivo (tras vacancia). */
+export const INCOME_TAX_RATE = 0.25
+/** Comisión gestor sobre alquiler efectivo. */
+export const MANAGEMENT_FEE_RATE = 0.08
 
 /** Entrada unificada (UI + API). */
 export const DOWN_PAYMENT_MIN_PCT = 10
@@ -21,21 +28,24 @@ export type BuildInvestmentInput = {
   mode: SimulationMode
   estimatedMonthlyRent: number
   vacancyRate: number
-  /** Gastos operativos anuales (predial + mant. + seguro + otros), sin gestión. */
+  /** Gastos operativos anuales (predial + mant. + seguro + otros), sin gestión ni IR. */
   annualOperatingExpenses: number
+  /** @deprecated Prefer includePropertyManager; si se pasa con flag false se ignora. */
   annualManagement?: number
-  /** Estimación anual manual de IR; null/0 = antes de IR. */
+  /** @deprecated Prefer includeIncomeTax. */
   annualIncomeTaxEstimate?: number | null
-  /** Costos de adquisición/adecuación con recursos propios. */
+  /** Default true: aplica 25% sobre alquiler efectivo. */
+  includeIncomeTax?: boolean
+  /** Default true: aplica 8% sobre alquiler efectivo. */
+  includePropertyManager?: boolean
+  incomeTaxRate?: number
+  managementFeeRate?: number
   acquisitionCosts?: number
-  /** Otros costos financieros recurrentes anuales (seguros de crédito, etc.). */
   annualOtherFinancialCosts?: number
   downPaymentPercent?: number
   financingYears?: number
-  /** Tasa en % según rateType. */
   interestRate?: number
   rateType?: RateType
-  /** Cuota de seguros/cargos adicionales al servicio de deuda (mensual). */
   monthlyExtraCharges?: number
 }
 
@@ -123,7 +133,6 @@ export function sumExpenseBreakdown(b: Partial<ExpenseBreakdown> | null | undefi
   )
 }
 
-/** Alquiler sugerido por dormitorios (solo residencial). */
 export function suggestedRentForBedrooms(config: FinancingConfig, bedrooms: number | null | undefined) {
   const beds = bedrooms ?? 1
   if (beds <= 0) return Number(config.avg_studio_rent ?? 800)
@@ -132,7 +141,6 @@ export function suggestedRentForBedrooms(config: FinancingConfig, bedrooms: numb
   return Number(config.avg_three_bed_rent ?? 2500)
 }
 
-/** Estimación por yield anual del precio (no es oferta de mercado verificada). */
 export function suggestedRentFromUnitPrice(unitPrice: number, annualYieldPct = 6) {
   const price = Math.max(0, Number(unitPrice) || 0)
   const yieldPct = Math.max(0, Number(annualYieldPct) || 0)
@@ -145,10 +153,6 @@ export type RentSuggestion = {
   label: string
 }
 
-/**
- * Sugiere alquiler según categoría.
- * Local/comercial: no aplica tabla residencial por dormitorios.
- */
 export function suggestMonthlyRent(input: {
   config: FinancingConfig | null
   unitPrice: number
@@ -210,8 +214,8 @@ export function buildOperatingMetrics(input: {
   const monthlyRent = Math.max(0, Number(input.estimatedMonthlyRent) || 0)
   const vacancy = clamp(Number(input.vacancyRate) || 0, 0, 1)
   const annualPotentialRental = roundMoney(monthlyRent * 12)
-  // Vacancia una sola vez sobre el potencial.
-  const annualEffectiveRental = roundMoney(annualPotentialRental * (1 - vacancy))
+  const annualVacancyCost = roundMoney(annualPotentialRental * vacancy)
+  const annualEffectiveRental = roundMoney(annualPotentialRental - annualVacancyCost)
   const annualOperatingExpenses = roundMoney(Math.max(0, Number(input.annualOperatingExpenses) || 0))
   const annualManagement = roundMoney(Math.max(0, Number(input.annualManagement) || 0))
   const annualOperatingResult = roundMoney(
@@ -220,6 +224,7 @@ export function buildOperatingMetrics(input: {
   return {
     vacancyRate: vacancy,
     annualPotentialRental,
+    annualVacancyCost,
     annualEffectiveRental,
     annualOperatingExpenses,
     annualManagement,
@@ -227,10 +232,28 @@ export function buildOperatingMetrics(input: {
   }
 }
 
+/** Cobertura alquiler bruto vs cuota (sin gastos). */
+export function buildMonthlyCoverage(monthlyRent: number, monthlyPayment: number): MonthlyCoverage {
+  const rent = roundMoney(Math.max(0, Number(monthlyRent) || 0))
+  const payment = roundMoney(Math.max(0, Number(monthlyPayment) || 0))
+  const difference = roundMoney(rent - payment)
+  let status: MonthlyCoverage['status']
+  if (difference > 0) status = 'covers'
+  else if (difference > -500) status = 'borderline'
+  else status = 'insufficient'
+  return { monthlyRent: rent, monthlyPayment: payment, difference, status }
+}
+
+export function viabilityFromAnnualSaldo(saldoAnual: number): ViabilityLevel {
+  if (saldoAnual >= 0) return 'viable'
+  if (saldoAnual > -5000) return 'borderline'
+  return 'critical'
+}
+
 /**
- * Preview unificado contado / financiado / manual.
- * - Rendimiento operativo = resultado operativo / precio.
- * - Retorno de caja = flujo anual / efectivo inicial aportado (no “rentabilidad total”).
+ * Preview unificado contado / financiado / manual (v3).
+ * Saldo anual = alquiler efectivo − gastos op. − gestión − IR − servicio de deuda.
+ * ROI entrada = saldo / efectivo inicial; ROI precio = saldo / precio.
  */
 export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentPreview {
   const unitPrice = Math.max(0, Number(input.unitPrice) || 0)
@@ -239,16 +262,31 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
   const acquisitionCosts = roundMoney(Math.max(0, Number(input.acquisitionCosts) || 0))
   const annualOtherFinancialCosts = roundMoney(Math.max(0, Number(input.annualOtherFinancialCosts) || 0))
   const monthlyExtraCharges = roundMoney(Math.max(0, Number(input.monthlyExtraCharges) || 0))
-  const annualIncomeTaxEstimate =
-    input.annualIncomeTaxEstimate != null && Number(input.annualIncomeTaxEstimate) > 0
-      ? roundMoney(Number(input.annualIncomeTaxEstimate))
-      : 0
+
+  const includeIncomeTax = input.includeIncomeTax !== false
+  const includePropertyManager = input.includePropertyManager !== false
+  const incomeTaxRate = clamp(Number(input.incomeTaxRate ?? INCOME_TAX_RATE) || 0, 0, 1)
+  const managementFeeRate = clamp(Number(input.managementFeeRate ?? MANAGEMENT_FEE_RATE) || 0, 0, 1)
+
+  // Primero alquiler efectivo (sin gestión) para basar % IR / gestor.
+  const vacancy = clamp(Number(input.vacancyRate) || 0, 0, 1)
+  const monthlyRent = Math.max(0, Number(input.estimatedMonthlyRent) || 0)
+  const annualPotentialRental = roundMoney(monthlyRent * 12)
+  const annualVacancyCost = roundMoney(annualPotentialRental * vacancy)
+  const annualEffectiveRental = roundMoney(annualPotentialRental - annualVacancyCost)
+
+  const annualManagement = includePropertyManager
+    ? roundMoney(annualEffectiveRental * managementFeeRate)
+    : 0
+  const annualIncomeTaxEstimate = includeIncomeTax
+    ? roundMoney(annualEffectiveRental * incomeTaxRate)
+    : 0
 
   const ops = buildOperatingMetrics({
     estimatedMonthlyRent: input.estimatedMonthlyRent,
     vacancyRate: input.vacancyRate,
     annualOperatingExpenses: input.annualOperatingExpenses,
-    annualManagement: input.annualManagement,
+    annualManagement,
   })
 
   let downPaymentPercent = 100
@@ -278,23 +316,30 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
   )
 
   const annualDebtService = roundMoney(annualMortgagePaid + annualExtraCharges + annualOtherFinancialCosts)
+  // Resultado operativo ya resta gestión; IR se resta después.
   const annualCashFlowBeforeTax = roundMoney(ops.annualOperatingResult - annualDebtService)
   const annualCashFlowAfterTax = roundMoney(annualCashFlowBeforeTax - annualIncomeTaxEstimate)
-  const annualNetCashFlow = annualCashFlowBeforeTax
+  /** Saldo anual real (incluye IR y gestor). */
+  const annualNetCashFlow = annualCashFlowAfterTax
   const monthlyCashFlow = roundMoney(annualNetCashFlow / 12)
   const buyerTopUpMonthly =
     monthlyCashFlow < 0 ? roundMoney(Math.abs(monthlyCashFlow)) : 0
 
-  const operatingYieldOnPrice =
-    unitPrice > 0 ? roundMoney((ops.annualOperatingResult / unitPrice) * 100) : null
+  const totalAnnualCosts = roundMoney(
+    ops.annualOperatingExpenses + annualManagement + annualIncomeTaxEstimate + annualDebtService,
+  )
+
   const cashOnCashReturn =
     initialCashOutlay > 0 ? roundMoney((annualNetCashFlow / initialCashOutlay) * 100) : null
+  const roiOnTotalPrice =
+    unitPrice > 0 ? roundMoney((annualNetCashFlow / unitPrice) * 100) : null
+  /** Compat: rendimiento operativo sin deuda/IR (solo ops). */
+  const operatingYieldOnPrice =
+    unitPrice > 0 ? roundMoney((ops.annualOperatingResult / unitPrice) * 100) : null
 
-  // Cobertura: ingreso operativo neto vs servicio de deuda (no alquiler bruto).
   const debtCoverageRatio =
     annualDebtService > 0 ? roundMoney(ops.annualOperatingResult / annualDebtService) : null
 
-  // Recuperación simple: solo si flujo > 0; no extrapola cuotas más allá del plazo.
   let paybackYears: number | null = null
   let paybackLabel: string | null = null
   if (annualNetCashFlow > 0 && initialCashOutlay > 0) {
@@ -312,7 +357,6 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
     paybackLabel = 'No recuperable con el flujo actual'
   }
 
-  // Misma cota que paybackYears: no afirmar un mes de equilibrio fuera del horizonte del crédito.
   const rawBreakevenMonth =
     annualNetCashFlow > 0 && initialCashOutlay > 0
       ? Math.ceil((initialCashOutlay * 12) / annualNetCashFlow)
@@ -321,7 +365,8 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
   const breakevenMonth =
     rawBreakevenMonth != null && rawBreakevenMonth <= maxMonths ? rawBreakevenMonth : null
 
-  // Compat: roiPercent = retorno de caja (no llamar “rentabilidad total” en UI).
+  const monthlyCoverage = buildMonthlyCoverage(monthlyRent, monthlyPayment)
+  const viabilityLevel = viabilityFromAnnualSaldo(annualNetCashFlow)
   const roiPercent = cashOnCashReturn
 
   return {
@@ -345,12 +390,11 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
     initialCashOutlay,
     vacancyRate: ops.vacancyRate,
     annualPotentialRental: ops.annualPotentialRental,
+    annualVacancyCost: ops.annualVacancyCost,
     annualEffectiveRental: ops.annualEffectiveRental,
-    /** @deprecated alias de annualEffectiveRental (compat). */
     annualGrossRental: ops.annualEffectiveRental,
     annualOperatingExpenses: ops.annualOperatingExpenses,
     annualManagement: ops.annualManagement,
-    /** Compat: gastos operativos sin gestión (el desglose UI muestra gestión aparte). */
     annualExpenses: ops.annualOperatingExpenses,
     annualOperatingResult: ops.annualOperatingResult,
     annualCashFlowBeforeTax,
@@ -359,17 +403,29 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
     annualNetCashFlow,
     monthlyCashFlow,
     buyerTopUpMonthly,
+    totalAnnualCosts,
     operatingYieldOnPrice,
     cashOnCashReturn,
+    roiOnTotalPrice,
     roiPercent,
     debtCoverageRatio,
     paybackYears,
     paybackLabel,
     breakevenMonth,
     isProfitable: annualNetCashFlow > 0,
+    monthlyCoverage,
+    viabilityLevel,
+    includeIncomeTax,
+    includePropertyManager,
+    incomeTaxRate,
+    managementFeeRate,
     assumptions: {
       vacancyAppliedOnce: true,
-      incomeTaxIncluded: annualIncomeTaxEstimate > 0,
+      incomeTaxIncluded: includeIncomeTax && annualIncomeTaxEstimate > 0,
+      incomeTaxRate,
+      managementFeeRate,
+      includeIncomeTax,
+      includePropertyManager,
       rateType,
       rateIsBankOffer: false,
       recoveryMethod: 'simple_constant_cashflow',
@@ -385,6 +441,8 @@ export function buildCashInvestmentPreview(input: {
   annualExpenses?: number | null
   vacancyRate?: number
   annualManagement?: number
+  includeIncomeTax?: boolean
+  includePropertyManager?: boolean
   config: FinancingConfig
 }): InvestmentPreview {
   const annualOperatingExpenses =
@@ -398,7 +456,8 @@ export function buildCashInvestmentPreview(input: {
     vacancyRate:
       input.vacancyRate != null ? Number(input.vacancyRate) : Number(input.config.vacancy_rate || 0),
     annualOperatingExpenses,
-    annualManagement: input.annualManagement,
+    includeIncomeTax: input.includeIncomeTax,
+    includePropertyManager: input.includePropertyManager,
   })
 }
 
@@ -409,7 +468,8 @@ export function comparePartners(input: {
   estimatedMonthlyRent: number
   vacancyRate: number
   annualOperatingExpenses: number
-  annualManagement?: number
+  includeIncomeTax?: boolean
+  includePropertyManager?: boolean
   partners: FinancingPartner[]
   config: FinancingConfig
   rateType?: RateType
@@ -426,12 +486,51 @@ export function comparePartners(input: {
         estimatedMonthlyRent: input.estimatedMonthlyRent,
         vacancyRate: input.vacancyRate,
         annualOperatingExpenses: input.annualOperatingExpenses,
-        annualManagement: input.annualManagement,
+        includeIncomeTax: input.includeIncomeTax,
+        includePropertyManager: input.includePropertyManager,
         interestRate: Number(partner.annual_interest_rate),
         rateType: input.rateType ?? 'nominal_annual',
       }),
     }
   })
+}
+
+/** Escenarios alternativos para alerta de viabilidad. */
+export function buildViabilityAlternatives(input: BuildInvestmentInput) {
+  const base = buildInvestmentPreview(input)
+  const altDown50 = buildInvestmentPreview({
+    ...input,
+    mode: input.mode === 'cash' ? 'financed' : input.mode,
+    downPaymentPercent: 50,
+  })
+  const altYears20 = buildInvestmentPreview({
+    ...input,
+    mode: input.mode === 'cash' ? 'financed' : input.mode,
+    financingYears: 20,
+  })
+  const targetRent = roundMoney(Math.max(input.estimatedMonthlyRent * 1.333, input.estimatedMonthlyRent + 400))
+  const altRent = buildInvestmentPreview({
+    ...input,
+    estimatedMonthlyRent: targetRent,
+  })
+  const appreciationYears = 10
+  const appreciationRate = 0.05
+  const futureValue = roundMoney(input.unitPrice * (1 + appreciationRate) ** appreciationYears)
+  const appreciationGain = roundMoney(futureValue - input.unitPrice)
+
+  return {
+    base,
+    altDown50,
+    altYears20,
+    altRent,
+    targetRent,
+    appreciation: {
+      years: appreciationYears,
+      annualRate: appreciationRate,
+      futureValue,
+      gain: appreciationGain,
+    },
+  }
 }
 
 export function formatMoney(value: number | null | undefined, currency = 'USD') {

@@ -5,34 +5,30 @@ import { formatMoney, formatMoneyExact } from '@/lib/financing/calculator'
 
 export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
   const rows: { label: string; value: number; strong?: boolean; muted?: boolean }[] = [
-    { label: 'Alquiler potencial', value: preview.annualPotentialRental },
-    { label: 'Alquiler efectivo (tras vacancia)', value: preview.annualEffectiveRental },
-    { label: 'Gastos operativos', value: -preview.annualOperatingExpenses },
-    { label: 'Gestión', value: -preview.annualManagement },
-    { label: 'Resultado operativo', value: preview.annualOperatingResult, strong: true },
+    { label: 'Alquiler anual (bruto)', value: preview.annualPotentialRental },
+    { label: 'Vacancia / desocupación', value: -preview.annualVacancyCost },
+    { label: 'Alquiler efectivo', value: preview.annualEffectiveRental, strong: true },
+    { label: 'Gastos operativos (predial, mant., seguro…)', value: -preview.annualOperatingExpenses },
   ]
+
+  // Desglose operativo ya viene agregado; la UI de sliders muestra líneas. Aquí el total ops.
+  rows.push(
+    { label: 'Impuesto a la renta', value: -preview.annualIncomeTaxEstimate },
+    { label: 'Comisión gestor', value: -preview.annualManagement },
+  )
 
   if (preview.mode !== 'cash') {
     rows.push(
-      { label: 'Cuotas (capital + intereses)', value: -preview.annualMortgagePaid },
+      { label: 'Cuotas anuales (capital + intereses)', value: -preview.annualMortgagePaid },
       { label: 'Cargos adicionales del crédito', value: -preview.annualExtraCharges },
       { label: 'Otros costos financieros', value: -preview.annualOtherFinancialCosts },
     )
   }
 
-  rows.push({ label: 'Flujo de caja (antes de IR)', value: preview.annualNetCashFlow, strong: true })
-
-  if (preview.annualIncomeTaxEstimate > 0) {
-    rows.push(
-      { label: 'IR estimado (manual)', value: -preview.annualIncomeTaxEstimate, muted: true },
-      {
-        label: 'Flujo después de IR estimado',
-        value: preview.annualCashFlowAfterTax,
-        strong: true,
-        muted: true,
-      },
-    )
-  }
+  rows.push(
+    { label: 'Total costos (ops + IR + gestor + deuda)', value: -preview.totalAnnualCosts, muted: true },
+    { label: 'Saldo anual real', value: preview.annualNetCashFlow, strong: true },
+  )
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#ece6dc]">
@@ -59,18 +55,15 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
           ))}
         </tbody>
       </table>
-      {preview.mode !== 'cash' ? (
-        <div className="border-t border-[#ece6dc] bg-[#fcfbf9] px-4 py-2.5 text-[11px] text-[#8a8176]">
-          Cuota mensual (capital + intereses): {formatMoneyExact(preview.monthlyPayment)}
-          {preview.monthlyExtraCharges > 0
-            ? ` · extras ${formatMoneyExact(preview.monthlyExtraCharges)}`
-            : ''}
-          {' · '}
-          Tasa {preview.rateType === 'effective_annual' ? 'efectiva' : 'nominal'} anual{' '}
-          {preview.interestRate.toFixed(2)}% (configuración de simulación; no es oferta bancaria
-          verificada).
-        </div>
-      ) : null}
+      <div className="border-t border-[#ece6dc] bg-[#fcfbf9] px-4 py-2.5 text-[11px] text-[#8a8176]">
+        IR {(preview.incomeTaxRate * 100).toFixed(0)}% y gestor{' '}
+        {(preview.managementFeeRate * 100).toFixed(0)}% se calculan sobre el alquiler efectivo (tras
+        vacancia)
+        {preview.mode !== 'cash'
+          ? ` · Cuota ${formatMoneyExact(preview.monthlyPayment)}/mes · tasa ${preview.rateType === 'effective_annual' ? 'efectiva' : 'nominal'} ${preview.interestRate.toFixed(2)}%`
+          : ''}
+        . No es oferta bancaria verificada.
+      </div>
     </div>
   )
 }

@@ -49,7 +49,7 @@ describe('scenarioValidate', () => {
 })
 
 describe('scenarioFidelity', () => {
-  it('marca exacto solo investment-v2', () => {
+  it('marca exacto solo la versión actual de cálculo', () => {
     const exact = assessScenarioFidelity({
       calculation_version: CALCULATION_VERSION,
       simulation_mode: 'cash',

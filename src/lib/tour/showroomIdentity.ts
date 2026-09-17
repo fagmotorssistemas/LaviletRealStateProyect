@@ -34,6 +34,22 @@ export function isShowroomIdentified() {
   return Boolean(getShowroomPhone())
 }
 
+/**
+ * Bypass temporal: en localhost (o con NEXT_PUBLIC_TOUR_TOOLS_SKIP_PHONE=1)
+ * se puede abrir simulador/financiamiento sin pedir celular.
+ * Producción sigue exigiendo identificación.
+ */
+export function shouldSkipShowroomPhoneGate() {
+  if (process.env.NEXT_PUBLIC_TOUR_TOOLS_SKIP_PHONE === '1') return true
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname
+  return host === 'localhost' || host === '127.0.0.1'
+}
+
+export function canAccessShowroomTools() {
+  return isShowroomIdentified() || shouldSkipShowroomPhoneGate()
+}
+
 function notifyShowroomIdentityChange() {
   if (typeof window === 'undefined') return
   try {

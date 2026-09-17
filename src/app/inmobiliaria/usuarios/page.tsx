@@ -42,6 +42,7 @@ function ViewChecks({
   const groups = [
     { id: 'ventas' as const, label: 'Ventas' },
     { id: 'contabilidad' as const, label: 'Contabilidad' },
+    { id: 'marketing' as const, label: 'Marketing' },
     { id: 'admin' as const, label: 'Administración' },
   ]
 

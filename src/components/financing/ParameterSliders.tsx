@@ -1,7 +1,15 @@
 'use client'
 
-import { formatMoney } from '@/lib/financing/calculator'
+import {
+  INCOME_TAX_RATE,
+  MANAGEMENT_FEE_RATE,
+  formatMoney,
+  formatMoneyExact,
+  roundMoney,
+} from '@/lib/financing/calculator'
 import type { ExpenseBreakdown } from '@/types/financingSimulator'
+import { CoberturaMensual } from '@/components/financing/CoberturaMensual'
+import type { MonthlyCoverage } from '@/types/financingSimulator'
 
 export function ParameterSliders({
   monthlyRent,
@@ -15,8 +23,12 @@ export function ParameterSliders({
   onExpensesChange,
   suggestedExpenses,
   onUseSuggestedExpenses,
-  annualManagement,
-  onManagementChange,
+  includePropertyManager,
+  onIncludePropertyManagerChange,
+  includeIncomeTax,
+  onIncludeIncomeTaxChange,
+  coverage,
+  showCoveragePayment = true,
   unitPrice,
   onUnitPriceChange,
   priceEditable,
@@ -34,8 +46,12 @@ export function ParameterSliders({
   onExpensesChange: (partial: Partial<ExpenseBreakdown>) => void
   suggestedExpenses: number
   onUseSuggestedExpenses: () => void
-  annualManagement: number
-  onManagementChange: (value: number) => void
+  includePropertyManager: boolean
+  onIncludePropertyManagerChange: (value: boolean) => void
+  includeIncomeTax: boolean
+  onIncludeIncomeTaxChange: (value: boolean) => void
+  coverage: MonthlyCoverage | null
+  showCoveragePayment?: boolean
   unitPrice: number
   onUnitPriceChange: (value: number) => void
   priceEditable?: boolean
@@ -43,6 +59,9 @@ export function ParameterSliders({
   showPrice?: boolean
 }) {
   const vacancyPct = Math.round(vacancyRate * 1000) / 10
+  const annualEffective = roundMoney(monthlyRent * 12 * (1 - vacancyRate))
+  const estimatedManagement = roundMoney(annualEffective * MANAGEMENT_FEE_RATE)
+  const estimatedIncomeTax = roundMoney(annualEffective * INCOME_TAX_RATE)
 
   return (
     <div className="space-y-5">
@@ -108,10 +127,14 @@ export function ParameterSliders({
         </p>
       </label>
 
+      {coverage ? (
+        <CoberturaMensual coverage={coverage} showPayment={showCoveragePayment} />
+      ) : null}
+
       <label className="block space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            Vacancia
+            Vacancia / desocupación
           </span>
           <span className="text-[11px] tabular-nums text-[#6b645c]">{vacancyPct}%</span>
         </div>
@@ -144,9 +167,9 @@ export function ParameterSliders({
         </div>
         {(
           [
-            ['propertyTax', 'Predial'],
-            ['maintenance', 'Mantenimiento / alícuota (propietario)'],
-            ['insurance', 'Seguros'],
+            ['propertyTax', 'Impuesto predial / operacional'],
+            ['maintenance', 'Mantenimiento / alícuota'],
+            ['insurance', 'Seguro'],
             ['other', 'Otros gastos'],
           ] as const
         ).map(([key, label]) => (
@@ -163,23 +186,67 @@ export function ParameterSliders({
           </label>
         ))}
         <p className="text-[11px] text-[#8a8176]">
-          Total operativo: {formatMoney(expenses.total)} (sin gestión ni IR).
+          Total operativo: {formatMoney(expenses.total)} (sin vacancia, IR ni gestor).
         </p>
       </div>
 
-      <label className="block space-y-1.5">
-        <span className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-          Gestión anual
-        </span>
-        <input
-          type="number"
-          min={0}
-          step={50}
-          value={annualManagement}
-          onChange={(event) => onManagementChange(Number(event.target.value) || 0)}
-          className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
-        />
-      </label>
+      <div className="space-y-3 rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-3">
+        <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
+          Gestión del arrendamiento
+        </p>
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-[#1f1a14]">
+          <input
+            type="radio"
+            name="gestor-mode"
+            className="mt-1 accent-[#1a2744]"
+            checked={!includePropertyManager}
+            onChange={() => onIncludePropertyManagerChange(false)}
+          />
+          <span>
+            Auto-gestiono <span className="text-[#8a8176]">(sin comisión)</span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-[#1f1a14]">
+          <input
+            type="radio"
+            name="gestor-mode"
+            className="mt-1 accent-[#1a2744]"
+            checked={includePropertyManager}
+            onChange={() => onIncludePropertyManagerChange(true)}
+          />
+          <span>
+            Pago gestor inmobiliario ({(MANAGEMENT_FEE_RATE * 100).toFixed(0)}% del alquiler efectivo)
+          </span>
+        </label>
+        <p className="text-[12px] tabular-nums text-[#4a433c]">
+          Comisión estimada:{' '}
+          <strong>
+            {includePropertyManager ? formatMoneyExact(estimatedManagement) : formatMoneyExact(0)}
+          </strong>
+          /año
+        </p>
+      </div>
+
+      <div className="space-y-2 rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-3">
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-[#1f1a14]">
+          <input
+            type="checkbox"
+            className="mt-1 accent-[#1a2744]"
+            checked={includeIncomeTax}
+            onChange={(event) => onIncludeIncomeTaxChange(event.target.checked)}
+          />
+          <span>
+            Impuesto a la renta ({(INCOME_TAX_RATE * 100).toFixed(0)}% sobre alquiler efectivo)
+          </span>
+        </label>
+        <p className="text-[12px] tabular-nums text-[#4a433c]">
+          IR estimado:{' '}
+          <strong>
+            {includeIncomeTax ? formatMoneyExact(estimatedIncomeTax) : formatMoneyExact(0)}
+          </strong>
+          /año · adicional al impuesto predial/operacional
+        </p>
+      </div>
     </div>
   )
 }

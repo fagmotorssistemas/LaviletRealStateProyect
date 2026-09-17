@@ -1,0 +1,47 @@
+{
+  "backup_meta": {
+    "created_at_utc": "2026-09-17T20:36:00Z",
+    "purpose": "Pre-deploy backup before investment simulator migrations on Lavilet Production",
+    "supabase_project_ref": "xhjnyntywqhczdtecgim",
+    "supabase_project_name": "Lavilet Real Estate Project",
+    "production_app_sha_before": "b2fccc7704303f017fdb0b04be8e0c7a26ec42da",
+    "production_deployment_before": "dpl_DfgRxa4vfHNVrSijQhBAGPMmXwte",
+    "production_url": "https://www.lavilett.com",
+    "table": "public.financing_scenarios",
+    "row_count": 0,
+    "note": "Table was empty at backup time. Schema snapshot only; no client scenarios present."
+  },
+  "columns": [
+    {"column_name":"id","data_type":"uuid","is_nullable":"NO","column_default":"gen_random_uuid()"},
+    {"column_name":"tenant_id","data_type":"uuid","is_nullable":"YES","column_default":"'a1b2c3d4-0001-4000-8000-000000000001'::uuid"},
+    {"column_name":"lead_id","data_type":"uuid","is_nullable":"YES","column_default":null},
+    {"column_name":"unit_id","data_type":"uuid","is_nullable":"YES","column_default":null},
+    {"column_name":"financing_partner_id","data_type":"uuid","is_nullable":"YES","column_default":null},
+    {"column_name":"project_id","data_type":"uuid","is_nullable":"YES","column_default":null},
+    {"column_name":"down_payment_percent","data_type":"double precision","is_nullable":"YES","column_default":null},
+    {"column_name":"financing_years","data_type":"integer","is_nullable":"YES","column_default":null},
+    {"column_name":"estimated_monthly_rent","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"unit_price","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"down_payment_amount","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"financed_amount","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"applied_interest_rate","data_type":"double precision","is_nullable":"YES","column_default":null},
+    {"column_name":"monthly_payment","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"annual_mortgage_paid","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"annual_expenses","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"annual_gross_rental","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"annual_net_cash_flow","data_type":"numeric","is_nullable":"YES","column_default":null},
+    {"column_name":"roi_percent","data_type":"double precision","is_nullable":"YES","column_default":null},
+    {"column_name":"payback_years","data_type":"double precision","is_nullable":"YES","column_default":null},
+    {"column_name":"breakeven_month","data_type":"integer","is_nullable":"YES","column_default":null},
+    {"column_name":"is_profitable","data_type":"boolean","is_nullable":"YES","column_default":null},
+    {"column_name":"status","data_type":"character varying","is_nullable":"YES","column_default":"'draft'::character varying"},
+    {"column_name":"ip_address","data_type":"inet","is_nullable":"YES","column_default":null},
+    {"column_name":"user_agent","data_type":"text","is_nullable":"YES","column_default":null},
+    {"column_name":"created_at","data_type":"timestamp with time zone","is_nullable":"YES","column_default":"now()"},
+    {"column_name":"updated_at","data_type":"timestamp with time zone","is_nullable":"YES","column_default":"now()"}
+  ],
+  "indexes": [
+    {"indexname":"financing_scenarios_pkey","indexdef":"CREATE UNIQUE INDEX financing_scenarios_pkey ON public.financing_scenarios USING btree (id)"}
+  ],
+  "rows": []
+}
