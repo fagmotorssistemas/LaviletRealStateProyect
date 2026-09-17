@@ -1,5 +1,6 @@
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { visitTruthReply } from './visit-copy'
+import { readinessInvitation, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { protectedSentences } from './turn-completeness'
 import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
@@ -23,7 +24,7 @@ import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollo
 import { commercialMemory, rememberCommercialReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
-import { acceptsUnitOptions, acceptsVisitInvitation, rememberSalesReply } from './sales-policy'
+import { acceptsUnitOptions, acceptsVisitInvitation, ambiguousVisitAcceptance, rememberSalesReply } from './sales-policy'
 import { mediaFailureReply, unreadMediaMarker } from './media-format'
 import { variedReplyOpening } from './response-openings'
 import { acceptedPriceOption, asksUnitPrice, unitPriceQuote, priceReplyIssues } from './price-reply'
@@ -169,6 +170,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     return handoffNotice
   }
   async function collectVisit(args: Row) {
+    const info=await commercialContext(lead,context.historial)
+    if(info.estado_proyecto && object(info.estado_proyecto).primaryPlace==='none') return {action:'visits_disabled',message:'Por el momento no hay visitas presenciales habilitadas. Podemos resolver sus dudas por aquí.'}
     if (!await visitParserReady()) {
       // Preserve the request in the actual advisor queue; do not ask for the
       // same date again or manufacture a booking using the old SQL parser.
@@ -226,7 +229,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     }
     if (!reply && wantsBrochure(current, context.historial)) {
       const info = await commercialContext(lead, context.historial)
-      reply = brochureReply(current, context.historial, text(info.modo_comercial))
+      reply = brochureReply(current, context.historial, text(info.modo_comercial),!!info.estado_proyecto)
       if (reply) audit = { source: 'brochure', brochure_sent: true }
     }
     if (!reply && acceptsUnitOptions(current, text(state.ultima_respuesta))) {
@@ -271,7 +274,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
       if (reply) audit = { source: 'context_repair' }
     }
   }
-  if (!reply && !inbound.mediaFailed && isCourtesyOnly(current) && !proposals.some(p => p.status === 'awaiting_client')) {
+  if(!reply && ambiguousVisitAcceptance(current,text(state.ultima_respuesta))) {
+    reply='¿Se refiere a coordinar una visita?'
+    audit={source:'visit_acceptance_clarification'}
+  }
+  if (!reply && !inbound.mediaFailed && isCourtesyOnly(current) && !acceptsVisitInvitation(current,text(state.ultima_respuesta)) && !proposals.some(p => p.status === 'awaiting_client')) {
     if (isCourtesyOnly(text(state.ultima_respuesta)) || /^Con mucho gusto, ¡le esperamos!$/i.test(text(state.ultima_respuesta))) return { action: 'courtesy_already_acknowledged' }
     reply = visitDraft?.status !== 'collecting' && proposals.some(p => p.status === 'confirmed') ? 'Con mucho gusto, ¡le esperamos!' : 'Con mucho gusto.'
     audit = { source: 'courtesy' }
@@ -399,7 +406,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     extracted.financing_consent = financeInput.consent
     extracted.financing_partner = financeInput.partner
     const collectingVisit = visitDraft?.status === 'collecting'
-    const canRequestVisit = !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current)) && !isCourtesyOnly(current)
+    const canRequestVisit = !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current)) && (!isCourtesyOnly(current) || acceptsVisitInvitation(current,text(state.ultima_respuesta)))
       && (explicitlyRequestsVisit(current) || collectingVisit || acceptsVisitInvitation(current, text(state.ultima_respuesta)))
     if (canRequestVisit && (explicitlyRequestsVisit(current) || acceptsVisitInvitation(current, text(state.ultima_respuesta)))) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
     if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
@@ -513,7 +520,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
   if (inbound.mediaErrors.length) audit = {...audit, media_errors: inbound.mediaErrors}
   if (audit.source === 'visit_intake') {
     const info = await commercialContext(lead, context.historial)
-    if (info.modo_comercial === 'lanzamiento') reply = launchVisitReply(reply, object(info.politica_visitas).launchDestination === 'office' ? 'office' : 'site')
+    if(info.estado_proyecto && /¿Qué día y a qué hora le gustaría venir\?/.test(reply)) {
+      const invitation=readinessInvitation(info.estado_proyecto as ProjectReadiness).replace('¿Le gustaría','Podemos').replace('?','.')
+      reply=reply.replace('¿Qué día y a qué hora le gustaría venir?',`${invitation} ¿Qué día y hora le convendrían?`)
+    } else if (!info.estado_proyecto && info.modo_comercial === 'lanzamiento') reply = launchVisitReply(reply, object(info.politica_visitas).launchDestination === 'office' ? 'office' : 'site')
   }
   if (['financing', 'financing_question', 'financing_handoff', 'visit_intake', 'visit_status'].includes(text(audit.source))) {
     const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead) }

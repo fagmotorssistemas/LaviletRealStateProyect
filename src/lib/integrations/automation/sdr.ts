@@ -16,6 +16,7 @@ import { acceptedPriceOption, PRICE_REPLY_RULES, priceReplyIssues, statedBudget,
 import { priceFinancingReply } from './financing'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
+import { botReadiness, projectReadiness, readinessRules, readinessMaterialReply, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { salesSubject } from './sales-subject'
 import { unitRecommendation } from './unit-recommendation'
 import { locationRequestKind, withVisitLocation } from './visit-location'
@@ -50,6 +51,7 @@ export async function commercialContext(lead: Row, history: unknown) {
     conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
+    estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? botReadiness(projectReadiness(projectData.policies_json,mode).value) : null,
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       precios_aproximados: pricing.approximate,
@@ -65,6 +67,10 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  if(info.estado_proyecto) {
+    const material=readinessMaterialReply(info.estado_proyecto as ProjectReadiness,current)
+    if(material)return {reply:material,audit:{source:'project_material',fallback:false}}
+  }
   const house = houseProductReply(current, text(object(info.conversacion).ultima_respuesta))
   if (house) {
     const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
@@ -72,7 +78,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   const offTopic = ['property', 'mixed'].includes(text(info.alcance_negocio)) ? '' : vehicleScopeReply(current, info.historial)
   if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
-  const material = brochureReply(current, info.historial, text(info.modo_comercial))
+  const material = brochureReply(current, info.historial, text(info.modo_comercial),!!info.estado_proyecto)
   if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
   const acceptedOption = acceptedPriceOption(info, current, summary)
   if (acceptedOption) return acceptedOption
@@ -137,7 +143,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
     + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
-    + (info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
+    + (info.estado_proyecto ? '\n' + readinessRules(info.estado_proyecto as ProjectReadiness) : info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nEl campo modelo_3d indica que se adjunta material en ESTA respuesta. Si modelo_especifico_disponible=false, es una ficha de la unidad con referencia general del proyecto: no describa la geometría como si fuera la unidad solicitada. Si está presente, responda en menos de 850 caracteres sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces: el sistema añade texto_de_entrega. Si no hay modelo_3d no prometa enviar un modelo. No confunda este material con una cita presencial.'

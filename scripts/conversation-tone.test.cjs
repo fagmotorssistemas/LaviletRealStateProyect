@@ -14,7 +14,7 @@ Module._load = function(id, parent, main) {
 }
 require('./test-typescript.cjs')
 const hash = value => createHash('sha256').update(value).digest('hex')
-const { DIRECT_CONVERSATION_RULE } = require('../src/lib/integrations/automation/direct-conversation-rule.ts')
+const { DIRECT_CONVERSATION_RULE, ACTION_INVITATION_RULE } = require('../src/lib/integrations/automation/direct-conversation-rule.ts')
 const declarations = {
   'conversation-style': ['NATURAL_CONVERSATION_RULES'],
   'commercial-experience': ['COMMERCIAL_EXPERIENCE_RULES'],
@@ -42,7 +42,7 @@ async function fingerprints(originals = {}) {
     return {json:async()=>({status:'completed',output:[{content:[{type:'output_text',text:'{"mensaje":"Respuesta de prueba"}'}]}]})}
   }}})
   const key=process.env.OPENAI_API_KEY,model=process.env.OPENAI_MODEL
-  try {process.env.OPENAI_API_KEY='test';process.env.OPENAI_MODEL='test';await ai.draftReply('Instrucción base',{});assert.ok(instructions.includes(DIRECT_CONVERSATION_RULE));result.draft=hash(instructions.replace(DIRECT_CONVERSATION_RULE,''))}
+  try {process.env.OPENAI_API_KEY='test';process.env.OPENAI_MODEL='test';await ai.draftReply('Instrucción base',{});assert.ok(instructions.includes(DIRECT_CONVERSATION_RULE));result.draft=hash(instructions.replace(DIRECT_CONVERSATION_RULE,'').replace(ACTION_INVITATION_RULE,''))}
   finally {if(key===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=key;if(model===undefined)delete process.env.OPENAI_MODEL;else process.env.OPENAI_MODEL=model}
   return result
 }

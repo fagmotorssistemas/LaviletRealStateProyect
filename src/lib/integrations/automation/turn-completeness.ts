@@ -1,4 +1,5 @@
 import { CURRENT_TONE } from './conversation-tone'
+import { readinessRules, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { isVisitCopy, VISIT_COPY_RULES, VISIT_NATURAL_RULES, visitCopyIssues } from './visit-copy'
 import 'server-only'
 import { aiJson } from './ai'
@@ -202,7 +203,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
   let requests: Coverage[] = []
   try {
-    const visitRules = isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : ''
+    const visitRules = (isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + (input.verified.estado_proyecto ? '\n'+readinessRules(input.verified.estado_proyecto as ProjectReadiness) : '')
     const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory) + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')
