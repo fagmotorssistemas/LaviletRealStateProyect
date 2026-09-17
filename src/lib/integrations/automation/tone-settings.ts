@@ -2,6 +2,7 @@ import 'server-only'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { db, scope } from './data'
 import { CURRENT_TONE } from './conversation-tone'
+import { DIRECT_CONVERSATION_RULE } from './direct-conversation-rule'
 import { DEFAULT_TONE, toneDirection, toneIsDefault, type ToneSettings } from '@/lib/inmobiliaria/conversationTone'
 import { readToneRow, toneState } from '@/services/conversationTone.service'
 
@@ -54,10 +55,10 @@ export async function configuredToneInstructions(instructions: string, override?
   const snapshot = override ? null : turnTone.getStore() ?? await readSnapshot()
   const settings = override ?? snapshot!.settings
   if (snapshot) snapshot.applied = true
-  if (toneIsDefault(settings)) return instructions
+  if (toneIsDefault(settings)) return instructions + DIRECT_CONVERSATION_RULE
   for (const [key, replacement] of Object.entries(replacements)) {
     if (settings.style === 'actual' && ['commercialLanguage', 'projectExample'].includes(key)) continue
     instructions = instructions.split(CURRENT_TONE[key as keyof typeof CURRENT_TONE]).join(replacement)
   }
-  return instructions + toneDirection(settings)
+  return instructions + toneDirection(settings) + DIRECT_CONVERSATION_RULE
 }

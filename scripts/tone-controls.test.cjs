@@ -5,6 +5,7 @@ require('./test-typescript.cjs')
 const {DEFAULT_TONE,validateTone,toneDirection}=require('../src/lib/inmobiliaria/conversationTone.ts')
 const {toneState,saveTone}=require('../src/services/conversationTone.service.ts')
 const {CURRENT_TONE}=require('../src/lib/integrations/automation/conversation-tone.ts')
+const {DIRECT_CONVERSATION_RULE}=require('../src/lib/integrations/automation/direct-conversation-rule.ts')
 function load(file,mocks){const full=path.resolve(file),m={exports:{}},r=Module.createRequire(full);new Function('require','module','exports',ts.transpileModule(fs.readFileSync(full,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(id=>id in mocks?mocks[id]:r(id),m,m.exports);return m.exports}
 test('default preserves instructions and controls reject untrusted or out-of-range input',()=>{
   assert.equal(toneDirection(DEFAULT_TONE),'')
@@ -23,7 +24,7 @@ test('runtime applies saved style only to writing tasks; preview override does n
   assert.equal(reads,0)
   assert.match(await configuredToneInstructions(CURRENT_TONE.operationalWriting,undefined,'writing'),/elegante y sobria/)
   assert.equal(reads,1)
-  assert.equal(await configuredToneInstructions(CURRENT_TONE.operationalWriting,DEFAULT_TONE,'writing'),CURRENT_TONE.operationalWriting)
+  assert.equal(await configuredToneInstructions(CURRENT_TONE.operationalWriting,DEFAULT_TONE,'writing'),CURRENT_TONE.operationalWriting+DIRECT_CONVERSATION_RULE)
   assert.equal(reads,1)
 })
 test('turn snapshot survives edits, isolates concurrent leads and audits the actual profile',async()=>{
@@ -54,7 +55,7 @@ test('custom styles replace competing wording while retaining business constrain
     './data':{db:()=>{throw Error('offline')},scope:{}},
   })
   const originalText=Object.values(CURRENT_TONE).join('\n')
-  assert.equal(await runtime.configuredToneInstructions(originalText,undefined,'writing'),originalText)
+  assert.equal(await runtime.configuredToneInstructions(originalText,undefined,'writing'),originalText+DIRECT_CONVERSATION_RULE)
   assert.equal(await runtime.configuredToneInstructions(originalText,{style:'elegante',warmth:0,detail:0},'data'),originalText)
   const custom=await runtime.configuredToneInstructions(originalText,{style:'elegante',warmth:0,detail:0},'writing')
   assert.ok(!custom.includes('Normalmente 25 a 55'))
@@ -64,6 +65,16 @@ test('custom styles replace competing wording while retaining business constrain
   assert.match(custom,/Una pregunta como m/)
   assert.match(custom,/No omita respuestas/)
   assert.match(custom,/reply responde SOLO/)
+})
+test('direct conversation rule reaches every style and slider combination in writers and reviewers, never extraction',async()=>{
+  const {configuredToneInstructions}=require('../src/lib/integrations/automation/tone-settings.ts')
+  for(const style of ['actual','cercano','equilibrado','elegante']) for(const warmth of [0,1,2]) for(const detail of [0,1,2]) {
+    for(const task of ['writing','review']) {
+      const result=await configuredToneInstructions('Instrucciones base.',{style,warmth,detail},task)
+      assert.ok(result.endsWith(DIRECT_CONVERSATION_RULE),`${style}/${warmth}/${detail}/${task}`)
+    }
+    assert.equal(await configuredToneInstructions('Extraiga datos.',{style,warmth,detail},'data'),'Extraiga datos.')
+  }
 })
 test('saving keeps previous style and uses project-scoped compare-and-swap; stale saves never write',async()=>{
   const row={id:1,content:JSON.stringify({current:DEFAULT_TONE}),version:3,updated_at:null},writes=[],filters=[]

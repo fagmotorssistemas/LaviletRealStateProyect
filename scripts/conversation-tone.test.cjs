@@ -14,6 +14,7 @@ Module._load = function(id, parent, main) {
 }
 require('./test-typescript.cjs')
 const hash = value => createHash('sha256').update(value).digest('hex')
+const { DIRECT_CONVERSATION_RULE } = require('../src/lib/integrations/automation/direct-conversation-rule.ts')
 const declarations = {
   'conversation-style': ['NATURAL_CONVERSATION_RULES'],
   'commercial-experience': ['COMMERCIAL_EXPERIENCE_RULES'],
@@ -41,7 +42,7 @@ async function fingerprints(originals = {}) {
     return {json:async()=>({status:'completed',output:[{content:[{type:'output_text',text:'{"mensaje":"Respuesta de prueba"}'}]}]})}
   }}})
   const key=process.env.OPENAI_API_KEY,model=process.env.OPENAI_MODEL
-  try {process.env.OPENAI_API_KEY='test';process.env.OPENAI_MODEL='test';await ai.draftReply('Instrucción base',{});result.draft=hash(instructions)}
+  try {process.env.OPENAI_API_KEY='test';process.env.OPENAI_MODEL='test';await ai.draftReply('Instrucción base',{});assert.ok(instructions.includes(DIRECT_CONVERSATION_RULE));result.draft=hash(instructions.replace(DIRECT_CONVERSATION_RULE,''))}
   finally {if(key===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=key;if(model===undefined)delete process.env.OPENAI_MODEL;else process.env.OPENAI_MODEL=model}
   return result
 }
@@ -49,6 +50,8 @@ if (process.argv.includes('--capture-original')) {
   fingerprints(JSON.parse(fs.readFileSync(path.join(root,'tmp/tone-original-sources.json'),'utf8'))).then(result=>fs.writeFileSync(path.join(__dirname,'fixtures/conversation-tone-baseline.json'),JSON.stringify(result,null,2)+'\n'))
 } else {
   test('centralization preserves every effective writing/review instruction and contextual opening byte for byte',async()=>{
+    // The user authorized this universal rule for Original too. Verify the
+    // historical prompt separately, without rebaselining unrelated wording.
     assert.deepEqual(await fingerprints(),require('./fixtures/conversation-tone-baseline.json'))
   })
   test('database prompt references expand to the exact prior content and reject unknown keys',async()=>{
