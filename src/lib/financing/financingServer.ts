@@ -331,21 +331,24 @@ export async function listScenariosForVisitor(
 ) {
   const key = visitorKey.trim()
   if (!key) return [] as FinancingScenario[]
+  // Filtrar visitor_key en memoria: el .eq() sobre columnas recién migradas
+  // puede fallar por caché PostgREST aunque INSERT/SELECT * ya funcionen.
   const { data, error } = await admin
     .from('financing_scenarios')
     .select(
       '*, financing_partners(partner_name, annual_interest_rate), units(unit_number, published_commercial_price)',
     )
     .eq('lead_id', leadId)
-    .eq('created_by_visitor_key', key)
     .order('created_at', { ascending: false })
   if (error) {
-    if (isMissingInvestmentV2SchemaError(error) || /created_by_visitor_key/i.test(error.message || '')) {
+    if (isMissingInvestmentV2SchemaError(error)) {
       throw migrationRequiredError()
     }
     throw error
   }
-  return (data ?? []) as FinancingScenario[]
+  return ((data ?? []) as FinancingScenario[]).filter(
+    (row) => String(row.created_by_visitor_key || '') === key,
+  )
 }
 
 /** @deprecated Preferir listScenariosForVisitor. */
