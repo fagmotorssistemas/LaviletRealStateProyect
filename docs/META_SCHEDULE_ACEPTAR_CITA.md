@@ -10,6 +10,8 @@ Estado: **evaluación preparada; cola activa separada**. Sin persistencia outbox
 | ¿Confirmación definitiva? | Con `can_accept`: un clic → request `confirmed`, cita `aceptado`/`reprogramado` |
 | ¿Propuesta? | Sin evidencia de cliente → `awaiting_client` (aún no definitiva; **sin** Schedule) |
 | Consent ads | **No** se asume por aceptar la cita (`leads.meta_ads_consent === true` requerido para negocio OK) |
+| Confirmación cliente | Exige `confirmed_by_client === true`. `aceptado`/`reprogramado` con false/null → excluido |
+| Canal | Solo `web`/`website` o `whatsapp`/`waba`. **`crm` no es website**; vacío/crm → evaluación pendiente |
 
 ## Separación evaluación / cola
 
@@ -26,7 +28,8 @@ Estado: **evaluación preparada; cola activa separada**. Sin persistencia outbox
 
 ### Web
 
-- Intención `website`, pero razón `evaluation_ok_queue_inactive` (cola separada).
+- Solo con canal explícito `web`/`website` → intención `website`, razón `evaluation_ok_queue_inactive`.
+- `crm` u otro sin evidencia → `channel_pending_evidence` (no `website`).
 
 ## Gancho en agenda
 
@@ -39,7 +42,7 @@ npm run test:meta-schedule
 npm run build
 ```
 
-Cubre: propuesta excluida, confirmación incluida, fallo de guardado sin evento, WhatsApp pending Nest, cola inactiva.
+Cubre: propuesta excluida, confirmación incluida, fallo de guardado sin evento, `confirmed_by_client` false/null excluido, `crm` ≠ website, WhatsApp pending Nest, cola inactiva.
 
 ## Fuera de alcance
 

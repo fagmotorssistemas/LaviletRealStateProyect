@@ -76,6 +76,7 @@ export async function evaluateScheduleForConfirmedAppointment(
     appointmentId: appointment.id,
     status: appointment.status,
     channel: appointment.channel,
+    confirmedByClient: appointment.confirmed_by_client,
     leadId: appointment.lead_id,
     adsConsent,
   })

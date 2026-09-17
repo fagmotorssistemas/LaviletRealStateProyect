@@ -5,7 +5,9 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   actionSourceForScheduleChannel,
+  CHANNEL_PENDING_EVIDENCE,
   classifyAppointmentChannel,
+  CLIENT_CONFIRMATION_MISSING,
   evaluateScheduleEligibility,
   isConfirmedAppointmentStatus,
   isScheduleQueueActive,
@@ -17,58 +19,84 @@ import {
 const APPT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 const LEAD = '11111111-2222-4333-8444-555555555555'
 
+function baseInput(overrides: Record<string, unknown> = {}) {
+  return {
+    appointmentId: APPT,
+    status: 'aceptado',
+    channel: 'whatsapp',
+    confirmedByClient: true,
+    leadId: LEAD,
+    adsConsent: true,
+    ...overrides,
+  }
+}
+
 describe('Schedule channel vs web', () => {
   it('WhatsApp no usa website; action_source futuro ≠ entrega lista', () => {
     assert.equal(classifyAppointmentChannel('whatsapp'), 'whatsapp')
     assert.equal(actionSourceForScheduleChannel('whatsapp'), 'business_messaging')
     assert.notEqual(actionSourceForScheduleChannel('whatsapp'), 'website')
-    const result = evaluateScheduleEligibility({
-      appointmentId: APPT,
-      status: 'aceptado',
-      channel: 'whatsapp',
-      leadId: LEAD,
-      adsConsent: true,
-    })
+    const result = evaluateScheduleEligibility(baseInput({ channel: 'whatsapp' }))
     assert.equal(result.businessOk, true)
     assert.equal(result.queueable, false)
     assert.equal(result.reason, WHATSAPP_SCHEDULE_DELIVERY_PENDING)
   })
 
-  it('web: negocio OK pero cola inactiva (separada)', () => {
-    const result = evaluateScheduleEligibility({
-      appointmentId: APPT,
-      status: 'aceptado',
-      channel: 'web',
-      leadId: LEAD,
-      adsConsent: true,
-    })
+  it('web explícito: negocio OK pero cola inactiva (separada)', () => {
+    const result = evaluateScheduleEligibility(baseInput({ channel: 'web' }))
     assert.equal(result.businessOk, true)
     assert.equal(result.queueable, false)
     assert.equal(result.reason, SCHEDULE_QUEUE_INACTIVE)
     assert.equal(result.actionSource, 'website')
   })
+
+  it('canal crm sin evidencia web no se clasifica como website', () => {
+    assert.equal(classifyAppointmentChannel('crm'), 'pending')
+    assert.notEqual(actionSourceForScheduleChannel('pending'), 'website')
+    const result = evaluateScheduleEligibility(baseInput({ channel: 'crm' }))
+    assert.equal(result.businessOk, false)
+    assert.equal(result.queueable, false)
+    assert.equal(result.reason, CHANNEL_PENDING_EVIDENCE)
+    assert.equal(result.channelKind, 'pending')
+    assert.equal(result.actionSource, 'other')
+  })
+
+  it('canal vacío: evaluación pendiente (no website)', () => {
+    assert.equal(classifyAppointmentChannel(null), 'pending')
+    assert.equal(
+      evaluateScheduleEligibility(baseInput({ channel: null })).reason,
+      CHANNEL_PENDING_EVIDENCE,
+    )
+  })
 })
 
 describe('Schedule eligibility tras confirmación', () => {
+  it('aceptado con confirmed_by_client false/null queda excluido', () => {
+    assert.equal(
+      evaluateScheduleEligibility(baseInput({ confirmedByClient: false })).reason,
+      CLIENT_CONFIRMATION_MISSING,
+    )
+    assert.equal(
+      evaluateScheduleEligibility(baseInput({ confirmedByClient: null })).reason,
+      CLIENT_CONFIRMATION_MISSING,
+    )
+    assert.equal(
+      evaluateScheduleEligibility(baseInput({ confirmedByClient: undefined })).reason,
+      CLIENT_CONFIRMATION_MISSING,
+    )
+    assert.equal(
+      evaluateScheduleEligibility(baseInput({ confirmedByClient: false })).businessOk,
+      false,
+    )
+  })
+
   it('aceptar cita no implica consentimiento', () => {
     assert.equal(
-      evaluateScheduleEligibility({
-        appointmentId: APPT,
-        status: 'aceptado',
-        channel: 'whatsapp',
-        leadId: LEAD,
-        adsConsent: null,
-      }).reason,
+      evaluateScheduleEligibility(baseInput({ adsConsent: null })).reason,
       'ads_consent_missing',
     )
     assert.equal(
-      evaluateScheduleEligibility({
-        appointmentId: APPT,
-        status: 'aceptado',
-        channel: 'web',
-        leadId: LEAD,
-        adsConsent: false,
-      }).reason,
+      evaluateScheduleEligibility(baseInput({ channel: 'web', adsConsent: false })).reason,
       'ads_consent_false',
     )
   })
@@ -77,13 +105,7 @@ describe('Schedule eligibility tras confirmación', () => {
     assert.equal(isConfirmedAppointmentStatus('aceptado'), true)
     assert.equal(isConfirmedAppointmentStatus('solicitada'), false)
     assert.equal(
-      evaluateScheduleEligibility({
-        appointmentId: APPT,
-        status: 'solicitada',
-        channel: 'whatsapp',
-        leadId: LEAD,
-        adsConsent: true,
-      }).reason,
+      evaluateScheduleEligibility(baseInput({ status: 'solicitada' })).reason,
       'not_confirmed_status',
     )
   })
