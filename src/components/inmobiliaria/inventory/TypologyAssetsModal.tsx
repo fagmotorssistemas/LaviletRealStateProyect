@@ -357,14 +357,53 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
       throw new Error('El archivo subió, pero se cortó al confirmar. Recargá e intentá de nuevo.')
     }
     const confRaw = await confRes.text()
-    let conf: { error?: string; code?: string } = {}
+    let conf: {
+      error?: string
+      code?: string
+      convert_pending?: boolean
+    } = {}
     try {
       conf = confRaw ? (JSON.parse(confRaw) as typeof conf) : {}
     } catch {
-      throw new Error(`No se pudo confirmar la subida (${confRes.status}).`)
+      throw new Error(
+        confRes.status === 504 || confRes.status === 524
+          ? 'El servidor tardó demasiado en confirmar. Si el archivo ya aparece en la lista, está bien; si no, volvé a intentar.'
+          : `No se pudo confirmar la subida (${confRes.status}).`,
+      )
     }
     if (confRes.status === 409 || conf.code === 'duplicate') return 'duplicate'
     if (!confRes.ok) throw new Error(conf.error || `Error al confirmar (${confRes.status})`)
+
+    // Conversión WebP en segundo plano (no bloquear; evita 504 en panoramas pesados).
+    if (conf.convert_pending) {
+      void fetch('/api/typology-assets/convert', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          typology_code: prep.typology_code || code,
+          kind: prep.kind || nextKind,
+          file_name: prep.file_name,
+          storage_path: prep.storage_path,
+          room: room || null,
+          finish: finish ?? null,
+          light: light ?? null,
+        }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const raw = await res.text().catch(() => '')
+            console.warn('[typology-assets] convert background failed', res.status, raw.slice(0, 200))
+            return
+          }
+          // Refrescar listado cuando termine (si el modal sigue abierto).
+          if (code) void loadAssets(code)
+        })
+        .catch((err) => {
+          console.warn('[typology-assets] convert background error', err)
+        })
+    }
+
     return 'done'
   }
 
@@ -473,7 +512,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
       text:
         tab === 'galeria'
           ? `Subiendo ${slot.room} · ${slot.label} para ${code}…`
-          : `Subiendo 360 y convirtiendo a WebP sin pérdida…`,
+          : `Subiendo 360… (la conversión WebP sigue en segundo plano)`,
     })
     try {
       await uploadOne(
@@ -638,7 +677,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 <p className="text-sm text-[#3a3d36]">360</p>
                 <p className="text-xs text-[#8a8d87]">
                   La sala es la vista principal del tour. Un 360 por ambiente, acabado 1 y 2, día y noche.
-                  Se guarda en WebP sin pérdida (lossless) a resolución completa.
+                  Se sube el original y luego se convierte a WebP sin pérdida en segundo plano (evita cortes en archivos pesados).
                 </p>
               </div>
               {roomSlots.length === 0 ? (
