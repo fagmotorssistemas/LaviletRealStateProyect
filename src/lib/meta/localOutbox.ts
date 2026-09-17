@@ -118,29 +118,33 @@ export async function cancelPendingMetaOutbox(
   admin: SupabaseClient,
   opts: { leadId?: string | null; visitorKey?: string | null },
 ): Promise<number> {
-  let q = admin
-    .from('meta_capi_outbox')
-    .update({
-      status: 'cancelled',
-      updated_at: new Date().toISOString(),
-      last_error: 'ads_consent_revoked',
-    })
-    .eq('status', 'pending')
-    .eq('ads_consent_required', true)
+  // Incluye review_hold: al revocar consent no debe sobrevivir para un flush futuro.
+  const statuses = [OUTBOX_FLUSHABLE_STATUS, OUTBOX_REVIEW_HOLD_STATUS] as const
+  let cancelled = 0
 
-  if (opts.leadId) q = q.eq('lead_id', opts.leadId)
-  else if (opts.visitorKey) q = q.eq('visitor_key', opts.visitorKey)
-  else {
-    // Sin ámbito: cancelar todos los pendientes que requieren consent (retirada global del visitante actual se pasa visitorKey)
-    return 0
-  }
+  for (const status of statuses) {
+    let q = admin
+      .from('meta_capi_outbox')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+        last_error: 'ads_consent_revoked',
+      })
+      .eq('status', status)
+      .eq('ads_consent_required', true)
 
-  const { data, error } = await q.select('id')
-  if (error) {
-    console.error('[meta-outbox] cancel', error.message)
-    return 0
+    if (opts.leadId) q = q.eq('lead_id', opts.leadId)
+    else if (opts.visitorKey) q = q.eq('visitor_key', opts.visitorKey)
+    else return cancelled
+
+    const { data, error } = await q.select('id')
+    if (error) {
+      console.error('[meta-outbox] cancel', error.message)
+      continue
+    }
+    cancelled += data?.length ?? 0
   }
-  return data?.length ?? 0
+  return cancelled
 }
 
 export async function setLeadAdsConsent(
@@ -308,6 +312,17 @@ export async function flushLocalMetaOutbox(
       deliveryLane: row.delivery_lane,
       visitorKey: row.visitor_key,
       leadId: row.lead_id,
+    }
+
+    if (typeof payload.messaging_channel === 'string' && payload.messaging_channel === 'whatsapp') {
+      input.messagingChannel = 'whatsapp'
+    }
+    if (typeof payload.ctwa_clid === 'string') input.ctwaClid = payload.ctwa_clid
+    if (typeof payload.whatsapp_business_account_id === 'string') {
+      input.whatsappBusinessAccountId = payload.whatsapp_business_account_id
+    }
+    if (typeof payload.messaging_dataset_id === 'string') {
+      input.messagingDatasetId = payload.messaging_dataset_id
     }
 
     // IP/UA ya van en payload si se capturaron al persistir

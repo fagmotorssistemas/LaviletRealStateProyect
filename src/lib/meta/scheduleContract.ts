@@ -7,8 +7,8 @@
  * - WhatsApp user_data exige whatsapp_business_account_id + ctwa_clid (docs Meta).
  * - Sin ctwa_clid no hay llamada CAPI de business messaging atribuible al anuncio CTWA
  *   (no es “atribución floja” opcional: el identificador es requerido en el contrato Meta).
- * - event_name Schedule en business_messaging: no verificado frente al allowlist Meta;
- *   Nest tampoco mapea aún messaging/CTWA.
+ * - event_name Schedule en business_messaging: no verificado frente al allowlist Meta.
+ * - No renombrar la cita a otro event_name para forzar aceptación Meta.
  */
 
 import {
@@ -20,7 +20,7 @@ import {
   WHATSAPP_SCHEDULE_DELIVERY_PENDING,
 } from './scheduleEligibility'
 
-/** Nest (enqueueMetaEvent) no tipa/reenvía messaging/CTWA hoy. */
+/** Nest tipa/mapea messaging fields; entrega BM Schedule sigue OFF (nombre + flush). */
 export const NEST_MISSING_MESSAGING_FIELDS =
   'nest_payload_missing_messaging_fields' as const
 
@@ -111,7 +111,6 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
     if (!hasText(input.messagingDatasetId)) blockers.push(WHATSAPP_DATASET_ID_MISSING)
     blockers.push(WHATSAPP_SCHEDULE_EVENT_NAME_UNVERIFIED)
     blockers.push(WHATSAPP_SCHEDULE_DELIVERY_PENDING)
-    blockers.push(NEST_MISSING_MESSAGING_FIELDS)
     blockers.push(FLUSH_NEST_INACTIVE)
 
     // Payload de revisión solo si hay teléfono; sin CTWA no es enviable a Meta CAPI BM.

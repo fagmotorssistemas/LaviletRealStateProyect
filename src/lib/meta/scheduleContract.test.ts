@@ -12,7 +12,6 @@ import {
   FLUSH_NEST_INACTIVE,
   isScheduleFlushEnabled,
   isScheduleLocalPersistEnabled,
-  NEST_MISSING_MESSAGING_FIELDS,
   planScheduleDelivery,
   WHATSAPP_CTWA_CLID_REQUIRED,
   WHATSAPP_DATASET_ID_MISSING,
@@ -67,7 +66,7 @@ describe('planScheduleDelivery — web vs WhatsApp', () => {
     assert.ok(plan.blockers.includes(WHATSAPP_CTWA_CLID_REQUIRED))
     assert.equal(plan.payload?.meta_capi_ready, false)
     assert.equal(plan.canFlushNest, false)
-    assert.ok(plan.blockers.includes(NEST_MISSING_MESSAGING_FIELDS))
+    assert.ok(plan.blockers.includes(FLUSH_NEST_INACTIVE))
   })
 
   it('WhatsApp: WABA ≠ dataset; ambos requeridos por separado', () => {

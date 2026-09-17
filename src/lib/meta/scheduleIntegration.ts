@@ -115,7 +115,8 @@ export async function enqueueScheduleForConfirmedAppointment(
 }
 
 /**
- * Gancho post-confirmación: prepara entrega. Por defecto sin persist ni flush.
+ * Gancho post-confirmación: prepara entrega con reintentos de persist.
+ * No traga persist_failed en silencio (queda en reason/logs). Por defecto sin flush.
  */
 export async function afterAppointmentConfirmedForSchedule(
   supabase: SupabaseClient,
@@ -125,13 +126,20 @@ export async function afterAppointmentConfirmedForSchedule(
   if (!id) return
   try {
     const prepared = await prepareScheduleDeliveryAfterConfirmation(supabase, id)
+    if (!prepared.ok && prepared.reason === 'persist_failed') {
+      logScheduleSafe('persist_failed_after_confirm', id.slice(0, 8))
+    }
     return {
       ok: prepared.ok,
       reason: prepared.reason,
       eligibility: prepared.eligibility,
     }
-  } catch {
-    logScheduleSafe('hook_error', 'swallowed')
+  } catch (error) {
+    logScheduleSafe(
+      'hook_error',
+      error instanceof Error ? error.message.slice(0, 60) : 'swallowed',
+    )
+    return { ok: false, reason: 'hook_error' }
   }
 }
 
