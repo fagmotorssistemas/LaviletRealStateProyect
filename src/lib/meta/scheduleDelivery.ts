@@ -11,6 +11,7 @@ import {
   flushLocalMetaOutbox,
   getLeadAdsConsent,
   OUTBOX_FLUSHABLE_STATUS,
+  OUTBOX_NEEDS_REVIEW_STATUS,
   OUTBOX_REVIEW_HOLD_STATUS,
   persistMetaConversion,
 } from './localOutbox'
@@ -356,6 +357,53 @@ export async function prepareScheduleDeliveryAfterConfirmation(
     return { ok: false, reason: eligibility.reason, eligibility, plan, wroteSchedule: false }
   }
 
+  const admin = resolveScheduleAdminClient(deps)
+  if (!admin && (persistOn || deliveryOn)) {
+    logSafe('admin_required', 'service_role_unavailable')
+    return {
+      ok: false,
+      reason: 'service_role_required_for_outbox',
+      eligibility,
+      plan,
+      wroteSchedule: false,
+    }
+  }
+
+  // Delivery sin persist: promove review_hold web ya existente (p. ej. tras recover).
+  if (!persistOn && deliveryOn && plan.channelKind === 'web' && admin) {
+    const promo = await promoteScheduleReviewHoldForAppointment(admin, id, {
+      ...deps,
+      allowDelivery: true,
+      getLeadAdsConsent: readConsent,
+    })
+    let flushed = false
+    const flushOn = deps.allowFlush === true || isScheduleFlushEnabled()
+    if (flushOn && promo.ok && (promo.promoted || promo.reason === 'already_pending')) {
+      const { data: row } = await admin
+        .from('meta_capi_outbox')
+        .select('event_id')
+        .eq('idempotency_key', plan.idempotencyKey)
+        .maybeSingle()
+      if (row?.event_id) {
+        const flush = deps.flush || flushLocalMetaOutbox
+        await flush(admin, { limit: 5, eventIds: [row.event_id] })
+        flushed = true
+      }
+    }
+    return {
+      ok: promo.ok,
+      reason: promo.reason,
+      eligibility,
+      plan,
+      promoted: promo.promoted,
+      flushed,
+      wroteSchedule: false,
+      outboxStatus: promo.promoted || promo.reason === 'already_pending'
+        ? OUTBOX_FLUSHABLE_STATUS
+        : undefined,
+    }
+  }
+
   // Controles todos off → cero escrituras Schedule.
   if (!persistOn && !anyWrite) {
     logSafe('no_writes', ALL_SCHEDULE_CONTROLS_OFF)
@@ -397,7 +445,6 @@ export async function prepareScheduleDeliveryAfterConfirmation(
     }
   }
 
-  const admin = resolveScheduleAdminClient(deps)
   if (!admin) {
     logSafe('admin_required', 'service_role_unavailable')
     return {
@@ -449,6 +496,15 @@ export async function prepareScheduleDeliveryAfterConfirmation(
     logSafe('intent_failed_cita_ok', intent.reason || 'intent_failed')
   }
 
+  const holdStatus =
+    plan.channelKind === 'whatsapp'
+      ? OUTBOX_NEEDS_REVIEW_STATUS
+      : OUTBOX_REVIEW_HOLD_STATUS
+  const holdError =
+    plan.channelKind === 'whatsapp'
+      ? 'whatsapp_schedule_delivery_blocked'
+      : null
+
   let persistedRow: {
     inserted: boolean
     eventId: string
@@ -467,13 +523,14 @@ export async function prepareScheduleDeliveryAfterConfirmation(
         leadId: appointment.lead_id,
         adsConsentRequired: true,
         payload: basePayload,
-        status: OUTBOX_REVIEW_HOLD_STATUS,
+        status: holdStatus,
+        lastError: holdError,
       },
       deps,
     )
     logSafe(
-      persistedRow.inserted ? 'persisted_review_hold' : 'duplicate_review_hold',
-      plan.channelKind,
+      persistedRow.inserted ? 'persisted_hold' : 'duplicate_hold',
+      `${plan.channelKind}:${holdStatus}`,
     )
   } catch {
     // Persist falló tras confirmación: intent puede existir para recover.
@@ -494,7 +551,7 @@ export async function prepareScheduleDeliveryAfterConfirmation(
   let promoted = false
   let flushed = false
 
-  // Solo promote/flush con delivery on (nunca pending si delivery off).
+  // Solo promote/flush web con delivery on (nunca pending si delivery off).
   if (deliveryOn && plan.channelKind === 'web') {
     const promo = await promoteScheduleReviewHoldForAppointment(admin, id, {
       ...deps,
@@ -517,7 +574,11 @@ export async function prepareScheduleDeliveryAfterConfirmation(
 
   return {
     ok: true,
-    reason: persistedRow.inserted ? 'persisted_review_hold' : 'duplicate_review_hold',
+    reason: persistedRow.inserted
+      ? plan.channelKind === 'whatsapp'
+        ? 'persisted_needs_review'
+        : 'persisted_review_hold'
+      : 'duplicate_hold',
     eligibility,
     plan: {
       ...plan,
@@ -531,7 +592,9 @@ export async function prepareScheduleDeliveryAfterConfirmation(
     },
     persisted: persistedRow.inserted,
     eventId: persistedRow.eventId,
-    outboxStatus: promoted ? OUTBOX_FLUSHABLE_STATUS : OUTBOX_REVIEW_HOLD_STATUS,
+    outboxStatus: promoted
+      ? OUTBOX_FLUSHABLE_STATUS
+      : holdStatus,
     persistAttempts: persistedRow.attempts,
     intentSaved: intent.ok,
     intentImmutable: intent.ok && !intent.inserted,

@@ -36,6 +36,7 @@ Invoke-SqlInContainer (Join-Path $Here "00_schema.sql")
 Invoke-SqlInContainer (Join-Path $Mig "20260917152000_meta_capi_outbox_review_hold.sql")
 Invoke-SqlInContainer (Join-Path $Mig "20260917160000_meta_schedule_recovery.sql")
 Invoke-SqlInContainer (Join-Path $Mig "20260917170000_meta_schedule_recover_pre_intent.sql")
+Invoke-SqlInContainer (Join-Path $Mig "20260917180000_meta_schedule_consent_cancel_review_hold.sql")
 
 Write-Host "Assert single RPC signature (Nest p_limit)..."
 Invoke-SqlInContainer (Join-Path $Here "15_assert_single_signature.sql")
@@ -72,6 +73,9 @@ if (($nA + $nB) -ne 1) {
   throw "concurrency expected exactly one insert across two connections, got A=$nA B=$nB"
 }
 Invoke-SqlInContainer (Join-Path $Here "30_assert_concurrency.sql")
+
+Write-Host "Consent revoke cancels review_hold..."
+Invoke-SqlInContainer (Join-Path $Here "35_consent_cancel.sql")
 
 Write-Host "PASS: isolated recover DB checks"
 docker rm -f $Name | Out-Null

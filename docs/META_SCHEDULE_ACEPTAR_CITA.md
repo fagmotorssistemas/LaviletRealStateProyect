@@ -7,8 +7,9 @@
 | Frontend `feat/meta-schedule-aceptar-cita` | `c8c2ad5abe6b6631842880f50f8f153c8d496052` |
 | Nest `fix/supabase-drain-exclude-review-hold` | `6e787347b48741e8c0edd0f2c143b110c470a8b8` |
 
-**Propuesta ejecutable (PRs, builds, migraciones, flags, 1ª cita genuina, rollback):**  
-[`docs/META_SCHEDULE_DELIVERY_PROPOSAL.md`](./META_SCHEDULE_DELIVERY_PROPOSAL.md)
+**Propuesta ejecutable / entrega final:**  
+[`docs/META_SCHEDULE_FINAL_DELIVERY.md`](./META_SCHEDULE_FINAL_DELIVERY.md)  
+(PR #5 existente; no duplicar. Sin push si Preview automático.)
 
 | Capa | Estado |
 | --- | --- |
@@ -52,6 +53,7 @@ Nest llama solo `{ "p_limit": 50 }` (lookback = default 7).
 1. `20260917152000_meta_capi_outbox_review_hold.sql` (`needs_review` + `review_hold`)
 2. `20260917160000_meta_schedule_recovery.sql` (intent RPC + recover base)
 3. `20260917170000_meta_schedule_recover_pre_intent.sql` (hueco pre-intent + lookback; **una** firma)
+4. `20260917180000_meta_schedule_consent_cancel_review_hold.sql` (revoke cancela `review_hold`)
 
 ## Reversión predeterminada (conserva esquema y datos)
 

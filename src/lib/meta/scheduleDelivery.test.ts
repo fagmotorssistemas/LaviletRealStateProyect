@@ -241,7 +241,7 @@ describe('prepareScheduleDeliveryAfterConfirmation', () => {
     })
     assert.equal(result.plan?.payload?.ctwa_clid, 'Aff-AUTH')
     assert.equal(result.plan?.blockers.includes(WHATSAPP_CTWA_CLID_REQUIRED), false)
-    assert.equal(result.outboxStatus, OUTBOX_REVIEW_HOLD_STATUS)
+    assert.equal(result.outboxStatus, 'needs_review')
     assert.equal(result.plan?.canFlushNest, false)
   })
 })

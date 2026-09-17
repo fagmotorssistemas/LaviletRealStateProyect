@@ -48,4 +48,16 @@ describe('migraciones meta schedule status check', () => {
       1,
     )
   })
+
+  it('17180000 consent cancela review_hold', () => {
+    const sql = readFileSync(
+      join(root, '20260917180000_meta_schedule_consent_cancel_review_hold.sql'),
+      'utf8',
+    )
+    assert.match(sql, /review_hold/)
+    assert.match(
+      sql,
+      /status IN \('pending', 'needs_review', 'review_hold'\)/,
+    )
+  })
 })

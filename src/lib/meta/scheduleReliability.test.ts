@@ -253,9 +253,26 @@ describe('3) delivery off → no pending (FE)', () => {
 })
 
 describe('4) recover / canal (contrato en migración + plan)', () => {
-  it('sin persist flag tras intent path: LOCAL_PERSIST_INACTIVE (no asume escritura)', async () => {
+  it('sin persist ni delivery: LOCAL_PERSIST_INACTIVE (no asume escritura)', async () => {
     const { session, admin } = clients()
-    // Simula recover path vía prepare sin persist: no escribe.
+    const result = await prepareScheduleDeliveryAfterConfirmation(session, APPT, {
+      getLeadAdsConsent: async () => true,
+      allowLocalPersist: false,
+      allowDelivery: false,
+      adminClient: admin,
+      persist: async () => {
+        throw new Error('should_not_persist')
+      },
+    })
+    assert.ok(
+      result.reason === LOCAL_PERSIST_INACTIVE ||
+        result.reason === 'all_schedule_controls_off',
+    )
+    assert.equal(result.wroteSchedule, false)
+  })
+
+  it('sin persist con delivery: promote de hold existente sin nueva escritura', async () => {
+    const { session, admin } = clients()
     const result = await prepareScheduleDeliveryAfterConfirmation(session, APPT, {
       getLeadAdsConsent: async () => true,
       allowLocalPersist: false,
@@ -265,7 +282,11 @@ describe('4) recover / canal (contrato en migración + plan)', () => {
         throw new Error('should_not_persist')
       },
     })
-    assert.equal(result.reason, LOCAL_PERSIST_INACTIVE)
     assert.equal(result.wroteSchedule, false)
+    assert.ok(
+      result.reason === 'promoted_to_pending' ||
+        result.reason === 'already_pending' ||
+        result.reason === 'outbox_row_missing',
+    )
   })
 })

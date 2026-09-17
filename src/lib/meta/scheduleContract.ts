@@ -64,11 +64,19 @@ export const WHATSAPP_DATASET_ID_MISSING = 'whatsapp_dataset_id_missing' as cons
 
 /**
  * Schedule como event_name bajo action_source=business_messaging:
- * no figura en el ejemplo oficial Meta BM (Purchase) y reportes de Graph
- * (p. ej. subcode 2804066) rechazan Schedule. No declarar contrato completo.
+ * Meta CAPI for Business Messaging no documenta Schedule en su allowlist
+ * (ejemplos oficiales: Purchase, LeadSubmitted, …; docs:
+ * https://developers.facebook.com/docs/marketing-api/conversions-api/business-messaging/).
+ * Reportes Graph (subcode 2804066 “Invalid event type for messaging event”)
+ * rechazan nombres fuera del allowlist, incl. Schedule. No renombrar a
+ * AppointmentBooked (cambiaría el significado del evento). No enviar como website.
  */
 export const WHATSAPP_SCHEDULE_EVENT_NAME_UNVERIFIED =
-  'whatsapp_schedule_event_name_unverified' as const
+  'whatsapp_schedule_event_name_not_supported_by_meta' as const
+
+/** Alias estable legacy → mismo código Meta. */
+export const WHATSAPP_SCHEDULE_EVENT_NAME_NOT_SUPPORTED_BY_META =
+  WHATSAPP_SCHEDULE_EVENT_NAME_UNVERIFIED
 
 export const WEB_PHONE_MISSING = 'web_phone_missing' as const
 

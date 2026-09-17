@@ -17,7 +17,20 @@ CREATE TABLE public.leads (
   phone text,
   name text,
   email text,
-  meta_ads_consent boolean
+  meta_ads_consent boolean,
+  meta_ads_consent_at timestamptz
+);
+
+CREATE SEQUENCE IF NOT EXISTS public.meta_ads_consent_version_seq AS bigint START WITH 1;
+
+CREATE TABLE public.meta_ads_consent_ledger (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  visitor_key text,
+  lead_id uuid,
+  ads_consent boolean NOT NULL,
+  consent_version bigint NOT NULL,
+  nest_status text NOT NULL DEFAULT 'pending',
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE public.appointments (

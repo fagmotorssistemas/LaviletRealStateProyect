@@ -20,8 +20,11 @@ export type LocalOutboxRow = {
 /** Único estado que flush local / drain Nest deben consumir. */
 export const OUTBOX_FLUSHABLE_STATUS = 'pending' as const
 
-/** Persistencia de revisión Schedule: fuera de la cola activa. */
+/** Persistencia de revisión Schedule web: fuera de la cola activa. */
 export const OUTBOX_REVIEW_HOLD_STATUS = 'review_hold' as const
+
+/** Retención (p. ej. WhatsApp Schedule bloqueado por Meta BM). */
+export const OUTBOX_NEEDS_REVIEW_STATUS = 'needs_review' as const
 
 export function isOutboxStatusFlushable(status: string | null | undefined): boolean {
   return String(status || '') === OUTBOX_FLUSHABLE_STATUS
@@ -51,8 +54,12 @@ export async function persistMetaConversion(
     leadId?: string | null
     visitorKey?: string | null
     adsConsentRequired?: boolean
-    /** pending = cola activa; review_hold = excluido de flush/drain. */
-    status?: typeof OUTBOX_FLUSHABLE_STATUS | typeof OUTBOX_REVIEW_HOLD_STATUS
+    /** pending = cola activa; review_hold / needs_review = excluidos de flush/drain. */
+    status?:
+      | typeof OUTBOX_FLUSHABLE_STATUS
+      | typeof OUTBOX_REVIEW_HOLD_STATUS
+      | typeof OUTBOX_NEEDS_REVIEW_STATUS
+    lastError?: string | null
   },
 ): Promise<{ inserted: boolean; eventId: string; rowId: string | null; status: string }> {
   const eventId = input.eventId && /^[0-9a-f-]{36}$/i.test(input.eventId) ? input.eventId : randomUUID()
@@ -87,6 +94,7 @@ export async function persistMetaConversion(
       lead_id: input.leadId || null,
       visitor_key: input.visitorKey || null,
       ads_consent_required: input.adsConsentRequired !== false,
+      last_error: input.lastError ?? null,
     })
     .select('id, event_id, status')
     .single()
@@ -118,8 +126,12 @@ export async function cancelPendingMetaOutbox(
   admin: SupabaseClient,
   opts: { leadId?: string | null; visitorKey?: string | null },
 ): Promise<number> {
-  // Incluye review_hold: al revocar consent no debe sobrevivir para un flush futuro.
-  const statuses = [OUTBOX_FLUSHABLE_STATUS, OUTBOX_REVIEW_HOLD_STATUS] as const
+  // pending + holds: al revocar consent no deben sobrevivir para un flush futuro.
+  const statuses = [
+    OUTBOX_FLUSHABLE_STATUS,
+    OUTBOX_REVIEW_HOLD_STATUS,
+    OUTBOX_NEEDS_REVIEW_STATUS,
+  ] as const
   let cancelled = 0
 
   for (const status of statuses) {
