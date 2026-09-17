@@ -1,6 +1,16 @@
 # WhatsApp → Kommo → CRM y `ctwa_clid`
 
-Estado: migración CTWA aplicada en Production (`whatsapp_ctwa_attribution`) y app en `main` desplegada. **CTWA real no verificado** (fixtures sintéticos). Pixel y CAPI intactos.
+## Cierre de despliegue (2026-09-17)
+
+**Despliegue completado.** Schema CTWA + app en Production: almacenamiento preparado para cuando Kommo entregue el identificador; mensajes **sin** CTWA siguen el flujo habitual.
+
+**CTWA real: pendiente de verificar.** Un mensaje directo sin anuncio **no** demuestra transmisión del clid. La única comprobación funcional que falta es inspeccionar el webhook de una conversación **genuina** iniciada desde un anuncio de WhatsApp (payload + persistencia, **sin** exponer datos personales). No generar mensajes ni conversiones adicionales para esa prueba.
+
+**Pixel y CAPI: sin cambios** (quedan como estaban).
+
+---
+
+Estado operativo: migración `whatsapp_ctwa_attribution` aplicada; app en `main` desplegada. Fixtures siguen siendo sintéticos hasta la revisión de un webhook real de anuncio.
 
 ## Conclusión
 
@@ -53,13 +63,13 @@ Cubre: sin CTWA → flujo OK; captura si hay referral; first-touch; reintento id
 6. **SQL (PGlite)**: dos mensajes distintos del mismo contacto → una sola fila, clid de la primera captura; reintento → `duplicate_retry`.
 7. **Sin CTWA**: `CTWA_NOOP` sin llamar RPC; `preserveCtwaCapture(existing, null)` conserva first-touch.
 
-Migración: preparada, **no** aplicada a Production. Unicidad atómica vía `EXCEPTION WHEN unique_violation` + `ORDER BY captured_at, id`.
+Migración: aplicada en Production (solo este archivo). Unicidad atómica vía `EXCEPTION WHEN unique_violation` + `ORDER BY captured_at, id`.
 
 ## Límites actuales de las pruebas
 
 - **SQL**: ejercita `lv_app_preserve_ctwa` en **secuencia** (llamadas una tras otra en PGlite). No cubre carrera concurrente real entre dos writers sobre el mismo contacto/mensaje.
 - **Conversación**: el flujo simulado usa lead con **bot pausado** (`bot_enabled: false` → `action: bot_paused`) para verificar que el registro inbound y el soft-fail CTWA no cortan la atención. No ejercita una respuesta comercial completa ni envío a Kommo/WhatsApp.
-- Sin migración en Production, sin publicación y sin mensajes reales.
+- **CTWA real pendiente**: no se generaron mensajes ni conversiones; la verificación queda para la próxima conversación genuina desde anuncio de WhatsApp.
 
 ## Plan de despliegue y reversión (PR #4) — **ejecutado** (2026-09-17)
 
@@ -148,8 +158,9 @@ Estado de este plan: **completado en Production para schema+app**. Todavía **no
 - Aparecen otras migraciones “coladas” → detener, no desplegar app hasta aclarar.  
 - Tras deploy, inbound CRM deja de registrar (investigar; no borrar schema CTWA como primer reflejo).
 
-### Fuera de este plan (siguientes hitos)
+### Fuera de este plan / siguiente hito
 
-- Obtener y documentar captura **anonimizada** del webhook real de Kommo (o confirmar que nunca envía clid).  
-- Solo entonces: prueba controlada de first-touch en un entorno acordado (no improvisar WhatsApps de producción en este documento).  
+- En la **próxima conversación genuina** procedente de un anuncio de WhatsApp: revisar payload del webhook CRM y persistencia en `lv_whatsapp_ctwa_attribution` **sin** exponer clid, teléfono ni otros datos personales (solo presencia/ausencia del campo, `field_path` genérico, `action` RPC).
+- Un mensaje orgánico/directo **no** sustituye esa comprobación.
+- **No** generar WhatsApps ni conversiones Meta adicionales para forzar la prueba.
 - Borrado opcional del schema CTWA: solo con autorización explícita y el `*_down.sql` manual.
