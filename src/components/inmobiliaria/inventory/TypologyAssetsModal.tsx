@@ -31,6 +31,7 @@ import {
 import type { TourLightMode } from '@/types/tour'
 import { cn } from '@/lib/utils'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
+import { TYPOLOGY_UPLOAD_MAX_MB } from '@/lib/typology-assets/resolveUpload'
 import {
   unitImportCategoryLabel,
   type TypologyAsset,
@@ -263,37 +264,146 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     light?: TourLightMode | null,
     nextPlanoVariant?: '2d' | '3d',
   ): Promise<FileJob['status']> => {
-    const body = new FormData()
-    body.set('typology_code', code)
-    body.set('kind', nextKind)
-    body.set('file', file)
-    if (room) body.set('room', room)
-    if (finish) body.set('finish', finish)
-    if (light) body.set('light', light)
-    if (nextKind === 'plano') body.set('plano_variant', nextPlanoVariant ?? planoVariant)
-
-    let res: Response
+    // 1) Firmar subida (JSON chico → no pasa por el límite de body de Vercel).
+    let prepRes: Response
     try {
-      res = await fetch('/api/typology-assets/upload', {
+      prepRes = await fetch('/api/typology-assets/prepare-upload', {
         method: 'POST',
-        body,
         credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          typology_code: code,
+          kind: nextKind,
+          file_name: file.name,
+          mime: file.type || null,
+          size: file.size,
+          room: room || null,
+          finish: finish ?? null,
+          light: light ?? null,
+          plano_variant: nextKind === 'plano' ? (nextPlanoVariant ?? planoVariant) : null,
+        }),
       })
     } catch {
-      throw new Error('Se cortó la conexión. Volvé a intentar la subida.')
-    }
-    const raw = await res.text()
-    let payload: { error?: string; code?: string } = {}
-    try {
-      payload = raw ? (JSON.parse(raw) as { error?: string; code?: string }) : {}
-    } catch {
-      throw new Error(
-        'El servidor no pudo procesar esa imagen. Volvé a intentar.',
-      )
+      throw new Error('Se cortó la conexión al preparar la subida. Volvé a intentar.')
     }
 
-    if (res.status === 409 || payload.code === 'duplicate') return 'duplicate'
-    if (!res.ok) throw new Error(payload.error || `Error al subir (${res.status})`)
+    const prepRaw = await prepRes.text()
+    let prep: {
+      error?: string
+      code?: string
+      bucket?: string
+      path?: string
+      token?: string
+      file_name?: string
+      storage_path?: string
+      content_type?: string
+      typology_code?: string
+      kind?: string
+      upsert?: boolean
+    } = {}
+    try {
+      prep = prepRaw ? (JSON.parse(prepRaw) as typeof prep) : {}
+    } catch {
+      throw new Error(
+        prepRes.status === 413
+          ? `La imagen es demasiado grande. El máximo es ${TYPOLOGY_UPLOAD_MAX_MB} MB.`
+          : `No se pudo preparar la subida (${prepRes.status}). Volvé a intentar.`,
+      )
+    }
+    if (prepRes.status === 409 || prep.code === 'duplicate') return 'duplicate'
+    if (!prepRes.ok) throw new Error(prep.error || `Error al preparar la subida (${prepRes.status})`)
+    if (!prep.bucket || !prep.path || !prep.token || !prep.file_name || !prep.storage_path) {
+      throw new Error('Respuesta incompleta al preparar la subida.')
+    }
+
+    // 2) Subida directa a Supabase Storage (sin timeout de 15s del client SSR).
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!supabaseUrl || !anonKey) {
+      throw new Error('Falta configuración de Supabase en el cliente.')
+    }
+    const { createClient: createUploadClient } = await import('@supabase/supabase-js')
+    const uploadClient = createUploadClient(supabaseUrl, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+    const { error: upErr } = await uploadClient.storage
+      .from(prep.bucket)
+      .uploadToSignedUrl(prep.path, prep.token, file, {
+        contentType: prep.content_type || file.type || 'image/jpeg',
+        cacheControl: '0',
+      })
+    if (upErr) {
+      throw new Error(upErr.message || 'No se pudo subir el archivo a Storage')
+    }
+
+    // 3) Confirmar fila en CRM.
+    let confRes: Response
+    try {
+      confRes = await fetch('/api/typology-assets/confirm-upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          typology_code: prep.typology_code || code,
+          kind: prep.kind || nextKind,
+          file_name: prep.file_name,
+          storage_path: prep.storage_path,
+          room: room || null,
+          finish: finish ?? null,
+          light: light ?? null,
+        }),
+      })
+    } catch {
+      throw new Error('El archivo subió, pero se cortó al confirmar. Recargá e intentá de nuevo.')
+    }
+    const confRaw = await confRes.text()
+    let conf: {
+      error?: string
+      code?: string
+      convert_pending?: boolean
+    } = {}
+    try {
+      conf = confRaw ? (JSON.parse(confRaw) as typeof conf) : {}
+    } catch {
+      throw new Error(
+        confRes.status === 504 || confRes.status === 524
+          ? 'El servidor tardó demasiado en confirmar. Si el archivo ya aparece en la lista, está bien; si no, volvé a intentar.'
+          : `No se pudo confirmar la subida (${confRes.status}).`,
+      )
+    }
+    if (confRes.status === 409 || conf.code === 'duplicate') return 'duplicate'
+    if (!confRes.ok) throw new Error(conf.error || `Error al confirmar (${confRes.status})`)
+
+    // Conversión WebP en segundo plano (no bloquear; evita 504 en panoramas pesados).
+    if (conf.convert_pending) {
+      void fetch('/api/typology-assets/convert', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          typology_code: prep.typology_code || code,
+          kind: prep.kind || nextKind,
+          file_name: prep.file_name,
+          storage_path: prep.storage_path,
+          room: room || null,
+          finish: finish ?? null,
+          light: light ?? null,
+        }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const raw = await res.text().catch(() => '')
+            console.warn('[typology-assets] convert background failed', res.status, raw.slice(0, 200))
+            return
+          }
+          // Refrescar listado cuando termine (si el modal sigue abierto).
+          if (code) void loadAssets(code)
+        })
+        .catch((err) => {
+          console.warn('[typology-assets] convert background error', err)
+        })
+    }
+
     return 'done'
   }
 
@@ -400,7 +510,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     setNotice({
       tone: 'info',
       text:
-        `Subiendo ${slot.room} · ${slot.label} para ${code}…`,
+        tab === 'galeria'
+          ? `Subiendo ${slot.room} · ${slot.label} para ${code}…`
+          : `Subiendo 360… (la conversión WebP sigue en segundo plano)`,
     })
     try {
       await uploadOne(
@@ -565,7 +677,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 <p className="text-sm text-[#3a3d36]">360</p>
                 <p className="text-xs text-[#8a8d87]">
                   La sala es la vista principal del tour. Un 360 por ambiente, acabado 1 y 2, día y noche.
-                  Se guarda el archivo original sin recomprimir (PNG/JPG/WebP tal cual).
+                  Se sube el original y luego se convierte a WebP sin pérdida en segundo plano (evita cortes en archivos pesados).
                 </p>
               </div>
               {roomSlots.length === 0 ? (

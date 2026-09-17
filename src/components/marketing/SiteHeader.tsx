@@ -26,6 +26,7 @@ export function SiteHeader() {
   const { user, profile, isLoading } = useAuth()
   const { theme } = useMarketingTheme()
   const nuvia = theme === 'dark'
+  const editorial = theme === '3'
   const waitsForHero = HERO_PATHS.has(pathname)
   const [scrolled, setScrolled] = useState(false)
   const [pastHero, setPastHero] = useState(false)
@@ -34,10 +35,10 @@ export function SiteHeader() {
   const [hasPhone, setHasPhone] = useState(false)
   const [navHidden, setNavHidden] = useState(false)
   const lastScrollY = useRef(0)
-  const headerReady = !waitsForHero || heroLocked || open || pastHero
-  const overHero = waitsForHero && !heroLocked && !scrolled && !open
+  const headerReady = !waitsForHero || heroLocked || open || pastHero || editorial
+  const overHero = waitsForHero && !heroLocked && !scrolled && !open && !editorial
   const overPhoto = nuvia && waitsForHero && !pastHero && !open
-  const solid = !overHero && !overPhoto
+  const solid = editorial ? scrolled || open : !overHero && !overPhoto
   const accountHref = user ? homePathForRole(profile?.role) : '/login'
   const accountLabel = user ? (profile?.role === 'visitante' ? 'Mi cuenta' : 'Panel') : 'Acceso'
 
@@ -106,10 +107,10 @@ export function SiteHeader() {
   }, [pathname])
 
   const linkTone = (href: string) =>
-    solid
+    editorial || solid
       ? pathname === href
-        ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8]'
-        : 'text-[#2B1A18]/75 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/75 mkt-dark:hover:text-[#f4efe8]'
+        ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8] mkt-3:text-[#f4efe8]'
+        : 'text-[#2B1A18]/75 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/75 mkt-dark:hover:text-[#f4efe8] mkt-3:text-[#f4efe8]/75 mkt-3:hover:text-[#f4efe8]'
       : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:text-white'
 
   return (
@@ -125,7 +126,7 @@ export function SiteHeader() {
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-500',
         solid
-          ? 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-white/10 mkt-dark:bg-[#16141c]/75'
+          ? 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-white/10 mkt-dark:bg-[#16141c]/75 mkt-3:border-transparent mkt-3:!bg-transparent mkt-3:!backdrop-blur-none'
           : 'border-b border-transparent bg-transparent',
         (!headerReady || navHidden) && 'pointer-events-none',
       )}
@@ -141,14 +142,19 @@ export function SiteHeader() {
           <Link
             href="/inicio"
             className={cn(
-              'relative z-10 text-[13px] tracking-[0.22em] uppercase transition-[color,letter-spacing] duration-300 hover:tracking-[0.28em] lg:text-[14px]',
-              overPhoto ? 'font-medium' : 'font-semibold',
-              solid
-                ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8]'
-                : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)]',
+              'relative z-10 transition-[color,letter-spacing] duration-300',
+              editorial
+                ? 'font-serif text-[20px] font-normal tracking-[-0.03em] text-[#3f3d2e] hover:tracking-[-0.01em] lg:text-[22px]'
+                : cn(
+                    'text-[13px] tracking-[0.22em] uppercase hover:tracking-[0.28em] lg:text-[14px]',
+                    overPhoto ? 'font-medium' : 'font-semibold',
+                    solid
+                      ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8] mkt-3:text-[#f4efe8]'
+                      : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)]',
+                  ),
             )}
           >
-            Lavilet
+            {editorial ? 'La Vilet' : 'Lavilet'}
           </Link>
         </motion.div>
 
@@ -181,7 +187,7 @@ export function SiteHeader() {
                       layoutId="nav-active-line"
                       className={cn(
                         'absolute inset-x-0 -bottom-0.5 h-px',
-                        solid ? 'bg-[#8B8C74]' : 'bg-white',
+                        editorial || solid ? 'bg-[#8B8C74] mkt-3:bg-[#6d6c54]' : 'bg-white',
                       )}
                       transition={{ type: 'spring', stiffness: 380, damping: 32 }}
                     />
@@ -189,7 +195,7 @@ export function SiteHeader() {
                     <span
                       className={cn(
                         'pointer-events-none absolute inset-x-0 -bottom-0.5 h-px origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100',
-                        solid ? 'bg-[#2B1A18]/35' : 'bg-white/50',
+                        editorial || solid ? 'bg-[#2B1A18]/35 mkt-3:bg-[#3f3d2e]/35' : 'bg-white/50',
                       )}
                     />
                   )}
@@ -210,8 +216,8 @@ export function SiteHeader() {
                 href={accountHref}
                 className={cn(
                   'text-[13px] font-semibold tracking-[0.14em] uppercase transition-colors duration-300 lg:text-[14px]',
-                  solid
-                    ? 'text-[#2B1A18]/55 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/55 mkt-dark:hover:text-[#f4efe8]'
+                  editorial || solid
+                    ? 'text-[#2B1A18]/55 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/55 mkt-dark:hover:text-[#f4efe8] mkt-3:text-[#3f3d2e]/55 mkt-3:hover:text-[#3f3d2e]'
                     : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:text-white',
                 )}
               >
@@ -221,8 +227,8 @@ export function SiteHeader() {
           )}
           <ThemeToggle
             className={
-              solid
-                ? 'text-[#2B1A18] hover:bg-[#2B1A18]/5 mkt-dark:text-[#f4efe8] mkt-dark:hover:bg-white/10'
+              editorial || solid
+                ? 'text-[#2B1A18] hover:bg-[#2B1A18]/5 mkt-dark:text-[#f4efe8] mkt-dark:hover:bg-white/10 mkt-3:text-[#3f3d2e] mkt-3:hover:bg-[#3f3d2e]/8'
                 : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:bg-white/10'
             }
           />
@@ -231,8 +237,8 @@ export function SiteHeader() {
         <div className="flex items-center gap-1 lg:hidden">
           <ThemeToggle
             className={
-              solid
-                ? 'text-[#2B1A18] hover:bg-[#2B1A18]/5 mkt-dark:text-[#f4efe8] mkt-dark:hover:bg-white/10'
+              editorial || solid
+                ? 'text-[#2B1A18] hover:bg-[#2B1A18]/5 mkt-dark:text-[#f4efe8] mkt-dark:hover:bg-white/10 mkt-3:text-[#3f3d2e] mkt-3:hover:bg-[#3f3d2e]/8'
                 : 'text-white hover:bg-white/10'
             }
           />
@@ -240,8 +246,8 @@ export function SiteHeader() {
             type="button"
             className={cn(
               'relative z-10 rounded-lg p-2',
-              solid
-                ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8]'
+              editorial || solid
+                ? 'text-[#2B1A18] mkt-dark:text-[#f4efe8] mkt-3:text-[#f4efe8]'
                 : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)]',
             )}
             aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
@@ -273,7 +279,7 @@ export function SiteHeader() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={reduceMotion ? undefined : { height: 0, opacity: 0 }}
             transition={{ duration: 0.35, ease }}
-            className="overflow-hidden border-t border-[#72735A]/12 bg-[#F2F2F2] mkt-dark:border-[#F2F2F2]/12 mkt-dark:bg-[#72735A] lg:hidden"
+            className="overflow-hidden border-t border-[#72735A]/12 bg-[#F2F2F2] mkt-dark:border-[#F2F2F2]/12 mkt-dark:bg-[#72735A] mkt-3:border-[#6d6c54]/12 mkt-3:bg-[#f3eee6] lg:hidden"
           >
             <div className="px-5 pb-6 pt-2">
               <nav className="flex flex-col gap-1">
