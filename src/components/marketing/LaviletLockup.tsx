@@ -64,12 +64,14 @@ function LockupLetter({
   index,
   variant,
   quiet = false,
+  noLayoutId = false,
 }: {
   id: string
   letter: string
   index: number
   variant: 'hero' | 'story'
   quiet?: boolean
+  noLayoutId?: boolean
 }) {
   const story = variant === 'story'
   const tile = story ? TILE_BG[id] : undefined
@@ -77,7 +79,7 @@ function LockupLetter({
 
   return (
     <motion.span
-      layoutId={isMobile ? undefined : id}
+      layoutId={isMobile || noLayoutId ? undefined : id}
       className={cn(
         'inline-block cursor-pointer select-none',
         tile &&
@@ -146,10 +148,12 @@ export function LaviletLockup({
   variant,
   onMist = false,
   backdrop = false,
+  noLayoutId = false,
 }: {
   variant: 'hero' | 'story'
   onMist?: boolean
   backdrop?: boolean
+  noLayoutId?: boolean
 }) {
   const story = variant === 'story'
   const mist = story || onMist
@@ -176,7 +180,7 @@ export function LaviletLockup({
       }
     >
       <motion.p
-        layoutId="lockup-suites"
+        layoutId={noLayoutId ? undefined : "lockup-suites"}
         className={cn(
           'mb-3 font-serif font-medium tracking-[0.42em] uppercase',
           story
@@ -211,6 +215,7 @@ export function LaviletLockup({
                 index={i}
                 variant={variant}
                 quiet
+                noLayoutId={noLayoutId}
               />
             ))}
             {LETTERS_VILET.map((item, i) => (
@@ -221,6 +226,7 @@ export function LaviletLockup({
                 index={i + 2}
                 variant={variant}
                 quiet
+                noLayoutId={noLayoutId}
               />
             ))}
           </>
@@ -234,6 +240,7 @@ export function LaviletLockup({
                   letter={item.ch}
                   index={i}
                   variant={variant}
+                  noLayoutId={noLayoutId}
                 />
               ))}
             </span>
@@ -245,6 +252,7 @@ export function LaviletLockup({
                   letter={item.ch}
                   index={i + 2}
                   variant={variant}
+                  noLayoutId={noLayoutId}
                 />
               ))}
             </span>

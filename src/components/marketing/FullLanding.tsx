@@ -6,6 +6,7 @@ import { LandingWash } from './LandingWash'
 import { LifestyleStrip } from './LifestyleStrip'
 import { ExperienceLiving } from './ExperienceLiving'
 import { ExploreFloors } from './ExploreFloors'
+import { UbicanosView } from './UbicanosView'
 
 /** Landing Lavilet: hero, nosotros y entrada al showroom 360°. */
 export function FullLanding({ unitDeepLink = false }: { unitDeepLink?: boolean }) {
@@ -19,6 +20,7 @@ export function FullLanding({ unitDeepLink = false }: { unitDeepLink?: boolean }
         <ExperienceLiving />
         <HomeTourSection embedded scrollToShowroom={unitDeepLink} tourHref="/tour" />
         <LaviletPlaceBoard />
+        <UbicanosView project={null} />
       </LandingWash>
     </LockupProvider>
   )

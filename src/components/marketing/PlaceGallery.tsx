@@ -75,6 +75,16 @@ const PHOTOS: PhotoSlide[] = [
   },
   {
     kind: 'photo',
+    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/comerciales_lavilet.png',
+    alt: 'Área comercial de La Vilet',
+    kicker: 'Comercio',
+    title: 'Dinamismo y convivencia',
+    credit: 'Locales comerciales',
+    width: 'w-[80vw] sm:w-[70vw] lg:w-[64vw]',
+    object: 'object-cover object-center',
+  },
+  {
+    kind: 'photo',
     src: TERRAZA,
     alt: 'Terraza rooftop de La Vilet',
     kicker: 'Arriba',
@@ -228,7 +238,7 @@ function CardsPanel({ full = false }: { full?: boolean }) {
           viewport={{ once: false, amount: 0.3 }}
           transition={{ type: 'spring', stiffness: 280, damping: 25, duration: 0.8 }}
         >
-          <LaviletLockup variant="story" />
+          <LaviletLockup variant="story" noLayoutId />
         </motion.div>
         <p className="mt-4 sm:mt-6 text-[11px] sm:text-[13px] font-medium tracking-[0.2em] text-[#8B8C74] uppercase">
           49 unidades de vivienda
@@ -264,6 +274,81 @@ function CardsPanel({ full = false }: { full?: boolean }) {
   )
 }
 
+function CommercePanel({ full = false }: { full?: boolean }) {
+  const reduce = useReducedMotion()
+
+  return (
+    <article
+      className={cn(
+        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-7 py-12 sm:px-12 lg:px-16',
+        full ? 'min-h-[32rem] w-full' : 'w-[min(100vw,42rem)] sm:w-[56vw] lg:w-[48vw]',
+      )}
+    >
+      <div className="relative flex flex-col items-center text-center">
+        <motion.div 
+          className="scale-[0.8] sm:scale-90 lg:scale-100 mb-6"
+          initial={reduce ? false : { y: -100, opacity: 0, scale: 0.5 }}
+          whileInView={reduce ? undefined : { y: 0, opacity: 1, scale: 1 }}
+          viewport={{ once: false, amount: 0.3 }}
+          transition={{ type: 'spring', stiffness: 200, damping: 20, duration: 0.8 }}
+        >
+          <LaviletLockup variant="story" noLayoutId />
+        </motion.div>
+        
+        <motion.div 
+          initial={reduce ? false : { opacity: 0, y: 20 }}
+          whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
+          viewport={{ once: false, amount: 0.3 }}
+          transition={{ delay: 0.3, duration: 0.6 }}
+        >
+          <h2 className="font-serif text-[clamp(2.5rem,5vw,4rem)] leading-none font-normal tracking-[-0.02em] text-[#72735A]">
+            comercio
+          </h2>
+        </motion.div>
+        
+        <motion.p 
+          initial={reduce ? false : { opacity: 0 }}
+          whileInView={reduce ? undefined : { opacity: 1 }}
+          transition={{ delay: 0.5, duration: 0.6 }}
+          className="mt-4 sm:mt-6 text-[11px] sm:text-[13px] font-medium tracking-[0.2em] text-[#8B8C74] uppercase"
+        >
+          16 unidades
+        </motion.p>
+        
+        <div className="mt-8 sm:mt-12 flex flex-col gap-6 sm:gap-8 max-w-lg">
+          <motion.p 
+            initial={reduce ? false : { opacity: 0, x: 30 }}
+            whileInView={reduce ? undefined : { opacity: 1, x: 0 }}
+            viewport={{ once: false, amount: 0.1 }}
+            transition={{ delay: 0.6, duration: 0.6 }}
+            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-[#2B1A18]/80"
+          >
+            Diseñado para ofrecer funcionalidad, visibilidad y autonomía. 16 unidades comerciales distribuidas en dos plantas.
+          </motion.p>
+          <motion.p 
+            initial={reduce ? false : { opacity: 0, x: -30 }}
+            whileInView={reduce ? undefined : { opacity: 1, x: 0 }}
+            viewport={{ once: false, amount: 0.1 }}
+            transition={{ delay: 0.8, duration: 0.6 }}
+            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-[#2B1A18]/80"
+          >
+            Presencia urbana estratégica que aporta dinamismo al entorno, ideal para diferentes negocios y servicios.
+          </motion.p>
+          <motion.p 
+            initial={reduce ? false : { opacity: 0, y: 30 }}
+            whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
+            viewport={{ once: false, amount: 0.1 }}
+            transition={{ delay: 1.0, duration: 0.6 }}
+            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-[#2B1A18]/80"
+          >
+            Acceso completamente independiente al ingreso residencial, garantizando privacidad y una circulación organizada sin interferir con las viviendas.
+          </motion.p>
+        </div>
+      </div>
+    </article>
+  )
+}
+
 function Track({
   onRelease,
   trackRef,
@@ -279,7 +364,9 @@ function Track({
       <PhotoPanel slide={PHOTOS[2]} />
       <CardsPanel />
       <PhotoPanel slide={PHOTOS[3]} />
-      <PhotoPanel slide={PHOTOS[4]} onRelease={onRelease} />
+      <CommercePanel />
+      <PhotoPanel slide={PHOTOS[4]} />
+      <PhotoPanel slide={PHOTOS[5]} onRelease={onRelease} />
     </div>
   )
 }
@@ -315,8 +402,14 @@ function StackedGallery({
       <div className="relative h-[72vh] min-h-[24rem]">
         <PhotoPanel slide={{ ...PHOTOS[3], width: 'w-full' }} />
       </div>
-      <div className="relative h-[78vh] min-h-[28rem]">
-        <PhotoPanel slide={{ ...PHOTOS[4], width: 'w-full' }} onRelease={onRelease} />
+      <div className="relative min-h-[32rem]">
+        <CommercePanel full />
+      </div>
+      <div className="relative h-[72vh] min-h-[24rem]">
+        <PhotoPanel slide={{ ...PHOTOS[4], width: 'w-full' }} />
+      </div>
+      <div className="relative h-[78vh] min-h-[28rem] z-10">
+        <PhotoPanel slide={{ ...PHOTOS[5], width: 'w-full' }} onRelease={onRelease} />
       </div>
     </section>
   )

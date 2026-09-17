@@ -135,21 +135,21 @@ function ExperienceStage({
           <div className="relative z-20 w-full max-w-[32rem]">
             <h2
               id="experiencia-title"
-              className="mt-2 lg:mt-4 font-serif text-[clamp(2.8rem,6.4vw,6.15rem)] leading-[0.86] font-normal tracking-[-0.04em] text-[#f4efe8]"
+              className="mt-2 lg:mt-4 font-serif text-[clamp(2.8rem,6.4vw,6.15rem)] leading-[0.86] font-normal tracking-[-0.04em] text-[#72735A]"
             >
               Experiencia
             </h2>
-            <p className="mt-2 lg:mt-6 font-serif text-[1.2rem] lg:text-[1.55rem] leading-none text-[#f4efe8]/90 sm:text-[1.8rem]">
+            <p className="mt-2 lg:mt-6 font-serif text-[1.2rem] lg:text-[1.55rem] leading-none text-[#72735A]/90 sm:text-[1.8rem]">
               Vivir en La Vilet.
             </p>
-            <span className="mt-4 lg:mt-8 block h-px w-10 bg-[#f4efe8]/55" />
+            <span className="mt-4 lg:mt-8 block h-px w-10 bg-[#72735A]/30" />
 
-            <p className="mt-6 lg:mt-16 max-w-[15.5rem] text-[15px] lg:text-[16px] leading-snug text-[#f4efe8]/88 sm:text-[17px]">
+            <p className="mt-6 lg:mt-16 max-w-[15.5rem] text-[15px] lg:text-[16px] leading-snug text-[#2B1A18]/70 sm:text-[17px]">
               Última planta alta. Un lugar para desconectarse y encontrarse.
             </p>
             <Link
               href="/proyectos"
-              className="mt-6 lg:mt-12 inline-flex items-center gap-2 rounded-full border border-[#f4efe8]/55 px-5 py-2 lg:px-6 lg:py-2.5 text-[13px] lg:text-[14px] text-[#f4efe8] transition-colors hover:border-[#f4efe8] hover:bg-[#f4efe8]/10"
+              className="mt-6 lg:mt-12 inline-flex items-center gap-2 rounded-full border border-[#72735A]/30 px-5 py-2 lg:px-6 lg:py-2.5 text-[13px] lg:text-[14px] text-[#72735A] transition-colors hover:border-[#72735A] hover:bg-[#72735A]/5"
             >
               Conocer más
               <ArrowRight size={15} />
@@ -183,13 +183,13 @@ function ExperienceStage({
           </div>
 
           <div className="hidden lg:block max-w-[18rem] lg:mt-[18rem] lg:justify-self-end">
-            <p className="max-w-[15.5rem] border-l border-[#f4efe8]/30 pl-5 text-[16px] leading-snug text-[#f4efe8]/88">
+            <p className="max-w-[15.5rem] border-l border-[#72735A]/30 pl-5 text-[16px] leading-snug text-[#2B1A18]/70">
               Espacios pensados para un equilibrio entre lo urbano y lo natural.
             </p>
             <ul className="mt-14 space-y-7">
               {PILLARS.map(({ icon: Icon, label }) => (
-                <li key={label} className="flex items-center gap-4 text-[#f4efe8]/90">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#f4efe8]/30">
+                <li key={label} className="flex items-center gap-4 text-[#72735A]">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#72735A]/30">
                     <Icon size={22} strokeWidth={1.25} />
                   </span>
                   <span className="text-[15px] leading-tight">{label}</span>
@@ -207,7 +207,7 @@ function ExperienceStage({
                   key={amenity.id}
                   className={cn(
                     'h-1.5 rounded-full transition-all duration-300',
-                    index === active ? 'w-8 bg-[#f4efe8]' : 'w-1.5 bg-[#f4efe8]/35',
+                    index === active ? 'w-8 bg-[#72735A]' : 'w-1.5 bg-[#72735A]/25',
                   )}
                 />
               ))}
@@ -250,38 +250,11 @@ export function ExperienceLiving() {
         style={{ height: reduce ? 'auto' : `${AMENITIES.length * 50}svh` }}
       >
         <div className={cn('relative overflow-hidden', reduce ? 'min-h-svh' : 'sticky top-0 min-h-svh')}>
-          <div aria-hidden className="absolute inset-0 bg-[#6d6f57]" />
+          <div aria-hidden className="absolute inset-0 bg-[#f4f1ea]" />
+          
           <div
             aria-hidden
-            className="absolute inset-0 opacity-40 mix-blend-multiply"
-            style={{
-              backgroundImage: `
-                radial-gradient(ellipse 38% 32% at 12% 18%, rgba(30,32,18,0.55), transparent 70%),
-                radial-gradient(ellipse 48% 40% at 88% 8%, rgba(24,26,14,0.4), transparent 72%),
-                radial-gradient(ellipse 30% 28% at 70% 80%, rgba(20,22,12,0.35), transparent 70%),
-                radial-gradient(ellipse 22% 18% at 30% 72%, rgba(20,22,12,0.28), transparent 70%)
-              `,
-            }}
-          />
-
-          <svg
-            aria-hidden
-            viewBox="0 0 180 420"
-            className="pointer-events-none absolute top-[-6%] left-[-2%] z-[1] h-[78%] w-[min(28vw,18rem)] text-[#4f523d]/55"
-          >
-            <g fill="currentColor">
-              <ellipse cx="38" cy="70" rx="18" ry="42" transform="rotate(-28 38 70)" />
-              <ellipse cx="68" cy="110" rx="16" ry="40" transform="rotate(18 68 110)" />
-              <ellipse cx="42" cy="160" rx="20" ry="46" transform="rotate(-12 42 160)" />
-              <ellipse cx="78" cy="210" rx="17" ry="44" transform="rotate(24 78 210)" />
-              <ellipse cx="36" cy="250" rx="19" ry="48" transform="rotate(-22 36 250)" />
-              <ellipse cx="64" cy="310" rx="15" ry="38" transform="rotate(14 64 310)" />
-            </g>
-          </svg>
-
-          <div
-            aria-hidden
-            className="pointer-events-none absolute top-0 left-0 z-[1] h-[50%] w-full lg:top-[-2%] lg:left-1/2 lg:h-[52%] lg:w-[min(38vw,22rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-30 lg:opacity-65"
+            className="pointer-events-none absolute top-0 left-0 z-[1] h-[50%] w-full lg:top-[-2%] lg:left-1/2 lg:h-[52%] lg:w-[min(38vw,22rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-15 lg:opacity-30"
           >
             <Image
               src="/lavilet-exterior.jpg"
@@ -294,7 +267,7 @@ export function ExperienceLiving() {
 
           <div
             aria-hidden
-            className="pointer-events-none absolute bottom-0 left-0 z-[1] h-[50%] w-full lg:bottom-[-4%] lg:left-1/2 lg:h-[50%] lg:w-[min(36vw,20rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-20 lg:opacity-55"
+            className="pointer-events-none absolute bottom-0 left-0 z-[1] h-[50%] w-full lg:bottom-[-4%] lg:left-1/2 lg:h-[50%] lg:w-[min(36vw,20rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-10 lg:opacity-20"
           >
             <Image
               src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1400&q=80"
