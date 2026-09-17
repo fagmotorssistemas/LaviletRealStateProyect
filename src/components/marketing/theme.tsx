@@ -80,27 +80,15 @@ export function MarketingThemeProvider({ children }: { children: ReactNode }) {
 }
 
 export function ThemeToggle({ className }: { className?: string }) {
+  // Ya no mostramos los botones 1 y 2, forzamos el formato 3
   const { format, setFormat } = useMarketingTheme()
+  
+  // Si por alguna razón no está en formato 3, lo forzamos silenciosamente
+  useEffect(() => {
+    if (format !== '3') {
+      setFormat('3')
+    }
+  }, [format, setFormat])
 
-  return (
-    <div className="inline-flex items-center" role="group" aria-label="Formato">
-      {FORMATS.map((id) => (
-        <button
-          key={id}
-          type="button"
-          onClick={() => setFormat(id)}
-          aria-pressed={format === id}
-          aria-label={`Formato ${id}`}
-          title={`Formato ${id}`}
-          className={cn(
-            'inline-flex h-9 w-7 items-center justify-center rounded-full text-[12px] font-medium tracking-[0.12em] transition-opacity',
-            format === id ? 'opacity-100' : 'opacity-35 hover:opacity-70',
-            className,
-          )}
-        >
-          {id}
-        </button>
-      ))}
-    </div>
-  )
+  return null // No renderizamos nada
 }
