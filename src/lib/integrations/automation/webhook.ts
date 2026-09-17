@@ -1,9 +1,18 @@
 import { object, text } from './data'
+import { extractCtwaFromKommoFlat, type CtwaCapture } from './ctwa-from-kommo'
 
 export type Inbound = {
-  externalId: string; kommoId: number; contactId: number; chatId: string;
-  text: string; name: string; sentAt: string; origin: string;
+  externalId: string
+  kommoId: number
+  contactId: number
+  chatId: string
+  text: string
+  name: string
+  sentAt: string
+  origin: string
   media: { type: string; url: string; name?: string } | null
+  /** Solo si Kommo reenvió ctwa_clid; no implica atribución ads/orgánico. */
+  ctwa: CtwaCapture | null
 }
 
 export function normalizeWebhook(raw: string, contentType: string, now = Date.now()): Inbound[] {
@@ -20,7 +29,11 @@ export function normalizeWebhook(raw: string, contentType: string, now = Date.no
     flat = Object.fromEntries(new URLSearchParams(raw))
   } else throw new Error('UNSUPPORTED_CONTENT_TYPE')
   if (flat['account[id]'] !== '36919007') throw new Error('WRONG_KOMMO_ACCOUNT')
-  const indexes = [...new Set(Object.keys(flat).map(k => k.match(/^message\[add\]\[(\d+)\]/)?.[1]).filter(Boolean))]
+  const indexes = [...new Set(
+    Object.keys(flat)
+      .map(k => k.match(/^message\[add\]\[(\d+)\]/)?.[1])
+      .filter((value): value is string => Boolean(value)),
+  )]
   if (indexes.length > 100) throw new Error('TOO_MANY_EVENTS')
   const events: Inbound[] = []
   for (const index of indexes) {
@@ -39,9 +52,19 @@ export function normalizeWebhook(raw: string, contentType: string, now = Date.no
     if (body.length > 20_000) throw new Error('MESSAGE_TOO_LONG')
     const mediaUrl = get('attachment][link')
     const mediaType = get('attachment][type'), mediaName = (get('attachment][file_name') || get('attachment][name')).slice(0,200)
-    events.push({ externalId, kommoId, contactId, chatId: get('chat_id'), text: body,
-      name: get('author][name').slice(0, 200), sentAt: new Date(date).toISOString(), origin: get('origin'),
-      media: mediaUrl || mediaType || mediaName ? { type: mediaType, url: mediaUrl, name: mediaName } : null })
+    const ctwa = extractCtwaFromKommoFlat(flat, index)
+    events.push({
+      externalId,
+      kommoId,
+      contactId,
+      chatId: get('chat_id'),
+      text: body,
+      name: get('author][name').slice(0, 200),
+      sentAt: new Date(date).toISOString(),
+      origin: get('origin'),
+      media: mediaUrl || mediaType || mediaName ? { type: mediaType, url: mediaUrl, name: mediaName } : null,
+      ctwa,
+    })
   }
   return events
 }
@@ -70,5 +93,9 @@ export function inboundFromRow(value: unknown): Inbound {
   if (!text(row.externalId) || !Number.isSafeInteger(row.kommoId) || !Number.isSafeInteger(row.contactId)) {
     throw new Error('INVALID_STORED_EVENT')
   }
-  return row as unknown as Inbound
+  const ctwa =
+    row.ctwa && typeof row.ctwa === 'object' && text(object(row.ctwa).clid)
+      ? (row.ctwa as Inbound['ctwa'])
+      : null
+  return { ...(row as unknown as Inbound), ctwa }
 }
