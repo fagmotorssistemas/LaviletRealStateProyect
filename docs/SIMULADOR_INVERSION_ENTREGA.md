@@ -15,11 +15,13 @@ Rama: `feature/simulador-inversion-unificado`.
 
 ## Correcciones de cierre
 
-1. **Reopen / precio:** `loadFromScenario` restaura `unit_price` guardado; el precio publicado no lo pisa. Botón explícito «Actualizar al precio publicado».
-2. **Ceros / init:** `initSource` (`empty` \| `bootstrap` \| `scenario` \| `user`) reemplaza heurística placeholder por ceros; `finiteOrNull` conserva alquiler/gastos/tasa 0.
+1. **Reopen / precio:** fuente de precio explícita (`useCurrentPublishedPrice` + `scenarioUnitPrice`), **independiente** de `initSource`. Editar alquiler/gastos/entrada/tasa **no** salta al publicado. Tras guardar se conserva el snapshot (`useCurrentPublishedPrice:false`). Solo el botón «Actualizar al precio publicado» cambia a precio actual.
+2. **Ceros / init:** `initSource` (`empty` \| `bootstrap` \| `scenario` \| `user`) reemplaza heurística placeholder por ceros; `finiteOrNull` conserva alquiler/gastos/tasa 0. `initSource` ya no gobierna el precio.
 3. **Legacy:** `assessScenarioFidelity` + UI (badge/aviso); resultados guardados se conservan; no se presenta reconstrucción exacta si falta versión v2.
 4. **Contrato API:** `scenarioValidate` — mode/rate_type listas cerradas → 400; números finitos/límites; breakdown vs `annual_expenses` coherentes; `calculation_version`/`assumptions_json` solo servidor; `project_id` del body ignorado.
-5. **Auth privada:** columna `created_by_visitor_key`; GET/DELETE filtran por visitante. Deduplicar lead por teléfono **no** concede escenarios ajenos.
+5. **Auth privada / aislamiento visitante:** columna `created_by_visitor_key`; GET/DELETE filtran por cookie `lv_vid`. Deduplicar lead por teléfono/email **no** concede ni reasigna escenarios ajenos (no hay claim histórico por coincidencia de contacto).
+   - Escenarios **sin** `created_by_visitor_key` quedan **fuera** del listado público del visitante.
+   - Cambiar o perder la cookie `lv_vid` impide recuperar escenarios anteriores de esa sesión/dispositivo.
 6. **Cálculo:** `breakeven_month` alineado con horizonte de recuperación; etiquetas de flujo antes de IR.
 
 ## Caso de referencia
@@ -28,13 +30,14 @@ Rama: `feature/simulador-inversion-unificado`.
 |------|----------|-----------|
 | Contado | flujo 9400, retorno 3.03% | unit tests + E2E local |
 | Financiado | cuota ≈1562.12, flujo ≈−9345.44, retorno ≈−10.05% | unit tests + E2E local |
+| Precio histórico | save 310k → publicado 350k → reopen/editar/guardar = 310k; solo «Actualizar…» = 350k | `calculatorUnitPrice.test.ts` |
 
 ## Comandos
 
 ```bash
 npx tsc --noEmit
 npm run build
-npm run test:financing   # 25 tests
+npm run test:financing   # 28 tests
 node scripts/financing-local-e2e.cjs
 ```
 

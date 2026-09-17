@@ -80,3 +80,4 @@ Archivo: `supabase/rollbacks/20260917120000_investment_simulator_assumptions_DES
 ## Notas
 - El historial en `supabase/migrations/` del monorepo no es un bootstrap completo; el stack local aislado está en `supabase-local/`.
 - RPC remoto `calculate_investment_analysis` no se invoca desde el API v2 (evita overwrite).
+- Aislamiento visitante: filas sin `created_by_visitor_key` no aparecen en el listado público; perder/cambiar `lv_vid` no se recupera por teléfono/email.

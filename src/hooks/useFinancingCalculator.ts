@@ -23,6 +23,10 @@ import {
   suggestMonthlyRent,
   sumExpenseBreakdown,
 } from '@/lib/financing/calculator'
+import {
+  priceFlagsAfterScenarioSave,
+  resolveCalculatorUnitPrice,
+} from '@/lib/financing/calculatorUnitPrice'
 import { resolveSimulationMode } from '@/lib/financing/scenarioPersist'
 import { assessScenarioFidelity, finiteOr, finiteOrNull } from '@/lib/financing/scenarioFidelity'
 import {
@@ -260,19 +264,13 @@ export function useFinancingCalculator(
   const publishedPrice = Number(unit?.published_commercial_price)
   const hasPublishedPrice = Number.isFinite(publishedPrice) && publishedPrice > 0
 
-  const unitPrice = (() => {
-    if (
-      state.initSource === 'scenario' &&
-      !state.useCurrentPublishedPrice &&
-      state.scenarioUnitPrice != null &&
-      state.scenarioUnitPrice > 0
-    ) {
-      return state.scenarioUnitPrice
-    }
-    if (hasPublishedPrice) return publishedPrice
-    if (state.hypotheticalPrice != null && state.hypotheticalPrice > 0) return state.hypotheticalPrice
-    return 0
-  })()
+  /** Fuente de precio explícita: no depende de initSource (editar no debe saltar al publicado). */
+  const unitPrice = resolveCalculatorUnitPrice({
+    useCurrentPublishedPrice: state.useCurrentPublishedPrice,
+    scenarioUnitPrice: state.scenarioUnitPrice,
+    publishedPrice: hasPublishedPrice ? publishedPrice : null,
+    hypotheticalPrice: state.hypotheticalPrice,
+  })
 
   const priceMissing = unitPrice <= 0
   const priceDiffersFromPublished =
@@ -471,8 +469,7 @@ export function useFinancingCalculator(
       setSaveMessage('Escenario guardado')
       patchState(
         {
-          scenarioUnitPrice: unitPrice,
-          useCurrentPublishedPrice: true,
+          ...priceFlagsAfterScenarioSave(unitPrice),
           fidelityMessage: null,
           savedResults: null,
           initSource: 'user',
