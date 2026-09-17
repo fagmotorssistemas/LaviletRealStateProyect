@@ -1576,7 +1576,10 @@ export async function confirmAppointment(
     p_notes: payload.notes,
     p_unit_ids: payload.unitIds,
   })
-  if (!error) return data as Appointment
+  if (!error) {
+    const confirmed = data as Appointment
+    return confirmed
+  }
   if (!isMissingRpc(error)) throwRpc(error)
 
   const notes = [payload.meetingPlace ? `Lugar: ${payload.meetingPlace.trim()}` : '', payload.notes.trim()]

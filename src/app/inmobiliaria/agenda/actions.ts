@@ -19,6 +19,10 @@ import type { AppointmentLocationType } from '@/types/inmobiliaria'
 import type { VisitTimeSlot } from '@/types/inmobiliaria'
 import type { VisitProposalPreview } from '@/lib/inmobiliaria/visitProposalOptions'
 import { completeUrgentVisitCoordination, prepareVisitProposal, sendVisitProposal } from '@/services/visitProposal.service'
+import {
+  afterAppointmentConfirmedForSchedule,
+  notifyScheduleIfRequestConfirmed,
+} from '@/lib/meta/scheduleIntegration'
 
 function readableMessage(message: string) {
   const trimmed = message.trim()
@@ -58,8 +62,8 @@ export type ConfirmAppointmentInput = {
 }
 
 export async function confirmAppointmentAction(input: ConfirmAppointmentInput) {
-  return withAgendaWrite((client) =>
-    confirmAppointment(client, {
+  return withAgendaWrite(async (client) => {
+    const confirmed = await confirmAppointment(client, {
       appointmentId: input.appointmentId,
       startTime: input.startTime,
       endTime: input.endTime,
@@ -68,8 +72,10 @@ export async function confirmAppointmentAction(input: ConfirmAppointmentInput) {
       locationType: input.locationType,
       notes: input.notes ?? '',
       unitIds: input.unitIds ?? [],
-    }),
-  )
+    })
+    await afterAppointmentConfirmedForSchedule(client, confirmed?.id || input.appointmentId)
+    return confirmed
+  })
 }
 
 export type CreateConfirmedAppointmentInput = {
@@ -112,13 +118,21 @@ export async function markRequestReviewedAction(requestId: string) {
 }
 
 export async function advisorAcceptRequestAction(requestId: string) {
-  return withAgendaWrite((client) => advisorAcceptRequest(client, requestId))
+  return withAgendaWrite(async (client) => {
+    const request = await advisorAcceptRequest(client, requestId)
+    await notifyScheduleIfRequestConfirmed(client, request)
+    return request
+  })
 }
 
 export async function acceptClientVisitTimeAction(input: {
   requestId: string; startTime: string; endTime: string; sourceMessageId: string
 }) {
-  return withAgendaWrite((client) => acceptClientVisitTime(client, input))
+  return withAgendaWrite(async (client) => {
+    const request = await acceptClientVisitTime(client, input)
+    await notifyScheduleIfRequestConfirmed(client, request)
+    return request
+  })
 }
 
 export async function advisorProposeRequestAction(input: {

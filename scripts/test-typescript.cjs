@@ -24,4 +24,3 @@ require.extensions['.ts'] = (module, filename) =>
     }).outputText,
     filename,
   )
-

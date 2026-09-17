@@ -119,6 +119,10 @@ export type EnqueueMetaEventInput = {
   adsConsent: boolean
   /** Solo website: capturar IP/UA del request actual (visitante). */
   includeRequestContext?: boolean
+  messagingChannel?: 'whatsapp' | null
+  ctwaClid?: string | null
+  whatsappBusinessAccountId?: string | null
+  messagingDatasetId?: string | null
 }
 
 /**
@@ -179,6 +183,10 @@ export async function enqueueMetaEvent(
         content_category: input.contentCategory || undefined,
         delivery_lane: input.deliveryLane,
         ads_consent: true,
+        messaging_channel: input.messagingChannel || undefined,
+        ctwa_clid: input.ctwaClid || undefined,
+        whatsapp_business_account_id: input.whatsappBusinessAccountId || undefined,
+        messaging_dataset_id: input.messagingDatasetId || undefined,
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(META_CAPI_HTTP_TIMEOUT_MS),
