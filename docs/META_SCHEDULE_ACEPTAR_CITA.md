@@ -78,10 +78,10 @@ npx jest src/drain/supabase-drain.service.spec.ts src/meta/schedule-graph.payloa
 npm run build
 ```
 
-## Despliegue
+## Despliegue (cuando se autorice — no ahora)
 
-No ejecutar desde este archivo. Usar la propuesta congelada:
+**Orden unificado:** flags Schedule **OFF** → migraciones 1→4 verificadas → Nest → frontend → comprobaciones Lead/VC → activación web **separada**.
 
-→ [`META_SCHEDULE_DELIVERY_PROPOSAL.md`](./META_SCHEDULE_DELIVERY_PROPOSAL.md)
+Ver lista ejecutable: `review-local/META_SCHEDULE_SCOPE_CLOSE.md` (local) y este archivo §4–§5.
 
-Sin merge a Production, sin eventos reales Meta, sin campañas en este alcance.
+`META_SCHEDULE_DELIVERY_ENABLED` aplica también al worker SQLite Nest: con OFF, Schedule pending no se envía ni se pierde; Lead/ViewContent continúan.
