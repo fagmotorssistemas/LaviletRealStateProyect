@@ -30,7 +30,6 @@ import Link from 'next/link'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
 import { TourFichaDrawer } from '@/components/tour/TourFichaDrawer'
 import { TourSimulatorDrawer } from '@/components/tour/TourSimulatorDrawer'
-import { TourFinancingDrawer } from '@/components/tour/TourFinancingDrawer'
 import {
   TourPhoneUnlockModal,
   type TourPhoneUnlockIntent,
@@ -822,7 +821,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [fichaOpen, setFichaOpen] = useState(() => Boolean(readUnitQueryParam()))
   const [fichaExpanded, setFichaExpanded] = useState(() => Boolean(readUnitQueryParam()))
   const [simulatorOpen, setSimulatorOpen] = useState(false)
-  const [financingOpen, setFinancingOpen] = useState(false)
+  const [simulatorEntry, setSimulatorEntry] = useState<{
+    mode?: 'cash' | 'financed' | 'manual'
+    section?: 'financing' | 'rent' | null
+  }>({})
   const [phoneUnlock, setPhoneUnlock] = useState<{
     open: boolean
     intent: TourPhoneUnlockIntent
@@ -1049,6 +1051,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       if (scene.nodes.length === 0) {
         if (!publicCat && !nextCatalog) {
           setBootError('No se pudo conectar con Supabase. Revisa tu internet o vuelve a intentar.')
+        }
+        // Sin panoramas: aún así montar catálogo/unidades para ficha y simulador.
+        if (publicCat) {
+          setCatalog(nextCatalog)
+          setUnits(nextUnits ?? [])
+          setFinish(startFinish)
+          setLight('dia')
         }
         setBooting(false)
         return
@@ -1385,8 +1394,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const openSimulatorTool = useCallback(() => {
     setFichaOpen(false)
     setFichaExpanded(false)
-    setFinancingOpen(false)
     ensureUnitForTools()
+    setSimulatorEntry({ mode: 'cash', section: 'rent' })
     if (!isShowroomIdentified()) {
       setPhoneUnlock({ open: true, intent: 'simulator' })
       return
@@ -1397,24 +1406,24 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const openFinancingTool = useCallback(() => {
     setFichaOpen(false)
     setFichaExpanded(false)
-    setSimulatorOpen(false)
     ensureUnitForTools()
+    setSimulatorEntry({ mode: 'financed', section: 'financing' })
     if (!isShowroomIdentified()) {
       setPhoneUnlock({ open: true, intent: 'financing' })
       return
     }
-    setFinancingOpen(true)
+    setSimulatorOpen(true)
   }, [ensureUnitForTools])
 
   const handlePhoneUnlocked = useCallback((intent: TourPhoneUnlockIntent) => {
     setShowroomIdentified(true)
     if (intent === 'simulator') {
-      setFinancingOpen(false)
+      setSimulatorEntry({ mode: 'cash', section: 'rent' })
       setSimulatorOpen(true)
       return
     }
-    setSimulatorOpen(false)
-    setFinancingOpen(true)
+    setSimulatorEntry({ mode: 'financed', section: 'financing' })
+    setSimulatorOpen(true)
   }, [])
   const modeButtons = modeButtonsForView({
     shellMode,
@@ -2682,13 +2691,12 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
             writeUnitQueryParam(unit.unit_number)
             // Si el simulador o financiamiento está abierto, actualiza la unidad ahí; si no, abre la ficha.
-            if (simulatorOpen || financingOpen) {
+            if (simulatorOpen) {
               setFichaOpen(false)
               return
             }
             // Primera ficha (resumen). La expandida se abre con “Ver ficha”.
             setSimulatorOpen(false)
-            setFinancingOpen(false)
             setFichaExpanded(false)
             setFichaOpen(true)
           }}
@@ -3042,7 +3050,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                 onClick={() => {
                   setFichaExpanded(false)
                   setSimulatorOpen(false)
-                  setFinancingOpen(false)
                   setFichaOpen(true)
                 }}
                 className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
@@ -3135,7 +3142,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                           onClick={() => {
                             setFichaExpanded(false)
                             setSimulatorOpen(false)
-                            setFinancingOpen(false)
                             setFichaOpen(true)
                             setMobilePanel(null)
                           }}
@@ -3398,9 +3404,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         />
       ) : null}
 
-      {/* Hermana de la ficha (no dentro de .tour-chrome): debe poder quedar sobre z-70. */}
-      {!embedded && COOKIE_BANNER_ENABLED && !(isComparador || isFinishCompare) ? (
-        <div className="pointer-events-auto absolute top-0 left-0 z-[90] w-[min(12rem,calc(100vw-1.5rem))] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5">
+      {/* Bajo drawers (z-70): ocultar si el simulador está abierto para no tapar el encabezado. */}
+      {!embedded && COOKIE_BANNER_ENABLED && !(isComparador || isFinishCompare) && !simulatorOpen ? (
+        <div className="pointer-events-auto absolute top-0 left-0 z-[50] w-[min(12rem,calc(100vw-1.5rem))] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5">
           <button
             type="button"
             onClick={openCookiePreferences}
@@ -3451,7 +3457,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             setCompareOpen(false)
             setFinishCompareOpen(false)
             setSimulatorOpen(false)
-            setFinancingOpen(false)
             setShellMode('unit')
             setViewMode('galeria')
             setGaleriaIndex(0)
@@ -3510,25 +3515,15 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       {showPlanShell || showUnitChrome ? (
         <TourSimulatorDrawer
           open={simulatorOpen}
-          onClose={() => setSimulatorOpen(false)}
-          contained={embedded && !immersive}
-          unitNumber={selectedUnit?.unit_number ?? null}
-          units={fichaUnits.length > 0 ? fichaUnits : displayUnits}
-          onSelectUnit={(unit) => {
-            setSelectedUnitId(unit.id)
-            if (unit.typology_code) setSelectedTypology(unit.typology_code)
-            writeUnitQueryParam(unit.unit_number)
+          onClose={() => {
+            setSimulatorOpen(false)
+            setSimulatorEntry({})
           }}
-        />
-      ) : null}
-
-      {showPlanShell || showUnitChrome ? (
-        <TourFinancingDrawer
-          open={financingOpen}
-          onClose={() => setFinancingOpen(false)}
           contained={embedded && !immersive}
           unitNumber={selectedUnit?.unit_number ?? null}
-          units={fichaUnits.length > 0 ? fichaUnits : displayUnits}
+          units={allUnits.length > 0 ? allUnits : fichaUnits.length > 0 ? fichaUnits : displayUnits}
+          initialMode={simulatorEntry.mode}
+          initialSection={simulatorEntry.section}
           onSelectUnit={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
@@ -3552,7 +3547,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             const floor = unitFloorNumber(unit)
             if (floor != null) setPlanFloor(floor)
             setSimulatorOpen(false)
-            setFinancingOpen(false)
             setTerminacionesFocus(false)
             setCompareOpen(false)
             setFinishCompareOpen(false)
@@ -3569,7 +3563,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             const floor = unitFloorNumber(unit)
             if (floor != null) setPlanFloor(floor)
             setSimulatorOpen(false)
-            setFinancingOpen(false)
             setTerminacionesFocus(false)
             setCompareOpen(false)
             setFinishCompareOpen(false)

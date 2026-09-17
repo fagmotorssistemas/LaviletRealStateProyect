@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Simulador — caso base</title>
+  <style>
+    body { font-family: Georgia, serif; background: #f7f3ee; color: #1f1a14; margin: 0; padding: 24px; }
+    h1 { font-size: 1.5rem; margin: 0 0 8px; }
+    .sub { color: #6b645c; font-size: 0.9rem; margin-bottom: 24px; }
+    .grid { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+    .panel { background: #fff; border: 1px solid #ece6dc; border-radius: 16px; padding: 20px; }
+    .label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #8a8176; }
+    .val { font-size: 1.35rem; font-weight: 600; margin-top: 4px; }
+    .bad { color: #b91c1c; }
+    .good { color: #047857; }
+    .row { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid #f0ebe3; font-size: 0.9rem; }
+    .note { margin-top: 16px; font-size: 0.75rem; color: #8a8176; }
+  </style>
+</head>
+<body>
+  <h1>Simulador de inversión — caso de aceptación</h1>
+  <p class="sub">Precio 310000 · entrada 30% · tasa nominal 7.8% · 30 años · alquiler 1200 · vacancia 5% · gastos 4280 · sin gestión/IR. Resultados de escenario (no viabilidad absoluta).</p>
+  <div class="grid">
+    <div class="panel" id="cash">
+      <p class="label">Contado</p>
+      <div class="row"><span>Cuota</span><span>$0.00</span></div>
+      <div class="row"><span>Alquiler efectivo / año</span><span>$13,680</span></div>
+      <div class="row"><span>Resultado operativo / año</span><span>$9,400</span></div>
+      <div class="row"><span>Flujo anual</span><span class="good">$9,400.00</span></div>
+      <div class="row"><span>Rendimiento operativo / precio</span><span class="good">3.03%</span></div>
+      <div class="row"><span>Retorno de caja</span><span class="good">3.03%</span></div>
+      <p class="note">Antes de IR. Sin apreciación ni venta.</p>
+    </div>
+    <div class="panel" id="financed">
+      <p class="label">Con financiamiento</p>
+      <div class="row"><span>Entrada</span><span>$93,000</span></div>
+      <div class="row"><span>Crédito</span><span>$217,000</span></div>
+      <div class="row"><span>Cuota / mes</span><span>≈ $1,562.12</span></div>
+      <div class="row"><span>Alquiler efectivo / año</span><span>$13,680</span></div>
+      <div class="row"><span>Resultado operativo / año</span><span>$9,400</span></div>
+      <div class="row"><span>Flujo anual</span><span class="bad">≈ −$9,345.44</span></div>
+      <div class="row"><span>Flujo mensual</span><span class="bad">≈ −$778.79</span></div>
+      <div class="row"><span>Retorno de caja</span><span class="bad">≈ −10.05%</span></div>
+      <div class="row"><span>Complemento comprador / mes</span><span class="bad">≈ $778.79</span></div>
+      <p class="note">No recuperable con el flujo actual. Cobertura sobre resultado operativo vs servicio de deuda.</p>
+    </div>
+  </div>
+</body>
+</html>

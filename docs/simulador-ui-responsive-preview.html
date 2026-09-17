@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simulador UI — móvil / escritorio</title>
+  <style>
+    :root { --bg:#f7f3ee; --ink:#1f1a14; --muted:#6b645c; --line:#ece6dc; --bad:#b91c1c; --good:#047857; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Georgia, "Times New Roman", serif; background:var(--bg); color:var(--ink); }
+    .shell { max-width: 28rem; margin: 0 auto; min-height: 100dvh; display:flex; flex-direction:column;
+      background:#f7f3ee; box-shadow: 0 12px 40px rgba(15,23,42,.18); }
+    @media (min-width: 900px) { .shell { max-width: 56rem; margin: 1.5rem auto; border-radius: 16px; min-height: calc(100dvh - 3rem); } }
+    header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background:#fff; border-bottom:1px solid rgba(43,26,24,.1); position:sticky; top:0; z-index:2; }
+    header .title { font-size:11px; letter-spacing:.14em; text-transform:uppercase; font-weight:700; color:#1a2744; font-family: system-ui,sans-serif; }
+    header .sub { font-size:11px; color:#8a8176; font-family: system-ui,sans-serif; }
+    .scroll { flex:1; overflow:auto; padding:12px 16px 24px; }
+    .modes { display:grid; gap:12px; }
+    @media (min-width: 900px) { .modes { grid-template-columns: 1fr 1fr; } }
+    .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:16px; }
+    .label { font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8a8176; font-family:system-ui,sans-serif; }
+    .row { display:flex; justify-content:space-between; gap:8px; padding:8px 0; border-top:1px solid #f0ebe3; font-size:14px; }
+    .bad { color:var(--bad); } .good { color:var(--good); }
+    .note { font-size:11px; color:var(--muted); margin-top:10px; font-family:system-ui,sans-serif; }
+    .close { border:0; background:#f4f4ef; border-radius:8px; padding:6px 10px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="shell" id="drawer">
+    <header>
+      <div>
+        <div class="title">Simulador de inversión</div>
+        <div class="sub">Unidad demo · caso base</div>
+      </div>
+      <button class="close" type="button">Cerrar</button>
+    </header>
+    <div class="scroll">
+      <p class="note">Precio 310000 · entrada 30% · tasa nominal 7.8% · 30a · alquiler 1200 · vacancia 5% · gastos 4280. Antes de IR.</p>
+      <div class="modes">
+        <section class="card" id="cash">
+          <p class="label">Contado</p>
+          <div class="row"><span>Cuota</span><span>$0.00</span></div>
+          <div class="row"><span>Flujo anual</span><span class="good">$9,400.00</span></div>
+          <div class="row"><span>Rend. operativo</span><span class="good">3.03%</span></div>
+          <div class="row"><span>Retorno de caja</span><span class="good">3.03%</span></div>
+        </section>
+        <section class="card" id="financed">
+          <p class="label">Con financiamiento</p>
+          <div class="row"><span>Entrada / crédito</span><span>$93,000 / $217,000</span></div>
+          <div class="row"><span>Cuota / mes</span><span>≈ $1,562.12</span></div>
+          <div class="row"><span>Flujo anual</span><span class="bad">≈ −$9,345.44</span></div>
+          <div class="row"><span>Retorno de caja</span><span class="bad">≈ −10.05%</span></div>
+          <div class="row"><span>Complemento / mes</span><span class="bad">≈ $778.79</span></div>
+          <p class="note">No recuperable con el flujo actual. Encabezado accesible (Cerrar / Guardar).</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
