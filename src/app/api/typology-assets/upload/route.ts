@@ -70,7 +70,7 @@ async function handleUpload(request: Request) {
   const maxBytes = 40 * 1024 * 1024
   if (uploaded.size > maxBytes) {
     return jsonError(
-      'La imagen supera el máximo de 40 MB por esta vía. Usá la subida del inventario (soporta hasta 80 MB).',
+      'La imagen supera el máximo de 40 MB por esta vía. Usá la subida del inventario (soporta hasta 200 MB).',
       413,
     )
   }

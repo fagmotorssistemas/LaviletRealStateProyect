@@ -8,7 +8,8 @@ import { roomSceneFileName } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import type { TypologyAssetKind } from '@/types/inmobiliaria'
 
-export const TYPOLOGY_UPLOAD_MAX_BYTES = 80 * 1024 * 1024
+export const TYPOLOGY_UPLOAD_MAX_BYTES = 200 * 1024 * 1024
+export const TYPOLOGY_UPLOAD_MAX_MB = 200
 
 export type TypologyUploadMeta = {
   typologyCode: string
@@ -58,7 +59,9 @@ export function resolveTypologyUploadMeta(input: {
     throw Object.assign(new Error('Falta el archivo'), { status: 400 })
   }
   if (Number.isFinite(size) && size > TYPOLOGY_UPLOAD_MAX_BYTES) {
-    throw Object.assign(new Error('La imagen supera el máximo de 80 MB'), { status: 413 })
+    throw Object.assign(new Error(`La imagen supera el máximo de ${TYPOLOGY_UPLOAD_MAX_MB} MB`), {
+      status: 413,
+    })
   }
 
   const isImage =

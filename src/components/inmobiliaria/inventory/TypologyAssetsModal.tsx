@@ -31,6 +31,7 @@ import {
 import type { TourLightMode } from '@/types/tour'
 import { cn } from '@/lib/utils'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
+import { TYPOLOGY_UPLOAD_MAX_MB } from '@/lib/typology-assets/resolveUpload'
 import {
   unitImportCategoryLabel,
   type TypologyAsset,
@@ -305,7 +306,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     } catch {
       throw new Error(
         prepRes.status === 413
-          ? 'La imagen es demasiado grande para el servidor. Probá una de hasta 80 MB.'
+          ? `La imagen es demasiado grande. El máximo es ${TYPOLOGY_UPLOAD_MAX_MB} MB.`
           : `No se pudo preparar la subida (${prepRes.status}). Volvé a intentar.`,
       )
     }
