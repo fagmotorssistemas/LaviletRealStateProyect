@@ -19,7 +19,7 @@ export function acceptsVisitInvitation(current: string, lastReply: string) {
   if (/\bo (?:prefiere|desea|quiere|coordinar|agendar)\b/.test(normalized(lastReply)) && /material|imagenes|fotos|detalles/.test(normalized(lastReply))) return false
   const scheduling = /(?:dia|fecha).*horario|dia.*hora|fecha.*hora/.test(normalized(lastReply)) && /visita|cita|recibirle/.test(normalized(lastReply))
   if (!invitation(lastReply) && !scheduling) return false
-  const m = normalized(current).replace(/\s+(?:puede ser|le parece|por favor)$/, '')
+  const m = normalized(current).replace(/^(?:que tal|le parece|podria ser|puede ser)(?: si)?(?: para)?\s+/, '').replace(/^para\s+/, '').replace(/\s+(?:puede ser|le parece|por favor)$/, '')
   if (/^(?:listo )?(?:si(?: claro| por favor| me gustaria| quiero| gracias)?|claro|de acuerdo|esta bien|me parece bien|perfecto|hagamoslo|listo)$/.test(m)) return true
   // A proposed day/hour or a request for scheduling help also answers an invitation.
   // Questions about prices, business hours or other topics do not accept it.

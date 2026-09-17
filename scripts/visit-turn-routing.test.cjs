@@ -35,6 +35,20 @@ test('final visit guard protects commercial paths from physical-tour and unrecor
   assert.ok(visitCopyIssues('Revisaremos disponibilidad.','El sábado es una opción dentro de nuestro horario de atención.').includes('administrative_visit_copy'))
 })
 
+test('conversational visit requests respect context, refusals and verified receipts', () => {
+  assert.equal(explicitlyRequestsVisit('prefiero hacer una visita se puede?'),true)
+  for(const message of ['No prefiero hacer una visita','Prefiero hacer una visita al dentista','Prefiero ver precios antes de una visita']) assert.equal(explicitlyRequestsVisit(message),false,message)
+  const previous='Si tiene una fecha y hora en mente, puede indicarla para coordinar su cita.'
+  for(const message of ['que tal para el sabado a las 11 am??','Puede ser para el viernes a las 10','Para el lunes a las 11']) assert.equal(acceptsVisitInvitation(message,previous),true,message)
+  for(const message of ['No puedo el sabado a las 11','que tal para el sabado el precio','que tal para el sabado a las 11 en el dentista']) assert.equal(acceptsVisitInvitation(message,previous),false,message)
+  assert.equal(acceptsVisitInvitation('que tal para el sabado a las 11 am??','¿Qué presupuesto tiene?'),false)
+  const draft='Tomo en cuenta su preferencia para la visita este sábado a las 11 am. El equipo revisará la disponibilidad. Le confirmaremos lo antes posible si es posible agendar.'
+  const guarded=visitTruthReply(draft,{}, {},[],protectedSentences)
+  assert.doesNotMatch(guarded,/Tomo en cuenta|equipo revisará|Le confirmaremos/)
+  assert.match(guarded,/no puedo confirmar/)
+  assert.equal(visitTruthReply(draft,{}, {registration_verified:true},[],protectedSentences),draft)
+})
+
 test('permission to visit remains actionable alongside a project information request', () => {
   for (const message of [
     'Deme detalles del proyecto\nY puedo hacer una visita?',

@@ -23,6 +23,7 @@ export function visitTruthReply(reply: string, info: Row, audit: Row, proposals:
   const launch = readiness ? !readiness.enabledPlaces.includes('completed_unit') : info.modo_comercial === 'lanzamiento'
   const office = object(info.politica_visitas).launchDestination === 'office'
   const registered = audit.registration_verified === true || proposals.some(p => ['awaiting_advisor', 'awaiting_client', 'confirmed'].includes(text(p.status)))
+  const visitContext = isVisitCopy(audit) || /\bvisita|\bcita|horario/.test(normalize(reply))
   let destinationRemoved = false, claimRemoved = false, deadlineRemoved = false
   const kept = sentences(reply).filter(sentence => {
     const v = normalize(sentence)
@@ -37,12 +38,17 @@ export function visitTruthReply(reply: string, info: Row, audit: Row, proposals:
     const permittedModel=!!readiness && /departamento modelo/.test(v) && readiness.enabledPlaces.includes('model')
     if (launch && !permittedModel && /(?:conozca|conocer|recorrer|visitar|ver) (?:personalmente )?(?:los |las |un |una |el )?(?:departamentos?|vistas|pisos altos)|visita.*(?:departamentos|vistas).*personalmente/.test(v)) { destinationRemoved = true; return false }
     if (!registered && /(?:solicitud|visita|cita).*(?:ha quedado|quedo|esta|hemos) registrad|(?:hemos|he) registrado.*(?:solicitud|visita|cita)/.test(v)) { claimRemoved = true; return false }
+    const conditional = /(?:cuando|una vez que) (?:tengamos|recibamos|indique|nos indique|se registre|quede registrada)|indiquenos que (?:fecha|dia).*hora/.test(v)
+    if(!registered && visitContext && !conditional && (
+      /(?:el equipo|el asesor) (?:revisara|confirmara|verificara|le propondra)|le confirmaremos|le (?:avisaremos|propondremos).*horario/.test(v)
+      || /(?:tomo|tomamos|tomada) en cuenta.*(?:preferencia|visita)|preferencia.*(?:tomada en cuenta|recibida)/.test(v)
+    )) {claimRemoved=true;return false}
     if (/en el transcurso de hoy|pronto recibira.*confirmacion|(?:confirm|comunicaremos|respuesta).*antes del (?:sabado|lunes|martes|miercoles|jueves|viernes|domingo)/.test(v)) { deadlineRemoved = true; return false }
     return true
   })
   if (destinationRemoved) kept.unshift(readiness ? readinessInvitation(readiness)||'Por el momento no hay visitas presenciales habilitadas.' : office ? 'Podemos recibirle en nuestra oficina para revisar los planos y el material del proyecto; todavía no hay departamentos terminados para recorrer.' : 'Podemos coordinar una visita al terreno donde se construirá el proyecto; todavía no hay departamentos terminados para recorrer.')
   if (claimRemoved) kept.push('Todavía no puedo confirmar que su solicitud de visita haya quedado registrada.')
-  if (deadlineRemoved) kept.push('Aún no tengo una hora de confirmación; le avisaremos cuando el equipo verifique la disponibilidad.')
+  if (deadlineRemoved) kept.push(registered ? 'Aún no tengo una hora de confirmación; le avisaremos cuando el equipo verifique la disponibilidad.' : 'Aún no hay una hora de confirmación disponible.')
   return destinationRemoved || claimRemoved || deadlineRemoved ? kept.join(' ') : reply
 }
 

@@ -31,8 +31,9 @@ export function explicitlyRequestsVisit(current: string) {
   // booking or a declined visit cannot borrow an intent from another question.
   return current.split(/[.!?;\n]+|\bpero\b|\badem[aá]s\b/iu).some(clause => {
     const value = normalized(clause)
-    if (!value || /\b(?:no|tampoco|ni) (?:quiero|quisiera|puedo|podemos|deseo|me interesa|me gustaria|necesito)\b/.test(value)) return false
+    if (!value || /\b(?:no|tampoco|ni) (?:quiero|quisiera|prefiero|puedo|podemos|deseo|me interesa|me gustaria|necesito)\b/.test(value)) return false
     if (hasUnrelatedAppointmentTarget(value)) return false
+    if (/\bprefiero (?:hacer |realizar |coordinar |agendar )?(?:una |la )?visita\b/.test(value)) return true
     if (/\b(?:no|tampoco)\s+(?:coordinamos|agendamos|programamos|coordinemos|agendemos)\b/.test(value)) return false
     if (/^(?:(?:mejor|entonces|si|bueno|de acuerdo|por favor)\s+)*(?:coordinamos|agendamos|programamos)\s+(?:una|la)\s+(?:visita|cita)(?:\s+por favor)?$/.test(value)) return true
     if (/\b(?:puedo|podemos|podria|podriamos|se puede|es posible) (?:hacer |realizar |tener |solicitar |coordinar |agendar )?(?:una |la )?(?:visita|visitar|cita|ir|venir|pasar)\b/.test(value)) return true

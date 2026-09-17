@@ -46,6 +46,30 @@ test('visit acceptance and a following time enter intake despite an empty AI ext
   assert.equal(receipt.request_id,'request')
   assert.equal(receipt.assigned_advisor_id,'advisor')
 })
+test('visit preference survives an office question and submits the proposed Saturday to an advisor', async t => {
+  live(t)
+  const first = conversationHarness({})
+  first.rows[0].payload.text = 'prefiero hacer una visita se puede?'
+  await first.process([first.rows[0]], async()=>{})
+  assert.equal(first.calls.filter(c=>c.name==='lv_collect_visit_intake').length,1)
+  const officeReply = 'La oficina está en Puertas del Sol. Si tiene una fecha y hora en mente, puede indicarla para coordinar su cita.'
+  const middle = conversationHarness({visitDraft:{status:'collecting'}, commercialResult:{reply:officeReply,audit:{}}})
+  middle.rows[0].payload.text = 'la oficina esta en el mismo lugar del proyecto?'
+  await middle.process([middle.rows[0]],async()=>{})
+  assert.equal(middle.calls.some(c=>c.name==='lv_collect_visit_intake'),false)
+  // Also recover legacy conversations in which the first request never created an intake.
+  for (const visitDraft of [null,{status:'collecting'}]) {
+    const last = conversationHarness({visitDraft,history:[{role:'bot',content:officeReply}],slot:{confidence:'exact',start_time:'2030-09-21T16:00:00Z'}})
+    last.rows[0].payload.text = 'que tal para el sabado a las 11 am??'
+    await last.process([last.rows[0]],async()=>{})
+    assert.equal(last.calls.filter(c=>c.name==='lv_collect_visit_intake').length,1)
+    const receipt=last.calls.find(c=>c.name==='register_outbound_message').args.p_tool_calls
+    assert.equal(receipt.registration_verified,true)
+    assert.equal(receipt.request_id,'request')
+    assert.equal(receipt.assigned_advisor_id,'advisor')
+  }
+})
+
 test('unverified visit receipt creates a handoff instead of reporting a successful registration',async t=>{
   live(t)
   for(const intake of [{action:'submitted',request_id:null},{action:'submitted',request_id:'nonexistent'}]) {
