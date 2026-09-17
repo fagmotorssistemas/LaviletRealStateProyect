@@ -7,6 +7,7 @@ import { normalizeEvents, validateIntent } from './conversation-rules'
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
 import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { inboundFromRow, type Inbound } from './webhook'
+import { preserveCtwaForContact } from './ctwa-lead-store'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
@@ -82,11 +83,19 @@ async function register(events: Inbound[], guard: Guard) {
     const result = object(await rpc('register_inbound_message', {
       p_tenant_id: scope.tenant_id, p_project_id: scope.project_id, p_phone: phone,
       p_name: text(contact.name) || event.name || 'Sin nombre', p_source: event.origin, p_channel: 'whatsapp',
+      // No inventar campaña ads/orgánico. p_campaign sigue null; ctwa_clid va a lv_whatsapp_ctwa_attribution.
       p_campaign: null, p_contact_id: String(event.contactId), p_kommo_id: event.kommoId,
       p_external_message_id: event.externalId, p_content: content, p_tracking_consent: false,
     }))
     if (!text(result.lead_id) || !text(result.conversation_id)) throw new Error('INBOUND_RPC_CONTRACT_MISMATCH')
     registration = result
+    // First-touch ctwa_clid si Kommo lo trajo; mensajes sin clid no borran captura previa.
+    await preserveCtwaForContact({
+      contactId: event.contactId,
+      kommoId: event.kommoId,
+      externalMessageId: event.externalId,
+      ctwa: event.ctwa,
+    })
     if (result.is_duplicate === true) continue
     hasNew = true
     const conversation = await one('conversations', text(result.conversation_id))
