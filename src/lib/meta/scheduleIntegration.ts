@@ -2,10 +2,12 @@
  * Schedule (Meta) — evaluación + preparación de entrega tras confirmación.
  *
  * Elegibilidad (PR #5): cerrada.
- * Entrega: plan web/WhatsApp + persistencia local opcional; flush Nest/Meta OFF.
+ * Entrega: plan web/WhatsApp + persistencia local opcional (`review_hold`);
+ * flush Nest/Meta OFF.
  *
- * WhatsApp: exige identificadores de messaging/CTWA en el plan; Nest aún no los
- * reenvía. Sin CTWA se documenta `whatsapp_ctwa_clid_missing` (atribución floja).
+ * WhatsApp BM: Meta exige `ctwa_clid` + `whatsapp_business_account_id` y
+ * destino Graph `{DATASET_ID}` (dataset ≠ WABA). Sin ctwa_clid no hay CAPI BM
+ * atribuible al anuncio CTWA. Nest aún no mapea esos campos.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'

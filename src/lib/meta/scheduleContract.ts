@@ -1,8 +1,14 @@
 /**
  * Contrato de entrega Schedule: frontend → Nest → Meta.
- * Sin I/O. Separa web y WhatsApp; lista bloqueos concretos.
+ * Sin I/O. Separa web y WhatsApp; lista bloqueos concretos verificados.
  *
- * Persistencia local (outbox) ≠ flush Nest ≠ envío Meta.
+ * Fuentes Meta (Business Messaging CAPI):
+ * - Dataset ≠ WABA: el dataset se crea/obtiene desde el WABA; Graph recibe {DATASET_ID}/events.
+ * - WhatsApp user_data exige whatsapp_business_account_id + ctwa_clid (docs Meta).
+ * - Sin ctwa_clid no hay llamada CAPI de business messaging atribuible al anuncio CTWA
+ *   (no es “atribución floja” opcional: el identificador es requerido en el contrato Meta).
+ * - event_name Schedule en business_messaging: no verificado frente al allowlist Meta;
+ *   Nest tampoco mapea aún messaging/CTWA.
  */
 
 import {
@@ -14,13 +20,30 @@ import {
   WHATSAPP_SCHEDULE_DELIVERY_PENDING,
 } from './scheduleEligibility'
 
-/** Nest aún no tipa/reenvía estos campos en enqueueMetaEvent. */
+/** Nest (enqueueMetaEvent) no tipa/reenvía messaging/CTWA hoy. */
 export const NEST_MISSING_MESSAGING_FIELDS =
   'nest_payload_missing_messaging_fields' as const
 
-export const WHATSAPP_CTWA_CLID_MISSING = 'whatsapp_ctwa_clid_missing' as const
+/**
+ * Sin ctwa_clid Meta no documenta envío CAPI business_messaging atribuible a CTWA.
+ * No usar eufemismos de “atribución floja”.
+ */
+export const WHATSAPP_CTWA_CLID_REQUIRED = 'whatsapp_ctwa_clid_required' as const
 
 export const WHATSAPP_PHONE_MISSING = 'whatsapp_phone_missing' as const
+
+export const WHATSAPP_WABA_ID_MISSING = 'whatsapp_waba_id_missing' as const
+
+/** Dataset messaging (destino Graph) distinto del WABA id. */
+export const WHATSAPP_DATASET_ID_MISSING = 'whatsapp_dataset_id_missing' as const
+
+/**
+ * Schedule como event_name bajo action_source=business_messaging:
+ * no figura en el ejemplo oficial Meta BM (Purchase) y reportes de Graph
+ * (p. ej. subcode 2804066) rechazan Schedule. No declarar contrato completo.
+ */
+export const WHATSAPP_SCHEDULE_EVENT_NAME_UNVERIFIED =
+  'whatsapp_schedule_event_name_unverified' as const
 
 export const WEB_PHONE_MISSING = 'web_phone_missing' as const
 
@@ -32,10 +55,12 @@ export type ScheduleIdentifierInput = {
   eligibility: ScheduleEligibility
   leadId: string
   phone: string | null | undefined
-  /** Click-to-WhatsApp id; solo relevante en canal WhatsApp. */
+  /** Click-to-WhatsApp id; requerido por Meta CAPI business_messaging. */
   ctwaClid: string | null | undefined
-  /** ID WABA / dataset messaging si el entorno lo tiene. */
+  /** WABA id (user_data.whatsapp_business_account_id). No es el dataset. */
   wabaId: string | null | undefined
+  /** dataset_id destino Graph {DATASET_ID}/events — distinto del WABA. */
+  messagingDatasetId: string | null | undefined
   email?: string | null
   fullName?: string | null
   fbp?: string | null
@@ -47,17 +72,11 @@ export type ScheduleDeliveryPlan = {
   channelKind: ScheduleChannelKind
   actionSource: ScheduleActionSource
   idempotencyKey: string
-  /** Negocio + identificadores mínimos para armar fila local. */
   canBuildPayload: boolean
-  /** Escribiría meta_capi_outbox (sigue gated por env en el runner). */
-  canPersistLocal: boolean
-  /** Enviar a Nest/Meta: siempre false hasta activación explícita. */
+  /** Solo filas review_hold (nunca pending). */
+  canPersistReviewHold: boolean
   canFlushNest: boolean
   blockers: string[]
-  /**
-   * Payload previsto para outbox (sin horarios de cita).
-   * Puede incluir campos que Nest aún no reenvía (documentan el gap).
-   */
   payload: Record<string, unknown> | null
 }
 
@@ -65,18 +84,6 @@ function hasText(value: string | null | undefined): boolean {
   return Boolean(String(value || '').trim())
 }
 
-/**
- * Identificadores WhatsApp (contrato marketing / Meta CTWA):
- * - phone (EMQ)
- * - action_source: business_messaging
- * - messaging_channel: whatsapp
- * - ctwa_clid cuando el clic vino de anuncio (si falta, atribución floja)
- * - waba / dataset messaging id
- *
- * Sin CTWA: el plan sigue armable a nivel “mensaje WhatsApp”, pero se registra
- * `whatsapp_ctwa_clid_missing` y no se considera listo para optimización CTWA.
- * Además Nest no acepta aún esos campos → NEST_MISSING_MESSAGING_FIELDS.
- */
 export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDeliveryPlan {
   const { eligibility } = input
   const channelKind = eligibility.channelKind
@@ -90,7 +97,7 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
       actionSource,
       idempotencyKey,
       canBuildPayload: false,
-      canPersistLocal: false,
+      canPersistReviewHold: false,
       canFlushNest: false,
       blockers: [eligibility.reason],
       payload: null,
@@ -99,14 +106,22 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
 
   if (channelKind === 'whatsapp') {
     if (!hasText(input.phone)) blockers.push(WHATSAPP_PHONE_MISSING)
-    if (!hasText(input.ctwaClid)) blockers.push(WHATSAPP_CTWA_CLID_MISSING)
-    if (!hasText(input.wabaId)) blockers.push('whatsapp_waba_id_missing')
-    // Contrato Nest incompleto aunque tengamos clid.
+    if (!hasText(input.ctwaClid)) blockers.push(WHATSAPP_CTWA_CLID_REQUIRED)
+    if (!hasText(input.wabaId)) blockers.push(WHATSAPP_WABA_ID_MISSING)
+    if (!hasText(input.messagingDatasetId)) blockers.push(WHATSAPP_DATASET_ID_MISSING)
+    blockers.push(WHATSAPP_SCHEDULE_EVENT_NAME_UNVERIFIED)
     blockers.push(WHATSAPP_SCHEDULE_DELIVERY_PENDING)
     blockers.push(NEST_MISSING_MESSAGING_FIELDS)
     blockers.push(FLUSH_NEST_INACTIVE)
 
+    // Payload de revisión solo si hay teléfono; sin CTWA no es enviable a Meta CAPI BM.
     const canBuildPayload = hasText(input.phone)
+    const metaReady =
+      hasText(input.phone) &&
+      hasText(input.ctwaClid) &&
+      hasText(input.wabaId) &&
+      hasText(input.messagingDatasetId)
+
     const payload = canBuildPayload
       ? {
           action_source: 'business_messaging' as const,
@@ -116,9 +131,15 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
           full_name: input.fullName || undefined,
           external_id: input.leadId,
           lead_id: input.leadId,
+          // Campos Meta BM (Nest aún no los reenvía):
           ctwa_clid: hasText(input.ctwaClid) ? String(input.ctwaClid).trim() : undefined,
-          waba_id: hasText(input.wabaId) ? String(input.wabaId).trim() : undefined,
-          // Nest enqueueMetaEvent hoy no mapea ctwa_clid / messaging_channel / waba_id.
+          whatsapp_business_account_id: hasText(input.wabaId)
+            ? String(input.wabaId).trim()
+            : undefined,
+          messaging_dataset_id: hasText(input.messagingDatasetId)
+            ? String(input.messagingDatasetId).trim()
+            : undefined,
+          meta_capi_ready: metaReady,
           _nest_gap: NEST_MISSING_MESSAGING_FIELDS,
         }
       : null
@@ -128,9 +149,7 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
       actionSource,
       idempotencyKey,
       canBuildPayload,
-      // Persistencia local permitida solo con phone; CTWA ausente no impide fila local de revisión,
-      // pero flush Nest sigue bloqueado.
-      canPersistLocal: canBuildPayload,
+      canPersistReviewHold: canBuildPayload,
       canFlushNest: false,
       blockers,
       payload,
@@ -140,7 +159,6 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
   if (channelKind === 'web') {
     if (!hasText(input.phone)) blockers.push(WEB_PHONE_MISSING)
     blockers.push(FLUSH_NEST_INACTIVE)
-    // Web no exige CTWA; cookies son opcionales (atribución floja sin ellas).
     const canBuildPayload = hasText(input.phone)
     const payload = canBuildPayload
       ? {
@@ -153,6 +171,8 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
           fbp: input.fbp || undefined,
           fbc: input.fbc || undefined,
           fbclid: input.fbclid || undefined,
+          // Nest hoy acepta Schedule+website vía enqueueMetaEvent (sin messaging fields).
+          nest_event_name: 'Schedule',
         }
       : null
 
@@ -161,7 +181,7 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
       actionSource,
       idempotencyKey,
       canBuildPayload,
-      canPersistLocal: canBuildPayload,
+      canPersistReviewHold: canBuildPayload,
       canFlushNest: false,
       blockers,
       payload,
@@ -175,14 +195,13 @@ export function planScheduleDelivery(input: ScheduleIdentifierInput): ScheduleDe
     actionSource,
     idempotencyKey,
     canBuildPayload: false,
-    canPersistLocal: false,
+    canPersistReviewHold: false,
     canFlushNest: false,
     blockers,
     payload: null,
   }
 }
 
-/** Persistencia local solo si se autoriza explícitamente; flush Nest nunca desde aquí. */
 export function isScheduleLocalPersistEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -194,6 +213,5 @@ export function isScheduleLocalPersistEnabled(
 export function isScheduleFlushEnabled(
   _env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  // Activación real fuera de esta preparación.
   return false
 }

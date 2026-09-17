@@ -17,6 +17,16 @@ export type LocalOutboxRow = {
   ads_consent_required: boolean
 }
 
+/** Único estado que flush local / drain Nest deben consumir. */
+export const OUTBOX_FLUSHABLE_STATUS = 'pending' as const
+
+/** Persistencia de revisión Schedule: fuera de la cola activa. */
+export const OUTBOX_REVIEW_HOLD_STATUS = 'review_hold' as const
+
+export function isOutboxStatusFlushable(status: string | null | undefined): boolean {
+  return String(status || '') === OUTBOX_FLUSHABLE_STATUS
+}
+
 function intendedLane(): 'test' | 'live' {
   // Lane fijada en origen; Nest solo entrega la que coincida con META_MODE.
   const explicit = process.env.META_CAPI_DELIVERY_LANE?.trim().toLowerCase()
@@ -28,6 +38,7 @@ function intendedLane(): 'test' | 'live' {
 /**
  * Persistencia local atómica por idempotency_key.
  * inserted=true ⇒ conversión nueva (disparar Pixel con event_id).
+ * Por defecto status=pending (cola activa). Schedule de revisión debe usar review_hold.
  */
 export async function persistMetaConversion(
   admin: SupabaseClient,
@@ -40,19 +51,27 @@ export async function persistMetaConversion(
     leadId?: string | null
     visitorKey?: string | null
     adsConsentRequired?: boolean
+    /** pending = cola activa; review_hold = excluido de flush/drain. */
+    status?: typeof OUTBOX_FLUSHABLE_STATUS | typeof OUTBOX_REVIEW_HOLD_STATUS
   },
-): Promise<{ inserted: boolean; eventId: string; rowId: string | null }> {
+): Promise<{ inserted: boolean; eventId: string; rowId: string | null; status: string }> {
   const eventId = input.eventId && /^[0-9a-f-]{36}$/i.test(input.eventId) ? input.eventId : randomUUID()
   const eventTime = input.eventTime || Math.floor(Date.now() / 1000)
+  const status = input.status || OUTBOX_FLUSHABLE_STATUS
 
   const { data: existing } = await admin
     .from('meta_capi_outbox')
-    .select('id, event_id')
+    .select('id, event_id, status')
     .eq('idempotency_key', input.idempotencyKey)
     .maybeSingle()
 
   if (existing?.event_id) {
-    return { inserted: false, eventId: existing.event_id, rowId: existing.id }
+    return {
+      inserted: false,
+      eventId: existing.event_id,
+      rowId: existing.id,
+      status: existing.status || status,
+    }
   }
 
   const { data, error } = await admin
@@ -63,13 +82,13 @@ export async function persistMetaConversion(
       event_name: input.eventName,
       event_time: eventTime,
       payload: input.payload,
-      status: 'pending',
+      status,
       delivery_lane: intendedLane(),
       lead_id: input.leadId || null,
       visitor_key: input.visitorKey || null,
       ads_consent_required: input.adsConsentRequired !== false,
     })
-    .select('id, event_id')
+    .select('id, event_id, status')
     .single()
 
   if (error) {
@@ -77,17 +96,22 @@ export async function persistMetaConversion(
     if (error.code === '23505') {
       const { data: again } = await admin
         .from('meta_capi_outbox')
-        .select('id, event_id')
+        .select('id, event_id, status')
         .eq('idempotency_key', input.idempotencyKey)
         .maybeSingle()
       if (again?.event_id) {
-        return { inserted: false, eventId: again.event_id, rowId: again.id }
+        return {
+          inserted: false,
+          eventId: again.event_id,
+          rowId: again.id,
+          status: again.status || status,
+        }
       }
     }
     throw error
   }
 
-  return { inserted: true, eventId: data.event_id, rowId: data.id }
+  return { inserted: true, eventId: data.event_id, rowId: data.id, status: data.status || status }
 }
 
 export async function cancelPendingMetaOutbox(
@@ -222,6 +246,16 @@ export async function flushLocalMetaOutbox(
   let skipped = 0
 
   for (const row of rows as LocalOutboxRow[]) {
+    // Defensa en profundidad: nunca reenviar review_hold u otros no flushables.
+    if (!isOutboxStatusFlushable(row.status)) {
+      skipped += 1
+      console.info('[meta-outbox] flush skip non_flushable', {
+        event_id: row.event_id,
+        status: row.status,
+      })
+      continue
+    }
+
     if (row.ads_consent_required) {
       if (row.lead_id) {
         const consent = await getLeadAdsConsent(admin, row.lead_id)

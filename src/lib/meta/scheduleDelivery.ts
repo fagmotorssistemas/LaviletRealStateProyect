@@ -1,12 +1,17 @@
 /**
  * Preparación de entrega Schedule tras confirmación.
- * - Evalúa negocio + arma plan web/WhatsApp.
- * - Persistencia local opcional (META_SCHEDULE_LOCAL_PERSIST=true), con dedupe schedule:{appointmentId}.
- * - Nunca flushea Nest ni envía a Meta.
+ * Persistencia de revisión → status review_hold (excluida de flush/drain).
+ * CTWA acotado a tenant_id + project_id de la cita (servidor service_role).
+ * Nunca flushea Nest ni envía a Meta.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getLeadAdsConsent, persistMetaConversion } from './localOutbox'
+import { tryCreateAdminClient } from '@/lib/supabase/admin'
+import {
+  getLeadAdsConsent,
+  OUTBOX_REVIEW_HOLD_STATUS,
+  persistMetaConversion,
+} from './localOutbox'
 import { evaluateScheduleEligibility, type ScheduleEligibility } from './scheduleEligibility'
 import {
   FLUSH_NEST_INACTIVE,
@@ -24,6 +29,7 @@ export type SchedulePrepareResult = {
   plan?: ScheduleDeliveryPlan
   persisted?: boolean
   eventId?: string
+  outboxStatus?: string
 }
 
 function logSafe(code: string, reason: string) {
@@ -36,47 +42,49 @@ function logSafe(code: string, reason: string) {
   )
 }
 
-async function loadCtwaClidForLead(
+/**
+ * First-touch CTWA del mismo tenant/proyecto/contacto que la cita.
+ * Tabla `lv_whatsapp_ctwa_attribution` solo service_role; usar admin o cliente inyectado.
+ * No expone PII en logs.
+ */
+export async function loadCtwaClidForAppointmentScope(
   supabase: SupabaseClient,
-  leadId: string,
-  getCtwa?: (contactId: number) => Promise<string | null>,
+  scope: { tenantId: string; projectId: string; contactId: string },
 ): Promise<string | null> {
-  const { data: lead } = await supabase
-    .from('leads')
-    .select('id, contact_id, phone, name, email, meta_ads_consent')
-    .eq('id', leadId)
+  const tenantId = String(scope.tenantId || '').trim()
+  const projectId = String(scope.projectId || '').trim()
+  const contactId = String(scope.contactId || '').trim()
+  if (!tenantId || !projectId || !contactId) return null
+
+  const { data, error } = await supabase
+    .from('lv_whatsapp_ctwa_attribution')
+    .select('ctwa_clid')
+    .eq('tenant_id', tenantId)
+    .eq('project_id', projectId)
+    .eq('contact_id', contactId)
+    .order('captured_at', { ascending: true })
+    .limit(1)
     .maybeSingle()
 
-  if (!lead) return null
-  const contactRaw = lead.contact_id
-  const contactId = Number(contactRaw)
-  if (!getCtwa || !Number.isFinite(contactId) || contactId <= 0) {
-    // Fallback: lectura directa first-touch por contacto textual si existe columna en leads.
-    const { data: row } = await supabase
-      .from('lv_whatsapp_ctwa_attribution')
-      .select('ctwa_clid')
-      .eq('contact_id', String(contactRaw || ''))
-      .order('captured_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    return row?.ctwa_clid ? String(row.ctwa_clid) : null
-  }
-  return getCtwa(contactId)
+  if (error || !data?.ctwa_clid) return null
+  return String(data.ctwa_clid)
 }
 
 /**
- * Tras confirmación: plan de entrega + persistencia local opcional.
- * Consent vigente re-leído del lead. Dedupe por schedule:{appointmentId}.
+ * Tras confirmación: plan + opcional persist review_hold.
+ * Consent vigente re-leído. Dedupe schedule:{appointmentId}.
  */
 export async function prepareScheduleDeliveryAfterConfirmation(
   supabase: SupabaseClient,
   appointmentId: string,
   deps?: {
     getLeadAdsConsent?: typeof getLeadAdsConsent
-    getCtwaClid?: (contactId: number) => Promise<string | null>
+    loadCtwa?: typeof loadCtwaClidForAppointmentScope
+    /** Cliente autorizado (service_role). Por defecto tryCreateAdminClient(). */
+    ctwaClient?: SupabaseClient | null
     persist?: typeof persistMetaConversion
     wabaId?: string | null
-    /** Forzar intento de persist local (sigue requiriendo env o este flag en tests). */
+    messagingDatasetId?: string | null
     allowLocalPersist?: boolean
   },
 ): Promise<SchedulePrepareResult> {
@@ -85,7 +93,7 @@ export async function prepareScheduleDeliveryAfterConfirmation(
 
   const { data: appointment, error } = await supabase
     .from('appointments')
-    .select('id, lead_id, status, channel, confirmed_by_client')
+    .select('id, lead_id, status, channel, confirmed_by_client, tenant_id, project_id')
     .eq('id', id)
     .maybeSingle()
 
@@ -117,7 +125,19 @@ export async function prepareScheduleDeliveryAfterConfirmation(
 
   let ctwaClid: string | null = null
   if (eligibility.channelKind === 'whatsapp') {
-    ctwaClid = await loadCtwaClidForLead(supabase, appointment.lead_id, deps?.getCtwaClid)
+    const loadCtwa = deps?.loadCtwa || loadCtwaClidForAppointmentScope
+    // Acceso autorizado: tabla CTWA solo service_role (no sesión CRM).
+    const ctwaClient =
+      deps?.ctwaClient === null
+        ? null
+        : deps?.ctwaClient || tryCreateAdminClient() || null
+    if (ctwaClient) {
+      ctwaClid = await loadCtwa(ctwaClient, {
+        tenantId: String(appointment.tenant_id || ''),
+        projectId: String(appointment.project_id || ''),
+        contactId: String(lead?.contact_id || ''),
+      })
+    }
   }
 
   const plan = planScheduleDelivery({
@@ -128,6 +148,8 @@ export async function prepareScheduleDeliveryAfterConfirmation(
     fullName: lead?.name,
     ctwaClid,
     wabaId: deps?.wabaId ?? process.env.META_WABA_ID ?? null,
+    messagingDatasetId:
+      deps?.messagingDatasetId ?? process.env.META_MESSAGING_DATASET_ID ?? null,
   })
 
   if (!eligibility.businessOk) {
@@ -137,11 +159,13 @@ export async function prepareScheduleDeliveryAfterConfirmation(
 
   const persistAllowed =
     (deps?.allowLocalPersist === true || isScheduleLocalPersistEnabled()) &&
-    plan.canPersistLocal &&
+    plan.canPersistReviewHold &&
     plan.payload
 
   if (!persistAllowed) {
-    const reason = plan.canPersistLocal ? LOCAL_PERSIST_INACTIVE : plan.blockers[0] || 'not_persistable'
+    const reason = plan.canPersistReviewHold
+      ? LOCAL_PERSIST_INACTIVE
+      : plan.blockers[0] || 'not_persistable'
     logSafe('plan_only', reason)
     return {
       ok: false,
@@ -157,7 +181,6 @@ export async function prepareScheduleDeliveryAfterConfirmation(
   }
 
   if (isScheduleFlushEnabled()) {
-    // Defensa: esta preparación no activa flush.
     logSafe('flush_blocked', FLUSH_NEST_INACTIVE)
   }
 
@@ -169,11 +192,15 @@ export async function prepareScheduleDeliveryAfterConfirmation(
       leadId: appointment.lead_id,
       adsConsentRequired: true,
       payload: plan.payload!,
+      status: OUTBOX_REVIEW_HOLD_STATUS,
     })
-    logSafe(persisted.inserted ? 'persisted_local' : 'duplicate_local', plan.channelKind)
+    logSafe(
+      persisted.inserted ? 'persisted_review_hold' : 'duplicate_review_hold',
+      plan.channelKind,
+    )
     return {
       ok: true,
-      reason: persisted.inserted ? 'persisted_local' : 'duplicate_local',
+      reason: persisted.inserted ? 'persisted_review_hold' : 'duplicate_review_hold',
       eligibility,
       plan: {
         ...plan,
@@ -184,6 +211,7 @@ export async function prepareScheduleDeliveryAfterConfirmation(
       },
       persisted: persisted.inserted,
       eventId: persisted.eventId,
+      outboxStatus: persisted.status || OUTBOX_REVIEW_HOLD_STATUS,
     }
   } catch {
     logSafe('persist_failed', 'outbox_error')
