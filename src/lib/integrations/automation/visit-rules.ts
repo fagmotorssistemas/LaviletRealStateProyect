@@ -84,7 +84,9 @@ export function prepareVisit(context: Row): Row {
   const options = (Array.isArray(p.options) ? p.options : []).map(object)
     .map(o => ({ start_time: text(o.start_time), end_time: text(o.end_time) }))
   const when = formatVisitWhen(text(p.start_time || a.start_time))
-  const place = context.mode === 'lanzamiento'
+  const place = context.estado_proyecto
+    ? a.location_type === 'oficina' ? 'nuestra oficina para revisar el proyecto La Vilet' : 'el punto de encuentro acordado para su visita a La Vilet'
+    : context.mode === 'lanzamiento'
     ? context.launch_destination === 'site' ? 'el terreno donde se construirá La Vilet' : 'nuestra oficina para revisar el proyecto La Vilet'
     : 'La Vilet'
   let detail: string

@@ -31,6 +31,44 @@ const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
 
+test('visit acceptance and a following time enter intake despite an empty AI extraction', async t => {
+  live(t)
+  const first = conversationHarness({history:[{role:'bot',content:'¿Prefiere más detalles o prefiere coordinar una visita para conocerlas personalmente?'}]})
+  first.rows[0].payload.text='Mejor coordinamos una visita'; first.rows[1].payload.text=''
+  await first.process(first.rows,async()=>{})
+  assert.equal(first.calls.filter(c=>c.name==='lv_collect_visit_intake').length,1)
+  const second = conversationHarness({history:[{role:'bot',content:'Podemos coordinar su visita. Indíqueme qué día y horario prefiere.'}],slot:{confidence:'exact',start_time:'2030-09-21T16:00:00Z'}})
+  second.rows[0].payload.text='El sábado a las 11 puede ser';second.rows[1].payload.text=''
+  await second.process(second.rows,async()=>{})
+  assert.equal(second.calls.filter(c=>c.name==='lv_collect_visit_intake').length,1)
+  const receipt=second.calls.find(c=>c.name==='register_outbound_message').args.p_tool_calls
+  assert.equal(receipt.registration_verified,true)
+  assert.equal(receipt.request_id,'request')
+  assert.equal(receipt.assigned_advisor_id,'advisor')
+})
+test('unverified visit receipt creates a handoff instead of reporting a successful registration',async t=>{
+  live(t)
+  for(const intake of [{action:'submitted',request_id:null},{action:'submitted',request_id:'nonexistent'}]) {
+    const h=conversationHarness({intake})
+    h.rows[0].payload.text='Mejor coordinamos una visita';h.rows[1].payload.text=''
+    await h.process(h.rows,async()=>{})
+    assert.equal(h.calls.filter(c=>c.name==='lv_collect_visit_intake').length,1)
+    assert.ok(h.calls.some(c=>c.name==='handoff_lead'))
+    assert.equal(h.calls.find(c=>c.name==='register_outbound_message').args.p_tool_calls.registration_verified,false)
+  }
+})
+test('confirmation deadline reads pending visit state without inventing a promise or a new intake',async t=>{
+  live(t)
+  const h=conversationHarness({history:[{role:'bot',content:'Revisaremos la disponibilidad para su visita.'}],proposals:[{status:'awaiting_advisor',id:'request'}]})
+  h.rows[0].payload.text='Pero a qué hora me confirman?';h.rows[1].payload.text=''
+  await h.process(h.rows,async()=>{})
+  const sent=h.calls.find(c=>c.name==='register_outbound_message').args
+  assert.equal(sent.p_tool_calls.source,'visit_status')
+  assert.match(sent.p_content,/no tengo una hora de confirmación/)
+  assert.doesNotMatch(sent.p_content,/hoy|pronto|antes del/)
+  assert.equal(h.calls.some(c=>c.name==='lv_collect_visit_intake'),false)
+})
+
 test('Carlos price curiosity stays passive after refusal even when recent history is truncated', async () => {
   const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
   const { rememberSalesReply, salesPlan } = require('../src/lib/integrations/automation/sales-policy.ts')
@@ -1158,7 +1196,7 @@ function conversationHarness(options = {}) {
   const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false }
   let escalationAttempted = false, escalationStored = options.proposals?.[0] || null
   const query = table => {
-    const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? options.requests || [{ id: 'request', source_message_id: 'one' }] : [], error: null, count: 0 }).then(resolve) } }
+    const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: 0 }).then(resolve) } }
     for (const name of ['update', 'delete', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
     q.update = values => { calls.push({ name: 'update:' + table, args: values }); return q }
     return q
@@ -1166,7 +1204,7 @@ function conversationHarness(options = {}) {
   const mod = load('src/lib/integrations/automation/conversation.ts', {
     './visit-parser-health': { visitParserReady: async () => options.parserReady !== false },
     './operational-copy': { operationalReply: async reply => ({ reply: options.operationalCopy || reply, generated: !!options.operationalCopy }) },
-    './turn-completeness': { completeTurnReply: async input => {
+    './turn-completeness': { protectedSentences: require('../src/lib/integrations/automation/turn-completeness.ts').protectedSentences, completeTurnReply: async input => {
       calls.push({ name: 'completeTurnReply', args: input })
       return typeof options.turnComplete === 'function' ? options.turnComplete(input) : options.turnComplete || { reply: input.baseReply, changed: false, needsAdvisor: false, unresolved: [], audit: {} }
     } },
@@ -1205,7 +1243,7 @@ function conversationHarness(options = {}) {
         if (name === 'lv_apply_client_visit_intent') return options.applied || { action: 'reply', request_id: 'request', mensaje: 'Texto anterior que debe sustituirse' }
         if (name === 'lv_client_select_visit_option') return options.selectedVisitResult || { status: 'confirmed' }
         if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose }).filter(([, v]) => v != null))); return lead }
-        if (name === 'lv_collect_visit_intake') return options.intake || { action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
+        if (name === 'lv_collect_visit_intake') return options.intake ? {request_id:'request',...options.intake} : { request_id:'request', action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
         if (name === 'lv_intake_visit_once') return 'appointment'
         if (name === 'process_financing_message_v2') return typeof options.financing === 'function' ? options.financing(args) : options.financing || { active: false }
         if (name === 'handoff_lead') { if (!options.handoffFails) lead.handoff_status = 'queued'; return {} }
