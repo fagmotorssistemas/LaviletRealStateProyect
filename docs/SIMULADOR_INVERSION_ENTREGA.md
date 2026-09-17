@@ -62,10 +62,19 @@ Previews HTML independientes quedan solo como referencia histórica; la aceptaci
 
 Ver `docs/SIMULADOR_MIGRACION_ORDEN.md`.
 
-Resumen: local = baseline `supabase-local` + assumptions; remoto (cuando se autorice) = solo `supabase/migrations/20260917120000_investment_simulator_assumptions.sql`; rollback = `supabase/rollbacks/20260917120000_investment_simulator_assumptions_down.sql` (DROP columnas v2; filas legacy se conservan).
+- **Local:** baseline `supabase-local` + assumptions.
+- **Remoto (cuando se autorice):** solo `supabase/migrations/20260917120000_investment_simulator_assumptions.sql`.
+- **Reversión operativa:** restaurar app a `4270bf1` (main pre-PR); **no** DROP de columnas; escenarios v2 se conservan.
+- **Limpieza destructiva (opcional, explícita):** `supabase/rollbacks/20260917120000_investment_simulator_assumptions_DESTRUCTIVE_drop_v2_columns.sql` — no forma parte del rollback operativo.
 
 ## Pruebas de lógica
 
 ```bash
 npm run test:financing
 ```
+
+Resultado post-fixes tour (2026-09-17): **19/19 pass**. También `npx tsc --noEmit` exit 0 y `npm run build` exit 0 (Next.js 16.2.0).
+
+## Evidencia E2E local (ya ejecutada; no sustituida)
+
+`node scripts/financing-local-e2e.cjs` contra Next `127.0.0.1:3000` + Supabase local `lavilet-local-financing` → **OK** (contado/financiado/manual, auth 2 visitantes). Conservar ese resultado; no hace falta re-ejecutarlo para esta entrega de revisión salvo que cambie el API de escenarios.
