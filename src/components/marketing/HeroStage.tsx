@@ -170,8 +170,7 @@ export function HeroStage() {
                   src={HERO_PHOTO}
                   alt="Fachada Lavilet"
                   fill
-                  unoptimized
-                  preload
+                  priority
                   className="object-contain object-right"
                   sizes="100vw"
                 />
@@ -186,8 +185,7 @@ export function HeroStage() {
                   src={HERO_PHOTO}
                   alt="Fachada Lavilet"
                   fill
-                  unoptimized
-                  preload
+                  priority
                   className="object-cover object-[68%_center]"
                   sizes="75vw"
                 />
