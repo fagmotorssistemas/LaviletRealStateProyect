@@ -4,8 +4,10 @@
 
 BEGIN;
 
--- Firma nueva (limit + lookback). Drop de la sobrecarga anterior.
+-- Una sola firma (limit + lookback). Sin sobrecarga (integer): PostgREST/Nest
+-- con body {"p_limit":50} no puede resolver dos candidatos homónimos.
 DROP FUNCTION IF EXISTS public.lv_recover_missing_meta_schedule_outbox(integer);
+DROP FUNCTION IF EXISTS public.lv_recover_missing_meta_schedule_outbox(integer, integer);
 
 CREATE OR REPLACE FUNCTION public.lv_recover_missing_meta_schedule_outbox(
   p_limit integer DEFAULT 50,
@@ -263,25 +265,8 @@ REVOKE ALL ON FUNCTION public.lv_recover_missing_meta_schedule_outbox(integer, i
 GRANT EXECUTE ON FUNCTION public.lv_recover_missing_meta_schedule_outbox(integer, integer)
   TO service_role;
 
--- Compat: llamada solo con p_limit (PostgREST / Nest actuales).
-CREATE OR REPLACE FUNCTION public.lv_recover_missing_meta_schedule_outbox(
-  p_limit integer DEFAULT 50
-)
-RETURNS integer
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT public.lv_recover_missing_meta_schedule_outbox(p_limit, 7);
-$$;
-
-REVOKE ALL ON FUNCTION public.lv_recover_missing_meta_schedule_outbox(integer)
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.lv_recover_missing_meta_schedule_outbox(integer)
-  TO service_role;
-
 COMMENT ON FUNCTION public.lv_recover_missing_meta_schedule_outbox(integer, integer) IS
-  'Recupera Schedule tras confirmación aunque falte intent. Lookback acotado. Revalida canal; WhatsApp→needs_review. No asume website. Solo service_role.';
+  'Recupera Schedule tras confirmación aunque falte intent. Lookback default 7 (máx 30). Nest/PostgREST: {"p_limit":50} usa default de lookback. Sin sobrecarga 1-arg. WhatsApp→needs_review. Solo service_role.';
 
 CREATE INDEX IF NOT EXISTS idx_appointments_meta_schedule_recover_pre_intent
   ON public.appointments (confirmed_at)

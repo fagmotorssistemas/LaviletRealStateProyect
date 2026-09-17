@@ -22,9 +22,11 @@
 
 ## Recuperación (incluye caída confirm→intent)
 
-`lv_recover_missing_meta_schedule_outbox(limit, lookback_days=7)`:
+Firma **única**: `lv_recover_missing_meta_schedule_outbox(p_limit DEFAULT 50, p_lookback_days DEFAULT 7)` (máx. lookback 30d). Sin sobrecarga `(integer)` — evita ambigüedad PostgREST.
 
-- Citas `confirmed_by_client` + consent + `confirmed_at` dentro de lookback (máx. 30d).
+Nest llama solo `{ "p_limit": 50 }` (lookback = default 7).
+
+- Citas `confirmed_by_client` + consent + `confirmed_at` dentro de lookback.
 - **Sin intent:** crea intent inmutable (`event_time` = epoch de `confirmed_at`) y outbox.
 - **Con intent sin outbox:** reinserta outbox con mismos ids.
 - Canal web → `review_hold`; WhatsApp → `needs_review` + `whatsapp_schedule_delivery_blocked`; sin evidencia → `needs_review` + `channel_pending_evidence`.
@@ -37,17 +39,19 @@
 - Nest enqueue: `business_messaging_schedule_unverified`.
 - No se renombra el evento ni se convierte en conversión web.
 
-## Migraciones (orden exacto)
+## Migraciones (orden exacto, solo cuando se autorice)
 
 1. `20260917152000_meta_capi_outbox_review_hold.sql` (`needs_review` + `review_hold`)
 2. `20260917160000_meta_schedule_recovery.sql` (intent RPC + recover base)
-3. `20260917170000_meta_schedule_recover_pre_intent.sql` (hueco pre-intent + lookback)
+3. `20260917170000_meta_schedule_recover_pre_intent.sql` (hueco pre-intent + lookback; **una** firma)
 
-Reversión (orden inverso, conservando datos):
+## Reversión predeterminada (conserva esquema y datos)
 
-1. `rollbacks/20260917170000_meta_schedule_recover_pre_intent_down.sql`
-2. `rollbacks/20260917160000_meta_schedule_recovery_down.sql`
-3. `rollbacks/20260917152000_meta_capi_outbox_review_hold_down.sql`
+1. Apagar flags: `META_SCHEDULE_LOCAL_PERSIST`, `META_SCHEDULE_RECOVER_ENABLED`, `META_SCHEDULE_DELIVERY_ENABLED`, `META_SCHEDULE_FLUSH` → `false`.
+2. Restaurar código FE/Nest a la revisión previa (sin merge inverso destructivo de datos).
+3. **No** ejecutar automáticamente `supabase/rollbacks/*_down.sql`.
+
+Los `down.sql` son emergencia manual. En particular `20260917160000_…_down.sql` **elimina columnas/datos del intent** (`DROP COLUMN meta_schedule_*`). No usarlos como rollback operativo.
 
 ## Pruebas
 
@@ -56,7 +60,7 @@ Reversión (orden inverso, conservando datos):
 npm run test:meta-schedule
 npm run build
 
-# DB aislada real (Docker Postgres) — migraciones + RPC
+# DB aislada real (Docker Postgres) — migraciones + RPC + concurrencia 2 conexiones
 powershell -File scripts/meta-schedule-recover-isolated/run.ps1
 
 # Nest

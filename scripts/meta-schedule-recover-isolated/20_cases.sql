@@ -43,8 +43,8 @@ BEGIN
     (aid_crm, tid, pid, lid_crm, 'aceptado', 'crm', true, now() - interval '3 hours'),
     (aid_old, tid, pid, lid_old, 'aceptado', 'web', true, now() - interval '40 days');
 
-  -- 1) Recover pre-intent.
-  n1 := public.lv_recover_missing_meta_schedule_outbox(50, 7);
+  -- 1) Recover pre-intent (misma forma Nest: solo p_limit).
+  n1 := public.lv_recover_missing_meta_schedule_outbox(50);
   IF n1 < 3 THEN
     RAISE EXCEPTION 'expected recover >=3 (web+wa+crm), got %', n1;
   END IF;
@@ -87,8 +87,8 @@ BEGIN
     RAISE EXCEPTION 'old appointment must not be recovered';
   END IF;
 
-  -- 2) Sin duplicados.
-  n2 := public.lv_recover_missing_meta_schedule_outbox(50, 7);
+  -- 2) Sin duplicados (secuencial; la concurrencia real está en run.ps1).
+  n2 := public.lv_recover_missing_meta_schedule_outbox(50);
   IF n2 <> 0 THEN
     RAISE EXCEPTION 'second recover must be 0, got %', n2;
   END IF;
@@ -98,7 +98,7 @@ BEGIN
     RAISE EXCEPTION 'expected 3 outbox rows, got %', v_count;
   END IF;
 
-  -- 3) Concurrencia intent: segundo register conserva originales.
+  -- 3) Intent inmutable ante segundo register (no sustituye test de 2 conexiones).
   v_intent := public.lv_register_meta_schedule_intent(
     aid_gap, gen_random_uuid(), v_etime + 999, 'live', 'web', '{}'::jsonb
   );

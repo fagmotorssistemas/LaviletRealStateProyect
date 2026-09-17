@@ -1,4 +1,7 @@
 -- Reversión de 20260917170000_meta_schedule_recover_pre_intent.sql
+-- EMERGENCIA MANUAL — no es el rollback operativo.
+-- Rollback predeterminado: apagar flags Schedule + restaurar código FE/Nest;
+-- conservar esquema y datos (no ejecutar este archivo automáticamente).
 -- Restaura recover que exige intent previo (versión 17160000).
 
 BEGIN;

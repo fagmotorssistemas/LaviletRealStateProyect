@@ -1,5 +1,7 @@
 -- Reversión de 20260917160000_meta_schedule_recovery.sql
--- Conserva filas outbox. No borra needs_review del CHECK.
+-- EMERGENCIA MANUAL — no es el rollback operativo.
+-- Rollback predeterminado: apagar flags Schedule + restaurar código;
+-- conservar esquema y datos. Este archivo DROP COLUMN meta_schedule_* (pierde intent).
 
 BEGIN;
 
