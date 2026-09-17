@@ -10,7 +10,7 @@ export function ProjectReadinessSettings({projectId,initial}:{projectId:string;i
   const [saved,setSaved]=useState(initial),[draft,setDraft]=useState(initial.value),[busy,setBusy]=useState(false),[notice,setNotice]=useState('')
   const update=(value:Partial<ProjectReadiness>)=>setDraft(p=>({...p,...value}))
   const dirty=JSON.stringify(saved.value)!==JSON.stringify(draft)||!saved.configured
-  async function save(){setBusy(true);setNotice('');try{const result=await saveProjectReadiness(projectId,draft,saved.updatedAt);setSaved({...saved,...result});setDraft(result.value);setNotice('Guardado. Se aplicará a las próximas respuestas.')}catch(e){setNotice(e instanceof Error?e.message:'No se pudo guardar')}finally{setBusy(false)}}
+  async function save(){setBusy(true);setNotice('');try{const result=await saveProjectReadiness(projectId,draft,saved.updatedAt);if(!result.ok){setNotice(result.error);return}setSaved({...saved,...result});setDraft(result.value);setNotice('Guardado. Se aplicará a las próximas respuestas.')}catch{setNotice('No se pudo completar el guardado. Compruebe la conexión y vuelva a intentarlo.')}finally{setBusy(false)}}
   return <div className={shared.shell}>
     <AutomationSettingsHeader active="proyecto" title="Estado del proyecto y visitas" description="El avance de obra, los permisos de visita y los materiales son independientes de la etapa comercial y el tono." project={initial.projectName}/>
     <div className={styles.grid}>

@@ -1,3 +1,4 @@
+import { currentTopicReply } from './current-topic'
 import { CURRENT_TONE } from './conversation-tone'
 import { inventedRentalPolicy, COMMERCIAL_ACCURACY_RULES } from './commercial-accuracy'
 import { readinessRules, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
@@ -190,7 +191,7 @@ function questionRow(value: unknown): Question | null {
 export async function completeTurnReply(input: TurnCompletenessInput, generate: typeof aiJson = aiJson): Promise<TurnCompletenessResult> {
   const originalBase = input.baseReply
   const safeBase = safeRentalCreditBase(input.baseReply, input.current, input.verified)
-  input = { ...input, baseReply: safeBase.reply }
+  input = { ...input, baseReply: currentTopicReply(safeBase.reply,input.current) }
   const fallback = (status: string, requests: Coverage[] = [], issues: string[] = []): TurnCompletenessResult => {
     const unresolved = uniqueFragments([...safeBase.unresolved, ...requests.filter(row => row.base_status === 'missing_fact' || row.status === 'missing_fact' || (row.base_status === 'unanswered' && row.request_type === 'specific_fact')).map(row => row.fragment)])
     return { reply: input.baseReply, changed: input.baseReply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
@@ -212,7 +213,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')
     requests = rows
-    const reply = restoreProtectedBase(input.baseReply, text(candidate.reply).trim())
+    const reply = currentTopicReply(restoreProtectedBase(input.baseReply, text(candidate.reply).trim()),input.current)
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.
     const question = withoutUrls(reply).includes('?') ? declaredQuestion : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }

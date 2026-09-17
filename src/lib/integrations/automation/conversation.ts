@@ -1,3 +1,4 @@
+import { currentTopicReply } from './current-topic'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { visitTruthReply } from './visit-copy'
 import { readinessInvitation, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
@@ -599,7 +600,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
   }
   if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
-  const direct = directReply(sectorClaimsReply(reply),current)
+  const direct = directReply(currentTopicReply(sectorClaimsReply(reply),current),current)
   if(direct !== reply) audit.direct_reply_guard = true
   reply = naturalConversationReply(variedReplyOpening(direct, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
   if (!reply.trim() || reply.length > 3000) throw new Error('EMPTY_OR_LONG_REPLY')

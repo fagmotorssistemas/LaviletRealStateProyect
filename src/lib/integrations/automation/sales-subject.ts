@@ -19,7 +19,7 @@ export function isPropertyScopeRedirect(value: string) {
   return property && boundary
 }
 
-export const purchasePriceQuestion = (value: string) => /\b(?:precios?|valor(?:es)?|vale|valen|cuesta|cuestan|costos?|cotizacion)\b|\bcuanto (?:sale|salen|piden|paga)/.test(normalized(value))
+export const purchasePriceQuestion = (value: string) => /\b(?:precios?|valor(?:es)?|vale|valen|cuesta|cuestan|costos?|cotizacion|cotizar|coticemos|cotice|cotizame)\b|\bcuanto (?:sale|salen|piden|paga)/.test(normalized(value))
 
 // Ownership is a housing requirement in a property conversation, not a request
 // to buy another product. Explicit vehicle transactions still keep their scope.
