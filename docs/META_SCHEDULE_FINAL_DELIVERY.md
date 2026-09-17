@@ -37,37 +37,12 @@ Nest: abrir/actualizar PR a `main` desde la rama Nest si aún no existe (no crea
 
 ## 2. WhatsApp / BM Schedule — bloqueo externo Meta
 
-### Evidencia oficial
+Ver evidencia y lista FAQ oficial + promote Nest en:  
+[`META_SCHEDULE_WA_AND_PROMOTE_CLARIFICATIONS.md`](./META_SCHEDULE_WA_AND_PROMOTE_CLARIFICATIONS.md)
 
-Fuente: [Conversions API for Business Messaging](https://developers.facebook.com/docs/marketing-api/conversions-api/business-messaging/)
-
-- Requiere: Cloud API (o On-Prem ≥2.45.1), `dataset_id` del WABA, `ctwa_clid`, `whatsapp_business_account_id`, `action_source=business_messaging`, `messaging_channel=whatsapp`.
-- Ejemplos de `event_name` en la documentación: **Purchase**, **LeadSubmitted**, etc.
-- **`Schedule` no figura** en el contrato BM documentado.
-- Comunidad / integradores: Graph **subcode 2804066** — *Invalid event type for messaging event* para nombres fuera del allowlist (incluye Schedule). Allowlist reportada incluye p. ej. `AppointmentBooked`, `LeadSubmitted`, `Purchase` — **no** Schedule.
-
-### Decisión de producto (esta entrega)
-
-| Opción | Hecho |
-| --- | --- |
-| Enviar Schedule como `website` | **No** (cambia canal / significado) |
-| Renombrar a `AppointmentBooked` | **No** (cambia el event_name; fuera de alcance sin decisión de negocio) |
-| Enviar Schedule BM | **Bloqueado** en FE (`needs_review`), recover SQL, Nest enqueue/drain |
-
-### Acción concreta para desbloquear (externa)
-
-1. Decisión de negocio: ¿mapear la cita WhatsApp a un `event_name` BM admitido (p. ej. `AppointmentBooked`) **sin** llamarlo Schedule, o mantener solo medición web?
-2. Si se aprueba un event_name BM: implementar payload BM completo + dataset messaging + WABA + ctwa; **no** usar pixel web.
-3. Mientras tanto: mantener bloqueo; atender y confirmar citas **sin** exigir CTWA.
-
-### Kommo / ctwa / WABA / dataset (independiente del bloqueo Schedule)
-
-| Elemento | Cómo | Bloquea cita? |
-| --- | --- | --- |
-| `ctwa_clid` | Opcional desde webhook Kommo; first-touch en `lv_whatsapp_ctwa_attribution` | **No** |
-| Evidencia Kommo real | Pendiente de **un** webhook genuino desde anuncio CTWA (sin fabricar) — docs `CTWA_KOMMO_CRM.md` | No |
-| WABA | Env `META_WABA_ID` | Solo medición BM |
-| Messaging dataset | Env `META_MESSAGING_DATASET_ID` (≠ pixel) | Solo medición BM |
+Resumen: **`Schedule` no está en la lista FAQ oficial de eventos BM**; envío bloqueado.  
+`AppointmentBooked` **no** se propone (ausente en esa FAQ; compatibilidad no confirmada).  
+Subcódigo **2804066**: procedencia foro Meta (rechazo de nombre BM inválido); no hay POST Graph real de Schedule en esta entrega.
 
 ---
 
