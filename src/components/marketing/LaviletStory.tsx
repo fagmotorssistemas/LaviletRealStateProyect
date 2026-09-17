@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { AnimatePresence, motion, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
+import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { LaviletLockup, useLockupDocked } from './LaviletLockup'
 import { AboutLetterPlay } from './AboutLetterPlay'
@@ -102,16 +102,30 @@ function HeadlineSides({
 
 function AboutEditorial() {
   const reduce = useReducedMotion()
+  const trackRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState(0)
   const beat = ABOUT_BEATS[active] ?? ABOUT_BEATS[0]
+  const { scrollYProgress } = useScroll({
+    target: trackRef,
+    offset: ['start 80px', 'end end'] as any,
+  })
 
-  useEffect(() => {
-    if (reduce) return
-    const id = window.setInterval(() => {
-      setActive((current) => (current + 1) % ABOUT_BEATS.length)
-    }, 5200)
-    return () => window.clearInterval(id)
-  }, [reduce])
+  useMotionValueEvent(scrollYProgress, 'change', (value) => {
+    const next = Math.min(
+      ABOUT_BEATS.length - 1,
+      Math.max(0, Math.floor(value * ABOUT_BEATS.length)),
+    )
+    setActive((current) => (current === next ? current : next))
+  })
+
+  function goToBeat(index: number) {
+    const track = trackRef.current
+    if (!track) return
+    const start = track.getBoundingClientRect().top + window.scrollY
+    const range = Math.max(1, track.offsetHeight - window.innerHeight)
+    const progress = (index + 0.15) / ABOUT_BEATS.length
+    window.scrollTo({ top: start + range * progress, behavior: 'smooth' })
+  }
 
   if (reduce) {
     return (
@@ -134,98 +148,102 @@ function AboutEditorial() {
     )
   }
 
-  return (
-    <div className="relative mt-10 sm:mt-12 lg:mt-14">
-      <div
-        className={cn(
-          'relative isolate w-full overflow-hidden rounded-[1.75rem] px-5 py-8 sm:px-8 sm:py-12 lg:px-12 lg:py-16',
-          'bg-[linear-gradient(165deg,rgba(114,115,90,0.28),rgba(139,140,116,0.16)_46%,rgba(114,115,90,0.24))]',
-          'ring-1 ring-[#72735A]/16 backdrop-blur-md',
-          'mkt-dark:bg-[linear-gradient(165deg,rgba(242,242,242,0.1),rgba(139,140,116,0.22)_48%,rgba(242,242,242,0.08))]',
-          'mkt-dark:ring-[#F2F2F2]/14',
-        )}
-      >
-        <p className="sr-only">{ABOUT.join(' ')}</p>
-        <div className="relative z-20 mb-5 h-[6.5rem] sm:mb-7 sm:h-[7.25rem] lg:h-[8rem]">
-          <AboutLetterPlay />
-        </div>
-
-        <div className="relative z-10 mx-auto min-h-[16.5rem] max-w-5xl sm:min-h-[20rem] lg:min-h-[22rem]">
-          <AnimatePresence mode="sync">
-            <motion.article
-              key={beat.kicker}
-              className={cn(
-                'absolute inset-0 flex flex-col justify-center gap-2 sm:gap-3',
-                beat.align,
-              )}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.35, ease: kineticEase }}
-            >
-              <motion.p
-                className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase mkt-dark:text-[#BFBFB8]"
-                initial={{ x: -40, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 32, opacity: 0 }}
-                transition={{ duration: 0.45, ease: kineticEase }}
-              >
-                {beat.kicker}
-              </motion.p>
-              <motion.p
-                className={cn(
-                  'max-w-lg text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
-                  beat.align.includes('right') && 'sm:ml-auto',
-                )}
-                initial={{ x: active % 2 === 0 ? -48 : 48, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: active % 2 === 0 ? 36 : -36, opacity: 0 }}
-                transition={{ duration: 0.5, ease: kineticEase }}
-              >
-                {beat.lead}
-              </motion.p>
-              <h3
-                className={cn(
-                  'font-serif font-normal tracking-[-0.045em] leading-[0.84]',
-                  beat.tone,
-                  beat.lines.length > 1
-                    ? 'text-[clamp(2rem,8vw,5.4rem)]'
-                    : 'text-[clamp(2.35rem,9.5vw,6.4rem)]',
-                )}
-              >
-                <HeadlineSides lines={beat.lines} invert={active % 2 === 0} />
-              </h3>
-              <motion.p
-                className={cn(
-                  'max-w-md text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
-                  beat.align.includes('right') && 'sm:ml-auto',
-                )}
-                initial={{ x: active % 2 === 0 ? 48 : -48, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: active % 2 === 0 ? -36 : 36, opacity: 0 }}
-                transition={{ duration: 0.5, delay: 0.08, ease: kineticEase }}
-              >
-                {beat.note}
-              </motion.p>
-            </motion.article>
-          </AnimatePresence>
-        </div>
-
-        <div className="relative mt-8 flex justify-center gap-2">
-          {ABOUT_BEATS.map((item, index) => (
-            <button
-              key={item.kicker}
-              type="button"
-              aria-label={item.kicker}
-              onClick={() => setActive(index)}
-              className={cn(
-                'h-1.5 rounded-full transition-all duration-300',
-                index === active ? 'w-8 bg-[#C45C3E]' : 'w-1.5 bg-[#72735A]/35 hover:bg-[#72735A]/55',
-              )}
-            />
-          ))}
-        </div>
+  const card = (
+    <div
+      className={cn(
+        'relative isolate w-full overflow-hidden rounded-[1.75rem] px-5 py-8 sm:px-8 sm:py-12 lg:px-12 lg:py-16',
+        'bg-[linear-gradient(165deg,rgba(114,115,90,0.28),rgba(139,140,116,0.16)_46%,rgba(114,115,90,0.24))]',
+        'ring-1 ring-[#72735A]/16 backdrop-blur-md',
+        'mkt-dark:bg-[linear-gradient(165deg,rgba(242,242,242,0.1),rgba(139,140,116,0.22)_48%,rgba(242,242,242,0.08))]',
+        'mkt-dark:ring-[#F2F2F2]/14',
+      )}
+    >
+      <p className="sr-only">{ABOUT.join(' ')}</p>
+      <div className="relative z-20 mb-5 h-[6.5rem] sm:mb-7 sm:h-[7.25rem] lg:h-[8rem]">
+        <AboutLetterPlay />
       </div>
+
+      <div className="relative z-10 mx-auto min-h-[16.5rem] max-w-5xl sm:min-h-[20rem] lg:min-h-[22rem]">
+        <AnimatePresence mode="sync">
+          <motion.article
+            key={beat.kicker}
+            className={cn(
+              'absolute inset-0 flex flex-col justify-center gap-2 sm:gap-3',
+              beat.align,
+            )}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35, ease: kineticEase }}
+          >
+            <motion.p
+              className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase mkt-dark:text-[#BFBFB8]"
+              initial={{ x: -40, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 32, opacity: 0 }}
+              transition={{ duration: 0.45, ease: kineticEase }}
+            >
+              {beat.kicker}
+            </motion.p>
+            <motion.p
+              className={cn(
+                'max-w-lg text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
+                beat.align.includes('right') && 'sm:ml-auto',
+              )}
+              initial={{ x: active % 2 === 0 ? -48 : 48, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: active % 2 === 0 ? 36 : -36, opacity: 0 }}
+              transition={{ duration: 0.5, ease: kineticEase }}
+            >
+              {beat.lead}
+            </motion.p>
+            <h3
+              className={cn(
+                'font-serif font-normal tracking-[-0.045em] leading-[0.84]',
+                beat.tone,
+                beat.lines.length > 1
+                  ? 'text-[clamp(2rem,8vw,5.4rem)]'
+                  : 'text-[clamp(2.35rem,9.5vw,6.4rem)]',
+              )}
+            >
+              <HeadlineSides lines={beat.lines} invert={active % 2 === 0} />
+            </h3>
+            <motion.p
+              className={cn(
+                'max-w-md text-[15px] leading-relaxed text-[#2B1A18]/70 sm:text-base mkt-dark:text-[#F2F2F2]/72',
+                beat.align.includes('right') && 'sm:ml-auto',
+              )}
+              initial={{ x: active % 2 === 0 ? 48 : -48, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: active % 2 === 0 ? -36 : 36, opacity: 0 }}
+              transition={{ duration: 0.5, delay: 0.08, ease: kineticEase }}
+            >
+              {beat.note}
+            </motion.p>
+          </motion.article>
+        </AnimatePresence>
+      </div>
+
+      <div className="relative mt-8 flex justify-center gap-2">
+        {ABOUT_BEATS.map((item, index) => (
+          <button
+            key={item.kicker}
+            type="button"
+            aria-label={item.kicker}
+            onClick={() => goToBeat(index)}
+            className={cn(
+              'h-1.5 rounded-full transition-all duration-300',
+              index === active ? 'w-8 bg-[#C45C3E]' : 'w-1.5 bg-[#72735A]/35 hover:bg-[#72735A]/55',
+            )}
+          />
+        ))}
+      </div>
+    </div>
+  )
+
+  return (
+    <div ref={trackRef} className="relative mt-10 sm:mt-12 lg:mt-14" style={{ height: `${ABOUT_BEATS.length * 85}svh` }}>
+      <div className="sticky top-20 z-10">{card}</div>
     </div>
   )
 }
@@ -566,8 +584,8 @@ export function LaviletStory() {
   const docked = useLockupDocked()
 
   return (
-    <section id="nosotros" className="relative z-20 overflow-hidden scroll-mt-28 bg-[#e8dcc8] py-16 lg:py-24 mkt-dark:bg-[#cfc3b3]">
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[100svh]">
+    <section id="nosotros" className="relative z-20 scroll-mt-28 bg-[#e8dcc8] py-16 lg:py-24 mkt-dark:bg-[#cfc3b3]">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] overflow-hidden">
         <img
           src={INTERIOR.wall}
           alt=""

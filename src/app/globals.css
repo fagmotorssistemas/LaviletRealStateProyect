@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @custom-variant mkt-dark (&:where([data-mkt-theme="dark"], [data-mkt-theme="dark"] *));
+@custom-variant mkt-3 (&:where([data-mkt-theme="3"], [data-mkt-theme="3"] *));
 
 @theme {
   --font-sans: var(--font-satoshi), "Poppins", ui-sans-serif, system-ui, sans-serif;
@@ -45,6 +46,18 @@ html {
   --mkt-soft: #a5a694;
   --mkt-line: #bfbfb8;
   --mkt-paper: #e8e8e3;
+  color-scheme: light;
+  background-color: var(--mkt-bg);
+  color: var(--mkt-fg);
+}
+
+[data-mkt-theme="3"] {
+  --mkt-bg: #f3eee6;
+  --mkt-fg: #4f4d3c;
+  --mkt-accent: #6d6c54;
+  --mkt-soft: #8a8874;
+  --mkt-line: #cfc8bb;
+  --mkt-paper: #ebe4d8;
   color-scheme: light;
   background-color: var(--mkt-bg);
   color: var(--mkt-fg);

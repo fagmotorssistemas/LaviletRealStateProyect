@@ -146,7 +146,6 @@ function AboutPanel({ full = false }: { full?: boolean }) {
         full ? 'min-h-[32rem] w-full' : 'w-[min(100vw,42rem)] sm:w-[56vw] lg:w-[48vw]',
       )}
     >
-      <PaperGrain />
       <div className="relative">
         <p className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase">Nosotros</p>
         <AboutTitleMark />
@@ -229,7 +228,7 @@ function Track({
   trackRef?: Ref<HTMLDivElement>
 }) {
   return (
-    <div ref={trackRef} className="flex h-full w-max gap-1.5">
+    <div ref={trackRef} className="flex h-full w-max">
       <PhotoPanel slide={PHOTOS[0]} />
       <PhotoPanel slide={PHOTOS[1]} />
       <AboutPanel />
