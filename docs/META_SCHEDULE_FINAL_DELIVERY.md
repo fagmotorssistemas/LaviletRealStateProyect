@@ -2,12 +2,14 @@
 
 **Sin push** a `feat/meta-schedule-aceptar-cita`: Vercel Preview se dispara en cada push de esa rama. Commits locales listos; publicar solo cuando se autorice.
 
-## SHA finales (código)
+## SHA finales (código) — commits locales, **sin push** (evita Preview Vercel)
 
 | Pieza | Rama | SHA |
 | --- | --- | --- |
-| Frontend | `feat/meta-schedule-aceptar-cita` | *(ver `git rev-parse HEAD` local tras commits de esta entrega)* |
-| Nest | `fix/supabase-drain-exclude-review-hold` | *(idem)* |
+| Frontend | `feat/meta-schedule-aceptar-cita` | `2aa342344665fcf6dd2a84682359b9e7904d57b6` |
+| Nest | `fix/supabase-drain-exclude-review-hold` | `e076f5a5eb698a418eb6f03c0fbd8686f6e21d43` |
+
+Diff local vs remoto: FE tip no publicado; Nest `ahead 1` sin push.
 
 PR frontend existente: **#5** — https://github.com/fagmotorssistemas/LaviletRealStateProyect/pull/5 (no duplicar).  
 Nest: abrir/actualizar PR a `main` desde la rama Nest si aún no existe (no create FE duplicate).

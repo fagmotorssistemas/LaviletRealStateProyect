@@ -4,8 +4,8 @@
 
 | Pieza | SHA |
 | --- | --- |
-| Frontend `feat/meta-schedule-aceptar-cita` | `c8c2ad5abe6b6631842880f50f8f153c8d496052` |
-| Nest `fix/supabase-drain-exclude-review-hold` | `6e787347b48741e8c0edd0f2c143b110c470a8b8` |
+| Frontend `feat/meta-schedule-aceptar-cita` | `2aa342344665fcf6dd2a84682359b9e7904d57b6` (local, sin push) |
+| Nest `fix/supabase-drain-exclude-review-hold` | `e076f5a5eb698a418eb6f03c0fbd8686f6e21d43` (local, sin push) |
 
 **Propuesta ejecutable / entrega final:**  
 [`docs/META_SCHEDULE_FINAL_DELIVERY.md`](./META_SCHEDULE_FINAL_DELIVERY.md)  
