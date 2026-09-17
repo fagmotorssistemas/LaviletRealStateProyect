@@ -9,8 +9,13 @@ import {
 } from '@/lib/meta/scheduleFlags'
 import type { MetaDeliveryLane } from '@/lib/meta/deliveryLane'
 import { classifyOutboxStatus, type MetaCapiStatusBucket } from '@/lib/meta/metaCapiStatus'
+import {
+  phoneFromEventPayload,
+  resolveMetaCapiPhone,
+  type MetaCapiPhoneSource,
+} from '@/lib/meta/metaCapiPhone'
 
-export type { MetaCapiStatusBucket }
+export type { MetaCapiStatusBucket, MetaCapiPhoneSource }
 export { classifyOutboxStatus }
 
 export type MetaCapiListFilters = {
@@ -47,7 +52,13 @@ export type MetaReceptionStatus =
 
 export type MetaCapiOutboxRow = {
   id: string
+  /** Compat: mismo valor que phoneDisplay. */
   phone: string | null
+  phoneDisplay: string
+  phoneEvent: string | null
+  phoneCrm: string | null
+  phoneSource: MetaCapiPhoneSource
+  phoneSourceLabel: string
   eventAt: string | null
   registeredAt: string
   forwardedAt: string | null
@@ -130,7 +141,11 @@ type OutboxDbRow = {
   last_error: string | null
   lead_id: string | null
   visitor_key: string | null
-  leads?: { tenant_id: string | null; project_id: string | null } | null
+  leads?: {
+    tenant_id: string | null
+    project_id: string | null
+    phone: string | null
+  } | null
 }
 
 const DISPLAY_TZ = 'America/Guayaquil'
@@ -141,11 +156,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function phoneFromPayload(payload: Record<string, unknown> | null): string | null {
-  if (!payload) return null
-  const raw = payload.phone ?? payload.user_phone ?? payload.wa_id
-  if (typeof raw !== 'string') return null
-  const digits = raw.replace(/[^\d+]/g, '').trim()
-  return digits || null
+  return phoneFromEventPayload(payload)
 }
 
 function originFromPayload(payload: Record<string, unknown> | null): string | null {
@@ -224,13 +235,26 @@ function inScope(
 function mapRow(
   row: OutboxDbRow,
   nestByEventId: Map<string, MetaReceptionStatus>,
+  accessibleTenantIds: string[],
 ): MetaCapiOutboxRow {
   const payload = asRecord(row.payload)
   const classified = classifyOutboxStatus(row.status, row.last_error)
   const reception = receptionForRow(classified.bucket, nestByEventId.get(row.event_id) ?? null)
+  const phone = resolveMetaCapiPhone({
+    eventPhone: phoneFromPayload(payload),
+    leadId: row.lead_id,
+    leadTenantId: row.leads?.tenant_id ?? null,
+    leadPhone: row.leads?.phone ?? null,
+    accessibleTenantIds,
+  })
   return {
     id: row.id,
-    phone: phoneFromPayload(payload),
+    phone: phone.source === 'none' ? null : phone.display,
+    phoneDisplay: phone.display,
+    phoneEvent: phone.eventPhone,
+    phoneCrm: phone.crmPhone,
+    phoneSource: phone.source,
+    phoneSourceLabel: phone.sourceLabel,
     eventAt: unixToIso(row.event_time),
     registeredAt: row.created_at,
     forwardedAt: row.forwarded_at,
@@ -358,7 +382,7 @@ export async function listMetaCapiOutbox(
   let query = admin
     .from('meta_capi_outbox')
     .select(
-      'id, event_id, event_name, event_time, payload, status, delivery_lane, created_at, forwarded_at, last_error, lead_id, visitor_key, leads(tenant_id, project_id)',
+      'id, event_id, event_name, event_time, payload, status, delivery_lane, created_at, forwarded_at, last_error, lead_id, visitor_key, leads(tenant_id, project_id, phone)',
     )
     .order('created_at', { ascending: false })
 
@@ -385,11 +409,27 @@ export async function listMetaCapiOutbox(
     const leadJoin = row.leads
     let leads: OutboxDbRow['leads'] = null
     if (Array.isArray(leadJoin) && leadJoin[0] && typeof leadJoin[0] === 'object') {
-      const first = leadJoin[0] as { tenant_id?: string | null; project_id?: string | null }
-      leads = { tenant_id: first.tenant_id ?? null, project_id: first.project_id ?? null }
+      const first = leadJoin[0] as {
+        tenant_id?: string | null
+        project_id?: string | null
+        phone?: string | null
+      }
+      leads = {
+        tenant_id: first.tenant_id ?? null,
+        project_id: first.project_id ?? null,
+        phone: first.phone ?? null,
+      }
     } else if (leadJoin && typeof leadJoin === 'object') {
-      const one = leadJoin as { tenant_id?: string | null; project_id?: string | null }
-      leads = { tenant_id: one.tenant_id ?? null, project_id: one.project_id ?? null }
+      const one = leadJoin as {
+        tenant_id?: string | null
+        project_id?: string | null
+        phone?: string | null
+      }
+      leads = {
+        tenant_id: one.tenant_id ?? null,
+        project_id: one.project_id ?? null,
+        phone: one.phone ?? null,
+      }
     }
     return {
       id: String(row.id),
@@ -451,7 +491,7 @@ export async function listMetaCapiOutbox(
   const nestMap = await probeNestReception(
     slice.filter((r) => r.status === 'forwarded').map((r) => r.event_id),
   )
-  const rows = slice.map((r) => mapRow(r, nestMap))
+  const rows = slice.map((r) => mapRow(r, nestMap, tenantIds))
 
   const notConfiguredRows = scoped
     .filter((r) => r.last_error === 'not_configured' || (r.status === 'pending' && r.last_error === 'not_configured'))

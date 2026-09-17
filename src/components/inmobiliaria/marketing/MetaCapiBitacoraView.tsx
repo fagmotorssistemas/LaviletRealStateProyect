@@ -408,6 +408,7 @@ export function MetaCapiBitacoraView() {
                 <thead>
                   <tr className="border-b border-[#ece6dc] bg-[#f7f3ee] text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
                     <th className="px-3 py-3">Teléfono</th>
+                    <th className="px-3 py-3">Origen tel.</th>
                     <th className="px-3 py-3">Evento (hora)</th>
                     <th className="px-3 py-3">Registro</th>
                     <th className="px-3 py-3">Entrega backend</th>
@@ -421,8 +422,24 @@ export function MetaCapiBitacoraView() {
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.id} className="border-t border-[#f0ebe3]">
-                      <td className="px-3 py-2.5 font-medium tabular-nums text-[#1f1a14]">
-                        {row.phone || '—'}
+                      <td className="px-3 py-2.5 text-[#1f1a14]">
+                        {row.phoneSource === 'none' ? (
+                          <span className="text-[#8a8176]">{row.phoneDisplay}</span>
+                        ) : (
+                          <span className="font-medium tabular-nums">{row.phoneDisplay}</span>
+                        )}
+                        {row.phoneSource === 'event' && row.phoneCrm && row.phoneCrm !== row.phoneEvent ? (
+                          <span className="mt-0.5 block text-[10px] text-[#8a8176]">
+                            CRM: {row.phoneCrm}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2.5 text-[11px] text-[#6b645c]" title={row.phoneSourceLabel}>
+                        {row.phoneSource === 'event'
+                          ? 'Evento'
+                          : row.phoneSource === 'crm_lead'
+                            ? 'CRM (lead)'
+                            : '—'}
                       </td>
                       <td className="px-3 py-2.5 text-[12px] tabular-nums text-[#6b645c]">
                         {formatWhen(row.eventAt, tz)}
