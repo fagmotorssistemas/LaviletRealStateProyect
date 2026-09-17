@@ -1052,6 +1052,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         if (!publicCat && !nextCatalog) {
           setBootError('No se pudo conectar con Supabase. Revisa tu internet o vuelve a intentar.')
         }
+        // Sin panoramas: aún así montar catálogo/unidades para ficha y simulador.
+        if (publicCat) {
+          setCatalog(nextCatalog)
+          setUnits(nextUnits ?? [])
+          setFinish(startFinish)
+          setLight('dia')
+        }
         setBooting(false)
         return
       }
@@ -3514,7 +3521,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           }}
           contained={embedded && !immersive}
           unitNumber={selectedUnit?.unit_number ?? null}
-          units={fichaUnits.length > 0 ? fichaUnits : displayUnits}
+          units={allUnits.length > 0 ? allUnits : fichaUnits.length > 0 ? fichaUnits : displayUnits}
           initialMode={simulatorEntry.mode}
           initialSection={simulatorEntry.section}
           onSelectUnit={(unit) => {

@@ -138,7 +138,15 @@ export function useFinancingCalculator(
 
         const key = (nextUnit?.unit_number || unitParam).trim() || '_none'
         setByUnit((prev) => {
-          if (prev[key]) return prev
+          const existing = prev[key]
+          // Si solo hay placeholder (p.ej. initialMode antes del bootstrap), completar datos.
+          const isPlaceholder =
+            !existing ||
+            (existing.monthlyRent === 0 &&
+              existing.expenses.total === 0 &&
+              existing.hypotheticalPrice == null &&
+              !(Number(nextUnit?.published_commercial_price) > 0 && existing.monthlyRent > 0))
+          if (existing && !isPlaceholder) return prev
           const published = Number(nextUnit?.published_commercial_price)
           const hasPrice = Number.isFinite(published) && published > 0
           const price = hasPrice ? published : 0
@@ -152,21 +160,32 @@ export function useFinancingCalculator(
             category: nextUnit?.category,
           })
           const recommended = nextPartners.find((p) => p.is_recommended) ?? nextPartners[0] ?? null
+          const base = existing ?? defaultUnitState()
           return {
             ...prev,
             [key]: {
-              ...defaultUnitState(),
-              monthlyRent: rent.amount,
-              vacancyRate: Number(nextConfig?.vacancy_rate ?? 0.05),
-              expenses,
-              mode: opts?.initialMode === 'financed' || opts?.initialMode === 'manual' ? opts.initialMode : 'cash',
-              partnerId: recommended?.id ?? null,
-              interestRate: recommended ? Number(recommended.annual_interest_rate) : 0,
+              ...base,
+              monthlyRent: rent.amount || base.monthlyRent,
+              vacancyRate: Number(nextConfig?.vacancy_rate ?? base.vacancyRate ?? 0.05),
+              expenses: expenses.total > 0 ? expenses : base.expenses,
+              mode:
+                opts?.initialMode === 'financed' || opts?.initialMode === 'manual'
+                  ? opts.initialMode
+                  : base.mode === 'cash'
+                    ? 'cash'
+                    : base.mode,
+              partnerId: base.partnerId ?? recommended?.id ?? null,
+              interestRate:
+                base.interestRate > 0
+                  ? base.interestRate
+                  : recommended
+                    ? Number(recommended.annual_interest_rate)
+                    : 0,
               financingYears: recommended
-                ? clampFinancingYears(20, recommended)
-                : 20,
-              downPaymentPercent: 30,
-              hypotheticalPrice: hasPrice ? null : null,
+                ? clampFinancingYears(base.financingYears || 20, recommended)
+                : base.financingYears || 20,
+              downPaymentPercent: base.downPaymentPercent || 30,
+              hypotheticalPrice: hasPrice ? null : base.hypotheticalPrice,
             },
           }
         })

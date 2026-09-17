@@ -77,6 +77,7 @@ export function TourSimulatorDrawer({
     setLocalUnit(unit.unit_number)
     setPicking(false)
     setShowSaved(false)
+    setReopenScenario(null)
     onSelectUnit?.(unit)
   }
 
@@ -227,13 +228,16 @@ export function TourSimulatorDrawer({
                 </div>
               ) : (
                 <InvestmentConfigurator
-                  key={`${unitParam}-${initialMode ?? 'cash'}-${initialSection ?? 'rent'}-${reopenScenario?.id ?? 'new'}`}
+                  key={
+                    reopenScenario
+                      ? `reopen-${reopenScenario.id}`
+                      : `${unitParam}-${initialMode ?? 'cash'}-${initialSection ?? 'rent'}`
+                  }
                   unitParam={unitParam}
                   stacked
                   initialMode={initialMode}
                   initialSection={initialSection}
                   initialScenario={reopenScenario}
-                  onConsumedInitialScenario={() => setReopenScenario(null)}
                   onOpenSaved={
                     identified
                       ? () => {

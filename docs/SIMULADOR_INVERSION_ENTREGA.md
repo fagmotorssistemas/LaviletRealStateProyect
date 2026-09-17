@@ -1,67 +1,71 @@
 # Simulador de inversión unificado — notas de entrega
 
-Rama: `feature/simulador-inversion-unificado` (desde `4270bf1`).
+Rama: `feature/simulador-inversion-unificado`.
 
-## Contraste vs revisión 4270bf1
+## Entorno de verificación (solo local)
 
-| Hallazgo | Antes | Ahora |
-|----------|-------|-------|
-| Dos paneles | Financiamiento + Simulador separados | Una sola experiencia; ambos accesos abren el mismo drawer |
-| Preview | Solo `buildCashInvestmentPreview` / `mode:'cash'` | `buildInvestmentPreview` contado / financiado / manual |
-| Vacancia | Fija en config; posible doble conteo conceptual | Editable; aplicada una sola vez sobre alquiler potencial |
-| Entrada | UI 10–70% vs API 10–50% | Unificado 10–70% |
-| Tasa/gastos al guardar | Tasa de institución; gastos ignorados en financiado | Viajan `applied_interest_rate`, vacancia, breakdown, gestión |
-| Sin partner | Caía a cash en silencio | Error o `mode:'manual'` explícito |
-| Auth escenarios | `lead_id`/teléfono cliente bastaban | Requiere cookie `lv_vid` → `tour_visitors.lead_id` |
-| Cookies | z-90 sobre header del drawer | Ocultas con simulador abierto; z-50 |
+| Pieza | Valor |
+|-------|-------|
+| Next.js | `http://127.0.0.1:3000` (`npm run dev`) |
+| Supabase local | `supabase-local/` → API `http://127.0.0.1:54331`, DB `54332` |
+| Proyecto Docker | `lavilet-local-financing` |
+| Identidades E2E | flujo real `lv_vid` + lead (script `scripts/financing-local-e2e.cjs`) |
 
-## Migración pendiente (no aplicada remotamente)
+**No** se aplicaron migraciones remotas ni se publicó/mergeó.
 
-Archivo: `supabase/migrations/20260917120000_investment_simulator_assumptions.sql`
+## Persistencia real (Supabase local)
 
-Impacto: columnas snapshot (`simulation_mode`, `vacancy_rate_snapshot`, `expense_breakdown`, `calculation_version`, `rate_type`, etc.). El API hace fallback a insert legacy si las columnas aún no existen. Escenarios históricos no se reinterpretan con tasas nuevas.
+`node scripts/financing-local-e2e.cjs` → **OK**
 
-## Pruebas
+- POST/GET/DELETE contado, financiado y tasa manual
+- Guardar y reabrir reproduce supuestos y resultados
+- Dos visitantes con cookies distintas: cada uno solo ve los suyos
+- Sin cookie / cookie inventada / lead_id o teléfono del otro → rechazado
+- Identidades generadas por el flujo real de la app (no mocks de auth)
+
+PGlite cubre migración SQL en unit tests; **no** sustituye este E2E contra rutas Next + Kong local.
+
+## Tour real Next (drawer integrado)
+
+Verificado en el tour `/tour` (no HTML de preview):
+
+| Check | Resultado |
+|-------|-----------|
+| Acceso «Simular inversión» | OK |
+| Acceso «Financiamiento» | OK (mismo drawer) |
+| Contado / financiado / tasa manual | OK |
+| Cambio de unidad (Cambiar → 101/202) | OK (picker con `allUnits`) |
+| Guardar → Guardados → Reabrir | OK (modo manual 9.5 %, flujo −6.62 %) |
+| Cierre drawer | OK |
+| Preferencias de cookies ocultas con drawer abierto; reaparecen al cerrar | OK |
+| Escritorio (1280×800) y móvil (390×812) | OK |
+
+### Capturas del tour real
+
+- `docs/capture-tour-real-cash.png`
+- `docs/capture-tour-real-financed.png`
+- `docs/capture-tour-real-desktop-financed.png`
+- `docs/capture-tour-real-mobile.png`
+- `docs/capture-tour-real-mobile-financed.png`
+- `docs/capture-tour-real-reopen-manual.png`
+- `docs/capture-tour-real-unit-change-101.png`
+
+Previews HTML independientes quedan solo como referencia histórica; la aceptación es el tour real.
+
+## Correcciones en esta verificación
+
+1. `TourViewer`: catálogo/unidades aunque no haya panoramas; picker del simulador usa `allUnits`.
+2. `useFinancingCalculator`: bootstrap no deja alquiler/gastos en 0 tras placeholder vacío.
+3. `TourSimulatorDrawer`: reabrir no remontaba el configurador al limpiar el escenario (se perdía modo/tasa).
+
+## Orden migración / despliegue / reversión
+
+Ver `docs/SIMULADOR_MIGRACION_ORDEN.md`.
+
+Resumen: local = baseline `supabase-local` + assumptions; remoto (cuando se autorice) = solo `supabase/migrations/20260917120000_investment_simulator_assumptions.sql`; rollback = `supabase/rollbacks/20260917120000_investment_simulator_assumptions_down.sql` (DROP columnas v2; filas legacy se conservan).
+
+## Pruebas de lógica
 
 ```bash
 npm run test:financing
 ```
-
-Caso base (precio 310000, entrada 30%, 7.8% nominal, 30 años, alquiler 1200, vacancia 5%, gastos 4280): **8/8 OK**.
-
-## Política de redondeo
-
-Dinero y ratios a 2 decimales (`round2` / `Number.EPSILON`).
-
-## Verificación (2026-09-17)
-
-### Comandos y resultados reales
-
-| Comando | Resultado |
-|---------|-----------|
-| `npx tsc --noEmit` | exit 0 |
-| `npm run build` | exit 0 (Next.js 16.2.0) |
-| `npm run test:financing` | **19/19 pass** |
-
-### Clasificación de pruebas
-
-| Tipo | Qué cubre |
-|------|-----------|
-| **Mock / lógica** | save→reopen contado/financiado/manual; auth cruzada; rechazo de fallback legacy |
-| **Persistencia local real (PGlite)** | aplica migración SQL, insert v2, 0 triggers en tabla |
-| **Remoto (solo lectura)** | `financing_scenarios` **sin** columnas v2 (`simulation_mode` count=0). RPC `calculate_investment_analysis` existe y **UPDATE** filas, pero el código TS **ya no la invoca**. Sin triggers en la tabla. |
-| **Persistencia remota real** | **Bloqueada** hasta aplicar migración (no se aplica remotamente por pedido). El API rechaza guardado incompleto con mensaje explícito. |
-
-### Dependencia explícita
-
-Guardar escenarios investment-v2 en producción requiere aplicar localmente/staging:
-
-`supabase/migrations/20260917120000_investment_simulator_assumptions.sql`
-
-Sin ella el POST falla (no confirma filas incompletas).
-
-### Capturas
-
-- `docs/capture-simulador-ambos-modos.png`
-- `docs/simulador-ui-responsive-preview.html` (móvil/escritorio)
-- `docs/simulador-acceptance-preview.html`
