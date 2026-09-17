@@ -63,7 +63,7 @@ Migración: preparada, **no** aplicada a Production. Unicidad atómica vía `EXC
 
 ## Plan de despliegue y reversión (PR #4) — **no ejecutado**
 
-Estado de este plan: **preparado para cuando se autorice**. No mergear-como-deploy automático de DB; no aplicar migración ni publicar hasta orden explícita.
+Estado de este plan: **preparado para cuando se autorice**. Todavía **no** aplicar migración, merge ni publish.
 
 ### Limitación explícita (bloqueante de expectativas)
 
@@ -80,60 +80,74 @@ Estado de este plan: **preparado para cuando se autorice**. No mergear-como-depl
 | --- | --- |
 | Código CRM: captura opcional, soft-fail, first-touch | Pixel / CAPI / Nest attribution |
 | Migración `20260916220000_whatsapp_ctwa_attribution.sql` | Mensajes WhatsApp reales de prueba |
-| Rollback SQL `*_down.sql` | Cambios de env Production (Pixel, etc.) |
+| Archivo `*_down.sql` (manual, no automático) | Cambios de env Production (Pixel, etc.) |
 | Tests aislados (`npm run test:ctwa-kommo`) | Garantía de que Kommo entrega `ctwa_clid` |
 
-### Orden recomendado (cuando se autorice)
+### Orden obligatorio (cuando se autorice)
 
 1. **Pre-check (sin tocar Prod)**  
-   - PR #4 revisado y mergeable.  
+   - PR #4 revisado.  
    - `npm run test:ctwa-kommo` en verde.  
-   - Confirmar que el rollback `supabase/rollbacks/20260916220000_whatsapp_ctwa_attribution_down.sql` está en el mismo commit.  
-   - Recordar la limitación CTWA real no verificado (arriba).
+   - Listar migraciones pendientes en Production y confirmar cuáles existen además de CTWA.  
+   - Recordar la limitación **CTWA real no verificado** (arriba).
 
-2. **Merge del PR** a la rama de despliegue acordada (p. ej. `main`).  
-   - Solo código + archivo de migración en el repo; **aún no** implica DB aplicada.
+2. **Aplicar únicamente la migración CTWA** (ventana y dueño explícitos).  
+   - Ejecutar **solo** el SQL de  
+     `supabase/migrations/20260916220000_whatsapp_ctwa_attribution.sql`.  
+   - **Prohibido** en este paso: `supabase db push`, `supabase migration up` masivo, o cualquier comando que aplique **otras** migraciones pendientes del repo.  
+   - Si el flujo habitual del equipo es “push de todas”, **no usarlo**: copiar/pegar o ejecutar ese archivo concreto (SQL editor / `psql` / `supabase db query` con el contenido de ese archivo únicamente).  
+   - Tras aplicar, **verificar permisos y objetos** (lectura/catálogo, sin datos de prueba reales):  
+     - Existe `public.lv_whatsapp_ctwa_attribution` con RLS habilitado.  
+     - Existen `lv_app_preserve_ctwa` y `lv_app_get_ctwa`.  
+     - `service_role` tiene EXECUTE en ambas y SELECT/INSERT/UPDATE en la tabla.  
+     - `anon` / `authenticated` / `PUBLIC` **no** tienen privilegios útiles sobre tabla ni funciones.  
+   - Abortar aquí si falla la migración o los grants; **no** continuar al merge/deploy.
 
-3. **Desplegar aplicación** (Vercel / pipeline habitual).  
-   - Seguro **antes** de la migración: si las RPC no existen, `preserveCtwaForContact` / `getStoredCtwaClid` registran `CTWA_RPC_MISSING` (u otro código) **sin cortar** la atención CRM.  
+3. **Merge + deploy de la app**  
+   - Merge del PR #4 y despliegue (Vercel / pipeline habitual).  
+   - La app ya encuentra las RPC; el soft-fail sigue cubriendo errores no fatales sin cortar la atención.  
    - No se envían WhatsApps ni conversiones Meta por este cambio.
 
-4. **Aplicar migración en Production** (paso separado, con ventana y dueño).  
-   - Ejecutar solo `supabase/migrations/20260916220000_whatsapp_ctwa_attribution.sql` en el proyecto Supabase de Production (CLI/`db push`/SQL editor según el procedimiento del equipo).  
-   - Verificar objetos: tabla `lv_whatsapp_ctwa_attribution`, funciones `lv_app_preserve_ctwa` y `lv_app_get_ctwa`, grants a `service_role`, RLS activo, sin grants a `anon`/`authenticated`.  
-   - **No** enviar mensajes reales para “probar” CTWA en este paso.
-
-5. **Verificación post-despliegue (sin tráfico CTWA inventado)**  
-   - Tráfico WhatsApp habitual: mensajes **sin** clid siguen el flujo; logs no deben spamear errores fatales del CRM.  
-   - Si aparece `scope: ctwa_attribution` en logs: solo `code`/`reason`, **sin** clid ni PII.  
-   - Opcional (SQL de lectura): `SELECT count(*) FROM lv_whatsapp_ctwa_attribution` — esperar `0` hasta evidencia real de Kommo.  
+4. **Revisión de logs y tráfico habitual**  
+   - Observar tráfico WhatsApp **habitual** (sin inventar mensajes CTWA).  
+   - Mensajes sin clid siguen el flujo CRM.  
+   - Logs `scope: ctwa_attribution`: solo `code`/`reason`, **sin** clid ni PII.  
+   - Opcional (SQL de lectura): `SELECT count(*) FROM lv_whatsapp_ctwa_attribution` — puede ser `0` mientras Kommo no entregue clid.  
    - **No** concluir éxito de atribución CTWA sin captura real de webhook.
 
-### Reversión (si hace falta)
+### Cómo asegurar “solo esta migración”
 
-**A. Solo código (migración aún no aplicada)**  
-1. Revertir el deploy de la app al commit anterior a PR #4 (o revert del merge).  
-2. Sin cambios de DB que deshacer.
+| Hacer | No hacer |
+| --- | --- |
+| Abrir y ejecutar el archivo `20260916220000_whatsapp_ctwa_attribution.sql` | `supabase db push` / migrate-all contra Production |
+| Comprobar el historial de migraciones aplicadas **antes** y que no se cuelen otras | Asumir que el CLI filtrará “solo CTWA” |
+| Anotar en el runbook el hash/commit y la hora de la aplicación manual | Aplicar carpetas enteras de `supabase/migrations/` |
 
-**B. Migración ya aplicada**  
-1. Revertir/redeploy app al commit previo (el soft-fail ya no llamará RPCs útiles; conviene alinear código y schema).  
-2. Ejecutar rollback SQL **en Production** (mismo dueño/ventana):  
-   `supabase/rollbacks/20260916220000_whatsapp_ctwa_attribution_down.sql`  
-   - Elimina `lv_app_get_ctwa`, `lv_app_preserve_ctwa` y la tabla `lv_whatsapp_ctwa_attribution` (**borra filas CTWA** si las hubiera).  
-3. Confirmar que las funciones/tabla ya no existen.  
-4. Confirmar que el webhook CRM sigue registrando mensajes (atención intacta).
+### Reversión (si hace falta) — **no destructiva por defecto**
 
-**C. Qué no revertir**  
-- Pixel / CAPI / activación Meta del PR #3 u otros.  
-- Datos de leads/mensajes del CRM (este rollback **no** toca `messages` / `leads`).
+1. **Volver a la versión anterior de la app** (redeploy / revert del merge de PR #4).  
+   - El CRM vuelve al código previo; la atención no depende de CTWA.  
+2. **Conservar** tabla `lv_whatsapp_ctwa_attribution`, funciones `lv_app_*` y **cualquier dato** ya capturado.  
+3. **No ejecutar automáticamente**  
+   `supabase/rollbacks/20260916220000_whatsapp_ctwa_attribution_down.sql`.  
+   - Ese SQL es destructivo (DROP de funciones y tabla). Solo si más adelante hay decisión **explícita y separada** de borrar el schema CTWA.  
+4. Confirmar que el webhook CRM sigue registrando mensajes con la app revertida.
 
-### Criterios de abortar el despliegue
+**Qué no tocar en una reversión normal**
 
-- Fallo al aplicar la migración (permisos, objetos faltantes `tenants`/`projects`).  
-- Tras deploy, el pipeline de conversación deja de registrar inbound (no atribuible solo a CTWA soft-fail: investigar antes de seguir).  
-- Decisión de negocio: no operar schema CTWA hasta tener captura real de Kommo → **no aplicar paso 4**; el código puede vivir con RPC ausente.
+- Pixel / CAPI / activación Meta (PR #3 u otros).  
+- `messages` / `leads` / resto del CRM.  
+- Schema CTWA ni filas de atribución.
+
+### Criterios de abortar
+
+- Migración CTWA falla (permisos, FKs a `tenants`/`projects`, etc.).  
+- Verificación de grants/RLS no cumple lo esperado.  
+- Aparecen otras migraciones “coladas” → detener, no desplegar app hasta aclarar.  
+- Tras deploy, inbound CRM deja de registrar (investigar; no borrar schema CTWA como primer reflejo).
 
 ### Fuera de este plan (siguientes hitos)
 
 - Obtener y documentar captura **anonimizada** del webhook real de Kommo (o confirmar que nunca envía clid).  
-- Solo entonces: prueba controlada de first-touch en un entorno acordado (no improvisar WhatsApps de producción en este documento).
+- Solo entonces: prueba controlada de first-touch en un entorno acordado (no improvisar WhatsApps de producción en este documento).  
+- Borrado opcional del schema CTWA: solo con autorización explícita y el `*_down.sql` manual.
