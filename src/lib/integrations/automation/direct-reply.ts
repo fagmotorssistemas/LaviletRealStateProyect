@@ -11,7 +11,8 @@ export function directReply(reply: string, current: string): string {
     const protectedContent=/\d|https?:|[,;:]|\b(?:no|sin|pero|aunque|porque|si|solo|solamente|confirmad\w*|registrad\w*)\b/i.test(normalize(clause))
     if(!protectedContent && tokens.length>0 && tokens.every(w=>source.has(w))) result=echo[1]+echo[3]
   }
-  result=result.replace(/\s+As[ií] (?:puedo orientarle mejor seg[uú]n sus planes|le oriento con lo que m[aá]s se ajuste a lo que busca|puedo orientarle mejor|podemos ayudarle mejor|podr[eé] orientarle mejor)[.!]?\s*$/iu,'')
+  result=result.replace(/(?:\s+|;\s*)as[ií] (?:puedo orientarle mejor seg[uú]n sus planes|le oriento con lo que m[aá]s se ajuste a lo que busca|puedo orientarle mejor|podemos ayudarle mejor|podr[eé] orientarle mejor(?: sobre la unidad que m[aá]s le conviene)?)[.!]?\s*$/iu,'')
+  if(result!==reply.trim() && !/[.!?]$/.test(result))result+='.'
   return result.trim() || reply
 }
 

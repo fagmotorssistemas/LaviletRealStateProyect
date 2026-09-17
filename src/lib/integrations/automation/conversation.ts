@@ -37,6 +37,7 @@ import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
 import { financingFieldAnswer, financingCollectionIssues } from './financing-continuation'
 import { directReply } from './direct-reply'
+import { sectorClaimsReply } from './commercial-accuracy'
 import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
 import { operationalReply } from './operational-copy'
 import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
@@ -598,7 +599,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
   }
   if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
-  const direct = directReply(reply,current)
+  const direct = directReply(sectorClaimsReply(reply),current)
   if(direct !== reply) audit.direct_reply_guard = true
   reply = naturalConversationReply(variedReplyOpening(direct, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
   if (!reply.trim() || reply.length > 3000) throw new Error('EMPTY_OR_LONG_REPLY')

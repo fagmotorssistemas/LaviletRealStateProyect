@@ -1,4 +1,5 @@
 import { CURRENT_TONE } from './conversation-tone'
+import { inventedRentalPolicy, COMMERCIAL_ACCURACY_RULES } from './commercial-accuracy'
 import { readinessRules, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { isVisitCopy, VISIT_COPY_RULES, VISIT_NATURAL_RULES, visitCopyIssues } from './visit-copy'
 import 'server-only'
@@ -121,6 +122,7 @@ function restoreProtectedBase(base: string, candidate: string): string {
 }
 
 function unsupportedRentalClaim(sentence: string, current: string, verified: Row): boolean {
+  if(inventedRentalPolicy(sentence,verified))return true
   if (object(verified.financing_policy).future_rental_income_accepted === true) return false
   const value = normalize(sentence), topic = normalize(current + ' ' + sentence)
   if (!/arrend|arriend|rentar|rentarlo|alquil|ingresos futuros/.test(topic)) return false
@@ -137,10 +139,12 @@ export function safeRentalCreditBase(base: string, current: string, verified: Ro
   const kept = sentences.filter(sentence => !unsupportedRentalClaim(sentence, current, verified))
   if (kept.length === sentences.length) return { reply: base, removed: false, unresolved: [] }
   const explanation = 'El uso del local ayuda a orientar la elección; cualquier efecto en la evaluación financiera debe revisarlo la entidad.'
-  const questionIndex = kept.findIndex(sentence => withoutUrls(sentence).includes('?'))
-  if (questionIndex >= 0) kept.splice(questionIndex, 0, explanation)
-  else kept.push(explanation)
   const unresolved = (current.match(/[^.!?\n]*(?:influy[ea]|afecta|respalda|tom[ae]n? en cuenta|consider[ae]n?)[^.!?\n]*\??/gi) || []).map(value => value.trim()).filter(Boolean)
+  if(unresolved.length || !kept.length) {
+    const questionIndex = kept.findIndex(sentence => withoutUrls(sentence).includes('?'))
+    if (questionIndex >= 0) kept.splice(questionIndex, 0, explanation)
+    else kept.push(explanation)
+  }
   return { reply: kept.join(' '), removed: true, unresolved }
 }
 
@@ -203,7 +207,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
   let requests: Coverage[] = []
   try {
-    const visitRules = (isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + (input.verified.estado_proyecto ? '\n'+readinessRules(input.verified.estado_proyecto as ProjectReadiness) : '')
+    const visitRules = COMMERCIAL_ACCURACY_RULES + (isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + (input.verified.estado_proyecto ? '\n'+readinessRules(input.verified.estado_proyecto as ProjectReadiness) : '')
     const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory) + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')

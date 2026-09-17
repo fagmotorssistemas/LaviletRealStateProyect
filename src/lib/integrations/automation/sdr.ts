@@ -12,13 +12,14 @@ import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sa
 import { passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
-import { acceptedPriceOption, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
+import { acceptedPriceOption, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
 import { priceFinancingReply } from './financing'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
 import { botReadiness, projectReadiness, readinessRules, readinessMaterialReply, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { salesSubject } from './sales-subject'
 import { unitRecommendation } from './unit-recommendation'
+import { recommendationClarification } from './commercial-accuracy'
 import { locationRequestKind, withVisitLocation } from './visit-location'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { commercialCoverageIssues } from './multi-topic-turn'
@@ -57,8 +58,8 @@ export async function commercialContext(lead: Row, history: unknown) {
       precios_aproximados: pricing.approximate,
       confirmar_disponibilidad: false, confirmar_visita_sin_resultado: false, agendar_llamadas: false },
     alcance_producto: 'La Vilet ofrece suites, departamentos y locales comerciales en Cuenca; no casas independientes.',
-    politica_financiera: { credito_directo: false, arriendo_futuro_no_es_ingreso_verificado: true,
-      uso_del_inmueble: 'El uso propio o inversión orienta la elección de unidad. Cualquier efecto sobre la evaluación crediticia debe verificarlo la entidad; no hay políticas bancarias verificadas para afirmar que un arriendo futuro respalda la solicitud.' },
+    politica_financiera: { credito_directo: false,
+      informacion_bancaria_verificada: 'No hay información verificada sobre aceptación o rechazo de arriendos futuros como respaldo. Esto NO es una prohibición del proyecto. Mencione esa incertidumbre solo si el cliente pregunta específicamente por ese respaldo.' },
     catalogo: catalog, instalaciones: amenities.data, lugares_cercanos: places.data,
     condiciones_instalaciones: 'El catálogo describe instalaciones, pero no contiene condiciones verificadas sobre cuotas de condominio, membresías o pagos por usarlas. No deducir gratuidad ni pagos adicionales de su existencia. Si preguntan esos costos o condiciones, debe verificarlos el equipo.',
     horario_atencion: settings.business_hours,
@@ -67,6 +68,8 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  const clarification=recommendationClarification(info,current)
+  if(clarification)return {reply:clarification,audit:{source:'recommendation_clarification',fallback:false}}
   if(info.estado_proyecto) {
     const material=readinessMaterialReply(info.estado_proyecto as ProjectReadiness,current)
     if(material)return {reply:material,audit:{source:'project_material',fallback:false}}
@@ -85,6 +88,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
   const attachBrochure = wantsBrochure(current, info.historial)
   const quote = unitPriceQuote(info, current, summary)
+  const budgetOptions=budgetOptionsReply(info,current)
+  if(budgetOptions && !quote)return {reply:budgetOptions,audit:{source:'budget_options',fallback:false}}
   const turnAnswers = turnAnswerFacts(info, current, summary)
   const budget = statedBudget(current)
   const finance = object(info.financiamiento)
