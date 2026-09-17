@@ -69,7 +69,10 @@ async function handleUpload(request: Request) {
   if (!(uploaded instanceof Blob) || uploaded.size === 0) return jsonError('Falta el archivo', 400)
   const maxBytes = 40 * 1024 * 1024
   if (uploaded.size > maxBytes) {
-    return jsonError('La imagen supera el máximo de 40 MB', 413)
+    return jsonError(
+      'La imagen supera el máximo de 40 MB por esta vía. Usá la subida del inventario (soporta hasta 80 MB).',
+      413,
+    )
   }
 
   const fileNameHint = uploaded instanceof File ? uploaded.name : 'archivo.png'
