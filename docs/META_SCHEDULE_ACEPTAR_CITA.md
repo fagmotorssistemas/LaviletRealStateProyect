@@ -5,69 +5,72 @@
 | Capa | Estado |
 | --- | --- |
 | Elegibilidad | Cerrada (`confirmed_by_client` + consent + canal evidente) |
-| Intent durable | Columnas `meta_schedule_*` en appointments + RPC recover → `review_hold` |
-| Persistencia | Solo **service_role** (sesión asesor no tiene GRANT outbox) |
-| Pipeline web → Nest | Implementado; flags **OFF** por defecto |
-| Promote `review_hold`→`pending` | Solo cita actual + revalidación; **nunca** lote histórico |
-| BM WhatsApp Schedule | **Rechazado** en Nest; sin fallback a dataset web |
+| Intent durable | RPC atómico inmutable; recover también cubre **hueco pre-intent** |
+| Persistencia | Solo **service_role** |
+| Pipeline web → Nest | Flags **OFF**; delivery unifica FE flush + Nest drain |
+| BM WhatsApp Schedule | **Bloqueado** (`needs_review` / Nest reject); no remap a website |
 | Envío real | **OFF** |
 
-Migraciones (no aplicar a Production aún):
-
-1. `20260917152000_meta_capi_outbox_review_hold.sql`
-2. `20260917160000_meta_schedule_recovery.sql`
-
-Reversiones en `supabase/rollbacks/…_down.sql` (conservan datos outbox/CTWA).
-
-## Controles (todos desactivados por defecto)
-
-Con **todos** off: **cero** escrituras Schedule (ni intent ni outbox).
+## Controles (default off → cero escrituras Schedule)
 
 | Variable | Efecto |
 | --- | --- |
-| `META_SCHEDULE_LOCAL_PERSIST=true` | Intent atómico + `review_hold` |
-| `META_SCHEDULE_DELIVERY_ENABLED=true` | Promote cita actual + drain Nest de Schedule |
-| `META_SCHEDULE_FLUSH=true` | Flush FE→Nest (exige delivery) |
-| `META_SCHEDULE_RECOVER_ENABLED=true` | RPC recover → `review_hold` o `needs_review` |
+| `META_SCHEDULE_LOCAL_PERSIST` | Intent + `review_hold` post-confirm |
+| `META_SCHEDULE_RECOVER_ENABLED` | Nest/cron: recover (con o sin intent previo) |
+| `META_SCHEDULE_DELIVERY_ENABLED` | Promote cita actual + drain Nest de Schedule |
+| `META_SCHEDULE_FLUSH` | Flush FE (exige delivery) |
 
-Intent (`lv_register_meta_schedule_intent`): una sola vez; `event_id`/`event_time` inmutables. Fallo Meta no revierte la cita.
+## Recuperación (incluye caída confirm→intent)
 
-Recover revalida canal; sin evidencia → `needs_review` + motivo (`channel_pending_evidence`, etc.); **nunca** asume `website`.
+`lv_recover_missing_meta_schedule_outbox(limit, lookback_days=7)`:
 
-Migraciones en secuencia: `17152000` (review_hold **+** needs_review) → `17160000` (intent/recover).
+- Citas `confirmed_by_client` + consent + `confirmed_at` dentro de lookback (máx. 30d).
+- **Sin intent:** crea intent inmutable (`event_time` = epoch de `confirmed_at`) y outbox.
+- **Con intent sin outbox:** reinserta outbox con mismos ids.
+- Canal web → `review_hold`; WhatsApp → `needs_review` + `whatsapp_schedule_delivery_blocked`; sin evidencia → `needs_review` + `channel_pending_evidence`.
+- **Nunca** asume `website` ni crea `pending`. No revierte la cita.
+- No recupera históricos fuera del lookback.
 
-## Recuperación durable
+## WhatsApp Schedule (bloqueado y documentado)
 
-Tras confirmación del cliente se guarda intent (`meta_schedule_event_id`, `event_time` desde `confirmed_at`, payload).  
-Si falla outbox, el recover automático (flag) reinserta **`review_hold`** con el mismo `event_id`/`event_time` y clave `schedule:{appointmentId}` (dedupe). **No** crea `pending`.
+- Recover: `needs_review` / `whatsapp_schedule_delivery_blocked`.
+- Nest enqueue: `business_messaging_schedule_unverified`.
+- No se renombra el evento ni se convierte en conversión web.
 
-## WhatsApp BM
+## Migraciones (orden exacto)
 
-- Nest rechaza `Schedule` + `business_messaging` (`business_messaging_schedule_unverified`).
-- Nest rechaza BM sin `messaging_dataset_id` + `ctwa_clid` + WABA (`business_messaging_identifiers_required`).
-- **Nunca** usa `META_DATASET_ID` / pixel web como fallback.
-- No se renombra la cita a otro `event_name`.
+1. `20260917152000_meta_capi_outbox_review_hold.sql` (`needs_review` + `review_hold`)
+2. `20260917160000_meta_schedule_recovery.sql` (intent RPC + recover base)
+3. `20260917170000_meta_schedule_recover_pre_intent.sql` (hueco pre-intent + lookback)
 
-## Pixel Schedule
+Reversión (orden inverso, conservando datos):
 
-No es requisito para cerrar CAPI web Server.
+1. `rollbacks/20260917170000_meta_schedule_recover_pre_intent_down.sql`
+2. `rollbacks/20260917160000_meta_schedule_recovery_down.sql`
+3. `rollbacks/20260917152000_meta_capi_outbox_review_hold_down.sql`
 
-## Pruebas simuladas
+## Pruebas
 
 ```bash
+# Unitarias (simuladas)
 npm run test:meta-schedule
 npm run build
-# Nest:
+
+# DB aislada real (Docker Postgres) — migraciones + RPC
+powershell -File scripts/meta-schedule-recover-isolated/run.ps1
+
+# Nest
 npx jest src/drain/supabase-drain.service.spec.ts src/meta/schedule-graph.payload.spec.ts src/events/events.bm-gates.spec.ts --runInBand
 npm run build
 ```
 
-## Despliegue (cuando se autorice)
+## Despliegue (cuando se autorice — no ahora)
 
-1. Migraciones review_hold → schedule_recovery  
-2. Deploy FE + Nest con todos los flags Schedule en false  
-3. Test: `META_SCHEDULE_LOCAL_PERSIST=true` → filas hold + intents  
-4. Recover flag en Nest test  
-5. Delivery+flush solo con runbook; Events Manager dataset **web**  
+1. Aplicar migraciones 1→2→3 en el entorno de revisión.
+2. Deploy FE + Nest; **todos** los flags Schedule en `false`.
+3. Activar solo `META_SCHEDULE_RECOVER_ENABLED` en test si se valida el hueco.
+4. Luego `META_SCHEDULE_LOCAL_PERSIST` en test.
+5. Delivery/flush solo con runbook; WhatsApp Schedule sigue bloqueado.
+6. Verificación: filas `review_hold` / `needs_review`; Events Manager web solo tras delivery.
 
-Reversión: apagar flags; no borrar outbox/CTWA; rollbacks de CHECK/columnas sin DELETE masivo.
+Sin merge a Production, sin eventos reales Meta, sin campañas en este alcance.
