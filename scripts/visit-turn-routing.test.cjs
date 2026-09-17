@@ -11,6 +11,29 @@ Module._load = function (id, parent, main) {
 }
 require('./test-typescript.cjs')
 const { explicitlyRequestsVisit, hasUnrelatedAppointmentTarget } = require('../src/lib/integrations/automation/turn-routing.ts')
+const { acceptsVisitInvitation } = require('../src/lib/integrations/automation/sales-policy.ts')
+const { visitTruthReply, visitCopyIssues } = require('../src/lib/integrations/automation/visit-copy.ts')
+const { protectedSentences } = require('../src/lib/integrations/automation/turn-completeness.ts')
+
+test('coordination acceptance recognizes conversational conjugations without historical or negative bookings',()=>{
+  for(const value of ['Mejor coordinamos una visita','Entonces agendamos una cita','Programamos una visita']) assert.equal(explicitlyRequestsVisit(value),true,value)
+  for(const value of ['No coordinamos una visita','Ayer coordinamos una visita','Mejor coordinamos una visita al dentista']) assert.equal(explicitlyRequestsVisit(value),false,value)
+  assert.equal(acceptsVisitInvitation('Sí','¿Prefiere coordinar una visita?'),true)
+  assert.equal(acceptsVisitInvitation('El sábado a las 11 puede ser','Podemos coordinar su visita. Indíqueme qué día y horario prefiere.'),true)
+  assert.equal(acceptsVisitInvitation('No puedo el sábado a las 11','¿Prefiere coordinar una visita?'),false)
+})
+test('final visit guard protects commercial paths from physical-tour and unrecorded-request claims',()=>{
+  const info={modo_comercial:'lanzamiento',politica_visitas:{launchDestination:'office'}}
+  const reply=visitTruthReply('Podemos coordinar una visita para que conozca personalmente los departamentos en los pisos altos y las vistas que ofrecen. ¿Qué día prefiere?',info,{},[],protectedSentences)
+  assert.match(reply,/nuestra oficina/)
+  assert.doesNotMatch(reply,/conozca personalmente/)
+  assert.match(reply,/Qué día prefiere/)
+  const pending=visitTruthReply('Su solicitud ha quedado registrada para revisión. Pronto recibirá la confirmación final para su visita.',info,{},[],protectedSentences)
+  assert.doesNotMatch(pending,/ha quedado registrada|Pronto recibirá/)
+  assert.match(pending,/no puedo confirmar/)
+  assert.equal(visitTruthReply('Su solicitud ha quedado registrada para revisión.',info,{registration_verified:true},[],protectedSentences),'Su solicitud ha quedado registrada para revisión.')
+  assert.ok(visitCopyIssues('Revisaremos disponibilidad.','El sábado es una opción dentro de nuestro horario de atención.').includes('administrative_visit_copy'))
+})
 
 test('permission to visit remains actionable alongside a project information request', () => {
   for (const message of [

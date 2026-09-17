@@ -2,7 +2,7 @@ import { CURRENT_TONE } from './conversation-tone'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
-import { isVisitCopy, VISIT_COPY_RULES, visitCopyIssues } from './visit-copy'
+import { isVisitCopy, VISIT_COPY_RULES, VISIT_NATURAL_RULES, visitCopyIssues } from './visit-copy'
 
 const replySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
 const reviewSchema = { type: 'object', properties: {
@@ -58,7 +58,7 @@ export async function operationalReply(baseReply: string, current: string, histo
   const recent = (Array.isArray(history) ? history : []).map(object).slice(-8).map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1500) }))
   try {
     const input = { base_verificada: baseReply, mensaje_actual: current.slice(0, 4000), historial_reciente: recent, contexto_verificado: context }
-    const visitRules = isVisitCopy(context) ? VISIT_COPY_RULES : ''
+    const visitRules = isVisitCopy(context) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : ''
     const result = await aiJson(WRITING_RULES + openingWritingRules(recent) + visitRules, input, replySchema, undefined, undefined, undefined, 'writing')
     const draft = variedReplyOpening(text(result.mensaje).trim(), recent)
     if (operationalCopyIssues(baseReply, draft, context).length) return fallback

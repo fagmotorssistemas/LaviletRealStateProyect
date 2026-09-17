@@ -6,7 +6,7 @@ import { isPropertyScopeRedirect, salesSubject } from './sales-subject'
 import { commercialEngagement, passiveSalesRules } from './commercial-engagement'
 
 const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
-const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
+const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|prefiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
 const positive = (v: string) => /^(?:(?:si|claro|perfecto|bueno) )?(?:se ve interesante|me (?:gusta|interesa|encanta)|esta interesante|muy interesante|me parece (?:bien|interesante))$/.test(normalized(v))
 const discovery = (v: string) => /[¿?]/.test(v) && /presupuesto|para vivir|como inversion|para invertir|cuantos dormitorios|que.*prioriz|que.*importante|cuando.*decision/.test(normalized(v))
 
@@ -16,8 +16,9 @@ export function acceptsUnitOptions(current: string, lastReply: string) {
 }
 
 export function acceptsVisitInvitation(current: string, lastReply: string) {
-  if (!invitation(lastReply)) return false
-  const m = normalized(current)
+  const scheduling = /(?:dia|fecha).*horario|dia.*hora|fecha.*hora/.test(normalized(lastReply)) && /visita|cita|recibirle/.test(normalized(lastReply))
+  if (!invitation(lastReply) && !scheduling) return false
+  const m = normalized(current).replace(/\s+(?:puede ser|le parece|por favor)$/, '')
   if (/^(?:si(?: claro| por favor| me gustaria| quiero| gracias)?|claro|de acuerdo|esta bien|me parece bien|perfecto|hagamoslo)$/.test(m)) return true
   // A proposed day/hour or a request for scheduling help also answers an invitation.
   // Questions about prices, business hours or other topics do not accept it.
