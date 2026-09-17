@@ -42,9 +42,12 @@ La reversión **operativa** es solo de **aplicación**. No ejecuta SQL que elimi
 - Campo a completar en el momento del deploy definitivo:
 
 ```text
-Production SHA previo al merge/deploy del simulador: _______________
-Fecha (UTC): _______________
-Registrado por: _______________
+Production SHA previo al merge/deploy del simulador: b2fccc7704303f017fdb0b04be8e0c7a26ec42da
+Deployment Production previo: dpl_DfgRxa4vfHNVrSijQhBAGPMmXwte
+URL pública: https://www.lavilett.com
+Fecha (UTC): 2026-09-17T20:36:00Z
+Registrado por: cierre autorizado PR #6 (simulador)
+Backup financing_scenarios: backups/financing_scenarios_pre_simulator_20260917.json (0 filas; recuperabilidad verificada)
 ```
 
 | Acción | Qué hace | Efecto en escenarios v2 |
