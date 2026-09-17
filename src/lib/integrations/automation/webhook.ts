@@ -29,7 +29,11 @@ export function normalizeWebhook(raw: string, contentType: string, now = Date.no
     flat = Object.fromEntries(new URLSearchParams(raw))
   } else throw new Error('UNSUPPORTED_CONTENT_TYPE')
   if (flat['account[id]'] !== '36919007') throw new Error('WRONG_KOMMO_ACCOUNT')
-  const indexes = [...new Set(Object.keys(flat).map(k => k.match(/^message\[add\]\[(\d+)\]/)?.[1]).filter(Boolean))]
+  const indexes = [...new Set(
+    Object.keys(flat)
+      .map(k => k.match(/^message\[add\]\[(\d+)\]/)?.[1])
+      .filter((value): value is string => Boolean(value)),
+  )]
   if (indexes.length > 100) throw new Error('TOO_MANY_EVENTS')
   const events: Inbound[] = []
   for (const index of indexes) {
