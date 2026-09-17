@@ -331,16 +331,21 @@ export async function listScenariosForVisitor(
 ) {
   const key = visitorKey.trim()
   if (!key) return [] as FinancingScenario[]
-  // Filtrar visitor_key en memoria: el .eq() sobre columnas recién migradas
-  // puede fallar por caché PostgREST aunque INSERT/SELECT * ya funcionen.
+  // Select plano (sin embeds) + filtro visitor en memoria.
+  // Los embeds pueden fallar por relaciones/caché y el wrapper antiguo
+  // convertía cualquier "column … does not exist" en falso 503 de migración.
   const { data, error } = await admin
     .from('financing_scenarios')
-    .select(
-      '*, financing_partners(partner_name, annual_interest_rate), units(unit_number, published_commercial_price)',
-    )
+    .select('*')
     .eq('lead_id', leadId)
     .order('created_at', { ascending: false })
   if (error) {
+    console.error('listScenariosForVisitor', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    })
     if (isMissingInvestmentV2SchemaError(error)) {
       throw migrationRequiredError()
     }
