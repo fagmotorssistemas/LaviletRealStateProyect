@@ -1,6 +1,14 @@
 # Schedule Meta ↔ «Aceptar cita»
 
-## Estado (preparación — no desplegado / no verificado en Production)
+## Estado (candidatos congelados — no desplegado / no merge)
+
+| Pieza | SHA |
+| --- | --- |
+| Frontend `feat/meta-schedule-aceptar-cita` | `c8c2ad5abe6b6631842880f50f8f153c8d496052` |
+| Nest `fix/supabase-drain-exclude-review-hold` | `6e787347b48741e8c0edd0f2c143b110c470a8b8` |
+
+**Propuesta ejecutable (PRs, builds, migraciones, flags, 1ª cita genuina, rollback):**  
+[`docs/META_SCHEDULE_DELIVERY_PROPOSAL.md`](./META_SCHEDULE_DELIVERY_PROPOSAL.md)
 
 | Capa | Estado |
 | --- | --- |
@@ -68,13 +76,10 @@ npx jest src/drain/supabase-drain.service.spec.ts src/meta/schedule-graph.payloa
 npm run build
 ```
 
-## Despliegue (cuando se autorice — no ahora)
+## Despliegue
 
-1. Aplicar migraciones 1→2→3 en el entorno de revisión.
-2. Deploy FE + Nest; **todos** los flags Schedule en `false`.
-3. Activar solo `META_SCHEDULE_RECOVER_ENABLED` en test si se valida el hueco.
-4. Luego `META_SCHEDULE_LOCAL_PERSIST` en test.
-5. Delivery/flush solo con runbook; WhatsApp Schedule sigue bloqueado.
-6. Verificación: filas `review_hold` / `needs_review`; Events Manager web solo tras delivery.
+No ejecutar desde este archivo. Usar la propuesta congelada:
+
+→ [`META_SCHEDULE_DELIVERY_PROPOSAL.md`](./META_SCHEDULE_DELIVERY_PROPOSAL.md)
 
 Sin merge a Production, sin eventos reales Meta, sin campañas en este alcance.
