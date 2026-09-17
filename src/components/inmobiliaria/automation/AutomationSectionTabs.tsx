@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import styles from './AutomationWorkspace.module.css'
 
-export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' }) {
+export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' | 'pruebas' }) {
   const { isAdmin } = useRoleAccess()
   const tabs = [
     { id: 'monitoreo', href: '/inmobiliaria/automatizacion', label: 'Monitoreo' },
@@ -13,6 +13,7 @@ export function AutomationSectionTabs({ active }: { active: 'monitoreo' | 'regla
       { id: 'guion', href: '/inmobiliaria/automatizacion/guion', label: 'Guion del bot' },
       { id: 'proyecto', href: '/inmobiliaria/automatizacion/proyecto', label: 'Estado del proyecto' },
       { id: 'estilo', href: '/inmobiliaria/automatizacion/estilo', label: 'Estilo de conversación' },
+      { id: 'pruebas', href: '/inmobiliaria/automatizacion/pruebas', label: 'Modo de pruebas' },
       { id: 'precios', href: '/inmobiliaria/automatizacion/precios', label: 'Precios' },
       { id: 'ubicacion', href: '/inmobiliaria/automatizacion/ubicacion', label: 'Ubicación' },
     ] : []),
