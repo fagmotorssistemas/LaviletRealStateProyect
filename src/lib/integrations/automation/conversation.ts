@@ -35,6 +35,7 @@ import { nutritionContinuation } from './nutrition-week-one-rules'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
+import { financingFieldAnswer, financingCollectionIssues } from './financing-continuation'
 import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
 import { operationalReply } from './operational-copy'
 import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
@@ -144,8 +145,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
   const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
   const previousSummary = object(conversationBefore.summary)
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
+  const financeContinuation = !inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)
+    && financingFieldAnswer(current, context.historial, {explicit_consent:true})
+    ? financingFieldAnswer(current, context.historial, (await financingContext(lead)).current) : null
   if (!inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)) {
-    businessScope = await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true)
+    businessScope = financeContinuation ? {kind:'property',property_message:current,reply:'',uncertain:false}
+      : await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true)
     if (businessScope.kind === 'out_of_scope') {
       reply = businessScope.reply
       audit = { source: 'business_out_of_scope', business_scope: businessScope.kind }
@@ -402,6 +407,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     ])
     summary = {...newSummary, _unit_reference: reference.memory, _sales_memory: previousSummary._sales_memory}
     const extracted = normalizeEvents(rawEvents, current)
+    if(financeContinuation) Object.assign(extracted,financeContinuation)
     const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
     extracted.financing_consent = financeInput.consent
     extracted.financing_partner = financeInput.partner
@@ -554,7 +560,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
       preserveOperationalQuestion: ['financing', 'visit_intake', 'visit_status', 'visit_option_choice'].includes(text(audit.source)) })
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
-    if (!invalidPrice) reply = reviewed.reply
+    if (!invalidPrice) {
+      if(!financingCollectionIssues(reviewed.reply,audit,current)) reply = reviewed.reply
+    }
     else {
       // Reject the rewrite, not the conversation. A valid catalogue quote does
       // not become an information gap because an AI draft changed its prices.
