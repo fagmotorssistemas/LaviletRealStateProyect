@@ -10,7 +10,7 @@
 | Contrato Nest→Meta WhatsApp BM | **Incompleto** (ver abajo) |
 | Envío real Nest→Meta | **OFF** |
 
-Migración preparada (**no** aplicar a Production): `20260917152000_meta_capi_outbox_review_hold.sql` (+ rollback).
+Migración preparada (**no** aplicar a Production): `20260917152000_meta_capi_outbox_review_hold.sql`. Reversión: `supabase/rollbacks/20260917152000_meta_capi_outbox_review_hold_down.sql`.
 
 ## Elegibilidad (cerrada)
 
