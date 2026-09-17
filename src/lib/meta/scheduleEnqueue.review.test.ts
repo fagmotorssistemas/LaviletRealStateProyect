@@ -13,12 +13,20 @@ import {
   SCHEDULE_QUEUE_INACTIVE,
   WHATSAPP_SCHEDULE_DELIVERY_PENDING,
 } from './scheduleEligibility'
+import { LOCAL_PERSIST_INACTIVE } from './scheduleContract'
 
 const APPT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 const LEAD = '11111111-2222-4333-8444-555555555555'
 
 function supabaseAppointment(channel: string, consent: boolean | null) {
-  const leadRow = { id: LEAD, meta_ads_consent: consent }
+  const leadRow = {
+    id: LEAD,
+    meta_ads_consent: consent,
+    phone: '593990000000',
+    name: 'Cliente',
+    email: null,
+    contact_id: '456',
+  }
   const appointmentRow = {
     id: APPT,
     lead_id: LEAD,
@@ -28,15 +36,22 @@ function supabaseAppointment(channel: string, consent: boolean | null) {
   }
   return {
     from: (table: string) => {
-      const row = table === 'appointments' ? appointmentRow : table === 'leads' ? leadRow : null
-      if (!row) throw new Error(`unexpected table ${table}`)
+      let row: unknown = null
+      if (table === 'appointments') row = appointmentRow
+      else if (table === 'leads') row = leadRow
+      else if (table === 'lv_whatsapp_ctwa_attribution') row = null
+      else throw new Error(`unexpected table ${table}`)
       const builder: {
         select: () => typeof builder
         eq: () => typeof builder
+        order: () => typeof builder
+        limit: () => typeof builder
         maybeSingle: () => Promise<{ data: unknown; error: null }>
       } = {
         select: () => builder,
         eq: () => builder,
+        order: () => builder,
+        limit: () => builder,
         maybeSingle: async () => ({ data: row, error: null }),
       }
       return builder
@@ -166,7 +181,7 @@ describe('evaluación separada de cola (sin persistencia ni envío)', () => {
       { getLeadAdsConsent: consentTrue },
     )
     assert.equal(enqueued.ok, false)
-    assert.equal(enqueued.reason, WHATSAPP_SCHEDULE_DELIVERY_PENDING)
+    assert.equal(enqueued.reason, LOCAL_PERSIST_INACTIVE)
   })
 
   it('web: evaluación OK, cola inactiva separada', async () => {
@@ -185,6 +200,6 @@ describe('evaluación separada de cola (sin persistencia ni envío)', () => {
       { getLeadAdsConsent: consentTrue },
     )
     assert.equal(enqueued.ok, false)
-    assert.equal(enqueued.reason, 'evaluation_only_queue_separated')
+    assert.equal(enqueued.reason, LOCAL_PERSIST_INACTIVE)
   })
 })

@@ -1,15 +1,11 @@
 /**
- * Schedule (Meta) — evaluación tras confirmación de visitas.
+ * Schedule (Meta) — evaluación + preparación de entrega tras confirmación.
  *
- * Separación:
- * - Este módulo solo **evalúa** (y registra códigos sin PII).
- * - La cola activa (outbox / flush Nest / Pixel) está desconectada.
+ * Elegibilidad (PR #5): cerrada.
+ * Entrega: plan web/WhatsApp + persistencia local opcional; flush Nest/Meta OFF.
  *
- * WhatsApp: `business_messaging` es la intención futura de action_source;
- * la entrega sigue `whatsapp_delivery_pending_nest_contract` hasta verificar
- * el contrato completo Nest/Meta. Cambiar solo action_source no completa la integración.
- *
- * Nunca persiste ni envía eventos reales.
+ * WhatsApp: exige identificadores de messaging/CTWA en el plan; Nest aún no los
+ * reenvía. Sin CTWA se documenta `whatsapp_ctwa_clid_missing` (atribución floja).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -19,8 +15,12 @@ import {
   type ScheduleEligibility,
 } from './scheduleEligibility'
 import { notifyScheduleIfRequestConfirmed as notifyIfConfirmed } from './scheduleAgendaHook'
+import { prepareScheduleDeliveryAfterConfirmation } from './scheduleDelivery'
 
 export const SCHEDULE_META_INTEGRATION_STATUS = 'evaluation_only_queue_separated' as const
+
+/** Elegibilidad del PR #5: cerrada. */
+export const SCHEDULE_ELIGIBILITY_REVIEW = 'closed' as const
 
 /** @deprecated */
 export const SCHEDULE_META_PENDING_HOOK =
@@ -94,32 +94,26 @@ export async function evaluateScheduleForConfirmedAppointment(
 }
 
 /**
- * Cola activa desconectada. No persiste.
- * WhatsApp nunca encola aquí (contrato Nest/Meta pendiente).
+ * Prepara entrega (plan + persist local gated). Nunca flushea Nest.
  */
 export async function enqueueScheduleForConfirmedAppointment(
   supabase: SupabaseClient,
   appointmentId: string,
   deps?: { getLeadAdsConsent?: typeof getLeadAdsConsent },
 ): Promise<ScheduleEvaluateResult> {
-  const evaluated = await evaluateScheduleForConfirmedAppointment(supabase, appointmentId, deps)
-  if (!evaluated.eligibility?.businessOk) {
-    return evaluated
-  }
-  const reason =
-    evaluated.eligibility.channelKind === 'whatsapp'
-      ? evaluated.reason
-      : SCHEDULE_META_INTEGRATION_STATUS
-  logScheduleSafe('queue_separated', reason)
+  const prepared = await prepareScheduleDeliveryAfterConfirmation(supabase, appointmentId, {
+    getLeadAdsConsent: deps?.getLeadAdsConsent,
+  })
+  logScheduleSafe('delivery_prepare', prepared.reason)
   return {
-    ok: false,
-    reason,
-    eligibility: evaluated.eligibility,
+    ok: prepared.ok,
+    reason: prepared.reason,
+    eligibility: prepared.eligibility,
   }
 }
 
 /**
- * Gancho post-confirmación: solo evaluación. Nunca lanza ni encola.
+ * Gancho post-confirmación: prepara entrega. Por defecto sin persist ni flush.
  */
 export async function afterAppointmentConfirmedForSchedule(
   supabase: SupabaseClient,
@@ -128,7 +122,12 @@ export async function afterAppointmentConfirmedForSchedule(
   const id = String(appointmentId || '').trim()
   if (!id) return
   try {
-    return await evaluateScheduleForConfirmedAppointment(supabase, id)
+    const prepared = await prepareScheduleDeliveryAfterConfirmation(supabase, id)
+    return {
+      ok: prepared.ok,
+      reason: prepared.reason,
+      eligibility: prepared.eligibility,
+    }
   } catch {
     logScheduleSafe('hook_error', 'swallowed')
   }
