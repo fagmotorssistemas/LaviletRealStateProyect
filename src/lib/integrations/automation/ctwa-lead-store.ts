@@ -20,6 +20,13 @@ export type CtwaPersistResult = {
   action: string
 }
 
+const RECOGNIZED_PRESERVE_ACTIONS = new Set([
+  'inserted',
+  'preserved_existing',
+  'duplicate_retry',
+  'noop_empty',
+])
+
 function classifyCtwaPersistError(error: unknown): CtwaPersistCode {
   const message = error instanceof Error ? error.message : String(error)
   const name = error instanceof Error ? error.name : ''
@@ -45,6 +52,39 @@ function classifyCtwaPersistError(error: unknown): CtwaPersistCode {
   return 'CTWA_UNEXPECTED'
 }
 
+/**
+ * Clasifica fallos de lv_app_get_ctwa.
+ * Solo PGRST202 / 42883 / 42P01 / "does not exist" / schema cache → ausente.
+ * Permisos (42501), otros códigos SQL/PostgREST → CTWA_DB_ERROR.
+ */
+function classifyGetCtwaError(error: unknown): CtwaPersistCode {
+  const message = error instanceof Error ? error.message : String(error)
+  const name = error instanceof Error ? error.name : ''
+  if (
+    name === 'TimeoutError' ||
+    name === 'AbortError' ||
+    /timeout|timed out|aborted/i.test(message)
+  ) {
+    return 'CTWA_TIMEOUT'
+  }
+  if (
+    /RPC_LV_APP_GET_CTWA_(PGRST202|42883|42P01)\b/i.test(message) ||
+    /function .*lv_app_get_ctwa.* does not exist/i.test(message) ||
+    /Could not find the function.*lv_app_get_ctwa/i.test(message) ||
+    (/schema cache/i.test(message) && /lv_app_get_ctwa|get_ctwa/i.test(message))
+  ) {
+    return 'CTWA_RPC_MISSING'
+  }
+  if (
+    /^RPC_LV_APP_GET_CTWA_/i.test(message) ||
+    /permission denied/i.test(message) ||
+    /\bPGRST\d+\b|\b23\d{3}\b|\b42\w{3}\b|\b42501\b/i.test(message)
+  ) {
+    return 'CTWA_DB_ERROR'
+  }
+  return 'CTWA_UNEXPECTED'
+}
+
 /** Log seguro: solo código y motivo genérico; sin clid, teléfono ni contactId. */
 export function logCtwaPersistFailure(code: CtwaPersistCode, reason: string) {
   console.error(
@@ -56,7 +96,7 @@ export function logCtwaPersistFailure(code: CtwaPersistCode, reason: string) {
   )
 }
 
-function mapRpcAction(action: string): CtwaPersistCode {
+function mapRpcAction(action: string): CtwaPersistCode | null {
   switch (action) {
     case 'inserted':
       return 'CTWA_INSERTED'
@@ -67,13 +107,25 @@ function mapRpcAction(action: string): CtwaPersistCode {
     case 'noop_empty':
       return 'CTWA_NOOP'
     default:
-      return 'CTWA_INSERTED'
+      return null
   }
+}
+
+function contractFailureCode(action: string): CtwaPersistCode {
+  return action === 'missing_after_conflict' ? 'CTWA_DB_ERROR' : 'CTWA_UNEXPECTED'
+}
+
+function contractFailureReason(ok: unknown, action: string): string {
+  if (!action) return 'empty_or_missing_action'
+  if (action === 'missing_after_conflict') return 'missing_after_conflict'
+  if (ok !== true) return 'rpc_not_ok'
+  return 'unrecognized_action'
 }
 
 /**
  * Persiste ctwa_clid first-touch vía RPC preparada.
  * Nunca interrumpe la atención CRM: todos los fallos se clasifican y se registran sin PII.
+ * Exige result.ok === true y una acción reconocida; vacío / desconocido / missing_after_conflict → fallo controlado.
  * No dispara Pixel ni CAPI.
  */
 export async function preserveCtwaForContact(input: {
@@ -100,8 +152,14 @@ export async function preserveCtwaForContact(input: {
         p_external_message_id: input.externalMessageId,
       }),
     )
-    const action = text(result.action) || 'unknown'
-    return { ok: true, code: mapRpcAction(action), action }
+    const action = text(result.action)
+    const mapped = action ? mapRpcAction(action) : null
+    if (result.ok !== true || !mapped || !RECOGNIZED_PRESERVE_ACTIONS.has(action)) {
+      const code = contractFailureCode(action)
+      logCtwaPersistFailure(code, contractFailureReason(result.ok, action))
+      return { ok: false, code, action: action || 'failed' }
+    }
+    return { ok: true, code: mapped, action }
   } catch (error) {
     const code = classifyCtwaPersistError(error)
     logCtwaPersistFailure(
@@ -123,20 +181,16 @@ export async function getStoredCtwaClid(contactId: number): Promise<string | nul
     if (result.found !== true) return null
     return text(result.ctwa_clid) || null
   } catch (error) {
-    const code = classifyCtwaPersistError(error)
-    // Reutilizar clasificación; get usa otra RPC — mapear missing genérico.
-    const getCode =
-      /lv_app_get_ctwa|PGRST202|42883|does not exist|schema cache/i.test(
-        error instanceof Error ? error.message : String(error),
-      )
-        ? 'CTWA_RPC_MISSING'
-        : code === 'CTWA_TIMEOUT'
-          ? 'CTWA_TIMEOUT'
-          : 'CTWA_DB_ERROR'
+    const getCode = classifyGetCtwaError(error)
     logCtwaPersistFailure(getCode, 'get_ctwa_failed')
     return null
   }
 }
 
 /** Solo para tests unitarios de clasificación. */
-export const __test = { classifyCtwaPersistError, mapRpcAction }
+export const __test = {
+  classifyCtwaPersistError,
+  classifyGetCtwaError,
+  mapRpcAction,
+  RECOGNIZED_PRESERVE_ACTIONS,
+}

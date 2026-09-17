@@ -283,6 +283,123 @@ describe('Códigos de error CTWA', () => {
     assert.equal(result.code, 'CTWA_NOOP')
     assert.equal(calls, 0)
   })
+
+  it('respuesta vacía / acción desconocida / missing_after_conflict: fallo controlado sin PII', async () => {
+    const sample = {
+      contactId: 456,
+      kommoId: 123,
+      externalMessageId: 'msg-contract',
+      ctwa: {
+        clid: 'Aff-CONTRACT-SECRET',
+        fieldPath: 'p',
+        sourceId: null,
+        sourceUrl: null,
+        referralSourceType: null,
+      },
+    }
+
+    const emptyLogs = []
+    const emptyStore = loadStore(async () => ({}), emptyLogs)
+    try {
+      const empty = await emptyStore.preserveCtwaForContact(sample)
+      assert.equal(empty.ok, false)
+      assert.equal(empty.code, 'CTWA_UNEXPECTED')
+      assert.equal(emptyLogs.length, 1)
+      assert.match(emptyLogs[0], /empty_or_missing_action|CTWA_UNEXPECTED/)
+      assert.doesNotMatch(emptyLogs[0], /Aff-CONTRACT|456|123/)
+    } finally {
+      emptyStore.__restoreConsole?.()
+    }
+
+    const unknownLogs = []
+    const unknownStore = loadStore(async () => ({ ok: true, action: 'weird_new_action' }), unknownLogs)
+    try {
+      const unknown = await unknownStore.preserveCtwaForContact(sample)
+      assert.equal(unknown.ok, false)
+      assert.equal(unknown.code, 'CTWA_UNEXPECTED')
+      assert.equal(unknown.action, 'weird_new_action')
+      assert.match(unknownLogs[0], /unrecognized_action/)
+      assert.doesNotMatch(unknownLogs[0], /Aff-CONTRACT|456/)
+    } finally {
+      unknownStore.__restoreConsole?.()
+    }
+
+    const conflictLogs = []
+    const conflictStore = loadStore(
+      async () => ({ ok: false, action: 'missing_after_conflict' }),
+      conflictLogs,
+    )
+    try {
+      const conflict = await conflictStore.preserveCtwaForContact(sample)
+      assert.equal(conflict.ok, false)
+      assert.equal(conflict.code, 'CTWA_DB_ERROR')
+      assert.equal(conflict.action, 'missing_after_conflict')
+      assert.match(conflictLogs[0], /missing_after_conflict/)
+      assert.doesNotMatch(conflictLogs[0], /Aff-CONTRACT|456/)
+    } finally {
+      conflictStore.__restoreConsole?.()
+    }
+
+    const notOkLogs = []
+    const notOkStore = loadStore(async () => ({ ok: false, action: 'inserted' }), notOkLogs)
+    try {
+      const notOk = await notOkStore.preserveCtwaForContact(sample)
+      assert.equal(notOk.ok, false)
+      assert.equal(notOk.code, 'CTWA_UNEXPECTED')
+      assert.match(notOkLogs[0], /rpc_not_ok/)
+    } finally {
+      notOkStore.__restoreConsole?.()
+    }
+  })
+
+  it('getStoredCtwaClid: permisos/DB ≠ RPC ausente', async () => {
+    assert.equal(
+      ctwaTest.classifyGetCtwaError(new Error('RPC_LV_APP_GET_CTWA_PGRST202')),
+      'CTWA_RPC_MISSING',
+    )
+    assert.equal(
+      ctwaTest.classifyGetCtwaError(new Error('function public.lv_app_get_ctwa(...) does not exist')),
+      'CTWA_RPC_MISSING',
+    )
+    assert.equal(
+      ctwaTest.classifyGetCtwaError(new Error('RPC_LV_APP_GET_CTWA_42501')),
+      'CTWA_DB_ERROR',
+    )
+    assert.equal(
+      ctwaTest.classifyGetCtwaError(new Error('permission denied for function lv_app_get_ctwa')),
+      'CTWA_DB_ERROR',
+    )
+    assert.equal(
+      ctwaTest.classifyGetCtwaError(new Error('RPC_LV_APP_GET_CTWA_XX000')),
+      'CTWA_DB_ERROR',
+    )
+
+    const permLogs = []
+    const permStore = loadStore(async () => {
+      throw new Error('permission denied for function lv_app_get_ctwa')
+    }, permLogs)
+    try {
+      const value = await permStore.getStoredCtwaClid(456)
+      assert.equal(value, null)
+      assert.equal(permLogs.length, 1)
+      assert.match(permLogs[0], /CTWA_DB_ERROR/)
+      assert.doesNotMatch(permLogs[0], /456|CTWA_RPC_MISSING/)
+    } finally {
+      permStore.__restoreConsole?.()
+    }
+
+    const missingLogs = []
+    const missingStore = loadStore(async () => {
+      throw new Error('RPC_LV_APP_GET_CTWA_PGRST202')
+    }, missingLogs)
+    try {
+      assert.equal(await missingStore.getStoredCtwaClid(456), null)
+      assert.match(missingLogs[0], /CTWA_RPC_MISSING/)
+      assert.doesNotMatch(missingLogs[0], /456/)
+    } finally {
+      missingStore.__restoreConsole?.()
+    }
+  })
 })
 
 describe('Flujo processConversation con dependencias simuladas', () => {

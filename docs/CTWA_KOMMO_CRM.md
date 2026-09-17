@@ -45,10 +45,18 @@ Cubre: sin CTWA → flujo OK; captura si hay referral; first-touch; reintento id
 
 `npm run test:ctwa-kommo`:
 
-1. **Códigos**: `CTWA_RPC_MISSING` vs `CTWA_TIMEOUT` vs `CTWA_DB_ERROR` (sin lanzar al CRM).
-2. **Log seguro**: fallos en JSON con `code`/`reason`; sin clid, teléfono ni contactId.
-3. **`processConversation` simulado**: RPC ausente, error DB, timeout → `bot_paused` tras registrar; duplicado → `action: duplicate` sin contexto de respuesta.
-4. **SQL (PGlite)**: dos mensajes distintos del mismo contacto → una sola fila, clid de la primera captura; reintento del mismo `external_message_id` → `duplicate_retry`.
-5. **Sin CTWA**: `CTWA_NOOP` sin llamar RPC; `preserveCtwaCapture(existing, null)` conserva first-touch.
+1. **Códigos**: `CTWA_RPC_MISSING` vs `CTWA_TIMEOUT` vs `CTWA_DB_ERROR` / `CTWA_UNEXPECTED` (sin lanzar al CRM).
+2. **Contrato RPC preserve**: exige `ok === true` y acción reconocida (`inserted` | `preserved_existing` | `duplicate_retry` | `noop_empty`). Vacío, desconocido o `missing_after_conflict` → fallo controlado + log sin PII.
+3. **`getStoredCtwaClid`**: solo ausencia real (PGRST202 / 42883 / 42P01 / does not exist) → `CTWA_RPC_MISSING`; permisos (`42501`, `permission denied`) y otros errores → `CTWA_DB_ERROR`.
+4. **Log seguro**: JSON con `code`/`reason`; sin clid, teléfono ni contactId.
+5. **`processConversation` simulado**: RPC ausente, error DB, timeout → `bot_paused` tras registrar; duplicado → `action: duplicate`.
+6. **SQL (PGlite)**: dos mensajes distintos del mismo contacto → una sola fila, clid de la primera captura; reintento → `duplicate_retry`.
+7. **Sin CTWA**: `CTWA_NOOP` sin llamar RPC; `preserveCtwaCapture(existing, null)` conserva first-touch.
 
 Migración: preparada, **no** aplicada a Production. Unicidad atómica vía `EXCEPTION WHEN unique_violation` + `ORDER BY captured_at, id`.
+
+## Límites actuales de las pruebas
+
+- **SQL**: ejercita `lv_app_preserve_ctwa` en **secuencia** (llamadas una tras otra en PGlite). No cubre carrera concurrente real entre dos writers sobre el mismo contacto/mensaje.
+- **Conversación**: el flujo simulado usa lead con **bot pausado** (`bot_enabled: false` → `action: bot_paused`) para verificar que el registro inbound y el soft-fail CTWA no cortan la atención. No ejercita una respuesta comercial completa ni envío a Kommo/WhatsApp.
+- Sin migración en Production, sin publicación y sin mensajes reales.
