@@ -13,6 +13,7 @@ import {
   detectsWhatsappAdsConsentRevoke,
   clientAdsConsentUtterance,
 } from './waLeadSubmittedConsent'
+import { decideWaLeadSubmittedConsentGate } from './waLeadSubmittedConsentGate'
 import {
   isMetaCapiSentStage,
   labelMetaCapiReason,
@@ -188,6 +189,53 @@ describe('planWaLeadSubmitted', () => {
     assert.notEqual(
       payload.whatsapp_business_account_id,
       payload.messaging_dataset_id,
+    )
+  })
+})
+
+describe('waLeadSubmittedConsentGate', () => {
+  const scoped = {
+    queryOk: true,
+    leadFound: true,
+    metaAdsConsent: true as boolean | null,
+    leadTenantId: 't1',
+    leadProjectId: 'p1',
+    eventTenantId: 't1',
+    eventProjectId: 'p1',
+    eventContactId: 'c1',
+  }
+
+  it('solo true permite envío', () => {
+    assert.equal(decideWaLeadSubmittedConsentGate(scoped).action, 'allow_send')
+  })
+
+  it('false / null / error / ausente no permiten envío', () => {
+    assert.equal(
+      decideWaLeadSubmittedConsentGate({ ...scoped, metaAdsConsent: false }).action,
+      'cancel_revoked',
+    )
+    assert.equal(
+      decideWaLeadSubmittedConsentGate({ ...scoped, metaAdsConsent: null }).action,
+      'hold_pending',
+    )
+    assert.equal(
+      decideWaLeadSubmittedConsentGate({ ...scoped, queryOk: false }).action,
+      'hold_pending',
+    )
+    assert.equal(
+      decideWaLeadSubmittedConsentGate({ ...scoped, leadFound: false }).action,
+      'hold_pending',
+    )
+  })
+
+  it('scope tenant/proyecto/contacto', () => {
+    assert.equal(
+      decideWaLeadSubmittedConsentGate({ ...scoped, eventContactId: '' }).reason,
+      'contact_scope_required',
+    )
+    assert.equal(
+      decideWaLeadSubmittedConsentGate({ ...scoped, eventTenantId: 'x' }).reason,
+      'tenant_scope_mismatch',
     )
   })
 })

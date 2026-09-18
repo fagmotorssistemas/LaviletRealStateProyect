@@ -15,6 +15,7 @@ import {
   type WaLeadSubmittedBlocker,
 } from '@/lib/meta/waLeadSubmittedContract'
 import { evaluateWaLeadSubmittedEligibility } from '@/lib/meta/waLeadSubmittedEligibility'
+import { decideWaLeadSubmittedConsentGate } from '@/lib/meta/waLeadSubmittedConsentGate'
 import {
   isWaLeadSubmittedDeliveryEnabled,
   isWaLeadSubmittedEnabled,
@@ -292,44 +293,56 @@ export async function maybeRegisterWaLeadSubmitted(input: {
     }
   }
 
-  // Revocación: revalidar consentimiento en DB antes de persistir/enviar.
-  const { data: consentRow } = await admin
+  // Revocación / vigencia: consentimiento exactamente true en fuente autorizada.
+  const { data: consentRow, error: consentError } = await admin
     .from('leads')
     .select('meta_ads_consent, tenant_id, project_id, meta_wa_lead_submitted_event_id')
     .eq('id', input.lead.id)
     .maybeSingle()
-  if (consentRow?.meta_ads_consent !== true) {
+
+  const gate = decideWaLeadSubmittedConsentGate({
+    queryOk: !consentError,
+    leadFound: Boolean(consentRow),
+    metaAdsConsent: consentRow?.meta_ads_consent,
+    leadTenantId: consentRow?.tenant_id as string | null | undefined,
+    leadProjectId: consentRow?.project_id as string | null | undefined,
+    eventTenantId: input.lead.tenant_id,
+    eventProjectId: input.lead.project_id,
+    eventContactId: contactId,
+  })
+
+  if (gate.action !== 'allow_send') {
     await logConversion(admin, {
       stage: 'blocked',
-      reason: 'ads_consent_required',
+      reason: gate.reason,
       leadId: input.lead.id,
       contactId,
       tenantId: input.lead.tenant_id,
       projectId: input.lead.project_id,
-      details: { revalidated: true },
+      details: { revalidated: true, gate: gate.action },
     })
     return {
       attempted: true,
       stage: 'blocked',
-      reason: 'ads_consent_required',
+      reason: gate.reason,
       eventId: null,
       blockers: ['ads_consent_required'],
       retainAttention: true,
     }
   }
-  if (consentRow.meta_wa_lead_submitted_event_id) {
+  if (consentRow!.meta_wa_lead_submitted_event_id) {
     return {
       attempted: true,
       stage: 'duplicate',
       reason: 'already_registered',
-      eventId: String(consentRow.meta_wa_lead_submitted_event_id),
+      eventId: String(consentRow!.meta_wa_lead_submitted_event_id),
       blockers: [],
       retainAttention: true,
     }
   }
   // Aislamiento tenant/proyecto: el payload lleva el scope del lead, no inventado.
-  const tenantId = (consentRow.tenant_id as string | null) || input.lead.tenant_id || null
-  const projectId = (consentRow.project_id as string | null) || input.lead.project_id || null
+  const tenantId = (consentRow!.tenant_id as string | null) || input.lead.tenant_id || null
+  const projectId = (consentRow!.project_id as string | null) || input.lead.project_id || null
 
   const eventId = randomUUID()
   const eventTime = Math.floor(Date.now() / 1000)
