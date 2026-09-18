@@ -7,7 +7,7 @@ import { ArrowRight, CalendarDays, CheckCheck, Clock3, ExternalLink, Inbox, Phon
 import { useVisitInboxContext, type VisitInboxTab } from '@/contexts/VisitInboxContext'
 import { formatAgendaDateTime } from '@/lib/inmobiliaria/agendaTime'
 import { kommoLeadUrl } from '@/lib/inmobiliaria/visitPresentation'
-import { visitIsOverdue, visitWaitLabel } from '@/lib/inmobiliaria/visitInbox'
+import { visitActionButton, visitActionTitle, visitIsOverdue, visitWaitLabel } from '@/lib/inmobiliaria/visitInbox'
 
 const VISIT_PLACE_LABELS: Record<string,string> = {
   office: 'Oficina',
@@ -66,8 +66,9 @@ export function VisitInboxDrawer() {
             const phone = item.lead?.phone?.replace(/[^+\d]/g, '')
             const chat = kommoLeadUrl(item.lead?.kommo_id)
             return <article key={item.id} className={`rounded-xl border bg-white p-4 ${urgent ? 'border-amber-300' : 'border-stone-200'}`}>
-              <div className="flex items-center justify-between gap-3 text-[11px]"><span className={`rounded-full px-2 py-1 font-semibold ${isPending ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{coordinationUrgent ? 'Llamada urgente · bot pausado' : urgent ? 'Requiere atención' : isPending ? 'Pendiente de revisión' : 'Esperando al cliente'}</span><span className="flex items-center gap-1 whitespace-nowrap text-stone-500"><Clock3 size={12} />{visitWaitLabel(item.coordination_urgent_at || item.created_at, now)}</span></div>
-              <h3 className="mt-3 font-semibold">{item.lead?.name || 'Cliente sin nombre'}</h3>
+              <div className="flex items-center justify-between gap-3 text-[11px]"><span className={`rounded-full px-2 py-1 font-semibold ${isPending ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{coordinationUrgent ? 'Contacto requerido · bot activo' : urgent ? 'Requiere atención' : isPending ? 'Pendiente de revisión' : 'Esperando al cliente'}</span><span className="flex items-center gap-1 whitespace-nowrap text-stone-500"><Clock3 size={12} />{visitWaitLabel(item.coordination_urgent_at || item.created_at, now)}</span></div>
+              <p className="mt-3 text-xs font-semibold tracking-wide text-[#607351] uppercase">{visitActionTitle(item)}</p>
+              <h3 className="mt-1 font-semibold">{item.lead?.name || 'Cliente sin nombre'}</h3>
               <p className="mt-0.5 text-xs text-stone-500">{item.project?.name || 'Proyecto'}{item.lead?.preferred_category ? ` · ${item.lead.preferred_category.replace(/_/g, ' ')}` : ''}</p>
               {coordinationUrgent && <div className="mt-3 rounded-lg bg-amber-50 p-3"><p className="line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-amber-950">{item.coordination_summary || 'El cliente no pudo elegir un horario. Contactar por teléfono para coordinar la visita.'}</p>{phone && <a href={`tel:${phone}`} className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900"><Phone size={13} />Llamar al cliente</a>}</div>}
               <div className="my-4 flex gap-3 rounded-lg bg-[#f8f8f4] px-3 py-3"><CalendarDays size={18} className="mt-1 shrink-0 text-[#787D62]" /><div><p className="text-[10px] tracking-wide text-stone-500 uppercase">{isPending ? 'Horario solicitado' : (item.proposed_options?.length ?? 0) > 1 ? 'Opciones enviadas' : 'Horario propuesto'}</p>
@@ -78,7 +79,7 @@ export function VisitInboxDrawer() {
               {isAdmin && <p className="mb-3 text-xs text-stone-500">Asesor: <span className="text-stone-700">{item.assigned_advisor?.full_name || 'Pendiente de asignación'}</span></p>}
               <div className="flex items-center justify-between gap-3">
                 {chat ? <a href={chat} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-stone-600 hover:underline">Chat en Kommo <ExternalLink size={12} /></a> : <span />}
-                <button type="button" onClick={() => openRequest(item)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 ${isPending ? 'bg-[#23362c] text-white hover:bg-[#354b3e]' : 'border border-stone-200 text-stone-700 hover:bg-stone-50'}`}>{isPending ? 'Revisar cita' : 'Ver propuesta'}<ArrowRight size={14} /></button>
+                <button type="button" onClick={() => openRequest(item)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 ${isPending ? 'bg-[#23362c] text-white hover:bg-[#354b3e]' : 'border border-stone-200 text-stone-700 hover:bg-stone-50'}`}>{isPending ? visitActionButton(item) : 'Ver propuesta'}<ArrowRight size={14} /></button>
               </div>
             </article>
           })}

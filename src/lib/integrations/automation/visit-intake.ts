@@ -23,6 +23,14 @@ export function needsVisitHelp(current: string) {
   return /no (?:estoy segur[oa]|se\b)|(?:que|cual|cuando|a que) (?:dia |hora |horario )?.*(?:pued[eo]|pueden|tienen|disponible|agendar|ir\b|venir|visitar)|(?:que|cuales) (?:otras? )?(?:opciones|horarios|alternativas) (?:tiene|hay|quedan)|suger|recomiend|digame (?:ud|usted)|elija|propongan|confirme el asesor/.test(value)
     || (/\b(?:prefiero|quiero|deme|denme|mejor) (?:otra|otro|otras|otros)\b/.test(value) && !isVisitDetail(current))
 }
+
+/** Detects that the bot already answered uncertainty with the configured service window. */
+export function visitHoursWereOffered(lastReply: string) {
+  const value = visitDetailText(lastReply)
+  return /horario de atencion/.test(value)
+    && /\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(value)
+    && /\b(?:fecha|dia|hora|horario|franja)\b/.test(value)
+}
 export function isVisitDetail(current: string) {
   const value = visitDetailText(current)
   return /\b(?:manana|hoy|lunes|martes|miercoles|jueves|viernes|sabado|domingo|tarde|hora|reagendar|reprogramar|cita|visita)\b/.test(value)

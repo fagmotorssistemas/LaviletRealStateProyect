@@ -20,7 +20,7 @@ import { isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat, priceFinancingReply } from './financing'
-import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply } from './visit-intake'
+import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply, visitHoursWereOffered } from './visit-intake'
 import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
 import { commercialMemory, rememberCommercialReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
@@ -48,7 +48,7 @@ import { selectedVisitOption } from './visit-choice'
 import { visitParserReady } from './visit-parser-health'
 import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
 import { asksForHouse, houseProductReply } from './product-fit'
-import { declinesAllVisitAlternatives, escalateVisitCoordination } from './visit-escalation'
+import { declinesAllVisitAlternatives } from './visit-escalation'
 import { completeTurnReply } from './turn-completeness'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
@@ -327,45 +327,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
       reply = 'Hemos registrado su solicitud de no recibir más mensajes.'; finalNotice = true
     } else if (proposal && declinesAllVisitAlternatives(current, proposal, intent)) {
       await guard()
-      let escalated: Row | null = null
-      try {
-        escalated = await escalateVisitCoordination({ proposal, current, history: context.historial, messageId: activeLast.externalId })
-      } catch (failure) {
-        // A timeout may follow a committed transaction. Never rotate the
-        // advisor again without first checking the durable request and pause.
-        let stored: Row
-        try {
-          await guard()
-          const verified = await Promise.all([
-            one('appointment_reschedule_requests', text(proposal.request_id || proposal.id)),
-            one('leads', text(lead.id)),
-          ])
-          stored = verified[0]; lead = verified[1]
-        } catch { throw new Error('VISIT_URGENT_RESULT_UNKNOWN') }
-        if (stored.coordination_urgent_at && stored.source_message_id === activeLast.externalId
-          && stored.status === 'awaiting_advisor' && lead.bot_enabled === false) {
-          escalated = { action: 'escalated', request_id: stored.id, bot_paused: true, recovered_after_error: true }
-        } else if (stored.coordination_urgent_at || stored.status !== 'awaiting_client' || stored.proposed_by !== 'advisor'
-          || lead.bot_enabled !== true) {
-          return { action: 'visit_coordination_changed', request_id: stored.id }
-        } else if (failure instanceof Error && /RPC_LV_ESCALATE_VISIT_COORDINATION_(?:PGRST202|42883)$/.test(failure.message)) {
-          // Only a definitely absent RPC proves it never mutated this request.
-          reply = await transferToAdvisor('coordinación urgente: rechazó las alternativas de visita; llamar para acordar un horario y revisar la solicitud pendiente')
-          audit = { source: 'advisor_handoff', urgent_coordination_fallback: true }
-        } else { throw new Error('VISIT_URGENT_RESULT_UNKNOWN') }
-      }
-      if (escalated) {
-        lead = await one('leads', text(lead.id))
-        if (lead.bot_enabled !== false) throw new Error('VISIT_URGENT_PAUSE_NOT_VERIFIED')
-        finalNotice = true
-        reply = text(escalated.message) || 'Entendemos. He pasado su solicitud al equipo para que un asesor se comunique con usted y puedan coordinar la visita directamente.'
-        handoffNotice = reply
-        audit = { source: 'visit_urgent_handoff', request_id: escalated.request_id, bot_paused: true,
-          recovered_after_error: escalated.recovered_after_error === true }
-        await guard()
-        try { await setKommoField(last.kommoId, 451530, 'true') }
-        catch { audit = { ...audit, kommo_pause_sync: 'pending' } }
-      }
+      const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
+        p_needs_help: true, p_previous_request: proposal.request_id || proposal.id, p_snapshot: proposal })
+      reply = text(result.message) || 'Entiendo. Pediré al equipo que revise otras fechas y le enviaremos nuevas opciones por aquí.'
+      audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action,
+        preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified,
+        assigned_advisor_id: result.assigned_advisor_id, proposal_rejected: true, bot_paused: false }
     } else if (proposal && intent === 'accept' && options.length > 1) {
       if (selected === null) {
         reply = `¿Cuál de estos horarios le queda mejor?\n\n${visitOptionsList(options.map(o => ({ start_time: text(o.start_time), end_time: text(o.end_time) })))}`
@@ -379,10 +346,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
       }
     } else if (proposal && (intent === 'counterproposal' || intent === 'reject' || (intent === 'unclear' && visitDraft?.status === 'collecting'))) {
       await guard()
+      const requestedHelp = needsVisitHelp(current)
+      const advisorHelp = requestedHelp && (visitHoursWereOffered(text(state.ultima_respuesta))
+        || (proposal.proposed_by === 'advisor' && proposal.status === 'awaiting_client'))
       const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
-        p_needs_help: needsVisitHelp(current), p_previous_request: proposal.request_id || proposal.id,
+        p_needs_help: advisorHelp, p_previous_request: proposal.request_id || proposal.id,
         p_snapshot: interpretedVisit ? { ...proposal, _interpreted_visit: interpretedVisit } : proposal })
       reply = text(result.message) || intakeReply(result, activeLast.sentAt)
+      if (result.action === 'collecting' && requestedHelp) {
+        const visitInfo = await commercialContext(lead, context.historial)
+        reply = visitBusinessHoursReply(visitInfo.horario_atencion, result, activeLast.sentAt) || reply
+      }
       audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id }
     } else if (proposal && intent === 'unclear') {
       reply = proposal.status === 'awaiting_advisor'
@@ -606,7 +580,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     const truthfulVisitReply = visitTruthReply(reply, info, audit, proposals, protectedSentences)
     if (truthfulVisitReply !== reply) audit.visit_copy_guard = true
     reply = truthfulVisitReply
-    if ((reviewed.needsAdvisor || needsCommercialHandoff) && !finalNotice) {
+    const visitCoordinationHandled = audit.source === 'visit_intake'
+      && ['collecting', 'submitted'].includes(text(audit.action))
+      && (!reviewed.unresolved.length || reviewed.unresolved.every(item => /\b(?:visitas?|citas?|fechas?|horas?|horarios?|agenda|agendar|reagendar|propuestas?)\b/i.test(item)))
+    if (((reviewed.needsAdvisor && !visitCoordinationHandled) || needsCommercialHandoff) && !finalNotice) {
       const reason = reviewed.unresolved.length ? 'resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650) : pendingCommercialHandoff
       const notice = await transferToAdvisor(reason)
       reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + notice

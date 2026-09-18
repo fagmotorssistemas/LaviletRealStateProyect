@@ -434,7 +434,7 @@ export function AppointmentDetailModal({
         </div>
       )}
 
-      {!loadingDetail && !loadError && detail?.openReschedule?.coordination_urgent_at && panel === 'call-agreement' && <UrgentVisitAgreement requestId={detail.openReschedule.id} onCancel={() => setPanel('view')} onSaved={() => refreshAfter('Visita acordada por llamada y registrada. El bot permanece pausado.')} />}
+      {!loadingDetail && !loadError && detail?.openReschedule?.coordination_urgent_at && panel === 'call-agreement' && <UrgentVisitAgreement requestId={detail.openReschedule.id} onCancel={() => setPanel('view')} onSaved={() => refreshAfter('Visita acordada por llamada y registrada. El bot continúa activo.')} />}
 
       {!loadingDetail && !loadError && detail && panel === 'confirm' && (
         <form onSubmit={handleConfirm} className="space-y-4">

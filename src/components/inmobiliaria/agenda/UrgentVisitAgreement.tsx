@@ -35,7 +35,7 @@ export function UrgentVisitAgreement({ requestId, onCancel, onSaved }: {
       <Textarea id="call-visit-notes" label="Resumen de la llamada" placeholder="Indica qué acordaron y cualquier detalle útil para recibir al cliente." required minLength={10} maxLength={1500} value={notes} onChange={event => setNotes(event.target.value)} />
       <label className="flex items-start gap-2 text-sm leading-relaxed text-[#535c48]"><input type="checkbox" required checked={agreed} onChange={event => setAgreed(event.target.checked)} className="mt-1 accent-[#526247]" />Confirmo que acordé este horario con el cliente por teléfono.</label>
     </fieldset>
-    <p className="text-xs leading-relaxed text-stone-500">El bot permanecerá pausado. Este registro no enviará un mensaje automático al cliente.</p>
+    <p className="text-xs leading-relaxed text-stone-500">El bot continuará activo. Este registro no enviará un mensaje automático al cliente.</p>
     {error && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{error}</p>}
     <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Volver</Button><Button type="submit" disabled={saving || !agreed} className="gap-2 tracking-normal"><Check size={15} />{saving ? 'Guardando acuerdo…' : 'Registrar visita acordada'}</Button></div>
   </form>

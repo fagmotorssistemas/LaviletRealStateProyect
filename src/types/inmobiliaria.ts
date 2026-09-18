@@ -369,6 +369,7 @@ export interface AppointmentRescheduleRequest {
   escalated_at: string | null
   coordination_urgent_at?: string | null
   coordination_summary?: string | null
+  proposal_rejection_count?: number
   resolution_notes: string | null
   created_at: string
   resolved_at: string | null
