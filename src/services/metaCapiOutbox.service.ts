@@ -19,6 +19,10 @@ import {
   resolveMetaCapiPhone,
   type MetaCapiPhoneSource,
 } from '@/lib/meta/metaCapiPhone'
+import {
+  fetchMetaOfficialAggregates,
+  type MetaOfficialMetricsResult,
+} from '@/lib/meta/metaOfficialMetrics'
 
 export type { MetaCapiStatusBucket, MetaCapiPhoneSource }
 export { classifyOutboxStatus }
@@ -30,6 +34,10 @@ export type MetaCapiListFilters = {
   statusBucket?: MetaCapiStatusBucket
   lane?: MetaDeliveryLane | 'all' | null
   origin?: string | null
+  /** web | whatsapp | undetermined | all */
+  channel?: MetaCapiChannelKind | 'all' | null
+  /** Hint de dataset en payload (messaging_dataset_id), si existe. */
+  dataset?: string | null
   page?: number
   pageSize?: number
 }
@@ -82,6 +90,8 @@ export type MetaCapiOutboxRow = {
   destinationLabel: string
   hasCtwaClid: boolean
   ctwaNote: string | null
+  /** Solo si el payload trae messaging_dataset_id. */
+  datasetHint: string | null
   eventId: string
   origin: string | null
   leadId: string | null
@@ -185,11 +195,9 @@ export type MetaCapiOutboxResult = {
   pageSize: number
   eventNames: string[]
   origins: string[]
+  datasets: string[]
   timezone: string
-  metaOfficialMetrics: {
-    available: false
-    reason: string
-  }
+  metaOfficialMetrics: MetaOfficialMetricsResult
   absence: MetaCapiAbsenceReport
   notConfigured: MetaCapiNotConfiguredDiag[]
   whatsapp: MetaWhatsAppVisibility
@@ -277,12 +285,12 @@ function receptionForRow(
   if (nestHint === 'delivered_to_backend') {
     return {
       status: 'delivered_to_backend',
-      label: 'Aceptado por API backend (no implica atribución ads)',
+      label: 'Entregado al backend Nest (no implica aceptación Meta Graph)',
     }
   }
   return {
     status: 'meta_reception_unverified',
-    label: 'Recepción Meta no verificada',
+    label: 'Recepción Meta Graph no verificada',
   }
 }
 
@@ -345,6 +353,7 @@ function mapRow(
     destinationLabel: channelView.destinationLabel,
     hasCtwaClid: channelView.hasCtwaClid,
     ctwaNote: channelView.ctwaNote,
+    datasetHint: channelView.destinationIdHint,
     eventId: row.event_id,
     origin: originFromPayload(payload),
     leadId: row.lead_id,
@@ -392,11 +401,13 @@ async function probeNestReception(
   return out
 }
 
-async function buildAbsenceReport(admin: SupabaseClient): Promise<MetaCapiAbsenceReport> {
-  const { data: byName } = await admin.from('meta_capi_outbox').select('event_name')
+async function buildAbsenceReport(
+  admin: SupabaseClient,
+  scoped: OutboxDbRow[],
+): Promise<MetaCapiAbsenceReport> {
   const counts = { ViewContent: 0, Lead: 0, Schedule: 0 }
-  for (const row of byName ?? []) {
-    const n = String((row as { event_name?: string }).event_name || '')
+  for (const row of scoped) {
+    const n = row.event_name
     if (n === 'ViewContent' || n === 'Lead' || n === 'Schedule') counts[n] += 1
   }
 
@@ -412,18 +423,23 @@ async function buildAbsenceReport(admin: SupabaseClient): Promise<MetaCapiAbsenc
   const notes: string[] = []
   if (counts.Schedule === 0) {
     notes.push(
-      'No hay filas Schedule en outbox. WhatsApp Schedule permanece bloqueado; persistencia web depende de META_SCHEDULE_* (hoy OFF → ausencia de actividad elegible, no fallo de la bitácora).',
+      'Schedule ausente en outbox del alcance: WhatsApp Schedule sigue bloqueado; persistencia web depende de META_SCHEDULE_* (si OFF → falta de actividad elegible, no fallo de la bitácora).',
     )
   }
   if (counts.Lead === 0) {
-    notes.push('No hay eventos Lead en outbox en el alcance consultado.')
+    notes.push(
+      'Lead ausente: puede ser falta de actividad elegible, consentimiento ads, filtros de persistencia o error de implementación — no se inventa desde WhatsApp/Kommo.',
+    )
   } else if ((withMetaId ?? 0) > counts.Lead) {
     notes.push(
-      `Hay leads con meta_lead_event_id (${withMetaId}) y ${counts.Lead} Lead en outbox: posible historial parcial o recuperación incompleta.`,
+      `Hay leads con meta_lead_event_id (${withMetaId}) y ${counts.Lead} Lead en outbox: historial parcial o recuperación incompleta.`,
     )
   }
+  if (counts.ViewContent === 0) {
+    notes.push('Sin ViewContent en outbox del alcance (tour/unidad con consentimiento y enqueue).')
+  }
   notes.push(
-    'PageView del navegador no pasa por meta_capi_outbox; no se duplica aquí. Sin acceso autorizado a la API oficial de Meta Events Manager no se listan métricas de Pixel.',
+    'PageView del navegador no vive en meta_capi_outbox. Los agregados oficiales (si hay permiso Graph) van en sección separada; no se mezclan con filas de la cola.',
   )
 
   return {
@@ -720,10 +736,28 @@ export async function listMetaCapiOutbox(
   const origins = Array.from(
     new Set(scoped.map((r) => originFromPayload(asRecord(r.payload))).filter(Boolean) as string[]),
   ).sort()
+  const datasets = Array.from(
+    new Set(
+      scoped
+        .map((r) => resolveMetaCapiChannel(asRecord(r.payload), r.delivery_lane).destinationIdHint)
+        .filter(Boolean) as string[],
+    ),
+  ).sort()
 
   let working = scoped
   if (filters.origin && filters.origin !== 'all') {
     working = working.filter((r) => originFromPayload(asRecord(r.payload)) === filters.origin)
+  }
+  if (filters.channel && filters.channel !== 'all') {
+    working = working.filter(
+      (r) => resolveMetaCapiChannel(asRecord(r.payload), r.delivery_lane).channel === filters.channel,
+    )
+  }
+  if (filters.dataset && filters.dataset !== 'all') {
+    working = working.filter((r) => {
+      const hint = resolveMetaCapiChannel(asRecord(r.payload), r.delivery_lane).destinationIdHint
+      return hint === filters.dataset
+    })
   }
 
   // KPIs de la ventana (fecha/origen) sin el filtro de pestaña estado.
@@ -801,8 +835,9 @@ export async function listMetaCapiOutbox(
       }
     })
 
-  const absence = await buildAbsenceReport(admin)
+  const absence = await buildAbsenceReport(admin, scoped)
   const whatsapp = await buildWhatsAppVisibility(admin, tenantIds, scoped)
+  const metaOfficialMetrics = await fetchMetaOfficialAggregates()
 
   return {
     kpis: {
@@ -823,12 +858,9 @@ export async function listMetaCapiOutbox(
     pageSize,
     eventNames,
     origins,
+    datasets,
     timezone: DISPLAY_TZ,
-    metaOfficialMetrics: {
-      available: false,
-      reason:
-        'No hay credenciales/API autorizada en este front para leer el Administrador de eventos de Meta. PageView solo existe en Pixel (navegador).',
-    },
+    metaOfficialMetrics,
     absence,
     notConfigured: notConfiguredRows,
     whatsapp,
