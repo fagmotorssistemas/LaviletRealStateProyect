@@ -17,7 +17,7 @@ Actualizado el 14 de septiembre de 2026.
 
 Estado aplicado: Lanzamiento; precios visibles como referenciales; sugerencias de visita habilitadas; destino Oficina. La fase no se cambió a Preventa. Los 16 locales tienen los valores ficticios de prueba solicitados, no una tasación comercial. La configuración de visitas y los guiones anteriores se respaldaron antes de actualizarlos.
 
-Las cuatro categorías del guion —lanzamiento, precalificación, nutrición y preventa— organizan preguntas; no son cuatro fases del edificio. Suites, departamentos y locales son categorías del inventario.
+Las cuatro categorías existentes del guion —lanzamiento, precalificación, nutrición y preventa— son nombres legados para organizar instrucciones. No son fases del edificio ni deben definir el nuevo ciclo de vida del lead. La etapa comercial y el seguimiento se interpretan según [Flujo de leads, nutrición y recuperación](FLUJO_LEADS_NUTRICION_RECUPERACION.md). Suites, departamentos y locales son categorías del inventario.
 
 ## Decisiones por conversación
 

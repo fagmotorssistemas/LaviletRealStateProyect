@@ -11,7 +11,7 @@ Punto de restauración para cuando algo no cuadre. No es un commit de git.
 | Reglas | `/inmobiliaria/automatizacion/reglas` | solo admin | Horario, equipo, puntaje, nutrición |
 | Guion | `/inmobiliaria/automatizacion/guion` | solo admin | Preguntas y respuestas del bot |
 
-Financiamiento sigue en Contabilidad. Nutrición (4 semanas Meta) no es el chat en vivo.
+Financiamiento sigue en Contabilidad. Este documento conserva el estado histórico del 5 de septiembre. La definición vigente de etapas y seguimiento está en [Flujo de leads, nutrición y recuperación](FLUJO_LEADS_NUTRICION_RECUPERACION.md); nutrición es un seguimiento paralelo y no una etapa comercial principal.
 
 ## Cómo habla el bot (n8n)
 
