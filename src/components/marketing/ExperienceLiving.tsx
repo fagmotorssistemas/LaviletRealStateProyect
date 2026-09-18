@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight, Home, Leaf, Waves } from 'lucide-react'
@@ -72,18 +72,29 @@ const PILLARS = [
 function ExperiencePoster({
   item,
   instant = false,
+  compact = false,
 }: {
   item: (typeof AMENITIES)[number]
   instant?: boolean
+  compact?: boolean
 }) {
   return (
     <motion.article
       key={item.id}
       className="absolute inset-0 flex flex-col overflow-hidden rounded-[1.5rem] bg-[#f7f2eb] shadow-[0_22px_48px_rgba(30,28,18,0.22)]"
-      initial={instant ? false : { opacity: 1, y: '80vh' }}
+      initial={
+        instant
+          ? false
+          : compact
+            ? { opacity: 0, y: 36 }
+            : { opacity: 1, y: '80vh' }
+      }
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 1, y: '-80vh' }}
-      transition={{ duration: instant ? 0 : 1.85, ease: [0.45, 0.05, 0.2, 1] }}
+      exit={compact ? { opacity: 0, y: -36 } : { opacity: 1, y: '-80vh' }}
+      transition={{
+        duration: instant ? 0 : compact ? 0.55 : 1.85,
+        ease: compact ? [0.22, 1, 0.36, 1] : [0.45, 0.05, 0.2, 1],
+      }}
     >
       <div className="relative h-[50%] w-full shrink-0">
         <Image
@@ -122,12 +133,57 @@ function ExperienceStage({
   right,
   active,
   reduce,
+  mobile,
 }: {
   left: (typeof AMENITIES)[number]
   right: (typeof AMENITIES)[number]
   active: number
   reduce: boolean | null
+  mobile: boolean
 }) {
+  if (mobile) {
+    return (
+      <div className="relative z-10 mx-auto flex min-h-svh w-full max-w-lg flex-col px-5 py-8">
+        <div className="relative z-20">
+          <h2
+            id="experiencia-title"
+            className="font-serif text-[clamp(2.8rem,15vw,4.6rem)] leading-[0.86] font-normal tracking-[-0.04em] text-[#72735A]"
+          >
+            Experiencia
+          </h2>
+          <p className="mt-3 font-serif text-[1.25rem] leading-none text-[#72735A]/90">
+            Vivir en La Vilet.
+          </p>
+          <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-[#2B1A18]/70">
+            Última planta alta. Un lugar para desconectarse y encontrarse.
+          </p>
+        </div>
+
+        <div className="relative mx-auto mt-8 aspect-[4/5] w-full max-w-[22rem]">
+          {reduce ? (
+            <ExperiencePoster item={left} instant compact />
+          ) : (
+            <AnimatePresence mode="wait">
+              <ExperiencePoster key={left.id} item={left} compact />
+            </AnimatePresence>
+          )}
+        </div>
+
+        <div className="mt-7 flex justify-center gap-2">
+          {AMENITIES.map((amenity, index) => (
+            <span
+              key={amenity.id}
+              className={cn(
+                'h-1.5 rounded-full transition-all duration-300',
+                index === active ? 'w-8 bg-[#72735A]' : 'w-1.5 bg-[#72735A]/25',
+              )}
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="relative z-10 mx-auto min-h-svh w-full max-w-[1680px] px-5 py-6 sm:px-10 lg:px-14 lg:py-8">
       <div className="relative flex min-h-[calc(100svh-3rem)] flex-col lg:min-h-[calc(100svh-4rem)]">
@@ -223,6 +279,7 @@ export function ExperienceLiving() {
   const reduce = useReducedMotion()
   const trackRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState(0)
+  const [mobile, setMobile] = useState(true)
   const loop = [...AMENITIES, ...AMENITIES, ...AMENITIES]
   const left = AMENITIES[active] ?? AMENITIES[0]
   const right = AMENITIES[(active + 1) % AMENITIES.length] ?? AMENITIES[0]
@@ -230,6 +287,14 @@ export function ExperienceLiving() {
     target: trackRef,
     offset: ['start 80px', 'end end'] as any,
   })
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1023px)')
+    const sync = () => setMobile(media.matches)
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
 
   useMotionValueEvent(scrollYProgress, 'change', (value) => {
     const next = Math.min(
@@ -278,7 +343,13 @@ export function ExperienceLiving() {
             />
           </div>
 
-          <ExperienceStage left={left} right={right} active={active} reduce={reduce} />
+          <ExperienceStage
+            left={left}
+            right={right}
+            active={active}
+            reduce={reduce}
+            mobile={mobile}
+          />
         </div>
       </div>
 

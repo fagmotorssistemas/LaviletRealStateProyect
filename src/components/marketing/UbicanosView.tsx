@@ -51,6 +51,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
       ref={containerRef}
       className="relative z-30 bg-[#efece4] py-20 sm:py-28 lg:py-32 mkt-dark:bg-[#0a0a0a] overflow-visible group"
       initial="idle"
+      animate="active"
       whileHover="active"
       whileTap="active"
     >
@@ -83,26 +84,26 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
           whileInView={{ opacity: 1 }}
           viewport={{ once: false, margin: "-100px" }}
           transition={{ duration: 1, delay: 0.3 }}
-          className="absolute top-[calc(47%+7cm)] left-1/2 -translate-x-1/2 -translate-y-1/2 md:top-[47%]"
+          className="absolute top-[calc(47%+6cm)] left-1/2 -translate-x-1/2 -translate-y-1/2 md:top-[47%]"
         >
           <motion.div 
             variants={{
               idle: { scale: 1, opacity: 1 },
-              active: { scale: [1, 1.05, 1], opacity: [1, 0.6, 1], transition: { repeat: Infinity, duration: 2, ease: "easeInOut", delay: 0 } }
+              active: { scale: [1, 1.1, 1], opacity: [0.9, 0.35, 0.9], transition: { repeat: Infinity, duration: 2.4, ease: "easeInOut", delay: 0 } }
             }}
             className="absolute top-1/2 left-1/2 h-[360px] w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/30 sm:h-[600px] sm:w-[600px] md:h-[900px] md:w-[900px]" 
           />
           <motion.div 
             variants={{
               idle: { scale: 1, opacity: 1 },
-              active: { scale: [1, 1.1, 1], opacity: [1, 0.5, 1], transition: { repeat: Infinity, duration: 2, ease: "easeInOut", delay: 0.2 } }
+              active: { scale: [1, 1.16, 1], opacity: [0.9, 0.3, 0.9], transition: { repeat: Infinity, duration: 2.4, ease: "easeInOut", delay: 0.2 } }
             }}
             className="absolute top-1/2 left-1/2 h-[260px] w-[260px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/40 sm:h-[400px] sm:w-[400px] md:h-[600px] md:w-[600px]" 
           />
           <motion.div 
             variants={{
               idle: { scale: 1, opacity: 1 },
-              active: { scale: [1, 1.15, 1], opacity: [1, 0.4, 1], transition: { repeat: Infinity, duration: 2, ease: "easeInOut", delay: 0.4 } }
+              active: { scale: [1, 1.24, 1], opacity: [0.95, 0.25, 0.95], transition: { repeat: Infinity, duration: 2.4, ease: "easeInOut", delay: 0.4 } }
             }}
             className="absolute top-1/2 left-1/2 h-[160px] w-[160px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/50 sm:h-[240px] sm:w-[240px] md:h-[300px] md:w-[300px]" 
           />
@@ -114,16 +115,16 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
           
           {/* Columna Izquierda: Textos */}
           <div className="relative z-30 flex flex-col md:text-right md:items-end">
-            <p className="max-w-sm text-[14px] sm:text-[15px] leading-relaxed text-[#2B1A18]/70">
+            <p className="relative z-30 -mx-3 max-w-sm bg-[#efece4] px-3 py-4 text-[14px] leading-relaxed text-[#2B1A18]/70 sm:text-[15px] md:mx-0 md:bg-transparent md:p-0">
               En La Vilet lo cercano es parte del proyecto: el río, el parque lineal y el barrio de Puertas del Sol forman un sitio completo. Su ubicación en esquina crea vida peatonal, activación comercial y una conexión natural.
             </p>
             
-            <h2 className="mt-12 sm:mt-20 font-serif text-[clamp(4rem,9vw,8rem)] leading-none text-[#72735A] tracking-[-0.02em]">
+            <h2 className="relative z-30 -mx-3 mt-12 bg-[#efece4] px-3 py-3 font-serif text-[clamp(4rem,9vw,8rem)] leading-none tracking-[-0.02em] text-[#72735A] sm:mt-20 md:mx-0 md:bg-transparent md:p-0">
               ubicación
             </h2>
             
             <div className="mt-8 sm:mt-12 flex flex-col sm:flex-row items-start sm:items-center gap-8 md:justify-end">
-              <div className="flex flex-col md:text-right">
+              <div className="relative z-30 -mx-3 flex flex-col bg-[#efece4] px-3 py-3 md:mx-0 md:bg-transparent md:p-0 md:text-right">
                 <p className="font-display text-[clamp(1.2rem,2vw,1.6rem)] leading-[1.2] font-semibold text-[#C45C3E] uppercase">
                   RICARDO DARQUEA GRANDA<br/>
                   & ELENA LANDÍVAR,<br/>

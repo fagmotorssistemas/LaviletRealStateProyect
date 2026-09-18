@@ -3,7 +3,7 @@
 import { useLayoutEffect, useRef, useState, type Ref } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowDown, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { NEARBY_PLACES } from '@/lib/marketing/nearbyPlaces'
@@ -30,7 +30,6 @@ type PhotoSlide = {
   credit: string
   width: string
   object?: string
-  last?: boolean
 }
 
 const PHOTOS: PhotoSlide[] = [
@@ -91,7 +90,6 @@ const PHOTOS: PhotoSlide[] = [
     title: 'La terraza, sobre la ciudad',
     credit: 'El día se queda aquí',
     width: 'w-[82vw] sm:w-[74vw] lg:w-[68vw]',
-    last: true,
   },
 ]
 
@@ -108,13 +106,7 @@ function PaperGrain() {
   )
 }
 
-function PhotoPanel({
-  slide,
-  onRelease,
-}: {
-  slide: PhotoSlide
-  onRelease?: () => void
-}) {
+function PhotoPanel({ slide }: { slide: PhotoSlide }) {
   return (
     <article className={cn('relative h-full shrink-0', slide.width)}>
       <Image
@@ -134,16 +126,6 @@ function PhotoPanel({
           </h3>
           <p className="mt-2 text-xs tracking-[0.16em] text-white/70 uppercase">{slide.credit}</p>
         </div>
-        {slide.last ? (
-          <button
-            type="button"
-            onClick={onRelease}
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-sm bg-[#BDA27E] text-[#2B1A18] transition-transform hover:scale-105"
-            aria-label="Seguir bajando"
-          >
-            <ArrowDown size={18} strokeWidth={1.75} />
-          </button>
-        ) : null}
       </div>
     </article>
   )
@@ -350,10 +332,8 @@ function CommercePanel({ full = false }: { full?: boolean }) {
 }
 
 function Track({
-  onRelease,
   trackRef,
 }: {
-  onRelease: () => void
   trackRef?: Ref<HTMLDivElement>
 }) {
   return (
@@ -366,16 +346,14 @@ function Track({
       <PhotoPanel slide={PHOTOS[3]} />
       <CommercePanel />
       <PhotoPanel slide={PHOTOS[4]} />
-      <PhotoPanel slide={PHOTOS[5]} onRelease={onRelease} />
+      <PhotoPanel slide={PHOTOS[5]} />
     </div>
   )
 }
 
 function StackedGallery({
-  onRelease,
   sectionRef,
 }: {
-  onRelease: () => void
   sectionRef: Ref<HTMLElement>
 }) {
   return (
@@ -409,7 +387,7 @@ function StackedGallery({
         <PhotoPanel slide={{ ...PHOTOS[4], width: 'w-full' }} />
       </div>
       <div className="relative h-[78vh] min-h-[28rem] z-10">
-        <PhotoPanel slide={{ ...PHOTOS[5], width: 'w-full' }} onRelease={onRelease} />
+        <PhotoPanel slide={{ ...PHOTOS[5], width: 'w-full' }} />
       </div>
     </section>
   )
@@ -445,18 +423,8 @@ export function PlaceGallery() {
   })
   const x = useTransform(scrollYProgress, [0, 1], [0, -travel])
 
-  function releasePin() {
-    const node = pinRef.current
-    if (!node) {
-      document.querySelector('footer')?.scrollIntoView({ behavior: 'smooth' })
-      return
-    }
-    const top = node.getBoundingClientRect().top + window.scrollY + node.offsetHeight
-    window.scrollTo({ top, behavior: 'smooth' })
-  }
-
   if (reduce) {
-    return <StackedGallery onRelease={releasePin} sectionRef={pinRef} />
+    return <StackedGallery sectionRef={pinRef} />
   }
 
   return (
@@ -468,7 +436,7 @@ export function PlaceGallery() {
     >
       <div className="sticky top-0 h-svh overflow-hidden bg-[#e4e4de] mkt-dark:bg-[#72735A]">
         <motion.div className="h-full will-change-transform" style={{ x }}>
-          <Track trackRef={trackRef} onRelease={releasePin} />
+          <Track trackRef={trackRef} />
         </motion.div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-black/10 mkt-dark:bg-white/10">
           <motion.div
