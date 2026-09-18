@@ -13,7 +13,6 @@ type UnitOption = {
   unit_number: string
   bedrooms: number | null
   published_commercial_price: number | null
-  category?: string | null
 }
 
 export function ClientSimulatorPage() {
@@ -79,8 +78,7 @@ export function ClientSimulatorPage() {
           Simulador de inversión
         </h1>
         <p className="max-w-xl text-sm leading-relaxed text-[#6b645c]">
-          Cuatro pasos: propiedad → financiamiento → alquiler → resultado (cuota, flujo, apreciación y
-          ROI).
+          Elija un departamento, ajuste alquiler y gastos, y vea el retorno estimado de la inversión.
         </p>
       </header>
 
@@ -173,17 +171,9 @@ export function ClientSimulatorPage() {
                 onClick={() => setSelectedUnit(unit.unit_number)}
                 className="rounded-2xl border border-[#ece6dc] bg-white px-4 py-3 text-left transition-colors hover:border-[#BDA27E]/50"
               >
-                <p className="text-lg font-semibold text-[#1f1a14]">
-                  {unit.category
-                    ? `${String(unit.category).charAt(0).toUpperCase()}${String(unit.category).slice(1)} ${unit.unit_number}`
-                    : `Unidad ${unit.unit_number}`}
-                </p>
+                <p className="text-lg font-semibold text-[#1f1a14]">Depto. {unit.unit_number}</p>
                 <p className="text-xs text-[#8a8176]">
-                  {unit.published_commercial_price != null
-                    ? `$${Number(unit.published_commercial_price).toLocaleString('es-EC')}`
-                    : unit.bedrooms != null
-                      ? `${unit.bedrooms} dormitorios`
-                      : 'Ver simulación'}
+                  {unit.bedrooms != null ? `${unit.bedrooms} dormitorios` : 'Ver simulación'}
                 </p>
               </button>
             ))}

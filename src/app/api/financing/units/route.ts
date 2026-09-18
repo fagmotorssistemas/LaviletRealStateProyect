@@ -14,7 +14,7 @@ export async function GET() {
 
     const { data, error } = await admin
       .from('units')
-      .select('id, unit_number, bedrooms, published_commercial_price, status, is_published, category')
+      .select('id, unit_number, bedrooms, published_commercial_price, status, is_published')
       .eq('project_id', TOUR_PROJECT_ID)
       .eq('is_published', true)
       .in('status', ['disponible', 'en_preventa', 'reservado'])
