@@ -1,7 +1,7 @@
 import { currentTopicReply } from './current-topic'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { visitTruthReply } from './visit-copy'
-import { readinessInvitation, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
+import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { protectedSentences } from './turn-completeness'
 import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
@@ -466,7 +466,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
       }
       const visitRequested = (extracted.events as string[]).includes('requested_visit')
         || (canRequestVisit && visitDraft?.status === 'collecting' && !financeTurn
-          && (isVisitDetail(current) || needsVisitHelp(current)))
+          && (isVisitDetail(current) || needsVisitHelp(current) || visitTurnIntent(current)==='counterproposal'))
       if (financeFailure) {
         reply = await transferToAdvisor('continuar la revisión de financiamiento' + (financeInput.partner ? ' con ' + financeInput.partner : '') + '; comprobar el avance previo antes de volver a solicitar datos')
         if (financeInput.partner) reply = `Le ayudaremos a revisar la opción con ${financeInput.partner}. ` + reply
@@ -513,16 +513,23 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
           referencia_unidad:reference, archivos_no_leidos:inbound.mediaErrors,
           modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true, modelo_especifico_disponible: model.model_available, texto_de_entrega: model.caption } : null }
-        const generated = await commercialReply(info, current, summary, guard)
-        audit = generated.audit
-        if (audit.requires_advisor === true) {
-          // A draft rejection is only a proposed handoff. Finish checking the
-          // available facts before mutating the lead or pausing the conversation.
-          pendingCommercialHandoff = text(audit.handoff_reason) || 'consulta por verificar'
-          const partial = completeTurnAnswer('', turnAnswerFacts(info, current, summary)).reply
-          reply = partial || 'Ese detalle debe verificarlo nuestro equipo.'
-        } else reply = appendUnitModel(generated.reply, model)
-        if (model && reply.includes(model.url)) audit = { ...audit, unit_model: model }
+        const placeClarification = info.estado_proyecto
+          ? readinessPlaceClarification(info.estado_proyecto as ProjectReadiness,current) : ''
+        if(placeClarification) {
+          reply=placeClarification
+          audit={source:'visit_place_clarification'}
+        } else {
+          const generated = await commercialReply(info, current, summary, guard)
+          audit = generated.audit
+          if (audit.requires_advisor === true) {
+            // A draft rejection is only a proposed handoff. Finish checking the
+            // available facts before mutating the lead or pausing the conversation.
+            pendingCommercialHandoff = text(audit.handoff_reason) || 'consulta por verificar'
+            const partial = completeTurnAnswer('', turnAnswerFacts(info, current, summary)).reply
+            reply = partial || 'Ese detalle debe verificarlo nuestro equipo.'
+          } else reply = appendUnitModel(generated.reply, model)
+          if (model && reply.includes(model.url)) audit = { ...audit, unit_model: model }
+        }
       }
     }
   }

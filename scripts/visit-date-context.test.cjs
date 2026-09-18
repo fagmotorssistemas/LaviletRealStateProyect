@@ -18,12 +18,15 @@ const tenant = 'a1b2c3d4-0001-4000-8000-000000000001'
 const project = 'b1b2c3d4-0001-4000-8000-000000000001'
 
 test('appointment alternatives and expressive date/hour fragments route to coordination', () => {
-  for (const value of ['Para mañana a las 8', 'Para mañana digo', 'Para mañanaaaanaaaaaaaaaaa', 'A las oooochoooooooi']) {
+  for (const value of ['Para mañana a las 8', 'Para mañana digo', 'Para mañanaaaanaaaaaaaaaaa', 'A las oooochoooooooi', 'Para el domimngo a las 10 am']) {
     assert.equal(isVisitDetail(value), true, value)
     assert.equal(visitTurnIntent(value), 'counterproposal', value)
   }
   assert.equal(visitDetailText('Para mañanaaaanaaaaaaaaaaa'), 'para manana')
   assert.equal(visitDetailText('A las oooochoooooooi'), 'a las ocho')
+  assert.equal(visitDetailText('Para el domimngo a las 10 am'), 'para el domingo a las 10 am')
+  assert.equal(isVisitDetail('¿La oficina está en el mismo lugar?'), false)
+  assert.equal(visitTurnIntent('Prefiero la oficina'), 'counterproposal')
   for (const value of ['Prefiero otra\nQué opciones tiene?', 'gracias y a que hora puedo agendar??', '¿Cuándo puedo ir?', '¿Qué horarios tienen disponibles?']) {
     assert.equal(needsVisitHelp(value), true, value)
     assert.equal(visitTurnIntent(value), 'counterproposal', value)
@@ -70,6 +73,9 @@ async function database() {
       INSERT INTO public.appointment_reschedule_requests(tenant_id,project_id,lead_id,appointment_id,source_message_id,source_message_text,preferred_time_text,proposed_by,status,created_at)
       VALUES('${tenant}',p,l,a,mid,body,pref,'client','awaiting_advisor',now()); RETURN a; END $$;`)
   await db.query('INSERT INTO project_automation_config VALUES($1,$2,$3,$4,90)', [project, tenant, 'America/Guayaquil', Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map(d => [d, { open: '08:00', close: '18:00' }]))])
+  await db.query('INSERT INTO projects(id,tenant_id,name,policies_json) VALUES($1,$2,$3,$4)', [project, tenant, 'La Vilet', {
+    project_readiness: { current: { stage: 'building', progress: 'Obra en construcción', verifiedOn: '2026-09-18', enabledPlaces: ['site'], primaryPlace: 'site', conditions: '', materials: [] } },
+  }])
   await db.exec(read('20260910163000_visit_preference_ambiguity.sql'))
   await db.exec(read('20260910233000_visit_intake_collection.sql'))
   return db
@@ -220,5 +226,46 @@ test('SQL migration fixes the real mañana regression, preserves fragments and r
     assert.equal(result.needs_help, true)
     assert.equal(result.slot.requested_date, tomorrow)
     assert.equal(new Date(result.slot.start_time).getUTCHours(), 13, 'meridiem clarification preserves the original eight oclock')
+  } finally { await db.close() }
+})
+
+test('current enabled places are preserved, office can be selected, and closed days never notify an advisor', async () => {
+  const db = await database()
+  try {
+    await db.exec(read('20260914193000_visit_date_context_repair.sql'))
+    await db.exec(read('20260914233000_visit_next_week_context.sql'))
+    await db.exec(read('20260915101000_visit_hours_before_assignment.sql'))
+    await db.exec(read('20260918113000_visit_places_closed_days.sql'))
+    await db.query('UPDATE projects SET policies_json=$1 WHERE id=$2', [{
+      project_readiness: { current: { stage: 'building', progress: 'Obra en construcción', verifiedOn: '2026-09-18', enabledPlaces: ['site','office'], primaryPlace: 'site', conditions: '', materials: [] } },
+    }, project])
+    await db.query('UPDATE project_automation_config SET business_hours=$1', [{
+      1:{open:'08:30',close:'18:30'},2:{open:'08:30',close:'18:30'},3:{open:'08:30',close:'18:30'},
+      4:{open:'08:30',close:'18:30'},5:{open:'08:30',close:'18:30'},6:{open:'09:30',close:'13:30'},
+    }])
+    assert.equal((await db.query("SELECT lv_normalize_visit_text('domimngo') value")).rows[0].value, 'domingo')
+    const lead = (await db.query('INSERT INTO leads(tenant_id,project_id) VALUES($1,$2) RETURNING id', [tenant, project])).rows[0].id
+    const conversation = (await db.query("INSERT INTO conversations(tenant_id,project_id,lead_id,channel) VALUES($1,$2,$3,'whatsapp') RETURNING id", [tenant, project, lead])).rows[0].id
+    let sequence = Date.now()
+    const turn = async content => {
+      const id=(await db.query("INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,'cliente',$2,$3) RETURNING id",[conversation,content,new Date(sequence+=1000).toISOString()])).rows[0].id
+      const result=(await db.query('SELECT lv_collect_visit_intake($1,$2,false,NULL,NULL) r',[lead,id])).rows[0].r
+      await db.query("INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,'bot','Respuesta de coordinación',$2)",[conversation,new Date(sequence+=1000).toISOString()])
+      return result
+    }
+    const sunday=await turn('Para el domimngo a las 10 am')
+    assert.equal(sunday.action,'closed_day')
+    assert.equal((await db.query('SELECT count(*)::int n FROM appointment_reschedule_requests')).rows[0].n,0)
+    const location=await turn('El lunes a las 10 am')
+    assert.equal(location.action,'collecting')
+    assert.equal(location.needs_location,true)
+    assert.deepEqual(location.enabled_places,['site','office'])
+    assert.match(intakeReply(location),/terreno del proyecto o nuestra oficina/)
+    assert.equal((await db.query('SELECT count(*)::int n FROM appointment_reschedule_requests')).rows[0].n,0)
+    const submitted=await turn('Prefiero la oficina')
+    assert.equal(submitted.action,'submitted')
+    assert.equal(submitted.preferred_location_type,'office')
+    const saved=(await db.query('SELECT r.preferred_location_type,a.location_type FROM appointment_reschedule_requests r JOIN appointments a ON a.id=r.appointment_id WHERE r.id=$1',[submitted.request_id])).rows[0]
+    assert.deepEqual(saved,{preferred_location_type:'office',location_type:'oficina'})
   } finally { await db.close() }
 })

@@ -9,6 +9,14 @@ import { formatAgendaDateTime } from '@/lib/inmobiliaria/agendaTime'
 import { kommoLeadUrl } from '@/lib/inmobiliaria/visitPresentation'
 import { visitIsOverdue, visitWaitLabel } from '@/lib/inmobiliaria/visitInbox'
 
+const VISIT_PLACE_LABELS: Record<string,string> = {
+  office: 'Oficina',
+  site: 'Terreno del proyecto',
+  work_area: 'Área autorizada de obra',
+  model: 'Departamento modelo',
+  completed_unit: 'Unidad terminada habilitada',
+}
+
 export function VisitInboxDrawer() {
   const { items, pending, waiting, overdue, now, tab, setTab, error, ready, loading, reload, closeInbox, openRequest, isAdmin } = useVisitInboxContext()
   const dialog = useRef<HTMLDialogElement>(null)
@@ -20,7 +28,7 @@ export function VisitInboxDrawer() {
   }, [])
   const base = tab === 'pending' ? pending : tab === 'waiting' ? waiting : items
   const query = search.trim().toLocaleLowerCase('es')
-  const visible = base.filter(item => !query || [item.lead?.name, item.lead?.phone, item.project?.name, item.preferred_time_text].some(value => value?.toLocaleLowerCase('es').includes(query)))
+  const visible = base.filter(item => !query || [item.lead?.name, item.lead?.phone, item.project?.name, item.preferred_time_text, VISIT_PLACE_LABELS[item.preferred_location_type || '']].some(value => value?.toLocaleLowerCase('es').includes(query)))
   const tabs: { id: VisitInboxTab; label: string; count: number }[] = [
     { id: 'pending', label: 'Por atender', count: pending.length },
     { id: 'waiting', label: 'Espera al cliente', count: waiting.length },
@@ -64,7 +72,9 @@ export function VisitInboxDrawer() {
               {coordinationUrgent && <div className="mt-3 rounded-lg bg-amber-50 p-3"><p className="line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-amber-950">{item.coordination_summary || 'El cliente no pudo elegir un horario. Contactar por teléfono para coordinar la visita.'}</p>{phone && <a href={`tel:${phone}`} className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900"><Phone size={13} />Llamar al cliente</a>}</div>}
               <div className="my-4 flex gap-3 rounded-lg bg-[#f8f8f4] px-3 py-3"><CalendarDays size={18} className="mt-1 shrink-0 text-[#787D62]" /><div><p className="text-[10px] tracking-wide text-stone-500 uppercase">{isPending ? 'Horario solicitado' : (item.proposed_options?.length ?? 0) > 1 ? 'Opciones enviadas' : 'Horario propuesto'}</p>
                 {!isPending && (item.proposed_options?.length ?? 0) > 1 ? <ol className="mt-2 list-inside list-decimal space-y-1 text-sm font-medium">{item.proposed_options!.map(slot => <li key={slot.start_time}>{formatAgendaDateTime(slot.start_time)}</li>)}</ol>
-                  : <p className="mt-1 text-base font-semibold">{item.proposed_start_time ? formatAgendaDateTime(item.proposed_start_time) : item.preferred_time_text || 'Necesita una propuesta de horario'}</p>}</div></div>
+                  : <p className="mt-1 text-base font-semibold">{item.proposed_start_time ? formatAgendaDateTime(item.proposed_start_time) : item.preferred_time_text || 'Necesita una propuesta de horario'}</p>}
+                {item.preferred_location_type && <p className="mt-1 text-xs text-stone-600">Lugar solicitado: <strong>{VISIT_PLACE_LABELS[item.preferred_location_type] || item.preferred_location_type}</strong></p>}
+              </div></div>
               {isAdmin && <p className="mb-3 text-xs text-stone-500">Asesor: <span className="text-stone-700">{item.assigned_advisor?.full_name || 'Pendiente de asignación'}</span></p>}
               <div className="flex items-center justify-between gap-3">
                 {chat ? <a href={chat} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-stone-600 hover:underline">Chat en Kommo <ExternalLink size={12} /></a> : <span />}

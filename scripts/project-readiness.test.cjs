@@ -3,7 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),path=requir
 const original=Module._load
 Module._load=function(id,parent,main){if(id==='server-only')return {};if(id.startsWith('@/'))id=path.resolve('src',id.slice(2));return original.call(this,id,parent,main)}
 require('./test-typescript.cjs')
-const {validateReadiness,projectReadiness,botReadiness,readinessMaterialReply,readinessInvitation}=require('../src/lib/inmobiliaria/projectReadiness.ts')
+const {validateReadiness,projectReadiness,botReadiness,readinessMaterialReply,readinessInvitation,readinessPlaceClarification}=require('../src/lib/inmobiliaria/projectReadiness.ts')
 const {botVisitPolicy,visitInvitation}=require('../src/lib/inmobiliaria/botVisits.ts')
 const {acceptsVisitInvitation,ambiguousVisitAcceptance}=require('../src/lib/integrations/automation/sales-policy.ts')
 const {visitTruthReply}=require('../src/lib/integrations/automation/visit-copy.ts')
@@ -52,6 +52,14 @@ test('short acceptance follows one invitation; old ambiguous offers clarify; neg
   assert.equal(acceptsVisitInvitation('Sí',multiple),false)
   assert.equal(ambiguousVisitAcceptance('Sí',multiple),true)
   assert.equal(ambiguousVisitAcceptance('Listo, está bien','Le comparto el precio referencial.'),false)
+})
+test('all enabled visit places are offered and direct location questions are clarified',()=>{
+  const current={...base,enabledPlaces:['site','office'],primaryPlace:'site'}
+  const invitation=readinessInvitation(current)
+  assert.match(invitation,/en el terreno del proyecto o en nuestra oficina/)
+  assert.match(readinessPlaceClarification(current,'¿Pero solo se puede visitar el terreno?'),/terreno del proyecto o nuestra oficina/)
+  assert.match(readinessPlaceClarification(current,'¿Pero solo se puede visitar el terreno?'),/Cuál opción prefiere/)
+  assert.equal(readinessPlaceClarification(current,'Quiero información del proyecto'),'')
 })
 test('final guard respects authorized model and replaces unauthorized access',()=>{
   const run=(reply,value)=>visitTruthReply(reply,{estado_proyecto:value,modo_comercial:'preventa'},{},[],protectedSentences)
