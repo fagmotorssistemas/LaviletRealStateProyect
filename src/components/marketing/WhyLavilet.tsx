@@ -15,8 +15,8 @@ const REASONS = [
   },
   {
     n: '02',
-    title: 'Decidir con evidencia',
-    body: 'El recorrido 360° permite explorar el edificio planta por planta, entrar a las tipologías y comparar espacios antes de agendar una visita.',
+    title: 'Opciones para distintas etapas',
+    body: 'Suites y departamentos de 2 y 3 dormitorios permiten elegir según el momento de vida, sin convertir todas las viviendas en una misma respuesta.',
   },
   {
     n: '03',
@@ -25,16 +25,33 @@ const REASONS = [
   },
 ] as const
 
-export function WhyLavilet() {
+export function WhyLavilet({
+  part = 'all',
+}: {
+  part?: 'all' | 'overview' | 'reasons'
+}) {
   const reduce = useReducedMotion()
 
   return (
     <>
-      <section
+      {part !== 'reasons' ? (
+        <section
         id="por-que-lavilet"
-        className="relative z-20 flex min-h-svh items-center overflow-hidden border-y border-[#72735A]/12 bg-[#efece4] py-20 text-[#2B1A18] sm:py-24 lg:py-28"
+        className="relative z-20 overflow-hidden border-y border-[#72735A]/12 bg-[#f4f1ea] py-16 text-[#2B1A18] sm:py-20 lg:py-24"
         aria-labelledby="por-que-lavilet-title"
       >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-50 mix-blend-multiply"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent 0 3px, rgba(43,26,24,0.026) 3px 4px), repeating-linear-gradient(90deg, transparent 0 5px, rgba(114,115,90,0.032) 5px 6px)',
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 w-[44%] bg-[#f4f1ea]/18"
+        />
         <div
           aria-hidden
           className="pointer-events-none absolute -top-40 right-[-8rem] h-[26rem] w-[26rem] rounded-full border border-[#C45C3E]/12"
@@ -56,7 +73,7 @@ export function WhyLavilet() {
             </p>
             <h2
               id="por-que-lavilet-title"
-              className="mt-4 max-w-3xl font-serif text-[clamp(2.7rem,6.2vw,5.8rem)] leading-[0.88] font-normal tracking-[-0.045em] text-[#72735A]"
+              className="mt-4 max-w-3xl font-serif text-[clamp(2.7rem,5.4vw,5rem)] leading-[0.88] font-normal tracking-[-0.045em] text-[#72735A]"
             >
               La diferencia está en cómo todo encaja.
             </h2>
@@ -83,7 +100,7 @@ export function WhyLavilet() {
             <p className="text-[10px] font-medium tracking-[0.3em] text-[#f4f1ea]/60 uppercase">
               El proyecto en cifras
             </p>
-            <div className="mt-12 grid grid-cols-2 gap-5 sm:mt-16">
+            <div className="mt-10 grid grid-cols-2 gap-5 sm:mt-12">
               <motion.div
                 initial={reduce ? false : { opacity: 0, y: 60 }}
                 whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
@@ -112,26 +129,35 @@ export function WhyLavilet() {
                 </p>
               </motion.div>
             </div>
-            <p className="mt-12 max-w-lg border-t border-[#f4f1ea]/20 pt-6 text-sm leading-relaxed text-[#f4f1ea]/78 sm:mt-16 sm:text-[15px]">
-              36 suites, 7 departamentos de 2 dormitorios y 6 de 3 dormitorios. El área
-              residencial comienza desde 49,86 m²; las opciones incluyen bodega y parqueadero
-              según su tipología.
+            <p className="mt-10 max-w-lg border-t border-[#f4f1ea]/20 pt-6 text-sm leading-relaxed text-[#f4f1ea]/78 sm:mt-12 sm:text-[15px]">
+              Suites, departamentos de 2 y 3 dormitorios y espacios comerciales. Las tipologías
+              completas se presentan más adelante para compararlas sin repetir información.
             </p>
           </motion.article>
         </div>
-      </section>
+        </section>
+      ) : null}
 
-      <section
-        className="relative z-20 flex min-h-svh items-center overflow-hidden bg-[#f4f1ea] py-20 text-[#2B1A18] sm:py-24 lg:py-28"
+      {part !== 'overview' ? (
+        <section
+        className="relative z-20 overflow-hidden bg-[#f4f1ea] py-16 text-[#2B1A18] sm:py-20 lg:py-24"
         aria-labelledby="razones-lavilet"
       >
         <div
           aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-55 mix-blend-multiply"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent 0 4px, rgba(114,115,90,0.035) 4px 5px), repeating-linear-gradient(90deg, transparent 0 5px, rgba(114,115,90,0.028) 5px 6px)',
+          }}
+        />
+        <div
+          aria-hidden
           className="pointer-events-none absolute top-0 bottom-0 left-[8%] hidden w-px bg-[#72735A]/12 lg:block"
         />
-        <div className="relative mx-auto grid w-full max-w-[1400px] gap-12 px-5 sm:px-8 lg:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)] lg:gap-20 lg:px-12">
+        <div className="relative mx-auto w-full max-w-[1400px] px-5 sm:px-8 lg:px-12">
           <motion.div
-            className="lg:sticky lg:top-32 lg:self-start"
+            className="grid gap-5 lg:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)] lg:items-end lg:gap-20"
             initial={reduce ? false : { opacity: 0, x: -48 }}
             whileInView={reduce ? undefined : { opacity: 1, x: 0 }}
             viewport={{ once: true, amount: 0.45 }}
@@ -142,39 +168,37 @@ export function WhyLavilet() {
             </p>
             <h2
               id="razones-lavilet"
-              className="mt-4 max-w-lg font-serif text-[clamp(2.5rem,4.8vw,4.8rem)] leading-[0.9] font-normal tracking-[-0.04em] text-[#72735A]"
+              className="max-w-3xl font-serif text-[clamp(2.5rem,4.5vw,4.5rem)] leading-[0.9] font-normal tracking-[-0.04em] text-[#72735A]"
             >
               Tres razones para mirar más de cerca.
             </h2>
           </motion.div>
 
-          <div className="divide-y divide-[#72735A]/16 border-y border-[#72735A]/16">
+          <div className="mt-12 grid border-y border-[#72735A]/16 lg:grid-cols-3 lg:divide-x lg:divide-[#72735A]/16">
             {REASONS.map((reason, index) => (
               <motion.article
                 key={reason.n}
-                className="grid gap-4 py-9 sm:grid-cols-[4rem_1fr] sm:gap-7 sm:py-11"
-                initial={reduce ? false : { opacity: 0, x: index % 2 === 0 ? 58 : -58 }}
-                whileInView={reduce ? undefined : { opacity: 1, x: 0 }}
+                className="border-b border-[#72735A]/16 py-8 last:border-b-0 lg:border-b-0 lg:px-8 lg:first:pl-0 lg:last:pr-0"
+                initial={reduce ? false : { opacity: 0, y: 36 }}
+                whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.55 }}
                 transition={{ duration: 0.7, delay: index * 0.1, ease }}
               >
                 <p className="text-[11px] font-semibold tracking-[0.2em] text-[#C45C3E]">
                   {reason.n}
                 </p>
-                <div>
-                  <h3 className="font-serif text-[clamp(1.8rem,3vw,2.8rem)] leading-[1.05] tracking-[-0.03em] text-[#72735A]">
-                    {reason.title}
-                  </h3>
-                  <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[#2B1A18]/68 sm:text-[17px]">
-                    {reason.body}
-                  </p>
-                </div>
+                <h3 className="mt-4 font-serif text-[clamp(1.8rem,2.4vw,2.5rem)] leading-[1.05] tracking-[-0.03em] text-[#72735A]">
+                  {reason.title}
+                </h3>
+                <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[#2B1A18]/68 sm:text-[16px]">
+                  {reason.body}
+                </p>
               </motion.article>
             ))}
           </div>
 
           <motion.div
-            className="flex flex-col gap-6 border-t border-[#72735A]/16 pt-8 sm:flex-row sm:items-center sm:justify-between lg:col-start-2"
+            className="mt-10 flex flex-col gap-6 border-t border-[#72735A]/16 pt-8 sm:flex-row sm:items-center sm:justify-between"
             initial={reduce ? false : { opacity: 0, y: 44 }}
             whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.6 }}
@@ -191,10 +215,10 @@ export function WhyLavilet() {
             </div>
             <div className="flex shrink-0 flex-wrap gap-3">
               <Link
-                href="/tour"
+                href="/contacto"
                 className="inline-flex h-11 items-center rounded-full bg-[#72735A] px-5 text-[11px] font-semibold tracking-[0.14em] text-[#f4f1ea] uppercase transition-colors hover:bg-[#5f6049]"
               >
-                Recorrer en 360°
+                Agendar visita
                 <ArrowRight size={14} className="ml-2" />
               </Link>
               <a
@@ -208,7 +232,8 @@ export function WhyLavilet() {
             </div>
           </motion.div>
         </div>
-      </section>
+        </section>
+      ) : null}
     </>
   )
 }

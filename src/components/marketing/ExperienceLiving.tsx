@@ -17,10 +17,9 @@ const AMENITIES = [
   {
     id: 'parques',
     kicker: 'Entorno',
-    label: 'Verde cercano',
-    image:
-      'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1400&q=80',
-    detail: 'El Tomebamba como extensión natural del hogar.',
+    label: 'El río cercano',
+    image: '/CUENCA4.png',
+    detail: 'El Tomebamba y el parque lineal como parte del recorrido cotidiano.',
   },
   {
     id: 'comunales',
@@ -30,36 +29,12 @@ const AMENITIES = [
     detail: 'Espacios para encontrarse: estar, jardines y la terraza en un mismo ritmo.',
   },
   {
-    id: 'piscina',
-    kicker: 'Bienestar',
-    label: 'Agua y calma',
-    image:
-      'https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?auto=format&fit=crop&w=1400&q=80',
-    detail: 'Un espacio de relajación para desconectar del día a día.',
-  },
-  {
-    id: 'residencial',
-    kicker: 'Vivienda',
-    label: 'Zona residencial',
-    image:
-      'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1400&q=80',
-    detail: 'Accesos independientes y calma, sobre el comercio.',
-  },
-  {
-    id: 'gimnasio',
-    kicker: 'Rutina',
-    label: 'Gimnasio',
-    image:
-      'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1400&q=80',
-    detail: 'Equipamiento de primer nivel para el día a día.',
-  },
-  {
     id: 'terrazas',
     kicker: 'Altura',
-    label: 'Terrazas',
+    label: 'Terraza sobre la ciudad',
     image:
-      'https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1400&q=80',
-    detail: 'Vistas a la ciudad, para el día y para el atardecer.',
+      'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_terraza.png',
+    detail: 'Un espacio propio del proyecto para detenerse y mirar Cuenca.',
   },
 ] as const
 
@@ -280,12 +255,11 @@ export function ExperienceLiving() {
   const trackRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState(0)
   const [mobile, setMobile] = useState(true)
-  const loop = [...AMENITIES, ...AMENITIES, ...AMENITIES]
   const left = AMENITIES[active] ?? AMENITIES[0]
   const right = AMENITIES[(active + 1) % AMENITIES.length] ?? AMENITIES[0]
   const { scrollYProgress } = useScroll({
     target: trackRef,
-    offset: ['start 80px', 'end end'] as any,
+    offset: ['start 80px', 'end end'],
   })
 
   useEffect(() => {
@@ -312,7 +286,7 @@ export function ExperienceLiving() {
       <div
         ref={trackRef}
         className="relative"
-        style={{ height: reduce ? 'auto' : `${AMENITIES.length * 50}svh` }}
+        style={{ height: reduce ? 'auto' : `calc(100svh + ${AMENITIES.length * 28}svh)` }}
       >
         <div className={cn('relative overflow-hidden', reduce ? 'min-h-svh' : 'sticky top-0 min-h-svh')}>
           <div aria-hidden className="absolute inset-0 bg-[#f4f1ea]" />
@@ -335,7 +309,7 @@ export function ExperienceLiving() {
             className="pointer-events-none absolute bottom-0 left-0 z-[1] h-[50%] w-full lg:bottom-[-4%] lg:left-1/2 lg:h-[50%] lg:w-[min(36vw,20rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-10 lg:opacity-20"
           >
             <Image
-              src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1400&q=80"
+              src="/lavilet-comedor.jpg"
               alt=""
               fill
               className="object-cover object-center"
@@ -353,23 +327,6 @@ export function ExperienceLiving() {
         </div>
       </div>
 
-      <div className="overflow-hidden border-y border-[#72735A]/12 py-4 mkt-dark:border-white/10">
-        <motion.div
-          className="flex w-max gap-10 whitespace-nowrap"
-          animate={reduce ? undefined : { x: ['0%', '-33.333%'] }}
-          transition={{ duration: 28, repeat: Infinity, ease: 'linear' }}
-        >
-          {loop.map((amenity, index) => (
-            <span
-              key={`${amenity.id}-${index}`}
-              className="font-serif text-2xl tracking-[-0.03em] text-[#72735A]/28 sm:text-3xl mkt-dark:text-[#F2F2F2]/35"
-            >
-              {amenity.label}
-              <span className="mx-4 text-[#BDA27E]/50">·</span>
-            </span>
-          ))}
-        </motion.div>
-      </div>
     </section>
   )
 }

@@ -51,10 +51,7 @@ export function AboutLetterPlay() {
   }, [])
 
   useEffect(() => {
-    if (reduce || !inView) {
-      setPhase(reduce ? 'form' : 'hide')
-      return
-    }
+    if (reduce || !inView) return
 
     let cancelled = false
     const loop = async () => {
@@ -83,6 +80,7 @@ export function AboutLetterPlay() {
   const topY = -box.h / 2 + tile * 0.62
   const bottomY = box.h / 2 - tile * 0.72
   const smileForm = formPos(5, 1, tile, gap, blockW)
+  const visiblePhase: Phase = reduce ? 'form' : inView ? phase : 'hide'
 
   return (
     <div ref={wrapRef} className="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-hidden>
@@ -97,7 +95,7 @@ export function AboutLetterPlay() {
           <PlayTile
             key={letter.ch + letter.col + letter.row}
             bg={letter.bg}
-            phase={phase}
+            phase={visiblePhase}
             size={tile}
             form={{ x: formed.x, y: topY + formed.y }}
             run={{ startX, endX, runY, tilt: letter.tilt, delay: index * 0.16 }}
@@ -110,7 +108,7 @@ export function AboutLetterPlay() {
       })}
       <PlayTile
         bg="transparent"
-        phase={phase}
+        phase={visiblePhase}
         size={tile}
         round
         upright
@@ -125,7 +123,7 @@ export function AboutLetterPlay() {
         hideDelay={0.12}
         formDelay={0.5}
       >
-        <SmileFace wink={phase === 'form' && !reduce} />
+        <SmileFace wink={visiblePhase === 'form' && !reduce} />
       </PlayTile>
     </div>
   )
@@ -133,26 +131,35 @@ export function AboutLetterPlay() {
 
 function SmileFace({ wink }: { wink: boolean }) {
   return (
-    <svg viewBox="0 0 32 32" className="h-[2rem] w-[2rem] sm:h-[2.25rem] sm:w-[2.25rem]" aria-hidden>
+    <svg
+      viewBox="0 0 32 32"
+      className="h-[2rem] w-[2rem] drop-shadow-[0_2px_5px_rgba(196,92,62,0.35)] sm:h-[2.25rem] sm:w-[2.25rem]"
+      aria-hidden
+    >
       <motion.ellipse
         cx="11"
         cy="12"
-        rx="2.5"
-        ry="2.5"
-        fill="#BDA27E"
-        animate={wink ? { ry: [2.5, 2.5, 0.12, 0.12, 2.5] } : { ry: 2.5 }}
+        rx="2.7"
+        ry="2.7"
+        fill="#C45C3E"
+        animate={wink ? { ry: [2.7, 2.7, 0.12, 0.12, 2.7] } : { ry: 2.7 }}
         transition={
           wink
-            ? { duration: 0.78, delay: 0.85, times: [0, 0.3, 0.48, 0.68, 1], ease: 'easeInOut' }
+            ? {
+                duration: 0.9,
+                delay: 0.6,
+                times: [0, 0.25, 0.42, 0.68, 1],
+                ease: 'easeInOut',
+              }
             : { duration: 0.15 }
         }
       />
-      <circle cx="21" cy="12" r="2.5" fill="#BDA27E" />
+      <circle cx="21" cy="12" r="2.7" fill="#C45C3E" />
       <path
         d="M10 20c2.2 3.2 9.8 3.2 12 0"
         fill="none"
-        stroke="#BDA27E"
-        strokeWidth="2.5"
+        stroke="#C45C3E"
+        strokeWidth="2.7"
         strokeLinecap="round"
       />
     </svg>

@@ -2,25 +2,12 @@
 
 import { useRef } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { motion, useScroll, useTransform } from 'framer-motion'
+import { ArrowRight } from 'lucide-react'
 import { SITE } from '@/lib/marketing/site'
 import type { MarketingProjectLocation } from '@/lib/marketing/projectLocationTypes'
 import { NearbyAutoCarousel } from './NearbyAutoCarousel'
-
-function addressLines(project: MarketingProjectLocation | null): string[] {
-  if (project?.address) {
-    const parts = project.address
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean)
-    if (parts.length >= 2) return parts.slice(0, 4)
-    return [
-      project.address,
-      [project.city, project.country].filter(Boolean).join(', ') || SITE.city,
-    ]
-  }
-  return ['Ricardo Darquea Granda y Elena Landívar', 'Cuenca, Ecuador']
-}
 
 function PaperGrain() {
   return (
@@ -36,15 +23,14 @@ function PaperGrain() {
 }
 
 export function UbicanosView({ project }: { project: MarketingProjectLocation | null }) {
-  const lines = addressLines(project)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
-    offset: ['start 80%', 'start 20%']
+    offset: ['start 80%', 'end 25%']
   })
 
-  const lineScaleY = useTransform(scrollYProgress, [0, 1], [0, 1])
+  const lineScaleY = useTransform(scrollYProgress, [0, 0.08, 1], [0, 0, 1])
 
   return (
     <motion.div 
@@ -84,7 +70,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
           whileInView={{ opacity: 1 }}
           viewport={{ once: false, margin: "-100px" }}
           transition={{ duration: 1, delay: 0.3 }}
-          className="absolute top-[calc(47%+6cm)] left-1/2 -translate-x-1/2 -translate-y-1/2 md:top-[47%]"
+          className="absolute top-[calc(47%+1cm)] left-1/2 -translate-x-1/2 -translate-y-1/2 md:top-[calc(47%-5cm)]"
         >
           <motion.div 
             variants={{
@@ -165,6 +151,45 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
         <div className="relative mt-20 lg:mt-32 z-30">
           <NearbyAutoCarousel />
         </div>
+
+        <motion.div
+          className="relative z-30 mt-16 grid gap-8 border-t border-[#72735A]/25 pt-10 pb-2 text-[#2B1A18] lg:mt-20 lg:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)] lg:items-end lg:gap-16 lg:pt-12"
+          initial={{ opacity: 0, y: 44 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.45 }}
+          transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <div>
+            <p className="relative z-30 -mx-3 w-fit bg-[#efece4] px-3 py-2 text-[10px] font-medium tracking-[0.3em] text-[#C45C3E] uppercase md:mx-0 md:bg-transparent md:p-0">
+              El siguiente paso
+            </p>
+            <h2 className="relative z-30 -mx-3 mt-3 max-w-4xl bg-[#efece4] px-3 py-2 font-serif text-[clamp(2.5rem,5vw,5rem)] leading-[0.9] tracking-[-0.045em] text-[#72735A] md:mx-0 md:bg-transparent md:p-0">
+              Primero recórrelo.
+              <span className="block text-[#C45C3E]">Después ven a vivirlo.</span>
+            </h2>
+          </div>
+          <div className="border-l-2 border-[#C45C3E]/45 pl-5 lg:pl-7">
+            <p className="relative z-30 -mx-3 max-w-md bg-[#efece4] px-3 py-2 text-[15px] leading-relaxed text-[#2B1A18]/68 sm:text-[16px]">
+              Explora las tipologías desde cualquier lugar o agenda una visita para conocer el
+              proyecto en persona.
+            </p>
+            <div className="relative z-30 -mx-3 mt-4 flex flex-wrap gap-3 bg-[#efece4] px-3 py-3">
+            <Link
+              href="/tour"
+              className="inline-flex h-12 items-center rounded-full bg-[#72735A] px-6 text-[11px] font-semibold tracking-[0.14em] text-[#f4f1ea] uppercase transition-colors hover:bg-[#5f6049]"
+            >
+              Recorrer en 360°
+              <ArrowRight size={14} className="ml-2" />
+            </Link>
+            <Link
+              href="/contacto"
+              className="inline-flex h-12 items-center rounded-full px-6 text-[11px] font-semibold tracking-[0.14em] text-[#72735A] uppercase ring-1 ring-[#72735A]/30 transition-colors hover:bg-[#72735A]/7"
+            >
+              Agendar visita
+            </Link>
+            </div>
+          </div>
+        </motion.div>
       </div>
     </motion.div>
   )

@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowRight, Building2, Trees, Waves } from 'lucide-react'
+import { ArrowRight, Building2, DoorOpen, ScanLine } from 'lucide-react'
 import { notifyHeroLocked } from './heroLock'
 import { LaviletLockup } from './LaviletLockup'
 
@@ -11,12 +11,10 @@ const PHOTO =
   'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_333.png'
 
 const FEATURES = [
-  { label: 'Residencias premium', Icon: Building2 },
-  { label: 'Terraza sobre la ciudad', Icon: Trees },
-  { label: 'Piscina y sauna', Icon: Waves },
+  { label: 'Viviendas sobre el área comercial', Icon: Building2 },
+  { label: 'Accesos independientes', Icon: DoorOpen },
+  { label: 'Recorrido planta por planta', Icon: ScanLine },
 ] as const
-
-const RAIL = ['Vivir', 'Invertir', 'Experimentar', 'Un nuevo\nestilo de vida'] as const
 
 export function HeroEditorial() {
   useEffect(() => {
@@ -47,8 +45,8 @@ export function HeroEditorial() {
             </div>
             <span aria-hidden className="mt-6 block h-px w-10 bg-[#3f3d2e]/45" />
             <p className="mt-6 max-w-sm text-[1.35rem] leading-snug text-[#2f2d22] [text-shadow:0_1px_14px_rgba(243,238,230,0.5)] sm:text-[1.6rem]">
-              Más que una estadía,{' '}
-              <em className="font-serif not-italic sm:italic">una experiencia.</em>
+              Vivienda, comercio y ciudad,
+              <em className="block font-serif not-italic sm:italic">sin renunciar a tu privacidad.</em>
             </p>
             <ul className="mt-8 space-y-5">
               {FEATURES.map(({ label, Icon }) => (
@@ -61,23 +59,26 @@ export function HeroEditorial() {
                 </li>
               ))}
             </ul>
-            <Link
-              href="/proyectos"
-              className="mt-9 inline-flex h-12 items-center rounded-full bg-[#6d6c54] px-7 text-[11px] font-medium tracking-[0.18em] text-[#f3eee6] uppercase shadow-[0_10px_24px_rgba(47,45,34,0.22)] transition-colors hover:bg-[#5b5a45]"
-            >
-              Ver disponibilidad
-              <ArrowRight size={14} className="ml-2" />
-            </Link>
+            <div className="mt-9 flex flex-wrap gap-3">
+              <Link
+                href="/tour"
+                className="inline-flex h-12 items-center rounded-full bg-[#6d6c54] px-7 text-[11px] font-medium tracking-[0.18em] text-[#f3eee6] uppercase shadow-[0_10px_24px_rgba(47,45,34,0.22)] transition-colors hover:bg-[#5b5a45]"
+              >
+                Recorrer en 360°
+                <ArrowRight size={14} className="ml-2" />
+              </Link>
+              <Link
+                href="/contacto"
+                className="inline-flex h-12 items-center rounded-full bg-[#e4e4de]/78 px-6 text-[11px] font-semibold tracking-[0.16em] text-[#3f3d2e] uppercase ring-1 ring-[#3f3d2e]/25 backdrop-blur-sm transition-colors hover:bg-[#e4e4de]"
+              >
+                Agendar visita
+              </Link>
+            </div>
           </div>
         </div>
 
-        <div className="mt-auto flex items-end justify-between gap-3 pt-4 text-[10px] tracking-[0.22em] text-[#f3eee6]/80 uppercase [text-shadow:0_1px_10px_rgba(20,14,10,0.45)]">
-          <p className="flex items-center gap-3">
-            <span>01</span>
-            <span className="h-px w-10 bg-[#f3eee6]/40 sm:w-16" />
-            <span>06</span>
-          </p>
-          <p>Cuenca — Ecuador</p>
+        <div className="mt-auto flex justify-end pt-4 text-[10px] tracking-[0.22em] text-[#f3eee6]/80 uppercase [text-shadow:0_1px_10px_rgba(20,14,10,0.45)]">
+          <p>Puertas del Sol — Cuenca</p>
         </div>
       </div>
     </section>

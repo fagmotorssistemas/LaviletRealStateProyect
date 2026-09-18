@@ -3,10 +3,10 @@ import { LaviletPlaceBoard, LaviletStory } from './LaviletStory'
 import { LockupProvider } from './LaviletLockup'
 import { LandingWash } from './LandingWash'
 import { LifestyleStrip } from './LifestyleStrip'
-import { ExperienceLiving } from './ExperienceLiving'
-import { ExploreFloors } from './ExploreFloors'
 import { UbicanosView } from './UbicanosView'
 import { WhyLavilet } from './WhyLavilet'
+import { ProjectEssentials } from './ProjectEssentials'
+import { EspaciosAccordion } from './EspaciosAccordion'
 
 /** Landing Lavilet: hero, nosotros y entrada al showroom 360°. */
 export function FullLanding() {
@@ -14,13 +14,14 @@ export function FullLanding() {
     <LockupProvider>
       <HeroStage />
       <LandingWash>
+        <WhyLavilet part="overview" />
         <LaviletStory />
-        <WhyLavilet />
-        <ExploreFloors />
+        <WhyLavilet part="reasons" />
         <LifestyleStrip />
-        <ExperienceLiving />
         <LaviletPlaceBoard />
         <UbicanosView project={null} />
+        <EspaciosAccordion />
+        <ProjectEssentials />
       </LandingWash>
     </LockupProvider>
   )

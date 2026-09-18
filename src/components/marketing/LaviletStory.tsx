@@ -59,14 +59,13 @@ function HeadlineSides({
   lines: readonly string[]
   invert?: boolean
 }) {
-  let offset = 0
-
   return (
     <>
-      {lines.map((line) => {
+      {lines.map((line, lineIndex) => {
         const words = line.split(/\s+/).filter(Boolean)
-        const start = offset
-        offset += words.length
+        const start = lines
+          .slice(0, lineIndex)
+          .reduce((total, previous) => total + previous.split(/\s+/).filter(Boolean).length, 0)
         return (
           <span key={line} className="block">
             {words.map((word, i) => {
@@ -92,14 +91,14 @@ function HeadlineSides({
   )
 }
 
-function AboutEditorial() {
+export function AboutEditorial() {
   const reduce = useReducedMotion()
   const trackRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState(0)
   const beat = ABOUT_BEATS[active] ?? ABOUT_BEATS[0]
   const { scrollYProgress } = useScroll({
     target: trackRef,
-    offset: ['start 80px', 'end end'] as any,
+    offset: ['start 80px', 'end end'],
   })
 
   useMotionValueEvent(scrollYProgress, 'change', (value) => {
@@ -596,7 +595,7 @@ function EditorialSequenceMobile({
       {items.map((item, itemIndex) => (
         <motion.article
           key={item.title}
-          className="border-t border-white/25 py-14 first:border-t-0"
+          className="border-t border-white/25 py-9 first:border-t-0"
           initial={{ opacity: 0, x: itemIndex % 2 === 0 ? -64 : 64, y: 24 }}
           whileInView={{ opacity: 1, x: 0, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -675,7 +674,7 @@ export function StoryBoard({
   })
   const { scrollYProgress: sequenceProgress } = useScroll({
     target: boardRef,
-    offset: ['start 80px', 'end end'] as any,
+    offset: ['start 80px', 'end end'],
   })
 
   useMotionValueEvent(sequenceProgress, 'change', (value) => {
@@ -715,7 +714,7 @@ export function StoryBoard({
       style={
         sequence?.length
           ? ({
-              '--sequence-height': `${Math.max(4, sequence.length * 2) * 72}svh`,
+              '--sequence-height': `${Math.max(1, sequence.length) * 125}svh`,
             } as CSSProperties)
           : undefined
       }
@@ -855,14 +854,17 @@ export function StoryBoard({
 
 export function LaviletStory() {
   const docked = useLockupDocked()
+  const reduce = useReducedMotion()
 
   return (
     <section id="nosotros" className="relative z-20 scroll-mt-28 bg-[#e8dcc8] pb-16 lg:pb-24 mkt-dark:bg-[#cfc3b3]">
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <img
+        <Image
           src={INTERIOR.wall}
           alt=""
-          className="h-full w-full object-cover object-[left_center]"
+          fill
+          sizes="100vw"
+          className="object-cover object-left"
         />
         <div className="absolute inset-0 bg-[#f3ece4]/28 backdrop-blur-[8px] mkt-dark:bg-[#8c8478]/24" />
       </div>
@@ -884,27 +886,40 @@ export function LaviletStory() {
           brand={docked ? <LaviletLockup variant="story" /> : null}
           sequence={[
             {
-              kicker: 'Recorrido 360°',
-              title: 'Explora antes de elegir',
+              kicker: 'El diseño',
+              title: 'La calma también se diseña',
               body: [
-                'Entra a las suites y departamentos.',
-                'Recorre cada planta.',
-                'Compara distribuciones y acabados antes de agendar una visita.',
-              ],
-            },
-            {
-              kicker: 'El proyecto',
-              title: 'Conoce el proyecto completo',
-              body: [
-                'Vivienda y comercio se integran sin perder privacidad.',
-                'Conoce los espacios que ofrece La Vilet.',
-                'Descubre cómo Puertas del Sol y el Tomebamba forman parte de la vida diaria.',
+                'Una arquitectura que ordena la vida cotidiana.',
+                'Recorridos independientes para vivienda y comercio.',
+                'Espacios abiertos a la luz y a la ciudad.',
               ],
             },
           ]}
         />
 
-        <AboutEditorial />
+        <motion.div
+          className="grid gap-8 border-t border-[#72735A]/18 py-12 sm:py-16 lg:grid-cols-[minmax(14rem,0.65fr)_minmax(0,1.35fr)] lg:items-center lg:gap-16"
+          initial={reduce ? false : { opacity: 0, y: 44 }}
+          whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.35 }}
+          transition={{ duration: 0.8, ease: kineticEase }}
+        >
+          <div className="relative h-36 sm:h-44">
+            <AboutLetterPlay />
+          </div>
+          <div>
+            <p className="text-[11px] font-medium tracking-[0.3em] text-[#8B8C74] uppercase">
+              Nosotros
+            </p>
+            <h2 className="mt-3 max-w-2xl font-serif text-[clamp(2.35rem,5vw,4.8rem)] leading-[0.92] tracking-[-0.04em] text-[#72735A]">
+              Diseño para vivir la ciudad sin llevarla dentro de casa.
+            </h2>
+            <p className="mt-6 max-w-2xl text-[15px] leading-relaxed text-[#2B1A18]/72 sm:text-[17px]">
+              La actividad comercial permanece cerca y la vivienda conserva su propio recorrido.
+              Una relación clara entre movimiento, privacidad y vida cotidiana.
+            </p>
+          </div>
+        </motion.div>
       </div>
     </section>
   )

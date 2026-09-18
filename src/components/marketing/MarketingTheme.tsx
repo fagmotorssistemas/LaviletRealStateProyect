@@ -7,7 +7,7 @@ import { SiteFooter } from './SiteFooter'
 import { EspaciosAccordion } from './EspaciosAccordion'
 import { MarketingThemeProvider } from './theme'
 
-const ESPACIOS_PATHS = new Set(['/inicio', '/nosotros'])
+const ESPACIOS_PATHS = new Set(['/nosotros'])
 
 export function MarketingFrame({
   children,

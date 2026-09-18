@@ -29,7 +29,7 @@ export function SiteFooter() {
     : null
 
   return (
-    <footer className="relative z-20 bg-[#e8dcc8] text-[#2B1A18] mkt-dark:bg-[#cfc3b3] mkt-dark:text-[#2B1A18]">
+    <footer className="relative z-20 bg-[#eee6dc] text-[#2B1A18] mkt-dark:bg-[#cfc3b3] mkt-dark:text-[#2B1A18]">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-[0.35] mix-blend-multiply mkt-dark:opacity-[0.12] mkt-dark:mix-blend-overlay"

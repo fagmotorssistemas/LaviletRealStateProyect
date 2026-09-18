@@ -6,20 +6,10 @@ import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import { NEARBY_PLACES } from '@/lib/marketing/nearbyPlaces'
 import { LaviletLockup } from './LaviletLockup'
-import { AboutTitleMark } from './FooterWordmark'
 
 const TERRAZA =
   'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_terraza.png'
-
-const STATS = [
-  { value: '1', label: 'sector', note: 'Puertas del Sol' },
-  { value: '2', label: 'vidas', note: 'vivir y emprender' },
-  { value: '3', label: 'ríos', note: 'Tomebamba' },
-] as const
-
-const PLACE_CARDS = NEARBY_PLACES.slice(0, 3)
 
 type PhotoSlide = {
   kind: 'photo'
@@ -93,19 +83,6 @@ const PHOTOS: PhotoSlide[] = [
   },
 ]
 
-function PaperGrain() {
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 opacity-50 mix-blend-multiply"
-      style={{
-        backgroundImage:
-          'repeating-linear-gradient(0deg, rgba(114,115,90,0.04) 0px, rgba(114,115,90,0.04) 1px, transparent 1px, transparent 3px), repeating-linear-gradient(90deg, rgba(114,115,90,0.03) 0px, rgba(114,115,90,0.03) 1px, transparent 1px, transparent 4px)',
-      }}
-    />
-  )
-}
-
 function PhotoPanel({ slide }: { slide: PhotoSlide }) {
   return (
     <article className={cn('relative h-full shrink-0', slide.width)}>
@@ -126,53 +103,6 @@ function PhotoPanel({ slide }: { slide: PhotoSlide }) {
           </h3>
           <p className="mt-2 text-xs tracking-[0.16em] text-white/70 uppercase">{slide.credit}</p>
         </div>
-      </div>
-    </article>
-  )
-}
-
-function AboutPanel({ full = false }: { full?: boolean }) {
-  return (
-    <article
-      className={cn(
-        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#f4f1ea] px-7 py-12 sm:px-12 lg:px-16',
-        full ? 'min-h-[32rem] w-full' : 'w-[min(100vw,42rem)] sm:w-[56vw] lg:w-[48vw]',
-      )}
-    >
-      <div className="relative">
-        <p className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase">Nosotros</p>
-        <AboutTitleMark />
-
-        <div className="mt-8 flex flex-wrap gap-x-8 gap-y-5 sm:mt-10">
-          {STATS.map((stat) => (
-            <div key={stat.note}>
-              <p className="font-serif text-[clamp(2.4rem,5vw,3.4rem)] leading-none text-[#C45C3E]">
-                {stat.value}
-              </p>
-              <p className="mt-1 text-[10px] font-medium tracking-[0.22em] text-[#8B8C74] uppercase">
-                {stat.label}
-              </p>
-              <p className="text-sm text-[#2B1A18]/70">{stat.note}</p>
-            </div>
-          ))}
-        </div>
-
-        <p className="mt-8 max-w-md text-[15px] leading-relaxed text-[#2B1A18]/78 sm:mt-10 sm:text-base">
-          En Puertas del Sol, La Vilet nace para vivir y emprender en un solo sitio: comercio abajo,
-          residencias arriba, con accesos independientes y una arquitectura que no interrumpe el
-          paisaje.
-        </p>
-        <p className="mt-4 max-w-md text-[15px] leading-relaxed text-[#2B1A18]/68 sm:text-base">
-          Contemporánea, limpia y atemporal. El Tomebamba queda a unos pasos; la ciudad, de vuelta.
-        </p>
-
-        <Link
-          href="/contacto"
-          className="mt-8 inline-flex items-center text-[13px] font-semibold tracking-[0.04em] text-[#72735A] hover:text-[#C45C3E]"
-        >
-          Agendar visita
-          <ArrowRight size={16} className="ml-1.5" />
-        </Link>
       </div>
     </article>
   )
@@ -251,6 +181,13 @@ function CardsPanel({ full = false }: { full?: boolean }) {
             </div>
           ))}
         </div>
+        <Link
+          href="/proyectos"
+          className="mt-9 inline-flex h-11 items-center rounded-full bg-[#72735A] px-5 text-[11px] font-semibold tracking-[0.14em] text-[#f4f1ea] uppercase transition-colors hover:bg-[#5f6049]"
+        >
+          Ver tipologías
+          <ArrowRight size={14} className="ml-2" />
+        </Link>
       </div>
     </article>
   )
@@ -326,6 +263,13 @@ function CommercePanel({ full = false }: { full?: boolean }) {
             Acceso completamente independiente al ingreso residencial, garantizando privacidad y una circulación organizada sin interferir con las viviendas.
           </motion.p>
         </div>
+        <Link
+          href="/contacto"
+          className="mt-9 inline-flex h-11 items-center rounded-full bg-[#72735A] px-5 text-[11px] font-semibold tracking-[0.14em] text-[#f4f1ea] uppercase transition-colors hover:bg-[#5f6049]"
+        >
+          Consultar locales
+          <ArrowRight size={14} className="ml-2" />
+        </Link>
       </div>
     </article>
   )
@@ -338,10 +282,7 @@ function Track({
 }) {
   return (
     <div ref={trackRef} className="flex h-full w-max">
-      <PhotoPanel slide={PHOTOS[0]} />
       <PhotoPanel slide={PHOTOS[1]} />
-      <AboutPanel />
-      <PhotoPanel slide={PHOTOS[2]} />
       <CardsPanel />
       <PhotoPanel slide={PHOTOS[3]} />
       <CommercePanel />
@@ -362,20 +303,11 @@ function StackedGallery({
       className="relative z-20 space-y-1.5 bg-[#e4e4de] pb-20 mkt-dark:bg-[#72735A] sm:pb-28"
       aria-label="La ciudad alrededor"
     >
-      <div className="relative h-[78vh] min-h-[28rem]">
-        <PhotoPanel slide={{ ...PHOTOS[0], width: 'w-full' }} />
-      </div>
-      <div className="relative min-h-[32rem]">
-        <AboutPanel full />
-      </div>
       <div className="relative h-[72vh] min-h-[24rem]">
         <PhotoPanel slide={{ ...PHOTOS[1], width: 'w-full' }} />
       </div>
       <div className="relative min-h-[28rem]">
         <CardsPanel full />
-      </div>
-      <div className="relative h-[72vh] min-h-[24rem]">
-        <PhotoPanel slide={{ ...PHOTOS[2], width: 'w-full' }} />
       </div>
       <div className="relative h-[72vh] min-h-[24rem]">
         <PhotoPanel slide={{ ...PHOTOS[3], width: 'w-full' }} />
