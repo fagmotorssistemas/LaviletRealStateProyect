@@ -1,8 +1,9 @@
 'use server'
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { readOwnProfileRow } from '@/lib/auth/session'
+import { getCrmDataClient, readOwnProfileRow } from '@/lib/auth/session'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
+import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 
 export type ConversionLogRow = {
   id: string
@@ -20,6 +21,13 @@ export type ConversionLogRow = {
   details: Record<string, unknown>
 }
 
+/**
+ * Bitácora CAPI con aislamiento tenant en servidor.
+ * - Requiere sesión + path marketing/capi.
+ * - Solo filas cuyo tenant_id ∈ getAccessibleTenantIds().
+ * - is_probe / delivery_lane=test NO omiten el filtro de tenant.
+ * - Filas sin tenant_id no son visibles.
+ */
 export async function listMetaCapiConversionLog(input?: {
   limit?: number
   eventName?: string | null
@@ -27,6 +35,30 @@ export async function listMetaCapiConversionLog(input?: {
   const profile = await readOwnProfileRow()
   if (!profile || !canAccessPath(profile.role, '/inmobiliaria/marketing/capi', profile.crm_paths)) {
     return { ok: false, error: 'Sin permiso' }
+  }
+
+  let scopeClient
+  try {
+    scopeClient = await getCrmDataClient()
+  } catch {
+    return { ok: false, error: 'Cliente CRM no disponible' }
+  }
+  if (!scopeClient) {
+    return { ok: false, error: 'Cliente CRM no disponible' }
+  }
+
+  let tenantIds: string[]
+  try {
+    tenantIds = await getAccessibleTenantIds(scopeClient)
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'No se pudieron resolver tenants',
+    }
+  }
+
+  if (tenantIds.length === 0) {
+    return { ok: true, rows: [] }
   }
 
   const limit = Math.min(Math.max(Number(input?.limit) || 100, 1), 300)
@@ -42,6 +74,8 @@ export async function listMetaCapiConversionLog(input?: {
     .select(
       'id, created_at, tenant_id, project_id, lead_id, contact_id, event_name, stage, reason, event_id, idempotency_key, delivery_lane, details',
     )
+    .in('tenant_id', tenantIds)
+    .not('tenant_id', 'is', null)
     .order('created_at', { ascending: false })
     .limit(limit)
 
@@ -54,9 +88,9 @@ export async function listMetaCapiConversionLog(input?: {
     return { ok: false, error: error.message }
   }
 
-  return {
-    ok: true,
-    rows: (data || []).map((row) => ({
+  const tenantSet = new Set(tenantIds)
+  const rows = (data || [])
+    .map((row) => ({
       id: String(row.id),
       created_at: String(row.created_at),
       tenant_id: row.tenant_id ? String(row.tenant_id) : null,
@@ -73,6 +107,8 @@ export async function listMetaCapiConversionLog(input?: {
         row.details && typeof row.details === 'object' && !Array.isArray(row.details)
           ? (row.details as Record<string, unknown>)
           : {},
-    })),
-  }
+    }))
+    .filter((row) => Boolean(row.tenant_id && tenantSet.has(row.tenant_id)))
+
+  return { ok: true, rows }
 }

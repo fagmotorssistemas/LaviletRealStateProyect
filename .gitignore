@@ -44,3 +44,7 @@ yarn-error.log*
 next-env.d.ts
 
 certificates
+# Local Supabase CLI / demo-only (never Production path)
+supabase/.temp/
+supabase/.branches/
+

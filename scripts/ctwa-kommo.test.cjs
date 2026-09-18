@@ -28,6 +28,8 @@ const {
 const { normalizeWebhook } = require(path.join(root, 'src/lib/integrations/automation/webhook.ts'))
 const { __test: ctwaTest } = require(path.join(root, 'src/lib/integrations/automation/ctwa-lead-store.ts'))
 
+// Ancla fija solo para SQL/first-touch; el flujo processConversation usa reloj real
+// (ventana 24h de inbound) — ver payloadRow abajo.
 const now = Date.UTC(2026, 8, 16, 20, 0, 0)
 const scope = { tenant_id: 'a1b2c3d4-0001-4000-8000-000000000001', project_id: 'b1b2c3d4-0001-4000-8000-000000000001' }
 
@@ -594,7 +596,8 @@ describe('Flujo processConversation con dependencias simuladas', () => {
       chatId: 'c',
       text: 'Hola',
       name: 'Cliente',
-      sentAt: new Date(now).toISOString(),
+      // Relativo a Date.now(): conversation.ts marca expired si el inbound tiene ≥24h.
+      sentAt: new Date().toISOString(),
       origin: 'waba',
       media: null,
       ctwa,

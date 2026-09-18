@@ -19,8 +19,9 @@ Evento de **conversión en el hilo de mensajería** que representa un lead / con
 | `META_MESSAGING_DATASET_ID` | Destino Graph `{id}/events` | Outbox Nest `dataset_id` / URL Graph |
 | `META_WABA_ID` | Cuenta WhatsApp Business | Solo `user_data.whatsapp_business_account_id` |
 | Pixel / `META_DATASET_ID` / `META_PIXEL_ID` | CAPI **web** | **Nunca** fallback para BM |
+| `META_WA_CAPI_ACCESS_TOKEN` (Nest) | Bearer Graph para BM | **Distinto** de `META_CAPI_ACCESS_TOKEN` (web) |
 
-No usar el WABA como dataset. No sustituir el dataset de mensajería por el dataset web si falta.
+No usar el WABA como dataset. No sustituir el dataset de mensajería por el dataset web si falta. El envío BM no reutiliza el token del CAPI web.
 
 ### Requisitos actuales (WhatsApp)
 
@@ -88,3 +89,9 @@ La integración Kommo actual **no tiene evidencia** de entregar `ctwa_clid` en `
 ## Estado local
 
 Código + migración locales. **No** Production / push / Vercel en esta entrega.
+
+Procedimiento único de despliegue/activación (flags OFF por defecto; no auto-activa):  
+[`docs/META_WA_LEAD_SUBMITTED_ACTIVATION.md`](./META_WA_LEAD_SUBMITTED_ACTIVATION.md).
+
+Migración demo auth/profiles: `supabase/local-only/` (**fuera** de `supabase/migrations`).  
+Migración LS productiva pendiente de autorización: `20260918120000_meta_wa_lead_submitted.sql`.

@@ -19,6 +19,18 @@ export const META_CAPI_REASON_LABELS: Record<string, string> = {
   rpc_rejected: 'RPC rechazó el registro',
   ads_consent_revoked: 'Consentimiento revocado; outbox cancelado',
   business_messaging_identifiers_required: 'Faltan IDs BM (dataset / CTWA / WABA)',
+  isolated_bm_test_probe: 'Prueba aislada BM (no cliente real)',
+}
+
+export function isMetaCapiProbeRow(row: {
+  delivery_lane?: string | null
+  idempotency_key?: string | null
+  details?: Record<string, unknown>
+}): boolean {
+  if (row.details?.is_probe === true) return true
+  if (row.details?.probe_kind === 'isolated_bm_test') return true
+  if (String(row.idempotency_key || '').startsWith('wa_bm_test:')) return true
+  return false
 }
 
 export const META_CAPI_STAGE_LABELS: Record<string, string> = {
