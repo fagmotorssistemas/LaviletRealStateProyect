@@ -7,17 +7,20 @@ import type { InventorySortOption, Project, Unit } from '@/types/inmobiliaria'
 
 interface Filters {
   search: string
-  projectId: string
+  floorNumber: string
   status: string
   category: string
   sortBy: InventorySortOption
 }
+
+type FloorFacet = { number: number; label: string }
 
 type InventoryPayload = {
   tenantIds?: string[]
   projects?: Project[]
   units?: Unit[]
   unitTypes?: { id: string; name: string }[]
+  floors?: FloorFacet[]
   total?: number
   error?: string
 }
@@ -40,6 +43,7 @@ export function useInventoryUnits() {
   const [units, setUnits] = useState<Unit[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [unitTypes, setUnitTypes] = useState<{ id: string; name: string }[]>([])
+  const [floors, setFloors] = useState<FloorFacet[]>([])
   const [tenantIds, setTenantIds] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -47,7 +51,7 @@ export function useInventoryUnits() {
   const [total, setTotal] = useState(0)
   const [filters, setFilters] = useState<Filters>({
     search: '',
-    projectId: '',
+    floorNumber: '',
     status: '',
     category: '',
     sortBy: 'unit_natural',
@@ -60,6 +64,7 @@ export function useInventoryUnits() {
       setUnits([])
       setProjects([])
       setUnitTypes([])
+      setFloors([])
       setTenantIds([])
       setTotal(0)
       setIsLoading(false)
@@ -68,7 +73,7 @@ export function useInventoryUnits() {
 
     setIsLoading(true)
     const query = new URLSearchParams()
-    if (filters.projectId) query.set('projectId', filters.projectId)
+    if (filters.floorNumber) query.set('floorNumber', filters.floorNumber)
     if (filters.status) query.set('status', filters.status)
     if (filters.category) query.set('category', filters.category)
     if (filters.search.trim()) query.set('search', filters.search.trim())
@@ -85,6 +90,7 @@ export function useInventoryUnits() {
       setTenantIds(payload.tenantIds ?? [])
       setProjects(payload.projects ?? [])
       setUnitTypes(payload.unitTypes ?? [])
+      setFloors(payload.floors ?? [])
       setUnits(payload.units ?? [])
       setTotal(payload.total ?? 0)
       if (payload.error && !(payload.units ?? []).length) toast.error(payload.error)
@@ -108,7 +114,7 @@ export function useInventoryUnits() {
   }
 
   const resetFilters = () => {
-    setFilters({ search: '', projectId: '', status: '', category: '', sortBy: 'unit_natural' })
+    setFilters({ search: '', floorNumber: '', status: '', category: '', sortBy: 'unit_natural' })
     setPage(1)
   }
 
@@ -116,6 +122,7 @@ export function useInventoryUnits() {
     units,
     projects,
     unitTypes,
+    floors,
     isLoading,
     filters,
     tenantId,

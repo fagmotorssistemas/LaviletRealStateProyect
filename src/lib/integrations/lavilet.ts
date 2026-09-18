@@ -10,5 +10,5 @@ export const LAVILET_MESSAGE_ROUTES = [
   { kind: 'visit_propose', botId: 15578, fieldId: 457014 },
   { kind: 'visit_confirm', botId: 15578, fieldId: 457014 },
   { kind: 'visit_reschedule_confirm', botId: 15578, fieldId: 457014 },
-  { kind: 'visit_2h', botId: 15578, fieldId: 457014 },
+  { kind: 'visit_2h', botId: 22246, fieldId: 531120 },
 ] as const

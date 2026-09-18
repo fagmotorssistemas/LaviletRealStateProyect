@@ -1,0 +1,24 @@
+-- Fix only the dependency order in the currently installed reset function.
+-- Preserves its authorization, backups, protected-lead checks and permissions.
+-- Installing this patch does not reset any lead or send messages.
+BEGIN;
+DO $patch$
+DECLARE
+  definition text;
+  old_pair text := $pattern$\('financing_prequalifications','lead_id = \$1'\),\s*\('asesoria_financiamiento','lead_id = \$1'\)$pattern$;
+  new_pair text := $replacement$('asesoria_financiamiento','lead_id = $1'),
+   ('financing_prequalifications','lead_id = $1')$replacement$;
+  matches integer;
+BEGIN
+  SELECT pg_get_functiondef('public.lv_reset_lavilet_test_contact(integer)'::regprocedure) INTO definition;
+  SELECT count(*) INTO matches FROM regexp_matches(definition,old_pair,'g');
+  IF matches = 0 AND position(new_pair in definition) > 0 THEN
+    RAISE NOTICE 'El orden de reinicio ya esta corregido.';
+    RETURN;
+  END IF;
+  IF matches <> 2 THEN
+    RAISE EXCEPTION 'La funcion de reinicio cambio; no se modifico. Revisar su definicion actual.';
+  END IF;
+  EXECUTE regexp_replace(definition,old_pair,new_pair,'g');
+END $patch$;
+COMMIT;

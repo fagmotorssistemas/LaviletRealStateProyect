@@ -14,6 +14,20 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
   if (!codes.length && /\b(?:precio|valor|vale|valen|cuesta|cuestan|cost[oa])\b/.test(m)) {
     codes.push(...m.matchAll(/\b(?:el|del|la|de la)\s+(\d{3,4})\b/g))
   }
+  // A named project subject supersedes a remembered unit for this turn.
+  const projectTopic=/\b(?:edificio|proyecto|areas comunes|amenidades)\b/.test(m)
+  const largest=/\bdepartamento (?:mas grande|de mayor (?:superficie|area|tamano))\b/.test(m)
+  if(!codes.length && largest) {
+    const candidates=catalog.filter(u=>u.category==='departamento'&&u.is_published!==false&&(!u.status||u.status==='disponible'))
+    // Do not silently ignore another constraint or rank units whose area is unknown.
+    if(!/presupuesto|dormitorios?|habitaciones?|cuartos?|terraza|piso|planta|barato|economico|\bno\b/.test(m)&&candidates.length&&candidates.every(u=>Number(u.area_internal_m2)>0)) {
+      const max=Math.max(...candidates.map(u=>Number(u.area_internal_m2)))
+      const matches=candidates.filter(u=>Number(u.area_internal_m2)===max)
+      return {explicit:true,hasUnitMention:true,matches,memory:{ids:matches.map(u=>u.id),numbers:matches.map(u=>u.unit_number)}}
+    }
+    return {explicit:false,hasUnitMention:false,matches:[],memory:{}}
+  }
+  if(!codes.length && projectTopic)return {explicit:false,hasUnitMention:false,matches:[],memory:{}}
   let matches = catalog.filter(u => codes.some(c => {
     const code = text(u.unit_number).replace(/\D/g, '')
     // Clients use “departamento” and “suite” interchangeably. Match the residential
@@ -21,7 +35,7 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
     const category = /^(?:lc|local)/.test(c[0]) ? 'local' : /^unidad/.test(c[0]) ? null : 'residencial'
     if (/^piso/.test(c[0]) && c[1].length < 3) return false
     return Number(code) === Number(c[1]) && (!category || (category === 'residencial'
-      ? ['suite', 'departamento'].includes(text(u.category)) : u.category === category))
+      ? ['suite', 'departamento', 'penthouse'].includes(text(u.category)) : u.category === category))
   }))
   const numbers = [...readable.matchAll(/\b\d{1,4}[.,]\d{1,2}\b/g)].map(n => Number(n[0].replace(',', '.')))
   if (!codes.length && !matches.length && numbers.length && /cual|el de|que ofrece|area|metros|m2|interior|exterior/.test(m)) {
@@ -64,6 +78,7 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
 export function catalogReferenceReply(matches: Row[], current: string) {
   if (!matches.length) return ''
   const m = normalized(current)
+  if(/\b(?:edificio|proyecto|areas comunes|amenidades)\b/.test(m)&&!/\b(?:unidad|departamento|suite|local)\s+\d/.test(m))return ''
   if (!/cual|que (?:ofrece|tiene|incluye)|informacion|detalle|\[imagen|\[archivo/.test(m) || /precio|valor|cuanto cuesta|dueno|constructora/.test(m)) return ''
   const first = matches[0], number = (v: unknown) => Number(v).toLocaleString('es-EC', { maximumFractionDigits: 2 })
   const codes = matches.map(u => text(u.unit_number)).sort().join(', ')

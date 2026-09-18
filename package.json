@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/print-env-banner.cjs && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "env:remote": "node scripts/restore-remote-env-local.cjs",
+    "env:local-financing": "node scripts/use-local-financing-env.cjs",
     "tour:resize": "node scripts/tour-resize.mjs",
     "test:meta-pg": "node scripts/meta-pg-harness.mjs",
     "test:integrations": "node --test scripts/integrations.test.cjs",
@@ -18,9 +20,11 @@
     "test:meta-schedule": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/scheduleIntegration.test.ts src/lib/meta/scheduleEnqueue.review.test.ts src/lib/meta/scheduleAgendaHook.test.ts src/lib/meta/scheduleContract.test.ts src/lib/meta/scheduleDelivery.test.ts src/lib/meta/scheduleFlushExclusion.test.ts src/lib/meta/scheduleReliability.test.ts src/lib/meta/scheduleMigrations.test.ts",
     "test:meta-wa-lead-submitted": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/waLeadSubmitted.test.ts src/lib/meta/waLeadSubmittedMigrations.test.ts",
     "test:meta-schedule-recover-db": "powershell -File scripts/meta-schedule-recover-isolated/run.ps1",
+    "test:meta-whatsapp-demo": "node --require ./scripts/test-typescript.cjs --test scripts/meta-whatsapp-capi-demo-isolated/demo.test.cjs",
+    "test:meta-capi-bitacora": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/metaOfficialMetrics.test.ts src/lib/meta/metaCapiStatus.test.ts src/lib/meta/metaCapiChannel.test.ts src/lib/meta/metaCapiPhone.test.ts src/lib/meta/deliveryLane.test.ts",
     "test:meta-pixel-unit": "node --require ./scripts/test-typescript.cjs --test src/lib/marketing/metaPixel.behavior.test.ts",
     "test:meta-pixel-browser": "node scripts/meta-pixel-browser-harness.cjs",
-    "test:automation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts src/services/automationRules.service.test.ts src/services/unitPrices.service.test.ts",
+    "test:automation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts src/lib/integrations/automation/visit-reminder.test.ts src/services/automationRules.service.test.ts src/services/unitPrices.service.test.ts",
     "test:financing": "node --require ./scripts/test-typescript.cjs --test src/lib/financing/calculator.test.ts src/lib/financing/scenarioPersist.test.ts src/lib/financing/migration.pglite.test.ts src/lib/financing/scenarioValidate.test.ts src/lib/financing/calculatorUnitPrice.test.ts"
   },
   "engines": {

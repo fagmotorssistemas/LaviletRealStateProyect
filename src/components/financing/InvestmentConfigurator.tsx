@@ -5,6 +5,7 @@ import { useFinancingCalculator } from '@/hooks/useFinancingCalculator'
 import { ParameterSliders } from '@/components/financing/ParameterSliders'
 import { ResultCards } from '@/components/financing/ResultCards'
 import { DesglozeAnual } from '@/components/financing/DesglozeAnual'
+import { ViabilidadAlerta } from '@/components/financing/ViabilidadAlerta'
 import { Disclaimer } from '@/components/financing/Disclaimer'
 import { formatMoney, formatMoneyExact } from '@/lib/financing/calculator'
 import { Spinner } from '@/components/ui/Spinner'
@@ -35,7 +36,6 @@ export function InvestmentConfigurator({
     if (!initialScenario || calc.loading) return
     calc.loadFromScenario(initialScenario)
     onConsumedInitialScenario?.()
-    // Solo al recibir un escenario a reabrir.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialScenario?.id, calc.loading])
 
@@ -64,6 +64,8 @@ export function InvestmentConfigurator({
   const modality: 'cash' | 'financed' = calc.mode === 'cash' ? 'cash' : 'financed'
   const downPaymentAmount =
     calc.unitPrice > 0 ? Math.round(((calc.unitPrice * calc.downPaymentPercent) / 100) * 100) / 100 : 0
+  const financedAmount =
+    modality === 'cash' ? 0 : Math.max(0, Math.round((calc.unitPrice - downPaymentAmount) * 100) / 100)
 
   return (
     <div
@@ -73,17 +75,35 @@ export function InvestmentConfigurator({
       )}
     >
       <section className="space-y-5">
-        <header className="space-y-2">
-          <h2 className="font-serif text-2xl text-[#1f1a14] sm:text-3xl">
-            Unidad {calc.unit?.unit_number ?? unitParam}
-          </h2>
-          <p className="text-sm text-[#6b645c]">
-            {calc.priceMissing ? 'Sin precio publicado' : `Precio ${formatMoney(calc.unitPrice)}`}
-          </p>
+        <header className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-serif text-2xl text-[#1f1a14] sm:text-3xl">
+                Unidad {calc.unit?.unit_number ?? unitParam}
+              </h2>
+              <p className="mt-1 text-sm text-[#6b645c]">
+                {calc.priceMissing ? 'Sin precio publicado' : `Precio ${formatMoney(calc.unitPrice)}`}
+              </p>
+            </div>
+            <span className="inline-flex rounded-full border border-[#1a2744]/25 bg-[#1a2744]/5 px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase">
+              {modality === 'cash' ? 'Compra al contado' : 'Compra con financiamiento'}
+            </span>
+          </div>
           {calc.fidelityMessage ? (
-            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-              {calc.fidelityMessage}
-            </p>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
+              <p>{calc.fidelityMessage}</p>
+              <button
+                type="button"
+                onClick={() => calc.applyCurrentFormulas()}
+                className="mt-2 text-[11px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase"
+              >
+                Recalcular con gastos y fórmulas actuales
+              </button>
+              <p className="mt-1 text-[11px] text-amber-900/80">
+                Se usarán predial y alícuota vigentes; seguro y otros gastos del bloque de propiedad
+                quedarán fuera del cálculo.
+              </p>
+            </div>
           ) : null}
           {calc.priceDiffersFromPublished ? (
             <div className="rounded-xl border border-[#BDA27E]/40 bg-[#BDA27E]/10 px-3 py-2.5 text-sm text-[#4a433c]">
@@ -102,14 +122,14 @@ export function InvestmentConfigurator({
           ) : null}
         </header>
 
-        {/* 1. Unidad y precio */}
         <div className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]">
           <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            1. Unidad y precio
+            1. Unidad, precio y modalidad
           </p>
           {calc.priceMissing ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-              Sin precio publicado. Indique un valor hipotético para simular.
+              Sin precio publicado. Indique un valor hipotético para simular (no modifica el precio
+              comercial en la base de datos).
             </div>
           ) : null}
           {calc.priceMissing || !calc.hasPublishedPrice ? (
@@ -127,19 +147,13 @@ export function InvestmentConfigurator({
             </label>
           ) : (
             <div className="rounded-xl bg-[#f7f3ee] px-3 py-2.5">
+              <p className="text-[10px] font-semibold tracking-[0.12em] text-[#8a8176] uppercase">
+                Precio publicado
+              </p>
               <p className="text-lg font-semibold text-[#1f1a14]">{formatMoney(calc.unitPrice)}</p>
             </div>
           )}
-        </div>
 
-        {/* 2–3. Modalidad + financiamiento */}
-        <div
-          ref={financingRef}
-          className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]"
-        >
-          <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            2. Modalidad
-          </p>
           <div className="grid grid-cols-2 gap-2">
             {(
               [
@@ -164,26 +178,49 @@ export function InvestmentConfigurator({
           </div>
 
           {modality !== 'cash' ? (
-            <div className="space-y-4 border-t border-[#f0ebe3] pt-4">
-              <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-                3. Financiamiento
-              </p>
+            <div className="grid grid-cols-2 gap-3 rounded-xl bg-[#f7f3ee] px-3 py-2.5 text-sm">
+              <div>
+                <p className="text-[10px] text-[#8a8176] uppercase">Entrada</p>
+                <p className="font-semibold tabular-nums text-[#1f1a14]">
+                  {formatMoney(downPaymentAmount)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-[#8a8176] uppercase">Monto financiado</p>
+                <p className="font-semibold tabular-nums text-[#1f1a14]">
+                  {formatMoney(financedAmount)}
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div
+          ref={financingRef}
+          className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]"
+        >
+          <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
+            2. Financiamiento
+          </p>
+
+          {modality === 'cash' ? (
+            <p className="text-sm text-[#6b645c]">Compra al contado: no hay cuota de crédito.</p>
+          ) : (
+            <div className="space-y-4">
               <label className="block space-y-1.5">
                 <span className="text-[11px] text-[#6b645c]">Institución</span>
                 <select
                   value={calc.state.partnerId ?? ''}
                   onChange={(event) => {
                     const id = event.target.value || null
-                    if (!id) {
-                      calc.setMode('manual')
-                      return
-                    }
+                    if (!id) return
                     calc.setPartnerId(id)
-                    calc.setMode('financed')
                   }}
                   className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
                 >
-                  <option value="">Simulación manual (sin institución)</option>
+                  <option value="" disabled>
+                    Elija una institución
+                  </option>
                   {calc.partners.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.partner_name} · {Number(p.annual_interest_rate).toFixed(2)}%
@@ -191,7 +228,7 @@ export function InvestmentConfigurator({
                   ))}
                 </select>
                 <p className="text-[11px] text-[#8a8176]">
-                  Tasas de configuración; no son ofertas bancarias vigentes verificadas.
+                  La tasa proviene de la configuración administrada; no es editable aquí.
                 </p>
               </label>
               <div className="grid grid-cols-2 gap-3">
@@ -208,7 +245,6 @@ export function InvestmentConfigurator({
                     onChange={(event) => calc.setDownPaymentPercent(Number(event.target.value))}
                     className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
                   />
-                  <span className="text-[11px] text-[#8a8176]">{formatMoney(downPaymentAmount)}</span>
                 </label>
                 <label className="block space-y-1">
                   <span className="text-[11px] text-[#6b645c]">Plazo (años)</span>
@@ -224,50 +260,40 @@ export function InvestmentConfigurator({
                 </label>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <label className="block space-y-1">
-                  <span className="text-[11px] text-[#6b645c]">Tasa anual (%)</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.1}
-                    value={calc.interestRate}
-                    onChange={(event) => calc.setInterestRate(Number(event.target.value))}
-                    className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
-                  />
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-[11px] text-[#6b645c]">Tipo de tasa</span>
-                  <select
-                    value={calc.rateType}
-                    onChange={(event) =>
-                      calc.setRateType(event.target.value as 'nominal_annual' | 'effective_annual')
-                    }
-                    className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
-                  >
-                    <option value="nominal_annual">Nominal anual</option>
-                    <option value="effective_annual">Efectiva anual</option>
-                  </select>
-                </label>
+                <div className="rounded-xl bg-[#f7f3ee] px-3 py-2">
+                  <p className="text-[10px] text-[#8a8176] uppercase">Tasa anual</p>
+                  <p className="text-sm font-semibold tabular-nums text-[#1f1a14]">
+                    {Number(calc.interestRate).toFixed(2)}%
+                  </p>
+                </div>
+                <div className="rounded-xl bg-[#f7f3ee] px-3 py-2">
+                  <p className="text-[10px] text-[#8a8176] uppercase">Tipo de tasa</p>
+                  <p className="text-sm font-semibold text-[#1f1a14]">
+                    {calc.rateType === 'effective_annual' ? 'Efectiva anual' : 'Nominal anual'}
+                  </p>
+                </div>
               </div>
-              {calc.mode === 'manual' ? (
-                <p className="rounded-xl bg-[#f7f3ee] px-3 py-2 text-[11px] text-[#6b645c]">
-                  Simulación manual: se conserva la tasa indicada al guardar.
-                </p>
-              ) : null}
               {calc.preview && calc.preview.mode !== 'cash' ? (
                 <div className="rounded-xl bg-[#f7f3ee] px-3 py-2.5 text-sm text-[#4a433c]">
-                  Crédito {formatMoney(calc.preview.financedAmount)} · Cuota{' '}
+                  Crédito {formatMoney(calc.preview.financedAmount)} · Cuota capital/intereses{' '}
                   {formatMoneyExact(calc.preview.monthlyPayment)} / mes
+                  {calc.preview.monthlyExtraCharges > 0 ? (
+                    <>
+                      {' '}
+                      · Cargos adicionales del financiamiento{' '}
+                      {formatMoneyExact(calc.preview.monthlyExtraCharges)}/mes (separados de la
+                      cuota)
+                    </>
+                  ) : null}
                 </div>
               ) : null}
             </div>
-          ) : null}
+          )}
         </div>
 
-        {/* 4. Alquiler, vacancia y gastos */}
         <div className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]">
           <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            4. Alquiler, vacancia y gastos
+            3. Alquiler, tiempo sin inquilino y gastos
           </p>
           <ParameterSliders
             monthlyRent={calc.monthlyRent}
@@ -277,75 +303,73 @@ export function InvestmentConfigurator({
             onUseSuggestedRent={() => calc.setMonthlyRent(calc.suggestedRent)}
             vacancyRate={calc.vacancyRate}
             onVacancyChange={calc.setVacancyRate}
-            expenses={calc.state.expenses}
-            onExpensesChange={calc.setExpenses}
-            suggestedExpenses={calc.suggestedExpenses}
-            onUseSuggestedExpenses={calc.useSuggestedExpenses}
-            annualManagement={calc.state.annualManagement}
-            onManagementChange={(v) => calc.patchState({ annualManagement: v })}
+            financingConfig={calc.config}
+            includePropertyManager={calc.state.includePropertyManager}
+            onIncludePropertyManagerChange={(v) =>
+              calc.patchState({ includePropertyManager: v, savedResults: null, fidelityMessage: null })
+            }
+            includeIncomeTax={calc.state.includeIncomeTax}
+            onIncludeIncomeTaxChange={(v) =>
+              calc.patchState({ includeIncomeTax: v, savedResults: null, fidelityMessage: null })
+            }
+            incomeTaxRate={calc.incomeTaxRate}
+            onIncomeTaxRateChange={calc.setIncomeTaxRate}
+            managementFeeRate={calc.managementFeeRate}
+            onManagementFeeRateChange={calc.setManagementFeeRate}
+            coverage={calc.rentCoverage}
+            showCoveragePayment={modality !== 'cash'}
             unitPrice={calc.unitPrice}
             onUnitPriceChange={calc.setUnitPrice}
             priceEditable={false}
             priceMissing={false}
             showPrice={false}
           />
-          <label className="block space-y-1">
-            <span className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-              IR estimado anual (opcional)
-            </span>
-            <input
-              type="number"
-              min={0}
-              step={50}
-              value={calc.state.annualIncomeTaxEstimate || ''}
-              placeholder="0 = solo antes de IR"
-              onChange={(event) =>
-                calc.patchState({ annualIncomeTaxEstimate: Number(event.target.value) || 0 })
-              }
-              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
-            />
-            <p className="text-[11px] text-[#8a8176]">
-              No se impone un 25% automático. Por defecto: antes de impuesto a la renta.
-            </p>
-          </label>
         </div>
-
-        {/* 6. Guardar */}
-        {calc.identified || onOpenSaved ? (
-          <div className="flex flex-wrap gap-3">
-            {calc.identified ? (
-              <button
-                type="button"
-                disabled={calc.saving || calc.priceMissing || !calc.preview}
-                onClick={() => void calc.saveScenario()}
-                className="inline-flex h-11 items-center justify-center rounded-full bg-[#1a2744] px-5 text-[11px] font-semibold tracking-[0.14em] text-white uppercase disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                {calc.saving ? 'Guardando…' : 'Guardar escenario'}
-              </button>
-            ) : null}
-            {onOpenSaved ? (
-              <button
-                type="button"
-                onClick={onOpenSaved}
-                className="inline-flex h-11 items-center justify-center rounded-full border border-[#d9d0c3] bg-white px-5 text-[11px] font-semibold tracking-[0.14em] text-[#1f1a14] uppercase"
-              >
-                Ver guardados
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {calc.saveMessage ? <p className="text-sm text-[#4a433c]">{calc.saveMessage}</p> : null}
       </section>
 
-      {/* 5. Resultados */}
       <section className="space-y-5">
         <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-          5. Resultado
+          Resultado
         </p>
         {calc.preview ? (
           <>
+            <ViabilidadAlerta
+              preview={calc.preview}
+              input={{
+                mode: calc.preview.mode,
+                unitPrice: calc.unitPrice,
+                estimatedMonthlyRent: calc.monthlyRent,
+                vacancyRate: calc.vacancyRate,
+                annualOperatingExpenses: calc.state.expenses.total,
+                includeIncomeTax: calc.state.includeIncomeTax,
+                includePropertyManager: calc.state.includePropertyManager,
+                incomeTaxRate: calc.incomeTaxRate,
+                managementFeeRate: calc.managementFeeRate,
+                downPaymentPercent: calc.downPaymentPercent,
+                financingYears: calc.financingYears,
+                interestRate: calc.interestRate,
+                rateType: calc.rateType,
+                acquisitionCosts: calc.state.acquisitionCosts,
+                annualOtherFinancialCosts: calc.state.annualOtherFinancialCosts,
+                monthlyExtraCharges: calc.state.monthlyExtraCharges,
+                wealthHorizonYears: calc.wealthHorizonYears,
+                appreciationRateAnnual: calc.appreciationRateAnnual,
+                saleCosts: calc.state.saleCosts,
+              }}
+              horizonYears={calc.wealthHorizonYears}
+              appreciationRateAnnual={calc.appreciationRateAnnual}
+              onHorizonYearsChange={calc.setWealthHorizonYears}
+              onAppreciationRateChange={calc.setAppreciationRateAnnual}
+            />
             <ResultCards preview={calc.preview} />
-            <DesglozeAnual preview={calc.preview} />
+            <details className="rounded-2xl border border-[#ece6dc] bg-white open:shadow-sm">
+              <summary className="cursor-pointer list-none px-4 py-3 text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
+                Ver desglose de ingresos y pagos
+              </summary>
+              <div className="border-t border-[#ece6dc] px-1 pb-1">
+                <DesglozeAnual preview={calc.preview} />
+              </div>
+            </details>
           </>
         ) : (
           <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-6 text-sm text-[#6b645c]">
@@ -354,6 +378,29 @@ export function InvestmentConfigurator({
               : 'Complete los parámetros para ver el resultado.'}
           </div>
         )}
+
+        <div className="flex flex-wrap gap-3">
+          {calc.identified ? (
+            <button
+              type="button"
+              disabled={calc.saving || calc.priceMissing || !calc.preview}
+              onClick={() => void calc.saveScenario()}
+              className="inline-flex h-11 items-center justify-center rounded-full bg-[#1a2744] px-5 text-[11px] font-semibold tracking-[0.14em] text-white uppercase disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {calc.saving ? 'Guardando…' : 'Guardar escenario'}
+            </button>
+          ) : null}
+          {onOpenSaved ? (
+            <button
+              type="button"
+              onClick={onOpenSaved}
+              className="inline-flex h-11 items-center justify-center rounded-full border border-[#d9d0c3] bg-white px-5 text-[11px] font-semibold tracking-[0.14em] text-[#1f1a14] uppercase"
+            >
+              Ver guardados
+            </button>
+          ) : null}
+        </div>
+        {calc.saveMessage ? <p className="text-sm text-[#4a433c]">{calc.saveMessage}</p> : null}
         <Disclaimer text={calc.config.disclaimer_text} />
       </section>
     </div>

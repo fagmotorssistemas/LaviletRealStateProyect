@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getCrmDataClient, getSessionProfile } from '@/lib/auth/session'
 import { canAccessPath, knownRole } from '@/lib/inmobiliaria/roleAccess'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
-import { listActiveUnitTypes, listProjects, listUnits } from '@/services/inmobiliaria.service'
+import { listActiveUnitTypes, listProjects, listUnitFloorFacets, listUnits } from '@/services/inmobiliaria.service'
 import type { InventorySortOption, UnitStatus } from '@/types/inmobiliaria'
 
 export const runtime = 'nodejs'
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 
 function empty(error?: string, status = 200) {
   return NextResponse.json(
-    { tenantId: '', tenantIds: [], projects: [], units: [], unitTypes: [], total: 0, error },
+    { tenantId: '', tenantIds: [], projects: [], units: [], unitTypes: [], floors: [], total: 0, error },
     { status },
   )
 }
@@ -34,12 +34,18 @@ export async function GET(request: Request) {
         projects: [],
         units: [],
         unitTypes: [],
+        floors: [],
         total: 0,
       })
     }
 
     const { searchParams } = new URL(request.url)
-    const [projects, listed, unitTypes] = await Promise.all([
+    const floorRaw = searchParams.get('floorNumber')
+    const floorNumber =
+      floorRaw != null && floorRaw !== '' && Number.isFinite(Number(floorRaw))
+        ? Number(floorRaw)
+        : undefined
+    const [projects, listed, unitTypes, floors] = await Promise.all([
       listProjects(supabase, tenantIds[0], tenantIds),
       listUnits(supabase, {
         tenantId: tenantIds[0],
@@ -47,12 +53,14 @@ export async function GET(request: Request) {
         projectId: searchParams.get('projectId') || undefined,
         status: (searchParams.get('status') || undefined) as UnitStatus | undefined,
         category: searchParams.get('category') || undefined,
+        floorNumber,
         search: searchParams.get('search')?.trim() || undefined,
         sort: (searchParams.get('sortBy') || undefined) as InventorySortOption | undefined,
         page: Number(searchParams.get('page') || 1),
         pageSize: Number(searchParams.get('pageSize') || 10),
       }),
       listActiveUnitTypes(supabase, tenantIds),
+      listUnitFloorFacets(supabase, tenantIds),
     ])
 
     return NextResponse.json({
@@ -61,6 +69,7 @@ export async function GET(request: Request) {
       projects,
       units: listed.data,
       unitTypes,
+      floors,
       total: listed.total,
     })
   } catch (error) {

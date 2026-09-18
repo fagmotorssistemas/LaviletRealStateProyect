@@ -104,18 +104,21 @@ export function UnitPricesView() {
     finally { setSaving('') }
   }
   const scoped = units.filter(unit => category === 'todos' || (category === 'viviendas'
-    ? ['departamento', 'suite'].includes(normalizeUnitCategory(unit.category) || unit.category)
+    ? ['departamento', 'suite', 'penthouse'].includes(normalizeUnitCategory(unit.category) || unit.category)
     : normalizeUnitCategory(unit.category) === category))
   const visible = scoped.filter(unit => unit.unit_number.toLowerCase().includes(search.trim().toLowerCase())
     && (filter === 'todos' || (filter === 'sin_precio' ? !unit.published_commercial_price : !!unit.published_commercial_price)))
-  const label = (unit: UnitPriceRow) => ({ departamento: 'Departamento', suite: 'Suite', local: 'Local' }[normalizeUnitCategory(unit.category) || unit.category] || unit.category)
+  const label = (unit: UnitPriceRow) =>
+    ({ departamento: 'Departamento', suite: 'Suite', penthouse: 'Penthouse', local: 'Local' }[
+      normalizeUnitCategory(unit.category) || unit.category
+    ] || unit.category)
 
   return <div className={styles.shell}>
-    <AutomationSettingsHeader active="precios" title="Precios por unidad" description="Administre los precios de departamentos, suites y locales comerciales, compartidos con el inventario y el bot."
+    <AutomationSettingsHeader active="precios" title="Precios por unidad" description="Administre los precios de departamentos, suites, penthouses y locales comerciales, compartidos con el inventario y el bot."
       project={<Select label="Proyecto" value={projectId} disabled={!!saving || loading} options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={event => changeProject(event.target.value)} />} />
     {loading ? <div className="flex justify-center py-20"><Spinner /></div> : error ? <div className={styles.notice} role="alert"><strong>No se pudieron cargar los precios</strong><p>{error}</p><Button variant="outline" onClick={() => projectId ? setRevision(value => value + 1) : setProjectRevision(value => value + 1)}>Reintentar</Button></div> : !projectId ? <p>No hay proyectos disponibles.</p> : <>
       <AutomationSettingsSummary items={[
-        { label: 'Unidades', value: scoped.length, detail: category === 'viviendas' ? 'Departamentos y suites del proyecto' : category === 'local' ? 'Locales comerciales del proyecto' : 'Todas las unidades del proyecto', icon: Building2 },
+        { label: 'Unidades', value: scoped.length, detail: category === 'viviendas' ? 'Departamentos, suites y penthouses del proyecto' : category === 'local' ? 'Locales comerciales del proyecto' : 'Todas las unidades del proyecto', icon: Building2 },
         { label: 'Con precio guardado', value: scoped.filter(unit => unit.published_commercial_price).length, detail: 'Precio comercial en dólares estadounidenses', icon: DollarSign },
         { label: 'Precios en el bot', value: mode === 'preventa' ? 'Habilitados' : savedLaunchVisible ? 'Aproximados' : 'Ocultos', detail: mode === 'preventa' ? 'Solo unidades publicadas y disponibles' : 'El proyecto está en modo lanzamiento', icon: MessageSquareText },
       ]} />
@@ -135,7 +138,7 @@ export function UnitPricesView() {
       <section className={styles.panel} aria-label="Edición de precios comerciales">
         <div className={priceStyles.toolbar}>
           <div className={priceStyles.search}><Search size={16} /><Input id="price-search" aria-label="Buscar número de unidad" placeholder="Buscar unidad, ej. 210 o LC-05" value={search} onChange={event => setSearch(event.target.value)} /></div>
-          <Select aria-label="Tipo de unidad" value={category} options={[{ value: 'todos', label: 'Todas las unidades' }, { value: 'viviendas', label: 'Departamentos y suites' }, { value: 'local', label: `Locales comerciales (${units.filter(unit => normalizeUnitCategory(unit.category) === 'local').length})` }]} onChange={event => setCategory(event.target.value)} />
+          <Select aria-label="Tipo de unidad" value={category} options={[{ value: 'todos', label: 'Todas las unidades' }, { value: 'viviendas', label: 'Departamentos, suites y penthouses' }, { value: 'local', label: `Locales comerciales (${units.filter(unit => normalizeUnitCategory(unit.category) === 'local').length})` }]} onChange={event => setCategory(event.target.value)} />
           <Select aria-label="Filtrar precios" value={filter} options={[{ value: 'todos', label: 'Todos los precios' }, { value: 'sin_precio', label: 'Sin precio' }, { value: 'con_precio', label: 'Con precio' }]} onChange={event => setFilter(event.target.value)} />
           <Button variant="outline" disabled={!!saving || dirty} onClick={() => setRevision(value => value + 1)}><RefreshCw size={14} /> Actualizar</Button>
         </div>

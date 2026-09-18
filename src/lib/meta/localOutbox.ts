@@ -2,6 +2,7 @@ import 'server-only'
 import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { enqueueMetaEvent, isMetaCapiConfigured, type EnqueueMetaEventInput } from '@/lib/meta/capiServer'
+import { resolveDeliveryLane } from '@/lib/meta/deliveryLane'
 
 export type LocalOutboxRow = {
   id: string
@@ -30,12 +31,9 @@ export function isOutboxStatusFlushable(status: string | null | undefined): bool
   return String(status || '') === OUTBOX_FLUSHABLE_STATUS
 }
 
+/** @deprecated Usar resolveDeliveryLane — exportado para tests existentes. */
 function intendedLane(): 'test' | 'live' {
-  // Lane fijada en origen; Nest solo entrega la que coincida con META_MODE.
-  const explicit = process.env.META_CAPI_DELIVERY_LANE?.trim().toLowerCase()
-  if (explicit === 'test' || explicit === 'live') return explicit
-  const mode = process.env.META_MODE?.trim().toLowerCase()
-  return mode === 'test' ? 'test' : 'live'
+  return resolveDeliveryLane()
 }
 
 /**
@@ -73,6 +71,14 @@ export async function persistMetaConversion(
     .maybeSingle()
 
   if (existing?.event_id) {
+    // Si el visitante se identificó después, enlazar lead_id sin reescribir payload.
+    if (input.leadId && existing.id) {
+      await admin
+        .from('meta_capi_outbox')
+        .update({ lead_id: input.leadId, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+        .is('lead_id', null)
+    }
     return {
       inserted: false,
       eventId: existing.event_id,
@@ -219,6 +225,7 @@ export async function flushLocalMetaOutbox(
           updated_at: new Date().toISOString(),
         })
         .eq('status', 'pending')
+        .eq('delivery_lane', lane)
         .in('event_id', eventIds)
     }
     return { forwarded: 0, failed: eventIds.length ? eventIds.length : 0, skipped: 0 }
@@ -237,6 +244,7 @@ export async function flushLocalMetaOutbox(
       .from('meta_capi_outbox')
       .select('*')
       .eq('status', 'pending')
+      .eq('delivery_lane', lane)
       .in('event_id', eventIds)
       .order('created_at', { ascending: true })
       .limit(Math.max(limit, eventIds.length))

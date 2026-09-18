@@ -26,9 +26,9 @@ describe('scenarioValidate', () => {
     const breakdown = parseExpenseBreakdown({
       propertyTax: 100,
       maintenance: 100,
-      insurance: 100,
-      other: 100,
-      total: 400,
+      insurance: 0,
+      other: 0,
+      total: 200,
     })
     assert.throws(
       () => resolveOperatingExpenses({ annualExpenses: 5000, breakdown }),
@@ -46,10 +46,23 @@ describe('scenarioValidate', () => {
     })
     assert.equal(breakdown?.total, 0)
   })
+
+  it('normaliza breakdown legacy con seguro/otros al modelo predial+alícuota', () => {
+    const breakdown = parseExpenseBreakdown({
+      propertyTax: 1680,
+      maintenance: 600,
+      insurance: 800,
+      other: 400,
+      total: 3480,
+    })
+    assert.equal(breakdown?.insurance, 0)
+    assert.equal(breakdown?.other, 0)
+    assert.equal(breakdown?.total, 2280)
+  })
 })
 
 describe('scenarioFidelity', () => {
-  it('marca exacto solo investment-v2', () => {
+  it('marca exacto solo la versión actual de cálculo', () => {
     const exact = assessScenarioFidelity({
       calculation_version: CALCULATION_VERSION,
       simulation_mode: 'cash',

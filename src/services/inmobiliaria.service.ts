@@ -190,6 +190,8 @@ interface ListUnitsParams {
   projectId?: string
   status?: UnitStatus
   category?: string
+  /** Filtra por `floor_number` (piso). */
+  floorNumber?: number
   search?: string
   page?: number
   pageSize?: number
@@ -248,6 +250,9 @@ function applyUnitsListFilters(query: any, params: ListUnitsParams, searchMode: 
   query = query.in('tenant_id', tenantIds)
   if (params.projectId) query = query.eq('project_id', params.projectId)
   if (params.status) query = query.eq('status', params.status)
+  if (params.floorNumber != null && Number.isFinite(params.floorNumber)) {
+    query = query.eq('floor_number', params.floorNumber)
+  }
   if (params.category) {
     const categories = unitCategoryFilterValues(params.category)
     query = categories.length === 1 ? query.eq('category', categories[0]) : query.in('category', categories)
@@ -313,7 +318,14 @@ export async function listUnits(supabase: SupabaseClient, params: ListUnitsParam
       if (rows.length < FETCH_BATCH) break
       batchFrom += FETCH_BATCH
     }
-    all.sort(compareUnitsByUnitNumber)
+    all.sort((a, b) => {
+      const fa = a.floor_number
+      const fb = b.floor_number
+      if (fa != null && fb != null && fa !== fb) return fa - fb
+      if (fa != null && fb == null) return -1
+      if (fa == null && fb != null) return 1
+      return compareUnitsByUnitNumber(a, b)
+    })
     const total = all.length
     const pageSlice = all.slice(from, to + 1)
     return { data: pageSlice, total }
@@ -353,6 +365,27 @@ export async function listActiveUnitTypes(
     .order('sort_order', { ascending: true })
   if (error) throw error
   return (data ?? []).map((row) => ({ id: row.id, name: row.name }))
+}
+
+export async function listUnitFloorFacets(
+  supabase: SupabaseClient,
+  tenantIds: string[],
+): Promise<{ number: number; label: string }[]> {
+  if (!tenantIds.length) return []
+  const { data, error } = await supabase
+    .from('units')
+    .select('floor, floor_number')
+    .in('tenant_id', tenantIds)
+  if (error) throw error
+  const floorMap = new Map<number, string>()
+  for (const row of data ?? []) {
+    if (row.floor_number == null || !Number.isFinite(Number(row.floor_number))) continue
+    const n = Number(row.floor_number)
+    floorMap.set(n, row.floor?.trim() || `Piso ${n}`)
+  }
+  return [...floorMap.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([number, label]) => ({ number, label }))
 }
 
 type UnitTableRow = {

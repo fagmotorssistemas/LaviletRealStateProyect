@@ -84,7 +84,7 @@ export default function FinanciamientoPage() {
         }
         description={
           onSimulatorAdmin
-            ? 'Ajustes, analytics y auditoría del simulador público'
+            ? 'Bancos, configuración, analytics y auditoría del simulador público'
             : onCotizador
               ? 'Simulación de crédito con inventario, planes e instituciones'
               : 'Planes de pago, proformas guardadas y pedidos de asesoría'

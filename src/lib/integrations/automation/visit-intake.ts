@@ -11,6 +11,7 @@ export function visitDetailText(current: string) {
     .replace(/\bmalana\b/g, 'manana')
     .replace(/\bo+ch+o+(?:i)?\b/g, 'ocho')
     .replace(/\blass+\b/g, 'las')
+    .replace(/\bdomi+m?n+g+o+\b/g, 'domingo')
 }
 function differentVisitTopic(value: string) {
   return /\b(?:departamentos?|suites?|local(?:es)?|financiamiento|credito|banco|precio|brochure|modelo|plano)\b/.test(value)
@@ -22,6 +23,14 @@ export function needsVisitHelp(current: string) {
   return /no (?:estoy segur[oa]|se\b)|(?:que|cual|cuando|a que) (?:dia |hora |horario )?.*(?:pued[eo]|pueden|tienen|disponible|agendar|ir\b|venir|visitar)|(?:que|cuales) (?:otras? )?(?:opciones|horarios|alternativas) (?:tiene|hay|quedan)|suger|recomiend|digame (?:ud|usted)|elija|propongan|confirme el asesor/.test(value)
     || (/\b(?:prefiero|quiero|deme|denme|mejor) (?:otra|otro|otras|otros)\b/.test(value) && !isVisitDetail(current))
 }
+
+/** Detects that the bot already answered uncertainty with the configured service window. */
+export function visitHoursWereOffered(lastReply: string) {
+  const value = visitDetailText(lastReply)
+  return /horario de atencion/.test(value)
+    && /\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(value)
+    && /\b(?:fecha|dia|hora|horario|franja)\b/.test(value)
+}
 export function isVisitDetail(current: string) {
   const value = visitDetailText(current)
   return /\b(?:manana|hoy|lunes|martes|miercoles|jueves|viernes|sabado|domingo|tarde|hora|reagendar|reprogramar|cita|visita)\b/.test(value)
@@ -30,6 +39,7 @@ export function isVisitDetail(current: string) {
 }
 export function visitTurnIntent(current: string): 'counterproposal' | 'question' | null {
   const value = visitDetailText(current)
+  if (/\b(?:prefiero|mejor|elijo|escojo|quiero (?:ir|visitar)|seria en|puede ser en)\b.{0,35}\b(?:oficina|terreno|departamento modelo|area de obra|unidad(?:es)? terminada)\b/.test(value)) return 'counterproposal'
   if (differentVisitTopic(value)) return null
   if (/\b(?:cancelar|cancelo|cancelacion)\b/.test(value)) return null
   if (needsVisitHelp(current) || /\b(?:reagendar|reprogramar|cambiar (?:mi |la )?(?:cita|hora|fecha)|prefiero otr[oa]|otra opcion|otro horario)\b/.test(value)) return 'counterproposal'
@@ -55,6 +65,13 @@ export function intakeReply(result: Row, at: string | Date = new Date()) {
   if (result.action === 'outside_hours') {
     const hours = object(result.hours)
     return `Ese horario queda fuera de nuestra atención${hours.open && hours.close ? `, de ${hours.open} a ${hours.close}` : ''}. La visita dura una hora. ¿Le vendría bien otro horario?`
+  }
+  if (result.action === 'collecting' && result.needs_location === true) {
+    const enabled=Array.isArray(result.enabled_places) ? result.enabled_places : []
+    const labels:Record<string,string>={office:'nuestra oficina',site:'el terreno del proyecto',work_area:'el área autorizada de obra',model:'el departamento modelo',completed_unit:'las unidades terminadas habilitadas'}
+    const places=enabled.map(value=>labels[String(value)]).filter(Boolean)
+    const options=places.length===2?`${places[0]} o ${places[1]}`:places.length>2?`${places.slice(0,-1).join(', ')} o ${places.at(-1)}`:places[0]||'uno de los lugares habilitados'
+    return `Ya tengo la fecha y la hora. ¿Prefiere realizar la visita en ${options}?`
   }
   if (result.action === 'submitted' && result.needs_help === true) {
     if (slot.start_time && result.review_reason) return `Tomamos en cuenta ${dayLabel} y la hora que nos indicó. El asesor revisará si podemos recibirle en ese horario y le responderá por aquí; su cita todavía no está confirmada.`

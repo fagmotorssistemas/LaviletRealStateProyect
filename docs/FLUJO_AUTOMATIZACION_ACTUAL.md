@@ -75,9 +75,9 @@ En modo lanzamiento el contexto comercial oculta precios. En preventa solo admit
 7. La función de confirmación vuelve a verificar aceptación del asesor y del cliente, disponibilidad, horario laboral y ausencia de cruces. Actualiza la cita y encola la confirmación; la IA no puede sustituir ese proceso diciendo «agendado».
 8. Una cita confirmada puede generar el recordatorio de dos horas. Si cambia o se cancela, se anulan recordatorios pendientes de la versión anterior.
 
-Hay límites concretos: el planificador exige detectar la versión de la cita con más de dos horas y media de anticipación para crear ese recordatorio. El envío dispone de una ventana de 30 minutos y el código exige un mensaje reciente del cliente de menos de 24 horas. Por ello, una cita cercana, una interrupción prolongada o una conversación antigua pueden quedarse sin recordatorio. No está implementada una ruta alternativa con plantillas para conversaciones fuera de esa ventana.
+El planificador exige detectar la versión de la cita con más de dos horas y media de anticipación para crear el recordatorio. El envío dispone de una ventana de 30 minutos. El Salesbot de recordatorio usa una plantilla aprobada y puede enviarse aunque la conversación libre ya haya superado 24 horas.
 
-Los avisos de propuesta usan el Salesbot `18724`; confirmación y reprogramación, `18730`; recordatorio, `18350`. Los campos y rutas se validan antes de usar esos bots. Las citas creadas manualmente no necesariamente recorren todos los pasos de confirmación de una solicitud originada por el bot.
+El recordatorio de dos horas usa el Salesbot `22246` después de completar los campos `531808`, `531120` y `531812`. Los campos y la ruta se revalidan antes de iniciar el bot. Las citas creadas manualmente no necesariamente recorren todos los pasos de confirmación de una solicitud originada por el bot.
 
 ## Atención humana, financiamiento y tareas periódicas
 

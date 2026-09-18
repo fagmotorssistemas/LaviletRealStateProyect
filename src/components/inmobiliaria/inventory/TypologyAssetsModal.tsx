@@ -14,8 +14,6 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import {
-  assetMatchesRoom,
-  isTourPanoramaFileName,
   isVistaRoomSlug,
   TOUR_HOME_SLUG,
   vistaRoomSlug,
@@ -111,7 +109,6 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [toolbarHidden, setToolbarHidden] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const roomFileRef = useRef<HTMLInputElement>(null)
   const pendingSlotRef = useRef<SceneSlot | null>(null)
   const modalScrollRef = useRef(0)
@@ -854,106 +851,6 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                   </div>
                 )
               })}
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs text-[#8a8d87]">Otra imagen (fachada, amenidad, etc.)</p>
-            <div
-              className={cn(
-                'flex flex-col items-center gap-2 rounded-md border border-dashed px-4 py-5 text-center text-sm',
-                dragging
-                  ? 'border-[#2B1A18]/30 bg-[#f4f4ef] text-[#3a3d36]'
-                  : 'border-[#2B1A18]/15 bg-[#fafaf7] text-[#555850]',
-              )}
-              onDragEnter={(e) => {
-                e.preventDefault()
-                setDragging(true)
-              }}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDragging(true)
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault()
-                setDragging(false)
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDragging(false)
-                void onFiles(Array.from(e.dataTransfer.files), 'render')
-              }}
-            >
-              <ImagePlus size={18} className="text-[#8a8d87]" />
-              <span>Soltá acá o elegí archivo</span>
-              <span className="text-xs text-[#8a8d87]">PNG, JPG o WebP</span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
-                multiple
-                disabled={!code || uploading}
-                className="mt-1 w-full max-w-sm text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[#3a3d36] file:px-3 file:py-1.5 file:text-xs file:text-white"
-                onChange={(e) => {
-                  const files = e.target.files ? Array.from(e.target.files) : []
-                  e.target.value = ''
-                  void onFiles(files, 'render')
-                }}
-              />
-            </div>
-            {jobs.length > 0 && tab === 'galeria' ? (
-              <ul className="space-y-1 text-sm">
-                {jobs.map((job) => (
-                  <li key={job.id} className="flex items-center justify-between gap-3 rounded-md border border-[#2B1A18]/8 px-3 py-1.5">
-                    <span className="min-w-0 truncate">{job.name}</span>
-                    <span className="shrink-0 text-xs text-[#8a8d87]">
-                      {job.status === 'pending' && 'En cola'}
-                      {job.status === 'uploading' && 'Subiendo…'}
-                      {job.status === 'done' && 'Listo'}
-                      {job.status === 'duplicate' && (job.message ?? 'Duplicado')}
-                      {job.status === 'error' && (job.message ?? 'Error')}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <div>
-              {loadingList ? (
-                <p className="text-sm text-[#8a8d87]">Cargando…</p>
-              ) : (
-                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {assets
-                    .filter(
-                      (asset) =>
-                        asset.kind !== 'plano' &&
-                        !isTourPanoramaFileName(asset.file_name) &&
-                        !roomSlots.some(
-                          (room) =>
-                            assetMatchesRoom(asset.file_name, room.slug) ||
-                            assetMatchesRoom(asset.file_name, vistaRoomSlug(room.slug)),
-                        ),
-                    )
-                    .map((asset) => (
-                      <li key={asset.id} className="overflow-hidden rounded-md border border-[#2B1A18]/8 bg-white">
-                        <div className="relative aspect-[4/3] bg-[#f4f4ef]">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={asset.public_url} alt={asset.file_name} className="h-full w-full object-cover" />
-                        </div>
-                        <div className="flex items-center justify-between gap-2 p-2">
-                          <p className="min-w-0 truncate text-xs text-[#3a3d36]">{asset.file_name}</p>
-                          <button
-                            type="button"
-                            className="rounded p-1 text-[#8a8d87] hover:bg-[#f3eaea] hover:text-[#8a5c58]"
-                            disabled={deletingId === asset.id}
-                            onClick={() => void onDelete(asset.id)}
-                            aria-label={`Borrar ${asset.file_name}`}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                </ul>
-              )}
-            </div>
             </div>
           </div>
         )}

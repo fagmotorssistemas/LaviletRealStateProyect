@@ -16,7 +16,10 @@ import {
   DOWN_PAYMENT_MIN_PCT,
   FINANCING_YEARS_MAX,
   FINANCING_YEARS_MIN,
+  INCOME_TAX_RATE,
+  MANAGEMENT_FEE_RATE,
   buildInvestmentPreview,
+  buildRentCoverageAnalysis,
   clampDownPaymentPercent,
   clampFinancingYears,
   expenseBreakdownFromConfig,
@@ -42,6 +45,7 @@ type UnitRow = {
   bedrooms: number | null
   project_id: string
   category?: string | null
+  area_internal_m2?: number | null
 }
 
 export type UnitCalcState = {
@@ -50,11 +54,18 @@ export type UnitCalcState = {
   monthlyRent: number
   vacancyRate: number
   expenses: ExpenseBreakdown
-  annualManagement: number
-  annualIncomeTaxEstimate: number
+  /** Incluye IR sobre alquiler efectivo. */
+  includeIncomeTax: boolean
+  /** Incluye comisión gestor sobre alquiler efectivo. */
+  includePropertyManager: boolean
+  incomeTaxRate: number
+  managementFeeRate: number
   acquisitionCosts: number
   annualOtherFinancialCosts: number
   monthlyExtraCharges: number
+  wealthHorizonYears: number
+  appreciationRateAnnual: number
+  saleCosts: number
   mode: SimulationMode
   partnerId: string | null
   downPaymentPercent: number
@@ -79,11 +90,16 @@ const defaultUnitState = (): UnitCalcState => ({
   monthlyRent: 0,
   vacancyRate: 0.05,
   expenses: { propertyTax: 0, maintenance: 0, insurance: 0, other: 0, total: 0 },
-  annualManagement: 0,
-  annualIncomeTaxEstimate: 0,
+  includeIncomeTax: true,
+  includePropertyManager: true,
+  incomeTaxRate: INCOME_TAX_RATE,
+  managementFeeRate: MANAGEMENT_FEE_RATE,
   acquisitionCosts: 0,
   annualOtherFinancialCosts: 0,
   monthlyExtraCharges: 0,
+  wealthHorizonYears: 10,
+  appreciationRateAnnual: 0.05,
+  saleCosts: 0,
   mode: 'cash',
   partnerId: null,
   downPaymentPercent: 30,
@@ -209,8 +225,8 @@ export function useFinancingCalculator(
               vacancyRate: Number(nextConfig?.vacancy_rate ?? 0.05),
               expenses,
               mode:
-                opts?.initialMode === 'financed' || opts?.initialMode === 'manual'
-                  ? opts.initialMode
+                opts?.initialMode === 'financed'
+                  ? 'financed'
                   : 'cash',
               partnerId: recommended?.id ?? null,
               interestRate: recommended ? Number(recommended.annual_interest_rate) : 0,
@@ -296,12 +312,18 @@ export function useFinancingCalculator(
   )
 
   const effectiveInterestRate = useMemo(() => {
-    if (state.mode === 'manual') return state.interestRate
-    if (state.mode === 'financed' && selectedPartner) return state.interestRate
+    if (state.mode === 'cash') return 0
+    if (selectedPartner) return Number(selectedPartner.annual_interest_rate)
     return state.interestRate
   }, [state.mode, state.interestRate, selectedPartner])
 
-  const annualOperatingExpenses = sumExpenseBreakdown(state.expenses)
+  // Siempre modelo v5 (predial + alícuota) cuando hay config; no reintroducir seguro/otros del estado.
+  const annualOperatingExpenses = useMemo(() => {
+    if (config && unitPrice > 0) {
+      return expenseBreakdownFromConfig(unitPrice, config).total
+    }
+    return sumExpenseBreakdown(state.expenses)
+  }, [config, unitPrice, state.expenses])
 
   const livePreview: InvestmentPreview | null = useMemo(() => {
     if (!config) return null
@@ -318,8 +340,10 @@ export function useFinancingCalculator(
       estimatedMonthlyRent: state.monthlyRent,
       vacancyRate: state.vacancyRate,
       annualOperatingExpenses,
-      annualManagement: state.annualManagement,
-      annualIncomeTaxEstimate: state.annualIncomeTaxEstimate || null,
+      includeIncomeTax: state.includeIncomeTax,
+      includePropertyManager: state.includePropertyManager,
+      incomeTaxRate: state.incomeTaxRate,
+      managementFeeRate: state.managementFeeRate,
       acquisitionCosts: state.acquisitionCosts,
       annualOtherFinancialCosts: state.annualOtherFinancialCosts,
       monthlyExtraCharges: state.monthlyExtraCharges,
@@ -327,6 +351,9 @@ export function useFinancingCalculator(
       financingYears: state.financingYears,
       interestRate: effectiveInterestRate,
       rateType: state.rateType,
+      wealthHorizonYears: state.wealthHorizonYears,
+      appreciationRateAnnual: state.appreciationRateAnnual,
+      saleCosts: state.saleCosts,
     })
   }, [
     config,
@@ -336,8 +363,10 @@ export function useFinancingCalculator(
     state.monthlyRent,
     state.vacancyRate,
     annualOperatingExpenses,
-    state.annualManagement,
-    state.annualIncomeTaxEstimate,
+    state.includeIncomeTax,
+    state.includePropertyManager,
+    state.incomeTaxRate,
+    state.managementFeeRate,
     state.acquisitionCosts,
     state.annualOtherFinancialCosts,
     state.monthlyExtraCharges,
@@ -345,6 +374,9 @@ export function useFinancingCalculator(
     state.financingYears,
     effectiveInterestRate,
     state.rateType,
+    state.wealthHorizonYears,
+    state.appreciationRateAnnual,
+    state.saleCosts,
   ])
 
   /** Legacy/unknown: preferir resultados guardados para métricas principales. */
@@ -363,21 +395,22 @@ export function useFinancingCalculator(
     return livePreview
   }, [livePreview, state.initSource, state.savedResults, state.fidelityMessage])
 
+  const rentCoverage = useMemo(
+    () => (preview ? buildRentCoverageAnalysis(preview) : null),
+    [preview],
+  )
+
   function setPartnerId(id: string | null) {
     const partner = partners.find((p) => p.id === id) ?? null
+    if (!id || !partner) return
     patchState({
       partnerId: id,
-      mode: id
-        ? state.mode === 'cash'
-          ? 'financed'
-          : state.mode === 'manual'
-            ? 'manual'
-            : 'financed'
-        : state.mode === 'cash'
-          ? 'cash'
-          : 'manual',
-      interestRate: partner ? Number(partner.annual_interest_rate) : state.interestRate,
-      financingYears: partner ? clampFinancingYears(state.financingYears, partner) : state.financingYears,
+      mode: 'financed',
+      interestRate: Number(partner.annual_interest_rate),
+      financingYears: clampFinancingYears(
+        state.financingYears > 0 ? state.financingYears : 20,
+        partner,
+      ),
       savedResults: null,
       fidelityMessage: null,
     })
@@ -388,20 +421,20 @@ export function useFinancingCalculator(
       patchState({ mode: 'cash', savedResults: null, fidelityMessage: null })
       return
     }
-    if (mode === 'manual') {
-      patchState({ mode: 'manual', partnerId: null, savedResults: null, fidelityMessage: null })
+    // Tour público: solo instituciones administradas (no tasa manual).
+    const partner = selectedPartner ?? partners[0] ?? null
+    if (!partner) {
+      patchState({ mode: 'cash', partnerId: null, interestRate: 0, savedResults: null, fidelityMessage: null })
       return
     }
-    const partner = selectedPartner ?? partners[0] ?? null
     patchState({
-      mode: partner ? 'financed' : 'manual',
-      partnerId: partner?.id ?? null,
-      interestRate: partner ? Number(partner.annual_interest_rate) : state.interestRate > 0 ? state.interestRate : 7.8,
-      financingYears: partner
-        ? clampFinancingYears(state.financingYears > 0 ? state.financingYears : 20, partner)
-        : state.financingYears > 0
-          ? state.financingYears
-          : 20,
+      mode: 'financed',
+      partnerId: partner.id,
+      interestRate: Number(partner.annual_interest_rate),
+      financingYears: clampFinancingYears(
+        state.financingYears > 0 ? state.financingYears : 20,
+        partner,
+      ),
       savedResults: null,
       fidelityMessage: null,
     })
@@ -450,8 +483,8 @@ export function useFinancingCalculator(
           estimated_monthly_rent: state.monthlyRent,
           vacancy_rate: state.vacancyRate,
           annual_expenses: annualOperatingExpenses,
-          annual_management: state.annualManagement,
-          annual_income_tax_estimate: state.annualIncomeTaxEstimate || null,
+          annual_management: livePreview.annualManagement,
+          annual_income_tax_estimate: livePreview.annualIncomeTaxEstimate || null,
           expense_breakdown: state.expenses,
           applied_interest_rate: livePreview.interestRate,
           rate_type: state.rateType,
@@ -459,6 +492,23 @@ export function useFinancingCalculator(
           annual_other_financial: state.annualOtherFinancialCosts,
           monthly_extra_charges: state.monthlyExtraCharges,
           unit_price: unitPrice,
+          assumptions_json: {
+            ...livePreview.assumptions,
+            includeIncomeTax: state.includeIncomeTax,
+            includePropertyManager: state.includePropertyManager,
+            incomeTaxRate: state.incomeTaxRate,
+            managementFeeRate: state.managementFeeRate,
+            wealthHorizonYears: state.wealthHorizonYears,
+            appreciationRateAnnual: state.appreciationRateAnnual,
+            saleCosts: state.saleCosts,
+          },
+          include_income_tax: state.includeIncomeTax,
+          include_property_manager: state.includePropertyManager,
+          income_tax_rate: state.incomeTaxRate,
+          management_fee_rate: state.managementFeeRate,
+          wealth_horizon_years: state.wealthHorizonYears,
+          appreciation_rate_annual: state.appreciationRateAnnual,
+          sale_costs: state.saleCosts,
           phone: getShowroomPhone() || undefined,
           lead_id: getShowroomLeadId() || undefined,
         }),
@@ -497,6 +547,28 @@ export function useFinancingCalculator(
     const acquisition = finiteOrNull(scenario.acquisition_costs)
     const otherFin = finiteOrNull(scenario.annual_other_financial)
     const extra = finiteOrNull(scenario.monthly_extra_charges)
+    const assumptions = (scenario.assumptions_json ?? {}) as Record<string, unknown>
+    const includeIncomeTax =
+      typeof assumptions.includeIncomeTax === 'boolean'
+        ? assumptions.includeIncomeTax
+        : tax != null && tax > 0
+    const includePropertyManager =
+      typeof assumptions.includePropertyManager === 'boolean'
+        ? assumptions.includePropertyManager
+        : management != null && management > 0
+    const incomeTaxRate =
+      typeof assumptions.incomeTaxRate === 'number' ? assumptions.incomeTaxRate : INCOME_TAX_RATE
+    const managementFeeRate =
+      typeof assumptions.managementFeeRate === 'number'
+        ? assumptions.managementFeeRate
+        : MANAGEMENT_FEE_RATE
+    const wealthHorizonYears =
+      typeof assumptions.wealthHorizonYears === 'number' ? assumptions.wealthHorizonYears : 10
+    const appreciationRateAnnual =
+      typeof assumptions.appreciationRateAnnual === 'number'
+        ? assumptions.appreciationRateAnnual
+        : 0.05
+    const saleCosts = typeof assumptions.saleCosts === 'number' ? assumptions.saleCosts : 0
 
     const expenses: ExpenseBreakdown =
       scenario.expense_breakdown ??
@@ -519,11 +591,16 @@ export function useFinancingCalculator(
         monthlyRent: rent ?? state.monthlyRent,
         vacancyRate: vacancy ?? state.vacancyRate,
         expenses,
-        annualManagement: management ?? 0,
-        annualIncomeTaxEstimate: tax ?? 0,
+        includeIncomeTax,
+        includePropertyManager,
+        incomeTaxRate,
+        managementFeeRate,
         acquisitionCosts: acquisition ?? 0,
         annualOtherFinancialCosts: otherFin ?? 0,
         monthlyExtraCharges: extra ?? 0,
+        wealthHorizonYears,
+        appreciationRateAnnual,
+        saleCosts,
         mode,
         partnerId: scenario.financing_partner_id ?? null,
         downPaymentPercent: down != null ? clampDownPaymentPercent(down) : state.downPaymentPercent,
@@ -615,6 +692,18 @@ export function useFinancingCalculator(
     applyCurrentPublishedPrice,
     fidelityMessage: state.fidelityMessage,
     calculationVersion: CALCULATION_VERSION,
+    /** Acción explícita: deja de anclar resultados históricos y aplica fórmulas/gastos actuales. */
+    applyCurrentFormulas: () => {
+      const nextExpenses = config
+        ? expenseBreakdownFromConfig(unitPrice, config)
+        : { propertyTax: 0, maintenance: 0, insurance: 0, other: 0, total: 0 }
+      patchState({
+        expenses: nextExpenses,
+        savedResults: null,
+        fidelityMessage: null,
+        initSource: 'user',
+      })
+    },
     downPaymentPercent: state.downPaymentPercent,
     setDownPaymentPercent: (v: number) =>
       patchState({
@@ -644,8 +733,37 @@ export function useFinancingCalculator(
       }),
     rateType: state.rateType,
     setRateType: (v: RateType) => patchState({ rateType: v, savedResults: null, fidelityMessage: null }),
-    mode: state.mode === 'cash' ? 'cash' : state.mode === 'manual' || !state.partnerId ? 'manual' : 'financed',
+    mode: state.mode === 'cash' ? 'cash' : 'financed',
     preview,
+    rentCoverage,
+    wealthHorizonYears: state.wealthHorizonYears,
+    setWealthHorizonYears: (v: number) =>
+      patchState({
+        wealthHorizonYears: Math.max(1, Math.min(40, Math.round(v) || 10)),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
+    appreciationRateAnnual: state.appreciationRateAnnual,
+    setAppreciationRateAnnual: (v: number) =>
+      patchState({
+        appreciationRateAnnual: v,
+        savedResults: null,
+        fidelityMessage: null,
+      }),
+    incomeTaxRate: state.incomeTaxRate,
+    setIncomeTaxRate: (v: number) =>
+      patchState({
+        incomeTaxRate: Math.min(1, Math.max(0, v)),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
+    managementFeeRate: state.managementFeeRate,
+    setManagementFeeRate: (v: number) =>
+      patchState({
+        managementFeeRate: Math.min(1, Math.max(0, v)),
+        savedResults: null,
+        fidelityMessage: null,
+      }),
     comparison: [] as const,
     identified,
     saving,

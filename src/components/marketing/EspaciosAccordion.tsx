@@ -70,7 +70,7 @@ export function EspaciosAccordion() {
 
   return (
     <section
-      className="relative z-20 bg-[#e8dcc8] pt-20 pb-20 text-[#F2F2F2] mkt-dark:bg-[#cfc3b3] sm:pt-28 sm:pb-28"
+      className="relative z-20 bg-[#efece4] pt-20 pb-20 text-[#72735A] mkt-dark:bg-[#cfc3b3] sm:pt-28 sm:pb-28"
       aria-labelledby="espacios-title"
     >
       <div className="mx-auto max-w-[1400px] px-5 pb-10 sm:px-8 sm:pb-12">

@@ -12,7 +12,10 @@ export function asksVisitStatus(current: string, lastReply = '') {
     || (/cuando|a que hora|cuanto (?:tiempo|tardan)/.test(normalized(current)) && /confirm|respuesta/.test(normalized(current)) && /visita|cita|horario/.test(normalized(lastReply + ' ' + current)))
 }
 export function asksTeamAttendance(current: string) {
-  const value = normalized(current)
+  // In "miércoles que viene", viene modifies the date; it does not ask whether
+  // a person from the team will attend. Remove that temporal phrase before
+  // applying the deterministic attendance check.
+  const value = normalized(current).replace(/\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+que\s+viene\b/g, '')
   return /\b(?:va a venir|van a venir|vendran?|vienen|viene|va a asistir|van a asistir)\b/.test(value)
     && /\b(?:cita|reunion|hoy|manana|esperando|esperamos|acordamos)\b/.test(value)
     && !/\b(?:puedo|quiero|quisiera|me gustaria|voy a) (?:ir|venir|asistir)\b/.test(value)
@@ -30,7 +33,9 @@ export function explicitlyRequestsVisit(current: string) {
   // Permission questions are requests too. Evaluate each clause so an unrelated
   // booking or a declined visit cannot borrow an intent from another question.
   return current.split(/[.!?;\n]+|\bpero\b|\badem[aá]s\b/iu).some(clause => {
-    const value = normalized(clause)
+    // Repair common appointment typos only after a booking verb. Keep the raw
+    // message intact and still apply refusals / unrelated-service checks below.
+    const value = normalized(clause).replace(/\b(agendar|reagendar|coordinar|programar|reservar)( una| la)? (?:cira|sita)\b/g, '$1$2 cita')
     if (!value || /\b(?:no|tampoco|ni) (?:quiero|quisiera|prefiero|puedo|podemos|deseo|me interesa|me gustaria|necesito)\b/.test(value)) return false
     if (hasUnrelatedAppointmentTarget(value)) return false
     if (/\bprefiero (?:hacer |realizar |coordinar |agendar )?(?:una |la )?visita\b/.test(value)) return true
@@ -38,6 +43,7 @@ export function explicitlyRequestsVisit(current: string) {
     if (/^(?:(?:mejor|entonces|si|bueno|de acuerdo|por favor)\s+)*(?:coordinamos|agendamos|programamos)\s+(?:una|la)\s+(?:visita|cita)(?:\s+por favor)?$/.test(value)) return true
     if (/\b(?:puedo|podemos|podria|podriamos|se puede|es posible) (?:hacer |realizar |tener |solicitar |coordinar |agendar )?(?:una |la )?(?:visita|visitar|cita|ir|venir|pasar)\b/.test(value)) return true
     if (/\b(?:quiero|quisiera|necesito) (?:saber|consultar|confirmar|revisar)\b/.test(value) || /\b(?:ya|ayer) (?:agende|agendamos|coordine|coordinamos|reserve|reservamos)\b/.test(value)) return false
+    if (/\b(?:agendar|coordinar|programar|reservar) (?:para )?(?:ir a )?(?:ver|conocer|visitar) (?:el |la |un |una )?(?:departamento|suite|local|proyecto|oficina)\b/.test(value)) return true
     if (/\b(?:quiero|quisiera|deseo|me interesa|me gustaria|necesito)\b.*\b(?:visita|visitar|cita|ir a (?:verlo|verla|conocerlo|conocerla)|(?:verlo|verla|conocerlo|conocerla) en persona|(?:ir|pasar|acercarme) (?:a|por) (?:la |su )?oficina)\b/.test(value)) return true
     if (/\b(?:agendar|agendemos|agenden|agendame|agendarme|reagendar|reprogramar|reservar|coordinar|coordinemos|programar|programemos|cambiar)\b.*\b(?:cita|visita|horario de visita|hora de la cita|dia de la cita)\b/.test(value)) return true
     if (/\b(?:reagendar|reprogramar) (?:para (?:hoy|manana|el |la proxima)|a las? \d)\b/.test(value)) return true

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { VisitInboxItem } from '@/types/inmobiliaria'
-import { prioritizeVisitInbox, visitIsOverdue, visitWaitLabel, visitUrgencyKey } from './visitInbox'
+import { prioritizeVisitInbox, visitActionButton, visitActionTitle, visitIsOverdue, visitWaitLabel, visitUrgencyKey } from './visitInbox'
 
 const now = Date.parse('2026-09-12T16:00:00Z')
 const request = (id: string, status: string, created_at: string, escalation_due_at: string | null = null) => ({ id, status, created_at, escalation_due_at }) as VisitInboxItem
@@ -35,4 +35,14 @@ test('a rejected set of alternatives takes priority and can notify for an existi
   const overdue = request('old-overdue', 'awaiting_advisor', '2026-09-10T10:00:00Z', '2026-09-11T10:00:00Z')
   assert.deepEqual(prioritizeVisitInbox([overdue, urgent], now).map(row => row.id), ['same-request', 'old-overdue'])
   assert.equal(visitUrgencyKey({ ...urgent, status: 'confirmed' }), null)
+})
+
+test('notifications distinguish new appointments, reschedules and repeated rejections', () => {
+  const appointment = { ...request('new', 'awaiting_advisor', '2026-09-12T14:00:00Z'), request_type: 'new_appointment' as const }
+  const reschedule = { ...appointment, id: 'reschedule', request_type: 'reschedule' as const }
+  assert.equal(visitActionTitle(appointment), 'Agendar cita')
+  assert.equal(visitActionButton(appointment), 'Revisar agendamiento')
+  assert.equal(visitActionTitle({ ...reschedule, proposal_rejection_count: 1 }), 'Reagendar cita · enviar nuevas opciones')
+  assert.equal(visitActionButton(reschedule), 'Revisar reagendamiento')
+  assert.equal(visitActionTitle({ ...reschedule, coordination_urgent_at: '2026-09-12T15:59:00Z' }), 'Reagendar cita · contacto requerido')
 })

@@ -1,9 +1,48 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import { getCrmDataClient, readOwnProfileRow } from '@/lib/auth/session'
+import { assertCanAccessCrmPath, getCrmDataClient, readOwnProfileRow } from '@/lib/auth/session'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient, tryCreateAdminClient } from '@/lib/supabase/admin'
+import {
+  listMetaCapiOutbox,
+  type MetaCapiListFilters,
+  type MetaCapiOutboxResult,
+} from '@/services/metaCapiOutbox.service'
+
+const PATH = '/inmobiliaria/marketing/capi'
+
+/** Bitácora CRM principal (outbox Meta) — alcance tenant vía sesión. */
+export async function fetchMetaCapiBitacora(
+  filters?: MetaCapiListFilters,
+): Promise<{ ok: true; data: MetaCapiOutboxResult } | { ok: false; error: string }> {
+  try {
+    await assertCanAccessCrmPath(PATH)
+    const admin = tryCreateAdminClient()
+    if (!admin) {
+      return {
+        ok: false,
+        error: 'Falta cliente admin (service_role) para leer meta_capi_outbox',
+      }
+    }
+    const userClient = await createClient()
+    const tenantIds = await getAccessibleTenantIds(userClient)
+    if (tenantIds.length === 0) {
+      return { ok: false, error: 'Sin tenants accesibles para esta sesión' }
+    }
+    const data = await listMetaCapiOutbox(admin, {
+      accessibleTenantIds: tenantIds,
+      filters: filters ?? {},
+    })
+    return { ok: true, data }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'No se pudo cargar la bitácora CAPI',
+    }
+  }
+}
 
 export type ConversionLogRow = {
   id: string
@@ -22,9 +61,8 @@ export type ConversionLogRow = {
 }
 
 /**
- * Bitácora CAPI con aislamiento tenant en servidor.
- * - Requiere sesión + path marketing/capi.
- * - Solo filas cuyo tenant_id ∈ getAccessibleTenantIds().
+ * Bitácora Nest `meta_capi_conversion_log` (LeadSubmitted / probes).
+ * - Solo tenant_id ∈ getAccessibleTenantIds().
  * - is_probe / delivery_lane=test NO omiten el filtro de tenant.
  * - Filas sin tenant_id no son visibles.
  */
@@ -33,7 +71,7 @@ export async function listMetaCapiConversionLog(input?: {
   eventName?: string | null
 }): Promise<{ ok: true; rows: ConversionLogRow[] } | { ok: false; error: string }> {
   const profile = await readOwnProfileRow()
-  if (!profile || !canAccessPath(profile.role, '/inmobiliaria/marketing/capi', profile.crm_paths)) {
+  if (!profile || !canAccessPath(profile.role, PATH, profile.crm_paths)) {
     return { ok: false, error: 'Sin permiso' }
   }
 

@@ -62,10 +62,10 @@ Las plantillas generales tienen ventana de atención. El consumidor de `lv_outbo
 No se modificó ni probó ningún workflow. IDs de Kommo **solo aquí**, no en Supabase:
 
 - Campo coordinación: `519824`
-- Campo recordatorio: `513120`
+- Campos del recordatorio: saludo `531808`, detalle `531120`, ubicación `531812`
 - Salesbot propuesta: `18724`
 - Salesbot confirmación: `18730`
-- Salesbot recordatorio 2h: `18350`
+- Salesbot recordatorio 2h: `22246`
 
 Pendiente en n8n cuando haya canvas:
 
@@ -73,4 +73,4 @@ Pendiente en n8n cuando haya canvas:
 2. Dejar de insertar `visit_confirm` desde un planificador si la RPC ya lo encola.
 3. Consumir `visit_propose`, `visit_confirm`, `visit_reschedule_confirm` con `lv_outbox_event_is_current(id)` antes de Salesbot.
 4. Cron: `lv_release_expired_holds()` + `lv_escalate_overdue_requests()`.
-5. `visit_2h` sin cambio de Salesbot; respeta pausa.
+5. `visit_2h` usa el Salesbot `22246`; respeta la pausa de recordatorios.

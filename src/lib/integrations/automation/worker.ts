@@ -12,6 +12,7 @@ import { NUTRITION_TASKS } from '@/lib/inmobiliaria/nutritionLater'
 import { kommoDeliveryBlock, rejectedWriteStatus } from './delivery-state'
 import { OpenAIRequestError } from './openai-request'
 import { GenerationRecoveryError, recoverGenerationFailure } from './generation-recovery'
+import { claimTestMessages } from './test-response-mode'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -24,7 +25,7 @@ async function scheduleTasks() {
   if (error) throw new Error('TASK_SCHEDULE_FAILED')
 }
 
-export async function runAutomation() {
+export async function runAutomation(testContact?: string) {
   const settings = automationSettings()
   if (settings.mode === 'off') return { mode: 'off', processed: 0 }
   if (settings.mode === 'preview') return { mode: 'preview', databaseWrites: false, visits: await previewVisits() }
@@ -41,14 +42,17 @@ export async function runAutomation() {
   try {
     const block = await kommoDeliveryBlock()
     if (block) return { mode: 'live', processed: 0, reason: 'kommo_account_blocked', http_status: block.http_status }
-    await scheduleTasks()
+    if(!testContact) await scheduleTasks()
     // Reservas abandonadas del nuevo ejecutor requieren revisión; nunca reenvío automático.
+    if(!testContact) {
     const { error } = await db().from('lv_outbox').update({ status: 'uncertain', detail: 'Worker interrumpido; comprobar Kommo' })
       .match(scope).eq('status', 'claimed').contains('payload', { _app: 'lavilet' })
       .lt('claimed_at', new Date(Date.now() - 5 * 60_000).toISOString())
     if (error) throw new Error('STALE_OUTBOX_CHECK_FAILED')
+    }
     for (let i = 0; i < 3 && Date.now() - started < 45_000; i++) {
-      const batch = await rpc<Row[]>('lv_app_claim', { p_token: token })
+      await guard()
+      const batch = testContact ? await claimTestMessages(token,testContact) : await rpc<Row[]>('lv_app_claim', { p_token: token })
       if (!batch.length) break
       const first = object(batch[0]), ids = batch.map(row => row.id)
       try {
@@ -121,7 +125,7 @@ export async function runAutomation() {
       }
       if (await kommoDeliveryBlock()) return { mode: 'live', processed: results.length, reason: 'kommo_account_blocked', results }
     }
-    for (const job of await pendingVisits()) {
+    for (const job of testContact ? [] : await pendingVisits()) {
       if (Date.now() - started > 150_000) break
       await guard()
       results.push(await sendVisit(text(job.id), guard))

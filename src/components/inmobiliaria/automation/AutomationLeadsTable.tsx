@@ -7,7 +7,13 @@ import type { LeadAutomationRow } from '@/types/leadAutomation'
 import styles from './AutomationWorkspace.module.css'
 
 const temperatures = { frio: 'Frío', tibio: 'Tibio', caliente: 'Caliente' }
-const categories: Record<string, string> = { departamento: 'Departamento', suite: 'Suite', local: 'Local comercial', local_comercial: 'Local comercial' }
+const categories: Record<string, string> = {
+  departamento: 'Departamento',
+  suite: 'Suite',
+  penthouse: 'Penthouse',
+  local: 'Local comercial',
+  local_comercial: 'Local comercial',
+}
 
 export function AutomationLeadsTable({ rows, selectedLeadId, onSelect }: {
   rows: LeadAutomationRow[]; selectedLeadId: string | null; onSelect: (leadId: string) => void

@@ -30,6 +30,12 @@ export type FinancingConfig = {
   default_financing_partner_id: string | null
   allow_custom_interest_rate: boolean | null
   disclaimer_text: string | null
+  /** Ubicación de referencia del proyecto (radios de comparables). */
+  reference_latitude?: number | null
+  reference_longitude?: number | null
+  /** Enlace Google Maps / Maps del edificio (fuente de verdad humana). */
+  reference_location_url?: string | null
+  rent_suggestion_settings?: Record<string, unknown> | null
 }
 
 export type SimulationMode = 'cash' | 'financed' | 'manual'
@@ -41,6 +47,54 @@ export type ExpenseBreakdown = {
   insurance: number
   other: number
   total: number
+}
+
+export type MonthlyCoverageStatus = 'covers_gross_only' | 'covers_net' | 'borderline' | 'insufficient'
+export type ViabilityLevel = 'viable' | 'borderline' | 'critical'
+
+export type MonthlyCoverage = {
+  monthlyRent: number
+  monthlyPayment: number
+  difference: number
+  status: MonthlyCoverageStatus
+  /** Etiqueta clara: no confundir bruto con neto. */
+  statusLabel: string
+}
+
+/** Cobertura bruta + neta (tras vacancia, ops, gestor e IR). */
+export type RentCoverageAnalysis = {
+  monthlyGrossRent: number
+  monthlyPayment: number
+  grossDifference: number
+  monthlyNetRentAvailable: number
+  annualNetRentAvailable: number
+  monthlyTopUpOrSurplus: number
+  annualCashFlow: number
+  coversGrossBeforeExpenses: boolean
+  coversNetAfterExpenses: boolean
+}
+
+export type WealthProjection = {
+  horizonYears: number
+  appreciationRateAnnual: number
+  futurePropertyValue: number
+  remainingDebt: number
+  endingEquity: number
+  cumulativeTopUps: number
+  cumulativeSurplus: number
+  totalCashInvested: number
+  projectedGainOrLoss: number
+  cumulativeReturnOnCashPercent: number | null
+  saleCosts: number
+  saleCostsIncluded: boolean
+  annualCashFlowYieldPercent: number | null
+  zeroAppreciation: {
+    futurePropertyValue: number
+    endingEquity: number
+    projectedGainOrLoss: number
+    cumulativeReturnOnCashPercent: number | null
+  }
+  notes: string[]
 }
 
 export type FinancingScenario = {
@@ -121,6 +175,7 @@ export type InvestmentPreview = {
   initialCashOutlay: number
   vacancyRate: number
   annualPotentialRental: number
+  annualVacancyCost: number
   annualEffectiveRental: number
   /** Alias de annualEffectiveRental (compat con UI/RPC antiguos). */
   annualGrossRental: number
@@ -131,13 +186,17 @@ export type InvestmentPreview = {
   annualCashFlowBeforeTax: number
   annualIncomeTaxEstimate: number
   annualCashFlowAfterTax: number
+  /** Saldo anual real (tras vacancia, ops, gestor, IR y deuda). */
   annualNetCashFlow: number
   monthlyCashFlow: number
   buyerTopUpMonthly: number
-  /** Resultado operativo / precio. */
+  totalAnnualCosts: number
+  /** Resultado operativo / precio (sin deuda ni IR). */
   operatingYieldOnPrice: number | null
-  /** Flujo anual / efectivo inicial aportado. */
+  /** ROI sobre entrada / efectivo inicial (saldo ÷ entrada). */
   cashOnCashReturn: number | null
+  /** ROI sobre precio total (saldo ÷ precio). */
+  roiOnTotalPrice: number | null
   /** Alias de cashOnCashReturn (compat). */
   roiPercent: number | null
   debtCoverageRatio: number | null
@@ -145,13 +204,33 @@ export type InvestmentPreview = {
   paybackLabel: string | null
   breakevenMonth: number | null
   isProfitable: boolean
+  monthlyCoverage: MonthlyCoverage
+  viabilityLevel: ViabilityLevel
+  includeIncomeTax: boolean
+  includePropertyManager: boolean
+  incomeTaxRate: number
+  managementFeeRate: number
   assumptions: {
     vacancyAppliedOnce: boolean
     incomeTaxIncluded: boolean
+    incomeTaxRate: number
+    managementFeeRate: number
+    includeIncomeTax: boolean
+    includePropertyManager: boolean
     rateType: RateType
     rateIsBankOffer: boolean
     recoveryMethod: string
     excludesAppreciationAndSale: boolean
+    /** Horizonte de patrimonio (años). */
+    wealthHorizonYears?: number
+    /** Plusvalía anual hipotética (ej. 0.05). */
+    appreciationRateAnnual?: number
+    /** Costos de salida / venta si se modelan. */
+    saleCosts?: number
+    /** Modelo de gastos de propiedad (v5+: predial + alícuota). */
+    propertyExpenseModel?: string
+    propertyExpensesExcludeInsuranceAndOther?: boolean
+    annualOperatingExpensesSnapshot?: number
   }
 }
 

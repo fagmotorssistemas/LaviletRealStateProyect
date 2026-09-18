@@ -24,6 +24,7 @@ import { locationRequestKind, withVisitLocation } from './visit-location'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { commercialCoverageIssues } from './multi-topic-turn'
 import { houseProductReply, PRODUCT_FIT_RULES } from './product-fit'
+import { unitAlternative } from './unit-alternatives'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -88,6 +89,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
   const attachBrochure = wantsBrochure(current, info.historial)
   const quote = unitPriceQuote(info, current, summary)
+  const alternative = !quote ? unitAlternative(info,current,statedBudget(current)) : null
+  if(alternative)return {reply:alternative.reply,audit:{source:'unit_alternative',fallback:false,alternative_unit_id:alternative.unit?.id||null}}
   const budgetOptions=budgetOptionsReply(info,current)
   if(budgetOptions && !quote)return {reply:budgetOptions,audit:{source:'budget_options',fallback:false}}
   const turnAnswers = turnAnswerFacts(info, current, summary)

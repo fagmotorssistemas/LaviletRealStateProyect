@@ -5,7 +5,7 @@ import { LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '@/lib/integrations/lavile
 export type PublicUnitReference = {
   id: string
   unit_number: string
-  category: 'suite' | 'departamento'
+  category: 'suite' | 'departamento' | 'penthouse'
   floor: string | null
   floor_number: number | null
   bedrooms: number | null
@@ -22,7 +22,7 @@ export async function loadPublicUnitReference(client: SupabaseClient, id: string
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null
   const result = await client.from('units').select(PUBLIC_FIELDS)
     .eq('id', id).eq('tenant_id', LAVILET_TENANT_ID).eq('project_id', LAVILET_PROJECT_ID)
-    .eq('is_published', true).eq('status', 'disponible').in('category', ['suite', 'departamento'])
+    .eq('is_published', true).eq('status', 'disponible').in('category', ['suite', 'departamento', 'penthouse'])
     .abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
   if (result.error) throw new Error('PUBLIC_UNIT_REFERENCE_UNAVAILABLE')
   return result.data as PublicUnitReference | null

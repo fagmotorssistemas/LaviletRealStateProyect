@@ -4,6 +4,17 @@ export function visitNeedsAttention(item: VisitInboxItem) {
   return item.status === 'awaiting_advisor'
 }
 
+export function visitActionTitle(item: VisitInboxItem) {
+  const action = item.request_type === 'reschedule' ? 'Reagendar cita' : 'Agendar cita'
+  if (item.coordination_urgent_at) return `${action} · contacto requerido`
+  if ((item.proposal_rejection_count ?? 0) > 0) return `${action} · enviar nuevas opciones`
+  return action
+}
+
+export function visitActionButton(item: VisitInboxItem) {
+  return item.request_type === 'reschedule' ? 'Revisar reagendamiento' : 'Revisar agendamiento'
+}
+
 export function visitUrgencyKey(item: VisitInboxItem) {
   return visitNeedsAttention(item) && item.coordination_urgent_at ? `${item.id}:${item.coordination_urgent_at}` : null
 }

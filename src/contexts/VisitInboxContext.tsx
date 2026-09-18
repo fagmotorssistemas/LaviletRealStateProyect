@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { useVisitInbox } from '@/hooks/inmobiliaria/useVisitInbox'
-import { prioritizeVisitInbox, visitIsOverdue, visitNeedsAttention, visitUrgencyKey } from '@/lib/inmobiliaria/visitInbox'
+import { prioritizeVisitInbox, visitActionTitle, visitIsOverdue, visitNeedsAttention, visitUrgencyKey } from '@/lib/inmobiliaria/visitInbox'
 import type { VisitInboxItem } from '@/types/inmobiliaria'
 
 export type VisitInboxTab = 'pending' | 'waiting' | 'all'
@@ -31,9 +31,9 @@ function useInbox() {
       const key = `${inbox.userId}:${urgency}`
       if (notified.current.has(key)) continue
       notified.current.add(key)
-      toast.warning(`Coordinar cita urgente: ${item.lead?.name || 'Cliente'}`, {
+      toast.warning(`${visitActionTitle(item)}: ${item.lead?.name || 'Cliente'}`, {
         id: key, duration: 15000,
-        description: 'No pudo elegir entre los horarios propuestos. El bot está pausado; revisa el resumen y llámale para coordinar.',
+        description: 'El cliente rechazó dos rondas de horarios. El bot continúa atendiendo; revisa el resumen y contáctalo para acordar una fecha.',
         action: { label: 'Revisar ahora', onClick: () => openRequest(item) },
       })
     }

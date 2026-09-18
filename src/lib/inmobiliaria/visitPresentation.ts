@@ -22,7 +22,13 @@ export function kommoLeadUrl(id: number | string | null | undefined) {
 
 export function visitInterest(detail: AppointmentWithUnits) {
   const units = detail.units.length ? detail.units : (detail.lead?.lead_units ?? []).flatMap(link => link.unit ? [link.unit] : [])
-  const categories: Record<string, string> = { local: 'Local comercial', local_comercial: 'Local comercial', suite: 'Suite', departamento: 'Departamento' }
+  const categories: Record<string, string> = {
+    local: 'Local comercial',
+    local_comercial: 'Local comercial',
+    suite: 'Suite',
+    departamento: 'Departamento',
+    penthouse: 'Penthouse',
+  }
   const label = (category?: string | null) => categories[category?.toLowerCase() ?? ''] ?? 'Propiedad'
   if (units.length) return units.map(unit => `${label(unit.category)} ${unit.unit_number}`).join(' · ')
   return detail.lead?.preferred_category ? label(detail.lead.preferred_category) : 'Visita general al proyecto'

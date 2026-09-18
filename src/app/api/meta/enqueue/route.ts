@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { after } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { LV_VID_COOKIE, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
+import { rpcResolveLeadIdForVisitor } from '@/lib/tour/tourRpc'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox, persistMetaConversion } from '@/lib/meta/localOutbox'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
@@ -60,6 +61,16 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 204 })
   }
 
+  // Si el visitante 360 ya se identificó, enlazar ViewContent al mismo lead.
+  let resolvedLeadId: string | null = null
+  try {
+    resolvedLeadId = await rpcResolveLeadIdForVisitor(admin, visitorKey)
+  } catch (error) {
+    console.error('[meta-enqueue] resolve lead for visitor', {
+      error: error instanceof Error ? error.message.slice(0, 120) : 'error',
+    })
+  }
+
   const unitId = String(body.unit_id || '').trim()
   const eventId = String(body.event_id || '').trim()
   if (!unitId || !isUuid(unitId)) {
@@ -107,6 +118,7 @@ export async function POST(request: Request) {
       idempotencyKey: visitKey,
       eventId,
       visitorKey,
+      leadId: resolvedLeadId,
       adsConsentRequired: true,
       payload: {
         action_source: 'website',

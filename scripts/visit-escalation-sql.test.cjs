@@ -30,6 +30,7 @@ async function fixture() {
   const validation = agenda.slice(agenda.indexOf('CREATE OR REPLACE FUNCTION public.lv_assert_client_inbound_message('), agenda.indexOf('CREATE OR REPLACE FUNCTION public.lv_intake_visit_request('))
   await db.exec(validation)
   await db.exec(fs.readFileSync('supabase/migrations/20260915100000_urgent_visit_coordination.sql', 'utf8'))
+  await db.exec(fs.readFileSync('supabase/migrations/20260918224500_visit_reschedule_continuity.sql', 'utf8'))
   const lead = (await db.query('INSERT INTO leads(tenant_id,project_id,bot_enabled,assigned_to) VALUES($1,$2,true,$3) RETURNING id', [tenant, project, advisor])).rows[0].id
   const conversation = (await db.query("INSERT INTO conversations(tenant_id,project_id,lead_id,channel,status) VALUES($1,$2,$3,'whatsapp','activa') RETURNING id", [tenant, project, lead])).rows[0].id
   const appointment = (await db.query("INSERT INTO appointments(tenant_id,project_id,lead_id,status,responsible_id) VALUES($1,$2,$3,'pendiente',$4) RETURNING id", [tenant, project, lead, advisor])).rows[0].id
@@ -124,4 +125,34 @@ test('urgent scheduling preserves an unrelated financing escalation with or with
       assert.equal((await f.db.query("SELECT resolved_at FROM bot_escalations WHERE reason='Evaluación de financiamiento con JEP pendiente'")).rows[0].resolved_at, null)
     } finally { await f.db.close() }
   }
+})
+
+test('two rejected advisor rounds request direct contact without pausing the bot', async () => {
+  const f = await fixture()
+  try {
+    await f.db.query("UPDATE appointment_reschedule_requests SET status='superseded' WHERE id=$1", [f.request])
+    const first = (await f.db.query(`INSERT INTO appointment_reschedule_requests
+      (tenant_id,project_id,lead_id,appointment_id,status,proposed_by,previous_request_id,assigned_advisor_id,created_at)
+      VALUES($1,$2,$3,$4,'awaiting_advisor','client',$5,$6,now()) RETURNING *`,
+      [tenant, project, f.lead, f.appointment, f.request, advisor])).rows[0]
+    assert.equal(first.proposal_rejection_count, 1)
+    assert.equal(first.coordination_urgent_at, null)
+
+    await f.db.query("UPDATE appointment_reschedule_requests SET status='superseded' WHERE id=$1", [first.id])
+    const proposal = (await f.db.query(`INSERT INTO appointment_reschedule_requests
+      (tenant_id,project_id,lead_id,appointment_id,status,proposed_by,previous_request_id,assigned_advisor_id,advisor_accepted_at,created_at)
+      VALUES($1,$2,$3,$4,'superseded','advisor',$5,$6,now(),now()) RETURNING *`,
+      [tenant, project, f.lead, f.appointment, first.id, advisor])).rows[0]
+    assert.equal(proposal.proposal_rejection_count, 1)
+
+    const second = (await f.db.query(`INSERT INTO appointment_reschedule_requests
+      (tenant_id,project_id,lead_id,appointment_id,status,proposed_by,previous_request_id,assigned_advisor_id,created_at)
+      VALUES($1,$2,$3,$4,'awaiting_advisor','client',$5,$6,now()) RETURNING *`,
+      [tenant, project, f.lead, f.appointment, proposal.id, advisor])).rows[0]
+    assert.equal(second.proposal_rejection_count, 2)
+    assert.ok(second.coordination_urgent_at)
+    assert.match(second.coordination_summary, /bot permanece activo/)
+    assert.equal((await f.db.query('SELECT bot_enabled FROM leads WHERE id=$1', [f.lead])).rows[0].bot_enabled, true)
+    assert.equal((await f.db.query('SELECT status FROM conversations WHERE id=$1', [f.conversation])).rows[0].status, 'activa')
+  } finally { await f.db.close() }
 })

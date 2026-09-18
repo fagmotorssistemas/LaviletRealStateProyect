@@ -10,6 +10,15 @@ export type ScenarioFidelity =
       message: string
     }
 
+const PRIOR_VERSION_MESSAGES: Record<string, string> = {
+  'investment-v4':
+    'Escenario investment-v4: se muestran los resultados guardados. Al recalcular se usarán los gastos vigentes de la propiedad (predial + alícuota) y se excluirán seguro y otros gastos de ese bloque.',
+  'investment-v3':
+    'Escenario histórico (v3): se muestran los resultados guardados. Al recalcular se aplicarán las fórmulas y gastos de propiedad actuales.',
+  'investment-v2':
+    'Escenario histórico (v2): se muestran los resultados guardados. Al recalcular se aplicarán las fórmulas y gastos de propiedad actuales.',
+}
+
 export function assessScenarioFidelity(
   row: Pick<
     FinancingScenario,
@@ -39,14 +48,16 @@ export function assessScenarioFidelity(
   if (version == null) missing.push('calculation_version')
 
   const kind = version == null || version === '' ? 'legacy' : 'unknown'
+  const priorMessage = version ? PRIOR_VERSION_MESSAGES[version] : null
   return {
     kind,
     version,
     missingAssumptions: missing,
     message:
-      kind === 'legacy'
-        ? 'Escenario histórico: se muestran los resultados guardados. Los supuestos incompletos no se reinterpretan con las fórmulas actuales.'
-        : `Versión de cálculo desconocida (${version}). Se muestran los resultados guardados sin reconstrucción exacta.`,
+      priorMessage ??
+      (kind === 'legacy'
+        ? 'Escenario histórico: se muestran los resultados guardados. Los supuestos incompletos no se reinterpretan con las fórmulas actuales. Al recalcular se usarán los gastos vigentes (predial + alícuota), sin seguro ni otros del bloque de propiedad.'
+        : `Versión de cálculo (${version}). Se muestran los resultados guardados sin reconstrucción exacta. Al recalcular se usarán los gastos vigentes (predial + alícuota).`),
   }
 }
 

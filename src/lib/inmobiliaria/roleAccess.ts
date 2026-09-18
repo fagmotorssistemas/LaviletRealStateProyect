@@ -9,17 +9,21 @@ export const USER_ROLE_OPTIONS: { value: UserRole; label: string }[] = [
 ]
 
 /** Vistas del CRM que el admin puede asignar a un perfil. */
-export const CRM_VIEW_OPTIONS: { href: string; label: string; group: 'ventas' | 'contabilidad' | 'admin' | 'marketing' }[] = [
+export const CRM_VIEW_OPTIONS: {
+  href: string
+  label: string
+  group: 'ventas' | 'contabilidad' | 'marketing' | 'admin'
+}[] = [
   { href: '/inmobiliaria/inventario', label: 'Inventario', group: 'ventas' },
   { href: '/inmobiliaria/proyectos', label: 'Proyectos', group: 'ventas' },
   { href: '/inmobiliaria/leads', label: 'Leads', group: 'ventas' },
   { href: '/inmobiliaria/showroom', label: 'Showroom', group: 'ventas' },
-  { href: '/inmobiliaria/recorrido', label: 'Recorrido 360°', group: 'ventas' },
+  { href: '/inmobiliaria/recorrido', label: 'Recorrido 360┬░', group: 'ventas' },
   { href: '/inmobiliaria/agenda', label: 'Agenda', group: 'ventas' },
   { href: '/inmobiliaria/ventas', label: 'Ventas', group: 'ventas' },
-  { href: '/inmobiliaria/marketing/capi', label: 'CAPI', group: 'marketing' },
   { href: '/inmobiliaria/financiamiento', label: 'Financiamiento', group: 'contabilidad' },
   { href: '/inmobiliaria/contratos', label: 'Contratos', group: 'contabilidad' },
+  { href: '/inmobiliaria/marketing/capi', label: 'CAPI Meta', group: 'marketing' },
   { href: '/inmobiliaria/usuarios', label: 'Usuarios', group: 'admin' },
 ]
 
@@ -87,9 +91,9 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
     '/inmobiliaria/recorrido',
     '/inmobiliaria/agenda',
     '/inmobiliaria/ventas',
-    '/inmobiliaria/marketing/capi',
     '/inmobiliaria/financiamiento',
     '/inmobiliaria/contratos',
+    '/inmobiliaria/marketing/capi',
     '/inmobiliaria/usuarios',
   ],
 }
@@ -120,6 +124,7 @@ export function roleFromCrmPaths(paths: string[]): UserRole {
   const contabilidad = CRM_VIEW_OPTIONS.filter((item) => item.group === 'contabilidad').some((item) =>
     set.has(item.href),
   )
+  const marketingViews = CRM_VIEW_OPTIONS.filter((item) => item.group === 'marketing').map((item) => item.href)
   const marketingOnly =
     !contabilidad &&
     !ventas &&
@@ -127,7 +132,7 @@ export function roleFromCrmPaths(paths: string[]): UserRole {
       (href) =>
         href === '/inmobiliaria/inventario' ||
         href === '/inmobiliaria/proyectos' ||
-        href === '/inmobiliaria/marketing/capi',
+        marketingViews.includes(href),
     )
 
   if (ventas && contabilidad) return 'admin'

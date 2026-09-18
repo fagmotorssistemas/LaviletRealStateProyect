@@ -228,6 +228,7 @@ export interface UnitImport {
 export const UNIT_IMPORT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: 'departamento', label: 'Departamento' },
   { value: 'suite', label: 'Suite' },
+  { value: 'penthouse', label: 'Penthouse' },
   { value: 'local', label: 'Local comercial' },
 ]
 
@@ -236,6 +237,7 @@ export function normalizeUnitCategory(raw?: string | null): string | undefined {
   const key = raw.trim().toLowerCase()
   if (key === 'departamento' || key === 'dept' || key === 'dpto') return 'departamento'
   if (key === 'suite') return 'suite'
+  if (key === 'penthouse' || key === 'penthouses' || key === 'ático' || key === 'atico') return 'penthouse'
   if (key === 'local' || key === 'local comercial' || key === 'comercial') return 'local'
   if (key === 'oficina') return 'oficina'
   if (key === 'parqueadero') return 'parqueadero'
@@ -248,6 +250,7 @@ export function unitCategoryFilterValues(raw?: string | null): string[] {
   if (canonical === 'departamento') return ['departamento', 'Departamento']
   if (canonical === 'local') return ['local', 'Local', 'Local Comercial']
   if (canonical === 'suite') return ['suite', 'Suite']
+  if (canonical === 'penthouse') return ['penthouse', 'Penthouse']
   return [canonical]
 }
 
@@ -351,6 +354,7 @@ export interface AppointmentRescheduleRequest {
   proposed_end_time: string | null
   proposed_options?: VisitTimeSlot[]
   preferred_time_text: string | null
+  preferred_location_type?: 'office' | 'site' | 'work_area' | 'model' | 'completed_unit' | null
   source_message_text: string | null
   source_channel: string | null
   source_message_id: string | null
@@ -365,6 +369,7 @@ export interface AppointmentRescheduleRequest {
   escalated_at: string | null
   coordination_urgent_at?: string | null
   coordination_summary?: string | null
+  proposal_rejection_count?: number
   resolution_notes: string | null
   created_at: string
   resolved_at: string | null
@@ -602,6 +607,7 @@ export const FINANCING_TYPE_OPTIONS: { value: string; label: string }[] = [
 export const PAYMENT_PLAN_CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: 'todos', label: 'Todas las categorías' },
   { value: 'Departamento', label: 'Departamento' },
+  { value: 'Penthouse', label: 'Penthouse' },
   { value: 'Local Comercial', label: 'Local comercial' },
   { value: 'Suite', label: 'Suite' },
   { value: 'Oficina', label: 'Oficina' },

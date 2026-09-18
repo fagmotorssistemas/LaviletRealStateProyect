@@ -3,7 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),path=requir
 const original=Module._load
 Module._load=function(id,parent,main){if(id==='server-only')return {};if(id.startsWith('@/'))id=path.resolve('src',id.slice(2));return original.call(this,id,parent,main)}
 require('./test-typescript.cjs')
-const {validateReadiness,projectReadiness,botReadiness,readinessMaterialReply,readinessInvitation}=require('../src/lib/inmobiliaria/projectReadiness.ts')
+const {validateReadiness,projectReadiness,botReadiness,readinessMaterialReply,readinessInvitation,readinessPlaceClarification}=require('../src/lib/inmobiliaria/projectReadiness.ts')
 const {botVisitPolicy,visitInvitation}=require('../src/lib/inmobiliaria/botVisits.ts')
 const {acceptsVisitInvitation,ambiguousVisitAcceptance}=require('../src/lib/integrations/automation/sales-policy.ts')
 const {visitTruthReply}=require('../src/lib/integrations/automation/visit-copy.ts')
@@ -53,6 +53,14 @@ test('short acceptance follows one invitation; old ambiguous offers clarify; neg
   assert.equal(ambiguousVisitAcceptance('Sí',multiple),true)
   assert.equal(ambiguousVisitAcceptance('Listo, está bien','Le comparto el precio referencial.'),false)
 })
+test('all enabled visit places are offered and direct location questions are clarified',()=>{
+  const current={...base,enabledPlaces:['site','office'],primaryPlace:'site'}
+  const invitation=readinessInvitation(current)
+  assert.match(invitation,/en el terreno del proyecto o en nuestra oficina/)
+  assert.match(readinessPlaceClarification(current,'¿Pero solo se puede visitar el terreno?'),/terreno del proyecto o nuestra oficina/)
+  assert.match(readinessPlaceClarification(current,'¿Pero solo se puede visitar el terreno?'),/Cuál opción prefiere/)
+  assert.equal(readinessPlaceClarification(current,'Quiero información del proyecto'),'')
+})
 test('final guard respects authorized model and replaces unauthorized access',()=>{
   const run=(reply,value)=>visitTruthReply(reply,{estado_proyecto:value,modo_comercial:'preventa'},{},[],protectedSentences)
   assert.match(run('Podemos visitar el terreno.',base),/oficina/)
@@ -65,9 +73,11 @@ test('save retains pricing, visit preference and other policy keys; stale update
   const policies={bot_pricing:{launch_prices_visible:true},bot_visits:{allow_suggestions:false},unrelated:{keep:true}}
   const row={id:'project',tenant_id:'tenant',updated_at:'old',policies_json:policies}
   let write,filters=[],adminChecks=0,conflict=false
-  const supabase={from:()=>{let updating=false;const q={select:()=>updating?Promise.resolve({data:conflict?[]:[{id:'project'}]}):q,eq:(k,v)=>{filters.push([k,v]);return q},single:async()=>({data:row}),update:v=>{write=v;updating=true;return q}};return q}}
+  const supabase={from:()=>{let updating=false;const q={select:()=>{if(!updating)return q;if(conflict)return Promise.resolve({data:[]});row.updated_at='2026-09-17T22:49:28.964271+00:00';return Promise.resolve({data:[{id:'project',updated_at:row.updated_at}]})},eq:(k,v)=>{filters.push([k,v]);return q},single:async()=>({data:row}),update:v=>{write=v;updating=true;return q}};return q}}
   const api=loadActions({'@/lib/auth/session':{assertAdmin:async()=>{adminChecks++},getSessionUser:async()=>({supabase,user:{id:'admin'}})}})
-  await api.saveProjectReadiness('project',base,'old')
+  const first=await api.saveProjectReadiness('project',base,'old')
+  assert.equal(first.ok,true)
+  assert.equal(first.updatedAt,row.updated_at)
   assert.equal(adminChecks,1)
   assert.deepEqual(write.policies_json.bot_pricing,policies.bot_pricing)
   assert.equal(write.policies_json.bot_visits.allow_suggestions,false)
@@ -75,6 +85,9 @@ test('save retains pricing, visit preference and other policy keys; stale update
   assert.ok(filters.some(([k,v])=>k==='tenant_id'&&v==='tenant'))
   assert.ok(filters.some(([k,v])=>k==='updated_at'&&v==='old'))
   assert.equal(write.policies_json.project_readiness.history.length,1)
-  write=null;await assert.rejects(api.saveProjectReadiness('project',base,'stale'));assert.equal(write,null)
-  conflict=true;await assert.rejects(api.saveProjectReadiness('project',base,'old'))
+  assert.equal((await api.saveProjectReadiness('project',{...base,stage:'completed'},first.updatedAt)).ok,true)
+  write=null;assert.equal((await api.saveProjectReadiness('project',base,'stale')).ok,false);assert.equal(write,null)
+  conflict=true;assert.equal((await api.saveProjectReadiness('project',base,row.updated_at)).ok,false)
+  const invalid=await api.saveProjectReadiness('project',{...base,verifiedOn:'wrong'},row.updated_at)
+  assert.equal(invalid.ok,false);assert.match(invalid.error,/fecha/)
 })

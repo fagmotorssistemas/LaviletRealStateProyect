@@ -30,6 +30,7 @@ import {
   type ScheduleDeliveryPlan,
 } from './scheduleContract'
 import { isScheduleWritePathEnabled } from './scheduleFlags'
+import { resolveDeliveryLane } from './deliveryLane'
 
 export type SchedulePrepareResult = {
   ok: boolean
@@ -459,7 +460,7 @@ export async function prepareScheduleDeliveryAfterConfirmation(
   const lane =
     String(process.env.META_CAPI_DELIVERY_LANE || '').toLowerCase() === 'test'
       ? 'test'
-      : 'live'
+      : resolveDeliveryLane()
 
   const basePayload = {
     ...plan.payload,

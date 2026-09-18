@@ -22,12 +22,12 @@ El asesor puede aceptar el intervalo solicitado si sigue disponible. Se vuelve a
 
 ## Textos y guion
 
-No hace falta crear otro Salesbot para estos casos. Se mantienen las rutas existentes:
+Las propuestas y confirmaciones conservan sus rutas. El recordatorio de dos horas utiliza su Salesbot dedicado:
 
 - Conversación: bot 15578 y campo 457014.
 - Propuesta de visita: bot 18724 y campo 519824.
 - Confirmación: bot 18730 y campo 519824.
-- Recordatorio: bot 18350 y campo 513120.
+- Recordatorio 2 horas antes: Salesbot `22246`; campos `531808` (saludo), `531120` (detalle) y `531812` (ubicación).
 
 **Automatización → Guion** continúa editando el saludo y la voz comercial. Se actualizaron los prompts activos `respuesta_comercial` y `extractor_eventos`, conservando el resto del contenido e incrementando su versión. El guion no autoriza una confirmación: los estados y las acciones de base de datos determinan qué puede decir el mensaje.
 

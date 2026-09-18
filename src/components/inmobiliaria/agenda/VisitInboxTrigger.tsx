@@ -2,12 +2,13 @@
 
 import { BellRing, Inbox } from 'lucide-react'
 import { useVisitInboxContext } from '@/contexts/VisitInboxContext'
+import { visitActionTitle } from '@/lib/inmobiliaria/visitInbox'
 
 export function VisitInboxTrigger({ compact = false }: { compact?: boolean }) {
   const { pending, waiting, error, ready, openInbox, openRequest } = useVisitInboxContext()
   const attention = pending.length > 0
   const urgent = pending.filter(item => item.coordination_urgent_at)
-  const label = error ? 'Revisar bandeja' : urgent.length ? `${urgent.length} ${urgent.length === 1 ? 'cita requiere llamada urgente' : 'citas requieren llamada urgente'}` : pending.length === 1 ? `Cita pendiente: ${pending[0].lead?.name?.split(' ')[0] || 'Cliente'}` : attention ? 'Citas pendientes' : waiting.length ? 'Esperando al cliente' : 'Bandeja de citas'
+  const label = error ? 'Revisar bandeja' : urgent.length ? `${urgent.length} ${urgent.length === 1 ? 'cita requiere contacto' : 'citas requieren contacto'}` : pending.length === 1 ? `${visitActionTitle(pending[0])}: ${pending[0].lead?.name?.split(' ')[0] || 'Cliente'}` : attention ? 'Citas pendientes' : waiting.length ? 'Esperando al cliente' : 'Bandeja de citas'
   return (
     <button type="button" onClick={() => pending.length === 1 && !error ? openRequest(pending[0]) : openInbox(attention ? 'pending' : 'all')}
       aria-haspopup="dialog" aria-label={`${label}${ready ? `: ${pending.length} por atender, ${waiting.length} esperando al cliente` : ''}`}

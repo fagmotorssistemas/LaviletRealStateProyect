@@ -6,17 +6,18 @@ import { FinancingAnalyticsView } from '@/components/financing/FinancingAnalytic
 import { FinancingAuditLogView } from '@/components/financing/FinancingAuditLogView'
 import { cn } from '@/lib/utils'
 
-type AdminSubTab = 'ajustes' | 'analytics' | 'auditoria'
+type AdminSection = 'bancos' | 'configuracion' | 'analytics' | 'auditoria'
 
-const SUB_TABS: { id: AdminSubTab; label: string }[] = [
-  { id: 'ajustes', label: 'Ajustes' },
+const SECTIONS: { id: AdminSection; label: string }[] = [
+  { id: 'bancos', label: 'Bancos' },
+  { id: 'configuracion', label: 'Configuración' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'auditoria', label: 'Auditoría' },
 ]
 
-/** Panel admin del simulador público: una sola pestaña en Financiamiento. */
+/** Panel admin del simulador público: una sola fila de secciones (sin pestañas anidadas). */
 export function FinancingSimulatorAdminPanel() {
-  const [subTab, setSubTab] = useState<AdminSubTab>('ajustes')
+  const [section, setSection] = useState<AdminSection>('bancos')
 
   return (
     <div className="space-y-4">
@@ -27,15 +28,17 @@ export function FinancingSimulatorAdminPanel() {
         </a>
         .
       </p>
-      <div className="flex flex-wrap gap-2">
-        {SUB_TABS.map((item) => (
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Secciones del simulador">
+        {SECTIONS.map((item) => (
           <button
             key={item.id}
             type="button"
-            onClick={() => setSubTab(item.id)}
+            role="tab"
+            aria-selected={section === item.id}
+            onClick={() => setSection(item.id)}
             className={cn(
               'rounded-full px-4 py-2 text-[11px] font-semibold tracking-[0.14em] uppercase transition-colors',
-              subTab === item.id
+              section === item.id
                 ? 'bg-[#1a2744] text-white'
                 : 'bg-white text-[#4a433c] ring-1 ring-[#e4ddd3] hover:bg-[#faf7f2]',
             )}
@@ -44,9 +47,10 @@ export function FinancingSimulatorAdminPanel() {
           </button>
         ))}
       </div>
-      {subTab === 'ajustes' ? <FinancingSettingsView embedded /> : null}
-      {subTab === 'analytics' ? <FinancingAnalyticsView embedded /> : null}
-      {subTab === 'auditoria' ? <FinancingAuditLogView embedded /> : null}
+      {section === 'bancos' ? <FinancingSettingsView embedded section="partners" /> : null}
+      {section === 'configuracion' ? <FinancingSettingsView embedded section="config" /> : null}
+      {section === 'analytics' ? <FinancingAnalyticsView embedded /> : null}
+      {section === 'auditoria' ? <FinancingAuditLogView embedded /> : null}
     </div>
   )
 }

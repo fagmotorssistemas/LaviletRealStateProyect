@@ -42,7 +42,7 @@ Todos están preparados en archivos; **ninguno se ejecutó en la base real**.
    - Traslada los SELECT revisados de los JSON, limitados al tenant/proyecto de La Vilet.
 3. `20260909182000_kommo_visit_routes.sql`
    - Modifica únicamente bot_id y detail_field_id de cuatro filas de lv_routes.
-   - Propuesta: 18724/519824. Confirmación y reprogramación: 18730/519824. Recordatorio: 18350/513120.
+   - El recordatorio de dos horas usa el Salesbot `22246` con `Saludo La Vilet` (`531808`), `Detalle de cita La Vilet` (`531120`) y `Ubicación La Vilet` (`531812`).
    - Conserva textos, flags y rutas de nutrición; aborta si los valores previos cambiaron.
 
 No se alteran columnas, triggers, permisos o funciones de negocio ya existentes. Cada archivo tiene transacción y reversión en supabase/rollbacks.

@@ -5,10 +5,10 @@ import { FullLanding } from '@/components/marketing/FullLanding'
 
 export const metadata: Metadata = {
   title: {
-    absolute: 'Lavilet | Proyectos inmobiliarios',
+    absolute: 'La Vilet | Suites, departamentos y locales en Cuenca',
   },
   description:
-    'Departamentos y locales comerciales. Agenda una visita al showroom y recibe asesoría hasta la entrega.',
+    'Explora en 360° suites, departamentos de 2 y 3 dormitorios y locales comerciales en Puertas del Sol, Cuenca.',
 }
 
 export default async function InicioPage({

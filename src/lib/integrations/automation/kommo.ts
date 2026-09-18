@@ -65,8 +65,16 @@ export function botStopped(lead: Row) {
   return value === true || value === 1 || value === 'true' || value === '1'
 }
 export async function setKommoField(leadId: number, fieldId: number, value: string) {
-  if (![leadId, fieldId].every(n => Number.isSafeInteger(n) && n > 0)) throw new Error('INVALID_KOMMO_IDS')
-  await request(`/api/v4/leads/${leadId}`, 'PATCH', { custom_fields_values: [{ field_id: fieldId, values: [{ value }] }] })
+  await setKommoFields(leadId, [{ fieldId, value }])
+}
+export async function setKommoFields(leadId: number, fields: { fieldId: number; value: string }[]) {
+  if (!Number.isSafeInteger(leadId) || leadId <= 0 || !fields.length
+    || fields.some(field => !Number.isSafeInteger(field.fieldId) || field.fieldId <= 0 || typeof field.value !== 'string')) {
+    throw new Error('INVALID_KOMMO_IDS')
+  }
+  await request(`/api/v4/leads/${leadId}`, 'PATCH', {
+    custom_fields_values: fields.map(field => ({ field_id: field.fieldId, values: [{ value: field.value }] })),
+  })
 }
 export async function launchSalesbot(leadId: number, botId: number) {
   if (![leadId, botId].every(n => Number.isSafeInteger(n) && n > 0)) throw new Error('INVALID_KOMMO_IDS')

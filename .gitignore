@@ -48,3 +48,8 @@ certificates
 supabase/.temp/
 supabase/.branches/
 
+
+# Env backups must never be committed
+backups/*.bak
+backups/**/*.bak
+

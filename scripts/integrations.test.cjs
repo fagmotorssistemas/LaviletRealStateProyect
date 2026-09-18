@@ -26,7 +26,7 @@ function load(relative, mocks) {
 const { automationSettings, secretMatches } = require('../src/lib/integrations/automation/config.ts')
 const { normalizeWebhook } = require('../src/lib/integrations/automation/webhook.ts')
 const { validateVisit, routeSignature } = require('../src/lib/integrations/automation/visit-rules.ts')
-const { normalizeEvents, validateIntent } = require('../src/lib/integrations/automation/conversation-rules.ts')
+const { normalizeEvents, normalizedVisitIntent, normalizedVisitPreference, validateIntent } = require('../src/lib/integrations/automation/conversation-rules.ts')
 const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
@@ -68,6 +68,19 @@ test('visit preference survives an office question and submits the proposed Satu
     assert.equal(receipt.request_id,'request')
     assert.equal(receipt.assigned_advisor_id,'advisor')
   }
+})
+
+test('a misspelled appointment request for unit 202 enters scheduling instead of comparison or a model',async t=>{
+  live(t)
+  const h=conversationHarness({extracted:{events:['requested_visit']}})
+  const current='HolA QUIERO AGENDAR UNA CIRA PARA VER EL DEPARTAMENTO 202'
+  h.rows[0].payload.text=current
+  await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.filter(c=>c.name==='lv_collect_visit_intake').length,1)
+  const sent=h.calls.find(c=>c.name==='register_outbound_message').args
+  assert.equal(sent.p_tool_calls.source,'visit_intake')
+  assert.doesNotMatch(sent.p_content,/comparar|modelo-3d/)
+  assert.ok(h.calls.some(c=>c.name==='register_inbound_message'&&Object.values(c.args).includes(current)))
 })
 
 test('unverified visit receipt creates a handoff instead of reporting a successful registration',async t=>{
@@ -1117,10 +1130,11 @@ function live(t) {
 function fixture() {
   return { job: { ...scope, id: 'job', lead_id: 'lead', appointment_id: 'appointment', kind: 'visit_2h',
     status: 'pending', revision: 'r1', scheduled_at: later(-1000), expires_at: later(1_800_000), payload: { detail: 'Visita de prueba' } },
-    lead: { ...scope, id: 'lead', channel_origin: 'whatsapp', kommo_id: 123, bot_enabled: true },
+    lead: { ...scope, id: 'lead', name: 'Carlos Pérez', preferred_category: 'departamento', channel_origin: 'whatsapp', kommo_id: 123, bot_enabled: true },
     config: { ...scope, enabled: true, dry_run: false, test_only: false },
     appointment: { ...scope, id: 'appointment', lead_id: 'lead', status: 'aceptado', start_time: later(7_200_000) },
-    route: { enabled: true, approved: true, bot_id: 15578, detail_field_id: 457014, link_field_id: 0, body_template: '{{detalle}}', template_name: 'reminder' },
+    route: { enabled: true, approved: true, bot_id: 22246, detail_field_id: 531120, link_field_id: 0, body_template: '{{detalle}}', template_name: 'reminder' },
+    advisor_name: 'Carlos Argudo', location: 'https://maps.app.goo.gl/cjkNv7c4siehTqAN9', appointment_units: [],
     last_client_message_at: later(-60_000), revision: 'r1', event_current: true, reminders_paused: false, recent_jobs: [] }
 }
 test('activation requires explicit ownership and valid cutover date', t => {
@@ -1146,7 +1160,7 @@ test('webhook handles all messages, rejects other accounts, ignores outgoing and
 })
 test('visits respect exact window boundary, changes, opt-out and unresolved sends', () => {
   const c = fixture(); assert.equal(validateVisit(c, now).action, 'send')
-  c.last_client_message_at = later(-24 * 3_600_000); assert.equal(validateVisit(c, now).action, 'defer')
+  c.last_client_message_at = later(-24 * 3_600_000); assert.equal(validateVisit(c, now).action, 'send')
   c.last_client_message_at = later(-60_000); c.revision = 'r2'; assert.equal(validateVisit(c, now).action, 'cancel')
   c.revision = 'r1'; c.lead.tracking_opt_out_at = later(-1000); assert.equal(validateVisit(c, now).action, 'cancel')
   delete c.lead.tracking_opt_out_at; c.recent_jobs = [{ id: 'other', status: 'uncertain' }]
@@ -1185,10 +1199,39 @@ test('a changed appointment after PATCH prevents Salesbot launch', async t => {
   const { sendVisit } = load('src/lib/integrations/automation/visits.ts', {
     './operational-copy': { operationalReply: async reply => ({ reply, generated: false }) },
     './data': { ...data, rpc: mockRpc, db: () => ({ from: () => query }) },
-    './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { patches++ }, launchSalesbot: async () => { launches++ } },
+    './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { patches++ }, setKommoFields: async () => { patches++ }, launchSalesbot: async () => { launches++ } },
   })
   await sendVisit('job', async () => {})
   assert.equal(patches, 1); assert.equal(launches, 0); assert.equal(finishes[0].p_status, 'failed')
+})
+test('the two-hour reminder fills all three Kommo fields before launching Salesbot 22246', async t => {
+  live(t)
+  const c = fixture(); c.job.scheduled_at = new Date(Date.now() - 1000).toISOString()
+  c.job.expires_at = new Date(Date.now() + 100_000).toISOString(); c.appointment.start_time = new Date(Date.now() + 7_200_000).toISOString()
+  c.last_client_message_at = new Date(Date.now() - 3 * 24 * 3_600_000).toISOString()
+  c.appointment_units = [{ unit: { category: 'departamento', unit_number: '204' } }]
+  const claimed = { ...c, job: { ...c.job, status: 'claimed', claim_token: 'token',
+    payload: { ...c.job.payload, _kommo_id: 123, _route: routeSignature(c.route) } } }
+  let reads = 0, fields = [], launched = 0
+  const query = { select() { return this }, match() { return this }, eq() { return this }, maybeSingle() { return Promise.resolve({ data: {}, error: null }) }, like() { return Promise.resolve({ count: 0, error: null }) } }
+  const unitQuery = { select() { return this }, eq() { return this }, then(resolve) { return Promise.resolve({ data: c.appointment_units, error: null }).then(resolve) } }
+  const mockRpc = async (name) => {
+    if (name === 'lv_app_visit_context') { reads++; return reads === 1 ? c : claimed }
+    if (name === 'lv3_reserve') return { reserved: true, job_id: 'job' }
+    if (name === 'lv3_finish') return {}
+    throw Error(name)
+  }
+  const { sendVisit } = load('src/lib/integrations/automation/visits.ts', {
+    './operational-copy': { operationalReply: async () => { throw Error('REMINDER_COPY_MUST_NOT_USE_AI') } },
+    './data': { ...data, rpc: mockRpc, db: () => ({ from: table => table === 'appointment_units' ? unitQuery : query }) },
+    './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { throw Error('WRONG_FIELD_WRITER') },
+      setKommoFields: async (_, values) => { fields = values }, launchSalesbot: async (_, botId) => { launched = botId } },
+  })
+  assert.equal((await sendVisit('job', async () => {})).status, 'accepted')
+  assert.deepEqual(fields.map(field => field.fieldId), [531808, 531120, 531812])
+  assert.match(fields.find(field => field.fieldId === 531120).value, /departamento 204$/)
+  assert.equal(fields.find(field => field.fieldId === 531812).value, 'https://maps.app.goo.gl/cjkNv7c4siehTqAN9')
+  assert.equal(launched, 22246)
 })
 test('Kommo launch accepts an empty 202 response and never retries a network failure', async t => {
   live(t); const { launchSalesbot } = require('../src/lib/integrations/automation/kommo.ts')
@@ -1310,7 +1353,76 @@ test('room synonyms and common apartment spelling select the requested catalogue
   const absent = unitPriceQuote(priceInfo(), 'Precio de departamentos de cinco cuartos', {})
   assert.equal(absent.quoted, false)
   assert.notEqual(absent.needsAdvisor, true)
-  assert.match(absent.reply, /No encuentro opciones de 5 dormitorios/)
+  assert.match(absent.reply, /(?:No encuentro opciones de 5 dormitorios|no contamos con departamentos disponibles de 5 dormitorios)/)
+})
+test('visit extraction preserves a high-confidence spelling interpretation with literal evidence', () => {
+  const message = 'Me gustaría ir el domimngo a las dies am'
+  const preference = normalizedVisitPreference({
+    evidence: 'domimngo a las dies am', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high',
+  }, message)
+  assert.deepEqual(preference, { evidence: 'domimngo a las dies am', date_text: 'domingo', time_text: 'a las 10 am', location_type: null, canonical_text: 'domingo a las 10 am', confidence: 'high' })
+  assert.equal(normalizedVisitPreference({ evidence: 'domingo', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high' }, message), null)
+  assert.equal(normalizedVisitPreference({ evidence: 'domingo o lunes', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high' }, 'domingo o lunes'), null)
+  assert.equal(normalizedVisitPreference({ evidence: 'no puedo el domingo', date_text: 'domingo', time_text: null, confidence: 'high' }, 'no puedo el domingo'), null)
+})
+
+test('semantic visit intent requires high confidence and literal evidence from the current message', () => {
+  const message = 'No no, lo que digo es que Quieor agenda runa cita'
+  assert.deepEqual(normalizedVisitIntent({
+    kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high',
+  }, message), { kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high' })
+  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'quiero agendar una cita', confidence: 'high' }, message), null)
+  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'medium' }, message), null)
+  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'no quiero una visita', confidence: 'high' }, 'no quiero una visita'), null)
+})
+
+test('a future weekday is not mistaken for a question about team attendance', () => {
+  const { asksTeamAttendance, explicitlyRequestsVisit } = require('../src/lib/integrations/automation/turn-routing.ts')
+  const request = 'Quieor agendar una cita el miércoles que viene. Alas 12... se puede?'
+  assert.equal(asksTeamAttendance(request), false)
+  assert.equal(explicitlyRequestsVisit(request), true)
+  assert.equal(asksTeamAttendance('¿Va a venir a la cita hoy?'), true)
+})
+
+test('high-confidence semantic visit intent survives spelling errors and reaches durable intake', async t => {
+  live(t)
+  const current = 'No no, lo que digo es que Quieor agenda runa cita'
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], visit_intent: {
+    kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high',
+  } } })
+  h.rows = h.rows.slice(0, 1)
+  h.rows[0].payload.text = current
+  await h.process(h.rows, async () => {})
+  assert.equal(h.calls.filter(c => c.name === 'lv_collect_visit_intake').length, 1)
+  assert.equal(h.calls.find(c => c.name === 'register_outbound_message').args.p_tool_calls.source, 'visit_intake')
+})
+
+test('semantic visit evidence cannot manufacture a visit or hijack an unrelated flow', async t => {
+  live(t)
+  for (const example of [
+    { current: 'Quiero conocer los precios', intent: { kind: 'request_visit', evidence: 'quiero agendar una cita', confidence: 'high' } },
+    { current: 'Sí, avancemos con JEP', intent: { kind: 'accept_visit_preference', evidence: 'Sí', confidence: 'high' } },
+    { current: 'Quiero agendar una cita médica mañana', intent: { kind: 'request_visit', evidence: 'Quiero agendar una cita médica mañana', confidence: 'high' } },
+  ]) {
+    const h = conversationHarness({ extracted: { events: ['requested_visit'], visit_intent: example.intent } })
+    h.rows = h.rows.slice(0, 1)
+    h.rows[0].payload.text = example.current
+    await h.process(h.rows, async () => {})
+    assert.equal(h.calls.some(c => c.name === 'lv_collect_visit_intake'), false)
+  }
+})
+
+test('a semantic visit interpretation is passed durably to intake instead of being discarded', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], visit_preference: {
+    evidence: 'domimngo a las dies am', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high',
+  } } })
+  h.rows[0].payload.text = 'Quiero una visita el domimngo a las dies am'
+  await h.process([h.rows[0]], async () => {})
+  const call = h.calls.find(c => c.name === 'lv_collect_visit_intake')
+  assert.deepEqual(call.args.p_snapshot._interpreted_visit, {
+    evidence: 'domimngo a las dies am', date_text: 'domingo', time_text: 'a las 10 am', location_type: null, canonical_text: 'domingo a las 10 am', confidence: 'high',
+  })
 })
 
 test('rejected price rewrites retain the verified answer without pausing; real missing facts still hand off', async t => {
@@ -2439,77 +2551,51 @@ test('an initial when-can-I-visit question returns business hours and keeps inta
   assert.doesNotMatch(next.calls.find(c=>c.name==='patch').args[2],/qué día|qué hora|Mapa:/i)
 })
 
-test('rejecting all offered slots pauses Kommo and delivers one final coordination notice without new intake', async t => {
+test('rejecting an offered slot requests new options and keeps the bot active', async t => {
   live(t)
-  for(const message of ['Ninguna de esas horas me sirve','No puedo en esos horarios','No quiero ninguna de las opciones']) {
-    const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject'})
+  for(const message of ['Ninguna de esas horas me sirve','No puedo en esos horarios','No quiero ninguna de las opciones','mmm, no ese día no puedo']) {
+    const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',intake:{action:'submitted',slot:{},needs_help:true}})
     h.rows[0].payload.text=message
     const result=await h.process([h.rows[0]],async()=>{})
-    assert.equal(result.source,'visit_urgent_handoff',message)
-    assert.equal(result.bot_paused,true)
-    const handoff=h.calls.find(c=>c.name==='escalateVisitCoordination')
-    assert.equal(handoff.args.current,message)
-    assert.equal(handoff.args.messageId,'one')
-    assert.equal(h.calls.filter(c=>c.name==='escalateVisitCoordination').length,1)
-    assert.ok(h.calls.some(c=>c.name==='patch' && c.args[1]===451530 && c.args[2]==='true'))
-    assert.match(h.calls.find(c=>c.name==='patch' && c.args[1]===457014).args[2],/asesor se comunique.*coordinar la visita/)
-    assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
-    assert.equal(h.calls.some(c=>['lv_collect_visit_intake','lv_apply_client_visit_intent','process_financing_message_v2'].includes(c.name)),false)
+    assert.equal(result.source,'visit_intake',message)
+    assert.equal(result.proposal_rejected,true)
+    assert.equal(result.bot_paused,false)
+    const request=h.calls.find(c=>c.name==='lv_collect_visit_intake')
+    assert.equal(request.args.p_needs_help,true)
+    assert.equal(request.args.p_previous_request,'three-option-request')
+    assert.equal(h.calls.some(c=>c.name==='escalateVisitCoordination'),false)
+    assert.equal(h.calls.some(c=>c.name==='handoff_lead'),false)
+    assert.equal(h.calls.some(c=>c.name==='patch' && c.args[1]===451530),false)
+    assert.match(h.calls.find(c=>c.name==='patch' && c.args[1]===457014).args[2],/equipo.*propuesta|equipo.*opciones|revisaremos/i)
   }
 })
 
-test('urgent RPC timeout after commit recovers the persisted handoff without rotating advisors or sending twice', async t => {
+test('first scheduling uncertainty shows business hours without notifying or pausing', async t => {
   live(t)
-  const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',urgentFailure:'timeout_after_commit'})
-  h.rows[0].payload.text='Ninguna de esas horas me sirve'
-  const result=await h.process([h.rows[0]],async()=>{})
-  assert.equal(result.source,'visit_urgent_handoff');assert.equal(result.recovered_after_error,true)
-  assert.equal(h.calls.filter(c=>c.name==='escalateVisitCoordination').length,1)
+  const hours=Object.fromEntries([1,2,3,4,5].map(day=>[String(day),{open:'08:30',close:'18:30'}]))
+  const h=conversationHarness({commercialInfo:{...contextualInfo(),horario_atencion:hours},proposals:[{...offeredVisitOptions(),status:'confirmed'}],intent:'counterproposal',intake:{action:'collecting',slot:{}}})
+  h.rows[0].payload.text='no estoy seguro, cuando pueden ustedes?'
+  await h.process([h.rows[0]],async()=>{})
+  const request=h.calls.find(c=>c.name==='lv_collect_visit_intake')
+  assert.equal(request.args.p_needs_help,false)
   assert.equal(h.calls.some(c=>c.name==='handoff_lead'),false)
-  assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
-  const sent=h.calls.find(c=>c.name==='register_outbound_message').args.p_content
-  assert.match(sent,/asesor se comunique.*coordinar la visita/)
-  assert.doesNotMatch(sent,/cita.*confirmada|hemos llamado|qué día|qué hora/i)
+  assert.equal(h.calls.some(c=>c.name==='patch' && c.args[1]===451530),false)
+  assert.match(h.calls.find(c=>c.name==='register_outbound_message').args.p_content,/horario de atención.*lunes a viernes.*08:30.*18:30/i)
 })
 
-test('urgent Kommo pause synchronization failure cannot trigger a second handoff after database success', async t => {
+test('repeated uncertainty after business hours creates an advisor request without pausing', async t => {
   live(t)
-  const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',urgentPauseSyncFails:true})
-  h.rows[0].payload.text='Ninguna de esas horas me sirve'
+  const hours=Object.fromEntries([1,2,3,4,5].map(day=>[String(day),{open:'08:30',close:'18:30'}]))
+  const previous='Nuestro horario de atención es de lunes a viernes de 08:30 a 18:30. Indíquenos qué fecha y hora le vendrían bien.'
+  const h=conversationHarness({commercialInfo:{...contextualInfo(),horario_atencion:hours},proposals:[{...offeredVisitOptions(),status:'confirmed'}],visitDraft:{status:'collecting'},history:[{role:'bot',content:previous}],intent:'counterproposal',intake:{action:'submitted',slot:{},needs_help:true},
+    turnComplete:input=>({reply:input.baseReply,changed:false,needsAdvisor:true,unresolved:['proponer horarios'],audit:{status:'needs_advisor',requests:[]}})})
+  h.rows[0].payload.text='todavía no sé, propongan ustedes'
   const result=await h.process([h.rows[0]],async()=>{})
-  assert.equal(result.source,'visit_urgent_handoff');assert.equal(result.bot_paused,true);assert.equal(result.kommo_pause_sync,'pending')
+  const request=h.calls.find(c=>c.name==='lv_collect_visit_intake')
+  assert.equal(request.args.p_needs_help,true)
+  assert.equal(result.source,'visit_intake')
   assert.equal(h.calls.some(c=>c.name==='handoff_lead'),false)
-  assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
-  assert.equal(h.calls.filter(c=>c.name==='patch'&&c.args[1]===451530).length,1)
-})
-
-test('urgent rejection with a concurrently confirmed appointment performs no secondary handoff or outbound reply', async t => {
-  live(t)
-  const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',urgentFailure:'concurrent_confirm'})
-  h.rows[0].payload.text='Ninguna de esas horas me sirve'
-  const result=await h.process([h.rows[0]],async()=>{})
-  assert.equal(result.action,'visit_coordination_changed')
-  assert.equal(h.calls.some(c=>['handoff_lead','launch','register_outbound_message','lv_collect_visit_intake'].includes(c.name)),false)
-})
-
-test('urgent unknown persistence or failed verification never runs another handoff or claims it succeeded', async t => {
-  live(t)
-  for (const options of [{urgentFailure:'unknown'},{urgentFailure:'timeout_after_commit',urgentReadFails:true}]) {
-    const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',...options})
-    h.rows[0].payload.text='Ninguna de esas horas me sirve'
-    await assert.rejects(h.process([h.rows[0]],async()=>{}),/VISIT_URGENT_RESULT_UNKNOWN/)
-    assert.equal(h.calls.some(c=>['handoff_lead','launch','register_outbound_message'].includes(c.name)),false)
-  }
-})
-
-test('urgent fallback is limited to a definitely missing RPC and a still-open untouched advisor proposal', async t => {
-  live(t)
-  const h=conversationHarness({proposals:[offeredVisitOptions()],intent:'reject',urgentFailure:'missing'})
-  h.rows[0].payload.text='Ninguna de esas horas me sirve'
-  const result=await h.process([h.rows[0]],async()=>{})
-  assert.equal(result.source,'advisor_handoff');assert.equal(result.urgent_coordination_fallback,true)
-  assert.equal(h.calls.filter(c=>c.name==='handoff_lead').length,1)
-  assert.equal(h.calls.filter(c=>c.name==='launch').length,1)
+  assert.equal(h.calls.some(c=>c.name==='patch' && c.args[1]===451530),false)
 })
 
 test('a new date after rejecting options and a full cancellation keep their own routing instead of urgent handoff', async t => {

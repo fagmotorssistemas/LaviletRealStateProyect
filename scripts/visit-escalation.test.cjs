@@ -17,12 +17,13 @@ const proposal = { id: 'request', status: 'awaiting_client', proposed_by: 'advis
     { start_time: '2026-09-21T16:00:00Z', end_time: '2026-09-21T17:00:00Z' },
   ] }
 
-test('rejection of offered alternatives hands coordination to a person', () => {
+test('rejection of offered alternatives requests another advisor round', () => {
   for (const message of ['No puedo en ninguno de esos horarios', 'Ninguna me sirve', 'No me sirven esas opciones',
     'Prefiero otra opción', 'No me quedan bien esos horarios', 'No puedo ninguna de esas horas']) {
     assert.equal(declinesAllVisitAlternatives(message, proposal, 'reject'), true, message)
   }
   assert.equal(declinesAllVisitAlternatives('No gracias', proposal, 'reject'), true)
+  assert.equal(declinesAllVisitAlternatives('mmm, no ese día no puedo', proposal, 'reject'), true)
 })
 
 test('a new preferred date or clock continues intake without an urgent handoff', () => {
@@ -49,8 +50,8 @@ test('brief preserves evidence and supplies a concrete next action without claim
   const brief = visitCoordinationSummary('Ninguna me sirve', proposal, [
     { role: 'cliente', content: 'Busco el departamento 202' }, { role: 'bot', content: 'Podemos revisar el lunes' },
   ])
-  assert.match(brief, /llamar al cliente/)
-  assert.match(brief, /bot está pausado/)
+  assert.match(brief, /contactar para acordar/)
+  assert.match(brief, /bot permanece activo/)
   assert.match(brief, /el lunes a las 10/)
   assert.match(brief, /202/)
   assert.match(brief, /Ninguna me sirve/)
