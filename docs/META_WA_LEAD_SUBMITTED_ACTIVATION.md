@@ -46,24 +46,35 @@ Nota API: sonda aislada usó `v26.0` + `TestEvent` (fuera de Nest). Nest envía 
 
 ---
 
+## Mecanismo real de despliegue (verificado 2026-09-18)
+
+| Superficie | Mecanismo | ¿Auto al push `main`? |
+| --- | --- | --- |
+| Frontend Vercel proyecto `lavilet` | Git integration → build `next build` | **Sí** (histórico: commits “trigger vercel rebuild”) |
+| Backend DigitalOcean | Dockerfile / App Platform o Droplet + Compose; guía `docs/DEPLOY_DIGITALOCEAN.md` dice **no despliega automáticamente** | **No** por defecto — hace falta deploy manual o auto-deploy DO ya vinculado al repo |
+
+Variables WA nuevas en DO (cuando se publique Nest): `META_WA_CAPI_ACCESS_TOKEN`, `META_WA_LEAD_SUBMITTED_DELIVERY_ENABLED=false` (y no reutilizar token web).
+
 ## Orden de ejecución (cuando se autorice)
 
 ### Fase 0 — Preflight (sin activar)
 
-1. Confirmar ramas `main` en ambos remotes y SHAs acordados.
+1. Confirmar SHAs locales a publicar y que `origin` solo tiene `main` (+ ramas FE residuales ajenas a WA, si se dejan).
 2. Confirmar flags OFF en FE y Nest (prod + staging).
 3. Confirmar `META_WA_CAPI_ACCESS_TOKEN` distinto de `META_CAPI_ACCESS_TOKEN`.
 4. Confirmar WABA ≠ messaging dataset ≠ pixel web.
 5. **No** aplicar `supabase/local-only/*` ni `.env.local-admin.local` a prod.
 
-### Fase 1 — Despliegue de código (flags siguen OFF)
+### Fase 1 — Publicar código con flags OFF (migración WA **aún no** requerida)
 
-1. Deploy Nest (`backend-La-Vilet`) con delivery LS OFF.
-2. Deploy FE (`LaviletRealStateProyect`).
-3. Verificar health Nest + bitácora CRM autenticada (solo lectura).
-4. Verificar que Lead / ViewContent / Schedule web siguen operativos.
+Orden estricto:
 
-### Fase 2 — Migración FE controlada (solo si falta)
+1. **Nest primero** (manual DO o App Platform deploy del SHA Nest): imagen con lane WA; `META_WA_LEAD_SUBMITTED_DELIVERY_ENABLED=false`; health `/api/health` + `wa_messaging_token_configured`.
+2. **FE después** (`git push origin main` → Vercel): flags `META_WA_*=false`. Con flags OFF, `maybeRegisterWaLeadSubmitted` hace short-circuit (`wa_lead_submitted_inactive`) **sin** tocar columnas `meta_wa_lead_submitted_*` ni RPC de conversión — seguro aunque la migración WA no exista aún.
+3. Verificar Lead / ViewContent / Schedule web y bitácora outbox (tenant scope).
+4. **No** encender evaluación ni delivery.
+
+### Fase 2 — Migración FE controlada (solo cuando se vaya a evaluar/activar LS)
 
 1. Aplicar **solo** `supabase/migrations/20260918120000_meta_wa_lead_submitted.sql` en Production (manual, un archivo).
 2. Verificar columnas/RPC/stages de bitácora LS.
