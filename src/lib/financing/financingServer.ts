@@ -9,8 +9,9 @@ import {
   buildInvestmentPreview,
   clampDownPaymentPercent,
   clampFinancingYears,
-  defaultAnnualExpenses,
+  expenseBreakdownFromConfig,
   roundMoney,
+  sumExpenseBreakdown,
 } from '@/lib/financing/calculator'
 import {
   FINANCING_PROJECT_ID,
@@ -63,7 +64,7 @@ export async function resolveUnitByParam(admin: SupabaseClient, rawId: string) {
   const id = String(rawId ?? '').trim()
   if (!id) return null
   const selectCols =
-    'id, tenant_id, project_id, unit_number, published_commercial_price, bedrooms, category, status, is_published'
+    'id, tenant_id, project_id, unit_number, published_commercial_price, bedrooms, category, area_internal_m2, status, is_published'
   const byId = await admin.from('units').select(selectCols).eq('id', id).maybeSingle()
   if (byId.data) return byId.data
   const byNumber = await admin
@@ -154,6 +155,14 @@ export type CreateScenarioInput = {
   annualOtherFinancial: number
   monthlyExtraCharges: number
   unitPrice: number
+  /** Supuestos de entrada validados; el servidor recalcula totales. */
+  includeIncomeTax?: boolean
+  includePropertyManager?: boolean
+  incomeTaxRate?: number
+  managementFeeRate?: number
+  wealthHorizonYears?: number
+  appreciationRateAnnual?: number
+  saleCosts?: number
   ip?: string | null
   userAgent?: string | null
 }
@@ -227,7 +236,7 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
 
   if (mode === 'financed') {
     if (!input.partnerId) {
-      throw new ScenarioValidationError('Modo financiado requiere institución, o use simulación manual')
+      throw new ScenarioValidationError('Modo financiado requiere institución')
     }
     const { data: partnerData } = await admin
       .from('financing_partners')
@@ -245,21 +254,17 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
     }
     partner = partnerData as FinancingPartner
   } else if (mode === 'manual') {
-    if (!(Number(input.appliedInterestRate) >= 0) || !Number.isFinite(Number(input.appliedInterestRate))) {
-      throw new ScenarioValidationError('Simulación manual requiere tasa de interés')
-    }
+    // API pública del tour: la tasa personalizada solo es para personal autorizado (no expuesta aquí).
+    throw new ScenarioValidationError(
+      'La simulación manual no está disponible en el tour público. Elija una institución configurada o compra al contado.',
+    )
   } else if (mode !== 'cash') {
     throw new ScenarioValidationError('mode inválido')
   }
 
+  // Tasa administrada: en financiado siempre desde el banco; el cliente no puede sobrescribirla.
   const interestRate =
-    mode === 'cash'
-      ? 0
-      : mode === 'manual'
-        ? Number(input.appliedInterestRate)
-        : input.appliedInterestRate != null && Number.isFinite(Number(input.appliedInterestRate))
-          ? Number(input.appliedInterestRate)
-          : Number(partner!.annual_interest_rate)
+    mode === 'cash' ? 0 : Number(partner!.annual_interest_rate)
 
   const financingYears =
     mode === 'cash' ? 0 : clampFinancingYears(input.financingYears ?? 20, partner)
@@ -272,14 +277,25 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
     }
   }
 
+  const includeIncomeTax =
+    input.includeIncomeTax ?? (input.annualIncomeTaxEstimate ?? 0) > 0
+  const includePropertyManager =
+    input.includePropertyManager ?? (input.annualManagement ?? 0) > 0
+
+  // Gastos de propiedad desde config autorizada (predial + alícuota). Ignora body del cliente.
+  const expenseBreakdown = expenseBreakdownFromConfig(input.unitPrice, config)
+  const annualOperatingExpenses = expenseBreakdown.total
+
   const previewFinal = buildInvestmentPreview({
     mode,
     unitPrice: input.unitPrice,
     estimatedMonthlyRent: input.estimatedMonthlyRent,
     vacancyRate: input.vacancyRate,
-    annualOperatingExpenses: input.annualOperatingExpenses,
-    includeIncomeTax: (input.annualIncomeTaxEstimate ?? 0) > 0,
-    includePropertyManager: (input.annualManagement ?? 0) > 0,
+    annualOperatingExpenses,
+    includeIncomeTax,
+    includePropertyManager,
+    incomeTaxRate: input.incomeTaxRate,
+    managementFeeRate: input.managementFeeRate,
     acquisitionCosts: input.acquisitionCosts,
     annualOtherFinancialCosts: input.annualOtherFinancial,
     monthlyExtraCharges: input.monthlyExtraCharges,
@@ -287,9 +303,17 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
     financingYears,
     interestRate,
     rateType: input.rateType,
+    wealthHorizonYears: input.wealthHorizonYears,
+    appreciationRateAnnual: input.appreciationRateAnnual,
+    saleCosts: input.saleCosts,
   })
 
-  const fullRow = scenarioInsertFromPreview(input, previewFinal, partner?.id ?? null, projectId)
+  const fullRow = scenarioInsertFromPreview(
+    { ...input, annualOperatingExpenses, expenseBreakdown },
+    previewFinal,
+    partner?.id ?? null,
+    projectId,
+  )
 
   const { data: scenario, error: insertError } = await admin
     .from('financing_scenarios')
@@ -397,6 +421,6 @@ export function operatingExpensesOrDefault(
   breakdown: ExpenseBreakdown | null,
 ) {
   if (annualOperatingExpenses != null) return roundMoney(annualOperatingExpenses)
-  if (breakdown) return breakdown.total
-  return defaultAnnualExpenses(unitPrice, config)
+  if (breakdown) return sumExpenseBreakdown(breakdown)
+  return expenseBreakdownFromConfig(unitPrice, config).total
 }

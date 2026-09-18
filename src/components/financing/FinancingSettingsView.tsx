@@ -67,7 +67,15 @@ export function FinancingSettingsView({ embedded = false }: { embedded?: boolean
       return
     }
     if (!(config.annual_maintenance >= 0 && config.annual_maintenance <= 5000)) {
-      setMessage('Mantenimiento fuera de rango')
+      setMessage('Alícuota fuera de rango')
+      return
+    }
+    const vacancyStored =
+      Number(config.vacancy_rate) > 1
+        ? Number(config.vacancy_rate) / 100
+        : Number(config.vacancy_rate)
+    if (!(vacancyStored >= 0 && vacancyStored <= 1)) {
+      setMessage('Desocupación fuera de rango (0–100%)')
       return
     }
     const { error } = await supabase
@@ -75,9 +83,8 @@ export function FinancingSettingsView({ embedded = false }: { embedded?: boolean
       .update({
         annual_property_tax: Number(config.annual_property_tax),
         annual_maintenance: Number(config.annual_maintenance),
-        annual_insurance: Number(config.annual_insurance),
-        vacancy_rate: Number(config.vacancy_rate),
-        avg_studio_rent: Number(config.avg_studio_rent),
+        // annual_insurance se conserva en BD pero ya no forma parte del modelo de simulación.
+        vacancy_rate: vacancyStored,
         avg_one_bed_rent: Number(config.avg_one_bed_rent),
         avg_two_bed_rent: Number(config.avg_two_bed_rent),
         avg_three_bed_rent: Number(config.avg_three_bed_rent),
@@ -204,16 +211,84 @@ export function FinancingSettingsView({ embedded = false }: { embedded?: boolean
         </div>
       ) : config ? (
         <div className="grid max-w-2xl gap-4 rounded-2xl border border-[#ece6dc] bg-white p-5">
+          <label className="grid gap-1 text-sm">
+            <span className="text-[11px] font-semibold tracking-[0.12em] text-[#6b645c] uppercase">
+              Impuesto predial (%)
+            </span>
+            <p className="text-[11px] text-[#8a8176]">
+              Pago único anual al Municipio por la propiedad
+            </p>
+            <input
+              type="number"
+              step="any"
+              min={0}
+              max={10}
+              value={Number(config.annual_property_tax ?? 0)}
+              onChange={(event) =>
+                setConfig({ ...config, annual_property_tax: Number(event.target.value) })
+              }
+              className="rounded-xl border border-[#e4ddd3] px-3 py-2"
+            />
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="text-[11px] font-semibold tracking-[0.12em] text-[#6b645c] uppercase">
+              Alícuota del edificio ($/año)
+            </span>
+            <p className="text-[11px] text-[#8a8176]">
+              Pago para administración y mantenimiento de áreas comunes
+            </p>
+            <input
+              type="number"
+              step="any"
+              min={0}
+              max={5000}
+              value={Number(config.annual_maintenance ?? 0)}
+              onChange={(event) =>
+                setConfig({ ...config, annual_maintenance: Number(event.target.value) })
+              }
+              className="rounded-xl border border-[#e4ddd3] px-3 py-2"
+            />
+          </label>
+          <p className="rounded-xl bg-[#f7f3ee] px-3 py-2 text-[11px] text-[#6b645c]">
+            Los gastos de la propiedad incluyen impuesto predial y alícuota. No incluyen seguros ni
+            otros gastos adicionales en el simulador. La columna histórica de seguro en base de
+            datos se conserva pero no se usa en nuevas simulaciones.
+          </p>
+          <label className="grid gap-1 text-sm">
+            <span className="text-[11px] font-semibold tracking-[0.12em] text-[#6b645c] uppercase">
+              Tiempo estimado sin inquilino (%)
+            </span>
+            <input
+              type="number"
+              step={0.5}
+              min={0}
+              max={100}
+              value={Math.round(Number(config.vacancy_rate ?? 0) * 1000) / 10}
+              onChange={(event) => {
+                const pct = Number(event.target.value)
+                setConfig({
+                  ...config,
+                  vacancy_rate: Number.isFinite(pct) ? pct / 100 : config.vacancy_rate,
+                })
+              }}
+              className="rounded-xl border border-[#e4ddd3] px-3 py-2"
+            />
+            <p className="text-[11px] text-[#8a8176]">
+              Se muestra como porcentaje (p. ej. 5). Internamente se guarda como fracción (0,05).
+            </p>
+          </label>
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#6b645c] uppercase">
+            Alquiler de referencia por tipología
+          </p>
+          <p className="text-[11px] text-[#8a8176]">
+            El simulador sugiere automáticamente según los dormitorios de la unidad (1, 2 o 3+). El
+            cliente puede ajustar el valor en la simulación.
+          </p>
           {(
             [
-              ['annual_property_tax', 'Impuesto predial (%)'],
-              ['annual_maintenance', 'Mantenimiento anual ($)'],
-              ['annual_insurance', 'Seguro anual ($)'],
-              ['vacancy_rate', 'Desocupación (0–1)'],
-              ['avg_studio_rent', 'Alquiler studio'],
-              ['avg_one_bed_rent', 'Alquiler 1 dorm'],
-              ['avg_two_bed_rent', 'Alquiler 2 dorm'],
-              ['avg_three_bed_rent', 'Alquiler 3 dorm'],
+              ['avg_one_bed_rent', 'Alquiler 1 dormitorio'],
+              ['avg_two_bed_rent', 'Alquiler 2 dormitorios'],
+              ['avg_three_bed_rent', 'Alquiler 3 o más dormitorios'],
             ] as const
           ).map(([key, label]) => (
             <label key={key} className="grid gap-1 text-sm">
@@ -223,6 +298,7 @@ export function FinancingSettingsView({ embedded = false }: { embedded?: boolean
               <input
                 type="number"
                 step="any"
+                min={0}
                 value={Number(config[key] ?? 0)}
                 onChange={(event) =>
                   setConfig({ ...config, [key]: Number(event.target.value) })

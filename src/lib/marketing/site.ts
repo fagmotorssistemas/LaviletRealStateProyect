@@ -4,15 +4,15 @@ export const SITE = {
   /** Número internacional sin + ni espacios, p. ej. 593991234567. Vacío = el formulario usa correo. */
   whatsapp: String(process.env.NEXT_PUBLIC_WHATSAPP ?? '').replace(/\D/g, ''),
   city: 'Cuenca, Ecuador',
-  /** Coordenadas del proyecto La Vilet (misma ubicación que visit_location_url). */
+  /** Coordenadas del proyecto La Vilet (misma ubicación que reference_location_url / visit). */
   location: {
     label: 'La Vilet',
     address: 'Cuenca, Ecuador',
-    lat: -2.89234,
-    lng: -79.030352,
-    mapsUrl: 'https://maps.app.goo.gl/cjkNv7c4siehTqAN9',
+    lat: -2.8923876,
+    lng: -79.0301792,
+    mapsUrl: 'https://maps.app.goo.gl/3N5YR6QY4vxiHQue6',
     embedUrl:
-      'https://www.google.com/maps?q=-2.892340,-79.030352&hl=es&z=18&output=embed',
+      'https://www.google.com/maps?q=-2.8923876,-79.0301792&hl=es&z=18&output=embed',
   },
 }
 

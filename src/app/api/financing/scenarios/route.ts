@@ -2,7 +2,7 @@ import { cookies, headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { LV_VID_COOKIE } from '@/lib/tour/trackingIds'
-import { defaultAnnualExpenses } from '@/lib/financing/calculator'
+import { expenseBreakdownFromConfig } from '@/lib/financing/calculator'
 import {
   assertUnitAccessibleForTour,
   createAndAnalyzeScenario,
@@ -15,12 +15,10 @@ import {
 } from '@/lib/financing/financingServer'
 import {
   ScenarioValidationError,
-  parseExpenseBreakdown,
   parseOptionalFinite,
   parseRateType,
   parseRequiredFinite,
   parseSimulationMode,
-  resolveOperatingExpenses,
   validateDownPaymentAndYears,
 } from '@/lib/financing/scenarioValidate'
 import type { RateType } from '@/types/financingSimulator'
@@ -145,8 +143,21 @@ export async function POST(request: Request) {
     let appliedInterestRate: number | null
     let downPaymentPercent: number | undefined
     let financingYears: number | undefined
+    let includeIncomeTax: boolean
+    let includePropertyManager: boolean
+    let incomeTaxRate: number | undefined
+    let managementFeeRate: number | undefined
+    let wealthHorizonYears: number | undefined
+    let appreciationRateAnnual: number | undefined
+    let saleCosts: number | undefined
 
     try {
+      if (mode === 'manual') {
+        throw new ScenarioValidationError(
+          'La simulación manual no está disponible en el tour público. Elija una institución o contado.',
+        )
+      }
+
       estimatedMonthlyRent = parseRequiredFinite(body.estimated_monthly_rent, 'estimated_monthly_rent', {
         min: 0,
         max: 20000,
@@ -163,28 +174,54 @@ export async function POST(request: Request) {
         throw new ScenarioValidationError('Falta rate_type')
       }
 
-      expenseBreakdown = parseExpenseBreakdown(body.expense_breakdown)
-      const annualExpensesOpt = parseOptionalFinite(body, 'annual_expenses', { min: 0 })
-      if (annualExpensesOpt === undefined && !expenseBreakdown) {
-        // Opcional: default desde config solo si ambos ausentes (no si enviaron 0).
-        annualOperatingExpenses = defaultAnnualExpenses(unitPrice, config)
-      } else {
-        const resolved = resolveOperatingExpenses({
-          annualExpenses: annualExpensesOpt,
-          breakdown: expenseBreakdown,
-        })
-        annualOperatingExpenses = resolved.annualOperatingExpenses
-        expenseBreakdown = resolved.breakdown
-      }
+      // Gastos de propiedad: solo desde config (servidor). Se ignoran expense_breakdown / annual_expenses del cliente.
+      const authorizedExpenses = expenseBreakdownFromConfig(unitPrice, config)
+      annualOperatingExpenses = authorizedExpenses.total
+      expenseBreakdown = authorizedExpenses
 
       annualManagement = parseOptionalFinite(body, 'annual_management', { min: 0 }) ?? 0
       acquisitionCosts = parseOptionalFinite(body, 'acquisition_costs', { min: 0 }) ?? 0
       annualOtherFinancial = parseOptionalFinite(body, 'annual_other_financial', { min: 0 }) ?? 0
+      // Cargos mensuales del financiamiento (si existieran en oferta bancaria); no son gastos de propiedad.
       monthlyExtraCharges = parseOptionalFinite(body, 'monthly_extra_charges', { min: 0 }) ?? 0
       const taxOpt = parseOptionalFinite(body, 'annual_income_tax_estimate', { min: 0 })
       annualIncomeTaxEstimate = taxOpt === undefined ? null : taxOpt
-      appliedInterestRate =
-        parseOptionalFinite(body, 'applied_interest_rate', { min: 0, max: 100 }) ?? null
+      // Tasa del banco la fija el servidor; no se acepta applied_interest_rate del cliente en modo público.
+      appliedInterestRate = null
+
+      const assumptions =
+        body.assumptions_json && typeof body.assumptions_json === 'object' && !Array.isArray(body.assumptions_json)
+          ? (body.assumptions_json as Record<string, unknown>)
+          : {}
+      includeIncomeTax =
+        typeof body.include_income_tax === 'boolean'
+          ? body.include_income_tax
+          : typeof assumptions.includeIncomeTax === 'boolean'
+            ? assumptions.includeIncomeTax
+            : (annualIncomeTaxEstimate ?? 0) > 0
+      includePropertyManager =
+        typeof body.include_property_manager === 'boolean'
+          ? body.include_property_manager
+          : typeof assumptions.includePropertyManager === 'boolean'
+            ? assumptions.includePropertyManager
+            : annualManagement > 0
+      incomeTaxRate =
+        parseOptionalFinite(body, 'income_tax_rate', { min: 0, max: 1 }) ??
+        (typeof assumptions.incomeTaxRate === 'number' ? assumptions.incomeTaxRate : undefined)
+      managementFeeRate =
+        parseOptionalFinite(body, 'management_fee_rate', { min: 0, max: 1 }) ??
+        (typeof assumptions.managementFeeRate === 'number' ? assumptions.managementFeeRate : undefined)
+      wealthHorizonYears =
+        parseOptionalFinite(body, 'wealth_horizon_years', { min: 1, max: 40, integer: true }) ??
+        (typeof assumptions.wealthHorizonYears === 'number' ? assumptions.wealthHorizonYears : undefined)
+      appreciationRateAnnual =
+        parseOptionalFinite(body, 'appreciation_rate_annual', { min: -0.5, max: 0.5 }) ??
+        (typeof assumptions.appreciationRateAnnual === 'number'
+          ? assumptions.appreciationRateAnnual
+          : undefined)
+      saleCosts =
+        parseOptionalFinite(body, 'sale_costs', { min: 0 }) ??
+        (typeof assumptions.saleCosts === 'number' ? assumptions.saleCosts : undefined)
 
       if (mode !== 'cash') {
         downPaymentPercent = parseRequiredFinite(body.down_payment_percent, 'down_payment_percent')
@@ -208,17 +245,13 @@ export async function POST(request: Request) {
         partnerMinYears: partnerMin,
         partnerMaxYears: partnerMax,
       })
-
-      if (mode === 'manual' && appliedInterestRate == null) {
-        throw new ScenarioValidationError('Indica una tasa para la simulación manual')
-      }
     } catch (error) {
       const res = validationResponse(error)
       if (res) return res
       throw error
     }
 
-    // Ignorar calculation_version / assumptions_json / project_id del cliente.
+    // No confiar en totales ni calculation_version del cliente; sí en entradas validadas.
     const hdrs = await headers()
     const result = await createAndAnalyzeScenario(admin, {
       leadId,
@@ -241,6 +274,13 @@ export async function POST(request: Request) {
       annualOtherFinancial,
       monthlyExtraCharges,
       unitPrice,
+      includeIncomeTax,
+      includePropertyManager,
+      incomeTaxRate,
+      managementFeeRate,
+      wealthHorizonYears,
+      appreciationRateAnnual,
+      saleCosts,
       ip: hdrs.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
       userAgent: hdrs.get('user-agent'),
     })

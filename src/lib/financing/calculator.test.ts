@@ -7,6 +7,7 @@ import {
   buildMonthlyCoverage,
   calculateMonthlyPayment,
   clampDownPaymentPercent,
+  expenseBreakdownFromConfig,
   suggestMonthlyRent,
 } from './calculator'
 
@@ -36,10 +37,11 @@ describe('calculateMonthlyPayment', () => {
 })
 
 describe('buildMonthlyCoverage', () => {
-  it('cubre / borderline / insuficiente', () => {
-    assert.equal(buildMonthlyCoverage(1600, 1200).status, 'covers')
+  it('cubre bruto / borderline / insuficiente', () => {
+    assert.equal(buildMonthlyCoverage(1600, 1200).status, 'covers_gross_only')
     assert.equal(buildMonthlyCoverage(1200, 1400).status, 'borderline')
     assert.equal(buildMonthlyCoverage(1200, 1800).status, 'insufficient')
+    assert.match(buildMonthlyCoverage(1600, 1200).statusLabel, /antes de gastos/i)
   })
 })
 
@@ -160,6 +162,32 @@ describe('edge cases', () => {
     assert.equal(pct, 65)
     assert.ok(pct <= DOWN_PAYMENT_MAX_PCT)
     assert.ok(pct >= DOWN_PAYMENT_MIN_PCT)
+  })
+})
+
+describe('expenseBreakdownFromConfig — investment-v5', () => {
+  it('excluye seguro y otros aunque existan en config', () => {
+    const b = expenseBreakdownFromConfig(310000, {
+      id: 'cfg',
+      tenant_id: null,
+      project_id: 'p',
+      annual_property_tax: 0.5419354839, // ≈ 1680 on 310k
+      annual_maintenance: 600,
+      annual_insurance: 1200,
+      vacancy_rate: 0.05,
+      avg_studio_rent: null,
+      avg_one_bed_rent: null,
+      avg_two_bed_rent: null,
+      avg_three_bed_rent: null,
+      default_financing_partner_id: null,
+      allow_custom_interest_rate: null,
+      disclaimer_text: null,
+    })
+    assert.equal(b.insurance, 0)
+    assert.equal(b.other, 0)
+    assert.ok(Math.abs(b.propertyTax - 1680) < 1)
+    assert.equal(b.maintenance, 600)
+    assert.ok(Math.abs(b.total - 2280) < 1)
   })
 })
 

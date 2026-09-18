@@ -30,6 +30,12 @@ export type FinancingConfig = {
   default_financing_partner_id: string | null
   allow_custom_interest_rate: boolean | null
   disclaimer_text: string | null
+  /** Ubicación de referencia del proyecto (radios de comparables). */
+  reference_latitude?: number | null
+  reference_longitude?: number | null
+  /** Enlace Google Maps / Maps del edificio (fuente de verdad humana). */
+  reference_location_url?: string | null
+  rent_suggestion_settings?: Record<string, unknown> | null
 }
 
 export type SimulationMode = 'cash' | 'financed' | 'manual'
@@ -43,7 +49,7 @@ export type ExpenseBreakdown = {
   total: number
 }
 
-export type MonthlyCoverageStatus = 'covers' | 'borderline' | 'insufficient'
+export type MonthlyCoverageStatus = 'covers_gross_only' | 'covers_net' | 'borderline' | 'insufficient'
 export type ViabilityLevel = 'viable' | 'borderline' | 'critical'
 
 export type MonthlyCoverage = {
@@ -51,6 +57,44 @@ export type MonthlyCoverage = {
   monthlyPayment: number
   difference: number
   status: MonthlyCoverageStatus
+  /** Etiqueta clara: no confundir bruto con neto. */
+  statusLabel: string
+}
+
+/** Cobertura bruta + neta (tras vacancia, ops, gestor e IR). */
+export type RentCoverageAnalysis = {
+  monthlyGrossRent: number
+  monthlyPayment: number
+  grossDifference: number
+  monthlyNetRentAvailable: number
+  annualNetRentAvailable: number
+  monthlyTopUpOrSurplus: number
+  annualCashFlow: number
+  coversGrossBeforeExpenses: boolean
+  coversNetAfterExpenses: boolean
+}
+
+export type WealthProjection = {
+  horizonYears: number
+  appreciationRateAnnual: number
+  futurePropertyValue: number
+  remainingDebt: number
+  endingEquity: number
+  cumulativeTopUps: number
+  cumulativeSurplus: number
+  totalCashInvested: number
+  projectedGainOrLoss: number
+  cumulativeReturnOnCashPercent: number | null
+  saleCosts: number
+  saleCostsIncluded: boolean
+  annualCashFlowYieldPercent: number | null
+  zeroAppreciation: {
+    futurePropertyValue: number
+    endingEquity: number
+    projectedGainOrLoss: number
+    cumulativeReturnOnCashPercent: number | null
+  }
+  notes: string[]
 }
 
 export type FinancingScenario = {
@@ -177,6 +221,16 @@ export type InvestmentPreview = {
     rateIsBankOffer: boolean
     recoveryMethod: string
     excludesAppreciationAndSale: boolean
+    /** Horizonte de patrimonio (años). */
+    wealthHorizonYears?: number
+    /** Plusvalía anual hipotética (ej. 0.05). */
+    appreciationRateAnnual?: number
+    /** Costos de salida / venta si se modelan. */
+    saleCosts?: number
+    /** Modelo de gastos de propiedad (v5+: predial + alícuota). */
+    propertyExpenseModel?: string
+    propertyExpensesExcludeInsuranceAndOther?: boolean
+    annualOperatingExpensesSnapshot?: number
   }
 }
 

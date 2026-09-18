@@ -97,19 +97,31 @@ export function parseExpenseBreakdown(raw: unknown): ExpenseBreakdown | null {
     min: 0,
   })
   const maintenance = parseRequiredFinite(raw.maintenance, 'expense_breakdown.maintenance', { min: 0 })
-  const insurance = parseRequiredFinite(raw.insurance, 'expense_breakdown.insurance', { min: 0 })
-  const other = parseRequiredFinite(raw.other, 'expense_breakdown.other', { min: 0 })
-  const computed = roundMoney(sumExpenseBreakdown({ propertyTax, maintenance, insurance, other, total: 0 }))
+  // insurance/other opcionales por compatibilidad de payloads históricos; no entran al total vigente.
+  const insurance =
+    raw.insurance === undefined || raw.insurance === null
+      ? 0
+      : parseRequiredFinite(raw.insurance, 'expense_breakdown.insurance', { min: 0 })
+  const other =
+    raw.other === undefined || raw.other === null
+      ? 0
+      : parseRequiredFinite(raw.other, 'expense_breakdown.other', { min: 0 })
+  const computed = roundMoney(sumExpenseBreakdown({ propertyTax, maintenance, insurance: 0, other: 0, total: 0 }))
   const declared =
     raw.total !== undefined && raw.total !== null
       ? parseRequiredFinite(raw.total, 'expense_breakdown.total', { min: 0 })
       : computed
+  // Si el cliente envía un total con seguro/otros, no lo aceptamos como modelo vigente.
+  if (Math.abs(declared - computed) > 0.02 && Math.abs(declared - roundMoney(propertyTax + maintenance + insurance + other)) <= 0.02) {
+    // Payload legacy con seguro/otros: se normaliza al modelo vigente (sin ellos).
+    return { propertyTax, maintenance, insurance: 0, other: 0, total: computed }
+  }
   if (Math.abs(declared - computed) > 0.02) {
     throw new ScenarioValidationError(
-      'expense_breakdown.total no coincide con la suma de predial, mantenimiento, seguros y otros',
+      'expense_breakdown.total no coincide con predial + alícuota (modelo vigente)',
     )
   }
-  return { propertyTax, maintenance, insurance, other, total: computed }
+  return { propertyTax, maintenance, insurance: 0, other: 0, total: computed }
 }
 
 /**
