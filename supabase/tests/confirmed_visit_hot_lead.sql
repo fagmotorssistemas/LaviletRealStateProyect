@@ -8,7 +8,9 @@ DECLARE
   v_tenant uuid := 'a1b2c3d4-0001-4000-8000-000000000001';
   v_project uuid := 'b1b2c3d4-0001-4000-8000-000000000001';
   v_lead uuid := gen_random_uuid();
+  v_cold_lead uuid := gen_random_uuid();
   v_appointment uuid := gen_random_uuid();
+  v_cold_appointment uuid := gen_random_uuid();
   v_advisor uuid;
   v_hot integer;
   v_before integer;
@@ -84,6 +86,27 @@ BEGIN
     'Guardar o reasignar la misma cita no debe duplicar puntos';
   ASSERT (SELECT count(*) FROM public.lead_score_events WHERE lead_id = v_lead AND event_type = 'appointment_confirmed') = 1,
     'La idempotencia debe mantenerse después de otra actualización';
+
+  -- La cita confirmada debe ser suficiente por sí sola para llegar a Caliente,
+  -- incluso si el lead no tenía eventos de puntaje anteriores.
+  INSERT INTO public.leads(id, tenant_id, project_id, name, channel_origin, bot_enabled)
+  VALUES (v_cold_lead, v_tenant, v_project, 'PRUEBA CITA DIRECTA CALIENTE NO PUBLICAR', 'whatsapp', true);
+
+  INSERT INTO public.appointments(
+    id, tenant_id, project_id, lead_id, responsible_id, title, status,
+    start_time, end_time, confirmed_by_client
+  ) VALUES (
+    v_cold_appointment, v_tenant, v_project, v_cold_lead, v_advisor,
+    'PRUEBA CITA DIRECTA CALIENTE NO PUBLICAR', 'aceptado',
+    now() + interval '4 days', now() + interval '4 days 1 hour', true
+  );
+
+  ASSERT (SELECT temperature FROM public.leads WHERE id = v_cold_lead) = 'caliente',
+    'Toda cita confirmada debe convertir el lead en caliente';
+  ASSERT (SELECT temperature_score FROM public.leads WHERE id = v_cold_lead) = v_hot,
+    'Sin puntaje previo, la confirmación debe completar exactamente el umbral caliente';
+  ASSERT (SELECT assigned_to FROM public.leads WHERE id = v_cold_lead) = v_advisor,
+    'La cita directa también debe conservar a su asesor responsable';
 END;
 $test$;
 

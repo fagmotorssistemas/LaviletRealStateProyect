@@ -24,8 +24,9 @@ SECURITY DEFINER
 SET search_path TO public
 AS $function$
 DECLARE
-  v_became_confirmed boolean;
-  v_missing_score boolean;
+  v_hot_threshold integer := 60;
+  v_other_score integer := 0;
+  v_confirmation_points integer := 20;
   v_updated integer;
 BEGIN
   IF NEW.lead_id IS NULL
@@ -35,26 +36,53 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  v_became_confirmed := TG_OP = 'INSERT';
-  IF TG_OP = 'UPDATE' THEN
-    v_became_confirmed := OLD.confirmed_by_client IS DISTINCT FROM true
-      OR OLD.status NOT IN ('aceptado', 'reprogramado', 'atendido');
+  SELECT coalesce(c.temperature_hot_min, 60)
+  INTO v_hot_threshold
+  FROM public.project_automation_config c
+  WHERE c.project_id = NEW.project_id;
+
+  IF NOT FOUND THEN
+    v_hot_threshold := 60;
   END IF;
 
-  SELECT NOT EXISTS (
-    SELECT 1
-    FROM public.lead_score_events e
-    WHERE e.lead_id = NEW.lead_id
-      AND e.event_type = 'appointment_confirmed'
-  ) INTO v_missing_score;
+  SELECT coalesce(sum(e.points), 0)::integer
+  INTO v_other_score
+  FROM public.lead_score_events e
+  WHERE e.lead_id = NEW.lead_id
+    AND e.event_type <> 'appointment_confirmed';
 
-  IF v_became_confirmed OR v_missing_score THEN
-    PERFORM public.apply_lead_events(
-      NEW.lead_id,
-      jsonb_build_array('appointment_confirmed'),
-      'appointment:' || NEW.id::text
-    );
-  END IF;
+  -- La confirmación vale al menos 20 puntos. Si el historial previo no basta,
+  -- el evento recibe únicamente los puntos adicionales necesarios para llegar
+  -- al umbral Caliente configurado para el proyecto.
+  v_confirmation_points := greatest(20, v_hot_threshold - v_other_score);
+
+  INSERT INTO public.lead_score_events AS existing(
+    lead_id,
+    event_type,
+    points,
+    reason,
+    source_message_id,
+    idempotency_key
+  ) VALUES (
+    NEW.lead_id,
+    'appointment_confirmed',
+    v_confirmation_points,
+    'confirmó una cita con un asesor',
+    'appointment:' || NEW.id::text,
+    'milestone:appointment_confirmed'
+  )
+  ON CONFLICT (lead_id, idempotency_key) DO UPDATE
+  SET points = greatest(existing.points, excluded.points),
+      reason = excluded.reason,
+      source_message_id = excluded.source_message_id;
+
+  -- Recalcula temperatura e historial usando el mismo motor de puntaje.
+  -- El evento ya existe y su clave no repetible evita cualquier duplicado.
+  PERFORM public.apply_lead_events(
+    NEW.lead_id,
+    jsonb_build_array('appointment_confirmed'),
+    'appointment:' || NEW.id::text
+  );
 
   -- La cita ya tiene un asesor aceptado. Reutilizarlo evita que el traspaso
   -- general por rotación asigne a otra persona y pierda el contexto.

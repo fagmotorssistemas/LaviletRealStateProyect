@@ -293,7 +293,7 @@ La línea de tiempo debe explicar cada decisión con eventos como:
 - `followup_finished`;
 - cambio de etapa con evento y mensaje de origen.
 
-Cuando una cita queda confirmada por el cliente, el sistema registra una sola vez `appointment_confirmed`, suma 20 puntos, marca el estado operativo como `Agendado` y asigna el lead al mismo asesor responsable de la cita. La confirmación no apaga el bot; la asignación sí pausa la nutrición.
+Cuando una cita queda confirmada por el cliente, el sistema registra una sola vez `appointment_confirmed`. La confirmación suma un mínimo de 20 puntos y, si hace falta, completa únicamente los puntos necesarios para alcanzar el umbral `Caliente`. También marca el estado operativo como `Agendado` y asigna el lead al mismo asesor responsable de la cita. La confirmación no apaga el bot; la asignación sí pausa la nutrición.
 
 ## 9. Ejemplos completos
 
