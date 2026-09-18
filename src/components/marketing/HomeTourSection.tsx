@@ -45,7 +45,7 @@ export function HomeTourSection({
     <section
       id="showroom"
       className={cn(
-        'relative z-20',
+        'relative z-20 bg-[#efece4] mkt-dark:bg-[#0a0a0a]',
         scrollToShowroom
           ? 'pt-3 pb-16 sm:pt-4 sm:pb-20 lg:pb-28'
           : embedded

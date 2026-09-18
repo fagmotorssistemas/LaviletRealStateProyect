@@ -1,7 +1,8 @@
 'use client'
 
+import { useRef } from 'react'
 import Image from 'next/image'
-import { motion } from 'framer-motion'
+import { motion, useScroll, useTransform } from 'framer-motion'
 import { SITE } from '@/lib/marketing/site'
 import type { MarketingProjectLocation } from '@/lib/marketing/projectLocationTypes'
 import { NearbyAutoCarousel } from './NearbyAutoCarousel'
@@ -36,9 +37,18 @@ function PaperGrain() {
 
 export function UbicanosView({ project }: { project: MarketingProjectLocation | null }) {
   const lines = addressLines(project)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+    offset: ['start 80%', 'start 20%']
+  })
+
+  const lineScaleY = useTransform(scrollYProgress, [0, 1], [0, 1])
 
   return (
     <motion.div 
+      ref={containerRef}
       className="relative z-30 bg-[#efece4] py-20 sm:py-28 lg:py-32 mkt-dark:bg-[#0a0a0a] overflow-visible group"
       initial="idle"
       whileHover="active"
@@ -46,13 +56,35 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
     >
       <PaperGrain />
       
-      {/* Línea vertical decorativa (estilo radar) */}
-      <div className="pointer-events-none absolute -top-64 lg:-top-80 bottom-0 left-[50%] md:left-[64%] lg:left-[67%] w-3 sm:w-4 bg-[#C45C3E]/40 z-50 hidden md:block overflow-visible">
+      {/* Contenedor de la línea vertical decorativa (estilo radar) */}
+      <div className="pointer-events-none absolute -top-64 lg:-top-80 bottom-0 left-[50%] md:left-[64%] lg:left-[67%] w-3 sm:w-4 z-30 hidden md:block overflow-visible">
+        
+        {/* Línea que crece hacia abajo vinculada al scroll */}
+        <motion.div 
+          style={{ scaleY: lineScaleY }}
+          className="absolute inset-0 bg-[#C45C3E]/80 origin-top"
+        />
+
         {/* Círculo superior */}
-        <div className="absolute top-0 left-1/2 h-12 w-12 sm:h-16 sm:w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#C45C3E] animate-pulse shadow-[0_0_20px_rgba(196,92,62,0.6)]" />
+        <motion.div 
+          initial={{ opacity: 0, scale: 0 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: false, margin: "-50px" }}
+          transition={{ duration: 0.6, ease: "backOut" }}
+          className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center z-50"
+        >
+          <div className="absolute h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-[#C45C3E] animate-ping opacity-80" />
+          <div className="relative h-8 w-8 sm:h-10 sm:w-10 rounded-full bg-[#C45C3E] shadow-[0_0_20px_rgba(196,92,62,1)]" />
+        </motion.div>
         
         {/* Círculos concéntricos */}
-        <div className="absolute top-[47%] left-1/2 -translate-x-1/2 -translate-y-1/2">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: false, margin: "-100px" }}
+          transition={{ duration: 1, delay: 0.3 }}
+          className="absolute top-[47%] left-1/2 -translate-x-1/2 -translate-y-1/2"
+        >
           <motion.div 
             variants={{
               idle: { scale: 1, opacity: 1 },
@@ -74,14 +106,14 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
             }}
             className="absolute top-1/2 left-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/50" 
           />
-        </div>
+        </motion.div>
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1600px] px-5 sm:px-8 lg:px-12">
+      <div className="relative mx-auto max-w-[1600px] px-5 sm:px-8 lg:px-12">
         <div className="grid gap-16 md:grid-cols-[1fr_1.2fr] lg:grid-cols-[1fr_1.5fr] lg:gap-20 items-center">
           
           {/* Columna Izquierda: Textos */}
-          <div className="flex flex-col md:text-right md:items-end">
+          <div className="relative z-30 flex flex-col md:text-right md:items-end">
             <p className="max-w-sm text-[14px] sm:text-[15px] leading-relaxed text-[#2B1A18]/70">
               En La Vilet lo cercano es parte del proyecto: el río, el parque lineal y el barrio de Puertas del Sol forman un sitio completo. Su ubicación en esquina crea vida peatonal, activación comercial y una conexión natural.
             </p>
@@ -113,7 +145,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
           </div>
 
           {/* Columna Derecha: Mapa Ilustrado */}
-          <div className="relative w-full z-20">
+          <div className="relative w-full z-10">
             <div className="relative w-full overflow-hidden shadow-2xl ring-1 ring-[#2B1A18]/10 bg-[#efece4]">
               <Image
                 src="https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/ubicacion_lavilet.png"
@@ -129,7 +161,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
           
         </div>
 
-        <div className="mt-20 lg:mt-32">
+        <div className="relative mt-20 lg:mt-32 z-30">
           <NearbyAutoCarousel />
         </div>
       </div>
