@@ -205,17 +205,17 @@ const VIVIENDA_STATS = [
     price: 'Desde 49,86m²',
   },
   {
-    count: '6',
+    count: '7',
     type: 'dptos. 2hab',
     floors: '(plantas 3-4-5-6)',
     desc: 'Departamentos de 2 Dormitorios, 2 Baños, Sala, Comedor, Cocina, Área de Lavado, Balcón, Bodega, 1 Parqueadero subterraneo.',
     price: 'Desde 99,71m²',
   },
   {
-    count: '7',
+    count: '6',
     type: 'dptos. 3hab',
     floors: '(plantas 2-3-4-5-6)',
-    desc: 'Departamento de 3 Dormitorios, 2.5 - 3.5 Baños, Sala, Comedor, Cocina, Área de Lavado, Balcón/Terraza, Bodega, 2 Parqueaderos subterráneos.',
+    desc: 'Departamentos de 3 Dormitorios, 2.5 - 3.5 Baños, Sala, Comedor, Cocina, Área de Lavado, Balcón/Terraza, Bodega y 1 o 2 parqueaderos subterráneos según tipología.',
     price: 'Desde 120,83m²',
   },
 ]

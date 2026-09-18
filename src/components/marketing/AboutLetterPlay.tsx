@@ -125,16 +125,28 @@ export function AboutLetterPlay() {
         hideDelay={0.12}
         formDelay={0.5}
       >
-        <SmileFace />
+        <SmileFace wink={phase === 'form' && !reduce} />
       </PlayTile>
     </div>
   )
 }
 
-function SmileFace() {
+function SmileFace({ wink }: { wink: boolean }) {
   return (
     <svg viewBox="0 0 32 32" className="h-[2rem] w-[2rem] sm:h-[2.25rem] sm:w-[2.25rem]" aria-hidden>
-      <circle cx="11" cy="12" r="2.5" fill="#BDA27E" />
+      <motion.ellipse
+        cx="11"
+        cy="12"
+        rx="2.5"
+        ry="2.5"
+        fill="#BDA27E"
+        animate={wink ? { ry: [2.5, 2.5, 0.12, 0.12, 2.5] } : { ry: 2.5 }}
+        transition={
+          wink
+            ? { duration: 0.78, delay: 0.85, times: [0, 0.3, 0.48, 0.68, 1], ease: 'easeInOut' }
+            : { duration: 0.15 }
+        }
+      />
       <circle cx="21" cy="12" r="2.5" fill="#BDA27E" />
       <path
         d="M10 20c2.2 3.2 9.8 3.2 12 0"

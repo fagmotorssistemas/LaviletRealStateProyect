@@ -57,7 +57,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
       <PaperGrain />
       
       {/* Contenedor de la línea vertical decorativa (estilo radar) */}
-      <div className="pointer-events-none absolute -top-64 lg:-top-80 bottom-0 left-[50%] md:left-[64%] lg:left-[67%] w-3 sm:w-4 z-30 hidden md:block overflow-visible">
+      <div className="pointer-events-none absolute -top-64 bottom-0 left-[50%] z-20 block w-2.5 overflow-visible sm:w-4 md:left-[64%] lg:-top-80 lg:left-[67%]">
         
         {/* Línea que crece hacia abajo vinculada al scroll */}
         <motion.div 
@@ -83,28 +83,28 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
           whileInView={{ opacity: 1 }}
           viewport={{ once: false, margin: "-100px" }}
           transition={{ duration: 1, delay: 0.3 }}
-          className="absolute top-[47%] left-1/2 -translate-x-1/2 -translate-y-1/2"
+          className="absolute top-[calc(47%+7cm)] left-1/2 -translate-x-1/2 -translate-y-1/2 md:top-[47%]"
         >
           <motion.div 
             variants={{
               idle: { scale: 1, opacity: 1 },
               active: { scale: [1, 1.05, 1], opacity: [1, 0.6, 1], transition: { repeat: Infinity, duration: 2, ease: "easeInOut", delay: 0 } }
             }}
-            className="absolute top-1/2 left-1/2 h-[900px] w-[900px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/30" 
+            className="absolute top-1/2 left-1/2 h-[360px] w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/30 sm:h-[600px] sm:w-[600px] md:h-[900px] md:w-[900px]" 
           />
           <motion.div 
             variants={{
               idle: { scale: 1, opacity: 1 },
               active: { scale: [1, 1.1, 1], opacity: [1, 0.5, 1], transition: { repeat: Infinity, duration: 2, ease: "easeInOut", delay: 0.2 } }
             }}
-            className="absolute top-1/2 left-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/40" 
+            className="absolute top-1/2 left-1/2 h-[260px] w-[260px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/40 sm:h-[400px] sm:w-[400px] md:h-[600px] md:w-[600px]" 
           />
           <motion.div 
             variants={{
               idle: { scale: 1, opacity: 1 },
               active: { scale: [1, 1.15, 1], opacity: [1, 0.4, 1], transition: { repeat: Infinity, duration: 2, ease: "easeInOut", delay: 0.4 } }
             }}
-            className="absolute top-1/2 left-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/50" 
+            className="absolute top-1/2 left-1/2 h-[160px] w-[160px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/50 sm:h-[240px] sm:w-[240px] md:h-[300px] md:w-[300px]" 
           />
         </motion.div>
       </div>
