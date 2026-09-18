@@ -55,6 +55,7 @@ import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
 import { asksForHouse, houseProductReply } from './product-fit'
 import { declinesAllVisitAlternatives } from './visit-escalation'
 import { completeTurnReply } from './turn-completeness'
+import { advisorOwnsConversation } from './human-attention'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out","visit_preference":null}.
@@ -140,18 +141,24 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
   const inbound = await register(events, guard)
   if (!inbound.hasNew) return { action: 'duplicate' }
   let lead = await one('leads', text(inbound.registration.lead_id))
-  if (!permitted(initialConfig, lead, settings.testLeadId) || lead.bot_enabled !== true || inbound.stopped) return { action: 'bot_paused' }
+  if (!permitted(initialConfig, lead, settings.testLeadId) || lead.bot_enabled !== true
+    || lead.tracking_opt_out_at || inbound.stopped) return { action: 'bot_paused' }
   const activeLast = inbound.normalized[inbound.normalized.length - 1]
   let current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const processingStarted = Date.now()
+  const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
+  const recentOutbound = await db().from('messages').select('role,sent_at')
+    .eq('conversation_id', conversationBefore.id).in('role', ['bot', 'asesor'])
+    .lt('sent_at', activeLast.sentAt).order('sent_at', { ascending: false }).limit(2)
+  if (recentOutbound.error) throw new Error('HUMAN_ACTIVITY_CHECK_FAILED')
+  if (advisorOwnsConversation(recentOutbound.data || [], activeLast.sentAt)) return { action: 'human_attention' }
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
   const continuation = !inbound.mediaFailed ? nutritionContinuation(current, context.historial) : null
   if (continuation) current = continuation.message
   let reply = '', finalNotice = false, handoffNotice = '', pendingCommercialHandoff = ''
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
   let greeting = !inbound.mediaFailed && isGreetingOnly(current)
-  const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
   const previousSummary = object(conversationBefore.summary)
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
   const financeContinuation = !inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)
@@ -171,13 +178,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
   const modelOnly = isUnitVisualRequest(current) && !explicitlyRequestsVisit(current)
   async function transferToAdvisor(reason: string) {
     await guard()
-    await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: `${reason}. Consulta pendiente: ${current.slice(0, 650)}` })
+    const handoffReason = `${reason}. Consulta pendiente: ${current.slice(0, 650)}`
+    await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: handoffReason })
+    // Compatibilidad hasta aplicar la migración: el traspaso crea una tarea,
+    // pero no concede permiso para detener la IA.
+    const reactivated = await db().from('leads').update({ bot_enabled: true }).match(scope)
+      .eq('id', lead.id).eq('handoff_reason', handoffReason).is('tracking_opt_out_at', null)
+    if (reactivated.error) throw new Error('HANDOFF_BOT_STATE_FAILED')
     lead = await one('leads', text(lead.id))
     if (!['queued', 'assigned', 'acknowledged'].includes(text(lead.handoff_status))) throw new Error('HANDOFF_NOT_RECORDED')
-    const { error } = await db().from('leads').update({ bot_enabled: false }).match(scope).eq('id', lead.id)
-    if (error) throw new Error('HANDOFF_PAUSE_FAILED')
-    await setKommoField(last.kommoId, 451530, 'true')
-    finalNotice = true
     handoffNotice = lead.handoff_status === 'queued'
       ? 'He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle.'
       : 'He pasado su consulta a un asesor de nuestro equipo para que le ayude con ese detalle.'

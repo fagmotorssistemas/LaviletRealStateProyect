@@ -25,7 +25,7 @@ Las cuatro categorías existentes del guion —lanzamiento, precalificación, nu
 2. Resolver referencias con el mensaje actual y el historial reciente. Una aclaración como «ya entendí, ¿cuánto valen?» abandona el tema anterior. No reutilizar dormitorios o unidades residenciales al cambiar a locales.
 3. Responder con catálogo, políticas y acciones verificadas. Si hay precio, darlo; si solicitan material, incluir el enlace. Una pregunta sobre un local para vender motos pertenece al negocio inmobiliario.
 4. Elegir un siguiente paso útil. Máximo una pregunta; las preferencias no son requisitos para recibir información. Una unidad concreta recibe descripción y enlace; una búsqueda concreta puede recibir una opción de catálogo. Una invitación no crea una cita.
-5. Si falta información inmobiliaria real, crear el traspaso con la pregunta pendiente y pausar el bot. Solo después de verificar la cola o asignación se informa al cliente. Un fallo de estilo no debe convertirse en desconocimiento.
+5. Si falta información inmobiliaria real, crear el traspaso con la pregunta pendiente sin apagar el bot. Solo después de verificar la cola o asignación se informa al cliente. El bot se aparta si un asesor ya está respondiendo esa conversación; `DETENER IA` y el opt-out siguen siendo bloqueos explícitos. Un fallo de estilo no debe convertirse en desconocimiento.
 
 | Situación | Respuesta esperada |
 |---|---|

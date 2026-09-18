@@ -81,7 +81,7 @@ El recordatorio de dos horas usa el Salesbot `22246` después de completar los c
 
 ## Atención humana, financiamiento y tareas periódicas
 
-**Atención humana.** Una petición explícita de asesor/llamada o la finalización de la recopilación financiera ejecuta `handoff_lead`. En horario laboral intenta asignar un asesor habilitado; fuera de horario deja la solicitud en cola. Guarda la asignación y el escalamiento en Supabase, pausa el bot y establece `STOP_IA` en Kommo. No agenda automáticamente una llamada con hora confirmada.
+**Atención humana.** Una petición explícita de asesor/llamada o la finalización de la recopilación financiera ejecuta `handoff_lead`. En horario laboral intenta asignar un asesor habilitado; fuera de horario deja la solicitud en cola. Guarda la asignación y el escalamiento en Supabase sin apagar el bot ni establecer `STOP_IA` en Kommo. El bot se aparta únicamente cuando el último mensaje saliente de esa conversación pertenece a un asesor; una conversación nueva vuelve a ser atendible. `DETENER IA`, el opt-out del cliente y la actividad humana real permanecen como causas de pausa. No agenda automáticamente una llamada con hora confirmada.
 
 La asignación al asesor se realiza en el sistema. Esta integración no actualiza automáticamente el responsable, pipeline ni etapa de Kommo. Si el horario está abierto pero no hay asesor elegible, la función de derivación puede fallar; no todos esos casos pasan a una cola automáticamente.
 

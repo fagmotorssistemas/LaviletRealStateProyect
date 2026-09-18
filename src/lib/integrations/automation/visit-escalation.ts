@@ -45,6 +45,6 @@ export async function escalateVisitCoordination(args: { proposal: Row; current: 
     p_message_id: args.messageId,
     p_summary: visitCoordinationSummary(args.current, args.proposal, args.history),
   }))
-  if (result.action !== 'escalated' || result.bot_paused !== true || !result.request_id) throw new Error('VISIT_URGENT_HANDOFF_NOT_RECORDED')
-  return { ...result, message: 'Entendemos. He pasado su solicitud al equipo para que un asesor se comunique con usted y puedan coordinar la visita directamente.' }
+  if (result.action !== 'escalated' || result.bot_paused === true || !result.request_id) throw new Error('VISIT_URGENT_HANDOFF_NOT_RECORDED')
+  return { ...result, bot_paused: false, message: 'Entendemos. He pasado su solicitud al equipo para que un asesor se comunique con usted y puedan coordinar la visita directamente.' }
 }
