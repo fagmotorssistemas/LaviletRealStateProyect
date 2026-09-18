@@ -40,9 +40,11 @@ Ver `review-local/META_WA_LEAD_SUBMITTED_SHA.txt` (se regenera al cerrar).
 
 ## CTWA — bloqueo externo
 
-Ver `docs/CTWA_KOMMO_CRM.md`. Sin `ctwa_clid` no hay envío BM atribuible.
+Ver `docs/CTWA_KOMMO_CRM.md` y `docs/META_WA_LEAD_SUBMITTED_CONTINUATION.md`. Sin `ctwa_clid` no hay envío BM atribuible. Production: tabla lista, **0 filas** (no observado).
 
-## Pruebas locales
+## Continuación (config Meta + evidencia)
+
+Ver `docs/META_WA_LEAD_SUBMITTED_CONTINUATION.md`.
 
 ```bash
 # FE
