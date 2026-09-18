@@ -32,7 +32,9 @@ export function validateVisit(context: Row, now = Date.now()): Decision {
   if (confirmsVisit && context.address && !text(p.detail).toLowerCase().includes(text(context.address).toLowerCase())) invalid.push('address_changed_or_missing')
   if (confirmsVisit && meetingMap && !text(p.detail).includes(text(meetingMap))) invalid.push('map_changed_or_missing')
   const last = ms(context.last_client_message_at)
-  if (!Number.isFinite(last) || last > now || now - last >= 24 * HOUR) deferred.push('outside_whatsapp_window')
+  // visit_2h uses the approved reminder Salesbot template, so it can be sent
+  // outside the free-form 24-hour conversation window.
+  if (j.kind !== 'visit_2h' && (!Number.isFinite(last) || last > now || now - last >= 24 * HOUR)) deferred.push('outside_whatsapp_window')
   if (context.event_current !== true || a.status === 'cancelado' || a.no_show === true) invalid.push('stale_event')
   if (j.kind === 'visit_2h') {
     if (!['aceptado', 'reprogramado'].includes(text(a.status)) || !(ms(a.start_time) > now)) invalid.push('appointment_not_confirmed')
@@ -97,7 +99,7 @@ export function prepareVisit(context: Row): Row {
     detail = text(p.message_draft).includes(list) && text(p.message_draft).length <= 1500 ? text(p.message_draft) : ''
     return { ...context, job: { ...j, payload: { ...p, detail } } }
   } else if (j.kind === 'visit_propose') detail = `Podemos recibirle ${when} en ${place}. ¿Le queda bien este horario? Si prefiere otro, puede indicárnoslo para que el equipo lo verifique.`
-  else if (j.kind === 'visit_2h') detail = `Le recordamos su visita ${when} en ${place}. Si necesita cambiar el horario, puede indicárnoslo por aquí.`
+  else if (j.kind === 'visit_2h') detail = `Recordatorio de cita ${when}`
   else detail = `Su cita está confirmada ${when} en ${place}${context.advisor_name ? ', con ' + text(context.advisor_name) : ''}. Será un gusto recibirle.`
   if (j.kind === 'visit_confirm' || j.kind === 'visit_reschedule_confirm') {
     detail = withVisitLocation(detail, { address: context.address || p.address, map_url: location }, true)

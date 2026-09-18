@@ -21,7 +21,7 @@
     "test:meta-schedule-recover-db": "powershell -File scripts/meta-schedule-recover-isolated/run.ps1",
     "test:meta-pixel-unit": "node --require ./scripts/test-typescript.cjs --test src/lib/marketing/metaPixel.behavior.test.ts",
     "test:meta-pixel-browser": "node scripts/meta-pixel-browser-harness.cjs",
-    "test:automation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts src/services/automationRules.service.test.ts src/services/unitPrices.service.test.ts",
+    "test:automation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts src/lib/integrations/automation/visit-reminder.test.ts src/services/automationRules.service.test.ts src/services/unitPrices.service.test.ts",
     "test:financing": "node --require ./scripts/test-typescript.cjs --test src/lib/financing/calculator.test.ts src/lib/financing/scenarioPersist.test.ts src/lib/financing/migration.pglite.test.ts src/lib/financing/scenarioValidate.test.ts src/lib/financing/calculatorUnitPrice.test.ts"
   },
   "engines": {

@@ -1,28 +1,38 @@
 import 'server-only'
 import { automationSettings, assertLive } from './config'
 import { autoConfig, db, object, permitted, rpc, scope, text, type Row } from './data'
-import { getKommoLead, launchSalesbot, setKommoField, ProviderError } from './kommo'
+import { getKommoLead, launchSalesbot, setKommoField, setKommoFields, ProviderError } from './kommo'
 import { rejectedWriteStatus } from './delivery-state'
 import { prepareVisit, routeSignature, validateVisit } from './visit-rules'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { operationalReply } from './operational-copy'
+import { buildVisitReminderFields, googleMapsSearchUrl, verifiedGoogleMapsUrl, VISIT_REMINDER_FIELD_IDS } from './visit-reminder'
 
 export type Guard = () => Promise<void>
 export async function visitContext(jobId: string) {
   const result = object(await rpc('lv_app_visit_context', { p_job: jobId }))
+  const appointment = object(result.appointment)
   const [project, config] = await Promise.all([
     db().from('projects').select('address,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).maybeSingle(),
-    db().from('project_automation_config').select('mode').match(scope).maybeSingle(),
+    db().from('project_automation_config').select('mode,visit_location_url').match(scope).maybeSingle(),
   ])
   if (project.error || config.error) throw new Error('VISIT_LOCATION_CONTEXT_FAILED')
   let address = text(project.data?.address)
-  const appointment = object(result.appointment)
   if (appointment.location_type === 'oficina' && appointment.office_id) {
     const office = await db().from('offices').select('address').eq('id', appointment.office_id).eq('tenant_id', scope.tenant_id).maybeSingle()
     if (office.error || !office.data) throw new Error('VISIT_OFFICE_CONTEXT_FAILED')
     address = text(office.data.address)
   }
-  return { ...result, address, mode: config.data?.mode, estado_proyecto: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).readiness,
+  const unitRows = appointment.id
+    ? await db().from('appointment_units').select('unit:units!inner(unit_number,category)').eq('appointment_id', appointment.id)
+    : { data: [], error: null }
+  if (unitRows.error) throw new Error('VISIT_UNITS_CONTEXT_FAILED')
+  const payloadLocation = object(object(result.job).payload).location
+  const location = appointment.location_type === 'oficina'
+    ? verifiedGoogleMapsUrl(payloadLocation) || googleMapsSearchUrl(address)
+    : verifiedGoogleMapsUrl(config.data?.visit_location_url) || verifiedGoogleMapsUrl(result.location) || googleMapsSearchUrl(address)
+  return { ...result, address, location, appointment_units: Array.isArray(unitRows.data) ? unitRows.data : [],
+    mode: config.data?.mode, estado_proyecto: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).readiness,
     launch_destination: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).launchDestination }
 }
 
@@ -70,7 +80,7 @@ export async function sendVisit(jobId: string, guard: Guard) {
   if (count) return { jobId, status: 'unresolved_conversation' }
   await getKommoLead(Number(lead.kommo_id))
   const route = object(context.route), payload = object(object(context.job).payload)
-  if (!Array.isArray(payload.options) || !payload.options.length) {
+  if (object(context.job).kind !== 'visit_2h' && (!Array.isArray(payload.options) || !payload.options.length)) {
     const draft = await operationalReply(text(payload.detail), text(object(context.request).source_message_text), [], {
       action: object(context.job).kind, status: object(context.request).status,
       protected_terms: [context.advisor_name, context.address].filter(Boolean),
@@ -95,7 +105,16 @@ export async function sendVisit(jobId: string, guard: Guard) {
       return { jobId, status: 'changed_before_send' }
     }
     await guard()
-    await setKommoField(Number(lead.kommo_id), Number(route.detail_field_id), text(object(job.payload).detail))
+    if (job.kind === 'visit_2h') {
+      const fields = buildVisitReminderFields(context)
+      await setKommoFields(Number(lead.kommo_id), [
+        { fieldId: VISIT_REMINDER_FIELD_IDS.greeting, value: fields.greeting },
+        { fieldId: VISIT_REMINDER_FIELD_IDS.detail, value: fields.detail },
+        { fieldId: VISIT_REMINDER_FIELD_IDS.location, value: fields.location },
+      ])
+    } else {
+      await setKommoField(Number(lead.kommo_id), Number(route.detail_field_id), text(object(job.payload).detail))
+    }
     context = await visitContext(jobId)
     decision = validateVisit(context)
     if (decision.action !== 'send' || !permitted(object(context.config), object(context.lead), automationSettings().testLeadId)) {
@@ -144,6 +163,7 @@ export async function planVisits(guard: Guard) {
     if (!future
       || !(start - 2 * 3_600_000 > seen + 1_800_000)) continue
     const payload = { start_time: a.start_time, end_time: a.end_time, advisor_id: a.responsible_id,
+      preferred_category: lead.preferred_category || null,
       location: object(d.policy).location_override || d.location || null }
     const prepared = prepareVisit({ ...d, job: { kind: 'visit_2h', payload } })
     await rpc('lv3_enqueue', { p: { ...scope, lead_id: lead.id, kind: 'visit_2h',

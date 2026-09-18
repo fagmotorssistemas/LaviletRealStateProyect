@@ -110,7 +110,7 @@ Igual que confirmación, `kind` distinto, cita `reprogramado`.
 
 ## Kommo (solo documentación)
 
-Campo coordinación `519824`. Recordatorio `513120`. Salesbots: propuesta `18724`, confirmación `18730`, visit_2h `18350`. Permanecen en HTTP Request de n8n.
+El recordatorio de dos horas usa el Salesbot `22246` y completa conjuntamente los campos `531808` (saludo), `531120` (detalle) y `531812` (ubicación) antes de iniciarlo.
 
 ## Pendiente n8n
 

@@ -1130,10 +1130,11 @@ function live(t) {
 function fixture() {
   return { job: { ...scope, id: 'job', lead_id: 'lead', appointment_id: 'appointment', kind: 'visit_2h',
     status: 'pending', revision: 'r1', scheduled_at: later(-1000), expires_at: later(1_800_000), payload: { detail: 'Visita de prueba' } },
-    lead: { ...scope, id: 'lead', channel_origin: 'whatsapp', kommo_id: 123, bot_enabled: true },
+    lead: { ...scope, id: 'lead', name: 'Carlos Pérez', preferred_category: 'departamento', channel_origin: 'whatsapp', kommo_id: 123, bot_enabled: true },
     config: { ...scope, enabled: true, dry_run: false, test_only: false },
     appointment: { ...scope, id: 'appointment', lead_id: 'lead', status: 'aceptado', start_time: later(7_200_000) },
-    route: { enabled: true, approved: true, bot_id: 15578, detail_field_id: 457014, link_field_id: 0, body_template: '{{detalle}}', template_name: 'reminder' },
+    route: { enabled: true, approved: true, bot_id: 22246, detail_field_id: 531120, link_field_id: 0, body_template: '{{detalle}}', template_name: 'reminder' },
+    advisor_name: 'Carlos Argudo', location: 'https://maps.app.goo.gl/cjkNv7c4siehTqAN9', appointment_units: [],
     last_client_message_at: later(-60_000), revision: 'r1', event_current: true, reminders_paused: false, recent_jobs: [] }
 }
 test('activation requires explicit ownership and valid cutover date', t => {
@@ -1159,7 +1160,7 @@ test('webhook handles all messages, rejects other accounts, ignores outgoing and
 })
 test('visits respect exact window boundary, changes, opt-out and unresolved sends', () => {
   const c = fixture(); assert.equal(validateVisit(c, now).action, 'send')
-  c.last_client_message_at = later(-24 * 3_600_000); assert.equal(validateVisit(c, now).action, 'defer')
+  c.last_client_message_at = later(-24 * 3_600_000); assert.equal(validateVisit(c, now).action, 'send')
   c.last_client_message_at = later(-60_000); c.revision = 'r2'; assert.equal(validateVisit(c, now).action, 'cancel')
   c.revision = 'r1'; c.lead.tracking_opt_out_at = later(-1000); assert.equal(validateVisit(c, now).action, 'cancel')
   delete c.lead.tracking_opt_out_at; c.recent_jobs = [{ id: 'other', status: 'uncertain' }]
@@ -1198,10 +1199,39 @@ test('a changed appointment after PATCH prevents Salesbot launch', async t => {
   const { sendVisit } = load('src/lib/integrations/automation/visits.ts', {
     './operational-copy': { operationalReply: async reply => ({ reply, generated: false }) },
     './data': { ...data, rpc: mockRpc, db: () => ({ from: () => query }) },
-    './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { patches++ }, launchSalesbot: async () => { launches++ } },
+    './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { patches++ }, setKommoFields: async () => { patches++ }, launchSalesbot: async () => { launches++ } },
   })
   await sendVisit('job', async () => {})
   assert.equal(patches, 1); assert.equal(launches, 0); assert.equal(finishes[0].p_status, 'failed')
+})
+test('the two-hour reminder fills all three Kommo fields before launching Salesbot 22246', async t => {
+  live(t)
+  const c = fixture(); c.job.scheduled_at = new Date(Date.now() - 1000).toISOString()
+  c.job.expires_at = new Date(Date.now() + 100_000).toISOString(); c.appointment.start_time = new Date(Date.now() + 7_200_000).toISOString()
+  c.last_client_message_at = new Date(Date.now() - 3 * 24 * 3_600_000).toISOString()
+  c.appointment_units = [{ unit: { category: 'departamento', unit_number: '204' } }]
+  const claimed = { ...c, job: { ...c.job, status: 'claimed', claim_token: 'token',
+    payload: { ...c.job.payload, _kommo_id: 123, _route: routeSignature(c.route) } } }
+  let reads = 0, fields = [], launched = 0
+  const query = { select() { return this }, match() { return this }, eq() { return this }, maybeSingle() { return Promise.resolve({ data: {}, error: null }) }, like() { return Promise.resolve({ count: 0, error: null }) } }
+  const unitQuery = { select() { return this }, eq() { return this }, then(resolve) { return Promise.resolve({ data: c.appointment_units, error: null }).then(resolve) } }
+  const mockRpc = async (name) => {
+    if (name === 'lv_app_visit_context') { reads++; return reads === 1 ? c : claimed }
+    if (name === 'lv3_reserve') return { reserved: true, job_id: 'job' }
+    if (name === 'lv3_finish') return {}
+    throw Error(name)
+  }
+  const { sendVisit } = load('src/lib/integrations/automation/visits.ts', {
+    './operational-copy': { operationalReply: async () => { throw Error('REMINDER_COPY_MUST_NOT_USE_AI') } },
+    './data': { ...data, rpc: mockRpc, db: () => ({ from: table => table === 'appointment_units' ? unitQuery : query }) },
+    './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { throw Error('WRONG_FIELD_WRITER') },
+      setKommoFields: async (_, values) => { fields = values }, launchSalesbot: async (_, botId) => { launched = botId } },
+  })
+  assert.equal((await sendVisit('job', async () => {})).status, 'accepted')
+  assert.deepEqual(fields.map(field => field.fieldId), [531808, 531120, 531812])
+  assert.match(fields.find(field => field.fieldId === 531120).value, /departamento 204$/)
+  assert.equal(fields.find(field => field.fieldId === 531812).value, 'https://maps.app.goo.gl/cjkNv7c4siehTqAN9')
+  assert.equal(launched, 22246)
 })
 test('Kommo launch accepts an empty 202 response and never retries a network failure', async t => {
   live(t); const { launchSalesbot } = require('../src/lib/integrations/automation/kommo.ts')
