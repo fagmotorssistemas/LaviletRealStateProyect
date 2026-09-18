@@ -71,6 +71,14 @@ export async function persistMetaConversion(
     .maybeSingle()
 
   if (existing?.event_id) {
+    // Si el visitante se identificó después, enlazar lead_id sin reescribir payload.
+    if (input.leadId && existing.id) {
+      await admin
+        .from('meta_capi_outbox')
+        .update({ lead_id: input.leadId, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+        .is('lead_id', null)
+    }
     return {
       inserted: false,
       eventId: existing.event_id,

@@ -88,6 +88,8 @@ export type MetaCapiOutboxRow = {
   visitorKey: string | null
   projectId: string | null
   tenantId: string | null
+  /** Enlace CRM: lead identificado vía tour/outbox. */
+  connectedLead: boolean
   reception: MetaReceptionStatus
   receptionLabel: string
 }
@@ -322,7 +324,10 @@ function mapRow(
     phoneEvent: phone.eventPhone,
     phoneCrm: phone.crmPhone,
     phoneSource: phone.source,
-    phoneSourceLabel: phone.sourceLabel,
+    phoneSourceLabel:
+      phone.source === 'crm_lead'
+        ? 'CRM (lead 360 / CAPI)'
+        : phone.sourceLabel,
     eventAt: unixToIso(row.event_time),
     registeredAt: row.created_at,
     forwardedAt: row.forwarded_at,
@@ -346,6 +351,7 @@ function mapRow(
     visitorKey: row.visitor_key,
     projectId: row.leads?.project_id || projectFromPayload(payload),
     tenantId: row.leads?.tenant_id || null,
+    connectedLead: Boolean(row.lead_id && row.leads),
     reception: reception.status,
     receptionLabel: reception.label,
   }
@@ -719,12 +725,8 @@ export async function listMetaCapiOutbox(
   if (filters.origin && filters.origin !== 'all') {
     working = working.filter((r) => originFromPayload(asRecord(r.payload)) === filters.origin)
   }
-  if (filters.statusBucket && filters.statusBucket !== 'all') {
-    working = working.filter(
-      (r) => classifyOutboxStatus(r.status, r.last_error).bucket === filters.statusBucket,
-    )
-  }
 
+  // KPIs de la ventana (fecha/origen) sin el filtro de pestaña estado.
   const byEventName: Record<string, number> = {}
   let deliveredBackend = 0
   let pending = 0
@@ -745,6 +747,12 @@ export async function listMetaCapiOutbox(
   const total = working.length
   const deadErrorPct =
     total > 0 && failed > 0 ? Math.round((failed / total) * 1000) / 10 : failed === 0 ? 0 : null
+
+  if (filters.statusBucket && filters.statusBucket !== 'all') {
+    working = working.filter(
+      (r) => classifyOutboxStatus(r.status, r.last_error).bucket === filters.statusBucket,
+    )
+  }
 
   const totalFiltered = working.length
   const slice = working.slice((page - 1) * pageSize, page * pageSize)

@@ -1,16 +1,29 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useFinancingCalculator } from '@/hooks/useFinancingCalculator'
-import { ParameterSliders } from '@/components/financing/ParameterSliders'
-import { ResultCards } from '@/components/financing/ResultCards'
-import { DesglozeAnual } from '@/components/financing/DesglozeAnual'
-import { ViabilidadAlerta } from '@/components/financing/ViabilidadAlerta'
 import { Disclaimer } from '@/components/financing/Disclaimer'
 import { formatMoney, formatMoneyExact } from '@/lib/financing/calculator'
+import {
+  PROPERTY_DEFAULTS,
+  buildSimpleInvestmentResult,
+  detectPropertyType,
+  estimateMonthlyRentFromDefaults,
+  type PropertyType,
+  type RentalKind,
+} from '@/lib/financing/simpleInvestment'
 import { Spinner } from '@/components/ui/Spinner'
 import { cn } from '@/lib/utils'
 import type { SimulationMode } from '@/types/financingSimulator'
+
+type Step = 1 | 2 | 3 | 4
+
+const STEPS: { id: Step; label: string }[] = [
+  { id: 1, label: 'Propiedad' },
+  { id: 2, label: 'Financiamiento' },
+  { id: 3, label: 'Alquiler' },
+  { id: 4, label: 'Resultado' },
+]
 
 export function InvestmentConfigurator({
   unitParam,
@@ -30,21 +43,85 @@ export function InvestmentConfigurator({
   onConsumedInitialScenario?: () => void
 }) {
   const calc = useFinancingCalculator(unitParam, { initialMode, initialSection })
-  const financingRef = useRef<HTMLDivElement>(null)
+  const [step, setStep] = useState<Step>(1)
+  const [rents, setRents] = useState(true)
+  const [rentalKind, setRentalKind] = useState<RentalKind>('residential')
+  const [propertyType, setPropertyType] = useState<PropertyType>('depto')
+  const [defaultsAppliedFor, setDefaultsAppliedFor] = useState<string | null>(null)
 
   useEffect(() => {
     if (!initialScenario || calc.loading) return
     calc.loadFromScenario(initialScenario)
     onConsumedInitialScenario?.()
-    // Solo al recibir un escenario a reabrir.
+    setStep(4)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialScenario?.id, calc.loading])
 
   useEffect(() => {
-    if (calc.focusSection === 'financing' && financingRef.current) {
-      financingRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }, [calc.focusSection, calc.loading])
+    if (calc.loading || !calc.unit) return
+    const key = calc.unit.id || unitParam
+    if (defaultsAppliedFor === key) return
+    const type = detectPropertyType(calc.unit.category, calc.unit.bedrooms)
+    setPropertyType(type)
+    const d = PROPERTY_DEFAULTS[type]
+    setRentalKind(d.rentalKind)
+    const est = estimateMonthlyRentFromDefaults(type)
+    calc.setMonthlyRent(est.monthlyRent)
+    calc.setVacancyRate(est.vacancyRate)
+    calc.setExpenses({
+      propertyTax: 0,
+      maintenance: roundTo(est.annualExpenses),
+      insurance: 0,
+      other: 0,
+      total: roundTo(est.annualExpenses),
+    })
+    if (calc.mode === 'cash') calc.setMode('financed')
+    setDefaultsAppliedFor(key)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calc.loading, calc.unit?.id, unitParam])
+
+  const result = useMemo(() => {
+    if (!calc.unitPrice || calc.unitPrice <= 0) return null
+    return buildSimpleInvestmentResult({
+      unitPrice: calc.unitPrice,
+      downPaymentPercent: calc.downPaymentPercent,
+      financingYears: calc.financingYears,
+      interestRate: calc.interestRate,
+      rents,
+      propertyType,
+      monthlyRent: calc.monthlyRent,
+      vacancyRate: calc.vacancyRate,
+      annualOperatingExpenses: calc.state.expenses.total,
+      rentalKind,
+    })
+  }, [
+    calc.unitPrice,
+    calc.downPaymentPercent,
+    calc.financingYears,
+    calc.interestRate,
+    calc.monthlyRent,
+    calc.vacancyRate,
+    calc.state.expenses.total,
+    rents,
+    propertyType,
+    rentalKind,
+  ])
+
+  const applyPropertyType = (type: PropertyType) => {
+    setPropertyType(type)
+    const d = PROPERTY_DEFAULTS[type]
+    setRentalKind(d.rentalKind)
+    const est = estimateMonthlyRentFromDefaults(type)
+    calc.setMonthlyRent(est.monthlyRent)
+    calc.setVacancyRate(est.vacancyRate)
+    calc.setExpenses({
+      propertyTax: 0,
+      maintenance: roundTo(est.annualExpenses),
+      insurance: 0,
+      other: 0,
+      total: roundTo(est.annualExpenses),
+    })
+  }
 
   if (calc.loading) {
     return (
@@ -62,253 +139,339 @@ export function InvestmentConfigurator({
     )
   }
 
-  const modality: 'cash' | 'financed' = calc.mode === 'cash' ? 'cash' : 'financed'
   const downPaymentAmount =
     calc.unitPrice > 0 ? Math.round(((calc.unitPrice * calc.downPaymentPercent) / 100) * 100) / 100 : 0
 
   return (
-    <div
-      className={cn(
-        'grid gap-8',
-        stacked ? 'grid-cols-1' : 'lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]',
-      )}
-    >
-      <section className="space-y-5">
-        <header className="space-y-2">
-          <h2 className="font-serif text-2xl text-[#1f1a14] sm:text-3xl">
-            Unidad {calc.unit?.unit_number ?? unitParam}
-          </h2>
-          <p className="text-sm text-[#6b645c]">
-            {calc.priceMissing ? 'Sin precio publicado' : `Precio ${formatMoney(calc.unitPrice)}`}
-          </p>
-          {calc.fidelityMessage ? (
-            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-              {calc.fidelityMessage}
-            </p>
-          ) : null}
-          {calc.priceDiffersFromPublished ? (
-            <div className="rounded-xl border border-[#BDA27E]/40 bg-[#BDA27E]/10 px-3 py-2.5 text-sm text-[#4a433c]">
-              <p>
-                Escenario histórico con precio {formatMoney(calc.scenarioUnitPrice)}. Publicado ahora:{' '}
-                {formatMoney(calc.unit?.published_commercial_price)}.
-              </p>
-              <button
-                type="button"
-                onClick={() => calc.applyCurrentPublishedPrice()}
-                className="mt-2 text-[11px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase"
-              >
-                Actualizar al precio publicado
-              </button>
-            </div>
-          ) : null}
-        </header>
+    <div className={cn('space-y-6', !stacked && 'mx-auto max-w-2xl')}>
+      <header className="space-y-3">
+        <h2 className="font-serif text-2xl text-[#1f1a14] sm:text-3xl">
+          Unidad {calc.unit?.unit_number ?? unitParam}
+        </h2>
+        <nav className="flex flex-wrap gap-2">
+          {STEPS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setStep(s.id)}
+              className={cn(
+                'rounded-full px-3 py-1.5 text-[11px] font-semibold tracking-[0.12em] uppercase',
+                step === s.id
+                  ? 'bg-[#1a2744] text-white'
+                  : 'border border-[#d9d0c3] bg-white text-[#6b645c]',
+              )}
+            >
+              {s.id}. {s.label}
+            </button>
+          ))}
+        </nav>
+      </header>
 
-        {/* 1. Unidad y precio */}
-        <div className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]">
+      {step === 1 ? (
+        <section className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]">
           <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            1. Unidad y precio
+            1. Selecciona tipo de propiedad
           </p>
-          {calc.priceMissing ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-              Sin precio publicado. Indique un valor hipotético para simular.
-            </div>
-          ) : null}
-          {calc.priceMissing || !calc.hasPublishedPrice ? (
-            <label className="block space-y-1.5">
-              <span className="text-[11px] text-[#6b645c]">Precio hipotético</span>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(Object.keys(PROPERTY_DEFAULTS) as PropertyType[]).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => applyPropertyType(type)}
+                className={cn(
+                  'rounded-xl border px-3 py-3 text-[12px] font-semibold',
+                  propertyType === type
+                    ? 'border-[#1a2744] bg-[#1a2744] text-white'
+                    : 'border-[#e4ddd3] bg-white text-[#1f1a14]',
+                )}
+              >
+                {PROPERTY_DEFAULTS[type].label}
+              </button>
+            ))}
+          </div>
+          <label className="block space-y-1.5">
+            <span className="text-[11px] text-[#6b645c]">Precio</span>
+            <input
+              type="number"
+              min={0}
+              step={1000}
+              value={calc.unitPrice > 0 ? calc.unitPrice : ''}
+              onChange={(e) => calc.setUnitPrice(Number(e.target.value) || 0)}
+              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!(calc.unitPrice > 0)}
+            onClick={() => setStep(2)}
+            className="inline-flex h-11 w-full items-center justify-center rounded-full bg-[#1a2744] text-[11px] font-semibold tracking-[0.14em] text-white uppercase disabled:opacity-45"
+          >
+            Continuar
+          </button>
+        </section>
+      ) : null}
+
+      {step === 2 ? (
+        <section className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]">
+          <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
+            2. Entrada, plazo y banco
+          </p>
+          <label className="block space-y-1.5">
+            <span className="text-[11px] text-[#6b645c]">Institución / banco</span>
+            <select
+              value={calc.state.partnerId ?? ''}
+              onChange={(e) => {
+                const id = e.target.value || null
+                if (!id) {
+                  calc.setMode('manual')
+                  return
+                }
+                calc.setPartnerId(id)
+                calc.setMode('financed')
+              }}
+              className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm"
+            >
+              <option value="">Simulación manual</option>
+              {calc.partners.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.partner_name} · {Number(p.annual_interest_rate).toFixed(2)}%
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-[11px] text-[#6b645c]">Entrada %</span>
               <input
                 type="number"
-                min={0}
-                step={1000}
-                value={calc.unitPrice > 0 ? calc.unitPrice : ''}
-                placeholder="Sin precio"
-                onChange={(event) => calc.setUnitPrice(Number(event.target.value) || 0)}
-                className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
+                min={calc.limits.downPaymentMin}
+                max={calc.limits.downPaymentMax}
+                value={calc.downPaymentPercent}
+                onChange={(e) => calc.setDownPaymentPercent(Number(e.target.value))}
+                className="w-full rounded-xl border border-[#e4ddd3] px-3 py-2 text-sm"
+              />
+              <span className="text-[11px] text-[#8a8176]">{formatMoney(downPaymentAmount)}</span>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[11px] text-[#6b645c]">Plazo (años)</span>
+              <input
+                type="number"
+                min={calc.limits.yearsMin}
+                max={calc.limits.yearsMax}
+                value={calc.financingYears}
+                onChange={(e) => calc.setFinancingYears(Number(e.target.value))}
+                className="w-full rounded-xl border border-[#e4ddd3] px-3 py-2 text-sm"
               />
             </label>
-          ) : (
-            <div className="rounded-xl bg-[#f7f3ee] px-3 py-2.5">
-              <p className="text-lg font-semibold text-[#1f1a14]">{formatMoney(calc.unitPrice)}</p>
+          </div>
+          <label className="block space-y-1">
+            <span className="text-[11px] text-[#6b645c]">Tasa anual %</span>
+            <input
+              type="number"
+              min={0}
+              step={0.1}
+              value={calc.interestRate}
+              onChange={(e) => calc.setInterestRate(Number(e.target.value))}
+              className="w-full rounded-xl border border-[#e4ddd3] px-3 py-2 text-sm"
+            />
+          </label>
+          {result ? (
+            <div className="rounded-xl bg-[#f7f3ee] px-3 py-2.5 text-sm text-[#4a433c]">
+              Cuota automática: <strong>{formatMoneyExact(result.monthlyPayment)}</strong> / mes
             </div>
-          )}
-        </div>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              className="inline-flex h-11 flex-1 items-center justify-center rounded-full border border-[#d9d0c3] text-[11px] font-semibold tracking-[0.14em] uppercase"
+            >
+              Atrás
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep(3)}
+              className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-[#1a2744] text-[11px] font-semibold tracking-[0.14em] text-white uppercase"
+            >
+              Continuar
+            </button>
+          </div>
+        </section>
+      ) : null}
 
-        {/* 2–3. Modalidad + financiamiento */}
-        <div
-          ref={financingRef}
-          className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]"
-        >
+      {step === 3 ? (
+        <section className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]">
           <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            2. Modalidad
+            3. ¿Alquila?
           </p>
           <div className="grid grid-cols-2 gap-2">
             {(
               [
-                ['cash', 'Contado'],
-                ['financed', 'Con financiamiento'],
+                [true, 'Sí'],
+                [false, 'No'],
               ] as const
             ).map(([value, label]) => (
               <button
-                key={value}
+                key={String(value)}
                 type="button"
-                onClick={() => calc.setMode(value === 'cash' ? 'cash' : 'financed')}
+                onClick={() => setRents(value)}
                 className={cn(
                   'rounded-xl border px-3 py-2.5 text-[11px] font-semibold tracking-[0.1em] uppercase',
-                  modality === value
+                  rents === value
                     ? 'border-[#1a2744] bg-[#1a2744] text-white'
-                    : 'border-[#e4ddd3] bg-white text-[#1f1a14] hover:border-[#BDA27E]/60',
+                    : 'border-[#e4ddd3] bg-white',
                 )}
               >
                 {label}
               </button>
             ))}
           </div>
-
-          {modality !== 'cash' ? (
-            <div className="space-y-4 border-t border-[#f0ebe3] pt-4">
-              <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-                3. Financiamiento
-              </p>
-              <label className="block space-y-1.5">
-                <span className="text-[11px] text-[#6b645c]">Institución</span>
-                <select
-                  value={calc.state.partnerId ?? ''}
-                  onChange={(event) => {
-                    const id = event.target.value || null
-                    if (!id) {
-                      calc.setMode('manual')
-                      return
-                    }
-                    calc.setPartnerId(id)
-                    calc.setMode('financed')
-                  }}
-                  className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
-                >
-                  <option value="">Simulación manual (sin institución)</option>
-                  {calc.partners.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.partner_name} · {Number(p.annual_interest_rate).toFixed(2)}%
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-[#8a8176]">
-                  Tasas de configuración; no son ofertas bancarias vigentes verificadas.
-                </p>
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block space-y-1">
-                  <span className="text-[11px] text-[#6b645c]">
-                    Entrada % ({calc.limits.downPaymentMin}–{calc.limits.downPaymentMax})
-                  </span>
-                  <input
-                    type="number"
-                    min={calc.limits.downPaymentMin}
-                    max={calc.limits.downPaymentMax}
-                    step={1}
-                    value={calc.downPaymentPercent}
-                    onChange={(event) => calc.setDownPaymentPercent(Number(event.target.value))}
-                    className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
-                  />
-                  <span className="text-[11px] text-[#8a8176]">{formatMoney(downPaymentAmount)}</span>
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-[11px] text-[#6b645c]">Plazo (años)</span>
-                  <input
-                    type="number"
-                    min={calc.limits.yearsMin}
-                    max={calc.limits.yearsMax}
-                    step={1}
-                    value={calc.financingYears}
-                    onChange={(event) => calc.setFinancingYears(Number(event.target.value))}
-                    className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
-                  />
-                </label>
+          {rents ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    ['residential', 'Residencial'],
+                    ['airbnb', 'Airbnb'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setRentalKind(value)
+                      if (value === 'airbnb') {
+                        applyPropertyType('suite')
+                      } else if (propertyType === 'suite') {
+                        applyPropertyType('depto')
+                      } else {
+                        applyPropertyType(propertyType)
+                      }
+                    }}
+                    className={cn(
+                      'rounded-xl border px-3 py-2.5 text-[11px] font-semibold tracking-[0.1em] uppercase',
+                      rentalKind === value
+                        ? 'border-[#1a2744] bg-[#1a2744] text-white'
+                        : 'border-[#e4ddd3] bg-white',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              {rentalKind === 'airbnb' ? (
+                <p className="text-[12px] text-[#6b645c]">
+                  Defaults suite: ${PROPERTY_DEFAULTS.suite.nightlyRate}/noche · ocupación{' '}
+                  {Math.round(PROPERTY_DEFAULTS.suite.occupancy * 100)}% · comisión{' '}
+                  {Math.round(PROPERTY_DEFAULTS.suite.commission * 100)}% → alquiler estimado{' '}
+                  {formatMoney(calc.monthlyRent)}/mes
+                </p>
+              ) : (
                 <label className="block space-y-1">
-                  <span className="text-[11px] text-[#6b645c]">Tasa anual (%)</span>
+                  <span className="text-[11px] text-[#6b645c]">Alquiler mensual</span>
                   <input
                     type="number"
                     min={0}
-                    step={0.1}
-                    value={calc.interestRate}
-                    onChange={(event) => calc.setInterestRate(Number(event.target.value))}
-                    className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
+                    step={50}
+                    value={calc.monthlyRent || ''}
+                    onChange={(e) => calc.setMonthlyRent(Number(e.target.value) || 0)}
+                    className="w-full rounded-xl border border-[#e4ddd3] px-3 py-2 text-sm"
                   />
                 </label>
-                <label className="block space-y-1">
-                  <span className="text-[11px] text-[#6b645c]">Tipo de tasa</span>
-                  <select
-                    value={calc.rateType}
-                    onChange={(event) =>
-                      calc.setRateType(event.target.value as 'nominal_annual' | 'effective_annual')
-                    }
-                    className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm outline-none focus:border-[#BDA27E]"
-                  >
-                    <option value="nominal_annual">Nominal anual</option>
-                    <option value="effective_annual">Efectiva anual</option>
-                  </select>
-                </label>
-              </div>
-              {calc.mode === 'manual' ? (
-                <p className="rounded-xl bg-[#f7f3ee] px-3 py-2 text-[11px] text-[#6b645c]">
-                  Simulación manual: se conserva la tasa indicada al guardar.
+              )}
+            </>
+          ) : (
+            <p className="rounded-xl bg-[#f7f3ee] px-3 py-2 text-sm text-[#6b645c]">
+              Sin alquiler: solo cuota y apreciación. No genera flujo operativo.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="inline-flex h-11 flex-1 items-center justify-center rounded-full border border-[#d9d0c3] text-[11px] font-semibold tracking-[0.14em] uppercase"
+            >
+              Atrás
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep(4)}
+              className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-[#1a2744] text-[11px] font-semibold tracking-[0.14em] text-white uppercase"
+            >
+              Ver resultado
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {step === 4 ? (
+        <section className="space-y-4">
+          {result ? (
+            <div className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
+                  4. Resultado
                 </p>
-              ) : null}
-              {calc.preview && calc.preview.mode !== 'cash' ? (
-                <div className="rounded-xl bg-[#f7f3ee] px-3 py-2.5 text-sm text-[#4a433c]">
-                  Crédito {formatMoney(calc.preview.financedAmount)} · Cuota{' '}
-                  {formatMoneyExact(calc.preview.monthlyPayment)} / mes
-                </div>
-              ) : null}
+                <span
+                  className={cn(
+                    'inline-flex rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.1em] uppercase',
+                    result.badge === 'viable'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-900',
+                  )}
+                >
+                  {result.badge === 'viable' ? 'Viable ✅' : 'Revisar ⚠️'}
+                </span>
+              </div>
+
+              <ResultRow
+                label="Cuota mensual"
+                value={formatMoneyExact(result.monthlyPayment)}
+                hint={`Entrada ${formatMoney(result.preview.downPaymentAmount)} · ${result.preview.financingYears} años`}
+              />
+              <ResultRow
+                label="Flujo si alquila"
+                value={
+                  result.rents
+                    ? formatMoneyExact(result.monthlyCashFlow ?? 0) + ' / mes'
+                    : 'No genera flujo'
+                }
+                hint={result.cashFlowNote}
+              />
+              <ResultRow
+                label={`Apreciación ${result.appreciationYears} años`}
+                value={formatMoney(result.appreciationGain)}
+                hint={`Valor futuro est. ${formatMoney(result.futureValue)} (${Math.round(result.appreciationRate * 100)}%/año)`}
+              />
+              <ResultRow
+                label="ROI total"
+                value={
+                  result.totalRoiPercent == null ? '—' : `${result.totalRoiPercent.toFixed(1)}%`
+                }
+                hint={result.totalRoiLabel}
+                emphasize
+              />
             </div>
-          ) : null}
-        </div>
+          ) : (
+            <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-6 text-sm text-[#6b645c]">
+              Complete precio y financiamiento para ver el resultado.
+            </div>
+          )}
 
-        {/* 4. Alquiler, vacancia y gastos */}
-        <div className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-5 shadow-[0_12px_40px_rgba(40,30,20,0.06)]">
-          <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            4. Alquiler, vacancia y gastos
-          </p>
-          <ParameterSliders
-            monthlyRent={calc.monthlyRent}
-            onRentChange={calc.setMonthlyRent}
-            suggestedRent={calc.suggestedRent}
-            rentSuggestionLabel={calc.rentSuggestion.label}
-            onUseSuggestedRent={() => calc.setMonthlyRent(calc.suggestedRent)}
-            vacancyRate={calc.vacancyRate}
-            onVacancyChange={calc.setVacancyRate}
-            expenses={calc.state.expenses}
-            onExpensesChange={calc.setExpenses}
-            suggestedExpenses={calc.suggestedExpenses}
-            onUseSuggestedExpenses={calc.useSuggestedExpenses}
-            includePropertyManager={calc.state.includePropertyManager}
-            onIncludePropertyManagerChange={(v) =>
-              calc.patchState({ includePropertyManager: v, savedResults: null, fidelityMessage: null })
-            }
-            includeIncomeTax={calc.state.includeIncomeTax}
-            onIncludeIncomeTaxChange={(v) =>
-              calc.patchState({ includeIncomeTax: v, savedResults: null, fidelityMessage: null })
-            }
-            coverage={calc.preview?.monthlyCoverage ?? null}
-            showCoveragePayment={modality !== 'cash'}
-            unitPrice={calc.unitPrice}
-            onUnitPriceChange={calc.setUnitPrice}
-            priceEditable={false}
-            priceMissing={false}
-            showPrice={false}
-          />
-        </div>
-
-        {/* 6. Guardar */}
-        {calc.identified || onOpenSaved ? (
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setStep(3)}
+              className="inline-flex h-11 items-center justify-center rounded-full border border-[#d9d0c3] px-5 text-[11px] font-semibold tracking-[0.14em] uppercase"
+            >
+              Atrás
+            </button>
             {calc.identified ? (
               <button
                 type="button"
-                disabled={calc.saving || calc.priceMissing || !calc.preview}
+                disabled={calc.saving || !result}
                 onClick={() => void calc.saveScenario()}
-                className="inline-flex h-11 items-center justify-center rounded-full bg-[#1a2744] px-5 text-[11px] font-semibold tracking-[0.14em] text-white uppercase disabled:cursor-not-allowed disabled:opacity-45"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-[#1a2744] px-5 text-[11px] font-semibold tracking-[0.14em] text-white uppercase disabled:opacity-45"
               >
                 {calc.saving ? 'Guardando…' : 'Guardar escenario'}
               </button>
@@ -317,54 +480,47 @@ export function InvestmentConfigurator({
               <button
                 type="button"
                 onClick={onOpenSaved}
-                className="inline-flex h-11 items-center justify-center rounded-full border border-[#d9d0c3] bg-white px-5 text-[11px] font-semibold tracking-[0.14em] text-[#1f1a14] uppercase"
+                className="inline-flex h-11 items-center justify-center rounded-full border border-[#d9d0c3] px-5 text-[11px] font-semibold tracking-[0.14em] uppercase"
               >
                 Ver guardados
               </button>
             ) : null}
           </div>
-        ) : null}
-        {calc.saveMessage ? <p className="text-sm text-[#4a433c]">{calc.saveMessage}</p> : null}
-      </section>
-
-      {/* 5. Resultados */}
-      <section className="space-y-5">
-        <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-          5. Resultado
-        </p>
-        {calc.preview ? (
-          <>
-            <ViabilidadAlerta
-              preview={calc.preview}
-              input={{
-                mode: calc.preview.mode,
-                unitPrice: calc.unitPrice,
-                estimatedMonthlyRent: calc.monthlyRent,
-                vacancyRate: calc.vacancyRate,
-                annualOperatingExpenses: calc.state.expenses.total,
-                includeIncomeTax: calc.state.includeIncomeTax,
-                includePropertyManager: calc.state.includePropertyManager,
-                downPaymentPercent: calc.downPaymentPercent,
-                financingYears: calc.financingYears,
-                interestRate: calc.interestRate,
-                rateType: calc.rateType,
-                acquisitionCosts: calc.state.acquisitionCosts,
-                annualOtherFinancialCosts: calc.state.annualOtherFinancialCosts,
-                monthlyExtraCharges: calc.state.monthlyExtraCharges,
-              }}
-            />
-            <ResultCards preview={calc.preview} />
-            <DesglozeAnual preview={calc.preview} />
-          </>
-        ) : (
-          <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-6 text-sm text-[#6b645c]">
-            {calc.priceMissing
-              ? 'Sin precio. Ingrese un valor hipotético para ver resultados.'
-              : 'Complete los parámetros para ver el resultado.'}
-          </div>
-        )}
-        <Disclaimer text={calc.config.disclaimer_text} />
-      </section>
+          {calc.saveMessage ? <p className="text-sm text-[#4a433c]">{calc.saveMessage}</p> : null}
+          <Disclaimer text={calc.config.disclaimer_text} />
+        </section>
+      ) : null}
     </div>
   )
+}
+
+function ResultRow({
+  label,
+  value,
+  hint,
+  emphasize,
+}: {
+  label: string
+  value: string
+  hint?: string
+  emphasize?: boolean
+}) {
+  return (
+    <div className="border-t border-[#f0ebe3] pt-3 first:border-t-0 first:pt-0">
+      <p className="text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">{label}</p>
+      <p
+        className={cn(
+          'mt-1 text-xl font-semibold tabular-nums text-[#1f1a14]',
+          emphasize && 'text-2xl text-[#1a2744]',
+        )}
+      >
+        {value}
+      </p>
+      {hint ? <p className="mt-0.5 text-[11px] text-[#8a8176]">{hint}</p> : null}
+    </div>
+  )
+}
+
+function roundTo(n: number) {
+  return Math.round(n * 100) / 100
 }
