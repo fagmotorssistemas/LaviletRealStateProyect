@@ -7,7 +7,7 @@ import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
 import { OpenAIRequestError } from './openai-request'
 import { assertLive, automationSettings } from './config'
-import { normalizeEvents, normalizedVisitPreference, validateIntent, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
+import { normalizeEvents, normalizedVisitPreference, validateIntent, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
 import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { inboundFromRow, type Inbound } from './webhook'
@@ -21,7 +21,7 @@ import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationRe
 
 import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat, priceFinancingReply } from './financing'
 import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply } from './visit-intake'
-import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
+import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
 import { commercialMemory, rememberCommercialReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
@@ -408,7 +408,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     const [summaryPrompt, extractorPrompt] = await Promise.all([activePrompt('resumen_conversacion'), activePrompt('extractor_eventos')])
     const [newSummary, rawEvents] = await Promise.all([
       aiJson(summaryPrompt, { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current }),
-      aiJson(extractorPrompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
+      aiJson(extractorPrompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
         { resumen: previousSummary, historial: context.historial, tema_actual: salesSubject(current, context.historial), ultima_pregunta: state.ultima_respuesta, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:reference.matches, mensaje_actual: current })
     ])
     summary = {...newSummary, _unit_reference: reference.memory, _sales_memory: previousSummary._sales_memory}
@@ -418,9 +418,19 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
     extracted.financing_consent = financeInput.consent
     extracted.financing_partner = financeInput.partner
     const collectingVisit = visitDraft?.status === 'collecting'
-    const canRequestVisit = !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current)) && (!isCourtesyOnly(current) || acceptsVisitInvitation(current,text(state.ultima_respuesta)))
-      && (explicitlyRequestsVisit(current) || collectingVisit || acceptsVisitInvitation(current, text(state.ultima_respuesta)))
-    if (canRequestVisit && (explicitlyRequestsVisit(current) || acceptsVisitInvitation(current, text(state.ultima_respuesta)))) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
+    const semanticVisit = object(extracted.visit_intent)
+    const semanticVisitRequest = semanticVisit.kind === 'request_visit' && !hasUnrelatedAppointmentTarget(current)
+    // A semantic acceptance is actionable only while a durable visit draft is
+    // already collecting details. This prevents a bare "sí" from starting a
+    // visit while financing, pricing or another feature is active.
+    const semanticVisitAcceptance = semanticVisit.kind === 'accept_visit_preference' && collectingVisit
+    const explicitVisitRequest = explicitlyRequestsVisit(current)
+    const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta))
+    const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
+    const canRequestVisit = !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
+      && (!isCourtesyOnly(current) || semanticVisitAcceptance || invitationAccepted)
+      && (visitSignal || collectingVisit)
+    if (canRequestVisit && visitSignal) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
     if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
     const priceTurn = asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
     const financeTurn = financeInput.consent === true || (!priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
@@ -492,7 +502,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
           const overview = projectOverviewReply(visitInfo, current)
           if (overview) reply = overview + ' ' + reply
           if (quote) reply = quote.reply.replace(/\s*¿[^?]+\?\s*$/, '') + ' ' + reply
-          audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id }
+          audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id,
+            semantic_visit_intent: semanticVisit.kind || null }
         }
         if (wantsBrochure(current, context.historial)) reply += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
       } else if (financeAnswer) {

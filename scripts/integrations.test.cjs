@@ -26,7 +26,7 @@ function load(relative, mocks) {
 const { automationSettings, secretMatches } = require('../src/lib/integrations/automation/config.ts')
 const { normalizeWebhook } = require('../src/lib/integrations/automation/webhook.ts')
 const { validateVisit, routeSignature } = require('../src/lib/integrations/automation/visit-rules.ts')
-const { normalizeEvents, normalizedVisitPreference, validateIntent } = require('../src/lib/integrations/automation/conversation-rules.ts')
+const { normalizeEvents, normalizedVisitIntent, normalizedVisitPreference, validateIntent } = require('../src/lib/integrations/automation/conversation-rules.ts')
 const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
@@ -1364,6 +1364,52 @@ test('visit extraction preserves a high-confidence spelling interpretation with 
   assert.equal(normalizedVisitPreference({ evidence: 'domingo', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high' }, message), null)
   assert.equal(normalizedVisitPreference({ evidence: 'domingo o lunes', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high' }, 'domingo o lunes'), null)
   assert.equal(normalizedVisitPreference({ evidence: 'no puedo el domingo', date_text: 'domingo', time_text: null, confidence: 'high' }, 'no puedo el domingo'), null)
+})
+
+test('semantic visit intent requires high confidence and literal evidence from the current message', () => {
+  const message = 'No no, lo que digo es que Quieor agenda runa cita'
+  assert.deepEqual(normalizedVisitIntent({
+    kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high',
+  }, message), { kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high' })
+  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'quiero agendar una cita', confidence: 'high' }, message), null)
+  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'medium' }, message), null)
+  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'no quiero una visita', confidence: 'high' }, 'no quiero una visita'), null)
+})
+
+test('a future weekday is not mistaken for a question about team attendance', () => {
+  const { asksTeamAttendance, explicitlyRequestsVisit } = require('../src/lib/integrations/automation/turn-routing.ts')
+  const request = 'Quieor agendar una cita el miércoles que viene. Alas 12... se puede?'
+  assert.equal(asksTeamAttendance(request), false)
+  assert.equal(explicitlyRequestsVisit(request), true)
+  assert.equal(asksTeamAttendance('¿Va a venir a la cita hoy?'), true)
+})
+
+test('high-confidence semantic visit intent survives spelling errors and reaches durable intake', async t => {
+  live(t)
+  const current = 'No no, lo que digo es que Quieor agenda runa cita'
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], visit_intent: {
+    kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high',
+  } } })
+  h.rows = h.rows.slice(0, 1)
+  h.rows[0].payload.text = current
+  await h.process(h.rows, async () => {})
+  assert.equal(h.calls.filter(c => c.name === 'lv_collect_visit_intake').length, 1)
+  assert.equal(h.calls.find(c => c.name === 'register_outbound_message').args.p_tool_calls.source, 'visit_intake')
+})
+
+test('semantic visit evidence cannot manufacture a visit or hijack an unrelated flow', async t => {
+  live(t)
+  for (const example of [
+    { current: 'Quiero conocer los precios', intent: { kind: 'request_visit', evidence: 'quiero agendar una cita', confidence: 'high' } },
+    { current: 'Sí, avancemos con JEP', intent: { kind: 'accept_visit_preference', evidence: 'Sí', confidence: 'high' } },
+    { current: 'Quiero agendar una cita médica mañana', intent: { kind: 'request_visit', evidence: 'Quiero agendar una cita médica mañana', confidence: 'high' } },
+  ]) {
+    const h = conversationHarness({ extracted: { events: ['requested_visit'], visit_intent: example.intent } })
+    h.rows = h.rows.slice(0, 1)
+    h.rows[0].payload.text = example.current
+    await h.process(h.rows, async () => {})
+    assert.equal(h.calls.some(c => c.name === 'lv_collect_visit_intake'), false)
+  }
 })
 
 test('a semantic visit interpretation is passed durably to intake instead of being discarded', async t => {

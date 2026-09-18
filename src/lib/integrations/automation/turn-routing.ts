@@ -12,7 +12,10 @@ export function asksVisitStatus(current: string, lastReply = '') {
     || (/cuando|a que hora|cuanto (?:tiempo|tardan)/.test(normalized(current)) && /confirm|respuesta/.test(normalized(current)) && /visita|cita|horario/.test(normalized(lastReply + ' ' + current)))
 }
 export function asksTeamAttendance(current: string) {
-  const value = normalized(current)
+  // In "miércoles que viene", viene modifies the date; it does not ask whether
+  // a person from the team will attend. Remove that temporal phrase before
+  // applying the deterministic attendance check.
+  const value = normalized(current).replace(/\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+que\s+viene\b/g, '')
   return /\b(?:va a venir|van a venir|vendran?|vienen|viene|va a asistir|van a asistir)\b/.test(value)
     && /\b(?:cita|reunion|hoy|manana|esperando|esperamos|acordamos)\b/.test(value)
     && !/\b(?:puedo|quiero|quisiera|me gustaria|voy a) (?:ir|venir|asistir)\b/.test(value)

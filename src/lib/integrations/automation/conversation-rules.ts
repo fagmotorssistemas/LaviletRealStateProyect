@@ -12,6 +12,15 @@ evidence debe ser una copia literal presente en mensaje_cliente. Use confidence=
 location_type representa respectivamente oficina, terreno del proyecto, área autorizada de obra, departamento modelo o unidad terminada. No lo complete si el cliente no menciona un lugar.
 No convierta hoy/mañana ni un día de la semana en una fecha absoluta; el calendario la calculará con la fecha real del mensaje.`
 
+export const VISIT_INTENT_EXTRACTION_RULES = `
+Devuelva además "visit_intent" para interpretar semánticamente SOLO la intención de visita del mensaje actual:
+{"kind":"request_visit|accept_visit_preference|visit_status|none","evidence":"copia literal del fragmento del cliente","confidence":"high|medium|low"}.
+request_visit: el cliente pide agendar, coordinar o realizar una visita inmobiliaria, aunque tenga errores ortográficos o palabras separadas incorrectamente.
+accept_visit_preference: el cliente acepta inequívocamente la fecha u hora de visita que el bot acaba de proponer o repetir. Una respuesta breve como "sí" o "está bien" solo pertenece aquí cuando coordinacion_visita demuestra que existe una visita en curso.
+visit_status: pregunta si una solicitud o cita ya quedó registrada o confirmada. none: cualquier otra intención.
+No confunda una fecha futura como "miércoles que viene" con una pregunta sobre si una persona va a venir. No convierta una cita médica, vuelo, hotel u otro servicio ajeno en una visita al proyecto.
+Use confidence=high solo cuando el fragmento literal permite una única interpretación. evidence debe ser una copia literal presente en mensaje_actual. No use el historial como evidencia de una intención nueva.`
+
 const plain = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
 const weekday = '(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)'
 const month = '(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)'
@@ -38,6 +47,19 @@ export function normalizedVisitPreference(raw: unknown, message: string): Row | 
     canonical_text: canonicalText || null, confidence: 'high' }
 }
 
+export function normalizedVisitIntent(raw: unknown, message: string): Row | null {
+  const intent = object(raw)
+  const kind = text(intent.kind)
+  const evidence = text(intent.evidence).trim()
+  if (!['request_visit', 'accept_visit_preference', 'visit_status', 'none'].includes(kind)
+    || intent.confidence !== 'high' || !evidence || evidence.length > 240) return null
+  const normalizedEvidence = normalized(evidence)
+  const normalizedMessage = normalized(message)
+  if (!normalizedEvidence || !normalizedMessage.includes(normalizedEvidence)) return null
+  if (kind === 'request_visit' && /\b(?:no|tampoco|ni)\s+(?:quiero|quisiera|deseo|puedo|podemos|me interesa|me gustaria)\b/.test(normalizedEvidence)) return null
+  return { kind, evidence, confidence: 'high' }
+}
+
 export function normalizeEvents(raw: unknown, message: string): Row {
   const data = object(raw)
   const nullableText = (key: string) => text(data[key]).trim() || null
@@ -61,6 +83,7 @@ export function normalizeEvents(raw: unknown, message: string): Row {
     unit_id: /^[a-f0-9-]{36}$/i.test(text(data.unit_id)) ? data.unit_id : null,
     preferred_visit_time_text: nullableText('preferred_visit_time_text'),
     visit_preference: normalizedVisitPreference(data.visit_preference, message),
+    visit_intent: normalizedVisitIntent(data.visit_intent, message),
     visit_needs_help: data.visit_needs_help === true,
     tracking_consent: data.consent_granted === true || data.tracking_consent === true,
     opt_out: data.opt_out === true,
