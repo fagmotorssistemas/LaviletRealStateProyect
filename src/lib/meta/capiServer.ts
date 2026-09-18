@@ -6,7 +6,7 @@ import { parseAdsConsentFromCookieValue } from '@/lib/tour/consent'
 import { resolveEffectiveAdsConsent } from '@/lib/meta/effectiveAdsConsent'
 import { clientIp as resolveClientIp } from '@/lib/tour/geo'
 
-export type MetaServerEventName = 'ViewContent' | 'Lead' | 'Schedule'
+export type MetaServerEventName = 'ViewContent' | 'Lead' | 'Schedule' | 'LeadSubmitted'
 
 function backendBaseUrl() {
   return (

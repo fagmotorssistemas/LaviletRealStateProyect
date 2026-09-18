@@ -11,6 +11,11 @@ import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } fr
 import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { inboundFromRow, type Inbound } from './webhook'
 import { preserveCtwaForContact } from './ctwa-lead-store'
+import {
+  detectsWhatsappAdsConsentGrant,
+  detectsWhatsappAdsConsentRevoke,
+} from '@/lib/meta/waLeadSubmittedConsent'
+import { maybeRegisterWaLeadSubmitted } from '@/lib/meta/waLeadSubmittedDelivery'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
@@ -427,6 +432,34 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
       reply = 'Hemos registrado su solicitud de no recibir más mensajes.'; finalNotice = true
     } else {
       if (extracted.tracking_consent) await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: true, p_reason: 'aceptó recibir novedades' })
+      // Consentimiento ads/Meta: explícito y distinto de tracking_consent. Iniciar chat no concede.
+      if (detectsWhatsappAdsConsentRevoke(current)) {
+        try {
+          await rpc('lv_set_whatsapp_meta_ads_consent', {
+            p_lead_id: lead.id,
+            p_ads_consent: false,
+            p_reason: 'revocó publicidad por WhatsApp',
+            p_evidence_message: String(current).slice(0, 500),
+            p_scope: 'whatsapp_ads',
+          })
+          lead = { ...lead, meta_ads_consent: false }
+        } catch {
+          /* soft-fail: CRM continúa */
+        }
+      } else if (detectsWhatsappAdsConsentGrant(current, { fromBot: false })) {
+        try {
+          await rpc('lv_set_whatsapp_meta_ads_consent', {
+            p_lead_id: lead.id,
+            p_ads_consent: true,
+            p_reason: 'aceptó publicidad por WhatsApp',
+            p_evidence_message: String(current).slice(0, 500),
+            p_scope: 'whatsapp_ads',
+          })
+          lead = { ...lead, meta_ads_consent: true }
+        } catch {
+          /* soft-fail */
+        }
+      }
       await rpc('apply_lead_events', { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
       // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
       const unitId = (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
@@ -447,6 +480,34 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
         const { error } = await db().from('leads').update({ behavior_signals: signals, ...resetSearch }).match(scope).eq('id', lead.id)
         if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
         lead = { ...lead, ...resetSearch, behavior_signals: signals }
+      }
+      // LeadSubmitted BM: interés comercial real; no saludo. Soft-fail.
+      try {
+        const fresh = await one('leads', text(lead.id))
+        lead = { ...lead, ...fresh }
+        await maybeRegisterWaLeadSubmitted({
+          admin: db(),
+          lead: {
+            id: String(lead.id),
+            phone: lead.phone as string | null | undefined,
+            name: lead.name as string | null | undefined,
+            email: lead.email as string | null | undefined,
+            meta_ads_consent: lead.meta_ads_consent as boolean | null | undefined,
+            tenant_id: (lead.tenant_id as string | null | undefined) || scope.tenant_id,
+            project_id: (lead.project_id as string | null | undefined) || scope.project_id,
+            meta_wa_lead_submitted_event_id: lead.meta_wa_lead_submitted_event_id as
+              | string
+              | null
+              | undefined,
+          },
+          contactId: last.contactId,
+          currentMessage: current,
+          scoreEvents: extracted.events as string[],
+          history: context.historial,
+          behaviorSignals: lead.behavior_signals,
+        })
+      } catch {
+        /* soft-fail: nunca corta la atención */
       }
       const financeAnswer = priceTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
       // A question about a product is not an application or consent to collect personal data.

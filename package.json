@@ -16,6 +16,7 @@
     "automation:tick": "node scripts/automation-cron.mjs",
     "automation:watch": "node scripts/automation-cron.mjs --watch",
     "test:meta-schedule": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/scheduleIntegration.test.ts src/lib/meta/scheduleEnqueue.review.test.ts src/lib/meta/scheduleAgendaHook.test.ts src/lib/meta/scheduleContract.test.ts src/lib/meta/scheduleDelivery.test.ts src/lib/meta/scheduleFlushExclusion.test.ts src/lib/meta/scheduleReliability.test.ts src/lib/meta/scheduleMigrations.test.ts",
+    "test:meta-wa-lead-submitted": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/waLeadSubmitted.test.ts src/lib/meta/waLeadSubmittedMigrations.test.ts",
     "test:meta-schedule-recover-db": "powershell -File scripts/meta-schedule-recover-isolated/run.ps1",
     "test:meta-pixel-unit": "node --require ./scripts/test-typescript.cjs --test src/lib/marketing/metaPixel.behavior.test.ts",
     "test:meta-pixel-browser": "node scripts/meta-pixel-browser-harness.cjs",

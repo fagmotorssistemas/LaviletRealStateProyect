@@ -7,7 +7,7 @@ export type LocalOutboxRow = {
   id: string
   idempotency_key: string
   event_id: string
-  event_name: 'ViewContent' | 'Lead' | 'Schedule'
+  event_name: 'ViewContent' | 'Lead' | 'Schedule' | 'LeadSubmitted'
   event_time: number
   payload: Record<string, unknown>
   status: string
@@ -46,7 +46,7 @@ function intendedLane(): 'test' | 'live' {
 export async function persistMetaConversion(
   admin: SupabaseClient,
   input: {
-    eventName: 'ViewContent' | 'Lead' | 'Schedule'
+    eventName: 'ViewContent' | 'Lead' | 'Schedule' | 'LeadSubmitted'
     idempotencyKey: string
     eventId?: string
     eventTime?: number

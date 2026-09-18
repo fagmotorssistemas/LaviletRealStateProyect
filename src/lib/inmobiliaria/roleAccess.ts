@@ -9,7 +9,7 @@ export const USER_ROLE_OPTIONS: { value: UserRole; label: string }[] = [
 ]
 
 /** Vistas del CRM que el admin puede asignar a un perfil. */
-export const CRM_VIEW_OPTIONS: { href: string; label: string; group: 'ventas' | 'contabilidad' | 'admin' }[] = [
+export const CRM_VIEW_OPTIONS: { href: string; label: string; group: 'ventas' | 'contabilidad' | 'admin' | 'marketing' }[] = [
   { href: '/inmobiliaria/inventario', label: 'Inventario', group: 'ventas' },
   { href: '/inmobiliaria/proyectos', label: 'Proyectos', group: 'ventas' },
   { href: '/inmobiliaria/leads', label: 'Leads', group: 'ventas' },
@@ -17,6 +17,7 @@ export const CRM_VIEW_OPTIONS: { href: string; label: string; group: 'ventas' | 
   { href: '/inmobiliaria/recorrido', label: 'Recorrido 360°', group: 'ventas' },
   { href: '/inmobiliaria/agenda', label: 'Agenda', group: 'ventas' },
   { href: '/inmobiliaria/ventas', label: 'Ventas', group: 'ventas' },
+  { href: '/inmobiliaria/marketing/capi', label: 'CAPI', group: 'marketing' },
   { href: '/inmobiliaria/financiamiento', label: 'Financiamiento', group: 'contabilidad' },
   { href: '/inmobiliaria/contratos', label: 'Contratos', group: 'contabilidad' },
   { href: '/inmobiliaria/usuarios', label: 'Usuarios', group: 'admin' },
@@ -58,7 +59,11 @@ export function canManageUsers(role: string | null | undefined): boolean {
 
 const ROLE_PATHS: Record<UserRole, readonly string[]> = {
   visitante: [],
-  marketing: ['/inmobiliaria/inventario', '/inmobiliaria/proyectos'],
+  marketing: [
+    '/inmobiliaria/inventario',
+    '/inmobiliaria/proyectos',
+    '/inmobiliaria/marketing/capi',
+  ],
   asesor: [
     '/inmobiliaria/inventario',
     '/inmobiliaria/proyectos',
@@ -82,6 +87,7 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
     '/inmobiliaria/recorrido',
     '/inmobiliaria/agenda',
     '/inmobiliaria/ventas',
+    '/inmobiliaria/marketing/capi',
     '/inmobiliaria/financiamiento',
     '/inmobiliaria/contratos',
     '/inmobiliaria/usuarios',
@@ -116,7 +122,13 @@ export function roleFromCrmPaths(paths: string[]): UserRole {
   )
   const marketingOnly =
     !contabilidad &&
-    [...set].every((href) => href === '/inmobiliaria/inventario' || href === '/inmobiliaria/proyectos')
+    !ventas &&
+    [...set].every(
+      (href) =>
+        href === '/inmobiliaria/inventario' ||
+        href === '/inmobiliaria/proyectos' ||
+        href === '/inmobiliaria/marketing/capi',
+    )
 
   if (ventas && contabilidad) return 'admin'
   if (contabilidad && !ventas) return 'contable'

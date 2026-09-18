@@ -10,12 +10,13 @@ import {
   BarChart3,
   Compass,
   Activity,
+  Radio,
   type LucideIcon,
 } from 'lucide-react'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
 import type { UserRole } from '@/types/inmobiliaria'
 
-export type CrmModuleId = 'ventas' | 'contabilidad'
+export type CrmModuleId = 'ventas' | 'contabilidad' | 'marketing'
 
 export interface CrmNavItem {
   label: string
@@ -43,6 +44,14 @@ export const crmModules: {
       { label: 'Agenda', href: '/inmobiliaria/agenda', icon: CalendarDays },
       { label: 'Ventas', href: '/inmobiliaria/ventas', icon: BarChart3 },
       { label: 'Usuarios', href: '/inmobiliaria/usuarios', icon: Users },
+    ],
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing',
+    href: '/inmobiliaria/marketing/capi',
+    items: [
+      { label: 'CAPI', href: '/inmobiliaria/marketing/capi', icon: Radio },
     ],
   },
   {
