@@ -36,6 +36,7 @@ export default function InventarioPage() {
     units,
     projects,
     unitTypes,
+    floors,
     isLoading,
     filters,
     tenantId,
@@ -68,6 +69,11 @@ export default function InventarioPage() {
       toast.error('Error al actualizar estado')
     }
   }
+
+  const floorOptions = floors.map((floor) => ({
+    value: String(floor.number),
+    label: floor.label,
+  }))
 
   return (
     <div className="space-y-4">
@@ -115,7 +121,7 @@ export default function InventarioPage() {
           resultsTotal={total}
           hasActiveFilters={Boolean(
             filters.search
-            || filters.projectId
+            || filters.floorNumber
             || filters.status
             || filters.category
             || filters.sortBy !== 'unit_natural',
@@ -129,11 +135,11 @@ export default function InventarioPage() {
             onChange={(e) => updateFilter('sortBy', e.target.value as InventorySortOption)}
           />
           <Select
-            label="Proyecto"
-            options={projects.map((p) => ({ value: p.id, label: p.name }))}
+            label="Piso"
+            options={floorOptions}
             placeholder="Todos"
-            value={filters.projectId}
-            onChange={(e) => updateFilter('projectId', e.target.value)}
+            value={filters.floorNumber}
+            onChange={(e) => updateFilter('floorNumber', e.target.value)}
           />
           <Select
             label="Estado"
@@ -162,7 +168,7 @@ export default function InventarioPage() {
         />
       ) : (
         <>
-          <InventoryUnitsTable units={units} onSelect={handleSelectUnit} />
+          <InventoryUnitsTable units={units} onSelect={handleSelectUnit} groupByFloor />
           <div className="pt-4">
             <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
           </div>
@@ -205,7 +211,7 @@ export default function InventarioPage() {
             projects={projects}
             categoryOptions={categoryOptions}
             tableFilters={{
-              projectId: filters.projectId,
+              projectId: '',
               status: filters.status,
               category: filters.category,
               sortBy: filters.sortBy,

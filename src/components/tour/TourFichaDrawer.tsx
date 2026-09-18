@@ -583,12 +583,6 @@ export function TourFichaDrawer({
                       {statusLabel(unit.status)}
                     </span>
                   </div>
-                  {expanded && typologyCode ? (
-                    <p className="mt-1 text-[11px] tracking-[0.06em] text-[#6b7280] uppercase">
-                      {typologyCode}
-                      {typologyName ? ` · ${typologyName}` : ''}
-                    </p>
-                  ) : null}
                   <p className="mt-1 text-[1.2rem] font-bold tracking-tight text-[#2B1A18] tabular-nums">
                     {formatPrice(unit.published_commercial_price)}
                   </p>

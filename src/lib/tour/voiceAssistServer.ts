@@ -66,7 +66,7 @@ const FILTER_SCHEMA = {
     only_available: { type: 'boolean' },
     area_min_m2: { type: ['number', 'null'] },
     sort_pref: { type: ['string', 'null'], enum: ['barato', 'caro', null] },
-    category: { type: ['string', 'null'], enum: ['departamento', 'suite', 'local', null] },
+    category: { type: ['string', 'null'], enum: ['departamento', 'suite', 'penthouse', 'local', null] },
     or_groups: {
       type: ['array', 'null'],
       items: {
@@ -74,7 +74,7 @@ const FILTER_SCHEMA = {
         additionalProperties: false,
         required: ['category', 'bedrooms', 'bathrooms'],
         properties: {
-          category: { type: ['string', 'null'], enum: ['departamento', 'suite', 'local', null] },
+          category: { type: ['string', 'null'], enum: ['departamento', 'suite', 'penthouse', 'local', null] },
           bedrooms: { type: ['integer', 'null'] },
           bathrooms: { type: ['number', 'null'] },
         },
@@ -120,9 +120,9 @@ async function extractFilters(
 
   const instructions = [
     'Eres el asistente de voz del showroom inmobiliario La Vilet (Ecuador).',
-    'Tu rol es ayudar a buscar departamentos, suites o locales comerciales: dormitorios, baños, piso, presupuesto, tipología, categoría, disponibilidad, código de unidad, o “más barato” / “más caro”.',
-    'Si pide UNA sola categoría: category="local"|"suite"|"departamento" y or_groups=null.',
-    'Si mezcla categorías (ej. “locales y departamentos de 1 habitación”, “suites o locales”): category=null y or_groups=[{category,bedrooms,bathrooms}, ...]. En locales bedrooms/bathrooms van null; en departamentos/suites aplica el número dicho.',
+    'Tu rol es ayudar a buscar departamentos, suites, penthouses o locales comerciales: dormitorios, baños, piso, presupuesto, tipología, categoría, disponibilidad, código de unidad, o “más barato” / “más caro”.',
+    'Si pide UNA sola categoría: category="local"|"suite"|"departamento"|"penthouse" y or_groups=null.',
+    'Si mezcla categorías (ej. “locales y departamentos de 1 habitación”, “suites o locales”): category=null y or_groups=[{category,bedrooms,bathrooms}, ...]. En locales bedrooms/bathrooms van null; en departamentos/suites/penthouses aplica el número dicho.',
     'Extrae filtros del mensaje del visitante. No inventes números que no se dijeron. Si no hay dato, usa null.',
     'Presupuestos en dólares: "200 mil" = 200000, "1.2 millones" = 1200000.',
     'Piso alto ≈ floor_pref alto; bajo ≈ bajo; intermedio ≈ medio.',
@@ -307,7 +307,7 @@ export async function runTourVoiceAssist(params: {
     return {
       transcript,
       speak:
-        'Con gusto le ayudo. Puede pedirme departamentos, suites o locales comerciales; también por dormitorios, baños, piso, presupuesto o lo más económico. ¿Por dónde le gustaría empezar?',
+        'Con gusto le ayudo. Puede pedirme departamentos, suites, penthouses o locales comerciales; también por dormitorios, baños, piso, presupuesto o lo más económico. ¿Por dónde le gustaría empezar?',
       filters,
       matches: [],
       follow_up: 'Por ejemplo: “locales comerciales”, “2 baños” o “el más económico”.',

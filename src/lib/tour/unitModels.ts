@@ -18,7 +18,7 @@ export const UNIT_MODELS = [
 
 export function unitModelUrl(unit: Record<string, unknown>) {
   const model = UNIT_MODELS.find(m => m.id === unit.id && m.number === unit.unit_number)
-  if (!model || !['suite', 'departamento'].includes(String(unit.category))
+  if (!model || !['suite', 'departamento', 'penthouse'].includes(String(unit.category))
     || unit.is_published === false || (unit.status && unit.status !== 'disponible')) return null
   return `${UNIT_MODEL_ORIGIN}${UNIT_MODEL_PATH}?unidad=${model.number}`
 }
@@ -27,7 +27,7 @@ export function unitModelUrl(unit: Record<string, unknown>) {
 export function unitReferenceUrl(unit: Record<string, unknown>) {
   const model = unitModelUrl(unit)
   if (model) return model
-  if (!['suite', 'departamento'].includes(String(unit.category))
+  if (!['suite', 'departamento', 'penthouse'].includes(String(unit.category))
     || unit.is_published === false || (unit.status && unit.status !== 'disponible')
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(unit.id))
     || !/^\d{3,4}$/.test(String(unit.unit_number))) return null

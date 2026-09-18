@@ -21,6 +21,7 @@ interface InventoryToolbarProps {
 
 const categoryOptions = [
   { value: 'Departamento', label: 'Departamento' },
+  { value: 'Penthouse', label: 'Penthouse' },
   { value: 'Local Comercial', label: 'Local Comercial' },
   // { value: 'Suite', label: 'Suite' },
   // { value: 'Oficina', label: 'Oficina' },

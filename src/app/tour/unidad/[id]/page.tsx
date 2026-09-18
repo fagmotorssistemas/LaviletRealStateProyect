@@ -30,8 +30,15 @@ export default async function UnitReferencePage({ params }: { params: Promise<{ 
     </div></main>
   }
   if (!unit) notFound()
-  const title = `${unit.category === 'suite' ? 'Suite' : 'Departamento'} ${unit.unit_number}`
-  const ofUnit = `${unit.category === 'suite' ? 'de la suite' : 'del departamento'} ${unit.unit_number}`
+  const categoryLabel =
+    unit.category === 'suite' ? 'Suite' : unit.category === 'penthouse' ? 'Penthouse' : 'Departamento'
+  const ofUnit =
+    unit.category === 'suite'
+      ? `de la suite ${unit.unit_number}`
+      : unit.category === 'penthouse'
+        ? `del penthouse ${unit.unit_number}`
+        : `del departamento ${unit.unit_number}`
+  const title = `${categoryLabel} ${unit.unit_number}`
   const modelUrl = unitModelUrl(unit)
   const specs = unitReferenceSpecs(unit)
   const spaces = [...new Set((Array.isArray(unit.spaces) ? unit.spaces : []).filter(s => typeof s === 'string' && s.trim()))]

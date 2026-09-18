@@ -35,7 +35,7 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
     const category = /^(?:lc|local)/.test(c[0]) ? 'local' : /^unidad/.test(c[0]) ? null : 'residencial'
     if (/^piso/.test(c[0]) && c[1].length < 3) return false
     return Number(code) === Number(c[1]) && (!category || (category === 'residencial'
-      ? ['suite', 'departamento'].includes(text(u.category)) : u.category === category))
+      ? ['suite', 'departamento', 'penthouse'].includes(text(u.category)) : u.category === category))
   }))
   const numbers = [...readable.matchAll(/\b\d{1,4}[.,]\d{1,2}\b/g)].map(n => Number(n[0].replace(',', '.')))
   if (!codes.length && !matches.length && numbers.length && /cual|el de|que ofrece|area|metros|m2|interior|exterior/.test(m)) {

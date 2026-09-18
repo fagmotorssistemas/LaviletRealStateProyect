@@ -54,7 +54,7 @@ export function splitSpeakChunks(text: string): string[] {
 }
 
 /** Filtros que extrae el modelo a partir de lo que dijo el visitante. */
-export type VoiceUnitCategory = 'departamento' | 'suite' | 'local'
+export type VoiceUnitCategory = 'departamento' | 'suite' | 'penthouse' | 'local'
 
 /** Criterio parcial para búsquedas mixtas (OR entre grupos). */
 export type VoiceAssistOrGroup = {
@@ -151,6 +151,7 @@ export function resolveVoiceCategory(input: {
     .toLowerCase()
   if (raw === 'local' || raw === 'local comercial' || raw === 'comercial') return 'local'
   if (raw === 'suite') return 'suite'
+  if (raw === 'penthouse' || raw === 'penthouses' || raw === 'ático' || raw === 'atico') return 'penthouse'
   if (raw === 'departamento' || raw === 'dept' || raw === 'dpto') return 'departamento'
   if (/^lc[-_]?\d/i.test(String(input.unit_number ?? ''))) return 'local'
   return null
@@ -188,6 +189,7 @@ function unitBlurb(u: VoiceAssistCatalogUnit) {
       bits.push(`${Math.round(u.area_total_m2)} m²`)
     }
   } else {
+    if (cat === 'penthouse') bits.push('Penthouse')
     if (u.bedrooms != null && u.bedrooms > 0) {
       bits.push(u.bedrooms === 1 ? '1 dorm.' : `${u.bedrooms} dorm.`)
     }
@@ -616,6 +618,7 @@ function needPhrase(filters: VoiceAssistFilters) {
       const parts: string[] = []
       if (g.category === 'local') parts.push('locales comerciales')
       else if (g.category === 'suite') parts.push('suites')
+      else if (g.category === 'penthouse') parts.push('penthouses')
       else if (g.category === 'departamento') parts.push('departamentos')
       if (g.bedrooms != null) {
         parts.push(g.bedrooms === 1 ? '1 dormitorio' : `${g.bedrooms} dormitorios`)
@@ -628,6 +631,7 @@ function needPhrase(filters: VoiceAssistFilters) {
   } else {
     if (filters.category === 'local') bits.push('locales comerciales')
     if (filters.category === 'suite') bits.push('suites')
+    if (filters.category === 'penthouse') bits.push('penthouses')
     if (filters.category === 'departamento') bits.push('departamentos')
     if (filters.bathrooms != null) {
       bits.push(filters.bathrooms === 1 ? '1 baño' : `${filters.bathrooms} baños`)
@@ -1274,7 +1278,7 @@ export function normalizeFilters(raw: Partial<VoiceAssistFilters> | null | undef
   const pref = raw?.floor_pref
   const sort = raw?.sort_pref
   const cat = raw?.category
-  const category = cat === 'local' || cat === 'suite' || cat === 'departamento' ? cat : null
+  const category = cat === 'local' || cat === 'suite' || cat === 'departamento' || cat === 'penthouse' ? cat : null
 
   const orRaw = Array.isArray(raw?.or_groups) ? raw!.or_groups! : null
   const or_groups =
@@ -1362,6 +1366,7 @@ export function parseVoiceFiltersLocal(transcript: string): VoiceAssistFilters {
     t,
   )
   const wantsSuite = /\bsuites?\b/.test(t)
+  const wantsPenthouse = /\b(penthouses?|aticos?)\b/.test(t)
   const wantsDepto = /\b(departamentos?|deptos?|dptos?|apartamentos?|aptos?|viviendas?)\b/.test(t)
 
   const bed =
@@ -1382,14 +1387,17 @@ export function parseVoiceFiltersLocal(transcript: string): VoiceAssistFilters {
   const bedAfterDe =
     bedN == null
       ? t.match(
-          /\b(?:departamento|depto|dpto|apartamento|apto|suite|vivienda)s?\s+de\s+(\d+|un|uno|una|dos|tres|cuatro|cinco|seis)\s*(?:dormitorios?|habitacion(?:es)?|cuartos?)?/,
+          /\b(?:departamento|depto|dpto|apartamento|apto|suite|penthouse|atico|vivienda)s?\s+de\s+(\d+|un|uno|una|dos|tres|cuatro|cinco|seis)\s*(?:dormitorios?|habitacion(?:es)?|cuartos?)?/,
         )
       : null
   const bedResolved = bedN ?? (bedAfterDe ? parseNumberToken(bedAfterDe[1]) : null)
 
   // Mixtos: “locales y departamentos de 1 habitación”, “suites o locales”, etc.
-  const categoryHits = [wantsLocal, wantsSuite, wantsDepto].filter(Boolean).length
-  if (categoryHits >= 2 || (wantsLocal && (bedResolved != null || wantsDepto || wantsSuite))) {
+  const categoryHits = [wantsLocal, wantsSuite, wantsPenthouse, wantsDepto].filter(Boolean).length
+  if (
+    categoryHits >= 2 ||
+    (wantsLocal && (bedResolved != null || wantsDepto || wantsSuite || wantsPenthouse))
+  ) {
     const groups: VoiceAssistOrGroup[] = []
     if (wantsLocal) groups.push({ category: 'local', bedrooms: null, bathrooms: null })
     if (wantsSuite) {
@@ -1399,7 +1407,14 @@ export function parseVoiceFiltersLocal(transcript: string): VoiceAssistFilters {
         bathrooms: bathN,
       })
     }
-    if (wantsDepto || (wantsLocal && bedResolved != null && !wantsSuite && !wantsDepto)) {
+    if (wantsPenthouse) {
+      groups.push({
+        category: 'penthouse',
+        bedrooms: bedResolved,
+        bathrooms: bathN,
+      })
+    }
+    if (wantsDepto || (wantsLocal && bedResolved != null && !wantsSuite && !wantsPenthouse && !wantsDepto)) {
       groups.push({
         category: 'departamento',
         bedrooms: bedResolved,
@@ -1417,6 +1432,10 @@ export function parseVoiceFiltersLocal(transcript: string): VoiceAssistFilters {
     filters.category = 'local'
   } else if (wantsSuite) {
     filters.category = 'suite'
+    if (bedResolved != null) filters.bedrooms = bedResolved
+    if (bathN != null) filters.bathrooms = bathN
+  } else if (wantsPenthouse) {
+    filters.category = 'penthouse'
     if (bedResolved != null) filters.bedrooms = bedResolved
     if (bathN != null) filters.bathrooms = bathN
   } else if (wantsDepto) {

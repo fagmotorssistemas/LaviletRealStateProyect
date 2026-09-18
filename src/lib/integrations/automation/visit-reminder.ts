@@ -71,10 +71,12 @@ function cleanUnit(value: unknown) {
 function categoryReason(category: string, unitNumber = '') {
   if (unitNumber) {
     if (category === 'suite') return `para revisar los detalles de la suite ${unitNumber}`
+    if (category === 'penthouse') return `para revisar los detalles del penthouse ${unitNumber}`
     if (category === 'local') return `para revisar los detalles del local ${unitNumber}`
     if (category === 'departamento') return `para revisar los detalles del departamento ${unitNumber}`
   }
   if (category === 'suite') return 'para conocer más sobre nuestras suites'
+  if (category === 'penthouse') return 'para conocer las opciones de penthouses del proyecto'
   if (category === 'departamento') return 'para conocer las opciones de departamentos del proyecto'
   if (category === 'local') return 'para conocer las opciones de locales comerciales del proyecto'
   return 'para conocer el proyecto'
@@ -84,7 +86,7 @@ export function reminderVisitReason(units: Row[], preferredCategory: unknown) {
   const verified = units.map(row => {
     const unit = row.unit && typeof row.unit === 'object' && !Array.isArray(row.unit) ? row.unit as Row : row
     return { category: text(unit.category), number: cleanUnit(unit.unit_number) }
-  }).filter(unit => ['suite', 'departamento', 'local'].includes(unit.category) && unit.number)
+  }).filter(unit => ['suite', 'departamento', 'penthouse', 'local'].includes(unit.category) && unit.number)
   if (verified.length === 1) return categoryReason(verified[0].category, verified[0].number)
   const categories = [...new Set(verified.map(unit => unit.category))]
   if (categories.length === 1) return categoryReason(categories[0])

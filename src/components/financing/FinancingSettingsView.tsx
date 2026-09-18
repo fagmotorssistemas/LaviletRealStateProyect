@@ -9,15 +9,29 @@ import { FINANCING_PROJECT_ID } from '@/types/financingSimulator'
 import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 
-export function FinancingSettingsView({ embedded = false }: { embedded?: boolean }) {
+export function FinancingSettingsView({
+  embedded = false,
+  section,
+}: {
+  embedded?: boolean
+  /** Si viene del panel unificado, no se muestran pestañas internas. */
+  section?: 'partners' | 'config'
+}) {
   const { supabase } = useAuth()
   const { isAdmin, isLoading: roleLoading } = useRoleAccess()
   const router = useRouter()
-  const [tab, setTab] = useState<'partners' | 'config'>('partners')
+  const [tab, setTab] = useState<'partners' | 'config'>(section ?? 'partners')
   const [partners, setPartners] = useState<FinancingPartner[]>([])
   const [config, setConfig] = useState<FinancingConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<string | null>(null)
+
+  const activeTab = section ?? tab
+  const showInternalTabs = !section
+
+  useEffect(() => {
+    if (section) setTab(section)
+  }, [section])
 
   useEffect(() => {
     if (!embedded && !roleLoading && !isAdmin) router.replace('/inmobiliaria/financiamiento')
@@ -109,30 +123,32 @@ export function FinancingSettingsView({ embedded = false }: { embedded?: boolean
       {!embedded ? (
         <PageHeader title="Simulador · Ajustes" description="Tasas de bancos y costos globales del proyecto." />
       ) : null}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => setTab('partners')}
-          className={`rounded-full px-4 py-2 text-[11px] font-semibold tracking-[0.14em] uppercase ${
-            tab === 'partners' ? 'bg-[#1a2744] text-white' : 'bg-white text-[#4a433c] ring-1 ring-[#e4ddd3]'
-          }`}
-        >
-          Bancos
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('config')}
-          className={`rounded-full px-4 py-2 text-[11px] font-semibold tracking-[0.14em] uppercase ${
-            tab === 'config' ? 'bg-[#1a2744] text-white' : 'bg-white text-[#4a433c] ring-1 ring-[#e4ddd3]'
-          }`}
-        >
-          Configuración
-        </button>
-      </div>
+      {showInternalTabs ? (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setTab('partners')}
+            className={`rounded-full px-4 py-2 text-[11px] font-semibold tracking-[0.14em] uppercase ${
+              activeTab === 'partners' ? 'bg-[#1a2744] text-white' : 'bg-white text-[#4a433c] ring-1 ring-[#e4ddd3]'
+            }`}
+          >
+            Bancos
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('config')}
+            className={`rounded-full px-4 py-2 text-[11px] font-semibold tracking-[0.14em] uppercase ${
+              activeTab === 'config' ? 'bg-[#1a2744] text-white' : 'bg-white text-[#4a433c] ring-1 ring-[#e4ddd3]'
+            }`}
+          >
+            Configuración
+          </button>
+        </div>
+      ) : null}
 
       {message ? <p className="text-sm text-[#4a433c]">{message}</p> : null}
 
-      {tab === 'partners' ? (
+      {activeTab === 'partners' ? (
         <div className="overflow-x-auto rounded-2xl border border-[#ece6dc] bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-[#f7f3ee] text-left text-[10px] font-semibold tracking-[0.12em] text-[#6b645c] uppercase">
