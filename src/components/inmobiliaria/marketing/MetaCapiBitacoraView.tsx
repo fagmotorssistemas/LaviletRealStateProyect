@@ -216,21 +216,35 @@ export function MetaCapiBitacoraView() {
           <p className="text-[10px] font-semibold tracking-[0.14em] uppercase">
             Diagnóstico not_configured ({data.notConfigured.length})
           </p>
+          <p className="mt-1 text-[11px] text-amber-900/80">
+            Error histórico de flush sin META_CAPI_* en ese proceso. No implica que Production esté mal
+            configurada. Proceso actual CAPI:{' '}
+            {data.notConfigured[0]?.currentProcessCapiConfigured ? 'configurado' : 'sin config (este runtime)'}.
+          </p>
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-[12px]">
+            <table className="w-full min-w-[720px] text-left text-[12px]">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-amber-800/80">
                   <th className="py-1 pr-2">event_id</th>
+                  <th className="py-1 pr-2">Canal</th>
                   <th className="py-1 pr-2">Lane</th>
+                  <th className="py-1 pr-2">Destino</th>
+                  <th className="py-1 pr-2">Host origen</th>
                   <th className="py-1 pr-2">Registro</th>
-                  <th className="py-1 pr-2">Origen probable</th>
+                  <th className="py-1 pr-2">Origen</th>
                 </tr>
               </thead>
               <tbody>
                 {data.notConfigured.map((row) => (
                   <tr key={row.eventId} className="border-t border-amber-200/60">
                     <td className="py-1.5 pr-2 font-mono text-[11px]">{row.eventId}</td>
+                    <td className="py-1.5 pr-2">{row.channelLabel}</td>
                     <td className="py-1.5 pr-2">{row.deliveryLane}</td>
+                    <td className="py-1.5 pr-2">{row.destinationLabel}</td>
+                    <td className="py-1.5 pr-2 font-mono text-[11px]">
+                      {row.eventSourceHost || '—'}
+                      {row.historicalLocal ? ' · local' : ''}
+                    </td>
                     <td className="py-1.5 pr-2">{formatWhen(row.createdAt, tz)}</td>
                     <td className="py-1.5 pr-2">{row.likelyOrigin}</td>
                   </tr>
@@ -239,9 +253,103 @@ export function MetaCapiBitacoraView() {
             </table>
           </div>
           <p className="mt-2 text-[11px]">
-            No se reenvían ni reclasifican automáticamente. Nest: sin evidencia de recepción en este
-            front.
+            Sin entrega al backend · Nest: sin evidencia de recepción. No se reenvían ni reclasifican.
           </p>
+        </div>
+      ) : null}
+
+      {data?.whatsapp ? (
+        <div className="space-y-3 rounded-2xl border border-[#c5d4e8] bg-[#f4f7fb] px-4 py-3 text-sm text-[#1f2a3d]">
+          <div>
+            <p className="text-[10px] font-semibold tracking-[0.14em] text-[#5a6b82] uppercase">
+              WhatsApp / Kommo (CRM — no conversión Meta)
+            </p>
+            <p className="mt-1 text-[12px] text-[#4a5a70]">{data.whatsapp.disclaimer}</p>
+            <p className="mt-1 text-[11px] tabular-nums text-[#5a6b82]">
+              Contactos {data.whatsapp.totals.contacts} · Mensajes {data.whatsapp.totals.messages} ·
+              CTWA capturas {data.whatsapp.totals.ctwaCaptures} · Outbox CAPI WhatsApp{' '}
+              {data.whatsapp.totals.capiWhatsappOutbox} · Schedule WA bloqueado
+            </p>
+            <p className="mt-1 text-[11px] text-[#5a6b82]">{data.whatsapp.ctwa.note}</p>
+          </div>
+
+          {data.whatsapp.contacts.length === 0 ? (
+            <p className="text-[12px] text-[#5a6b82]">
+              No hay contactos WhatsApp/Kommo en el alcance de tenants de esta sesión.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-[#d5e0ef] bg-white">
+              <table className="w-full min-w-[640px] text-left text-[12px]">
+                <thead>
+                  <tr className="border-b border-[#e4ebf5] text-[10px] uppercase tracking-wide text-[#5a6b82]">
+                    <th className="px-3 py-2">Teléfono (CRM)</th>
+                    <th className="px-3 py-2">Nombre</th>
+                    <th className="px-3 py-2">Origen</th>
+                    <th className="px-3 py-2">Kommo</th>
+                    <th className="px-3 py-2">Msgs</th>
+                    <th className="px-3 py-2">Último msg</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.whatsapp.contacts.map((c) => (
+                    <tr key={c.leadId} className="border-t border-[#f0f4fa]">
+                      <td className="px-3 py-2 font-medium tabular-nums">
+                        {c.phone || '—'}
+                        <span className="mt-0.5 block text-[10px] font-normal text-[#8a8176]">
+                          CRM (lead)
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">{c.name || '—'}</td>
+                      <td className="px-3 py-2">
+                        {c.source || '—'}
+                        {c.channelOrigin ? ` / ${c.channelOrigin}` : ''}
+                      </td>
+                      <td className="px-3 py-2">{c.hasKommo ? 'sí' : 'no'}</td>
+                      <td className="px-3 py-2 tabular-nums">{c.messageCount}</td>
+                      <td className="px-3 py-2 tabular-nums text-[#5a6b82]">
+                        {formatWhen(c.lastMessageAt, tz)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {data.whatsapp.recentMessages.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-[#d5e0ef] bg-white">
+              <p className="border-b border-[#e4ebf5] px-3 py-2 text-[10px] font-semibold tracking-[0.12em] text-[#5a6b82] uppercase">
+                Mensajes recientes (CRM) — no enviados a Meta como conversión
+              </p>
+              <table className="w-full min-w-[640px] text-left text-[12px]">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wide text-[#5a6b82]">
+                    <th className="px-3 py-2">Teléfono</th>
+                    <th className="px-3 py-2">Rol</th>
+                    <th className="px-3 py-2">Enviado</th>
+                    <th className="px-3 py-2">Vista previa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.whatsapp.recentMessages.map((m) => (
+                    <tr key={m.messageId} className="border-t border-[#f0f4fa]">
+                      <td className="px-3 py-2 tabular-nums">
+                        {m.phone || '—'}
+                        <span className="mt-0.5 block text-[10px] text-[#8a8176]">CRM (lead)</span>
+                      </td>
+                      <td className="px-3 py-2">{m.role}</td>
+                      <td className="px-3 py-2 tabular-nums text-[#5a6b82]">
+                        {formatWhen(m.sentAt, tz)}
+                      </td>
+                      <td className="max-w-[280px] truncate px-3 py-2 text-[#4a5a70]" title={m.preview}>
+                        {m.preview || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -404,17 +512,19 @@ export function MetaCapiBitacoraView() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left text-sm">
+              <table className="w-full min-w-[1100px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-[#ece6dc] bg-[#f7f3ee] text-[10px] font-semibold tracking-[0.14em] text-[#8a8176] uppercase">
                     <th className="px-3 py-3">Teléfono</th>
                     <th className="px-3 py-3">Origen tel.</th>
+                    <th className="px-3 py-3">Canal</th>
+                    <th className="px-3 py-3">Lane</th>
+                    <th className="px-3 py-3">Destino</th>
                     <th className="px-3 py-3">Evento (hora)</th>
                     <th className="px-3 py-3">Registro</th>
                     <th className="px-3 py-3">Entrega backend</th>
                     <th className="px-3 py-3">Evento</th>
                     <th className="px-3 py-3">Estado</th>
-                    <th className="px-3 py-3">Lane</th>
                     <th className="px-3 py-3">Recepción Meta</th>
                     <th className="px-3 py-3">Detalle</th>
                   </tr>
@@ -440,6 +550,21 @@ export function MetaCapiBitacoraView() {
                           : row.phoneSource === 'crm_lead'
                             ? 'CRM (lead)'
                             : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] text-[#4a433c]">{row.channelLabel}</td>
+                      <td className="px-3 py-2.5 font-mono text-[11px] text-[#6b645c]">
+                        {row.deliveryLane}
+                      </td>
+                      <td
+                        className="max-w-[160px] px-3 py-2.5 text-[11px] text-[#6b645c]"
+                        title={row.destinationLabel}
+                      >
+                        {row.destinationLabel}
+                        {row.hasCtwaClid ? (
+                          <span className="mt-0.5 block text-[10px] text-amber-800">
+                            ctwa en payload ≠ atribución
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2.5 text-[12px] tabular-nums text-[#6b645c]">
                         {formatWhen(row.eventAt, tz)}
@@ -469,9 +594,6 @@ export function MetaCapiBitacoraView() {
                         >
                           {row.statusLabel}
                         </span>
-                      </td>
-                      <td className="px-3 py-2.5 font-mono text-[11px] text-[#6b645c]">
-                        {row.deliveryLane}
                       </td>
                       <td className="max-w-[140px] px-3 py-2.5 text-[11px] text-[#6b645c]" title={row.receptionLabel}>
                         {row.receptionLabel}

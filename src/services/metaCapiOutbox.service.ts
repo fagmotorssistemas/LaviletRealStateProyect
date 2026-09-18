@@ -3,6 +3,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { isMetaCapiConfigured } from '@/lib/meta/capiServer'
 import {
+  resolveMetaCapiChannel,
+  type MetaCapiChannelKind,
+  type MetaCapiDestinationKind,
+} from '@/lib/meta/metaCapiChannel'
+import {
   isScheduleDeliveryEnabled,
   isScheduleFlushEnabled,
   isScheduleLocalPersistEnabled,
@@ -70,6 +75,13 @@ export type MetaCapiOutboxRow = {
   detail: string
   lastError: string | null
   deliveryLane: string
+  /** Canal de evidencia (web / WhatsApp / no determinado). */
+  channel: MetaCapiChannelKind
+  channelLabel: string
+  destination: MetaCapiDestinationKind
+  destinationLabel: string
+  hasCtwaClid: boolean
+  ctwaNote: string | null
   eventId: string
   origin: string | null
   leadId: string | null
@@ -100,13 +112,67 @@ export type MetaCapiNotConfiguredDiag = {
   eventName: string
   status: string
   deliveryLane: string
+  channel: MetaCapiChannelKind
+  channelLabel: string
+  destinationLabel: string
   createdAt: string
   eventAt: string | null
   lastError: string | null
   hasVisitor: boolean
   hasLead: boolean
+  eventSourceHost: string | null
+  actionSource: string | null
+  /** Error histórico del flush (p. ej. local sin META_CAPI_*). */
+  configGapAtFlush: string
+  /** true si la evidencia apunta a localhost/preview, no a Production. */
+  historicalLocal: boolean
+  /** Config del proceso actual de esta bitácora (no afirma el estado de Production). */
+  currentProcessCapiConfigured: boolean
   likelyOrigin: string
   nestReceivedEvidence: 'none' | 'unverified'
+}
+
+/** Contactos/mensajes Kommo→CRM. No son conversiones CAPI enviadas a Meta. */
+export type MetaWhatsAppCrmContact = {
+  leadId: string
+  phone: string | null
+  phoneSource: 'crm_lead'
+  name: string | null
+  source: string | null
+  channelOrigin: string | null
+  hasKommo: boolean
+  contactId: string | null
+  projectId: string | null
+  createdAt: string
+  messageCount: number
+  lastMessageAt: string | null
+}
+
+export type MetaWhatsAppCrmMessage = {
+  messageId: string
+  leadId: string
+  phone: string | null
+  role: string
+  sentAt: string
+  preview: string
+  externalMessageId: string | null
+}
+
+export type MetaWhatsAppVisibility = {
+  disclaimer: string
+  contacts: MetaWhatsAppCrmContact[]
+  recentMessages: MetaWhatsAppCrmMessage[]
+  totals: {
+    contacts: number
+    messages: number
+    ctwaCaptures: number
+    capiWhatsappOutbox: number
+  }
+  ctwa: {
+    captures: number
+    note: string
+  }
+  scheduleWhatsappBlocked: true
 }
 
 export type MetaCapiOutboxResult = {
@@ -124,6 +190,7 @@ export type MetaCapiOutboxResult = {
   }
   absence: MetaCapiAbsenceReport
   notConfigured: MetaCapiNotConfiguredDiag[]
+  whatsapp: MetaWhatsAppVisibility
   fetchedAt: string
   scope: { tenantIds: string[]; includeOrphanShowroom: boolean }
 }
@@ -247,6 +314,7 @@ function mapRow(
     leadPhone: row.leads?.phone ?? null,
     accessibleTenantIds,
   })
+  const channelView = resolveMetaCapiChannel(payload, row.delivery_lane)
   return {
     id: row.id,
     phone: phone.source === 'none' ? null : phone.display,
@@ -266,6 +334,12 @@ function mapRow(
     detail: detailLine(payload, row.event_id, row.last_error),
     lastError: row.last_error,
     deliveryLane: row.delivery_lane,
+    channel: channelView.channel,
+    channelLabel: channelView.channelLabel,
+    destination: channelView.destination,
+    destinationLabel: channelView.destinationLabel,
+    hasCtwaClid: channelView.hasCtwaClid,
+    ctwaNote: channelView.ctwaNote,
     eventId: row.event_id,
     origin: originFromPayload(payload),
     leadId: row.lead_id,
@@ -359,6 +433,192 @@ async function buildAbsenceReport(admin: SupabaseClient): Promise<MetaCapiAbsenc
       whatsappScheduleBlocked: true,
     },
     notes,
+  }
+}
+
+function isWhatsAppLeadRow(row: {
+  source?: string | null
+  channel_origin?: string | null
+  kommo_id?: number | string | null
+  whatsapp_id?: string | null
+}): boolean {
+  if (row.kommo_id != null && String(row.kommo_id).trim() !== '') return true
+  if (row.whatsapp_id != null && String(row.whatsapp_id).trim() !== '') return true
+  const source = String(row.source || '').toLowerCase()
+  const origin = String(row.channel_origin || '').toLowerCase()
+  return (
+    source === 'waba' ||
+    source === 'whatsapp' ||
+    origin === 'whatsapp' ||
+    origin.includes('whatsapp')
+  )
+}
+
+/**
+ * Visibilidad CRM WhatsApp/Kommo: contactos y mensajes reales con tenant/proyecto.
+ * Nunca se presentan como conversiones CAPI enviadas a Meta.
+ */
+async function buildWhatsAppVisibility(
+  admin: SupabaseClient,
+  tenantIds: string[],
+  scopedOutbox: OutboxDbRow[],
+): Promise<MetaWhatsAppVisibility> {
+  const empty: MetaWhatsAppVisibility = {
+    disclaimer:
+      'Sección CRM Kommo/WhatsApp: contactos y mensajes del tenant. No son conversiones CAPI ni aceptación Meta.',
+    contacts: [],
+    recentMessages: [],
+    totals: { contacts: 0, messages: 0, ctwaCaptures: 0, capiWhatsappOutbox: 0 },
+    ctwa: {
+      captures: 0,
+      note: 'Sin capturas ctwa_clid en lv_whatsapp_ctwa_attribution para el alcance.',
+    },
+    scheduleWhatsappBlocked: true,
+  }
+  if (!tenantIds.length) return empty
+
+  const { data: leadRows, error: leadError } = await admin
+    .from('leads')
+    .select(
+      'id, name, phone, source, channel_origin, kommo_id, whatsapp_id, contact_id, project_id, tenant_id, created_at',
+    )
+    .in('tenant_id', tenantIds)
+    .order('created_at', { ascending: false })
+    .limit(400)
+
+  if (leadError) {
+    return {
+      ...empty,
+      disclaimer: `${empty.disclaimer} (lectura leads: ${leadError.message.slice(0, 80)})`,
+    }
+  }
+
+  const waLeads = (leadRows ?? []).filter((row) =>
+    isWhatsAppLeadRow(row as Parameters<typeof isWhatsAppLeadRow>[0]),
+  )
+  const leadIds = waLeads.map((l) => String(l.id))
+  const phoneByLead = new Map(
+    waLeads.map((l) => [String(l.id), (l.phone as string | null) ?? null]),
+  )
+
+  let messageCountByLead = new Map<string, number>()
+  let lastMessageByLead = new Map<string, string>()
+  const recentMessages: MetaWhatsAppCrmMessage[] = []
+  let messagesTotal = 0
+
+  if (leadIds.length) {
+    const { data: conversations } = await admin
+      .from('conversations')
+      .select('id, lead_id, last_message_at')
+      .in('lead_id', leadIds)
+      .in('tenant_id', tenantIds)
+
+    const convIds = (conversations ?? []).map((c) => String(c.id))
+    const leadByConv = new Map(
+      (conversations ?? []).map((c) => [String(c.id), String(c.lead_id)]),
+    )
+
+    for (const c of conversations ?? []) {
+      const leadId = String(c.lead_id)
+      if (c.last_message_at) {
+        const prev = lastMessageByLead.get(leadId)
+        if (!prev || String(c.last_message_at) > prev) {
+          lastMessageByLead.set(leadId, String(c.last_message_at))
+        }
+      }
+    }
+
+    if (convIds.length) {
+      const { count: msgCount } = await admin
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .in('conversation_id', convIds)
+      messagesTotal = msgCount ?? 0
+
+      const { data: msgs } = await admin
+        .from('messages')
+        .select('id, conversation_id, role, content, sent_at, external_message_id')
+        .in('conversation_id', convIds)
+        .order('sent_at', { ascending: false })
+        .limit(200)
+
+      for (const m of msgs ?? []) {
+        const leadId = leadByConv.get(String(m.conversation_id))
+        if (!leadId) continue
+        messageCountByLead.set(leadId, (messageCountByLead.get(leadId) || 0) + 1)
+      }
+
+      // Si hay más de 200 mensajes globales, los conteos por lead del sample son parciales:
+      // preferimos total exacto y sample reciente para la lista.
+      for (const m of (msgs ?? []).slice(0, 15)) {
+        const leadId = leadByConv.get(String(m.conversation_id))
+        if (!leadId) continue
+        const content = typeof m.content === 'string' ? m.content : ''
+        recentMessages.push({
+          messageId: String(m.id),
+          leadId,
+          phone: phoneByLead.get(leadId) ?? null,
+          role: String(m.role || ''),
+          sentAt: String(m.sent_at || ''),
+          preview: content.slice(0, 100),
+          externalMessageId:
+            m.external_message_id == null ? null : String(m.external_message_id),
+        })
+      }
+
+      if (messagesTotal > 200) {
+        // Conteos por lead del sample son incompletos: marcar con total conocido vía conversación.
+        messageCountByLead = new Map(
+          leadIds.map((id) => [id, messageCountByLead.get(id) || 0]),
+        )
+      }
+    }
+  }
+
+  const { count: ctwaCaptures } = await admin
+    .from('lv_whatsapp_ctwa_attribution')
+    .select('id', { count: 'exact', head: true })
+    .in('tenant_id', tenantIds)
+
+  const capiWhatsappOutbox = scopedOutbox.filter((r) => {
+    const ch = resolveMetaCapiChannel(asRecord(r.payload), r.delivery_lane)
+    return ch.channel === 'whatsapp'
+  }).length
+
+  const contacts: MetaWhatsAppCrmContact[] = waLeads.map((l) => ({
+    leadId: String(l.id),
+    phone: typeof l.phone === 'string' && l.phone.trim() ? l.phone.trim() : null,
+    phoneSource: 'crm_lead' as const,
+    name: typeof l.name === 'string' ? l.name : null,
+    source: typeof l.source === 'string' ? l.source : null,
+    channelOrigin: typeof l.channel_origin === 'string' ? l.channel_origin : null,
+    hasKommo: l.kommo_id != null && String(l.kommo_id).trim() !== '',
+    contactId: l.contact_id == null ? null : String(l.contact_id),
+    projectId: l.project_id == null ? null : String(l.project_id),
+    createdAt: String(l.created_at),
+    messageCount: messageCountByLead.get(String(l.id)) || 0,
+    lastMessageAt: lastMessageByLead.get(String(l.id)) || null,
+  }))
+
+  return {
+    disclaimer:
+      'Sección CRM Kommo/WhatsApp: contactos y mensajes del tenant con relaciones verificadas. No son conversiones CAPI ni aceptación Meta Graph.',
+    contacts,
+    recentMessages,
+    totals: {
+      contacts: contacts.length,
+      messages: messagesTotal,
+      ctwaCaptures: ctwaCaptures ?? 0,
+      capiWhatsappOutbox,
+    },
+    ctwa: {
+      captures: ctwaCaptures ?? 0,
+      note:
+        (ctwaCaptures ?? 0) === 0
+          ? '0 capturas first-touch en lv_whatsapp_ctwa_attribution. ctwa_clid presente ≠ atribución confirmada; hoy no hay captura persistida.'
+          : `${ctwaCaptures} captura(s) first-touch. Presencia de ctwa_clid no implica atribución ads confirmada ni envío CAPI.`,
+    },
+    scheduleWhatsappBlocked: true,
   }
 }
 
@@ -494,25 +754,47 @@ export async function listMetaCapiOutbox(
   const rows = slice.map((r) => mapRow(r, nestMap, tenantIds))
 
   const notConfiguredRows = scoped
-    .filter((r) => r.last_error === 'not_configured' || (r.status === 'pending' && r.last_error === 'not_configured'))
-    .map((r): MetaCapiNotConfiguredDiag => ({
-      eventId: r.event_id,
-      eventName: r.event_name,
-      status: r.status,
-      deliveryLane: r.delivery_lane,
-      createdAt: r.created_at,
-      eventAt: unixToIso(r.event_time),
-      lastError: r.last_error,
-      hasVisitor: Boolean(r.visitor_key),
-      hasLead: Boolean(r.lead_id),
-      likelyOrigin:
-        r.delivery_lane === 'test'
-          ? 'Lane test (local/preview o META_* test). Faltaba META_CAPI_BACKEND_URL / INTERNAL_SECRET al flush.'
-          : 'Lane live; config CAPI ausente en el proceso que hizo flush.',
-      nestReceivedEvidence: 'none',
-    }))
+    .filter(
+      (r) =>
+        r.last_error === 'not_configured' ||
+        (r.status === 'pending' && r.last_error === 'not_configured'),
+    )
+    .map((r): MetaCapiNotConfiguredDiag => {
+      const payload = asRecord(r.payload)
+      const channelView = resolveMetaCapiChannel(payload, r.delivery_lane)
+      const host = channelView.eventSourceHost
+      const historicalLocal =
+        Boolean(host && /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host)) ||
+        (r.delivery_lane === 'test' && Boolean(host?.includes('localhost')))
+      const configGapAtFlush =
+        'Al flush faltaban META_CAPI_BACKEND_URL y/o META_CAPI_INTERNAL_SECRET en ese proceso (error histórico en outbox).'
+      return {
+        eventId: r.event_id,
+        eventName: r.event_name,
+        status: r.status,
+        deliveryLane: r.delivery_lane,
+        channel: channelView.channel,
+        channelLabel: channelView.channelLabel,
+        destinationLabel: channelView.destinationLabel,
+        createdAt: r.created_at,
+        eventAt: unixToIso(r.event_time),
+        lastError: r.last_error,
+        hasVisitor: Boolean(r.visitor_key),
+        hasLead: Boolean(r.lead_id),
+        eventSourceHost: host,
+        actionSource: channelView.actionSource,
+        configGapAtFlush,
+        historicalLocal,
+        currentProcessCapiConfigured: isMetaCapiConfigured(),
+        likelyOrigin: historicalLocal
+          ? `Entorno local (${host || 'host no determinado'}) · lane test · ViewContent web · sin entrega al backend`
+          : `Lane ${r.delivery_lane} · ${channelView.channelLabel} · config CAPI ausente en el proceso que hizo flush (no afirma fallo de Production)`,
+        nestReceivedEvidence: 'none',
+      }
+    })
 
   const absence = await buildAbsenceReport(admin)
+  const whatsapp = await buildWhatsAppVisibility(admin, tenantIds, scoped)
 
   return {
     kpis: {
@@ -541,6 +823,7 @@ export async function listMetaCapiOutbox(
     },
     absence,
     notConfigured: notConfiguredRows,
+    whatsapp,
     fetchedAt: new Date().toISOString(),
     scope: { tenantIds, includeOrphanShowroom },
   }
