@@ -25,6 +25,7 @@ import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { commercialCoverageIssues } from './multi-topic-turn'
 import { houseProductReply, PRODUCT_FIT_RULES } from './product-fit'
 import { unitAlternative } from './unit-alternatives'
+import { readCommercialContext } from './context-read'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -34,20 +35,26 @@ export async function publishedUnitCatalog() {
 }
 
 export async function commercialContext(lead: Row, history: unknown) {
-  const [units, amenities, places, project, config] = await Promise.all([
-    db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces')
-      .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('location_pois').select('poi_name,poi_category').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('projects').select('name,address,description,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
-    db().from('project_automation_config').select('mode,timezone,business_hours,visit_location_url').match(scope).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
-  ])
-  if ([units, amenities, places, project, config].some(r => r.error)) throw new Error('COMMERCIAL_CONTEXT_FAILED')
-  const settings = object(config.data), mode = text(settings.mode) || 'lanzamiento'
-  const projectData = object(project.data)
+  const sources = await readCommercialContext({
+    units: (attempt) => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces')
+      .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
+    amenities: (attempt) => db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100)
+      .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
+    places: (attempt) => db().from('location_pois').select('poi_name,poi_category').eq('project_id', scope.project_id).limit(100)
+      .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
+    project: (attempt) => db().from('projects').select('name,address,description,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id)
+      .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)).maybeSingle(),
+    config: (attempt) => db().from('project_automation_config').select('mode,timezone,business_hours,visit_location_url').match(scope)
+      .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)).maybeSingle(),
+  })
+  const units = (Array.isArray(sources.units.data) ? sources.units.data : []) as Row[]
+  const amenities = (Array.isArray(sources.amenities.data) ? sources.amenities.data : []) as Row[]
+  const places = (Array.isArray(sources.places.data) ? sources.places.data : []) as Row[]
+  const settings = object(sources.config.data), mode = text(settings.mode) || 'lanzamiento'
+  const projectData = object(sources.project.data)
   const pricing = botPricingPolicy(mode, launchPricesVisible(projectData.policies_json))
   const pricesAllowed = pricing.visible
-  const catalog = (units.data || []).map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
+  const catalog = units.map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
   return { lead: { name: conversationalFirstName(text(lead.name)), preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
     preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage }, historial: history,
     conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
@@ -61,7 +68,7 @@ export async function commercialContext(lead: Row, history: unknown) {
     alcance_producto: 'La Vilet ofrece suites, departamentos y locales comerciales en Cuenca; no casas independientes.',
     politica_financiera: { credito_directo: false,
       informacion_bancaria_verificada: 'No hay información verificada sobre aceptación o rechazo de arriendos futuros como respaldo. Esto NO es una prohibición del proyecto. Mencione esa incertidumbre solo si el cliente pregunta específicamente por ese respaldo.' },
-    catalogo: catalog, instalaciones: amenities.data, lugares_cercanos: places.data,
+    catalogo: catalog, instalaciones: amenities, lugares_cercanos: places,
     condiciones_instalaciones: 'El catálogo describe instalaciones, pero no contiene condiciones verificadas sobre cuotas de condominio, membresías o pagos por usarlas. No deducir gratuidad ni pagos adicionales de su existencia. Si preguntan esos costos o condiciones, debe verificarlos el equipo.',
     horario_atencion: settings.business_hours,
     ubicacion: settings.visit_location_url,
