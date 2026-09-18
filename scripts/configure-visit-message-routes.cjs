@@ -33,6 +33,6 @@ async function main() {
   if (check.error || check.data.some(r => r.kind === 'visit_2h'
     ? r.bot_id !== 22246 || r.detail_field_id !== 531120 || r.body_template !== reminderBody || r.approved !== true
     : r.bot_id !== 15578 || r.detail_field_id !== 457014 || r.body_template !== '{{detalle}}')) throw Error('Route verification failed')
-  console.log('Verified three conversation routes and the dedicated reminder route; enabled/approved flags preserved. No messages sent.')
+  console.log('Verified three conversation routes and the approved dedicated reminder route; enabled flags preserved. No messages sent.')
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1 })
