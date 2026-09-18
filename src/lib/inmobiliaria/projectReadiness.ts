@@ -29,6 +29,28 @@ export function projectReadiness(policies: unknown, mode: string): { configured:
 export function readinessRules(v: ProjectReadiness): string {
   return `ESTADO FÍSICO VERIFICADO: ${BUILD_STAGES[v.stage]}. Actualizado: ${v.verifiedOn}. ${v.progress}\nLa etapa comercial no determina el avance físico. No deduzca avances por el tiempo transcurrido. Lugares autorizados: ${v.enabledPlaces.map(p=>VISIT_PLACES[p]).join(', ')||'ninguno'}. Lugar principal: ${v.primaryPlace==='none'?'ninguno':VISIT_PLACES[v.primaryPlace]}. Condiciones: ${v.conditions||'coordinar disponibilidad antes de confirmar'}. No prometa acceso a otros lugares ni unidades. Departamento modelo no equivale a todas las unidades terminadas. Comparta únicamente materiales autorizados; identifique fotos de avance con su fecha, y renders como representaciones. Una oferta de visita debe terminar con UNA pregunta clara de aceptación, sin ofrecer simultáneamente otra acción. No afirme haber enviado material sin incluir el enlace correspondiente.`
 }
+const PLACE_PHRASES: Record<VisitPlace,string> = {
+  office:'nuestra oficina para revisar el proyecto',
+  site:'el terreno del proyecto',
+  work_area:'el área autorizada de obra',
+  model:'el departamento modelo',
+  completed_unit:'las unidades terminadas habilitadas',
+}
+const PLACE_DESTINATIONS: Record<VisitPlace,string> = {
+  office:'en nuestra oficina para revisar el proyecto',
+  site:'en el terreno del proyecto',
+  work_area:'en el área autorizada de obra',
+  model:'en el departamento modelo',
+  completed_unit:'en las unidades terminadas habilitadas',
+}
+function orderedVisitPlaces(v: ProjectReadiness) {
+  return v.primaryPlace === 'none' ? [...v.enabledPlaces]
+    : [v.primaryPlace,...v.enabledPlaces.filter(place=>place!==v.primaryPlace)]
+}
+function joinedPlaces(places: VisitPlace[]) {
+  const labels=places.map(place=>PLACE_PHRASES[place])
+  return labels.length<2 ? labels[0]||'' : labels.length===2 ? `${labels[0]} o ${labels[1]}` : `${labels.slice(0,-1).join(', ')} o ${labels.at(-1)}`
+}
 export function botReadiness(v: ProjectReadiness): ProjectReadiness {return {...v,materials:v.materials.filter(m=>m.approved)}}
 export function readinessMaterialReply(v:ProjectReadiness,current:string):string {
   const text=current.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
@@ -40,6 +62,18 @@ export function readinessMaterialReply(v:ProjectReadiness,current:string):string
 }
 export function readinessInvitation(v: ProjectReadiness): string {
   if(v.primaryPlace==='none')return ''
-  const place={office:'a nuestra oficina para revisar el proyecto',site:'al terreno del proyecto',work_area:'al área de obra autorizada',model:'al departamento modelo',completed_unit:'a las unidades terminadas habilitadas'}[v.primaryPlace]
-  return `¿Le gustaría coordinar una visita ${place}?`
+  const places=orderedVisitPlaces(v)
+  const destinations=places.map(place=>PLACE_DESTINATIONS[place])
+  const choices=destinations.length===2?`${destinations[0]} o ${destinations[1]}`:destinations.length>2?`${destinations.slice(0,-1).join(', ')} o ${destinations.at(-1)}`:destinations[0]
+  return `¿Le gustaría coordinar una visita ${choices}?`
+}
+export function readinessPlaceClarification(v: ProjectReadiness,current:string): string {
+  const message=current.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+  if(!/\b(?:solo|solamente|unicamente|tambien|otra opcion|otro lugar)\b/.test(message)
+    || !/\b(?:terreno|oficina|obra|departamento modelo|unidad(?:es)? terminada)\b/.test(message))return ''
+  const places=orderedVisitPlaces(v)
+  if(!places.length)return 'Por el momento no hay visitas presenciales habilitadas.'
+  if(places.length===1)return `Por ahora, la visita presencial habilitada es a ${joinedPlaces(places)}. ¿Desea coordinarla?`
+  const unavailable=v.enabledPlaces.includes('completed_unit')?'':' Las unidades terminadas todavía no están habilitadas para recorridos.'
+  return `Puede elegir entre visitar ${joinedPlaces(places)}.${unavailable} ¿Cuál opción prefiere?`
 }

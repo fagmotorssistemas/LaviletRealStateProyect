@@ -1,6 +1,7 @@
 'use server'
 import { assertAdmin, getSessionUser } from '@/lib/auth/session'
 import { db, scope, object } from '@/lib/integrations/automation/data'
+import { setKommoField } from '@/lib/integrations/automation/kommo'
 import { TEST_RESPONSE_SETTING, isTestPhone, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
 
 async function access() {
@@ -12,20 +13,29 @@ async function access() {
   return user
 }
 async function read() {
-  const {data:leads,error}=await db().from('leads').select('id,phone,kommo_id,bot_enabled').match(scope).in('phone',['0987110032','+593987110032','593987110032'])
+  const {data:leads,error}=await db().from('leads').select('id,phone,kommo_id,bot_enabled,handoff_status,tracking_opt_out_at').match(scope).in('phone',['0987110032','+593987110032','593987110032'])
   if(error||leads?.length!==1||!isTestPhone(leads[0].phone)||!leads[0].kommo_id)throw Error('No se pudo identificar un único lead para pruebas')
   const {data:row,error:rowError}=await db().from('agent_prompts').select('id,content,version').match(scope).eq('name',TEST_RESPONSE_SETTING).maybeSingle()
   if(rowError)throw Error('No se pudo leer el modo de pruebas')
   const lead=leads[0]
   const state:TestResponseState={enabled:object(row?.content).enabled===true,version:row?.version||0,leadId:lead.id,kommoId:Number(lead.kommo_id),botEnabled:lead.bot_enabled===true}
-  return {row,state}
+  return {row,state,lead}
 }
 export async function loadTestResponseAction() { await access(); return (await read()).state }
 export async function saveTestResponseAction(enabled:boolean,expectedVersion:number) {
   const user=await access()
   if(typeof enabled!=='boolean'||!Number.isSafeInteger(expectedVersion))throw Error('Configuración inválida')
-  const {row,state}=await read()
+  const {row,state,lead}=await read()
   if(state.version!==expectedVersion)throw Error('La configuración cambió. Recargue la página.')
+  if(enabled) {
+    if(lead.tracking_opt_out_at)throw Error('El contacto solicitó no recibir mensajes; no se puede reactivar desde el modo de pruebas.')
+    if(lead.handoff_status && lead.handoff_status!=='none')throw Error('El contacto tiene una derivación activa. Resuélvala antes de reactivar el bot.')
+    // Test mode must be usable before the first message. Keep both independent
+    // pause switches aligned for this one verified test lead.
+    await setKommoField(state.kommoId,451530,'false')
+    const resumed=await db().from('leads').update({bot_enabled:true}).match(scope).eq('id',state.leadId).select('id')
+    if(resumed.error||resumed.data?.length!==1)throw Error('No se pudo reactivar el bot del contacto de pruebas.')
+  }
   const payload={content:JSON.stringify({enabled,leadId:state.leadId}),version:expectedVersion+1,updated_at:new Date().toISOString(),updated_by:user.id}
   const result=row?await db().from('agent_prompts').update(payload).match(scope).eq('id',row.id).eq('version',expectedVersion).select('id')
     :await db().from('agent_prompts').insert({...scope,...payload,name:TEST_RESPONSE_SETTING,is_active:false,channel:[],mode:'lanzamiento',priority:0,load_when:'Modo de pruebas de tiempos de respuesta'}).select('id')
@@ -40,5 +50,5 @@ export async function saveTestResponseAction(enabled:boolean,expectedVersion:num
       if(restoreError)throw Error('Modo desactivado; no se pudo restaurar una espera pendiente')
     }
   }
-  return {...state,enabled,version:expectedVersion+1}
+  return {...state,enabled,botEnabled:enabled?true:state.botEnabled,version:expectedVersion+1}
 }

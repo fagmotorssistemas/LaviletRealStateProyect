@@ -351,6 +351,7 @@ export interface AppointmentRescheduleRequest {
   proposed_end_time: string | null
   proposed_options?: VisitTimeSlot[]
   preferred_time_text: string | null
+  preferred_location_type?: 'office' | 'site' | 'work_area' | 'model' | 'completed_unit' | null
   source_message_text: string | null
   source_channel: string | null
   source_message_id: string | null

@@ -54,10 +54,10 @@ test('a changed mode version cancels a previously scheduled acceleration',async(
 
 test('admin control saves independently of normal timings and restores pending original deadlines',async()=>{
   let row=null,deny=false
-  const calls=[]
+  const calls=[],kommo=[]
   const client={from(table){let mutation=null;const q={then(resolve){calls.push({table,mutation});let data
     if(table==='projects')data={id:'project'}
-    if(table==='leads')data=[{id:'carlos',phone:'+593987110032',kommo_id:2710090,bot_enabled:true}]
+    if(table==='leads')data=mutation?[{id:'carlos'}]:[{id:'carlos',phone:'+593987110032',kommo_id:2710090,bot_enabled:true,handoff_status:'none',tracking_opt_out_at:null}]
     if(table==='agent_prompts'){if(mutation){row={...row,...mutation,id:'setting'};data=[{id:'setting'}]}else data=row}
     if(table==='lv_integration_events')data=mutation?[]:[{id:'pending',available_at:'2026-01-01',result:{test_original_available_at:'2026-01-02'}}]
     return Promise.resolve({data,error:null}).then(resolve)}}
@@ -66,10 +66,13 @@ test('admin control saves independently of normal timings and restores pending o
   const mod=load('src/app/inmobiliaria/automatizacion/pruebas/actions.ts',{
     '@/lib/auth/session':{assertAdmin:async()=>{if(deny)throw Error('forbidden')},getSessionUser:async()=>({supabase:client,user:{id:'admin'}})},
     '@/lib/integrations/automation/data':{db:()=>client,scope:{tenant_id:'tenant',project_id:'project'},object:v=>typeof v==='string'?JSON.parse(v):v||{}},
+    '@/lib/integrations/automation/kommo':{setKommoField:async(...args)=>kommo.push(args)},
     '@/lib/inmobiliaria/testResponseMode':settings,
   })
   assert.equal((await mod.loadTestResponseAction()).enabled,false)
   assert.equal((await mod.saveTestResponseAction(true,0)).enabled,true)
+  assert.deepEqual(kommo,[[2710090,451530,'false']])
+  assert.ok(calls.some(c=>c.table==='leads'&&c.mutation?.bot_enabled===true))
   assert.equal(row.is_active,false)
   await assert.rejects(()=>mod.saveTestResponseAction(false,0),/configuración cambió/)
   assert.equal((await mod.saveTestResponseAction(false,1)).enabled,false)
