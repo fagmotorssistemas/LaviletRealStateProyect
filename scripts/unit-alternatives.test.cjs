@@ -5,23 +5,32 @@ Module._load=function(id,parent,main){if(id==='server-only')return {};if(id.star
 require('./test-typescript.cjs')
 const {unitAlternative,UNIT_ALTERNATIVE_RULES}=require('../src/lib/integrations/automation/unit-alternatives.ts')
 const {DIRECT_CONVERSATION_RULE}=require('../src/lib/integrations/automation/direct-conversation-rule.ts')
-const unit=(id,rooms,area,price=300000)=>({id,unit_number:id,category:'departamento',bedrooms:rooms,area_internal_m2:area,published_commercial_price:price,floor_number:6,spaces:['Balcones'],status:'disponible',is_published:true})
-const info={catalogo:[unit('202',3,120.83),unit('602',3,142.09,550000),unit('605',3,140.53,500000),unit('201',2,100)]}
+const unit=(id,rooms,area,price=300000,category='departamento')=>({id,unit_number:id,category,bedrooms:rooms,area_internal_m2:area,published_commercial_price:price,floor_number:Number(id[0]),spaces:['Balcones'],status:'disponible',is_published:true})
+const info={catalogo:[unit('202',3,120.83,250000),unit('602',3,142.09,550000,'penthouse'),unit('605',3,140.53,550000,'penthouse'),unit('201',2,100)]}
 test('unavailable bedrooms recommend from live facts without changing declared preference',()=>{
   const original=JSON.stringify(info)
   for(const word of ['5 cuartos','cinco dormitorios','5 habitaciones']){
     const value=unitAlternative(info,`Quiero un departamento de ${word}`)
-    assert.equal(value.unit.id,'602');assert.match(value.reply,/142[.,]09/)
+    assert.equal(value.unit.id,'602');assert.match(value.reply,/penthouse 602/);assert.match(value.reply,/142[.,]09/)
     assert.doesNotMatch(value.reply,/igual de comodo|convertir|oficina|sala de TV|https:/)
   }
   assert.equal(JSON.stringify(info),original)
   assert.equal(unitAlternative(info,'Quiero un departamento de 3 dormitorios'),null)
   assert.equal(unitAlternative({...info,catalogo:info.catalogo.filter(u=>u.id!=='602')},'Quiero 5 dormitorios').unit.id,'605')
 })
+test('a confirmed unavailable bedroom requirement continues the conversation without repeating the unit card',()=>{
+  const first=unitAlternative(info,'Quiero un departamento de 5 cuartos para mi familia')
+  const threaded={...info,historial:[{role:'cliente',content:'Quiero un departamento de 5 cuartos para mi familia'},{role:'bot',content:first.reply}]}
+  const followUp=unitAlternative(threaded,'A ver revisemos, si necesitas los 5 cuartos')
+  assert.equal(followUp.unit,null)
+  assert.match(followUp.reply,/necesita 5 dormitorios/)
+  assert.match(followUp.reply,/llegan hasta 3 dormitorios/)
+  assert.doesNotMatch(followUp.reply,/penthouse 602|142[.,]09|Le recomendaría revisar/)
+})
 test('budget, availability, unknown facts and firm requirements restrict alternatives',()=>{
   assert.equal(unitAlternative(info,'Quiero 5 dormitorios',310000).unit.id,'202')
   assert.equal(unitAlternative(info,'Quiero 5 dormitorios',200000),null)
-  assert.equal(unitAlternative({...info,catalogo:[{...unit('602',3,142),status:'vendido'},unit('202',3,120)]},'Quiero 5 dormitorios').unit.id,'202')
+  assert.equal(unitAlternative({...info,catalogo:[{...unit('602',3,142,550000,'penthouse'),status:'vendido'},unit('202',3,120)]},'Quiero 5 dormitorios').unit.id,'202')
   assert.equal(unitAlternative(info,'Necesito exactamente 5 dormitorios').unit,null)
   assert.equal(unitAlternative({...info,catalogo:[{...unit('202',3,120),bedrooms:null}]},'Quiero 5 dormitorios'),null)
 })
@@ -42,9 +51,9 @@ test('commercial and price paths use the same alternative without requiring a fi
   const context={...info,alcance_negocio:'property',historial:[],politica_comercial:{precios_autorizados:true}}
   const commercial=await commercialReply(context,'Quiero un departamento de 5 dormitorios',{},async()=>{})
   assert.equal(commercial.audit.source,'unit_alternative')
-  assert.match(commercial.reply,/departamento 602/)
+  assert.match(commercial.reply,/penthouse 602/)
   const price=unitPriceQuote(context,'Cuánto cuesta un departamento de 5 dormitorios?',{})
-  assert.match(price.reply,/departamento 602/)
+  assert.match(price.reply,/penthouse 602/)
   assert.equal(price.quoted,false)
   assert.doesNotMatch(price.reply,/\$/)
 })

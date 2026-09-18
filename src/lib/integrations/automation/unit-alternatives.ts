@@ -11,7 +11,8 @@ Ofrezca revisar la distribución solo cuando sea pertinente; no envíe automáti
 /** Verified starting point for numerical residential requirements; no lead mutations. */
 export function unitAlternative(info: Row, current: string, budget: number|null = null) {
   const m=normalized(current.replace(/m²/g,'m2'))
-  const earlier=(Array.isArray(info.historial)?info.historial:[]).map(object).filter(r=>r.role==='cliente').map(r=>normalized(text(r.content))).join(' ')
+  const history=(Array.isArray(info.historial)?info.historial:[]).map(object)
+  const earlier=history.filter(r=>r.role==='cliente').map(r=>normalized(text(r.content))).join(' ')
   // Let the contextual writer reconcile earlier constraints or rejected options;
   // a new sentence must not erase an already stated budget or a firm requirement.
   if(/no me sirve|no me interesa|no quiero|indispensable|presupuesto|cuento con|dispongo de|\d+ (?:mil|dolares|usd)|terraza|patio|jardin|estudio|oficina/.test(earlier))return null
@@ -29,13 +30,20 @@ export function unitAlternative(info: Row, current: string, budget: number|null 
   const bedrooms=rooms?Number(words[rooms[1]]||rooms[1]):null
   const level=floor?Number(floor[1]):null
   const size=area?Number(area[1].replace(',','.')):null
-  const catalog=(Array.isArray(info.catalogo)?info.catalogo:[]).map(object).filter(u=>u.category==='departamento'&&u.is_published!==false&&(!u.status||u.status==='disponible'))
+  const catalog=(Array.isArray(info.catalogo)?info.catalogo:[]).map(object).filter(u=>['departamento','penthouse'].includes(text(u.category))&&u.is_published!==false&&(!u.status||u.status==='disponible'))
   if(!catalog.length)return null
   const matches=(u:Row)=>(bedrooms===null||Number(u.bedrooms)===bedrooms)&&(level===null||Number(u.floor_number)===level)&&(size===null||Number(u.area_internal_m2)>=size)
   if(catalog.some(matches))return null
   if(catalog.some(u=>(bedrooms!==null&&u.bedrooms==null)||(level!==null&&u.floor_number==null)||(size!==null&&u.area_internal_m2==null)))return null
   const requirement=[bedrooms!==null?`${bedrooms} dormitorios`:'',level!==null?`piso ${level}`:'',size!==null?`al menos ${size.toLocaleString('es-EC')} m² interiores`:''].filter(Boolean).join(', ')
   const intro=bedrooms!==null&&level===null&&size===null?`Actualmente no contamos con departamentos disponibles de ${bedrooms} dormitorios.`:`Actualmente no contamos con un departamento disponible que reúna estas características: ${requirement}.`
+  const previousBot=[...history].reverse().find(row=>row.role==='bot')
+  const previousReply=normalized(text(previousBot?.content))
+  const sameUnavailableBedrooms=bedrooms!==null&&new RegExp(`no (?:contamos|tenemos|hay|ofrecemos)[\\s\\S]{0,100}(?:de |con )?${bedrooms} dormitorios`).test(previousReply)
+  if(sameUnavailableBedrooms&&!/[¿?]|\bpor que\b/.test(m)) {
+    const independent=/\bindependientes?\b/.test(m)?' independientes':''
+    return {reply:`Entiendo: necesita ${bedrooms} dormitorios${independent}. En este momento ninguna unidad residencial disponible en La Vilet cumple ese requisito; nuestras opciones llegan hasta ${Math.max(...catalog.map(unit=>Number(unit.bedrooms)).filter(value=>value>0))} dormitorios. Si desea, podemos revisar la distribución de la alternativa más amplia que le mencioné, teniendo presente esa diferencia.`,unit:null}
+  }
   if(/indispensable|obligatorio|exactamente|\bsolo\b|no (?:acepto|quiero).*alternativ/.test(m))return {reply:intro,unit:null}
   let candidates=catalog
   if(budget!==null) {
@@ -47,6 +55,8 @@ export function unitAlternative(info: Row, current: string, budget: number|null 
   const details=[Number(unit.bedrooms)>0?`${unit.bedrooms} dormitorios`:'',Number(unit.area_internal_m2)>0?`${Number(unit.area_internal_m2).toLocaleString('es-EC')} m² interiores`:'',text(unit.floor),Array.isArray(unit.spaces)&&unit.spaces.includes('Balcones')?'balcones':''].filter(Boolean)
   if(!details.length)return null
   const largest=Number(unit.area_internal_m2)>0&&catalog.filter(u=>u.bedrooms===unit.bedrooms).every(u=>Number(u.area_internal_m2)>0&&Number(u.area_internal_m2)<=Number(unit.area_internal_m2))
-  const reason=largest?` Es una de las opciones de mayor superficie interior entre nuestros departamentos de ${unit.bedrooms} dormitorios.`:''
-  return {reply:`${intro} Le recomendaría revisar el departamento ${text(unit.unit_number)}: tiene ${details.join(', ')}.${reason} Podemos mostrarle su distribución para que valore si se adapta a lo que busca.`,unit}
+  const label=text(unit.category)==='penthouse'?'el penthouse':'el departamento'
+  const reason=largest?` Es la opción de mayor superficie interior entre nuestras unidades residenciales de ${unit.bedrooms} dormitorios.`:''
+  const closing=bedrooms!==null&&level===null&&size===null?` ¿Necesita que los ${bedrooms} sean dormitorios independientes o desea revisar la distribución de esta opción como alternativa?`:` Podemos mostrarle su distribución para que valore si se adapta a lo que busca.`
+  return {reply:`${intro} Le recomendaría revisar ${label} ${text(unit.unit_number)}: tiene ${details.join(', ')}.${reason}${closing}`,unit}
 }
