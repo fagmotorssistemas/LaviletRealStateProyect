@@ -269,3 +269,50 @@ test('current enabled places are preserved, office can be selected, and closed d
     assert.deepEqual(saved,{preferred_location_type:'office',location_type:'oficina'})
   } finally { await db.close() }
 })
+
+test('semantic extraction survives spelling errors without changing the raw visit message', async () => {
+  const db = await database()
+  try {
+    await db.exec(read('20260914193000_visit_date_context_repair.sql'))
+    await db.exec(read('20260914233000_visit_next_week_context.sql'))
+    await db.exec(read('20260915101000_visit_hours_before_assignment.sql'))
+    await db.exec(read('20260918113000_visit_places_closed_days.sql'))
+    await db.exec(read('20260918190000_semantic_visit_interpretation.sql'))
+    await db.query('UPDATE projects SET policies_json=$1 WHERE id=$2', [{
+      project_readiness: { current: { stage: 'building', progress: 'Obra en construcción', verifiedOn: '2026-09-18', enabledPlaces: ['site','office'], primaryPlace: 'site', conditions: '', materials: [] } },
+    }, project])
+    const lead = (await db.query('INSERT INTO leads(tenant_id,project_id) VALUES($1,$2) RETURNING id', [tenant, project])).rows[0].id
+    const conversation = (await db.query("INSERT INTO conversations(tenant_id,project_id,lead_id,channel) VALUES($1,$2,$3,'whatsapp') RETURNING id", [tenant, project, lead])).rows[0].id
+    const rawDate = 'Quiero ir el luness a la ofisina'
+    const dateId = (await db.query("INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,'cliente',$2,clock_timestamp()) RETURNING id", [conversation, rawDate])).rows[0].id
+    const dateInterpretation = { _interpreted_visit: { evidence: 'luness a la ofisina', date_text: 'lunes', time_text: null,
+      location_type: 'office', canonical_text: 'lunes', confidence: 'high' } }
+    const partial = (await db.query('SELECT lv_collect_visit_intake($1,$2,false,NULL,$3) r', [lead, dateId, dateInterpretation])).rows[0].r
+    assert.equal(partial.action, 'collecting')
+    assert.ok(partial.slot.requested_date)
+    await db.query("INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,'bot','¿A qué hora le gustaría visitarnos?',clock_timestamp())", [conversation])
+    const rawTime = 'A las dies am'
+    const timeId = (await db.query("INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,'cliente',$2,clock_timestamp()) RETURNING id", [conversation, rawTime])).rows[0].id
+    const timeInterpretation = { _interpreted_visit: { evidence: 'dies am', date_text: null, time_text: 'a las 10 am',
+      location_type: null, canonical_text: 'a las 10 am', confidence: 'high' } }
+    const result = (await db.query('SELECT lv_collect_visit_intake($1,$2,false,NULL,$3) r', [lead, timeId, timeInterpretation])).rows[0].r
+    assert.equal(result.action, 'submitted')
+    assert.equal(result.slot.confidence, 'exact')
+    assert.equal(new Date(result.slot.start_time).getUTCHours(), 15)
+    assert.equal(result.preferred_location_type, 'office')
+    const saved = (await db.query('SELECT source_message_text,preferred_time_text,interpreted_source_texts FROM appointment_reschedule_requests WHERE id=$1', [result.request_id])).rows[0]
+    assert.equal(saved.source_message_text, rawTime)
+    assert.equal(saved.preferred_time_text, 'a las 10 am')
+    assert.equal(saved.interpreted_source_texts[dateId].evidence, 'luness a la ofisina')
+    assert.equal(saved.interpreted_source_texts[timeId].evidence, 'dies am')
+    assert.equal((await db.query('SELECT content FROM messages WHERE id=$1', [dateId])).rows[0].content, rawDate)
+    assert.equal((await db.query('SELECT content FROM messages WHERE id=$1', [timeId])).rows[0].content, rawTime)
+
+    const otherLead = (await db.query('INSERT INTO leads(tenant_id,project_id) VALUES($1,$2) RETURNING id', [tenant, project])).rows[0].id
+    const otherConversation = (await db.query("INSERT INTO conversations(tenant_id,project_id,lead_id,channel) VALUES($1,$2,$3,'whatsapp') RETURNING id", [tenant, project, otherLead])).rows[0].id
+    const otherId = (await db.query("INSERT INTO messages(conversation_id,role,content,sent_at) VALUES($1,'cliente','Quiero una visita',clock_timestamp()) RETURNING id", [otherConversation])).rows[0].id
+    const unsupported = { _interpreted_visit: { evidence: 'el domingo a las 10', date_text: 'domingo', time_text: 'a las 10 am', canonical_text: 'domingo a las 10 am', confidence: 'high' } }
+    const ignored = (await db.query('SELECT lv_collect_visit_intake($1,$2,false,NULL,$3) r', [otherLead, otherId, unsupported])).rows[0].r
+    assert.equal(ignored.action, 'collecting', 'interpretation without literal evidence is ignored')
+  } finally { await db.close() }
+})

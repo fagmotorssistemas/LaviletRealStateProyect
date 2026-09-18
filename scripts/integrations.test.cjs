@@ -26,7 +26,7 @@ function load(relative, mocks) {
 const { automationSettings, secretMatches } = require('../src/lib/integrations/automation/config.ts')
 const { normalizeWebhook } = require('../src/lib/integrations/automation/webhook.ts')
 const { validateVisit, routeSignature } = require('../src/lib/integrations/automation/visit-rules.ts')
-const { normalizeEvents, validateIntent } = require('../src/lib/integrations/automation/conversation-rules.ts')
+const { normalizeEvents, normalizedVisitPreference, validateIntent } = require('../src/lib/integrations/automation/conversation-rules.ts')
 const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
@@ -1324,6 +1324,29 @@ test('room synonyms and common apartment spelling select the requested catalogue
   assert.equal(absent.quoted, false)
   assert.notEqual(absent.needsAdvisor, true)
   assert.match(absent.reply, /(?:No encuentro opciones de 5 dormitorios|no contamos con departamentos disponibles de 5 dormitorios)/)
+})
+test('visit extraction preserves a high-confidence spelling interpretation with literal evidence', () => {
+  const message = 'Me gustaría ir el domimngo a las dies am'
+  const preference = normalizedVisitPreference({
+    evidence: 'domimngo a las dies am', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high',
+  }, message)
+  assert.deepEqual(preference, { evidence: 'domimngo a las dies am', date_text: 'domingo', time_text: 'a las 10 am', location_type: null, canonical_text: 'domingo a las 10 am', confidence: 'high' })
+  assert.equal(normalizedVisitPreference({ evidence: 'domingo', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high' }, message), null)
+  assert.equal(normalizedVisitPreference({ evidence: 'domingo o lunes', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high' }, 'domingo o lunes'), null)
+  assert.equal(normalizedVisitPreference({ evidence: 'no puedo el domingo', date_text: 'domingo', time_text: null, confidence: 'high' }, 'no puedo el domingo'), null)
+})
+
+test('a semantic visit interpretation is passed durably to intake instead of being discarded', async t => {
+  live(t)
+  const h = conversationHarness({ extracted: { events: ['requested_visit'], visit_preference: {
+    evidence: 'domimngo a las dies am', date_text: 'domingo', time_text: 'a las 10 am', confidence: 'high',
+  } } })
+  h.rows[0].payload.text = 'Quiero una visita el domimngo a las dies am'
+  await h.process([h.rows[0]], async () => {})
+  const call = h.calls.find(c => c.name === 'lv_collect_visit_intake')
+  assert.deepEqual(call.args.p_snapshot._interpreted_visit, {
+    evidence: 'domimngo a las dies am', date_text: 'domingo', time_text: 'a las 10 am', location_type: null, canonical_text: 'domingo a las 10 am', confidence: 'high',
+  })
 })
 
 test('rejected price rewrites retain the verified answer without pausing; real missing facts still hand off', async t => {
