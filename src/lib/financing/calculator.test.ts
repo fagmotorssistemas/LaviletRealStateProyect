@@ -5,6 +5,7 @@ import {
   DOWN_PAYMENT_MIN_PCT,
   buildInvestmentPreview,
   buildMonthlyCoverage,
+  buildRentCoverageAnalysis,
   calculateMonthlyPayment,
   clampDownPaymentPercent,
   expenseBreakdownFromConfig,
@@ -200,5 +201,43 @@ describe('suggestMonthlyRent', () => {
     })
     assert.equal(s.source, 'price_yield')
     assert.ok(s.amount > 0)
+  })
+})
+
+/** Unidad 002 (suite 1D, $210k): reconciliación de aporte con IR+gestor activos. */
+describe('Unidad 002 — aporte mensual', () => {
+  const unit002 = {
+    mode: 'financed' as const,
+    unitPrice: 210000,
+    estimatedMonthlyRent: 1200,
+    vacancyRate: 0.05,
+    annualOperatingExpenses: 2280, // predial 0.8% + alícuota 600
+    includeIncomeTax: true,
+    includePropertyManager: true,
+    incomeTaxRate: 0.25,
+    managementFeeRate: 0.08,
+    downPaymentPercent: 30,
+    financingYears: 20,
+    interestRate: 7.8,
+    rateType: 'nominal_annual' as const,
+  }
+
+  it('con admin 8% e IR 25%: aporte ≈ $637,53 (no $261)', () => {
+    const p = buildInvestmentPreview(unit002)
+    const c = buildRentCoverageAnalysis(p)
+    assert.equal(p.financedAmount, 147000)
+    approx(p.monthlyPayment, 1211.33, 0.02)
+    approx(c.monthlyNetRentAvailable, 573.8, 0.02)
+    approx(c.monthlyTopUpOrSurplus, -637.53, 0.02)
+  })
+
+  it('sin admin ni IR: déficit ≈ $261,33 (solo si se desactivan)', () => {
+    const p = buildInvestmentPreview({
+      ...unit002,
+      includeIncomeTax: false,
+      includePropertyManager: false,
+    })
+    const c = buildRentCoverageAnalysis(p)
+    approx(c.monthlyTopUpOrSurplus, -261.33, 0.02)
   })
 })

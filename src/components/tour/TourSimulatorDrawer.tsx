@@ -21,6 +21,7 @@ type TourSimulatorDrawerProps = {
   /** Abrir en sección de financiamiento (acceso desde botón Financiamiento). */
   initialMode?: 'cash' | 'financed' | 'manual'
   initialSection?: 'financing' | 'rent' | null
+  onRequestInfo?: () => void
 }
 
 /** Panel lateral unificado: Simulador de inversión (contado + financiamiento). */
@@ -33,6 +34,7 @@ export function TourSimulatorDrawer({
   contained = false,
   initialMode,
   initialSection,
+  onRequestInfo,
 }: TourSimulatorDrawerProps) {
   const reduceMotion = useReducedMotion()
   const [showSaved, setShowSaved] = useState(false)
@@ -109,7 +111,8 @@ export function TourSimulatorDrawer({
             aria-label="Simulador de inversión"
             className={cn(
               'z-[70] flex flex-col overflow-hidden rounded-2xl bg-[#f7f3ee] shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
-              'w-[min(100%-1.25rem,28rem)]',
+              /* Ancho suficiente para desglose, barra de cobertura y comparativa */
+              'w-[min(100%-1.25rem,36rem)] sm:w-[min(100%-2.5rem,40rem)]',
               contained
                 ? cn(
                     'absolute left-3 sm:left-4',
@@ -122,7 +125,7 @@ export function TourSimulatorDrawer({
                     '[@media(max-height:520px)]:left-[max(0.5rem,env(safe-area-inset-left))]',
                     '[@media(max-height:520px)]:top-[max(0.5rem,env(safe-area-inset-top))]',
                     '[@media(max-height:520px)]:bottom-[max(0.5rem,env(safe-area-inset-bottom))]',
-                    '[@media(max-height:520px)]:w-[min(22rem,calc(100vw-1rem))]',
+                    '[@media(max-height:520px)]:w-[min(24rem,calc(100vw-1rem))]',
                   ),
             )}
             initial={reduceMotion ? false : { x: -28, opacity: 0 }}
@@ -243,6 +246,7 @@ export function TourSimulatorDrawer({
                   initialMode={initialMode}
                   initialSection={initialSection}
                   initialScenario={reopenScenario}
+                  onRequestInfo={onRequestInfo}
                   onOpenSaved={
                     identified
                       ? () => {

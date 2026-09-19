@@ -7,10 +7,8 @@ import {
   formatMoneyExact,
   propertyExpenseLinesFromConfig,
   roundMoney,
-  type RentCoverageAnalysis,
 } from '@/lib/financing/calculator'
 import type { FinancingConfig } from '@/types/financingSimulator'
-import { CoberturaMensual } from '@/components/financing/CoberturaMensual'
 
 export function ParameterSliders({
   monthlyRent,
@@ -30,12 +28,12 @@ export function ParameterSliders({
   onIncomeTaxRateChange,
   managementFeeRate,
   onManagementFeeRateChange,
-  coverage,
-  showCoveragePayment = true,
   onUnitPriceChange,
   priceEditable,
   priceMissing,
   showPrice = true,
+  /** Alquiler, vacancia y gastos administrados: solo lectura para el cliente. */
+  assumptionsReadOnly = false,
 }: {
   monthlyRent: number
   onRentChange: (value: number) => void
@@ -53,13 +51,12 @@ export function ParameterSliders({
   onIncomeTaxRateChange?: (value: number) => void
   managementFeeRate?: number
   onManagementFeeRateChange?: (value: number) => void
-  coverage: RentCoverageAnalysis | null
-  showCoveragePayment?: boolean
   unitPrice: number
   onUnitPriceChange: (value: number) => void
   priceEditable?: boolean
   priceMissing?: boolean
   showPrice?: boolean
+  assumptionsReadOnly?: boolean
 }) {
   const vacancyPct = Math.round(vacancyRate * 1000) / 10
   const taxRate = incomeTaxRate ?? INCOME_TAX_RATE
@@ -110,7 +107,7 @@ export function ParameterSliders({
           <span className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
             Alquiler estimado / mes
           </span>
-          {suggestedRent > 0 ? (
+          {!assumptionsReadOnly && suggestedRent > 0 ? (
             <button
               type="button"
               onClick={onUseSuggestedRent}
@@ -120,23 +117,32 @@ export function ParameterSliders({
             </button>
           ) : null}
         </div>
-        <input
-          type="number"
-          min={0}
-          step={50}
-          value={monthlyRent}
-          onChange={(event) => onRentChange(Number(event.target.value))}
-          className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
-        />
-        <p className="text-[11px] text-[#8a8176]">
-          {rentSuggestionLabel ||
-            'Referencia por tipología del proyecto (configurada por el encargado).'}
-        </p>
+        {assumptionsReadOnly ? (
+          <div className="rounded-xl bg-[#f7f3ee] px-3 py-2.5">
+            <p className="text-lg font-semibold tabular-nums text-[#1f1a14]">
+              {formatMoney(monthlyRent)}
+            </p>
+            <p className="text-[11px] text-[#8a8176]">
+              Valor administrado (referencia del proyecto). No editable en el simulador.
+            </p>
+          </div>
+        ) : (
+          <input
+            type="number"
+            min={0}
+            step={50}
+            value={monthlyRent}
+            onChange={(event) => onRentChange(Number(event.target.value))}
+            className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
+          />
+        )}
+        {!assumptionsReadOnly ? (
+          <p className="text-[11px] text-[#8a8176]">
+            {rentSuggestionLabel ||
+              'Referencia por tipología del proyecto (configurada por el encargado).'}
+          </p>
+        ) : null}
       </label>
-
-      {coverage ? (
-        <CoberturaMensual coverage={coverage} showPayment={showCoveragePayment} />
-      ) : null}
 
       <label className="block space-y-1.5">
         <div className="flex items-center justify-between gap-2">
@@ -145,18 +151,26 @@ export function ParameterSliders({
           </span>
           <span className="text-[11px] tabular-nums text-[#6b645c]">{vacancyPct}%</span>
         </div>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={0.5}
-          value={vacancyPct}
-          onChange={(event) => onVacancyChange(Number(event.target.value) / 100)}
-          className="w-full accent-[#1a2744]"
-        />
-        <p className="text-[11px] text-[#8a8176]">
-          Se aplica una sola vez sobre el alquiler potencial anual.
-        </p>
+        {assumptionsReadOnly ? (
+          <p className="text-[11px] text-[#8a8176]">
+            Configurado por el proyecto ({vacancyPct}%). No editable aquí.
+          </p>
+        ) : (
+          <>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={0.5}
+              value={vacancyPct}
+              onChange={(event) => onVacancyChange(Number(event.target.value) / 100)}
+              className="w-full accent-[#1a2744]"
+            />
+            <p className="text-[11px] text-[#8a8176]">
+              Se aplica una sola vez sobre el alquiler potencial anual.
+            </p>
+          </>
+        )}
       </label>
 
       <div className="space-y-3">

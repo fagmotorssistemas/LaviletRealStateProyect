@@ -47,8 +47,9 @@ export function ResultCards({ preview }: { preview: InvestmentPreview }) {
         >
           {formatMoneyExact(Math.abs(preview.monthlyCashFlow))}
         </p>
-        <p className="mt-0.5 text-[10px] text-[#8a8176]">
-          Cifra mensual (el signo se interpreta con el título). Distinto del acumulado del horizonte.
+        <p className="text-[10px] text-[#8a8176]">
+          Cifra mensual del primer año (el signo se interpreta con el título). Distinto del
+          acumulado del horizonte.
         </p>
       </div>
     </div>

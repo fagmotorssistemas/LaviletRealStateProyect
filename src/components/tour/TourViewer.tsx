@@ -3524,6 +3524,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           units={allUnits.length > 0 ? allUnits : fichaUnits.length > 0 ? fichaUnits : displayUnits}
           initialMode={simulatorEntry.mode}
           initialSection={simulatorEntry.section}
+          onRequestInfo={() => {
+            setSimulatorOpen(false)
+            setInfoRequestOpen(true)
+          }}
           onSelectUnit={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
