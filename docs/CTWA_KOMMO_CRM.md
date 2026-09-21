@@ -1,25 +1,40 @@
-﻿# WhatsApp â†’ Kommo â†’ CRM y `ctwa_clid`
+﻿# WhatsApp → Kommo → CRM y `ctwa_clid`
+
+## Evidencia producción (2026-09-21, recepción 11:58 EC)
+
+**Hallazgo comprobado: el webhook CRM de Kommo llegó sin campos referral/ctwa_clid.**
+
+| Paso | Evidencia |
+| --- | --- |
+| Mensaje | `messages.id=78562fd8…`, `external_message_id=eaf654a3-e7e7-4e89-a72e-f67e6e6b0001`, `sent_at=2026-09-21T16:58:58Z`, lead Kommo `4453096`, contact `9431328` |
+| Evento | `lv_integration_events.id=180dcd4f…`, `received_at≈16:59:00Z`, `result.action=outside_test_lead`, `message_persisted=true`, `payload.ctwa=null` |
+| Sonda pre-normalización | Vercel `kommo_ctwa_field_probe` `2026-09-21T16:59:00.028Z`, `fieldsAbsent=true`, `pathCount=0`, `paths=[]`, `extractedByIndex.0=false` |
+| Atribución | `lv_whatsapp_ctwa_attribution`: **0 filas** (tabla vacía en el proyecto) |
+
+Correlación: sonda 16:59:00.028Z ↔ `received_at` 16:59:00.189Z del mismo `externalId` (no solo por minuto).
+
+**Conclusión:** no hubo fallo del extractor ni de `preserveCtwaForContact` en este caso: no había clid que conservar (`CTWA_NOOP`). `ctwa=null` en el evento normalizado **coincide** con la sonda de ausencia de campos; no es la única prueba, pero aquí ambas concuerdan.
+
+**Qué no demuestra este caso:** que Kommo nunca pueda enviar el campo en otro tipo de webhook o integración. La documentación pública de Kommo `message[add]` / Chats **no declara** `referral.ctwa_clid`. Meta Cloud API **sí** lo documenta en el primer mensaje. Kommo documenta **UTMs en la ficha del lead** (Tracking data), no `ctwa_clid` vía webhook CRM.
+
+---
 
 ## Cierre de despliegue (2026-09-17)
 
 **Despliegue completado.** Schema CTWA + app en Production: almacenamiento preparado para cuando Kommo entregue el identificador; mensajes **sin** CTWA siguen el flujo habitual.
 
-**CTWA real: pendiente de verificar.** Un mensaje directo sin anuncio **no** demuestra transmisiÃ³n del clid. La Ãºnica comprobaciÃ³n funcional que falta es inspeccionar el webhook de una conversaciÃ³n **genuina** iniciada desde un anuncio de WhatsApp (payload + persistencia, **sin** exponer datos personales). No generar mensajes ni conversiones adicionales para esa prueba.
-
 **Pixel y CAPI: sin cambios** (quedan como estaban).
 
 ---
 
-Estado operativo: migraciÃ³n `whatsapp_ctwa_attribution` aplicada; app en `main` desplegada. Fixtures siguen siendo sintÃ©ticos hasta la revisiÃ³n de un webhook real de anuncio.
-
-## ConclusiÃ³n
+## Conclusión
 
 | Pregunta | Respuesta |
 | --- | --- |
-| Â¿El normalizador CRM exige `ctwa_clid`? | **No.** Un mensaje sin CTWA se guarda y sigue el flujo habitual. |
-| Â¿Se atribuye solo a ads u orgÃ¡nico si falta? | **No.** No se inventa atribuciÃ³n. |
-| Â¿Kommo CRM entrega `ctwa_clid`? | **No en la forma documentada / de referencia** del webhook `message[add]` usado por La Vilet. Meta Cloud API sÃ­ lo envÃ­a en `messages[].referral` del **primer** mensaje. |
-| Â¿QuÃ© hacemos si Kommo algÃºn dÃ­a lo reenvÃ­a? | Se captura, se guarda first-touch con `field_path` (origen), no se borra en mensajes posteriores, reintentos no duplican. |
+| ¿El normalizador CRM exige `ctwa_clid`? | **No.** Un mensaje sin CTWA se guarda y sigue el flujo habitual. |
+| ¿Se atribuye solo a ads u orgánico si falta? | **No.** No se inventa atribución. |
+| ¿Kommo CRM entrega `ctwa_clid` en el webhook actual? | **En la recepción verificada del 21/09 11:58 EC: no** (sonda `fieldsAbsent=true`). Docs públicas de `message[add]` tampoco lo declaran. |
+| ¿Qué hacemos si Kommo algún día lo reenvía? | Se captura, se guarda first-touch con `field_path` (origen), no se borra en mensajes posteriores, reintentos no duplican. El probe + `payload.ctwaProbe` lo harán auditable en DB. |
 
 ## Payload de referencia
 

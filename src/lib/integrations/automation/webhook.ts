@@ -13,6 +13,22 @@ export type Inbound = {
   media: { type: string; url: string; name?: string } | null
   /** Solo si Kommo reenvió ctwa_clid; no implica atribución ads/orgánico. */
   ctwa: CtwaCapture | null
+  /**
+   * Resumen seguro del probe pre-normalización (sin valores/PII).
+   * Se persiste en lv_integration_events.payload para correlacionar sin Vercel.
+   */
+  ctwaProbe?: InboundCtwaProbeSummary | null
+}
+
+/** Solo presencia/rutas; nunca clid, texto, teléfono ni body. */
+export type InboundCtwaProbeSummary = {
+  correlationId: string
+  fieldsAbsent: boolean
+  pathCount: number
+  paths: string[]
+  extracted: boolean
+  unrecognizedPathCount: number
+  unrecognizedPaths: string[]
 }
 
 /** Aplana JSON anidado a claves tipo message[add][0][referral][ctwa_clid]. */
@@ -98,6 +114,24 @@ export function logKommoCtwaFieldProbe(probe: KommoCtwaFieldProbe) {
   }))
 }
 
+/** Adjunta resumen seguro del probe a cada inbound (para persistir en el evento). */
+export function attachCtwaProbeSummary(
+  events: Inbound[],
+  probe: KommoCtwaFieldProbe,
+): Inbound[] {
+  const extracted = Object.values(probe.extractedByIndex).some(Boolean)
+  const summary: InboundCtwaProbeSummary = {
+    correlationId: probe.correlationId,
+    fieldsAbsent: probe.fieldsAbsent,
+    pathCount: probe.referralOrCtwaPaths.length,
+    paths: probe.referralOrCtwaPaths.slice(0, 40),
+    extracted,
+    unrecognizedPathCount: probe.unrecognizedPaths.length,
+    unrecognizedPaths: probe.unrecognizedPaths.slice(0, 40),
+  }
+  return events.map((event) => ({ ...event, ctwaProbe: summary }))
+}
+
 export function normalizeWebhook(raw: string, contentType: string, now = Date.now()): Inbound[] {
   const flat = parseKommoFlat(raw, contentType)
   if (flat['account[id]'] !== '36919007') throw new Error('WRONG_KOMMO_ACCOUNT')
@@ -169,5 +203,19 @@ export function inboundFromRow(value: unknown): Inbound {
     row.ctwa && typeof row.ctwa === 'object' && text(object(row.ctwa).clid)
       ? (row.ctwa as Inbound['ctwa'])
       : null
-  return { ...(row as unknown as Inbound), ctwa }
+  const rawProbe = row.ctwaProbe && typeof row.ctwaProbe === 'object' ? object(row.ctwaProbe) : null
+  const ctwaProbe: InboundCtwaProbeSummary | null = rawProbe
+    ? {
+        correlationId: text(rawProbe.correlationId) || '',
+        fieldsAbsent: rawProbe.fieldsAbsent === true,
+        pathCount: Number(rawProbe.pathCount) || 0,
+        paths: Array.isArray(rawProbe.paths) ? rawProbe.paths.map(String).slice(0, 40) : [],
+        extracted: rawProbe.extracted === true,
+        unrecognizedPathCount: Number(rawProbe.unrecognizedPathCount) || 0,
+        unrecognizedPaths: Array.isArray(rawProbe.unrecognizedPaths)
+          ? rawProbe.unrecognizedPaths.map(String).slice(0, 40)
+          : [],
+      }
+    : null
+  return { ...(row as unknown as Inbound), ctwa, ctwaProbe }
 }

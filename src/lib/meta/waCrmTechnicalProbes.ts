@@ -15,7 +15,7 @@ export type WaCrmTechnicalProbe = {
   note: string
 }
 
-/** 21/09/2026 09:52 America/Guayaquil = 14:52 UTC */
+/** 21/09/2026 America/Guayaquil — pruebas anuncio propiedad externa (solo el mensaje). */
 export const WA_CRM_TECHNICAL_PROBES: WaCrmTechnicalProbe[] = [
   {
     id: 'external_property_ad_2026-09-21_0952_ec',
@@ -26,6 +26,16 @@ export const WA_CRM_TECHNICAL_PROBES: WaCrmTechnicalProbe[] = [
     sentAtTo: '2026-09-21T14:53:00.000Z',
     note:
       'Solo este inbound. No marca el contacto, la cuenta WhatsApp ni el anuncio completo; no implica interés en unidades La Vilet.',
+  },
+  {
+    id: 'external_property_ad_2026-09-21_1158_ec',
+    label: 'Prueba anuncio propiedad externa (21/09/2026 11:58 EC)',
+    kommoId: 4453096,
+    contactId: 9431328,
+    sentAtFrom: '2026-09-21T16:58:00.000Z',
+    sentAtTo: '2026-09-21T16:59:00.000Z',
+    note:
+      'Inbound eaf654a3… guardado; sonda kommo_ctwa_field_probe fieldsAbsent=true. No implica CTWA ni interés La Vilet.',
   },
 ]
 

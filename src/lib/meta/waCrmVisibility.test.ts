@@ -44,6 +44,14 @@ describe('waCrmVisibility', () => {
     assert.ok(hit)
     assert.equal(hit!.id, 'external_property_ad_2026-09-21_0952_ec')
 
+    const hit1158 = matchTechnicalProbeMessage({
+      kommoId: 4453096,
+      contactId: 9431328,
+      sentAt: '2026-09-21T16:58:58.000Z',
+    })
+    assert.ok(hit1158)
+    assert.equal(hit1158!.id, 'external_property_ad_2026-09-21_1158_ec')
+
     const missSameContact = matchTechnicalProbeMessage({
       kommoId: 4453096,
       contactId: 9431328,

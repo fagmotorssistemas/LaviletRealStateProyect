@@ -2,7 +2,14 @@ import { after, NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { automationSettings, secretMatches } from '@/lib/integrations/automation/config'
 import { rpc } from '@/lib/integrations/automation/data'
-import { limitedBody, logKommoCtwaFieldProbe, normalizeWebhook, probeKommoCtwaFields } from '@/lib/integrations/automation/webhook'
+import {
+  attachCtwaProbeSummary,
+  limitedBody,
+  logKommoCtwaFieldProbe,
+  normalizeWebhook,
+  probeKommoCtwaFields,
+  type KommoCtwaFieldProbe,
+} from '@/lib/integrations/automation/webhook'
 import { accelerateTestMessages, testResponseMode } from '@/lib/integrations/automation/test-response-mode'
 import { TEST_RESPONSE_SECONDS } from '@/lib/inmobiliaria/testResponseMode'
 
@@ -18,11 +25,13 @@ export async function POST(request: Request) {
   if (!settings.live) return NextResponse.json({ error: 'Recepción no activada' }, { status: 503, headers })
   const correlationId = request.headers.get('x-request-id')?.trim() || randomUUID()
   let events
+  let probe: KommoCtwaFieldProbe | null = null
   try {
     const raw = await limitedBody(request)
     const contentType = request.headers.get('content-type') || ''
     try {
-      logKommoCtwaFieldProbe(probeKommoCtwaFields(raw, contentType, correlationId))
+      probe = probeKommoCtwaFields(raw, contentType, correlationId)
+      logKommoCtwaFieldProbe(probe)
     } catch {
       console.info(JSON.stringify({
         event: 'kommo_ctwa_field_probe',
@@ -33,6 +42,7 @@ export async function POST(request: Request) {
     }
     events = normalizeWebhook(raw, contentType)
       .filter(event => Date.parse(event.sentAt) >= Date.parse(settings.activatedAt))
+    if (probe) events = attachCtwaProbeSummary(events, probe)
   } catch {
     return NextResponse.json({ error: 'Evento inválido' }, { status: 400, headers })
   }
@@ -53,7 +63,19 @@ export async function POST(request: Request) {
         console.error('TEST_RESPONSE_WAKE_FAILED')
       }
     })
-    return NextResponse.json({ accepted: true, received: events.length, inserted, correlationId }, { status: 200, headers })
+    return NextResponse.json({
+      accepted: true,
+      received: events.length,
+      inserted,
+      correlationId,
+      ctwaProbe: probe
+        ? {
+            fieldsAbsent: probe.fieldsAbsent,
+            pathCount: probe.referralOrCtwaPaths.length,
+            extracted: Object.values(probe.extractedByIndex).some(Boolean),
+          }
+        : null,
+    }, { status: 200, headers })
   } catch {
     return NextResponse.json({ error: 'No se pudo persistir el evento' }, { status: 503, headers })
   }

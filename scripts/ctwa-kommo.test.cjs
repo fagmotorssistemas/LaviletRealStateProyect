@@ -815,7 +815,11 @@ describe('Flujo processConversation con dependencias simuladas', () => {
 })
 
 describe('Diagnóstico CTWA pre-normalización', () => {
-  const { probeKommoCtwaFields } = require(path.join(root, 'src/lib/integrations/automation/webhook.ts'))
+  const {
+    probeKommoCtwaFields,
+    attachCtwaProbeSummary,
+    normalizeWebhook,
+  } = require(path.join(root, 'src/lib/integrations/automation/webhook.ts'))
 
   it('campo ausente: fieldsAbsent=true y sin rutas', () => {
     const payload = { account: { id: 36919007 }, message: { add: [baseMsg()] } }
@@ -859,6 +863,19 @@ describe('Diagnóstico CTWA pre-normalización', () => {
     assert.equal(probe.fieldsAbsent, false)
     assert.equal(probe.extractedByIndex['0'], false)
     assert.ok(probe.unrecognizedPaths.length >= 1)
+  })
+
+  it('attachCtwaProbeSummary persiste solo metadatos seguros en el inbound', () => {
+    const payload = { account: { id: 36919007 }, message: { add: [baseMsg()] } }
+    const raw = JSON.stringify(payload)
+    const probe = probeKommoCtwaFields(raw, 'application/json', 'corr-attach')
+    const events = attachCtwaProbeSummary(normalizeWebhook(raw, 'application/json', now), probe)
+    assert.equal(events.length, 1)
+    assert.equal(events[0].ctwa, null)
+    assert.equal(events[0].ctwaProbe?.correlationId, 'corr-attach')
+    assert.equal(events[0].ctwaProbe?.fieldsAbsent, true)
+    assert.equal(events[0].ctwaProbe?.extracted, false)
+    assert.equal(JSON.stringify(events[0].ctwaProbe).includes('Hola'), false)
   })
 })
 
