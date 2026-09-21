@@ -68,6 +68,37 @@ export function isRecentCommercialInterestStamp(
 }
 
 /**
+ * Equivalente textual de `asked_price` (contrato WA_COMMERCIAL_SCORE_EVENTS).
+ * No exige oferta previa de unidades. Sirve fuera del bot (sin extractor/scoreEvents).
+ */
+export function isExplicitPropertyPriceInterest(message: string): boolean {
+  const raw = String(message || '').trim()
+  if (!raw) return false
+  const m = normalized(raw)
+  if (!m) return false
+  if (
+    /no (?:me interesa|quiero)|solo (?:por )?curiosidad|chat equivocado/.test(m)
+  ) {
+    return false
+  }
+  const asksPrice =
+    /\b(?:precio|precios|valor|valores|cotiz(?:a|ar|acion|ación)?|presupuesto)\b/.test(
+      m,
+    ) ||
+    /(?:cuanto|cuánto)\s+(?:vale|cuesta|sale|es|estan|están)/.test(m) ||
+    /(?:vale|cuesta|sale)\s+(?:cuanto|cuánto)/.test(m)
+  if (!asksPrice) return false
+  // Ancla a propiedad/proyecto o deíxis del anuncio/chat (CTWA «esto»).
+  return (
+    /(?:departamento|suite|penthouse|local|unidad|inmueble|vivienda|proyecto|propiedad|la vilet|lavilet|tarquin|dormitorio|habitacion|m2|m²)/.test(
+      m,
+    ) ||
+    /\b(?:esto|esta|ese|esa|el|la)\b/.test(m) ||
+    /(?:mas|más)\s+(?:informacion|información|datos)/.test(m)
+  )
+}
+
+/**
  * Interés comercial del **turno actual** (texto / eventos / selección con oferta).
  * No incluye sello reciente ni consentimiento.
  */
@@ -78,6 +109,8 @@ export function isCommercialInterestEvidence(input: {
   recentOfferText?: string | null
 }): boolean {
   if (explicitPropertyInterest(input.currentMessage)) return true
+  // asked_price por texto: sin exigir oferta de unidades.
+  if (isExplicitPropertyPriceInterest(input.currentMessage)) return true
   if (
     isOfferedUnitSelectionInterest(
       input.currentMessage,

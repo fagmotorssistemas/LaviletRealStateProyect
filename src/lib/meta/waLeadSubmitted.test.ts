@@ -124,6 +124,38 @@ describe('waLeadSubmittedEligibility', () => {
     assert.equal(r.eligibleForConversion, true)
   })
 
+  it('pregunta explícita de precio (texto) sella interés sin oferta previa', () => {
+    assert.equal(
+      evaluateWaLeadSubmittedEligibility({
+        currentMessage:
+          'Buenas tardes podría tener más información sobre dice Tarquines quisiera más datos como también el precio gracias',
+      }).eligibleForConversion,
+      true,
+    )
+    assert.equal(
+      evaluateWaLeadSubmittedEligibility({
+        currentMessage: '¿Cuánto cuesta el departamento?',
+      }).eligibleForConversion,
+      true,
+    )
+    // Solo «más información» sin precio → no es asked_price
+    assert.equal(
+      evaluateWaLeadSubmittedEligibility({
+        currentMessage: 'Hola. ¿Puedo obtener más información sobre esto?',
+      }).eligibleForConversion,
+      false,
+    )
+  })
+
+  it('asked_price por scoreEvents no exige oferta de unidades', () => {
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage: 'ok',
+      scoreEvents: ['asked_price'],
+    })
+    assert.equal(r.eligibleForConversion, true)
+    assert.equal(r.turnCommercialInterest, true)
+  })
+
   it('mensaje neutro sin eventos: no elegible', () => {
     const r = evaluateWaLeadSubmittedEligibility({
       currentMessage: 'ok gracias',
