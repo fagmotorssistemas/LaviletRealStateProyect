@@ -10,6 +10,7 @@ import {
 import { enrichTourLeadAfterIdentify } from '@/lib/tour/enrichTourLead'
 import {
   rpcIdentifyTourLeadWithMetaOutbox,
+  rpcRegisterTourInfoRequest,
   rpcSetTrackingPreference,
 } from '@/lib/tour/tourRpc'
 import { resolveVisitorGeo, clientIp } from '@/lib/tour/geo'
@@ -36,6 +37,30 @@ function intendedLane(): 'test' | 'live' {
   return mode === 'test' ? 'test' : 'live'
 }
 
+function identityErrorStatus(message: string) {
+  if (/IDENTITY_CONFLICT_PHONE_EMAIL/i.test(message)) return 409
+  if (/VISITOR_ALREADY_LINKED/i.test(message)) return 409
+  if (/TOUR_INFO_REQUEST_/i.test(message)) return 400
+  if (/IDENTIFY_TOUR_LEAD_/i.test(message)) return 400
+  return 500
+}
+
+function humanIdentityError(message: string) {
+  if (/IDENTITY_CONFLICT_PHONE_EMAIL/i.test(message)) {
+    return 'El teléfono y el correo corresponden a contactos distintos. No se fusionan automáticamente.'
+  }
+  if (/VISITOR_ALREADY_LINKED/i.test(message)) {
+    return 'Este recorrido ya está vinculado a otro contacto. Usa el mismo celular o continúa en ese dispositivo.'
+  }
+  if (/TOUR_INFO_REQUEST_UNIT_INVALID/i.test(message)) {
+    return 'La unidad indicada no es válida para este proyecto.'
+  }
+  if (/TOUR_INFO_REQUEST_SESSION_INVALID/i.test(message)) {
+    return 'La sesión del recorrido no es válida. Recarga e inténtalo de nuevo.'
+  }
+  return message
+}
+
 export async function POST(request: Request) {
   try {
     const admin = tryCreateAdminClient()
@@ -49,6 +74,10 @@ export async function POST(request: Request) {
       phone?: string
       consent?: boolean
       mode?: 'full' | 'phone'
+      request_kind?: 'identify' | 'info_request' | 'save_unit'
+      client_request_id?: string
+      motivo?: string
+      mensaje?: string
       visitor_key?: string
       session_id?: string
       typology_code?: string
@@ -75,6 +104,10 @@ export async function POST(request: Request) {
     if (!phone || digits.length < 8) {
       return NextResponse.json({ error: 'Ingresá un celular válido' }, { status: 400 })
     }
+
+    const requestKind =
+      body.request_kind ||
+      (phoneOnly ? 'save_unit' : body.motivo || body.unit_id ? 'info_request' : 'identify')
 
     const rawName = phoneOnly
       ? `WhatsApp ····${digits.slice(-4)}`
@@ -118,7 +151,6 @@ export async function POST(request: Request) {
     const clientIpAddress = clientIp(h) || undefined
     const clientUa = h.get('user-agent') || undefined
     // body.consent = casilla de contacto/privacidad (no es ads).
-    // Meta solo usa cookie de medición + ledger del visitante.
     const adsConsent = await resolveServerAdsConsentForVisitor(admin, visitorKey)
 
     const realEmail = !isArtificialEmail(rawEmail) ? rawEmail : undefined
@@ -131,64 +163,73 @@ export async function POST(request: Request) {
         .trim()
         .toLowerCase() !== 'false'
 
-    // Lead + outbox en una sola transacción Postgres (RPC).
-    const identified = await rpcIdentifyTourLeadWithMetaOutbox(admin, {
-      visitorKey,
-      name: rawName,
-      email: rawEmail,
-      phone,
-      adsConsent,
-      deliveryLane: intendedLane(),
-      payload: {
-        action_source: 'website',
-        event_source_url:
-          sanitizeMetaEventSourceUrl(body.event_source_url) ||
-          'https://www.lavilett.com',
+    let identified
+    try {
+      identified = await rpcIdentifyTourLeadWithMetaOutbox(admin, {
+        visitorKey,
+        name: rawName,
+        email: rawEmail,
         phone,
-        email: realEmail,
-        full_name: realName,
-        city: geo.city || undefined,
-        country: geo.country || 'ec',
-        fbp: body.fbp,
-        fbc: body.fbc,
-        fbclid: body.fbclid,
-        client_ip_address: clientIpAddress,
-        client_user_agent: clientUa,
-        ...(conservative
-          ? {}
-          : {
-              content_ids: body.unit_id ? [body.unit_id] : undefined,
-              content_name: body.unit_number ? `Unidad ${body.unit_number}` : undefined,
-              content_category: body.typology_code || undefined,
-            }),
-        visitor_key: visitorKey,
-      },
-    })
+        adsConsent,
+        deliveryLane: intendedLane(),
+        payload: {
+          action_source: 'website',
+          event_source_url:
+            sanitizeMetaEventSourceUrl(body.event_source_url) ||
+            'https://www.lavilett.com',
+          phone,
+          email: realEmail,
+          full_name: realName,
+          city: geo.city || undefined,
+          country: geo.country || 'ec',
+          fbp: body.fbp,
+          fbc: body.fbc,
+          fbclid: body.fbclid,
+          client_ip_address: clientIpAddress,
+          client_user_agent: clientUa,
+          ...(conservative
+            ? {}
+            : {
+                content_ids: body.unit_id ? [body.unit_id] : undefined,
+                content_name: body.unit_number ? `Unidad ${body.unit_number}` : undefined,
+                content_category: body.typology_code || undefined,
+              }),
+          visitor_key: visitorKey,
+        },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo guardar el contacto'
+      return NextResponse.json(
+        { error: humanIdentityError(message) },
+        { status: identityErrorStatus(message) },
+      )
+    }
 
     const leadId = identified.lead_id
-    // external_id se fija al lead; el RPC ya guardó event_id en leads + outbox
-    if (identified.meta_event_id && adsConsent) {
-      // payload.external_id se completa en flush desde lead_id
-    }
 
     try {
       await rpcSetTrackingPreference(admin, {
         leadId,
         consent: true,
-        reason: phoneOnly ? 'guardar_unidad' : 'gate',
+        reason: phoneOnly ? 'guardar_unidad' : requestKind === 'info_request' ? 'solicitud_info' : 'gate',
       })
     } catch (error) {
       console.error('set_tracking_preference', error)
     }
 
+    const unitLabel = String(body.unit_number ?? '').trim()
+    const interestRoom = body.interest_room
+      ? body.interest_room
+      : unitLabel
+        ? `Unidad ${unitLabel}`
+        : null
+    const needsUnit =
+      requestKind === 'save_unit' ||
+      (requestKind === 'info_request' && Boolean(body.unit_id || body.unit_number))
+
+    let enrichResult: { unitId: string | null; unitTypeId: string | null; sessionId: string | null }
     try {
-      const unitLabel = String(body.unit_number ?? '').trim()
-      const interestRoom = body.interest_room
-        ? body.interest_room
-        : unitLabel
-          ? `Unidad ${unitLabel}`
-          : null
-      await enrichTourLeadAfterIdentify(admin, {
+      enrichResult = await enrichTourLeadAfterIdentify(admin, {
         leadId,
         visitorKey,
         sessionId: body.session_id,
@@ -201,9 +242,60 @@ export async function POST(request: Request) {
         light: body.light,
         city: geo.city,
         country: geo.country,
+        requireUnit: needsUnit,
       })
     } catch (error) {
       console.error('enrich_tour_lead', error)
+      const message = error instanceof Error ? error.message : 'No se pudo completar el contexto'
+      // Identidad ya persistió; el cliente puede reintentar sin duplicar lead.
+      return NextResponse.json(
+        {
+          error:
+            needsUnit
+              ? 'Se guardó el contacto, pero faltó la unidad. Reintenta para completar la solicitud.'
+              : humanIdentityError(message),
+          lead_id: leadId,
+          incomplete: true,
+        },
+        { status: 422 },
+      )
+    }
+
+    let infoRequest: { id: string; created: boolean; duplicate: boolean } | null = null
+    if (requestKind === 'info_request') {
+      const motivo =
+        String(body.motivo ?? '').trim() ||
+        String(body.interest_room ?? '').trim() ||
+        'Consulta showroom'
+      try {
+        const registered = await rpcRegisterTourInfoRequest(admin, {
+          leadId,
+          visitorKey,
+          sessionId: body.session_id || enrichResult.sessionId,
+          unitId: enrichResult.unitId || body.unit_id || null,
+          unitTypeId: enrichResult.unitTypeId || body.unit_type_id || null,
+          typologyCode: body.typology_code || null,
+          motivo,
+          mensaje: body.mensaje ?? null,
+          clientRequestId: body.client_request_id || null,
+        })
+        infoRequest = {
+          id: registered.id,
+          created: registered.created,
+          duplicate: registered.duplicate,
+        }
+      } catch (error) {
+        console.error('register_tour_info_request', error)
+        const message = error instanceof Error ? error.message : 'No se pudo registrar la solicitud'
+        return NextResponse.json(
+          {
+            error: humanIdentityError(message),
+            lead_id: leadId,
+            incomplete: true,
+          },
+          { status: identityErrorStatus(message) === 500 ? 422 : identityErrorStatus(message) },
+        )
+      }
     }
 
     after(async () => {
@@ -221,6 +313,9 @@ export async function POST(request: Request) {
       lead_id: leadId,
       emit_meta_lead: emitMetaLead,
       meta_event_id: emitMetaLead ? identified.meta_event_id : null,
+      request_kind: requestKind,
+      info_request: infoRequest,
+      unit_id: enrichResult.unitId,
     })
     response.cookies.set(LV_CONTACT_CONSENT_COOKIE, '1', {
       path: '/',
@@ -233,8 +328,12 @@ export async function POST(request: Request) {
     console.error('POST /api/tour/lead', error)
     const message = error instanceof Error ? error.message : 'No se pudo guardar el contacto'
     return NextResponse.json(
-      { error: /<!DOCTYPE|<html/i.test(message) ? 'No se pudo guardar el contacto' : message },
-      { status: 500 },
+      {
+        error: /<!DOCTYPE|<html/i.test(message)
+          ? 'No se pudo guardar el contacto'
+          : humanIdentityError(message),
+      },
+      { status: identityErrorStatus(message) },
     )
   }
 }

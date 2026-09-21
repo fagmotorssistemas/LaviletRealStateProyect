@@ -4,10 +4,11 @@ import { assertCanAccessCrmPath } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
-import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 
 const PATH = '/inmobiliaria/marketing/interes'
 const TZ = 'America/Guayaquil'
+const EVENT_LIMIT = 20000
+const UNIT_INTEREST_LIMIT = 5000
 
 export type InterestPeriod = 'dia' | 'semana' | 'mes'
 
@@ -17,8 +18,9 @@ export type InterestHeatCell = {
   rowKey: string
   rowLabel: string
   bucket: InterestBucketKey
-  /** Puntaje compuesto (visitas + minutos). */
+  /** Puntaje compuesto (entradas + minutos). */
   puntaje: number
+  /** Solo eventos `entrada` (ingresos a tipología/ambiente). */
   visits: number
   seconds: number
 }
@@ -46,25 +48,31 @@ export type TourInterestHeatmapResult = {
     totalPuntaje: number
     visits: number
     seconds: number
-    /** Ambiente del 360° donde más tiempo se quedó mirando. */
     topAmbiente: string | null
     topAmbienteSeconds: number
   }[]
   cells: InterestHeatCell[]
   units: InterestUnitRow[]
   totals: {
-    visits: number
+    /** Eventos `entrada` en tipologías con tipología conocida. */
+    entradas: number
+    sessions: number
+    visitors: number
+    ambienteChanges: number
     seconds: number
     typologies: number
     unitsWithInterest: number
+    /** @deprecated usar `entradas` */
+    visits: number
   }
+  truncated: boolean
+  truncationNotes: string[]
 }
 
 function pad2(n: number) {
   return String(n).padStart(2, '0')
 }
 
-/** Instantes de inicio/fin del periodo en America/Guayaquil, como ISO UTC. */
 function periodRange(period: InterestPeriod, now = new Date()) {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ,
@@ -78,7 +86,6 @@ function periodRange(period: InterestPeriod, now = new Date()) {
   const m = Number(parts.month)
   const d = Number(parts.day)
 
-  // Mediodía local → ancla estable para armar medianoche Guayaquil vía offset.
   const noonUtcGuess = new Date(Date.UTC(y, m - 1, d, 17, 0, 0))
   const localParts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
@@ -94,7 +101,9 @@ function periodRange(period: InterestPeriod, now = new Date()) {
       .map((p) => [p.type, p.value]),
   )
   const localHour = Number(localParts.hour)
-  const startOfToday = new Date(noonUtcGuess.getTime() - localHour * 3600_000 - Number(localParts.minute) * 60_000)
+  const startOfToday = new Date(
+    noonUtcGuess.getTime() - localHour * 3600_000 - Number(localParts.minute) * 60_000,
+  )
   startOfToday.setUTCSeconds(0, 0)
 
   if (period === 'dia') {
@@ -190,7 +199,6 @@ function typologyFromEvent(row: {
   return null
 }
 
-/** Evita nombres de archivo / slugs técnicos como “ambiente”. */
 function isRealAmbiente(room: string | null | undefined) {
   const r = String(room ?? '').trim()
   if (!r || r.length > 48) return false
@@ -199,9 +207,10 @@ function isRealAmbiente(room: string | null | undefined) {
 }
 
 /**
- * Intensidad compuesta:
- * - Recorrido (tipología): visitas ×1 + minutos en escena ×1
- * - Comercial (unidad): consultar ficha ×2 · lead vinculado ×3 · favorito ×4
+ * Intensidad:
+ * - Tipología: entradas ×1 + minutos (ambiente|salida) ×1
+ * - Unidad: consultar ×2 · lead_units ×3 · favorito ×4
+ *   (no suma lead_identificado para evitar doble conteo con lead_units)
  */
 export async function fetchTourInterestHeatmap(
   period: InterestPeriod = 'semana',
@@ -223,40 +232,92 @@ export async function fetchTourInterestHeatmap(
     const startIso = start.toISOString()
     const endIso = end.toISOString()
 
-    const [{ data: tourRows, error: tourError }, { data: unitInterestRows, error: unitError }, { data: units }] =
+    // 1) Eventos del periodo. 2) Sesiones autorizadas por tenant (sin ampliar el alcance).
+    const [{ data: rawEvents, error: eventsError }, { data: unitInterestRows, error: unitError }, { data: units }] =
       await Promise.all([
         admin
           .from('tour_events')
           .select('tour_session_id, event_type, room, seconds, created_at, metadata, unit_type_id')
+          .in('event_type', ['entrada', 'ambiente', 'salida', 'consultar_unidad', 'guardar_unidad'])
           .gte('created_at', startIso)
           .lte('created_at', endIso)
-          .in('event_type', ['entrada', 'ambiente', 'salida', 'consultar_unidad', 'guardar_unidad', 'lead_identificado'])
           .order('created_at', { ascending: true })
-          .limit(20000),
+          .limit(EVENT_LIMIT),
         admin
           .from('lead_units')
-          .select('unit_id, created_at, source, interest_level')
+          .select('unit_id, created_at, source, interest_level, leads!inner(tenant_id)')
           .gte('created_at', startIso)
           .lte('created_at', endIso)
-          .limit(5000),
+          .in('leads.tenant_id', tenantIds)
+          .limit(UNIT_INTEREST_LIMIT),
         admin
           .from('units')
           .select('id, unit_number, category, typology_code, floor, tenant_id')
-          .in('tenant_id', tenantIds.includes(TOUR_TENANT_ID) ? tenantIds : [...tenantIds, TOUR_TENANT_ID])
+          .in('tenant_id', tenantIds)
           .eq('is_published', true)
           .limit(500),
       ])
 
-    if (tourError) throw new Error(tourError.message)
+    if (eventsError) throw new Error(eventsError.message)
     if (unitError) throw new Error(unitError.message)
+
+    const candidateSessionIds = [
+      ...new Set(
+        (rawEvents ?? [])
+          .map((row) => String((row as { tour_session_id?: string }).tour_session_id ?? ''))
+          .filter(Boolean),
+      ),
+    ]
+
+    const allowedSessionIds = new Set<string>()
+    const visitorBySession = new Map<string, string>()
+    if (candidateSessionIds.length) {
+      // PostgREST .in() tolera lotes; partimos si hace falta.
+      for (let i = 0; i < candidateSessionIds.length; i += 500) {
+        const chunk = candidateSessionIds.slice(i, i + 500)
+        const { data: scopedSessions, error: scopedSessionError } = await admin
+          .from('tour_sessions')
+          .select('id, visitor_id, tenant_id')
+          .in('id', chunk)
+          .in('tenant_id', tenantIds)
+        if (scopedSessionError) throw new Error(scopedSessionError.message)
+        for (const session of scopedSessions ?? []) {
+          allowedSessionIds.add(session.id as string)
+          visitorBySession.set(
+            session.id as string,
+            String((session as { visitor_id?: string }).visitor_id ?? ''),
+          )
+        }
+      }
+    }
+
+    const tourRows = (rawEvents ?? []).filter((row) =>
+      allowedSessionIds.has(String((row as { tour_session_id?: string }).tour_session_id ?? '')),
+    )
+
+    const sessionIds = [...allowedSessionIds]
+    const uniqueVisitors = new Set([...visitorBySession.values()].filter(Boolean))
+    const truncationNotes: string[] = []
+    let truncated = (rawEvents?.length ?? 0) >= EVENT_LIMIT
+    if (truncated) {
+      truncationNotes.push(
+        `Se alcanzó el tope de ${EVENT_LIMIT} eventos; los totales pueden estar incompletos.`,
+      )
+    }
+    if ((unitInterestRows?.length ?? 0) >= UNIT_INTEREST_LIMIT) {
+      truncated = true
+      truncationNotes.push(
+        `Se alcanzó el tope de ${UNIT_INTEREST_LIMIT} vínculos lead–unidad; el calor comercial puede estar incompleto.`,
+      )
+    }
 
     const cellMap = new Map<string, InterestHeatCell>()
     const rowAgg = new Map<
       string,
       { label: string; puntaje: number; visits: number; seconds: number }
     >()
-    /** tipología → ambiente → segundos */
     const roomByTypology = new Map<string, Map<string, number>>()
+    let ambienteChanges = 0
 
     const bumpTypology = (
       typology: string,
@@ -318,14 +379,22 @@ export async function fetchTourInterestHeatmap(
       if (!typology) continue
       const seconds = Math.max(0, Number(row.seconds) || 0)
 
-      if (row.event_type === 'entrada' || row.event_type === 'ambiente') {
+      if (row.event_type === 'entrada') {
         bumpTypology(typology, row.created_at, {
           visits: 1,
-          seconds: row.event_type === 'ambiente' ? seconds : 0,
-          puntaje: 1 + (row.event_type === 'ambiente' ? seconds / 60 : 0),
+          seconds: 0,
+          puntaje: 1,
         })
-        if (row.event_type === 'ambiente') bumpAmbiente(typology, row.room, seconds)
+      } else if (row.event_type === 'ambiente') {
+        ambienteChanges += 1
+        bumpTypology(typology, row.created_at, {
+          visits: 0,
+          seconds,
+          puntaje: seconds / 60,
+        })
+        bumpAmbiente(typology, row.room, seconds)
       } else if (row.event_type === 'salida') {
+        // Segundos del tramo final; no se cuenta como entrada ni como cambio de ambiente.
         bumpTypology(typology, row.created_at, {
           visits: 0,
           seconds,
@@ -365,14 +434,12 @@ export async function fetchTourInterestHeatmap(
       const row = raw as {
         event_type: string
         metadata: Record<string, unknown> | null
-        created_at: string
       }
       const meta = row.metadata ?? {}
       const unitId = String(meta.unit_id ?? '').trim()
       if (!unitId) continue
       if (row.event_type === 'consultar_unidad') bumpUnit(unitId, 'consults', 2)
       if (row.event_type === 'guardar_unidad' && meta.action === 'save') bumpUnit(unitId, 'saves', 4)
-      if (row.event_type === 'lead_identificado') bumpUnit(unitId, 'leads', 3)
     }
 
     for (const raw of unitInterestRows ?? []) {
@@ -429,6 +496,9 @@ export async function fetchTourInterestHeatmap(
           b.puntaje - a.puntaje || a.unitNumber.localeCompare(b.unitNumber, 'es', { numeric: true }),
       )
 
+    const entradas = rows.reduce((s, r) => s + r.visits, 0)
+    const seconds = rows.reduce((s, r) => s + r.seconds, 0)
+
     return {
       ok: true,
       data: {
@@ -440,11 +510,17 @@ export async function fetchTourInterestHeatmap(
         cells: [...cellMap.values()],
         units: unitList,
         totals: {
-          visits: rows.reduce((s, r) => s + r.visits, 0),
-          seconds: rows.reduce((s, r) => s + r.seconds, 0),
+          entradas,
+          sessions: sessionIds.length,
+          visitors: uniqueVisitors.size,
+          ambienteChanges,
+          seconds,
           typologies: rows.length,
           unitsWithInterest: unitList.length,
+          visits: entradas,
         },
+        truncated,
+        truncationNotes,
       },
     }
   } catch (error) {

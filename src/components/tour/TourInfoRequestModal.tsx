@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -49,9 +49,16 @@ export function TourInfoRequestModal({
   light,
 }: TourInfoRequestModalProps) {
   const [pending, setPending] = useState(false)
+  const submitLockRef = useRef(false)
+  const requestIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!open) return
+    submitLockRef.current = false
+    requestIdRef.current =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `info_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
     logTourEvent({
       event_type: 'gate_mostrado',
       typology_code: typologyCode,
@@ -83,6 +90,8 @@ export function TourInfoRequestModal({
       'Consulta showroom'
     const mensaje = String(data.get('mensaje') ?? '').trim()
 
+    if (pending || submitLockRef.current) return
+    submitLockRef.current = true
     setPending(true)
     try {
       await identifyTourLead({
@@ -90,6 +99,10 @@ export function TourInfoRequestModal({
         email: String(data.get('email') ?? ''),
         phone: String(data.get('phone') ?? ''),
         consent: true,
+        request_kind: 'info_request',
+        client_request_id: requestIdRef.current,
+        motivo,
+        mensaje: mensaje || null,
         typology_code: typologyCode || null,
         unit_type_id: unitTypeId || null,
         unit_id: unitId || null,
@@ -98,21 +111,11 @@ export function TourInfoRequestModal({
         finish: finish || null,
         light: light || null,
       })
-      logTourEvent({
-        event_type: 'lead_identificado',
-        typology_code: typologyCode,
-        unit_type_id: unitTypeId,
-        metadata: {
-          source: 'solicitar_informacion',
-          motivo,
-          mensaje: mensaje || null,
-          unit_number: unitNumber ?? null,
-        },
-      })
       toast.success('Listo. Te contactaremos a la brevedad.')
       onIdentified?.()
       onClose()
     } catch (error) {
+      submitLockRef.current = false
       const message = error instanceof Error ? error.message : ''
       toast.error(
         message && !/<!DOCTYPE|<html/i.test(message)

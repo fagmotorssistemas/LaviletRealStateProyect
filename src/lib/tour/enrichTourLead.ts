@@ -62,11 +62,14 @@ export async function enrichTourLeadAfterIdentify(
     light?: string | null
     city?: string | null
     country?: string | null
+    /** Si true, falla si no se pudo resolver/persistir la unidad. */
+    requireUnit?: boolean
   },
-) {
+): Promise<{ unitId: string | null; unitTypeId: string | null; sessionId: string | null }> {
   const now = new Date().toISOString()
   let session: {
     id: string
+    visitor_id?: string | null
     unit_id: string | null
     unit_type_id: string | null
     city: string | null
@@ -118,6 +121,10 @@ export async function enrichTourLeadAfterIdentify(
   if (unitId && !unitNumber) {
     const { data: unit } = await admin.from('units').select('unit_number').eq('id', unitId).maybeSingle()
     unitNumber = first(unit?.unit_number)
+  }
+
+  if (args.requireUnit && !unitId) {
+    throw new Error('enrich_unit_required: no se pudo resolver la unidad')
   }
 
   const unitTypeId =
@@ -215,7 +222,7 @@ export async function enrichTourLeadAfterIdentify(
   }
 
   const { error: leadError } = await admin.from('leads').update(patch).eq('id', args.leadId)
-  if (leadError) console.error('enrich tour lead', leadError)
+  if (leadError) throw new Error(`enrich_lead: ${leadError.message}`)
 
   if (unitId) {
     const { error: linkError } = await admin.from('lead_units').upsert(
@@ -229,10 +236,18 @@ export async function enrichTourLeadAfterIdentify(
       },
       { onConflict: 'lead_id,unit_id' },
     )
-    if (linkError) console.error('enrich tour lead_units', linkError)
+    if (linkError) throw new Error(`enrich_lead_units: ${linkError.message}`)
   }
 
   if (session?.id) {
+    const { data: visitor } = await admin
+      .from('tour_visitors')
+      .select('id')
+      .eq('visitor_key', args.visitorKey)
+      .maybeSingle()
+    if (visitor?.id && session.visitor_id && session.visitor_id !== visitor.id) {
+      throw new Error('enrich_session: sesión no pertenece al visitante')
+    }
     const sessionPatch: Record<string, unknown> = {
       tracking_consent: true,
       lead_id: args.leadId,
@@ -242,6 +257,8 @@ export async function enrichTourLeadAfterIdentify(
     if (!session.city && first(args.city)) sessionPatch.city = first(args.city)
     if (!session.country && first(args.country)) sessionPatch.country = first(args.country)
     const { error: sessionError } = await admin.from('tour_sessions').update(sessionPatch).eq('id', session.id)
-    if (sessionError) console.error('enrich tour session', sessionError)
+    if (sessionError) throw new Error(`enrich_session: ${sessionError.message}`)
   }
+
+  return { unitId, unitTypeId, sessionId: session?.id ?? null }
 }

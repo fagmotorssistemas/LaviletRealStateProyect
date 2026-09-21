@@ -19,7 +19,13 @@ type DwellRow = { seconds: number; label: string; typology: string }
 
 const GATE_SECONDS = 40
 const INTEREST_MIN_SECONDS = 8
-/** Temporal: el popup de contacto a los 40s molesta en pruebas. Reactivar después. */
+/** Temporal: modal de contacto automático apagado. Conservar OFF en este cierre.
+ * Propuesta pendiente (no activar):
+ * - Primera invitación tras 60s activos Y 4 ambientes distintos (luz/acabado no cuentan).
+ * - Nombre + WhatsApp; correo opcional; permitir seguir sin repetición cada 40s.
+ * - Máximo una segunda invitación ligada a acción de interés.
+ * - Nunca pedir identificación si isShowroomIdentified().
+ */
 const TOUR_LEAD_GATE_ENABLED = false
 
 function addDwell(store: Map<string, DwellRow>, target: SceneTarget, seconds: number) {
@@ -54,7 +60,10 @@ function pickInterest(
 
 export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateClock?: boolean }) {
   const targetRef = useRef(target)
-  const startedRef = useRef(Date.now())
+  /** Reloj del ambiente actual: solo se reinicia al cambiar de escena o al salir (salida). */
+  const sceneStartedRef = useRef(Date.now())
+  /** Reloj del heartbeat: solo acumula total_seconds de sesión; no alimenta eventos ambiente/salida. */
+  const heartbeatStartedRef = useRef(Date.now())
   const visibleRef = useRef(typeof document === 'undefined' ? true : document.visibilityState === 'visible')
   const roomsRef = useRef(new Set<string>())
   const dwellRef = useRef(new Map<string, DwellRow>())
@@ -88,7 +97,7 @@ export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateC
   useEffect(() => {
     if (!ready || !target.room) return
     const previous = targetRef.current
-    const elapsed = Math.round((Date.now() - startedRef.current) / 1000)
+    const elapsed = Math.round((Date.now() - sceneStartedRef.current) / 1000)
     const roomChanged = Boolean(previous.room && previous.room !== target.room)
     const typologyChanged = Boolean(target.typologyCode && previous.typologyCode !== target.typologyCode)
     if (roomChanged && elapsed > 0) {
@@ -120,47 +129,45 @@ export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateC
       })
     }
     targetRef.current = target
-    startedRef.current = Date.now()
+    sceneStartedRef.current = Date.now()
+    heartbeatStartedRef.current = Date.now()
   }, [ready, target.room, target.roomLabel, target.typologyCode, target.unitTypeId, target.finish, target.light])
 
   useEffect(() => {
     if (!ready) return
-    const flushElapsed = () => {
+    const flushHeartbeat = () => {
       if (document.visibilityState !== 'visible' || !visibleRef.current) return
-      const elapsed = Math.round((Date.now() - startedRef.current) / 1000)
+      const elapsed = Math.round((Date.now() - heartbeatStartedRef.current) / 1000)
       if (elapsed < 1 || !targetRef.current.room) return
       pingTourSession(elapsed, {
         typology_code: targetRef.current.typologyCode,
         unit_type_id: targetRef.current.unitTypeId,
       })
-      addDwell(dwellRef.current, targetRef.current, elapsed)
-      setActiveSeconds((value) => value + elapsed)
-      startedRef.current = Date.now()
+      // Heartbeat no suma dwell de ambiente ni reinicia sceneStartedRef (evita doble conteo).
+      heartbeatStartedRef.current = Date.now()
     }
-    const id = window.setInterval(flushElapsed, 10000)
+    const id = window.setInterval(flushHeartbeat, 10000)
     return () => {
-      flushElapsed()
+      flushHeartbeat()
       window.clearInterval(id)
     }
   }, [ready])
 
   useEffect(() => {
     if (!pauseGateClock) return
-    const elapsed = Math.round((Date.now() - startedRef.current) / 1000)
+    const elapsed = Math.round((Date.now() - heartbeatStartedRef.current) / 1000)
     if (elapsed < 1 || !targetRef.current.room) return
     pingTourSession(elapsed, {
       typology_code: targetRef.current.typologyCode,
       unit_type_id: targetRef.current.unitTypeId,
     })
-    addDwell(dwellRef.current, targetRef.current, elapsed)
-    setActiveSeconds((value) => value + elapsed)
-    startedRef.current = Date.now()
+    heartbeatStartedRef.current = Date.now()
   }, [pauseGateClock])
 
   useEffect(() => {
     const flushSalida = (opts?: { unmounting?: boolean }) => {
       if (!readyRef.current) return
-      const elapsed = Math.round((Date.now() - startedRef.current) / 1000)
+      const elapsed = Math.round((Date.now() - sceneStartedRef.current) / 1000)
       if (elapsed < 1 || !targetRef.current.room) return
       logTourEvent(
         {
@@ -176,14 +183,18 @@ export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateC
       )
       addDwell(dwellRef.current, targetRef.current, elapsed)
       if (!opts?.unmounting) setActiveSeconds((value) => value + elapsed)
-      startedRef.current = Date.now()
+      sceneStartedRef.current = Date.now()
+      heartbeatStartedRef.current = Date.now()
     }
 
     const onVisibility = () => {
       const visible = document.visibilityState === 'visible'
       if (!visible && visibleRef.current) flushSalida()
       visibleRef.current = visible
-      if (visible) startedRef.current = Date.now()
+      if (visible) {
+        sceneStartedRef.current = Date.now()
+        heartbeatStartedRef.current = Date.now()
+      }
     }
 
     const onPageHide = () => {
@@ -226,7 +237,7 @@ export function useTourSceneTracking(target: SceneTarget, options?: { pauseGateC
       interestRef.current = pickInterest(
         dwellRef.current,
         targetRef.current,
-        startedRef.current,
+        sceneStartedRef.current,
         targetRef.current.typologyCode,
       )
     }

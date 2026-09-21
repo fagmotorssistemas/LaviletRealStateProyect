@@ -160,9 +160,22 @@ export function TourInterestHeatmapView() {
             {period === 'mes' ? ' · Columnas del mes: se suman solas cada día.' : null}
           </p>
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Kpi label="Entradas al modelo" value={data.totals.visits} />
+          {data.truncated ? (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Totales parciales: la consulta alcanzó un tope de filas.
+              {data.truncationNotes?.length ? ` ${data.truncationNotes.join(' ')}` : null}
+            </p>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+            <Kpi label="Entradas a tipología" value={data.totals.entradas ?? data.totals.visits} />
+            <Kpi label="Sesiones" value={data.totals.sessions ?? '—'} />
+            <Kpi label="Visitantes" value={data.totals.visitors ?? '—'} />
+            <Kpi label="Cambios de ambiente" value={data.totals.ambienteChanges ?? '—'} />
             <Kpi label="Tiempo mirando" value={formatSeconds(data.totals.seconds)} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
             <Kpi label="Tipologías activas" value={data.totals.typologies} />
             <Kpi label="Unidades con interés" value={data.totals.unitsWithInterest} />
           </div>
@@ -172,8 +185,8 @@ export function TourInterestHeatmapView() {
               <h2 className="text-sm font-semibold text-[#1f1a14]">Calor del recorrido (tipología)</h2>
               <p className="mt-0.5 text-xs text-[#8a8176]">{periodAxisHint(period)}</p>
               <p className="mt-1 text-xs text-[#8a8176]">
-                Puntaje = <strong className="font-semibold text-[#4a433c]">visitas + minutos mirando</strong>.
-                Casilla: visitas y tiempo. Color = puntaje. Columna “Ambiente…” = dónde más se quedaron.
+                Puntaje = <strong className="font-semibold text-[#4a433c]">entradas + minutos mirando</strong>.
+                Casilla: entradas (no cambios de ambiente) y tiempo. Color = puntaje.
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-[#8a8176]">
                 <span>Menos</span>
@@ -251,7 +264,7 @@ export function TourInterestHeatmapView() {
                                 }}
                                 title={
                                   cell
-                                    ? `${row.label} · ${b.label}: puntaje ${Math.round(puntaje)} · ${visits} visitas · ${formatSeconds(seconds)}`
+                                    ? `${row.label} · ${b.label}: puntaje ${Math.round(puntaje)} · ${visits} entradas · ${formatSeconds(seconds)}`
                                     : `${row.label} · ${b.label}: sin actividad`
                                 }
                               >
@@ -278,7 +291,7 @@ export function TourInterestHeatmapView() {
                             {Math.round(row.totalPuntaje)}
                           </span>
                           <span className="mt-0.5 block text-[10px] text-[#8a8176]">
-                            {row.visits} vis. · {formatSeconds(row.seconds)}
+                            {row.visits} entr. · {formatSeconds(row.seconds)}
                           </span>
                         </td>
                       </tr>
@@ -297,9 +310,10 @@ export function TourInterestHeatmapView() {
               <p className="mt-0.5 text-xs text-[#8a8176]">
                 Puntaje = <strong className="font-semibold text-[#4a433c]">abrir ficha ×2</strong>
                 {' · '}
-                <strong className="font-semibold text-[#4a433c]">lead vinculado ×3</strong>
+                <strong className="font-semibold text-[#4a433c]">unidad vinculada (lead_units) ×3</strong>
                 {' · '}
-                <strong className="font-semibold text-[#4a433c]">favorito ×4</strong>.
+                <strong className="font-semibold text-[#4a433c]">favorito ×4</strong>
+                . No suma identificaciones genéricas sin unidad.
               </p>
             </div>
             {data.units.length === 0 ? (
