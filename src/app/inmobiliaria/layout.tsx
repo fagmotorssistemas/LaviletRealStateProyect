@@ -10,8 +10,8 @@ import { AutomationDeliveryBanner } from '@/components/layout/AutomationDelivery
 import { VisitInboxProvider } from '@/contexts/VisitInboxContext'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
 
-/** Rutas de lead/cliente (cookies/teléfono) sin login CRM. Redirigen a /simulador. */
-const PUBLIC_INMOBILIARIA_PREFIXES = ['/inmobiliaria/mis-escenarios', '/inmobiliaria/simulador']
+/** Rutas de lead/cliente (cookies/teléfono) sin login CRM. */
+const PUBLIC_INMOBILIARIA_PREFIXES = ['/inmobiliaria/mis-escenarios']
 
 
 export default function InmobiliariaLayout({ children }: { children: React.ReactNode }) {

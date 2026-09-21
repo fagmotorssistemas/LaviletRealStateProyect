@@ -11,7 +11,7 @@ import {
   createLeadForQuoteAction,
 } from '@/app/inmobiliaria/financiamiento/actions'
 import { listLeads, listUnits } from '@/services/inmobiliaria.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, cn } from '@/lib/utils'
 import { buildAmortizationSchedule, quoteTotals } from '@/lib/inmobiliaria/financingQuote'
 import {
   FINANCING_TYPE_OPTIONS,
@@ -127,31 +127,11 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
     [showSchedule, quote.financed, form.interest_rate, form.term_months],
   )
 
-  const syncEntryFromPrice = (price: number, pct: number, amount: number, driver: 'pct' | 'amount') => {
-    if (!(price > 0)) {
-      return {
-        entry_pct: driver === 'pct' ? String(pct || '') : form.entry_pct,
-        entry_amount: driver === 'amount' ? String(amount || '') : form.entry_amount,
-      }
-    }
-    if (driver === 'pct') {
-      const safePct = pct || 0
-      return {
-        entry_pct: String(safePct),
-        entry_amount: String(round2((price * safePct) / 100)),
-      }
-    }
-    const safeAmount = amount || 0
-    return {
-      entry_amount: String(safeAmount),
-      entry_pct: String(round2((safeAmount / price) * 100)),
-    }
-  }
-
   const handleUnitChange = (unitId: string) => {
     const unit = units.find((u) => u.id === unitId)
     const price = unitPriceOf(unit)
-    const pct = Number(form.entry_pct) || 30
+    const isCash = form.financing_type === 'contado'
+    const pct = isCash ? 100 : Number(form.entry_pct) || 30
     if (unit && !(price > 0)) {
       toast.error(`La unidad ${unit.unit_number} no tiene precio publicado`)
     }
@@ -166,15 +146,35 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
   }
 
   const handleTypeChange = (value: string) => {
+    const price = Number(form.unit_price) || 0
+    if (value === 'contado') {
+      setEntryDriver('pct')
+      setShowSchedule(false)
+      setForm((p) => ({
+        ...p,
+        financing_type: value,
+        financing_partner_id: '',
+        partner_name: '',
+        entry_pct: '100',
+        entry_amount: price > 0 ? String(round2(price)) : '',
+        term_months: '',
+        interest_rate: '',
+      }))
+      return
+    }
     const nextPartners = partnersMatchingType(partners, value)
     const keep =
       form.financing_partner_id === NEW_PARTNER ||
       nextPartners.some((p) => p.id === form.financing_partner_id)
+    const pct = Number(form.entry_pct) === 100 ? 30 : Number(form.entry_pct) || 30
+    setEntryDriver('pct')
     setForm((p) => ({
       ...p,
       financing_type: value,
       financing_partner_id: keep ? p.financing_partner_id : '',
       partner_name: keep && p.financing_partner_id === NEW_PARTNER ? p.partner_name : '',
+      entry_pct: String(pct),
+      entry_amount: price > 0 ? String(round2((price * pct) / 100)) : p.entry_amount,
     }))
   }
 
@@ -214,18 +214,6 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
       ...p,
       entry_amount: value,
       entry_pct: price > 0 ? String(round2((amount / price) * 100)) : p.entry_pct,
-    }))
-  }
-
-  const handlePrice = (value: string) => {
-    const price = Number(value) || 0
-    const pct = Number(form.entry_pct) || 0
-    const amount = Number(form.entry_amount) || 0
-    const synced = syncEntryFromPrice(price, pct, amount, entryDriver)
-    setForm((p) => ({
-      ...p,
-      unit_price: value,
-      ...synced,
     }))
   }
 
@@ -273,15 +261,21 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
       toast.error('Selecciona el solicitante (lead)')
       return false
     }
-    const partnerSelected =
-      (form.financing_partner_id && form.financing_partner_id !== NEW_PARTNER) ||
-      Boolean(form.partner_name.trim())
-    if (!partnerSelected) {
-      toast.error('Selecciona o escribe la institución financiera')
-      return false
-    }
-    if (!(quote.unitPrice > 0) || !(Number(form.term_months) > 0)) {
-      toast.error('Completa precio, entrada y plazo')
+    const isCash = form.financing_type === 'contado'
+    if (!isCash) {
+      const partnerSelected =
+        (form.financing_partner_id && form.financing_partner_id !== NEW_PARTNER) ||
+        Boolean(form.partner_name.trim())
+      if (!partnerSelected) {
+        toast.error('Selecciona o escribe la institución financiera')
+        return false
+      }
+      if (!(quote.unitPrice > 0) || !(Number(form.term_months) > 0)) {
+        toast.error('Completa precio, entrada y plazo')
+        return false
+      }
+    } else if (!(quote.unitPrice > 0)) {
+      toast.error('Indica el precio de la unidad')
       return false
     }
 
@@ -290,22 +284,24 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
       await createLeadFinancingAction({
         lead_id: leadId,
         unit_id: form.unit_id || null,
-        financing_partner_id:
-          form.financing_partner_id && form.financing_partner_id !== NEW_PARTNER
+        financing_partner_id: isCash
+          ? null
+          : form.financing_partner_id && form.financing_partner_id !== NEW_PARTNER
             ? form.financing_partner_id
             : null,
-        financing_partner_name:
-          form.financing_partner_id === NEW_PARTNER || !form.financing_partner_id
+        financing_partner_name: isCash
+          ? null
+          : form.financing_partner_id === NEW_PARTNER || !form.financing_partner_id
             ? form.partner_name.trim() || null
             : null,
         status: 'simulado',
         financing_type: form.financing_type || null,
         unit_price: quote.unitPrice,
-        entry_amount: quote.entryAmount,
-        financed_amount: quote.financed,
-        term_months: Number(form.term_months) || null,
-        interest_rate: Number(form.interest_rate) || null,
-        monthly_payment: round2(quote.monthly) || null,
+        entry_amount: isCash ? quote.unitPrice : quote.entryAmount,
+        financed_amount: isCash ? 0 : quote.financed,
+        term_months: isCash ? null : Number(form.term_months) || null,
+        interest_rate: isCash ? null : Number(form.interest_rate) || null,
+        monthly_payment: isCash ? null : round2(quote.monthly) || null,
         notes: form.notes.trim() || null,
         generated_by: 'asesor',
       })
@@ -343,6 +339,7 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
     selectedPartner?.name ||
     (form.partner_name.trim() ? form.partner_name.trim() : 'Institución por definir')
 
+  const isCash = form.financing_type === 'contado'
   const typeLabel =
     FINANCING_TYPE_OPTIONS.find((o) => o.value === form.financing_type)?.label ?? 'Institución'
   const partnerPlaceholder =
@@ -350,7 +347,9 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
       ? 'Cooperativa…'
       : form.financing_type === 'biess'
         ? 'BIESS…'
-        : 'Banco…'
+        : form.financing_type === 'mixto'
+          ? 'Institución…'
+          : 'Banco…'
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -369,7 +368,7 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
 
       <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
         <Button type="button" variant="outline" onClick={resetForm}>
-          Reiniciar
+          Limpiar datos
         </Button>
         <Button type="submit" variant="outline" disabled={loading}>
           {loading ? 'Guardando...' : 'Guardar proforma'}
@@ -379,8 +378,8 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <div className="space-y-5 border border-[#c5c8bc] bg-[#f4f4ef] p-3 shadow-[inset_0_0_0_5px_#f4f4ef] print:hidden sm:p-5 lg:col-span-2">
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-5">
+        <div className="flex h-full flex-col space-y-5 border border-[#c5c8bc] bg-[#f4f4ef] p-3 shadow-[inset_0_0_0_5px_#f4f4ef] print:hidden sm:p-5 lg:col-span-2">
           <section className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9a7d55]">
               Unidad del inventario
@@ -466,9 +465,9 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
 
           <section className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9a7d55]">
-              Condiciones del crédito
+              {isCash ? 'Condiciones de compra' : 'Condiciones del crédito'}
             </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className={cn('grid grid-cols-1 gap-3', !isCash && 'sm:grid-cols-2')}>
               <Select
                 id="fin-type"
                 label="Tipo"
@@ -476,24 +475,27 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
                 value={form.financing_type}
                 onChange={(e) => handleTypeChange(e.target.value)}
               />
-              <Select
-                id="fin-partner"
-                label={`${typeLabel} *`}
-                options={[
-                  ...filteredPartners.map((p) => ({ value: p.id, label: p.name })),
-                  { value: NEW_PARTNER, label: `Otra ${typeLabel.toLowerCase()}…` },
-                ]}
-                placeholder={partnerPlaceholder}
-                value={form.financing_partner_id}
-                onChange={(e) => handlePartnerChange(e.target.value)}
-              />
+              {!isCash ? (
+                <Select
+                  id="fin-partner"
+                  label={`${typeLabel} *`}
+                  options={[
+                    ...filteredPartners.map((p) => ({ value: p.id, label: p.name })),
+                    { value: NEW_PARTNER, label: `Otra ${typeLabel.toLowerCase()}…` },
+                  ]}
+                  placeholder={partnerPlaceholder}
+                  value={form.financing_partner_id}
+                  onChange={(e) => handlePartnerChange(e.target.value)}
+                />
+              ) : null}
             </div>
-            {filteredPartners.length === 0 && form.financing_partner_id !== NEW_PARTNER ? (
+            {!isCash && filteredPartners.length === 0 && form.financing_partner_id !== NEW_PARTNER ? (
               <p className="text-xs text-[#8a5c58]">
                 No hay {typeLabel.toLowerCase()}s cargados. Elige “Otra…” o cambia el tipo.
               </p>
             ) : null}
-            {(form.financing_partner_id === NEW_PARTNER || !form.financing_partner_id) && (
+            {!isCash &&
+            (form.financing_partner_id === NEW_PARTNER || !form.financing_partner_id) ? (
               <Input
                 id="fin-partner-name"
                 label={`Nombre de la ${typeLabel.toLowerCase()}`}
@@ -507,7 +509,7 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
                 value={form.partner_name}
                 onChange={(e) => setForm((p) => ({ ...p, partner_name: e.target.value }))}
               />
-            )}
+            ) : null}
             <Input
               id="fin-price"
               label="Precio de la unidad ($)"
@@ -515,79 +517,100 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
               min="0"
               step="0.01"
               value={form.unit_price}
-              onChange={(e) => handlePrice(e.target.value)}
+              readOnly
+              className="cursor-default bg-[#ebece6] text-[#6b645c]"
             />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Input
-                id="fin-entry-pct"
-                label="Entrada (%)"
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={form.entry_pct}
-                readOnly={entryDriver === 'amount'}
-                className={entryDriver === 'amount' ? 'cursor-pointer bg-[#ebece6] text-[#6b645c]' : undefined}
-                onChange={(e) => handleEntryPct(e.target.value)}
-                onFocus={() => {
-                  setEntryDriver('pct')
-                }}
-              />
-              <Input
-                id="fin-entry"
-                label="Entrada ($)"
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.entry_amount}
-                readOnly={entryDriver === 'pct'}
-                className={entryDriver === 'pct' ? 'cursor-pointer bg-[#ebece6] text-[#6b645c]' : undefined}
-                onChange={(e) => handleEntryAmount(e.target.value)}
-                onFocus={() => {
-                  setEntryDriver('amount')
-                }}
-              />
-            </div>
             <p className="text-[11px] text-[#8a8d87]">
-              {entryDriver === 'pct'
-                ? 'Editando %. El $ se calcula solo. Haz clic en Entrada ($) para editar el monto.'
-                : 'Editando $. El % se calcula solo. Haz clic en Entrada (%) para editar el porcentaje.'}
+              Precio publicado del inventario. No se edita en la proforma.
             </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Input
-                id="fin-term"
-                label="Plazo (meses)"
-                type="number"
-                min="1"
-                value={form.term_months}
-                onChange={(e) => setForm((p) => ({ ...p, term_months: e.target.value }))}
-              />
-              <Input
-                id="fin-rate"
-                label="Tasa anual (%)"
-                type="number"
-                step="0.01"
-                value={form.interest_rate}
-                onChange={(e) => setForm((p) => ({ ...p, interest_rate: e.target.value }))}
-              />
-            </div>
+            {isCash ? (
+              <p className="rounded-lg border border-[#c5c8bc] bg-white/70 px-3 py-2.5 text-xs text-[#6b645c]">
+                Compra al contado: se paga el precio completo, sin institución financiera, plazo ni
+                cuota.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    id="fin-entry-pct"
+                    label="Entrada (%)"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={form.entry_pct}
+                    readOnly={entryDriver === 'amount'}
+                    className={
+                      entryDriver === 'amount' ? 'cursor-pointer bg-[#ebece6] text-[#6b645c]' : undefined
+                    }
+                    onChange={(e) => handleEntryPct(e.target.value)}
+                    onFocus={() => {
+                      setEntryDriver('pct')
+                    }}
+                  />
+                  <Input
+                    id="fin-entry"
+                    label="Entrada ($)"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.entry_amount}
+                    readOnly={entryDriver === 'pct'}
+                    className={
+                      entryDriver === 'pct' ? 'cursor-pointer bg-[#ebece6] text-[#6b645c]' : undefined
+                    }
+                    onChange={(e) => handleEntryAmount(e.target.value)}
+                    onFocus={() => {
+                      setEntryDriver('amount')
+                    }}
+                  />
+                </div>
+                <p className="text-[11px] text-[#8a8d87]">
+                  {entryDriver === 'pct'
+                    ? 'Editando %. El $ se calcula solo. Haz clic en Entrada ($) para editar el monto.'
+                    : 'Editando $. El % se calcula solo. Haz clic en Entrada (%) para editar el porcentaje.'}
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    id="fin-term"
+                    label="Plazo (meses)"
+                    type="number"
+                    min="1"
+                    value={form.term_months}
+                    onChange={(e) => setForm((p) => ({ ...p, term_months: e.target.value }))}
+                  />
+                  <Input
+                    id="fin-rate"
+                    label="Tasa anual (%)"
+                    type="number"
+                    step="0.01"
+                    value={form.interest_rate}
+                    onChange={(e) => setForm((p) => ({ ...p, interest_rate: e.target.value }))}
+                  />
+                </div>
+              </>
+            )}
           </section>
 
           <Textarea
             id="fin-notes"
             label="Notas"
-            placeholder="Observaciones para el cliente o el banco..."
+            placeholder={
+              isCash
+                ? 'Observaciones para el cliente…'
+                : 'Observaciones para el cliente o la institución…'
+            }
             value={form.notes}
             onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
           />
         </div>
 
-        <div className="lg:col-span-3">
+        <div className="flex lg:col-span-3">
           <div
             id="financing-proforma"
-            className="border border-[#c5c8bc] bg-[#f7f7f3] p-6 shadow-[inset_0_0_0_6px_#f4f4ef] print:border-0 print:shadow-none"
+            className="flex h-full min-h-full w-full flex-col border border-[#c5c8bc] bg-[#f7f7f3] p-6 shadow-[inset_0_0_0_6px_#f4f4ef] print:border-0 print:shadow-none"
           >
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 pb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/LogoHorizontal.png" alt="Lavilet" className="h-14 w-auto object-contain" />
               <div className="text-right">
@@ -599,110 +622,161 @@ export function FinancingCotizador({ tenantId, partners, plans: _plans, onSaved 
               </div>
             </div>
 
-            <div className="mt-4 flex items-end justify-between">
-              <div>
-                <h3 className="font-display text-2xl font-semibold text-[#3a3d36]">Proforma de financiamiento</h3>
-                <p className="text-xs text-slate-500">{partnerLabel}</p>
-              </div>
-              <p className="text-xs text-slate-400">{issuedAt}</p>
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-              <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  Solicitante
-                </p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {creatingLead
-                    ? form.new_lead_name.trim() || 'Nuevo lead'
-                    : (selectedLead?.name ?? '—')}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {creatingLead
-                    ? form.new_lead_phone.trim() || 'Sin teléfono'
-                    : (selectedLead?.phone ?? 'Sin teléfono')}
-                </p>
-              </div>
-              <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  Unidad de interés
-                </p>
-                <p className="mt-1 font-medium text-slate-900">{selectedUnit?.unit_number ?? 'Sin unidad'}</p>
-                <p className="text-xs text-slate-500">{selectedUnit?.project?.name ?? '—'}</p>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-2 text-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Detalle financiero
-              </p>
-              <Row label="Precio de la unidad" value={formatCurrency(quote.unitPrice)} />
-              <Row
-                label={`Entrada (${quote.entryPct.toFixed(1)}%)`}
-                value={`− ${formatCurrency(quote.entryAmount)}`}
-              />
-              <Row label="Saldo a financiar" value={formatCurrency(quote.financed)} strong />
-            </div>
-
-            <div className="mt-4 space-y-2 rounded-lg border border-slate-100 p-3 text-sm">
-              <Row label="Capital" value={formatCurrency(quote.financed)} />
-              <Row
-                label={`Interés (${form.interest_rate || 0}% anual × ${form.term_months || 0} meses)`}
-                value={`+ ${formatCurrency(quote.totalInterest)}`}
-              />
-              <Row label="Total a pagar" value={formatCurrency(quote.totalPaid)} strong />
-            </div>
-
-            <div className="mt-4 border border-[#8b917c] bg-[#616857] px-4 py-3 text-[#f4f4ef]">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
-                Cuota mensual fija
-              </p>
-              <p className="crm-num text-2xl font-bold tracking-tight">{formatCurrency(quote.monthly)}</p>
-              <p className="text-xs text-white/70">{form.term_months || 0} meses · tabla francesa</p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowSchedule((v) => !v)}
-              className="mt-4 cursor-pointer text-sm font-medium text-[#7a7e70] hover:underline print:hidden"
+            <div
+              className={
+                showSchedule
+                  ? 'mt-4 flex min-h-0 flex-1 flex-col gap-4'
+                  : 'mt-4 flex min-h-0 flex-1 flex-col justify-between gap-4'
+              }
             >
-              {showSchedule ? 'Ocultar cronograma' : 'Ver cronograma de pagos'}
-            </button>
+              <div className="flex shrink-0 items-end justify-between gap-3">
+                <div>
+                  <h3 className="font-display text-2xl font-semibold text-[#3a3d36]">
+                    {isCash ? 'Proforma de compra al contado' : 'Proforma de financiamiento'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {isCash ? 'Pago completo · sin crédito' : partnerLabel}
+                  </p>
+                </div>
+                <p className="text-xs text-slate-400">{issuedAt}</p>
+              </div>
 
-            {showSchedule && schedule.length > 0 && (
-              <div className="mt-3 max-h-56 overflow-auto rounded-lg border border-slate-100 text-xs">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="px-2 py-1.5 text-left font-medium">Nº</th>
-                      <th className="px-2 py-1.5 text-right font-medium">Cuota</th>
-                      <th className="px-2 py-1.5 text-right font-medium">Interés</th>
-                      <th className="px-2 py-1.5 text-right font-medium">Capital</th>
-                      <th className="px-2 py-1.5 text-right font-medium">Saldo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {schedule.slice(0, 60).map((row) => (
-                      <tr key={row.n} className="border-t border-slate-50">
-                        <td className="px-2 py-1">{row.n}</td>
-                        <td className="crm-num px-2 py-1 text-right">{formatCurrency(row.payment)}</td>
-                        <td className="crm-num px-2 py-1 text-right">{formatCurrency(row.interest)}</td>
-                        <td className="crm-num px-2 py-1 text-right">{formatCurrency(row.principal)}</td>
-                        <td className="crm-num px-2 py-1 text-right">{formatCurrency(row.balance)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {schedule.length > 60 && (
-                  <p className="px-2 py-1.5 text-slate-400">Mostrando 60 de {schedule.length} cuotas</p>
+              <div className="grid shrink-0 grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+                <div className="rounded-lg bg-slate-50 p-3.5 sm:p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Solicitante
+                  </p>
+                  <p className="mt-1.5 font-medium text-slate-900">
+                    {creatingLead
+                      ? form.new_lead_name.trim() || 'Nuevo lead'
+                      : (selectedLead?.name ?? '—')}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {creatingLead
+                      ? form.new_lead_phone.trim() || 'Sin teléfono'
+                      : (selectedLead?.phone ?? 'Sin teléfono')}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3.5 sm:p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Unidad de interés
+                  </p>
+                  <p className="mt-1.5 font-medium text-slate-900">
+                    {selectedUnit?.unit_number ?? 'Sin unidad'}
+                  </p>
+                  <p className="text-xs text-slate-500">{selectedUnit?.project?.name ?? '—'}</p>
+                </div>
+              </div>
+
+              <div className="shrink-0 space-y-2.5 text-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Detalle financiero
+                </p>
+                <Row label="Precio de la unidad" value={formatCurrency(quote.unitPrice)} />
+                {isCash ? (
+                  <Row label="Forma de pago" value="Contado (100%)" strong />
+                ) : (
+                  <>
+                    <Row
+                      label={`Entrada (${quote.entryPct.toFixed(1)}%)`}
+                      value={`− ${formatCurrency(quote.entryAmount)}`}
+                    />
+                    <Row label="Saldo a financiar" value={formatCurrency(quote.financed)} strong />
+                  </>
                 )}
               </div>
-            )}
 
-            <p className="mt-4 text-[11px] leading-relaxed text-slate-400">
-              Proforma referencial. Sujeta a aprobación de la institución, avalúo y políticas de crédito
-              vigentes. No constituye oferta vinculante.
-            </p>
+              {isCash ? (
+                <div className="shrink-0 border border-[#8b917c] bg-[#616857] px-4 py-4 text-[#f4f4ef] sm:py-5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                    Total a pagar hoy
+                  </p>
+                  <p className="crm-num mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
+                    {formatCurrency(quote.unitPrice)}
+                  </p>
+                  <p className="mt-1 text-xs text-white/70">Sin cuotas · sin intereses</p>
+                </div>
+              ) : (
+                <>
+                  <div className="shrink-0 space-y-2.5 rounded-lg border border-slate-100 p-3.5 text-sm sm:p-4">
+                    <Row label="Capital" value={formatCurrency(quote.financed)} />
+                    <Row
+                      label={`Interés (${form.interest_rate || 0}% anual × ${form.term_months || 0} meses)`}
+                      value={`+ ${formatCurrency(quote.totalInterest)}`}
+                    />
+                    <Row label="Total a pagar" value={formatCurrency(quote.totalPaid)} strong />
+                  </div>
+
+                  <div className="shrink-0 border border-[#8b917c] bg-[#616857] px-4 py-4 text-[#f4f4ef] sm:py-5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                      Cuota mensual fija
+                    </p>
+                    <p className="crm-num mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
+                      {formatCurrency(quote.monthly)}
+                    </p>
+                    <p className="mt-1 text-xs text-white/70">
+                      {form.term_months || 0} meses · tabla francesa
+                    </p>
+                  </div>
+
+                  <div className={showSchedule ? 'flex min-h-0 flex-1 flex-col' : 'shrink-0'}>
+                    <button
+                      type="button"
+                      onClick={() => setShowSchedule((v) => !v)}
+                      className="cursor-pointer text-sm font-medium text-[#7a7e70] hover:underline print:hidden"
+                    >
+                      {showSchedule ? 'Ocultar cronograma' : 'Ver cronograma de pagos'}
+                    </button>
+
+                    {showSchedule && schedule.length > 0 ? (
+                      <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-lg border border-slate-100 text-xs">
+                        <table className="w-full">
+                          <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                            <tr>
+                              <th className="px-2 py-1.5 text-left font-medium">Nº</th>
+                              <th className="px-2 py-1.5 text-right font-medium">Cuota</th>
+                              <th className="px-2 py-1.5 text-right font-medium">Interés</th>
+                              <th className="px-2 py-1.5 text-right font-medium">Capital</th>
+                              <th className="px-2 py-1.5 text-right font-medium">Saldo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {schedule.slice(0, 60).map((row) => (
+                              <tr key={row.n} className="border-t border-slate-50">
+                                <td className="px-2 py-1">{row.n}</td>
+                                <td className="crm-num px-2 py-1 text-right">
+                                  {formatCurrency(row.payment)}
+                                </td>
+                                <td className="crm-num px-2 py-1 text-right">
+                                  {formatCurrency(row.interest)}
+                                </td>
+                                <td className="crm-num px-2 py-1 text-right">
+                                  {formatCurrency(row.principal)}
+                                </td>
+                                <td className="crm-num px-2 py-1 text-right">
+                                  {formatCurrency(row.balance)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {schedule.length > 60 ? (
+                          <p className="px-2 py-1.5 text-slate-400">
+                            Mostrando 60 de {schedule.length} cuotas
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              )}
+
+              <p className="shrink-0 text-[11px] leading-relaxed text-slate-400">
+                {isCash
+                  ? 'Proforma referencial de compra al contado. No constituye oferta vinculante.'
+                  : 'Proforma referencial. Sujeta a aprobación de la institución, avalúo y políticas de crédito vigentes. No constituye oferta vinculante.'}
+              </p>
+            </div>
           </div>
         </div>
       </div>

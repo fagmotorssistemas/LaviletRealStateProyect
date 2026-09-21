@@ -111,21 +111,26 @@ export function TourSimulatorDrawer({
             aria-label="Simulador de inversión"
             className={cn(
               'z-[70] flex flex-col overflow-hidden rounded-2xl bg-[#f7f3ee] shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
-              /* Ancho suficiente para desglose, barra de cobertura y comparativa */
-              'w-[min(100%-1.25rem,36rem)] sm:w-[min(100%-2.5rem,40rem)]',
+              /* Más estrecho que antes; en móvil casi a pantalla con márgenes seguros */
+              'w-[min(100%-1rem,21rem)] sm:w-[min(100%-2rem,25rem)] lg:w-[min(100%-2.5rem,27rem)]',
               contained
                 ? cn(
-                    'absolute left-3 sm:left-4',
-                    'top-3 bottom-3 max-h-[calc(100%-1.5rem)] sm:top-4 sm:bottom-4',
+                    'absolute left-2 sm:left-4',
+                    'top-2 bottom-2 max-h-[calc(100%-1rem)] sm:top-4 sm:bottom-4 sm:max-h-[calc(100%-2rem)]',
                   )
                 : cn(
-                    'fixed left-3 sm:left-5',
-                    'top-3 bottom-3 max-h-[calc(100dvh-1.5rem)]',
+                    'fixed left-2 right-auto sm:left-5',
+                    'top-2 bottom-2 max-h-[calc(100dvh-1rem)]',
                     'sm:top-5 sm:bottom-5 sm:max-h-[calc(100dvh-2.5rem)]',
+                    /* Teléfonos estrechos: panel a casi todo el ancho útil */
+                    'max-sm:left-[max(0.5rem,env(safe-area-inset-left))]',
+                    'max-sm:right-[max(0.5rem,env(safe-area-inset-right))]',
+                    'max-sm:w-auto',
                     '[@media(max-height:520px)]:left-[max(0.5rem,env(safe-area-inset-left))]',
                     '[@media(max-height:520px)]:top-[max(0.5rem,env(safe-area-inset-top))]',
                     '[@media(max-height:520px)]:bottom-[max(0.5rem,env(safe-area-inset-bottom))]',
-                    '[@media(max-height:520px)]:w-[min(24rem,calc(100vw-1rem))]',
+                    '[@media(max-height:520px)]:w-[min(20rem,calc(100vw-1rem))]',
+                    '[@media(max-height:520px)]:right-auto',
                   ),
             )}
             initial={reduceMotion ? false : { x: -28, opacity: 0 }}
@@ -138,7 +143,7 @@ export function TourSimulatorDrawer({
                 <Calculator size={15} strokeWidth={1.75} className="shrink-0 text-[#1a2744]" />
                 <div className="min-w-0">
                   <p className="truncate text-[11px] font-semibold tracking-[0.14em] text-[#1a2744] uppercase">
-                    Simulador de inversión
+                    Simulador
                   </p>
                   <p className="truncate text-[11px] text-[#8a8176]">
                     {unitParam ? `Unidad ${unitParam}` : 'Elija una unidad'}
@@ -178,7 +183,7 @@ export function TourSimulatorDrawer({
               </div>
             </div>
 
-            <div className="tour-ficha-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
+            <div className="tour-ficha-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2.5 py-2.5 sm:px-3.5 sm:py-3">
               {picking || !unitParam ? (
                 <div className="space-y-3">
                   {unitParam ? (

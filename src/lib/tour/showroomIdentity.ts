@@ -37,9 +37,13 @@ export function isShowroomIdentified() {
 /**
  * Bypass temporal: en localhost (o con NEXT_PUBLIC_TOUR_TOOLS_SKIP_PHONE=1)
  * se puede abrir simulador/financiamiento sin pedir celular.
- * Producción sigue exigiendo identificación.
+ * Producción sigue exigiendo identificación — salvo el flag temporal abajo.
  */
+/** TEMP 2026-09-19: simulador + financiamiento abiertos sin celular. Poner en `false` para restaurar el gate. */
+export const TOUR_TOOLS_PHONE_GATE_TEMPORARILY_OPEN = true
+
 export function shouldSkipShowroomPhoneGate() {
+  if (TOUR_TOOLS_PHONE_GATE_TEMPORARILY_OPEN) return true
   if (process.env.NEXT_PUBLIC_TOUR_TOOLS_SKIP_PHONE === '1') return true
   if (typeof window === 'undefined') return false
   const host = window.location.hostname

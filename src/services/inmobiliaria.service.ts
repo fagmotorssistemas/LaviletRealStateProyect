@@ -2133,12 +2133,30 @@ function mapClosingUnit(row: {
 function mapFinancingUnit(row: {
   id: string
   unit_number: string
+  category?: string | null
+  floor?: string | null
+  floor_number?: number | null
+  bedrooms?: number | null
+  bathrooms?: number | null
+  area_internal_m2?: number | null
+  area_total_m2?: number | null
+  parking_assigned?: number | null
+  published_commercial_price?: number | null
   project?: { name: string } | { name: string }[] | null
 }): NonNullable<LeadFinancing['unit']> {
   const project = unwrapEmbedded(row.project)
   return {
     id: row.id,
     unit_number: row.unit_number,
+    category: row.category ?? null,
+    floor: row.floor ?? null,
+    floor_number: row.floor_number ?? null,
+    bedrooms: row.bedrooms ?? null,
+    bathrooms: row.bathrooms ?? null,
+    area_internal_m2: row.area_internal_m2 ?? null,
+    area_total_m2: row.area_total_m2 ?? null,
+    parking_assigned: row.parking_assigned ?? null,
+    published_commercial_price: row.published_commercial_price ?? null,
     project: project ? { name: project.name } : null,
   }
 }
@@ -2709,7 +2727,7 @@ export async function listLeadFinancing(
 ): Promise<LeadFinancing[]> {
   let query = supabase
     .from('lead_financing')
-    .select(`*, lead:leads(id, name, phone), unit:units(id, unit_number, project:projects(name)), partner:financing_partners(${FINANCING_PARTNER_EMBED})`)
+    .select(`*, lead:leads(id, name, phone, email, source, status), unit:units(id, unit_number, category, floor, floor_number, bedrooms, bathrooms, area_internal_m2, area_total_m2, parking_assigned, published_commercial_price, project:projects(name)), partner:financing_partners(${FINANCING_PARTNER_EMBED})`)
     .order('requested_at', { ascending: false })
 
   if (params.status) query = query.eq('status', params.status)
@@ -2755,11 +2773,40 @@ async function hydrateLeadFinancing(
   const partnerIds = [...new Set(rows.map((r) => r.financing_partner_id).filter(Boolean))] as string[]
   const [{ data: leads }, { data: units }, { data: partners }] = await Promise.all([
     leadIds.length
-      ? supabase.from('leads').select('id, name, phone').in('id', leadIds)
-      : Promise.resolve({ data: [] as { id: string; name: string; phone: string | null }[] }),
+      ? supabase.from('leads').select('id, name, phone, email, source, status').in('id', leadIds)
+      : Promise.resolve({
+          data: [] as {
+            id: string
+            name: string
+            phone: string | null
+            email: string | null
+            source: string | null
+            status: string | null
+          }[],
+        }),
     unitIds.length
-      ? supabase.from('units').select('id, unit_number, project:projects(name)').in('id', unitIds)
-      : Promise.resolve({ data: [] as { id: string; unit_number: string; project?: { name: string } | { name: string }[] | null }[] }),
+      ? supabase
+          .from('units')
+          .select(
+            'id, unit_number, category, floor, floor_number, bedrooms, bathrooms, area_internal_m2, area_total_m2, parking_assigned, published_commercial_price, project:projects(name)',
+          )
+          .in('id', unitIds)
+      : Promise.resolve({
+          data: [] as {
+            id: string
+            unit_number: string
+            category?: string | null
+            floor?: string | null
+            floor_number?: number | null
+            bedrooms?: number | null
+            bathrooms?: number | null
+            area_internal_m2?: number | null
+            area_total_m2?: number | null
+            parking_assigned?: number | null
+            published_commercial_price?: number | null
+            project?: { name: string } | { name: string }[] | null
+          }[],
+        }),
     partnerIds.length
       ? supabase.from('financing_partners').select(FINANCING_PARTNER_EMBED).in('id', partnerIds)
       : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -2841,31 +2888,34 @@ export async function createLeadFinancing(
     notes?: string | null
   },
 ): Promise<LeadFinancing> {
+  const insertPayload = {
+    lead_id: payload.lead_id,
+    unit_id: payload.unit_id || null,
+    financing_partner_id: payload.financing_partner_id || null,
+    financing_type: payload.financing_type || null,
+    unit_price: payload.unit_price ?? null,
+    entry_amount: payload.entry_amount ?? null,
+    financed_amount: payload.financed_amount ?? null,
+    term_months: payload.term_months ?? null,
+    interest_rate: payload.interest_rate ?? null,
+    monthly_payment: payload.monthly_payment ?? null,
+    status: payload.status || 'simulado',
+    generated_by: payload.generated_by ?? 'asesor',
+    notes: payload.notes ?? null,
+  }
+
   const { data, error } = await supabase
     .from('lead_financing')
-    .insert({
-      lead_id: payload.lead_id,
-      unit_id: payload.unit_id || null,
-      financing_partner_id: payload.financing_partner_id || null,
-      financing_type: payload.financing_type || null,
-      unit_price: payload.unit_price ?? null,
-      entry_amount: payload.entry_amount ?? null,
-      financed_amount: payload.financed_amount ?? null,
-      term_months: payload.term_months ?? null,
-      interest_rate: payload.interest_rate ?? null,
-      monthly_payment: payload.monthly_payment ?? null,
-      status: payload.status || 'simulado',
-      generated_by: payload.generated_by ?? 'asesor',
-      notes: payload.notes ?? null,
-    })
-    .select(`*, partner:financing_partners(${FINANCING_PARTNER_EMBED})`)
+    .insert(insertPayload)
+    .select('*')
     .single()
-  if (error) throw error
-  const row = data as LeadFinancing & { partner?: unknown }
-  return {
-    ...row,
-    partner: unwrapPartner(row.partner) ?? null,
+
+  if (error) {
+    throw new Error(error.message || 'No se pudo guardar la proforma')
   }
+
+  const [hydrated] = await hydrateLeadFinancing(supabase, [data as LeadFinancing])
+  return hydrated
 }
 
 export async function listFinancingPartners(supabase: SupabaseClient): Promise<FinancingPartner[]> {

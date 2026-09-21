@@ -18,6 +18,20 @@ import { ChevronDown } from 'lucide-react'
 
 type AccordionId = 'rent' | 'debt' | 'calc' | null
 
+/** Montos de las cards KPI: sin marcas bidi de Intl y siempre centrados. */
+function formatStatValue(value: string) {
+  return value.replace(/[\u200e\u200f\u061c\u2066-\u2069\u00a0\u202f]/g, '').trim()
+}
+
+function StatValue({ value }: { value: string }) {
+  const clean = formatStatValue(value)
+  return (
+    <span className="inline-flex max-w-full items-baseline justify-center whitespace-nowrap text-[1.25rem] font-bold leading-none tracking-tight text-[#1f1a14] sm:text-[1.5rem]">
+      {clean}
+    </span>
+  )
+}
+
 function Accordion({
   id,
   openId,
@@ -70,17 +84,19 @@ function Row({
   return (
     <div
       className={cn(
-        'flex items-start justify-between gap-3 border-b border-[#e4ddd3]/80 pb-3 text-[13px] last:border-b-0 last:pb-0',
+        'flex items-baseline justify-between gap-2 border-b border-[#e4ddd3]/80 pb-2.5 text-[12px] last:border-b-0 last:pb-0 sm:gap-3 sm:pb-3 sm:text-[13px]',
         strong && 'font-semibold text-[#1f1a14]',
       )}
     >
-      <span className={strong ? 'text-[#1f1a14]' : 'text-[#6b645c]'}>{label}</span>
+      <span className={cn('min-w-0 flex-1 leading-snug', strong ? 'text-[#1f1a14]' : 'text-[#6b645c]')}>
+        {label}
+      </span>
       <span
         className={cn(
-          'shrink-0 tabular-nums',
+          'max-w-[58%] shrink-0 text-right tabular-nums leading-snug break-words',
           tone === 'accent' && 'font-semibold text-[#1a2744]',
           tone === 'good' && 'font-semibold text-emerald-700',
-          tone === 'muted' && 'text-[#6b645c]',
+          tone === 'muted' && 'max-w-[62%] text-[#6b645c]',
           !tone && (strong ? 'text-[#1f1a14]' : 'text-[#1f1a14]'),
         )}
       >
@@ -188,15 +204,15 @@ export function CompraComparisonView({
     <div className="space-y-5">
       {/* 1. HERO */}
       <div
-        className="rounded-xl px-5 py-6 text-white"
+        className="rounded-xl px-3.5 py-4 text-white sm:px-5 sm:py-6"
         style={{
           background: 'linear-gradient(135deg, #1a2744 0%, #2a3f66 55%, #BDA27E 100%)',
         }}
       >
-        <h3 className="text-[22px] font-semibold leading-snug">
+        <h3 className="text-lg font-semibold leading-snug sm:text-[22px]">
           {unitTitle} · {isCash ? 'Compra sin crédito' : 'Compra con financiamiento'}
         </h3>
-        <p className="mt-2 text-sm text-white/95">{heroSubtitle}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-white/95 sm:text-sm">{heroSubtitle}</p>
       </div>
 
       {/* Controles de horizonte */}
@@ -209,7 +225,7 @@ export function CompraComparisonView({
             max={40}
             value={horizonYears}
             onChange={(e) => onHorizonYearsChange?.(Number(e.target.value) || 10)}
-            className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-center text-sm tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
         </label>
         <label className="block space-y-1 text-[11px]">
@@ -219,13 +235,13 @@ export function CompraComparisonView({
             step={0.1}
             value={Math.round(appreciationRateAnnual * 1000) / 10}
             onChange={(e) => onAppreciationRateChange?.((Number(e.target.value) || 0) / 100)}
-            className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-center text-sm tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
         </label>
       </div>
 
       {/* 2. CARDS */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
         {(
           [
             {
@@ -258,15 +274,17 @@ export function CompraComparisonView({
         ).map((card) => (
           <div
             key={card.label}
-            className="rounded-xl border border-[#e4ddd3] bg-[#fcfbf9] px-5 py-5 text-center"
+            className="flex min-h-[8.5rem] min-w-0 flex-col items-center justify-between gap-2 rounded-xl border border-[#e4ddd3] bg-[#fcfbf9] px-2.5 py-3 sm:min-h-[9.25rem] sm:px-4 sm:py-4"
           >
-            <p className="text-[12px] font-medium tracking-[0.12em] text-[#8a8176] uppercase">
+            <p className="w-full text-center text-[10px] font-medium tracking-[0.1em] text-[#8a8176] uppercase sm:text-[11px]">
               {card.label}
             </p>
-            <p className="mt-2 text-[28px] font-bold leading-none tabular-nums text-[#1f1a14]">
-              {card.value}
+            <div className="flex w-full flex-1 items-center justify-center">
+              <StatValue value={card.value} />
+            </div>
+            <p className="w-full text-center text-[10px] leading-snug text-[#8a8176] sm:text-[11px]">
+              {card.hint}
             </p>
-            <p className="mt-2 text-[12px] text-[#8a8176]">{card.hint}</p>
           </div>
         ))}
       </div>
@@ -442,66 +460,135 @@ export function CompraComparisonView({
         </Accordion>
       </div>
 
-      {/* 4. COMPARATIVA */}
-      <div className="space-y-4 pt-2">
+      {/* 4. COMPARATIVA — filas alineadas (evita desfase y recortes en panel estrecho) */}
+      <div className="space-y-3 pt-2">
         <h4 className="text-base font-semibold text-[#1f1a14]">
           Compara: Contado vs Financiamiento
         </h4>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {(
-            [
-              ['Contado', comparison.cash, isCash],
-              ['Financiamiento', comparison.financed, !isCash],
-            ] as const
-          ).map(([label, side, active], index) => {
-            const flow = side.coverage.monthlyTopUpOrSurplus
-            const highlight = label === 'Financiamiento'
-            return (
-              <div
-                key={label}
-                className={cn(
-                  'rounded-xl p-4',
-                  highlight
-                    ? 'border-2 border-[#1a2744] bg-[#f4f1eb]'
-                    : 'border border-[#e4ddd3] bg-[#fcfbf9]',
-                  active && 'ring-1 ring-[#1a2744]/20',
-                )}
-              >
-                <p className="mb-3 text-[12px] font-semibold tracking-[0.08em] text-[#1a2744] uppercase">
-                  Opción {index + 1}: {label}
-                  {active ? ' · vista actual' : ''}
-                </p>
-                <div className="space-y-2">
-                  <Row
-                    label="Capital inicial"
-                    value={formatMoney(side.wealth.initialOutlay)}
-                    tone={highlight ? 'accent' : undefined}
-                  />
-                  <Row
-                    label={flow >= 0 ? 'Flujo/mes' : 'Aporte/mes'}
-                    value={formatMoneyExact(Math.abs(flow))}
-                    tone={flow >= 0 ? 'good' : highlight ? 'accent' : undefined}
-                  />
-                  <Row
-                    label={`Total ${horizonYears} años`}
-                    value={formatMoney(side.wealth.totalCashInvested)}
-                    tone={highlight ? 'accent' : undefined}
-                  />
-                  <Row
-                    label="Ganancia"
-                    value={formatMoney(side.wealth.projectedGainOrLoss)}
-                    tone={highlight ? 'accent' : 'good'}
-                  />
-                  <Row
-                    label="Retorno acum."
-                    value={formatPercent(side.wealth.cumulativeReturnOnCashPercent)}
-                    tone={highlight ? 'accent' : 'good'}
-                  />
+        {(() => {
+          const cashFlow = comparison.cash.coverage.monthlyTopUpOrSurplus
+          const finFlow = comparison.financed.coverage.monthlyTopUpOrSurplus
+          const rows: Array<{
+            key: string
+            label: string
+            cash: string
+            financed: string
+            cashGood?: boolean
+          }> = [
+            {
+              key: 'capital',
+              label: 'Capital inicial',
+              cash: formatMoney(comparison.cash.wealth.initialOutlay),
+              financed: formatMoney(comparison.financed.wealth.initialOutlay),
+            },
+            {
+              key: 'flujo',
+              label: cashFlow >= 0 && finFlow >= 0 ? 'Flujo/mes' : 'Aporte o flujo/mes',
+              cash: formatMoneyExact(Math.abs(cashFlow)),
+              financed: formatMoneyExact(Math.abs(finFlow)),
+              cashGood: cashFlow >= 0,
+            },
+            {
+              key: 'total',
+              label: `Total ${horizonYears} años`,
+              cash: formatMoney(comparison.cash.wealth.totalCashInvested),
+              financed: formatMoney(comparison.financed.wealth.totalCashInvested),
+            },
+            {
+              key: 'ganancia',
+              label: 'Ganancia',
+              cash: formatMoney(comparison.cash.wealth.projectedGainOrLoss),
+              financed: formatMoney(comparison.financed.wealth.projectedGainOrLoss),
+            },
+            {
+              key: 'retorno',
+              label: 'Retorno acum.',
+              cash: formatPercent(comparison.cash.wealth.cumulativeReturnOnCashPercent),
+              financed: formatPercent(comparison.financed.wealth.cumulativeReturnOnCashPercent),
+            },
+          ]
+
+          return (
+            <div className="overflow-hidden rounded-xl border border-[#e4ddd3] bg-[#fcfbf9]">
+              <div className="grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1fr)] border-b border-[#e4ddd3] bg-[#f4f1eb]">
+                <div className="px-2 py-2.5 sm:px-3" />
+                  <div
+                    className={cn(
+                      'border-l border-[#e4ddd3] px-2 py-2.5 text-center sm:px-3',
+                      isCash && 'bg-[#1a2744]/5',
+                    )}
+                  >
+                    <p className="text-[10px] font-semibold tracking-[0.08em] text-[#1a2744] uppercase sm:text-[11px]">
+                      Contado
+                    </p>
+                    {isCash ? (
+                      <p className="mt-0.5 text-[9px] font-medium tracking-wide text-[#6b645c] uppercase">
+                        Vista actual
+                      </p>
+                    ) : (
+                      <p className="mt-0.5 text-[9px] text-transparent uppercase select-none" aria-hidden>
+                        —
+                      </p>
+                    )}
+                  </div>
+                  <div
+                    className={cn(
+                      'border-l-2 border-[#1a2744] px-2 py-2.5 text-center sm:px-3',
+                      !isCash && 'bg-[#1a2744]/5',
+                    )}
+                  >
+                    <p className="text-[10px] font-semibold tracking-[0.08em] text-[#1a2744] uppercase sm:text-[11px]">
+                      Financiado
+                    </p>
+                    {!isCash ? (
+                      <p className="mt-0.5 text-[9px] font-medium tracking-wide text-[#6b645c] uppercase">
+                        Vista actual
+                      </p>
+                    ) : (
+                      <p className="mt-0.5 text-[9px] text-transparent uppercase select-none" aria-hidden>
+                        —
+                      </p>
+                    )}
+                  </div>
                 </div>
+                {rows.map((row) => (
+                  <div
+                    key={row.key}
+                    className="grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1fr)] border-b border-[#e4ddd3]/80 last:border-b-0"
+                  >
+                    <div className="flex items-center px-2 py-2.5 text-[11px] leading-snug text-[#6b645c] sm:px-3 sm:text-[12px]">
+                      {row.label}
+                    </div>
+                    <div
+                      className={cn(
+                        'flex min-w-0 items-center justify-center border-l border-[#e4ddd3] px-1.5 py-2.5 sm:px-3',
+                        isCash && 'bg-[#1a2744]/5',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'min-w-0 text-center text-[11px] font-semibold tabular-nums leading-tight break-all sm:text-[12px]',
+                          row.cashGood ? 'text-emerald-700' : 'text-[#1f1a14]',
+                        )}
+                      >
+                        {row.cash}
+                      </span>
+                    </div>
+                    <div
+                      className={cn(
+                        'flex min-w-0 items-center justify-center border-l-2 border-[#1a2744] px-1.5 py-2.5 sm:px-3',
+                        !isCash && 'bg-[#1a2744]/5',
+                      )}
+                    >
+                      <span className="min-w-0 text-center text-[11px] font-semibold tabular-nums leading-tight break-all text-[#1a2744] sm:text-[12px]">
+                        {row.financed}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             )
-          })}
-        </div>
+          })()}
         <div className="rounded border-l-[3px] border-[#c4a574] bg-[#faf3e8] px-3 py-3 text-[12px] text-[#7a5c2e]">
           {!isCash ? (
             <>

@@ -75,6 +75,14 @@ export function finishesMatch(left: string | null, right: string | null) {
   return groups.some((group) => group.includes(left) && group.includes(right))
 }
 
+/** Agrupa aliases de acabado para no mostrar el mismo render en dos celdas del admin. */
+export function canonicalFinishSlug(finish: string | null | undefined): string | null {
+  if (finish == null || finish === '') return null
+  if (finish === 'nogal' || finish === 'acabado-1') return 'acabado-1'
+  if (finish === 'roble' || finish === 'acabado-2') return 'acabado-2'
+  return finish
+}
+
 export function fileMatchesRoom(fileName: string, room: string) {
   const parsed = parseRoomSceneFileName(fileName)
   if (parsed && roomsShareSlot(parsed.room, room)) return true
@@ -119,10 +127,22 @@ export function fileMatchesScene(
   room: string,
   finish: string | null,
   light: TourLightMode,
+  options?: { exactRoom?: boolean },
 ) {
   const parsed = parseRoomSceneFileName(fileName)
-  if (!parsed || !roomsShareSlot(parsed.room, room) || parsed.light !== light) return false
+  if (!parsed || parsed.light !== light) return false
+  const roomOk = options?.exactRoom
+    ? parsed.room === room
+    : roomsShareSlot(parsed.room, room)
+  if (!roomOk) return false
   if (finish == null) return parsed.finish == null
+  // En grilla admin (exactRoom): mismo acabado o el mismo alias canónico, sin cruzar ambientes.
+  if (options?.exactRoom) {
+    return (
+      parsed.finish === finish ||
+      canonicalFinishSlug(parsed.finish) === canonicalFinishSlug(finish)
+    )
+  }
   return finishesMatch(parsed.finish, finish)
 }
 

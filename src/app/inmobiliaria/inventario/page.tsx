@@ -183,6 +183,7 @@ export default function InventarioPage() {
         onClose={() => setDetailOpen(false)}
         onStatusChange={canWrite ? handleStatusChange : undefined}
         readOnly={!canWrite}
+        startInEditMode={canWrite}
         onUnitUpdated={
           canWrite
             ? (u) => {

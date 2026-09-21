@@ -139,6 +139,8 @@ interface UnitDetailModalProps {
   onStatusChange?: (unitId: string, status: UnitStatus) => void
   onUnitUpdated?: (unit: Unit) => void
   readOnly?: boolean
+  /** Al abrir desde inventario, entra directo al formulario de edición. */
+  startInEditMode?: boolean
 }
 
 export function UnitDetailModal({
@@ -150,6 +152,7 @@ export function UnitDetailModal({
   onStatusChange,
   onUnitUpdated,
   readOnly = false,
+  startInEditMode = false,
 }: UnitDetailModalProps) {
   const { supabase } = useAuth()
   const [newStatus, setNewStatus] = useState('')
@@ -172,16 +175,21 @@ export function UnitDetailModal({
     if (!isOpen) {
       setIsEditing(false)
       setDetailTab('ficha')
+      return
     }
-  }, [isOpen])
+    if (!readOnly && startInEditMode) {
+      setIsEditing(true)
+      setDetailTab('ficha')
+    }
+  }, [isOpen, readOnly, startInEditMode])
 
   useEffect(() => {
     if (unit) {
       setForm(unitToFormFields(unit))
-      setIsEditing(false)
       setNewStatus('')
+      setIsEditing(!readOnly && startInEditMode)
     }
-  }, [unit?.id])
+  }, [unit?.id, readOnly, startInEditMode])
 
   useEffect(() => {
     if (!isOpen || !unit?.id) {

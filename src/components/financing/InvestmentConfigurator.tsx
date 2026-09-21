@@ -312,7 +312,7 @@ export function InvestmentConfigurator({
   )
 
   const rentCard = (
-    <div className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-4 shadow-[0_12px_40px_rgba(40,30,20,0.06)] sm:p-5">
+    <div className="space-y-4 rounded-2xl border border-[#ece6dc] bg-[#faf7f2] p-4 sm:p-5">
       <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
         Alquiler, tiempo sin inquilino y gastos
       </p>
@@ -347,8 +347,8 @@ export function InvestmentConfigurator({
     </div>
   )
 
-  const results = (
-    <section className="space-y-5">
+  const resultsBody = (
+    <>
       <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
         Resultado
       </p>
@@ -423,7 +423,15 @@ export function InvestmentConfigurator({
         ) : null}
       </div>
       {calc.saveMessage ? <p className="text-sm text-[#4a433c]">{calc.saveMessage}</p> : null}
-      <Disclaimer text={calc.config.disclaimer_text} />
+    </>
+  )
+
+  const results = (
+    <section className="flex h-full min-h-0 flex-col gap-5">
+      {resultsBody}
+      <div className="mt-auto">
+        <Disclaimer text={calc.config.disclaimer_text} />
+      </div>
     </section>
   )
 
@@ -578,12 +586,12 @@ export function InvestmentConfigurator({
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-      <section className="space-y-5">
+    <div className="grid items-stretch gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      <section className="flex min-h-0 flex-col gap-5">
         {header}
         {modalityCard}
         {financingCard}
-        {rentCard}
+        <div className="mt-auto">{rentCard}</div>
       </section>
       {results}
     </div>

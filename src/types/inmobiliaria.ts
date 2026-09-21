@@ -666,8 +666,28 @@ export interface LeadFinancing {
   generated_by: string | null
   pdf_url: string | null
   notes: string | null
-  lead?: { id: string; name: string; phone: string | null }
-  unit?: { id: string; unit_number: string; project?: { name: string } | null }
+  lead?: {
+    id: string
+    name: string
+    phone: string | null
+    email?: string | null
+    source?: string | null
+    status?: string | null
+  }
+  unit?: {
+    id: string
+    unit_number: string
+    category?: string | null
+    floor?: string | null
+    floor_number?: number | null
+    bedrooms?: number | null
+    bathrooms?: number | null
+    area_internal_m2?: number | null
+    area_total_m2?: number | null
+    parking_assigned?: number | null
+    published_commercial_price?: number | null
+    project?: { name: string } | null
+  }
   partner?: Pick<FinancingPartner, 'id' | 'name' | 'partner_type' | 'approx_rate'> | null
 }
 
