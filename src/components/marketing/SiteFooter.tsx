@@ -126,6 +126,12 @@ export function SiteFooter() {
           <p>© {year} Lavilet. Todos los derechos reservados.</p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <span>Imágenes referenciales del proyecto.</span>
+            <Link
+              href="/privacidad"
+              className="text-xs font-medium text-[#2B1A18]/45 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/45 mkt-dark:hover:text-[#f4efe8]"
+            >
+              Privacidad
+            </Link>
             <CookiePreferencesLink />
           </div>
         </div>

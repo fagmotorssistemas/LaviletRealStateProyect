@@ -185,6 +185,12 @@ export function VisitanteHome() {
           <p className="text-xs text-[#2B1A18]/45">
             © {new Date().getFullYear()} Lavilet. Todos los derechos reservados.
           </p>
+          <Link
+            href="/privacidad"
+            className="text-xs font-medium text-[#2B1A18]/45 hover:text-[#2B1A18]"
+          >
+            Privacidad
+          </Link>
         </div>
       </footer>
     </div>
