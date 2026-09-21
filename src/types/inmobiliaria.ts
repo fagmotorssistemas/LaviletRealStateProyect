@@ -338,6 +338,19 @@ export interface LeadInteraction {
   responsible?: { full_name: string | null }
 }
 
+/** Mensaje WhatsApp ya almacenado (no se copia a lead_interactions). */
+export interface LeadWhatsappMessage {
+  id: string
+  role: string
+  content: string | null
+  sent_at: string
+  direction: 'inbound' | 'outbound'
+}
+
+export type LeadTimelineItem =
+  | { kind: 'interaction'; id: string; at: string; interaction: LeadInteraction }
+  | { kind: 'whatsapp'; id: string; at: string; message: LeadWhatsappMessage }
+
 export interface AppointmentRescheduleRequest {
   id: string
   tenant_id: string

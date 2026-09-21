@@ -4,7 +4,7 @@ import { type DataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import { ecuadorInclusiveRange } from '@/lib/inmobiliaria/agendaTime'
 import { sanitizeSearch } from '@/lib/inmobiliaria/slaStatus'
 import type {
-  Unit, UnitImport, UnitMedia, Lead, Appointment, AppointmentWithUnits, AppointmentStatus, AppointmentRescheduleRequest, AgendaTab, AgendaCoordinationStats, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction,
+  Unit, UnitImport, UnitMedia, Lead, Appointment, AppointmentWithUnits, AppointmentStatus, AppointmentRescheduleRequest, AgendaTab, AgendaCoordinationStats, Contract, ContractWithUnits, ShowroomVisit, ShowroomVisitWithUnits, LeadInteraction, LeadTimelineItem,
   UnitStatus, LeadStatus, LeadTemperature, InteractionType,
   ShowroomVisitSource, VisitSchedulingOptions,
   Project, ProjectAsset, ProjectAssetKind, ProjectDetail, ContractStatus, InventorySortOption,
@@ -16,6 +16,9 @@ import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import { normalizeSource } from '@/lib/leads/sources'
 import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
+import { mergeLeadTimeline } from '@/lib/inmobiliaria/leadTimeline'
+
+export { mergeLeadTimeline } from '@/lib/inmobiliaria/leadTimeline'
 
 /** Bucket público para fotos, planos PDF y documentos de proyecto. */
 export const PROJECT_ASSETS_BUCKET = 'project-assets'
@@ -1218,6 +1221,47 @@ export async function listLeadInteractions(supabase: SupabaseClient, leadId: str
     .order('created_at', { ascending: false })
   if (error) throw error
   return data as LeadInteraction[]
+}
+
+export async function listLeadTimeline(
+  supabase: SupabaseClient,
+  leadId: string,
+  tenantId: string,
+): Promise<LeadTimelineItem[]> {
+  const { data: lead, error: leadError } = await supabase
+    .from('leads')
+    .select('id, tenant_id, project_id')
+    .eq('id', leadId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  if (leadError) throw leadError
+  if (!lead) throw new Error('Lead no encontrado')
+
+  const interactionsPromise = listLeadInteractions(supabase, leadId)
+  let conversationsQuery = supabase
+    .from('conversations')
+    .select('id')
+    .eq('lead_id', leadId)
+    .eq('tenant_id', tenantId)
+  if (lead.project_id) {
+    conversationsQuery = conversationsQuery.eq('project_id', lead.project_id)
+  }
+  const { data: conversations, error: conversationsError } = await conversationsQuery
+  if (conversationsError) throw conversationsError
+
+  const conversationIds = (conversations || []).map((row) => row.id)
+  const messagesPromise = conversationIds.length
+    ? supabase
+        .from('messages')
+        .select('id, role, content, sent_at')
+        .in('conversation_id', conversationIds)
+        .order('sent_at', { ascending: false })
+        .limit(200)
+    : Promise.resolve({ data: [] as Array<{ id: string; role: string; content: string | null; sent_at: string }>, error: null })
+
+  const [interactions, messagesResult] = await Promise.all([interactionsPromise, messagesPromise])
+  if (messagesResult.error) throw messagesResult.error
+  return mergeLeadTimeline(interactions, messagesResult.data || [])
 }
 
 export async function addLeadInteraction(

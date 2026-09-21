@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { UserPlus, Plus } from 'lucide-react'
 import { useLeads } from '@/hooks/inmobiliaria/useLeads'
 import { LeadsList } from '@/components/inmobiliaria/leads/LeadsList'
@@ -41,6 +41,13 @@ export default function LeadsPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [datePreset, setDatePreset] = useState<DatePreset>('all')
+
+  useEffect(() => {
+    const lead = new URLSearchParams(window.location.search).get('lead')?.trim()
+    if (!lead) return
+    setSelectedLeadId(lead)
+    setDetailOpen(true)
+  }, [])
 
   const applyDatePreset = (preset: DatePreset) => {
     const now = new Date()

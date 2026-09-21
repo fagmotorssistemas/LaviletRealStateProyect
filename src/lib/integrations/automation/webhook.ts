@@ -15,19 +15,91 @@ export type Inbound = {
   ctwa: CtwaCapture | null
 }
 
-export function normalizeWebhook(raw: string, contentType: string, now = Date.now()): Inbound[] {
-  let flat: Record<string, string> = {}
-  if (contentType.includes('application/json')) {
-    const value = object(JSON.parse(raw))
-    function flatten(item: unknown, prefix: string) {
-      if (item && typeof item === 'object') {
-        for (const [key, child] of Object.entries(item)) flatten(child, prefix ? `${prefix}[${key}]` : key)
-      } else if (item != null) flat[prefix] = String(item)
+/** Aplana JSON anidado a claves tipo message[add][0][referral][ctwa_clid]. */
+export function flattenKommoPayload(value: unknown, prefix = '', flat: Record<string, string> = {}): Record<string, string> {
+  if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      flattenKommoPayload(child, prefix ? `${prefix}[${key}]` : key, flat)
     }
-    flatten(value, '')
-  } else if (contentType.includes('application/x-www-form-urlencoded')) {
-    flat = Object.fromEntries(new URLSearchParams(raw))
-  } else throw new Error('UNSUPPORTED_CONTENT_TYPE')
+  } else if (value != null) {
+    flat[prefix] = String(value)
+  }
+  return flat
+}
+
+function parseKommoFlat(raw: string, contentType: string): Record<string, string> {
+  if (contentType.includes('application/json')) {
+    return flattenKommoPayload(object(JSON.parse(raw)))
+  }
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    return Object.fromEntries(new URLSearchParams(raw))
+  }
+  throw new Error('UNSUPPORTED_CONTENT_TYPE')
+}
+
+/**
+ * Diagnóstico seguro pre-normalización: solo presencia y rutas de referral/ctwa_clid.
+ * Nunca registra valores, textos, teléfonos, tokens ni el body completo.
+ */
+export type KommoCtwaFieldProbe = {
+  correlationId: string
+  messageIndexes: string[]
+  referralOrCtwaPaths: string[]
+  /** Por índice: extractor encontró clid válido. */
+  extractedByIndex: Record<string, boolean>
+  /** Rutas que parecen referral/ctwa pero el extractor no reconoció clid válido. */
+  unrecognizedPaths: string[]
+  /** true si no hay ninguna clave referral/ctwa_clid en el payload aplanado. */
+  fieldsAbsent: boolean
+}
+
+const REFERRAL_CTWA_PATH = /\[referral\]|\[ctwa_clid\]|\[ctwaClid\]|referral|ctwa_clid|ctwaClid/i
+
+export function probeKommoCtwaFields(raw: string, contentType: string, correlationId: string): KommoCtwaFieldProbe {
+  const flat = parseKommoFlat(raw, contentType)
+  const messageIndexes = [...new Set(
+    Object.keys(flat)
+      .map(k => k.match(/^message\[add\]\[(\d+)\]/)?.[1])
+      .filter((value): value is string => Boolean(value)),
+  )].sort()
+  const referralOrCtwaPaths = Object.keys(flat)
+    .filter(key => REFERRAL_CTWA_PATH.test(key))
+    .sort()
+  const extractedByIndex: Record<string, boolean> = {}
+  for (const index of messageIndexes) {
+    extractedByIndex[index] = Boolean(extractCtwaFromKommoFlat(flat, index)?.clid)
+  }
+  const unrecognizedPaths = referralOrCtwaPaths.filter(path => {
+    const index = path.match(/^message\[add\]\[(\d+)\]/)?.[1]
+    if (!index) return true
+    return !extractedByIndex[index]
+  })
+  return {
+    correlationId,
+    messageIndexes,
+    referralOrCtwaPaths,
+    extractedByIndex,
+    unrecognizedPaths,
+    fieldsAbsent: referralOrCtwaPaths.length === 0,
+  }
+}
+
+export function logKommoCtwaFieldProbe(probe: KommoCtwaFieldProbe) {
+  console.info(JSON.stringify({
+    event: 'kommo_ctwa_field_probe',
+    correlationId: probe.correlationId,
+    messageIndexCount: probe.messageIndexes.length,
+    fieldsAbsent: probe.fieldsAbsent,
+    pathCount: probe.referralOrCtwaPaths.length,
+    paths: probe.referralOrCtwaPaths,
+    extractedByIndex: probe.extractedByIndex,
+    unrecognizedPathCount: probe.unrecognizedPaths.length,
+    unrecognizedPaths: probe.unrecognizedPaths,
+  }))
+}
+
+export function normalizeWebhook(raw: string, contentType: string, now = Date.now()): Inbound[] {
+  const flat = parseKommoFlat(raw, contentType)
   if (flat['account[id]'] !== '36919007') throw new Error('WRONG_KOMMO_ACCOUNT')
   const indexes = [...new Set(
     Object.keys(flat)

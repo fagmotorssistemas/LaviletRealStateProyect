@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
 import { Pagination } from '@/components/ui/Pagination'
+import { MetaCapiWhatsAppSection } from '@/components/inmobiliaria/marketing/MetaCapiWhatsAppSection'
 import { cn } from '@/lib/utils'
 import type {
   MetaCapiListFilters,
@@ -213,7 +214,7 @@ export function MetaCapiBitacoraView() {
       <PageHeader
         title="CAPI Meta"
         eyebrow="Marketing"
-        description="Historial de la cola CAPI (web / servidor). PageView del navegador solo aparece como agregado oficial si hay permiso Graph. WhatsApp CRM es sección aparte."
+        description="Cola CAPI web/servidor y, aparte, recepción WhatsApp del CRM con seguimiento de conversiones. No se mezclan totales."
         actions={
           <button
             type="button"
@@ -227,14 +228,25 @@ export function MetaCapiBitacoraView() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
-        <KpiCard label="Total (alcance)" value={kpis?.total ?? '—'} />
-        <KpiCard label="Entregado backend" value={kpis?.deliveredBackend ?? '—'} tone="good" />
-        <KpiCard label="Pendiente" value={kpis?.pending ?? '—'} tone="muted" />
-        <KpiCard label="Bloqueado config" value={kpis?.blockedConfig ?? '—'} tone="warn" />
-        <KpiCard label="Retenido" value={kpis?.retained ?? '—'} tone="warn" />
-        <KpiCard label="Fallido (dead)" value={kpis?.failed ?? '—'} tone={(kpis?.failed ?? 0) > 0 ? 'bad' : 'muted'} />
-      </div>
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold text-[#1f1a14]">Cola CAPI · Web / servidor</h2>
+        <p className="text-[11px] text-[#6b645c]">
+          Indicadores de outbox Meta (no incluyen mensajes CRM WhatsApp). Separación por canal abajo.
+        </p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
+          <KpiCard label="Total (alcance)" value={kpis?.total ?? '—'} />
+          <KpiCard label="Entregado backend" value={kpis?.deliveredBackend ?? '—'} tone="good" />
+          <KpiCard label="Pendiente" value={kpis?.pending ?? '—'} tone="muted" />
+          <KpiCard label="Bloqueado config" value={kpis?.blockedConfig ?? '—'} tone="warn" />
+          <KpiCard label="Retenido" value={kpis?.retained ?? '—'} tone="warn" />
+          <KpiCard label="Fallido (dead)" value={kpis?.failed ?? '—'} tone={(kpis?.failed ?? 0) > 0 ? 'bad' : 'muted'} />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <KpiCard label="Outbox web" value={data?.kpisByChannel.web ?? '—'} tone="muted" />
+          <KpiCard label="Outbox WhatsApp" value={data?.kpisByChannel.whatsapp ?? '—'} tone="muted" />
+          <KpiCard label="Outbox n/d" value={data?.kpisByChannel.undetermined ?? '—'} tone="muted" />
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-[#ece6dc] bg-white p-3 sm:p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -492,6 +504,8 @@ export function MetaCapiBitacoraView() {
           </>
         )}
       </section>
+
+      {data?.whatsapp ? <MetaCapiWhatsAppSection whatsapp={data.whatsapp} tz={tz} /> : null}
     </div>
   )
 }

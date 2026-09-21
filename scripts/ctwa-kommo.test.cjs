@@ -700,6 +700,196 @@ describe('Flujo processConversation con dependencias simuladas', () => {
     assert.ok(rpcCalls.includes('register_inbound_message'))
     assert.equal(rpcCalls.includes('lv_app_conversation_context'), false)
   })
+
+  it('fuera de test_only: guarda mensaje y CTWA, no responde ni abre contexto bot', async () => {
+    const { mocks, rpcCalls, preserveCalls, sentReplies } = conversationMocks(null, {
+      lead_id: 'other-lead',
+      conversation_id: 'conv-other',
+      is_duplicate: false,
+    })
+    mocks['./data'].autoConfig = async () => ({
+      ...scope,
+      enabled: true,
+      dry_run: false,
+      test_only: true,
+      test_lead_id: 'test-lead-carlos',
+    })
+    mocks['./data'].one = async (table, id) => {
+      if (table === 'leads' && id === 'test-lead-carlos') {
+        return { ...scope, id: 'test-lead-carlos', kommo_id: 9999999, bot_enabled: true, channel_origin: 'whatsapp' }
+      }
+      if (table === 'leads') {
+        return { ...scope, id: 'other-lead', kommo_id: 123, bot_enabled: true, channel_origin: 'whatsapp' }
+      }
+      if (table === 'conversations') return { id: 'conv-other', lead_id: 'other-lead', summary: {} }
+      return { id: 'x' }
+    }
+    process.env.AUTOMATION_MODE = 'live'
+    process.env.AUTOMATION_N8N_DISABLED = 'true'
+    process.env.AUTOMATION_ACTIVATED_AT = '2020-01-01T00:00:00.000Z'
+    const { processConversation } = loadConversation(mocks)
+    const result = await processConversation(
+      [
+        payloadRow('msg-outside-test', {
+          clid: 'Aff-OUTSIDE',
+          fieldPath: 'p',
+          sourceId: null,
+          sourceUrl: null,
+          referralSourceType: null,
+        }),
+      ],
+      async () => {},
+    )
+    assert.equal(result.action, 'outside_test_lead')
+    assert.equal(result.message_persisted, true)
+    assert.ok(rpcCalls.includes('register_inbound_message'))
+    assert.equal(preserveCalls.length, 1)
+    assert.equal(preserveCalls[0].hasClid, true)
+    assert.equal(rpcCalls.includes('lv_app_conversation_context'), false)
+    assert.equal(sentReplies.length, 0)
+  })
+
+  it('fuera de test_only sin CTWA: persiste y no inventa atribución', async () => {
+    const { mocks, rpcCalls, preserveCalls } = conversationMocks(null, {
+      lead_id: 'other-lead',
+      conversation_id: 'conv-other',
+      is_duplicate: false,
+    })
+    mocks['./data'].autoConfig = async () => ({
+      ...scope,
+      enabled: true,
+      dry_run: false,
+      test_only: true,
+      test_lead_id: 'test-lead-carlos',
+    })
+    mocks['./data'].one = async (table, id) => {
+      if (table === 'leads' && id === 'test-lead-carlos') {
+        return { ...scope, id: 'test-lead-carlos', kommo_id: 9999999, bot_enabled: true }
+      }
+      if (table === 'leads') return { ...scope, id: 'other-lead', kommo_id: 123, bot_enabled: true }
+      if (table === 'conversations') return { id: 'conv-other', lead_id: 'other-lead', summary: {} }
+      return { id: 'x' }
+    }
+    process.env.AUTOMATION_MODE = 'live'
+    process.env.AUTOMATION_N8N_DISABLED = 'true'
+    process.env.AUTOMATION_ACTIVATED_AT = '2020-01-01T00:00:00.000Z'
+    const { processConversation } = loadConversation(mocks)
+    const result = await processConversation([payloadRow('msg-outside-no-ctwa', null)], async () => {})
+    assert.equal(result.action, 'outside_test_lead')
+    assert.ok(rpcCalls.includes('register_inbound_message'))
+    assert.equal(preserveCalls.length, 1)
+    assert.equal(preserveCalls[0].hasClid, false)
+  })
+
+  it('webhook repetido fuera de test_only: registra y reporta duplicado vía is_duplicate', async () => {
+    const { mocks, rpcCalls, preserveCalls } = conversationMocks(null, {
+      lead_id: 'other-lead',
+      conversation_id: 'conv-other',
+      is_duplicate: true,
+    })
+    mocks['./data'].autoConfig = async () => ({
+      ...scope,
+      enabled: true,
+      dry_run: false,
+      test_only: true,
+      test_lead_id: 'test-lead-carlos',
+    })
+    mocks['./data'].one = async (table, id) => {
+      if (table === 'leads' && id === 'test-lead-carlos') {
+        return { ...scope, id: 'test-lead-carlos', kommo_id: 9999999, bot_enabled: true }
+      }
+      if (table === 'leads') return { ...scope, id: 'other-lead', kommo_id: 123, bot_enabled: true }
+      if (table === 'conversations') return { id: 'conv-other', lead_id: 'other-lead', summary: {} }
+      return { id: 'x' }
+    }
+    process.env.AUTOMATION_MODE = 'live'
+    process.env.AUTOMATION_N8N_DISABLED = 'true'
+    process.env.AUTOMATION_ACTIVATED_AT = '2020-01-01T00:00:00.000Z'
+    const { processConversation } = loadConversation(mocks)
+    const result = await processConversation([payloadRow('msg-outside-dup', null)], async () => {})
+    assert.equal(result.action, 'outside_test_lead')
+    assert.equal(result.is_duplicate, true)
+    assert.ok(rpcCalls.includes('register_inbound_message'))
+    assert.equal(preserveCalls.length, 1)
+  })
+})
+
+describe('Diagnóstico CTWA pre-normalización', () => {
+  const { probeKommoCtwaFields } = require(path.join(root, 'src/lib/integrations/automation/webhook.ts'))
+
+  it('campo ausente: fieldsAbsent=true y sin rutas', () => {
+    const payload = { account: { id: 36919007 }, message: { add: [baseMsg()] } }
+    const probe = probeKommoCtwaFields(JSON.stringify(payload), 'application/json', 'corr-absent')
+    assert.equal(probe.correlationId, 'corr-absent')
+    assert.equal(probe.fieldsAbsent, true)
+    assert.equal(probe.referralOrCtwaPaths.length, 0)
+    assert.equal(probe.extractedByIndex['0'], false)
+  })
+
+  it('ctwa presente: ruta registrada y extracted=true sin filtrar el valor', () => {
+    const payload = {
+      account: { id: 36919007 },
+      message: {
+        add: [
+          baseMsg({
+            referral: { ctwa_clid: 'Aff-SECRET-VALUE', source_type: 'ad' },
+          }),
+        ],
+      },
+    }
+    const probe = probeKommoCtwaFields(JSON.stringify(payload), 'application/json', 'corr-present')
+    assert.equal(probe.fieldsAbsent, false)
+    assert.ok(probe.referralOrCtwaPaths.some((p) => /ctwa_clid/i.test(p)))
+    assert.equal(probe.extractedByIndex['0'], true)
+    assert.equal(JSON.stringify(probe).includes('Aff-SECRET-VALUE'), false)
+  })
+
+  it('ruta no reconocida: path presente pero extracted=false', () => {
+    const payload = {
+      account: { id: 36919007 },
+      message: {
+        add: [
+          baseMsg({
+            referral: { ctwa_clid: '   ' },
+          }),
+        ],
+      },
+    }
+    const probe = probeKommoCtwaFields(JSON.stringify(payload), 'application/json', 'corr-blank')
+    assert.equal(probe.fieldsAbsent, false)
+    assert.equal(probe.extractedByIndex['0'], false)
+    assert.ok(probe.unrecognizedPaths.length >= 1)
+  })
+})
+
+describe('Historial CRM merge', () => {
+  it('mezcla notas y mensajes WA con dirección y orden por fecha', () => {
+    const { mergeLeadTimeline } = require(path.join(root, 'src/lib/inmobiliaria/leadTimeline.ts'))
+    const items = mergeLeadTimeline(
+      [
+        {
+          id: 'i1',
+          tenant_id: scope.tenant_id,
+          lead_id: 'lead',
+          responsible_id: null,
+          type: 'seguimiento',
+          content: 'Nota manual',
+          result: null,
+          created_at: '2026-09-21T15:00:00.000Z',
+        },
+      ],
+      [
+        { id: 'm1', role: 'cliente', content: 'Hola WA', sent_at: '2026-09-21T16:00:00.000Z' },
+        { id: 'm2', role: 'bot', content: 'Respuesta', sent_at: '2026-09-21T16:01:00.000Z' },
+      ],
+    )
+    assert.equal(items.length, 3)
+    assert.equal(items[0].kind, 'whatsapp')
+    assert.equal(items[0].message.direction, 'outbound')
+    assert.equal(items[1].kind, 'whatsapp')
+    assert.equal(items[1].message.direction, 'inbound')
+    assert.equal(items[2].kind, 'interaction')
+  })
 })
 
 describe('Contraste fixtures sintéticos', () => {

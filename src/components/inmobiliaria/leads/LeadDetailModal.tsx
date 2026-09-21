@@ -12,12 +12,12 @@ import { PersonCell } from '@/components/inmobiliaria/shared/PersonCell'
 import { Select } from '@/components/ui/Select'
 import { Spinner } from '@/components/ui/Spinner'
 import { LEAD_STATUS_OPTIONS, INTERACTION_TYPE_OPTIONS, LEAD_TEMPERATURE_OPTIONS } from '@/types/inmobiliaria'
-import type { Lead, LeadStatus, LeadTemperature, LeadInteraction, InteractionType, Unit, Project, TeamProfile } from '@/types/inmobiliaria'
+import type { Lead, LeadStatus, LeadTemperature, LeadTimelineItem, InteractionType, Unit, Project, TeamProfile } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
 import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import {
   getLead, updateLead, updateLeadStatus, updateLeadTemperature, updateLeadAssignee,
-  listLeadInteractions, addLeadInteraction,
+  listLeadTimeline, addLeadInteraction,
   addLeadUnit, removeLeadUnit,
   listProjects,
 } from '@/services/inmobiliaria.service'
@@ -41,7 +41,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
   const { supabase, user, profile } = useAuth()
   const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [lead, setLead] = useState<Lead | null>(null)
-  const [interactions, setInteractions] = useState<LeadInteraction[]>([])
+  const [timeline, setTimeline] = useState<LeadTimelineItem[]>([])
   const [loading, setLoading] = useState(false)
 
   // Sidebar editable state
@@ -83,19 +83,19 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
         setResume(leadData.resume || '')
         setBudget(leadData.budget?.toString() || '')
         setWantsFinancing(leadData.financing || false)
-        return listLeadInteractions(supabase, leadId)
+        return listLeadTimeline(supabase, leadId, tenantId)
       })
-      .then((interactionsData) => {
-        setInteractions(interactionsData)
+      .then((timelineData) => {
+        setTimeline(timelineData)
       })
       .catch((err) => {
         toast.error(err instanceof Error ? err.message : 'Error al cargar el lead')
         setLead(null)
-        setInteractions([])
+        setTimeline([])
         onClose()
       })
       .finally(() => setLoading(false))
-  }, [supabase, leadId, isOpen, scope, onClose, advisors])
+  }, [supabase, leadId, isOpen, scope, onClose, advisors, tenantId])
 
   useEffect(() => {
     if (!isOpen) setRightTab('historial')
@@ -241,8 +241,8 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
         content: interactionContent,
       })
       setInteractionContent('')
-      const updated = await listLeadInteractions(supabase, lead.id)
-      setInteractions(updated)
+      const updated = await listLeadTimeline(supabase, lead.id, tenantId)
+      setTimeline(updated)
       toast.success('Interacción registrada')
     } catch {
       toast.error('Error al registrar interacción')
@@ -599,8 +599,8 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                   >
                     <MessageSquare className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                     Historial
-                    {interactions.length > 0 && (
-                      <span className="text-xs text-slate-400 font-normal">({interactions.length})</span>
+                    {timeline.length > 0 && (
+                      <span className="text-xs text-slate-400 font-normal">({timeline.length})</span>
                     )}
                   </button>
                   <button
@@ -654,7 +654,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                 <>
                   {/* Timeline */}
                   <div className="flex-1 overflow-y-auto p-6 min-h-0">
-                    {interactions.length === 0 ? (
+                    {timeline.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-slate-400">
                         <MessageSquare size={40} strokeWidth={1.5} className="mb-3" />
                         <p className="text-sm font-medium">Sin interacciones registradas</p>
@@ -662,27 +662,59 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {interactions.map((interaction) => (
-                          <div key={interaction.id} className="flex gap-3">
-                            <div className="mt-1 shrink-0">
-                              <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
-                                <MessageSquare size={14} className="text-slate-500" />
+                        {timeline.map((item) => {
+                          if (item.kind === 'whatsapp') {
+                            const inbound = item.message.direction === 'inbound'
+                            return (
+                              <div key={item.id} className="flex gap-3">
+                                <div className="mt-1 shrink-0">
+                                  <div className={`h-8 w-8 rounded-full flex items-center justify-center ${inbound ? 'bg-emerald-50' : 'bg-sky-50'}`}>
+                                    <MessageSquare size={14} className={inbound ? 'text-emerald-700' : 'text-sky-700'} />
+                                  </div>
+                                </div>
+                                <div className="flex-1 border border-[#2B1A18]/12 bg-[#fcfbf9] p-4">
+                                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                                      inbound ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'
+                                    }`}>
+                                      WhatsApp {inbound ? 'entrante' : 'saliente'}
+                                    </span>
+                                    <span className="text-xs text-slate-400">{formatDateTime(item.at)}</span>
+                                    {item.message.role === 'bot' && (
+                                      <span className="text-xs text-slate-400">• Bot</span>
+                                    )}
+                                    {item.message.role === 'asesor' && (
+                                      <span className="text-xs text-slate-400">• Asesor</span>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{item.message.content || '—'}</p>
+                                </div>
+                              </div>
+                            )
+                          }
+                          const interaction = item.interaction
+                          return (
+                            <div key={item.id} className="flex gap-3">
+                              <div className="mt-1 shrink-0">
+                                <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
+                                  <MessageSquare size={14} className="text-slate-500" />
+                                </div>
+                              </div>
+                              <div className="flex-1 border border-[#2B1A18]/12 bg-[#fcfbf9] p-4">
+                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                  <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
+                                    {interaction.type}
+                                  </span>
+                                  <span className="text-xs text-slate-400">{formatDateTime(interaction.created_at)}</span>
+                                  {interaction.responsible?.full_name && (
+                                    <span className="text-xs text-slate-400">• {interaction.responsible.full_name}</span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-slate-700">{interaction.content}</p>
                               </div>
                             </div>
-                            <div className="flex-1 border border-[#2B1A18]/12 bg-[#fcfbf9] p-4">
-                              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
-                                  {interaction.type}
-                                </span>
-                                <span className="text-xs text-slate-400">{formatDateTime(interaction.created_at)}</span>
-                                {interaction.responsible?.full_name && (
-                                  <span className="text-xs text-slate-400">• {interaction.responsible.full_name}</span>
-                                )}
-                              </div>
-                              <p className="text-sm text-slate-700">{interaction.content}</p>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>

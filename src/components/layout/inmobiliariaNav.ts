@@ -12,6 +12,7 @@ import {
   Activity,
   Megaphone,
   Calculator,
+  Flame,
   type LucideIcon,
 } from 'lucide-react'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
@@ -55,6 +56,7 @@ export const crmModules: {
     href: '/inmobiliaria/marketing/capi',
     items: [
       { label: 'CAPI Meta', href: '/inmobiliaria/marketing/capi', icon: Megaphone },
+      { label: 'Interés recorrido', href: '/inmobiliaria/marketing/interes', icon: Flame },
     ],
   },
   {

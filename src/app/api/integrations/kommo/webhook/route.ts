@@ -1,7 +1,8 @@
 import { after, NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { automationSettings, secretMatches } from '@/lib/integrations/automation/config'
 import { rpc } from '@/lib/integrations/automation/data'
-import { limitedBody, normalizeWebhook } from '@/lib/integrations/automation/webhook'
+import { limitedBody, logKommoCtwaFieldProbe, normalizeWebhook, probeKommoCtwaFields } from '@/lib/integrations/automation/webhook'
 import { accelerateTestMessages, testResponseMode } from '@/lib/integrations/automation/test-response-mode'
 import { TEST_RESPONSE_SECONDS } from '@/lib/inmobiliaria/testResponseMode'
 
@@ -15,10 +16,22 @@ export async function POST(request: Request) {
   if (!secretMatches(provided, process.env.KOMMO_WEBHOOK_SECRET)) return NextResponse.json({ error: 'No autorizado' }, { status: 401, headers })
   const settings = automationSettings()
   if (!settings.live) return NextResponse.json({ error: 'Recepción no activada' }, { status: 503, headers })
+  const correlationId = request.headers.get('x-request-id')?.trim() || randomUUID()
   let events
   try {
     const raw = await limitedBody(request)
-    events = normalizeWebhook(raw, request.headers.get('content-type') || '')
+    const contentType = request.headers.get('content-type') || ''
+    try {
+      logKommoCtwaFieldProbe(probeKommoCtwaFields(raw, contentType, correlationId))
+    } catch {
+      console.info(JSON.stringify({
+        event: 'kommo_ctwa_field_probe',
+        correlationId,
+        probeFailed: true,
+        reason: 'PARSE_OR_UNSUPPORTED',
+      }))
+    }
+    events = normalizeWebhook(raw, contentType)
       .filter(event => Date.parse(event.sentAt) >= Date.parse(settings.activatedAt))
   } catch {
     return NextResponse.json({ error: 'Evento inválido' }, { status: 400, headers })
@@ -40,7 +53,7 @@ export async function POST(request: Request) {
         console.error('TEST_RESPONSE_WAKE_FAILED')
       }
     })
-    return NextResponse.json({ accepted: true, received: events.length, inserted }, { status: 200, headers })
+    return NextResponse.json({ accepted: true, received: events.length, inserted, correlationId }, { status: 200, headers })
   } catch {
     return NextResponse.json({ error: 'No se pudo persistir el evento' }, { status: 503, headers })
   }

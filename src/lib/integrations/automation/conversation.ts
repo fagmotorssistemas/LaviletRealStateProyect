@@ -135,10 +135,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
   const initialConfig = await autoConfig()
   if (initialConfig.enabled !== true || initialConfig.dry_run !== false) return { action: 'disabled' }
   const settings = automationSettings()
-  // En pruebas no crear ni procesar otros leads.
-  const target = settings.testLeadId || (initialConfig.test_only === true ? text(initialConfig.test_lead_id) : null)
-  if (target) { const l = await one('leads', target); if (Number(l.kommo_id) !== last.kommoId) return { action: 'outside_test_lead' } }
+  // Persistencia (register + CTWA) va antes del gate test_only: guardar no responde ni automatiza.
   const inbound = await register(events, guard)
+  const target = settings.testLeadId || (initialConfig.test_only === true ? text(initialConfig.test_lead_id) : null)
+  if (target) {
+    const l = await one('leads', target)
+    if (Number(l.kommo_id) !== last.kommoId) {
+      return { action: 'outside_test_lead', message_persisted: true, is_duplicate: inbound.hasNew !== true }
+    }
+  }
   if (!inbound.hasNew) return { action: 'duplicate' }
   let lead = await one('leads', text(inbound.registration.lead_id))
   if (!permitted(initialConfig, lead, settings.testLeadId) || lead.bot_enabled !== true

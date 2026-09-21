@@ -894,6 +894,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [compareLightB, setCompareLightB] = useState<TourLightMode>('dia')
   const [compareSplit, setCompareSplit] = useState(50)
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  const consultUnitLoggedRef = useRef<string | null>(null)
   const [viewMode, setViewMode] = useState<TourViewMode>(() =>
     readUnitQueryParam() ? 'galeria' : 'planos-3d',
   )
@@ -1347,6 +1348,34 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (!selectedUnit) return
     writeUnitQueryParam(selectedUnit.unit_number)
   }, [selectedUnit])
+
+  // Interés comercial: consulta de ficha de unidad concreta (mapa Marketing).
+  useEffect(() => {
+    if (!fichaOpen || !selectedUnit?.id) {
+      if (!fichaOpen) consultUnitLoggedRef.current = null
+      return
+    }
+    const key = selectedUnit.id
+    if (consultUnitLoggedRef.current === key) return
+    consultUnitLoggedRef.current = key
+    logTourEvent({
+      event_type: 'consultar_unidad',
+      typology_code: selectedUnit.typology_code || selectedTypology || null,
+      unit_type_id: currentTypology?.id ?? null,
+      metadata: {
+        unit_id: selectedUnit.id,
+        unit_number: selectedUnit.unit_number,
+        action: 'ficha',
+      },
+    })
+  }, [
+    fichaOpen,
+    selectedUnit?.id,
+    selectedUnit?.unit_number,
+    selectedUnit?.typology_code,
+    selectedTypology,
+    currentTypology?.id,
+  ])
 
   const compareUnitB = useMemo(
     () => allUnits.find((item) => item.id === compareUnitBId) ?? null,
