@@ -134,7 +134,8 @@ describe('waLeadSubmitted integration', () => {
       name: 'Ana',
       email: null,
       meta_ads_consent: true,
-      meta_ads_consent_evidence_message: 'Acepto recibir publicidad y anuncios',
+      meta_ads_consent_evidence_message:
+        'Acepto que usen mis datos para medición publicitaria de Meta',
       meta_ads_consent_evidence_at: '2026-09-21T12:00:00.000Z',
       meta_ads_consent_scope: 'whatsapp_ads',
       tenant_id: TENANT_A,
@@ -205,7 +206,8 @@ describe('waLeadSubmitted integration', () => {
     const lead = {
       id: LEAD_ID,
       meta_ads_consent: true,
-      meta_ads_consent_evidence_message: 'Acepto recibir publicidad',
+      meta_ads_consent_evidence_message:
+        'Autorizo publicidad de Meta Ads',
       meta_ads_consent_evidence_at: '2026-09-21T12:00:00.000Z',
       meta_ads_consent_scope: 'whatsapp_ads',
       tenant_id: TENANT_A,
@@ -230,7 +232,7 @@ describe('waLeadSubmitted integration', () => {
     const lead = {
       id: LEAD_ID,
       meta_ads_consent: true,
-      meta_ads_consent_evidence_message: 'Acepto publicidad',
+      meta_ads_consent_evidence_message: 'Autorizo anuncios de Meta',
       meta_ads_consent_evidence_at: '2026-09-21T12:00:00.000Z',
       meta_ads_consent_scope: 'whatsapp_ads',
       tenant_id: TENANT_A,
@@ -351,7 +353,8 @@ describe('waLeadSubmitted integration', () => {
     const lead = {
       id: LEAD_ID,
       meta_ads_consent: true,
-      meta_ads_consent_evidence_message: 'Acepto recibir publicidad y anuncios',
+      meta_ads_consent_evidence_message:
+        'Acepto que usen mis datos para medición publicitaria de Meta',
       meta_ads_consent_evidence_at: '2026-09-21T12:00:00.000Z',
       meta_ads_consent_scope: 'whatsapp_ads',
       tenant_id: TENANT_A,

@@ -14,10 +14,16 @@ Estados del trabajo (actualizar al ejecutar):
 
 ### Consentimiento WhatsApp ads (operativo)
 
-El cliente debe escribir una aceptación **explícita** de publicidad/anuncios (p. ej. «Acepto recibir publicidad y anuncios»).  
-Eso llama `lv_set_whatsapp_meta_ads_consent` con alcance `whatsapp_ads` y guarda evidencia (mensaje + fecha).  
-No basta la casilla de contacto del showroom, cookies ni `tracking_consent`.  
-No se envían mensajes automáticos nuevos para pedir el consentimiento en esta entrega.
+**Cómo se ejecuta `lv_set_whatsapp_meta_ads_consent` hoy**
+
+- **No hay pantalla CRM** ni acción de asesor para registrar este consentimiento.
+- Se reconoce **automáticamente** cuando llega un mensaje **del cliente** por WhatsApp (webhook Kommo → `processConversation` / evaluación fuera del bot) y el texto coincide con aceptación **explícita** de medición/publicidad **Meta** (alcance `whatsapp_ads`).
+- Cadena: mensaje entrante → `applyWhatsappAdsConsentFromClientMessage` → RPC `lv_set_whatsapp_meta_ads_consent` (evidencia: mensaje + fecha + scope).
+- Frases genéricas («acepto publicidad») **no** conceden. Hace falta mención de Meta / Facebook / Instagram / medición publicitaria / datos para anuncios.
+- `tracking_consent`, cookies y casilla de contacto del showroom **no** sustituyen este alcance.
+
+El cliente debe escribir algo inequívoco, p. ej. *«Acepto que usen mis datos para medición publicitaria de Meta»*.  
+No se envían mensajes automáticos del bot para pedirlo en esta entrega.
 
 ### Llegada tardía de consentimiento o CTWA
 

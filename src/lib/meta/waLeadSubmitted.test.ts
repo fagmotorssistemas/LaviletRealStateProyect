@@ -81,9 +81,25 @@ describe('waLeadSubmittedConsent', () => {
     assert.equal(detectsWhatsappAdsConsentGrant('Quiero info del proyecto'), false)
   })
 
-  it('afirmación explícita de publicidad', () => {
+  it('frase genérica de publicidad no concede whatsapp_ads', () => {
     assert.equal(
       detectsWhatsappAdsConsentGrant('Acepto recibir publicidad y anuncios'),
+      false,
+    )
+    assert.equal(detectsWhatsappAdsConsentGrant('Acepto publicidad'), false)
+  })
+
+  it('aceptación explícita de medición/publicidad Meta', () => {
+    assert.equal(
+      detectsWhatsappAdsConsentGrant(
+        'Acepto que usen mis datos para medición publicitaria de Meta',
+      ),
+      true,
+    )
+    assert.equal(
+      detectsWhatsappAdsConsentGrant(
+        'Autorizo publicidad de Meta y anuncios de Facebook',
+      ),
       true,
     )
   })
@@ -91,14 +107,16 @@ describe('waLeadSubmittedConsent', () => {
   it('no acepto publicidad nunca concede', () => {
     assert.equal(detectsWhatsappAdsConsentGrant('no acepto publicidad'), false)
     assert.equal(
-      detectsWhatsappAdsConsentGrant('No acepto publicidad ni anuncios'),
+      detectsWhatsappAdsConsentGrant('No acepto publicidad ni anuncios de Meta'),
       false,
     )
   })
 
   it('cita de otro mensaje no concede', () => {
     assert.equal(
-      detectsWhatsappAdsConsentGrant('> Acepto recibir publicidad y anuncios'),
+      detectsWhatsappAdsConsentGrant(
+        '> Acepto que usen mis datos para medición publicitaria de Meta',
+      ),
       false,
     )
     assert.equal(clientAdsConsentUtterance('> Acepto recibir publicidad'), null)
@@ -106,13 +124,14 @@ describe('waLeadSubmittedConsent', () => {
 
   it('texto del bot / atribución no concede', () => {
     assert.equal(
-      detectsWhatsappAdsConsentGrant('El bot dijo que acepto publicidad'),
+      detectsWhatsappAdsConsentGrant('El bot dijo que acepto publicidad de Meta'),
       false,
     )
     assert.equal(
-      detectsWhatsappAdsConsentGrant('Acepto recibir publicidad', {
-        fromBot: true,
-      }),
+      detectsWhatsappAdsConsentGrant(
+        'Acepto que usen mis datos para medición publicitaria de Meta',
+        { fromBot: true },
+      ),
       false,
     )
   })
@@ -198,7 +217,7 @@ describe('waLeadSubmittedConsentGate', () => {
     queryOk: true,
     leadFound: true,
     metaAdsConsent: true as boolean | null,
-    evidenceMessage: 'Acepto recibir publicidad y anuncios',
+    evidenceMessage: 'Acepto que usen mis datos para medición publicitaria de Meta',
     evidenceAt: '2026-09-21T12:00:00.000Z',
     evidenceScope: 'whatsapp_ads',
     leadTenantId: 't1',
