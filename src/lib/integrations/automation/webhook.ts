@@ -132,47 +132,126 @@ export function attachCtwaProbeSummary(
   return events.map((event) => ({ ...event, ctwaProbe: summary }))
 }
 
-export function normalizeWebhook(raw: string, contentType: string, now = Date.now()): Inbound[] {
+export type AdvisorOutbound = {
+  externalId: string
+  kommoId: number
+  contactId: number
+  chatId: string
+  text: string
+  name: string
+  sentAt: string
+  origin: string
+  userId: number
+  authorType: string
+}
+
+type NormalizedWebhook = {
+  inbound: Inbound[]
+  advisorOutbound: AdvisorOutbound[]
+}
+
+function flattenWebhook(raw: string, contentType: string) {
   const flat = parseKommoFlat(raw, contentType)
   if (flat['account[id]'] !== '36919007') throw new Error('WRONG_KOMMO_ACCOUNT')
-  const indexes = [...new Set(
+  return flat
+}
+
+function eventIndexes(flat: Record<string, string>, root: string) {
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const matcher = new RegExp(`^${escaped}\\[(\\d+)\\]`)
+  return [...new Set(
     Object.keys(flat)
-      .map(k => k.match(/^message\[add\]\[(\d+)\]/)?.[1])
+      .map(key => key.match(matcher)?.[1])
       .filter((value): value is string => Boolean(value)),
   )]
-  if (indexes.length > 100) throw new Error('TOO_MANY_EVENTS')
-  const events: Inbound[] = []
-  for (const index of indexes) {
+}
+
+function validEventDate(value: string, now: number) {
+  const date = Number(value) * 1000
+  if (!Number.isFinite(date) || date <= 0 || date > now + 60_000) throw new Error('INVALID_MESSAGE_ID_OR_TIME')
+  return new Date(date).toISOString()
+}
+
+export function normalizeKommoWebhook(raw: string, contentType: string, now = Date.now()): NormalizedWebhook {
+  const flat = flattenWebhook(raw, contentType)
+  const inboundIndexes = eventIndexes(flat, 'message[add]')
+  const outgoingRoots = ['outgoing_message[add]', 'message[add]'] as const
+  const total = inboundIndexes.length + outgoingRoots.reduce((count, root) => count + eventIndexes(flat, root).length, 0)
+  if (total > 200) throw new Error('TOO_MANY_EVENTS')
+
+  const inbound: Inbound[] = []
+  for (const index of inboundIndexes) {
     const get = (key: string) => flat[`message[add][${index}][${key}]`] || ''
     if (get('type') === 'outgoing' || get('author][type') !== 'external') continue
     if (!['waba', 'whatsapp'].includes(get('origin').toLowerCase())) continue
     if (get('entity_type') && !['lead', 'leads'].includes(get('entity_type'))) continue
     const kommoId = Number(get('entity_id') || get('element_id')), contactId = Number(get('contact_id'))
     const externalId = get('id') || get('message_id')
-    const date = Number(get('created_at')) * 1000
     if (!Number.isSafeInteger(kommoId) || kommoId <= 0 || !Number.isSafeInteger(contactId) || contactId <= 0
-      || !externalId || externalId.length > 200 || !Number.isFinite(date) || date <= 0 || date > now + 60_000) {
-      throw new Error('INVALID_MESSAGE_ID_OR_TIME')
-    }
+      || !externalId || externalId.length > 200) throw new Error('INVALID_MESSAGE_ID_OR_TIME')
     const body = get('text').trim()
     if (body.length > 20_000) throw new Error('MESSAGE_TOO_LONG')
     const mediaUrl = get('attachment][link')
     const mediaType = get('attachment][type'), mediaName = (get('attachment][file_name') || get('attachment][name')).slice(0,200)
     const ctwa = extractCtwaFromKommoFlat(flat, index)
-    events.push({
+    inbound.push({
       externalId,
       kommoId,
       contactId,
       chatId: get('chat_id'),
       text: body,
       name: get('author][name').slice(0, 200),
-      sentAt: new Date(date).toISOString(),
+      sentAt: validEventDate(get('created_at'), now),
       origin: get('origin'),
       media: mediaUrl || mediaType || mediaName ? { type: mediaType, url: mediaUrl, name: mediaName } : null,
       ctwa,
     })
   }
-  return events
+
+  const outgoing = new Map<string, AdvisorOutbound>()
+  for (const root of outgoingRoots) {
+    for (const index of eventIndexes(flat, root)) {
+      const get = (key: string) => flat[`${root}[${index}][${key}]`] || ''
+      const type = get('type').toLowerCase()
+      const authorType = get('author][type').toLowerCase()
+      if (root === 'message[add]' && type !== 'outgoing') continue
+      // Salesbot deliveries are not a manual takeover. Kommo identifies a
+      // human reply as an internal author with a concrete user_id.
+      if (authorType !== 'internal') continue
+      const userId = Number(get('author][user_id') || get('author][id'))
+      if (!Number.isSafeInteger(userId) || userId <= 0) continue
+      const origin = get('origin').toLowerCase()
+      if (origin && !['waba', 'whatsapp'].includes(origin)) continue
+      if (get('entity_type') && !['lead', 'leads'].includes(get('entity_type'))) continue
+      const kommoId = Number(get('entity_id') || get('element_id')) || 0
+      const contactId = Number(get('contact_id')) || 0
+      const externalId = get('id') || get('message_id')
+      if (!Number.isSafeInteger(kommoId) || kommoId < 0
+        || !Number.isSafeInteger(contactId) || contactId <= 0
+        || !externalId || externalId.length > 200) {
+        throw new Error('INVALID_MESSAGE_ID_OR_TIME')
+      }
+      const body = get('text').trim()
+      if (body.length > 20_000) throw new Error('MESSAGE_TOO_LONG')
+      outgoing.set(externalId, {
+        externalId,
+        kommoId,
+        contactId,
+        chatId: get('chat_id'),
+        text: body,
+        name: get('author][name').slice(0, 200),
+        sentAt: validEventDate(get('created_at'), now),
+        origin: get('origin'),
+        userId,
+        authorType,
+      })
+    }
+  }
+  return { inbound, advisorOutbound: [...outgoing.values()] }
+}
+
+export function normalizeWebhook(raw: string, contentType: string, now = Date.now()): Inbound[] {
+  return normalizeKommoWebhook(raw, contentType, now).inbound
 }
 
 export async function limitedBody(request: Request, maximum = 256_000) {

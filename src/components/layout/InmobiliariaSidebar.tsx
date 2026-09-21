@@ -14,6 +14,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { knownRole } from '@/lib/inmobiliaria/roleAccess'
 import { VisitInboxTrigger } from '@/components/inmobiliaria/agenda/VisitInboxTrigger'
+import { AdvisorNotificationsTrigger } from '@/components/layout/AdvisorNotificationsTrigger'
 
 const SIDEBAR_STORAGE_KEY = 'lavilet-sidebar-collapsed'
 
@@ -79,6 +80,7 @@ export function InmobiliariaSidebar() {
           Lavilet
         </Link>
         <div className="ml-auto flex items-center gap-2">
+          <AdvisorNotificationsTrigger compact />
           <VisitInboxTrigger compact />
           <InmobiliariaAccountMenu tone="dark" />
         </div>

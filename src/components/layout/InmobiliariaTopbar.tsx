@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { knownRole } from '@/lib/inmobiliaria/roleAccess'
 import { cn } from '@/lib/utils'
 import { VisitInboxTrigger } from '@/components/inmobiliaria/agenda/VisitInboxTrigger'
+import { AdvisorNotificationsTrigger } from '@/components/layout/AdvisorNotificationsTrigger'
 
 export function InmobiliariaTopbar() {
   const pathname = usePathname()
@@ -43,6 +44,7 @@ export function InmobiliariaTopbar() {
         })}
       </nav>
       <div className="flex min-w-0 items-center gap-4 pr-5">
+        <AdvisorNotificationsTrigger />
         <VisitInboxTrigger />
         <InmobiliariaAccountMenu tone="light" />
       </div>

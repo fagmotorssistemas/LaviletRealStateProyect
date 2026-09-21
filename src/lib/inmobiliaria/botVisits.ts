@@ -1,10 +1,10 @@
-import { botReadiness, projectReadiness, readinessInvitation, type ProjectReadiness } from './projectReadiness'
+import { projectReadiness, readinessInvitation, type ProjectReadiness } from './projectReadiness'
 export type BotVisitPolicy = { allowSuggestions: boolean; launchDestination: 'site' | 'office'; readiness?: ProjectReadiness }
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 export function botVisitPolicy(policies: unknown, mode: string): BotVisitPolicy {
   const p = record(record(policies).bot_visits)
   const state = projectReadiness(policies,mode)
-  if(state.configured)return {allowSuggestions:typeof p.allow_suggestions==='boolean'?p.allow_suggestions:mode!=='lanzamiento',launchDestination:state.value.primaryPlace==='office'?'office':'site',readiness:botReadiness(state.value)}
+  if(state.configured)return {allowSuggestions:typeof p.allow_suggestions==='boolean'?p.allow_suggestions:mode!=='lanzamiento',launchDestination:state.value.primaryPlace==='office'?'office':'site',readiness:state.value}
   return { allowSuggestions: typeof p.allow_suggestions === 'boolean' ? p.allow_suggestions : mode !== 'lanzamiento',
     launchDestination: p.launch_destination === 'office' ? 'office' : 'site' }
 }

@@ -31,7 +31,7 @@ export function AutomationLeadsTable({ rows, selectedLeadId, onSelect }: {
           <p className={styles.secondary}>{row.phone || 'Sin teléfono'}<br />{sourceLabel(row.source)}</p>
           {row.project_name && <p className={styles.secondary}>{row.project_name}</p>}
         </div></div></td>
-        <td data-label="Interés"><p>{categories[row.preferred_category ?? ''] || row.preferred_category || 'Por definir'}</p><p className={styles.secondary}>{purposeLabel(row.purchase_purpose)}</p>
+        <td data-label="Interés"><p>{categories[row.preferred_category ?? ''] || row.preferred_category || 'Por definir'}</p><p className={styles.secondary}>Unidad: {row.interest_unit_number || 'Por definir'}</p><p className={styles.secondary}>{purposeLabel(row.purchase_purpose)}</p>
           {row.last_visit_status && <span className={`${styles.miniBadge} mt-2`}>{({ solicitada: 'Visita solicitada', pendiente: 'Visita pendiente', aceptado: 'Cita confirmada', reprogramado: 'Cita reprogramada', atendido: 'Visita realizada', cancelado: 'Cita cancelada' } as Record<string, string>)[row.last_visit_status] || 'Con solicitud de visita'}</span>}
         </td>
         <td data-label="Calificación"><div className={styles.score}>{temperatures[row.temperature] || 'Por calificar'}<span>{row.score} pts</span></div><div className={styles.heat} data-temperature={row.temperature} aria-hidden="true">{[1, 2, 3].map(level => <i key={level} data-filled={level <= heat} />)}</div></td>

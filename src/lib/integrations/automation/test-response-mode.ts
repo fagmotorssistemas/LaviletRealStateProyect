@@ -37,12 +37,16 @@ export async function claimTestMessages(token: string, contact: string): Promise
   const mode=await testResponseMode()
   if(!mode || !contact.startsWith(`${mode.kommoId}:`))return []
   const {data,error}=await db().from('lv_integration_events').select('*').match(scope).eq('contact_key',contact)
-    .eq('kind','inbound').in('status',['pending','processing','uncertain']).order('received_at').order('id')
+    .in('kind',['advisor_outbound','inbound']).in('status',['pending','processing','uncertain']).order('received_at').order('id')
   if(error)throw Error('TEST_CLAIM_READ_FAILED')
   const rows=data||[]
   if(rows.some(r=>r.status!=='pending'||Date.parse(r.available_at)>Date.now()))return []
+  // Una salida manual pendiente siempre se procesa sola y antes que el
+  // inbound acelerado. Así el modo de pruebas tampoco puede responder detrás
+  // de un asesor que acaba de tomar la conversación.
+  const advisorOutbound=rows.find(r=>r.kind==='advisor_outbound')
   const limit=rows.some(r=>object(r.payload).media)?2:10
-  const ids=rows.slice(0,limit).map(r=>r.id)
+  const ids=advisorOutbound?[advisorOutbound.id]:rows.filter(r=>!r.kind||r.kind==='inbound').slice(0,limit).map(r=>r.id)
   if(!ids.length)return []
   const {data:claimed,error:claimError}=await db().from('lv_integration_events')
     .update({status:'processing',claimed_at:new Date().toISOString(),claim_token:token})

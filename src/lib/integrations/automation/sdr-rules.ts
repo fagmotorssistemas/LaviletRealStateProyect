@@ -73,6 +73,7 @@ export function styleIssues(reply: string, alreadyWelcomed: boolean): string[] {
   const issues: string[] = []
   if (/no todos(?: los (?:departamentos|inmuebles|locales|espacios))? (?:tienen|cuentan|incluyen)|(?:el|la) (?:unidad )?\d+ no (?:lo )?(?:incluye|tiene|cuenta)|otros como (?:el|la) \d+ no/i.test(reply)) issues.push('unsupported_fact')
   if (alreadyWelcomed && /^(hola\b|buenos d[ií]as\b|buenas (tardes|noches)\b|bienvenid[oa]\b)/i.test(reply.trim())) issues.push('repeated_greeting')
+  if (/para vivir en la vilet,?\s+(?:usted\s+)?dispone de/i.test(reply)) issues.push('style')
   if ((reply.match(/\?/g) || []).length > 1 || /\p{Extended_Pictographic}/u.test(reply)
     || /soy (?:su|tu|el|la) asesor|mi nombre es/i.test(reply)
     || /amenidades|gracias por (?:compartir|comentarlo|aclararlo)|entiendo que busca|as[ií] podr[eé] orientarle/i.test(reply)

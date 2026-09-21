@@ -398,6 +398,23 @@ export type VisitInboxItem = Omit<AppointmentRescheduleRequest, 'lead'> & {
   lead?: { id: string; name: string | null; phone: string | null; kommo_id?: number | null; preferred_category?: string | null } | null
 }
 
+export interface AdvisorNotification {
+  id: string
+  tenant_id: string
+  project_id: string
+  recipient_id: string
+  lead_id: string
+  kind: 'lead_assigned'
+  title: string
+  body: string
+  assignment_at: string
+  read_at: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  lead?: { id: string; name: string | null; phone: string | null; kommo_id: number | null } | null
+  project?: { id: string; name: string } | null
+}
+
 export interface VisitTimeSlot {
   start_time: string
   end_time: string

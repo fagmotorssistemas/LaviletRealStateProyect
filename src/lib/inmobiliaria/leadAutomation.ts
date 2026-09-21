@@ -51,7 +51,7 @@ export const HANDOFF_STATUS_OPTIONS = [
   { value: 'none', label: 'Sin traspaso' },
   { value: 'queued', label: 'En cola' },
   { value: 'assigned', label: 'Asignado' },
-  { value: 'acknowledged', label: 'Reconocido' },
+  { value: 'acknowledged', label: 'Esperando al lead' },
   { value: 'resolved', label: 'Resuelto' },
 ]
 

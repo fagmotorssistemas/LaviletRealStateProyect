@@ -7,14 +7,15 @@ import type {
   LeadAutomationFilters,
   LeadAutomationKpis,
   LeadAutomationRow,
+  LeadAttentionRow,
   LeadInterestUnitRow,
-  LeadNutritionRow,
+  LeadNutritionJob,
   LeadScoreEventRow,
   LeadStageHistoryRow,
   LeadTemperatureHistoryRow,
   LeadVisitRow,
   MessageRow,
-  NutritionDeliveryRow,
+  NutritionTask,
 } from '@/types/leadAutomation'
 import { buildAutomationTimeline, EMPTY_AUTOMATION_KPIS, sanitizeSearch, toInclusiveRange } from '@/lib/inmobiliaria/leadAutomation'
 
@@ -85,7 +86,77 @@ export async function listLeadAutomationDashboard(
 
   const { data, error, count } = await query.range(from, to)
   if (error) throw error
-  return { data: (data ?? []) as LeadAutomationRow[], total: count ?? 0 }
+  const dashboardRows = (data ?? []) as Omit<LeadAutomationRow, 'interest_unit_number'>[]
+  const leadIds = dashboardRows.map(row => row.lead_id)
+  const interestNumbers = new Map<string, string>()
+  if (leadIds.length) {
+    const interests = await supabase
+      .from('lead_units')
+      .select('lead_id,rejected,created_at,unit:units(unit_number)')
+      .in('lead_id', leadIds)
+      .order('created_at', { ascending: false, nullsFirst: false })
+    if (interests.error) throw interests.error
+    for (const raw of interests.data ?? []) {
+      const item = raw as unknown as {
+        lead_id: string
+        rejected: boolean | null
+        unit: { unit_number: string } | { unit_number: string }[] | null
+      }
+      if (item.rejected === true || interestNumbers.has(item.lead_id)) continue
+      const unit = firstRelation(item.unit)
+      if (unit?.unit_number) interestNumbers.set(item.lead_id, unit.unit_number)
+    }
+  }
+  return {
+    data: dashboardRows.map(row => ({ ...row, interest_unit_number: interestNumbers.get(row.lead_id) ?? null })),
+    total: count ?? 0,
+  }
+}
+
+export async function listLeadAttentionQueue(
+  supabase: SupabaseClient,
+  tenantIds: string[],
+): Promise<LeadAttentionRow[]> {
+  if (!tenantIds.length) return []
+  const { data, error } = await supabase
+    .from(VIEW)
+    .select('*')
+    .in('tenant_id', tenantIds)
+    .in('handoff_status', ['queued', 'assigned', 'acknowledged', 'resolved'])
+    .order('handoff_requested_at', { ascending: false, nullsFirst: false })
+    .limit(150)
+  if (error) throw error
+
+  const rows = (data ?? []) as LeadAutomationRow[]
+  const conversationIds = [...new Set(rows.map((row) => row.latest_conversation_id).filter((id): id is string => Boolean(id)))]
+  if (!conversationIds.length) return rows.map((row) => ({ ...row, last_customer_message: null, last_customer_message_at: null }))
+
+  const messages = await supabase
+    .from('messages')
+    .select('conversation_id, content, sent_at')
+    .in('conversation_id', conversationIds)
+    .eq('role', 'cliente')
+    .order('sent_at', { ascending: false })
+    .limit(500)
+  if (messages.error) throw messages.error
+
+  const latestByConversation = new Map<string, { content: string | null; sent_at: string | null }>()
+  for (const message of messages.data ?? []) {
+    if (!latestByConversation.has(message.conversation_id)) {
+      latestByConversation.set(message.conversation_id, {
+        content: message.content,
+        sent_at: message.sent_at,
+      })
+    }
+  }
+  return rows.map((row) => {
+    const latest = row.latest_conversation_id ? latestByConversation.get(row.latest_conversation_id) : null
+    return {
+      ...row,
+      last_customer_message: latest?.content ?? null,
+      last_customer_message_at: latest?.sent_at ?? null,
+    }
+  })
 }
 
 export async function getLeadAutomationKpis(
@@ -143,8 +214,7 @@ export async function getLeadAutomationDetail(
     stageRes,
     unitsRes,
     visitsRes,
-    nutritionRes,
-    nutritionHistoryRes,
+    nutritionJobsRes,
   ] = await Promise.all([
     supabase.from('conversations').select('*').eq('lead_id', leadId).order('started_at', { ascending: false }),
     supabase.from('lead_score_events').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
@@ -161,8 +231,12 @@ export async function getLeadAutomationDetail(
       .eq('lead_id', leadId)
       .in('tenant_id', tenantIds)
       .order('requested_at', { ascending: false }),
-    supabase.from('lead_nutrition').select('*').eq('lead_id', leadId).maybeSingle(),
-    supabase.from('nutrition_delivery_history').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
+    supabase.from('lv_integration_events')
+      .select('id,payload,status,available_at,received_at,completed_at,result')
+      .eq('kind', 'maintenance')
+      .contains('payload', { leadId })
+      .order('received_at', { ascending: false })
+      .limit(30),
   ])
 
   const firstError = [
@@ -172,10 +246,40 @@ export async function getLeadAutomationDetail(
     stageRes.error,
     unitsRes.error,
     visitsRes.error,
-    nutritionRes.error,
-    nutritionHistoryRes.error,
   ].find(Boolean)
   if (firstError) throw firstError
+
+  const nutritionTasks = new Set<NutritionTask>([
+    'nutrition_24h',
+    'nutrition_week_one',
+    'nutrition_week_two',
+    'nutrition_week_three',
+  ])
+  // La migracion de produccion concede acceso solo a estos trabajos. Durante
+  // una actualizacion gradual, una politica todavia no aplicada no debe romper
+  // el resto del detalle del lead.
+  const nutritionJobs: LeadNutritionJob[] = nutritionJobsRes.error
+    ? []
+    : (nutritionJobsRes.data ?? []).flatMap((event) => {
+        const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+          ? event.payload as Record<string, unknown>
+          : {}
+        const result = event.result && typeof event.result === 'object' && !Array.isArray(event.result)
+          ? event.result as Record<string, unknown>
+          : {}
+        const task = typeof payload.task === 'string' ? payload.task as NutritionTask : null
+        if (!task || !nutritionTasks.has(task)) return []
+        return [{
+          id: event.id,
+          task,
+          status: event.status,
+          scheduled_at: event.available_at,
+          created_at: event.received_at,
+          completed_at: event.completed_at,
+          reason: typeof result.reason === 'string' ? result.reason : null,
+          delivery_status: typeof result.delivery_status === 'string' ? result.delivery_status : null,
+        }]
+      })
 
   const conversations = (conversationsRes.data ?? []) as ConversationRow[]
   const conversationIds = conversations.map((item) => item.id)
@@ -236,8 +340,7 @@ export async function getLeadAutomationDetail(
     stageHistory: (stageRes.data ?? []) as LeadStageHistoryRow[],
     units,
     visits,
-    nutrition: (nutritionRes.data as LeadNutritionRow | null) ?? null,
-    nutritionHistory: (nutritionHistoryRes.data ?? []) as NutritionDeliveryRow[],
+    nutritionJobs,
     escalations,
   }
 
