@@ -55,21 +55,27 @@ function mockAdmin(state: {
               if (table === 'meta_capi_outbox') return { data: state.outbox || null, error: null }
               return { data: null, error: null }
             },
-            async update(patch: Row) {
-              if (table === 'leads') Object.assign(state.lead, patch)
-              if (table === 'meta_capi_outbox' && state.outbox) Object.assign(state.outbox, patch)
-              return {
-                eq() {
-                  return {
-                    is() {
-                      return { error: null }
-                    },
-                    in() {
-                      return { error: null }
-                    },
-                  }
-                },
-              }
+          }
+          return chain
+        },
+        update(patch: Row) {
+          if (table === 'leads') Object.assign(state.lead, patch)
+          if (table === 'meta_capi_outbox' && state.outbox) {
+            Object.assign(state.outbox, patch)
+          }
+          const result = { error: null as null }
+          const chain = {
+            eq() {
+              return chain
+            },
+            is() {
+              return result
+            },
+            in() {
+              return result
+            },
+            then(resolve: (v: { error: null }) => unknown) {
+              return Promise.resolve(result).then(resolve)
             },
           }
           return chain
@@ -393,5 +399,85 @@ describe('waLeadSubmitted integration', () => {
     })
     assert.equal(second.stage, 'enqueued')
     assert.ok(second.eventId)
+  })
+
+  it('revocación cancela outbox pending antes del envío', async () => {
+    const eventId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const lead = {
+      id: LEAD_ID,
+      meta_ads_consent: false,
+      meta_ads_consent_evidence_message: 'No quiero publicidad de Meta',
+      meta_ads_consent_evidence_at: '2026-09-21T13:00:00.000Z',
+      meta_ads_consent_scope: 'whatsapp_ads',
+      tenant_id: TENANT_A,
+      project_id: PROJECT_A,
+      meta_wa_lead_submitted_event_id: eventId,
+      phone: '+593999',
+    }
+    const outbox = {
+      id: 'o-rev',
+      status: 'pending',
+      event_id: eventId,
+      last_error: null as string | null,
+    }
+    const admin = mockAdmin({
+      lead,
+      outbox,
+      ctwaRows: [
+        {
+          ctwa_clid: 'Aff.REV',
+          tenant_id: TENANT_A,
+          project_id: PROJECT_A,
+          contact_id: '55',
+        },
+      ],
+    })
+    const result = await maybeRegisterWaLeadSubmitted({
+      admin: admin as never,
+      lead: lead as never,
+      contactId: 55,
+      currentMessage: 'Quiero comprar un departamento de 2 dormitorios',
+      env: envOn,
+    })
+    assert.equal(result.stage, 'blocked')
+    assert.equal(result.reason, 'ads_consent_revoked')
+    assert.equal(outbox.status, 'cancelled')
+    assert.equal(outbox.last_error, 'ads_consent_revoked')
+  })
+
+  it('selección «me interesa el más grande» con oferta reciente es interés comercial', async () => {
+    const lead = {
+      id: LEAD_ID,
+      meta_ads_consent: null,
+      meta_ads_consent_evidence_message: null,
+      meta_ads_consent_evidence_at: null,
+      meta_ads_consent_scope: null,
+      tenant_id: TENANT_A,
+      project_id: PROJECT_A,
+      meta_wa_lead_submitted_event_id: null,
+    }
+    const admin = mockAdmin({
+      lead,
+      ctwaRows: [
+        {
+          ctwa_clid: 'Aff.SEL',
+          tenant_id: TENANT_A,
+          project_id: PROJECT_A,
+          contact_id: '55',
+        },
+      ],
+    })
+    const result = await maybeRegisterWaLeadSubmitted({
+      admin: admin as never,
+      lead: lead as never,
+      contactId: 55,
+      currentMessage: 'me interesa mas el mas grande',
+      recentOfferText:
+        'Estas son las opciones disponibles: el penthouse 602 y el 605.',
+      env: envOn,
+    })
+    // Interés sí; bloquea por consentimiento (no por commercial_interest_required)
+    assert.equal(result.stage, 'blocked')
+    assert.match(String(result.reason), /ads_consent/)
   })
 })

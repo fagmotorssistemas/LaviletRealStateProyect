@@ -80,6 +80,7 @@ export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
   contactId: number | string
   currentMessage: string
   scoreEvents?: string[] | null
+  recentOfferText?: string | null
   tenantId?: string | null
   projectId?: string | null
   env?: NodeJS.ProcessEnv
@@ -131,6 +132,7 @@ export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
     contactId: input.contactId,
     currentMessage: input.currentMessage,
     scoreEvents: input.scoreEvents,
+    recentOfferText: input.recentOfferText,
     env: input.env,
   })
 }

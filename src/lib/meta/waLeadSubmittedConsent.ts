@@ -58,10 +58,19 @@ export function detectsWhatsappAdsConsentGrant(
   opts?: { fromBot?: boolean },
 ): boolean {
   if (opts?.fromBot === true) return false
-  const utterance = clientAdsConsentUtterance(message)
+  const raw = String(message || '').trim()
+  // Preguntas / hipotéticas no son aceptación.
+  if (!raw || /[?¿]/.test(raw)) return false
+  const utterance = clientAdsConsentUtterance(raw)
   if (!utterance) return false
   const m = normalized(utterance)
   if (!m) return false
+  if (
+    /^(?:puedo|podria|podriamos|debo|tengo que|que pasa si|y si)\b/.test(m) ||
+    /\b(?:acepto|autorizo|consiento)\b.{0,40}\b(?:o no|verdad)\b/.test(m)
+  ) {
+    return false
+  }
   if (/no (?:acepto|quiero|deseo|autorizo|consiento)/.test(m)) return false
   if (/(?:niego|rechazo).{0,20}(?:consentimiento|publicidad|anuncios|meta)/.test(m)) {
     return false

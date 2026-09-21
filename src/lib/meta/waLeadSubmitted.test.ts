@@ -13,6 +13,7 @@ import {
   detectsWhatsappAdsConsentRevoke,
   clientAdsConsentUtterance,
 } from './waLeadSubmittedConsent'
+import { waAdsConsentRequestBrief } from './waLeadSubmittedConsentRequest'
 import { decideWaLeadSubmittedConsentGate } from './waLeadSubmittedConsentGate'
 import {
   isMetaCapiSentStage,
@@ -27,6 +28,49 @@ describe('waLeadSubmittedEligibility', () => {
     assert.equal(r.eligibleForConversion, false)
     assert.equal(r.greetingOnly, true)
     assert.equal(r.blocker, WA_BLOCK_GREETING)
+  })
+
+  it('selección de unidad ofrecida: me interesa el más grande', () => {
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage: 'me interesa mas el mas grande',
+      recentOfferText:
+        'Perfecto. Estas son las opciones disponibles: el penthouse 602; el penthouse 605.',
+    })
+    assert.equal(r.eligibleForConversion, true)
+    assert.equal(r.commercialInterest, true)
+  })
+
+  it('selección comparativa sin oferta también cuenta (turno actual)', () => {
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage: 'me interesa mas el mas grande',
+    })
+    assert.equal(r.eligibleForConversion, true)
+  })
+
+  it('deíxis «esa» solo con oferta reciente de unidades', () => {
+    assert.equal(
+      evaluateWaLeadSubmittedEligibility({
+        currentMessage: 'me interesa esa',
+      }).eligibleForConversion,
+      false,
+    )
+    assert.equal(
+      evaluateWaLeadSubmittedEligibility({
+        currentMessage: 'me interesa esa',
+        recentOfferText: 'Tenemos el departamento 301 y la suite 202 disponibles.',
+      }).eligibleForConversion,
+      true,
+    )
+  })
+
+  it('histórico propertyInterest no convierte mensaje ambiguo (sin backfill)', () => {
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage: 'ok',
+      propertyInterest: true,
+      scoreEvents: ['first_response'],
+    })
+    assert.equal(r.eligibleForConversion, false)
+    assert.equal(r.blocker, 'commercial_interest_required')
   })
 
   it('interés comercial por texto: elegible', () => {
@@ -48,16 +92,6 @@ describe('waLeadSubmittedEligibility', () => {
   it('mensaje neutro sin eventos: no elegible', () => {
     const r = evaluateWaLeadSubmittedEligibility({
       currentMessage: 'ok gracias',
-      scoreEvents: ['first_response'],
-    })
-    assert.equal(r.eligibleForConversion, false)
-    assert.equal(r.blocker, 'commercial_interest_required')
-  })
-
-  it('engagement histórico (propertyInterest) no convierte ambiguo', () => {
-    const r = evaluateWaLeadSubmittedEligibility({
-      currentMessage: 'ok',
-      propertyInterest: true,
       scoreEvents: ['first_response'],
     })
     assert.equal(r.eligibleForConversion, false)
@@ -104,10 +138,29 @@ describe('waLeadSubmittedConsent', () => {
     )
   })
 
-  it('no acepto publicidad nunca concede', () => {
+  it('no acepto / rechazo nunca concede', () => {
     assert.equal(detectsWhatsappAdsConsentGrant('no acepto publicidad'), false)
     assert.equal(
       detectsWhatsappAdsConsentGrant('No acepto publicidad ni anuncios de Meta'),
+      false,
+    )
+    assert.equal(
+      detectsWhatsappAdsConsentGrant('Rechazo el consentimiento de Meta Ads'),
+      false,
+    )
+  })
+
+  it('preguntas no conceden', () => {
+    assert.equal(
+      detectsWhatsappAdsConsentGrant(
+        '¿Acepto que usen mis datos para medición publicitaria de Meta?',
+      ),
+      false,
+    )
+    assert.equal(
+      detectsWhatsappAdsConsentGrant(
+        'Puedo autorizar publicidad de Meta?',
+      ),
       false,
     )
   })
@@ -120,6 +173,12 @@ describe('waLeadSubmittedConsent', () => {
       false,
     )
     assert.equal(clientAdsConsentUtterance('> Acepto recibir publicidad'), null)
+    assert.equal(
+      detectsWhatsappAdsConsentGrant(
+        '"Acepto que usen mis datos para medición publicitaria de Meta"',
+      ),
+      false,
+    )
   })
 
   it('texto del bot / atribución no concede', () => {
@@ -139,6 +198,25 @@ describe('waLeadSubmittedConsent', () => {
   it('revocación explícita', () => {
     assert.equal(
       detectsWhatsappAdsConsentRevoke('No quiero recibir publicidad'),
+      true,
+    )
+    assert.equal(
+      detectsWhatsappAdsConsentRevoke(
+        'Retiro mi consentimiento de medición de Meta',
+      ),
+      true,
+    )
+  })
+})
+
+describe('waLeadSubmittedConsentRequest', () => {
+  it('script manual no activa bot y espera frase Meta', () => {
+    const brief = waAdsConsentRequestBrief()
+    assert.equal(brief.botAutoSend, false)
+    assert.equal(brief.channel, 'advisor_manual_kommo')
+    assert.match(brief.requestScript, /Meta/)
+    assert.equal(
+      detectsWhatsappAdsConsentGrant(brief.expectedReply),
       true,
     )
   })

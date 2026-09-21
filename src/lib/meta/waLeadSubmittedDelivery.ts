@@ -129,6 +129,8 @@ export async function maybeRegisterWaLeadSubmitted(input: {
   contactId: number | string
   currentMessage: string
   scoreEvents?: string[] | null
+  /** Última oferta del bot en el hilo (contexto del turno; no backfill). */
+  recentOfferText?: string | null
   history?: unknown
   behaviorSignals?: unknown
   env?: NodeJS.ProcessEnv
@@ -149,10 +151,12 @@ export async function maybeRegisterWaLeadSubmitted(input: {
   const contactId = String(input.contactId)
   const idempotencyKey = waLeadSubmittedIdempotencyKey(input.lead.id)
 
-  // Solo interés del turno actual (texto / score events). Engagement histórico no convierte.
+  // Solo interés del turno actual (texto / score events / selección de oferta reciente).
+  // Engagement histórico no convierte; no hay backfill de mensajes pasados.
   const eligibility = evaluateWaLeadSubmittedEligibility({
     currentMessage: input.currentMessage,
     scoreEvents: input.scoreEvents,
+    recentOfferText: input.recentOfferText,
   })
 
   if (!eligibility.eligibleForConversion) {
@@ -215,6 +219,43 @@ export async function maybeRegisterWaLeadSubmitted(input: {
     eventProjectId: input.lead.project_id,
     eventContactId: contactId,
   })
+
+  // Revocación: cancelar outbox LS pendiente antes de cualquier envío (defensa + bitácora).
+  // El RPC lv_record_meta_ads_consent(false) ya cancela; esto cubre carrera/estado local.
+  if (gate.action === 'cancel_revoked') {
+    try {
+      await admin
+        .from('meta_capi_outbox')
+        .update({
+          status: 'cancelled',
+          last_error: 'ads_consent_revoked',
+        })
+        .eq('idempotency_key', idempotencyKey)
+        .in('status', ['pending', 'needs_review', 'review_hold'])
+    } catch {
+      /* soft-fail */
+    }
+    await logConversion(admin, {
+      stage: 'blocked',
+      reason: 'ads_consent_revoked',
+      leadId: input.lead.id,
+      contactId,
+      tenantId:
+        (consentRow?.tenant_id as string | null) || input.lead.tenant_id || null,
+      projectId:
+        (consentRow?.project_id as string | null) || input.lead.project_id || null,
+      idempotencyKey,
+      details: { gate: gate.action },
+    })
+    return {
+      attempted: true,
+      stage: 'blocked',
+      reason: 'ads_consent_revoked',
+      eventId: null,
+      blockers: ['ads_consent_required'],
+      retainAttention: true,
+    }
+  }
 
   const tenantId =
     (consentRow?.tenant_id as string | null) || input.lead.tenant_id || null

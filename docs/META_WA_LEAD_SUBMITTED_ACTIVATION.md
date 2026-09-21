@@ -16,14 +16,26 @@ Estados del trabajo (actualizar al ejecutar):
 
 **Cómo se ejecuta `lv_set_whatsapp_meta_ads_consent` hoy**
 
-- **No hay pantalla CRM** ni acción de asesor para registrar este consentimiento.
+- **No hay pantalla CRM** que registre aceptación en nombre del cliente.
 - Se reconoce **automáticamente** cuando llega un mensaje **del cliente** por WhatsApp (webhook Kommo → `processConversation` / evaluación fuera del bot) y el texto coincide con aceptación **explícita** de medición/publicidad **Meta** (alcance `whatsapp_ads`).
 - Cadena: mensaje entrante → `applyWhatsappAdsConsentFromClientMessage` → RPC `lv_set_whatsapp_meta_ads_consent` (evidencia: mensaje + fecha + scope).
-- Frases genéricas («acepto publicidad») **no** conceden. Hace falta mención de Meta / Facebook / Instagram / medición publicitaria / datos para anuncios.
+- Frases genéricas («acepto publicidad»), **preguntas**, **negaciones** y **citas** **no** conceden.
 - `tracking_consent`, cookies y casilla de contacto del showroom **no** sustituyen este alcance.
+- Revocación (`detectsWhatsappAdsConsentRevoke` → RPC false) cancela outbox `pending` / `needs_review` / `review_hold` con `ads_consent_required` **antes** del envío (RPC + defensa FE).
 
-El cliente debe escribir algo inequívoco, p. ej. *«Acepto que usen mis datos para medición publicitaria de Meta»*.  
-No se envían mensajes automáticos del bot para pedirlo en esta entrega.
+### Flujo utilizable para solicitar el consentimiento (sin bot auto)
+
+No podemos depender de que el cliente mencione Meta espontáneamente.
+
+1. Bitácora `/inmobiliaria/marketing/capi` (sección WhatsApp) muestra bloqueos `ads_consent_*`.
+2. Asesor copia el **script** de la misma sección («Consentimiento Meta») o `WA_ADS_CONSENT_REQUEST_SCRIPT` en código.
+3. Lo envía **manual** por Kommo (canal `advisor_manual_kommo`). El bot **no** lo dispara.
+4. Cliente responde exactamente: *«Acepto que usen mis datos para medición publicitaria de Meta»*.
+5. Un **turno nuevo** con interés comercial puede encolar (sin backfill de mensajes viejos).
+
+Código: `src/lib/meta/waLeadSubmittedConsentRequest.ts`.
+
+El cliente debe escribir algo inequívoco; no se envían mensajes automáticos del bot para pedirlo.
 
 ### Llegada tardía de consentimiento o CTWA
 

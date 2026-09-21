@@ -682,6 +682,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           contactId: last.contactId,
           currentMessage: current,
           scoreEvents: extracted.events as string[],
+          recentOfferText: text(state.ultima_respuesta) || null,
           tenantId: scope.tenant_id,
           projectId: scope.project_id,
         })

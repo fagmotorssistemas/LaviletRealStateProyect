@@ -3,6 +3,10 @@
 import Link from 'next/link'
 import type { MetaWhatsAppVisibility } from '@/services/metaCapiOutbox.service'
 import { cn } from '@/lib/utils'
+import {
+  WA_ADS_CONSENT_EXPECTED_REPLY,
+  WA_ADS_CONSENT_REQUEST_SCRIPT,
+} from '@/lib/meta/waLeadSubmittedConsentRequest'
 
 function formatWhen(iso: string | null | undefined, timeZone: string) {
   if (!iso) return '—'
@@ -237,6 +241,26 @@ export function MetaCapiWhatsAppSection({
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-[#ece6dc] bg-white p-3 sm:p-4">
+        <h2 className="text-sm font-semibold text-[#1f1a14]">Consentimiento Meta (WhatsApp ads)</h2>
+        <p className="mt-2 text-[11px] leading-relaxed text-[#6b645c]">
+          No se envía por el bot. Si la bitácora bloquea por{' '}
+          <code className="text-[10px]">ads_consent_*</code>, el asesor copia este
+          texto y lo envía manualmente en Kommo. La respuesta del cliente debe
+          mencionar medición/publicidad de Meta (alcance{' '}
+          <code className="text-[10px]">whatsapp_ads</code>).
+        </p>
+        <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-[#ece6dc] bg-[#faf8f5] px-3 py-2 text-[11px] leading-relaxed text-[#1f1a14]">
+          {WA_ADS_CONSENT_REQUEST_SCRIPT}
+        </pre>
+        <p className="mt-2 text-[10px] text-[#8a8176]">
+          Respuesta esperada:{' '}
+          <span className="font-medium text-[#6b645c]">
+            «{WA_ADS_CONSENT_EXPECTED_REPLY}»
+          </span>
+        </p>
       </section>
 
       <section className="rounded-2xl border border-dashed border-[#d9d0c3] bg-[#faf8f5] p-3 sm:p-4">
