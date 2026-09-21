@@ -14,6 +14,11 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
   if (!codes.length && /\b(?:precio|valor|vale|valen|cuesta|cuestan|cost[oa])\b/.test(m)) {
     codes.push(...m.matchAll(/\b(?:el|del|la|de la)\s+(\d{3,4})\b/g))
   }
+  // After the bot lists concrete options, clients commonly choose one with
+  // phrases such as “me interesa la 210” without repeating “suite”.
+  if (!codes.length && /\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)\b/.test(m)) {
+    codes.push(...m.matchAll(/\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)(?:\s+(?:revisar|conocer|ver))?\s+(?:la|el|unidad)?\s*(\d{3,4})\b/g))
+  }
   // A named project subject supersedes a remembered unit for this turn.
   const projectTopic=/\b(?:edificio|proyecto|areas comunes|amenidades)\b/.test(m)
   const largest=/\bdepartamento (?:mas grande|de mayor (?:superficie|area|tamano))\b/.test(m)

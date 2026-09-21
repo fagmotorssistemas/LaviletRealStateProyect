@@ -24,18 +24,14 @@ import {
 import { formatDateTime } from '@/lib/utils'
 import {
   addSalespersonAction,
-  disableNutritionSequenceAction,
   loadAutomationRulesAction,
   saveAutomationConfigAction,
-  saveNutritionStepsAction,
   saveSalespersonAction,
   saveScoringRuleAction,
-  seedNutritionStepsAction,
 } from '@/app/inmobiliaria/automatizacion/actions'
 import {
   AUTOMATION_MODE_OPTIONS,
   TIMEZONE_OPTIONS,
-  type NutritionStepRow,
   type ProjectAutomationConfig,
   type ProjectSalespersonRow,
   type ScoringRuleRow,
@@ -72,6 +68,15 @@ function Toggle({
   )
 }
 
+type AutomationAudience = {
+  enabled: boolean
+  dryRun: boolean
+  restricted: boolean
+  allowedLeadId: string | null
+  allowedLeadName: string | null
+  allowedPhone: string | null
+}
+
 export function AutomationRulesView() {
   const router = useRouter()
   const { isAdmin, isLoading: roleLoading } = useRoleAccess()
@@ -84,10 +89,10 @@ export function AutomationRulesView() {
   const [days, setDays] = useState<WeekdayHours[]>(hoursToWeekdays(null))
   const [salespeople, setSalespeople] = useState<ProjectSalespersonRow[]>([])
   const [scoring, setScoring] = useState<ScoringRuleRow[]>([])
-  const [nutrition, setNutrition] = useState<NutritionStepRow[]>([])
   const [nutrition24h, setNutrition24h] = useState<Nutrition24hConfig>(nutrition24hConfig(null))
   const [nutritionWeekOne, setNutritionWeekOne] = useState<NutritionWeekOneConfig>(nutritionWeekOneConfig(null))
   const [nutritionLater, setNutritionLater] = useState<Record<LaterWeek, LaterConfig>>(nutritionLaterConfig(null))
+  const [automationAudience, setAutomationAudience] = useState<AutomationAudience | null>(null)
   const [projectUpdatedAt, setProjectUpdatedAt] = useState('')
   const [botVisits, setBotVisits] = useState<BotVisitPolicy>(botVisitPolicy(null, 'lanzamiento'))
   const [addPersonId, setAddPersonId] = useState('')
@@ -126,10 +131,10 @@ export function AutomationRulesView() {
       setDays(hoursToWeekdays(nextConfig.business_hours))
       setSalespeople(payload.salespeople)
       setScoring(payload.scoringRules)
-      setNutrition(payload.nutritionSteps)
       setNutrition24h(payload.nutrition24h)
       setNutritionWeekOne(payload.nutritionWeekOne)
       setNutritionLater(payload.nutritionLater)
+      setAutomationAudience(payload.automationAudience)
       setProjectUpdatedAt(payload.projectUpdatedAt)
       setBotVisits(payload.botVisits)
       setAddPersonId('')
@@ -232,44 +237,6 @@ export function AutomationRulesView() {
     }
   }
 
-  const saveNutrition = async () => {
-    setSaving('nutrition')
-    try {
-      await saveNutritionStepsAction(nutrition)
-      toast.success('Seguimiento guardado')
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo guardar el seguimiento')
-    } finally {
-      setSaving(null)
-    }
-  }
-
-  const seedNutrition = async () => {
-    setSaving('nutrition-seed')
-    try {
-      await seedNutritionStepsAction(projectId)
-      toast.success('Secuencia de 4 semanas creada')
-      await loadRules(projectId)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo crear la secuencia')
-    } finally {
-      setSaving(null)
-    }
-  }
-
-  const disableNutrition = async () => {
-    setSaving('nutrition-disable')
-    try {
-      await disableNutritionSequenceAction(projectId)
-      setNutrition(current => current.map(step => ({ ...step, active: false })))
-      toast.success('Toda la secuencia quedó desactivada')
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo desactivar la secuencia')
-    } finally {
-      setSaving(null)
-    }
-  }
-
   if (roleLoading || !isAdmin) {
     return (
       <div className="flex justify-center py-20">
@@ -311,7 +278,8 @@ export function AutomationRulesView() {
           <AutomationSettingsSummary items={[
             { label: 'Revisión de citas', value: <>{config.review_sla_minutes} <small>minutos</small></>, detail: 'Plazo objetivo para atender la solicitud', icon: Clock3 },
             { label: 'Equipo en rotación', value: salespeople.filter(person => person.receives_leads && person.is_active !== false).length, detail: 'Asesores habilitados para recibir leads', icon: Users },
-            { label: 'Seguimiento de semana 1', value: nutritionWeekOne.enabled ? 'Activado' : 'Desactivado', detail: 'Brochure o seguimiento según el historial', icon: CalendarClock, muted: !nutritionWeekOne.enabled },
+            { label: 'Secuencia de seguimiento', value: nutrition24h.enabled && nutritionWeekOne.enabled && nutritionLater[2].enabled && nutritionLater[3].enabled ? 'Completa' : 'Parcial', detail: '24 horas, días 7, 14 y 21', icon: CalendarClock, muted: !(nutrition24h.enabled || nutritionWeekOne.enabled || nutritionLater[2].enabled || nutritionLater[3].enabled) },
+            { label: 'Alcance automático', value: automationAudience?.restricted ? 'Solo Carlos' : 'Todos los leads', detail: automationAudience?.restricted ? automationAudience.allowedPhone || '0987110032' : 'Sin restricción por lead', icon: Users, muted: !automationAudience?.enabled || automationAudience?.dryRun },
           ]} />
           <AutomationSettingsSections selected={section} onSelect={setSection} sections={[
             { id: 'horario', label: 'Horario y SLA', detail: 'Jornada y plazos de atención', icon: Clock3 },
@@ -700,113 +668,21 @@ export function AutomationRulesView() {
           <RulesCard
             id="seguimiento"
             title="Seguimiento de clientes"
-            description="Configure los mensajes de 24 horas y de las semanas 1, 2 y 3."
-            action={
-              nutrition.length ? (
-                <Button onClick={() => void saveNutrition()} disabled={saving !== null}>
-                  {saving === 'nutrition' ? 'Guardando...' : 'Guardar'}
-                </Button>
-              ) : (
-                <Button onClick={() => void seedNutrition()} disabled={saving !== null}>
-                  Preparar 4 semanas
-                </Button>
-              )
-            }
+            description="Configure los mensajes de 24 horas y de los días 7, 14 y 21."
           >
-            {projectId === LAVILET_PROJECT_ID && <div className="mb-8 border-b border-[#deded4] pb-8"><h3 className="mb-4 text-lg font-semibold">Seguimiento de 24 horas</h3><Nutrition24hSettings key={`${projectId}:${projectUpdatedAt}`} projectId={projectId} initial={nutrition24h} updatedAt={projectUpdatedAt} onSaved={(value, updatedAt) => { setNutrition24h(value); setProjectUpdatedAt(updatedAt) }} /></div>}
-            {projectId === LAVILET_PROJECT_ID && <div className="mb-8 border-b border-[#deded4] pb-8"><h3 className="mb-4 text-lg font-semibold">Semana 1: brochure o seguimiento</h3><NutritionWeekOneSettings key={`week1:${projectId}:${projectUpdatedAt}`} projectId={projectId} initial={nutritionWeekOne} updatedAt={projectUpdatedAt} onSaved={(value, updatedAt) => { setNutritionWeekOne(value); setProjectUpdatedAt(updatedAt) }} /></div>}
-            {projectId === LAVILET_PROJECT_ID && <div className="mb-8 border-b border-[#deded4] pb-8"><h3 className="mb-4 text-lg font-semibold">Semanas 2 y 3</h3><NutritionLaterSettings key={`later:${projectId}:${projectUpdatedAt}`} projectId={projectId} initial={nutritionLater} updatedAt={projectUpdatedAt} onSaved={(value, updatedAt) => { setNutritionLater(value); setProjectUpdatedAt(updatedAt) }} /></div>}
-            <h3 className="mb-2 text-lg font-semibold">Planificación de la secuencia semanal</h3>
-            <p className="mb-4 text-sm text-[#6f7565]">Esta tabla conserva la planificación; no envía mensajes. Las semanas 1, 2 y 3 se controlan en los paneles anteriores. La semana 4 sigue pendiente.</p>
-            <div className={styles.statusLine}>
-              <div>
-                <span className={styles.statusBadge} data-active={nutrition.some(step => step.active)}>{nutrition.some(step => step.active) ? 'Hay pasos marcados como activos' : 'Secuencia desactivada'}</span>
-                <p>Preparar la secuencia crea sus cuatro pasos apagados.</p>
-              </div>
-              {nutrition.length > 0 && <Button variant="outline" onClick={() => void disableNutrition()} disabled={saving !== null}>{saving === 'nutrition-disable' ? 'Desactivando…' : 'Desmarcar los pasos de esta tabla'}</Button>}
+            <div className="mb-8 rounded-xl border border-[#d8ddcc] bg-[#f3f5ec] p-4 text-sm text-[#535c48]">
+              <p className="font-semibold">Configuración operativa</p>
+              <p className="mt-1">Estos controles son la fuente que utiliza el ejecutor para programar mensajes reales.</p>
+              <p className="mt-2">
+                Alcance actual: <strong>{automationAudience?.restricted ? `${automationAudience.allowedLeadName || 'Carlos'} · ${automationAudience.allowedPhone || '0987110032'}` : 'todos los leads'}</strong>.
+                {automationAudience?.restricted ? ' Los demás leads permanecen con DETENER IA activo.' : ''}
+              </p>
+              {automationAudience?.dryRun && <p className="mt-2 font-semibold text-[#8a5c58]">El ejecutor está en simulación y no enviará mensajes.</p>}
+              {automationAudience && !automationAudience.enabled && <p className="mt-2 font-semibold text-[#8a5c58]">El ejecutor está deshabilitado en la base de datos.</p>}
             </div>
-            {nutrition.length === 0 ? (
-              <EmptyState
-                icon={Settings2}
-                title="Todavía no hay plantillas"
-                description="Prepare los cuatro temas de lanzamiento. Registre la aprobación de cada plantilla únicamente cuando Meta la confirme."
-              />
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-gray-100">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-[#f7f3ee] text-left text-[#7a7e70]">
-                    <tr>
-                      <th className="px-4 py-2 font-medium">Semana</th>
-                      <th className="px-4 py-2 font-medium">Tema</th>
-                      <th className="px-4 py-2 font-medium">Plantilla de Meta</th>
-                      <th className="px-4 py-2 font-medium">Aprobado</th>
-                      <th className="px-4 py-2 font-medium">Activo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {nutrition.map((row, index) => (
-                      <tr key={row.id} className="border-t border-gray-100">
-                        <td className="px-4 py-2 font-semibold text-[#3a3d36]">{row.week_number}</td>
-                        <td className="px-4 py-2">
-                          <input
-                            value={row.topic}
-                            onChange={(event) =>
-                              setNutrition((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, topic: event.target.value } : item,
-                                ),
-                              )
-                            }
-                            className="crm-field h-9 min-w-48"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            value={row.meta_template_name}
-                            onChange={(event) =>
-                              setNutrition((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, meta_template_name: event.target.value }
-                                    : item,
-                                ),
-                              )
-                            }
-                            className="crm-field h-9 min-w-48 font-mono text-xs"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <Toggle
-                            checked={row.is_approved}
-                            onChange={(value) =>
-                              setNutrition((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, is_approved: value } : item,
-                                ),
-                              )
-                            }
-                            label=""
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <Toggle
-                            checked={row.active}
-                            onChange={(value) =>
-                              setNutrition((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, active: value } : item,
-                                ),
-                              )
-                            }
-                            label=""
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {projectId === LAVILET_PROJECT_ID && <div className="mb-8 border-b border-[#deded4] pb-8"><h3 className="mb-4 text-lg font-semibold">Seguimiento de 24 horas</h3><Nutrition24hSettings key={`${projectId}:${projectUpdatedAt}`} projectId={projectId} initial={nutrition24h} updatedAt={projectUpdatedAt} onSaved={(value, updatedAt) => { setNutrition24h(value); setProjectUpdatedAt(updatedAt) }} /></div>}
+            {projectId === LAVILET_PROJECT_ID && <div className="mb-8 border-b border-[#deded4] pb-8"><h3 className="mb-4 text-lg font-semibold">Día 7: brochure o seguimiento</h3><NutritionWeekOneSettings key={`week1:${projectId}:${projectUpdatedAt}`} projectId={projectId} initial={nutritionWeekOne} updatedAt={projectUpdatedAt} onSaved={(value, updatedAt) => { setNutritionWeekOne(value); setProjectUpdatedAt(updatedAt) }} /></div>}
+            {projectId === LAVILET_PROJECT_ID && <div><h3 className="mb-4 text-lg font-semibold">Días 14 y 21</h3><NutritionLaterSettings key={`later:${projectId}:${projectUpdatedAt}`} projectId={projectId} initial={nutritionLater} updatedAt={projectUpdatedAt} onSaved={(value, updatedAt) => { setNutritionLater(value); setProjectUpdatedAt(updatedAt) }} /></div>}
           </RulesCard>
           </AutomationSettingsSections>
         </>

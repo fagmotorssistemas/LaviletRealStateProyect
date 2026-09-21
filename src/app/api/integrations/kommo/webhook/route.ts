@@ -6,8 +6,10 @@ import {
   attachCtwaProbeSummary,
   limitedBody,
   logKommoCtwaFieldProbe,
-  normalizeWebhook,
+  normalizeKommoWebhook,
   probeKommoCtwaFields,
+  type AdvisorOutbound,
+  type Inbound,
   type KommoCtwaFieldProbe,
 } from '@/lib/integrations/automation/webhook'
 import { accelerateTestMessages, testResponseMode } from '@/lib/integrations/automation/test-response-mode'
@@ -24,7 +26,8 @@ export async function POST(request: Request) {
   const settings = automationSettings()
   if (!settings.live) return NextResponse.json({ error: 'Recepción no activada' }, { status: 503, headers })
   const correlationId = request.headers.get('x-request-id')?.trim() || randomUUID()
-  let events
+  let events: Inbound[] = []
+  let advisorOutbound: AdvisorOutbound[] = []
   let probe: KommoCtwaFieldProbe | null = null
   try {
     const raw = await limitedBody(request)
@@ -40,7 +43,9 @@ export async function POST(request: Request) {
         reason: 'PARSE_OR_UNSUPPORTED',
       }))
     }
-    events = normalizeWebhook(raw, contentType)
+    const normalized = normalizeKommoWebhook(raw, contentType)
+    events = normalized.inbound.filter(event => Date.parse(event.sentAt) >= Date.parse(settings.activatedAt))
+    advisorOutbound = normalized.advisorOutbound
       .filter(event => Date.parse(event.sentAt) >= Date.parse(settings.activatedAt))
     if (probe) events = attachCtwaProbeSummary(events, probe)
   } catch {
@@ -48,7 +53,9 @@ export async function POST(request: Request) {
   }
   try {
     // Persist before acknowledging. An optional post-response task wakes the same worker.
-    const inserted = events.length ? await rpc('lv_app_receive', { p_events: events }) : 0
+    const inserted = events.length ? await rpc<number>('lv_app_receive', { p_events: events }) : 0
+    const advisorInserted = advisorOutbound.length
+      ? await rpc<number>('lv_app_receive_advisor_outbound', { p_events: advisorOutbound }) : 0
     if(inserted) after(async()=>{
       try {
         const mode=await testResponseMode()
@@ -65,8 +72,12 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({
       accepted: true,
-      received: events.length,
-      inserted,
+      received: events.length + advisorOutbound.length,
+      inbound: events.length,
+      advisor_outbound: advisorOutbound.length,
+      inserted: inserted + advisorInserted,
+      inbound_inserted: inserted,
+      advisor_outbound_inserted: advisorInserted,
       correlationId,
       ctwaProbe: probe
         ? {

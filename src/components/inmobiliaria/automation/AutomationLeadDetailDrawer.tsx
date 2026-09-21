@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
@@ -31,6 +31,21 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id']
 
+const NUTRITION_TASK_LABELS = {
+  nutrition_24h: '24 horas',
+  nutrition_week_one: 'Día 7',
+  nutrition_week_two: 'Día 14',
+  nutrition_week_three: 'Día 21',
+} as const
+
+const NUTRITION_STATUS_LABELS: Record<string, string> = {
+  pending: 'Programado',
+  processing: 'Procesando',
+  completed: 'Completado',
+  cancelled: 'Cancelado',
+  uncertain: 'Requiere revisión',
+}
+
 interface AutomationLeadDetailDrawerProps {
   isOpen: boolean
   loading: boolean
@@ -46,16 +61,19 @@ export function AutomationLeadDetailDrawer({
   detail,
   onClose,
 }: AutomationLeadDetailDrawerProps) {
-  const [tab, setTab] = useState<TabId>('resumen')
-
-  useEffect(() => {
-    if (isOpen) setTab('resumen')
-  }, [isOpen, detail?.row.lead_id])
+  const leadId = detail?.row.lead_id ?? null
+  const [tabState, setTabState] = useState<{ leadId: string | null; tab: TabId }>({ leadId: null, tab: 'resumen' })
+  const tab = tabState.leadId === leadId ? tabState.tab : 'resumen'
+  const selectTab = (next: TabId) => setTabState({ leadId, tab: next })
+  const close = useCallback(() => {
+    setTabState({ leadId, tab: 'resumen' })
+    onClose()
+  }, [leadId, onClose])
 
   useEffect(() => {
     if (!isOpen) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') close()
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
@@ -64,7 +82,7 @@ export function AutomationLeadDetailDrawer({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [isOpen, onClose])
+  }, [isOpen, close])
 
   if (!isOpen) return null
 
@@ -72,7 +90,7 @@ export function AutomationLeadDetailDrawer({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="crm-modal-backdrop absolute inset-0 bg-[#2B1A18]/40" onClick={onClose} />
+      <div className="crm-modal-backdrop absolute inset-0 bg-[#2B1A18]/40" onClick={close} />
       <aside className="relative z-50 flex h-full w-full max-w-3xl flex-col bg-white shadow-[-18px_0_40px_rgba(43,26,24,0.12)]">
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[#2B1A18]/8 bg-[#f7f3ee] px-5 py-4">
           <div className="min-w-0">
@@ -82,7 +100,7 @@ export function AutomationLeadDetailDrawer({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
             className="cursor-pointer p-1.5 text-[#8a8d87] transition-colors hover:text-[#BDA27E]"
             aria-label="Cerrar detalle"
           >
@@ -97,7 +115,7 @@ export function AutomationLeadDetailDrawer({
               type="button"
               className="crm-tab"
               data-active={tab === item.id ? 'true' : 'false'}
-              onClick={() => setTab(item.id)}
+              onClick={() => selectTab(item.id)}
             >
               {item.label}
             </button>
@@ -321,26 +339,36 @@ function TabBody({ tab, detail }: { tab: TabId; detail: LeadAutomationDetail }) 
     )
   }
 
+  const pendingNutrition = detail.nutritionJobs
+    .filter((job) => job.status === 'pending' || job.status === 'processing')
+    .sort((a, b) => Date.parse(a.scheduled_at || '') - Date.parse(b.scheduled_at || ''))
   return (
     <div className="space-y-4">
-      {detail.nutrition ? (
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Fact label="Próxima semana" value={String(detail.nutrition.next_week)} />
-          <Fact label="Próximo envío" value={formatDateTime(detail.nutrition.next_send_at)} />
-          <Fact label="Último envío" value={formatDateTime(detail.nutrition.last_sent_at)} />
-          <Fact label="Completada" value={formatDateTime(detail.nutrition.completed_at)} />
-          <Fact label="Pausada" value={formatDateTime(detail.nutrition.paused_at)} />
-          <Fact label="Último error" value={detail.nutrition.last_error} />
-        </dl>
+      <div className="rounded-xl border border-[#deded4] bg-[#f7f7f2] p-4 text-sm text-[#555850]">
+        <p className="font-semibold">Seguimiento automático actual</p>
+        <p className="mt-1">
+          {pendingNutrition.length
+            ? `${pendingNutrition.length} ${pendingNutrition.length === 1 ? 'mensaje programado' : 'mensajes programados'}. Próximo: ${NUTRITION_TASK_LABELS[pendingNutrition[0].task]} · ${formatDateTime(pendingNutrition[0].scheduled_at)}.`
+            : 'No hay mensajes de seguimiento pendientes para este lead.'}
+        </p>
+        <p className="mt-2 text-xs text-[#7a7e70]">Esta vista utiliza los trabajos reales del ejecutor; no depende de la inscripción histórica en lead_nutrition.</p>
+      </div>
+      {detail.nutritionJobs.length === 0 ? (
+        <p className="text-sm text-[#6e716b]">Todavía no existen trabajos de seguimiento registrados para este lead.</p>
       ) : (
-        <p className="text-sm text-[#6e716b]">Este lead no está inscrito en nutrición.</p>
-      )}
-      {detail.nutritionHistory.length > 0 && (
         <ul className="space-y-2">
-          {detail.nutritionHistory.map((item) => (
-            <li key={item.id} className="border border-[#2B1A18]/8 px-3 py-2 text-sm text-[#6e716b]">
-              Semana {item.week_number} · {item.meta_template_name} · {item.status}
-              {item.error ? ` · ${item.error}` : ''}
+          {detail.nutritionJobs.map((job) => (
+            <li key={job.id} className="border border-[#2B1A18]/8 px-3 py-2.5 text-sm text-[#6e716b]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold text-[#555850]">{NUTRITION_TASK_LABELS[job.task]}</p>
+                <span className="rounded-full bg-[#f0eee8] px-2 py-0.5 text-xs font-semibold text-[#667253]">
+                  {NUTRITION_STATUS_LABELS[job.status] ?? job.status}
+                </span>
+              </div>
+              <p className="mt-1">Programado: {formatDateTime(job.scheduled_at)}</p>
+              {job.completed_at && <p>Finalizado: {formatDateTime(job.completed_at)}</p>}
+              {job.delivery_status && <p>Entrega: {job.delivery_status}</p>}
+              {job.reason && <p>Motivo: {job.reason}</p>}
             </li>
           ))}
         </ul>

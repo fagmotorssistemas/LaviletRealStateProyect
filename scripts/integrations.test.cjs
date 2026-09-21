@@ -139,7 +139,7 @@ test('renewed purchase interest reopens guidance while questions alone do not', 
   const current = 'Ahora sí quiero comprar un departamento. ¿Cuánto vale el 502?'
   assert.equal(commercialEngagement(current, [], saved).interested, true)
   const result = await commercialReply(priceInfo(), current, { _sales_memory: saved }, async () => {})
-  assert.match(result.reply, /financ/i)
+  assert.doesNotMatch(result.reply, /financ/i)
   const history = [{ role: 'cliente', content: 'Quiero comprar un departamento' }, { role: 'bot', content: 'No ofrecemos crédito directo con el proyecto. Puede consultar las opciones bancarias.' }]
   assert.equal(commercialEngagement('Cuánto vale?', history).passive, false)
   const requested = await commercialReply(priceInfo(), '¿Cuánto vale el 502 y tienen crédito directo?', { _sales_memory: saved }, async () => {})
@@ -478,13 +478,15 @@ test('accepted nutrition records the actual approved message; timeouts never aut
   assert.equal(failing.calls.some(c => c.name === 'register_outbound_message'), false)
 })
 
-test('the reported low budget and price turn offers financing without interrogating the amount or implying approval', async () => {
+test('the reported low budget and price turn defers financing until a unit is identified', async () => {
   const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
   const info = { ...priceInfo(), catalogo: Array.from({ length: 5 }, (_, i) => ({ ...priceCatalog[0], id: `d${i}`, unit_number: String(300 + i), bedrooms: 3, published_commercial_price: 250000 + i * 25000 })), lead: { preferred_category: 'departamento', preferred_bedrooms: 3 } }
   const reply = (await commercialReply(info, 'De 3 dormitorios me parece bien cuál es el precio?\nUl cuento con 100 dólares', {}, async () => {})).reply
   assert.match(reply, /3 dormitorios.*250[.,]000.*350[.,]000/)
   assert.match(reply, /referenciales.*lanzamiento.*cambiar/)
-  assert.match(reply, /financiar.*Banco Pichincha.*Cooperativa JEP/)
+  assert.match(reply, /no cubre el valor total/i)
+  assert.match(reply, /financiamiento después de identificar la unidad/i)
+  assert.doesNotMatch(reply, /Banco Pichincha|Cooperativa JEP/)
   assert.doesNotMatch(reply, /registrad|autorizad|visita|se refiere|aclare|aprobado|le alcanza/)
 })
 
@@ -931,13 +933,14 @@ test('JEP natural acceptance advances the actual chosen lender and technical fai
   }
 })
 
-test('unknown financing states are handed off instead of dropping the client reply', async t => {
+test('a new financing request selects a property before opening a financial form', async t => {
   live(t)
   const h = conversationHarness({ financeContext: contextualInfo().financiamiento, financing: { active: true, state: 'unexpected_state' } })
   h.rows[0].payload.text = 'Quiero iniciar una revisión con Cooperativa JEP'
   const result = await h.process([h.rows[0]], async () => {})
-  assert.equal(result.source, 'financing_handoff')
-  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+  assert.equal(result.source, 'financing_selection_required')
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 0)
+  assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length, 0)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
 })
 
@@ -997,7 +1000,7 @@ test('launch prices hydrate the exact unit from the authorized catalog and invit
   const first = await commercialReply(info, 'Saludos, ¿cuánto cuesta el 502?', {}, async () => {})
   assert.match(first.reply, /precio aproximado.*502.*310[.,]000/)
   assert.match(first.reply, /lanzamiento.*pueden? cambiar/)
-  assert.match(first.reply, /acompañarle.*Banco Pichincha.*Cooperativa JEP/)
+  assert.doesNotMatch(first.reply, /Banco Pichincha|Cooperativa JEP|financiamiento/)
   assert.match(first.reply, /coordinar una visita/)
   assert.doesNotMatch(first.reply, /notificar|enviaremos|confirmada|registrada|aprobación depende/)
   const memory = p.rememberSalesReply({}, [], '¿Cuánto cuesta el 502?', first.reply)
@@ -1087,7 +1090,7 @@ test('mixed questions keep a verified price and reject a generated fixed launch 
   assert.equal(drafts, 2)
   assert.match(result.reply, /aproximado.*310[.,]000.*lanzamiento/)
   assert.match(result.reply, /sala y cocina/)
-  assert.match(result.reply, /financiar.*acompañarle/)
+  assert.doesNotMatch(result.reply, /financiar|acompañarle/)
   assert.doesNotMatch(result.reply, /visita/)
 })
 
@@ -1260,11 +1263,11 @@ test('OpenAI billing errors retain a safe diagnostic code that the worker can re
 })
 
 function conversationHarness(options = {}) {
-  const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false }
+  const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false, ...options.config }
   let escalationAttempted = false, escalationStored = options.proposals?.[0] || null
   const query = table => {
     const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: 0 }).then(resolve) } }
-    for (const name of ['update', 'delete', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
+    for (const name of ['update', 'delete', 'select', 'eq', 'match', 'gt', 'lt', 'in', 'order', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
     q.update = values => { calls.push({ name: 'update:' + table, args: values }); return q }
     return q
   }
@@ -1298,8 +1301,9 @@ function conversationHarness(options = {}) {
     './nutrition-week-one': { scheduleNutritionWeekOne: async () => ({ scheduled: false, reason: 'test' }) },
     './nutrition-later': { scheduleNutritionLater: async () => ({ scheduled: false, reason: 'test' }) },
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
-      one: async table => {
+      one: async (table, id) => {
         if (options.urgentReadFails && escalationAttempted) throw Error('READ_URGENT_STATE_FAILED')
+        if (table === 'leads' && options.testLead && id === config.test_lead_id) return options.testLead
         return table === 'conversations' ? { ...scope, lead_id: 'lead', summary: options.summary } : table === 'appointment_reschedule_requests' ? escalationStored : lead
       },
       rpc: async (name, args) => {
@@ -1610,11 +1614,13 @@ test('all three reported questions survive rejected drafts without a generic han
   assert.doesNotMatch(r.reply,/presupuesto|información imprecisa|piscina|gimnasio/)
 })
 
-test('unknown budget receives help and does not repeat the financing offer on the next uncertainty', async () => {
+test('unknown budget returns to property selection and does not start financing', async () => {
   const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{activePrompt:async()=>{throw Error('UNEXPECTED_GENERATION')}}})
   const info={historial:[{role:'bot',content:'¿Qué presupuesto tiene?'}]}
   const a=await commercialReply(info,'No estoy seguro de mi presupuesto',{},async()=>{})
-  assert.match(a.reply,/entrada y una cuota/)
+  assert.match(a.reply,/identificar qué tipo de propiedad/i)
+  assert.match(a.reply,/suites, los departamentos o los locales comerciales/i)
+  assert.doesNotMatch(a.reply,/entrada y una cuota|iniciar.*financiamiento/i)
   const b=await commercialReply({...info,conversacion:{ultima_respuesta:a.reply}},'No estoy seguro',{},async()=>{})
   assert.doesNotMatch(b.reply,/\?|¿Qué presupuesto/)
 })
@@ -1639,6 +1645,20 @@ test('conversation groups two inputs into one reply and records outbound only af
   assert.equal(h.calls.filter(c => c.name === 'register_inbound_message').length, 2)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
   assert.ok(h.calls.findIndex(c => c.name === 'register_outbound_message') > h.calls.findIndex(c => c.name === 'launch'))
+})
+test('test-only pauses every non-target lead and mirrors DETENER IA in Kommo', async t => {
+  live(t)
+  const h = conversationHarness({
+    config: { test_only: true, test_lead_id: 'test-lead' },
+    testLead: { ...scope, id: 'test-lead', kommo_id: 999, bot_enabled: true },
+  })
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.action, 'outside_test_lead')
+  assert.equal(result.bot_paused, true)
+  assert.equal(result.kommo_stop_synced, true)
+  assert.deepEqual(h.calls.filter(c => c.name === 'patch').map(c => c.args), [[123, 451530, 'true']])
+  assert.equal(h.calls.some(c => c.name === 'launch'), false)
+  assert.equal(h.calls.some(c => c.name === 'register_inbound_message'), false)
 })
 test('duplicate inbound messages never produce another reply', async t => {
   live(t); const h = conversationHarness({ duplicate: true })

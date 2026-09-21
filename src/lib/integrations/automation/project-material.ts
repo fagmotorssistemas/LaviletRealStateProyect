@@ -34,7 +34,9 @@ export function wantsBrochure(current: string, history: unknown = []) {
   if (/brochure|brochur|folleto|catalogo|\bpdf\b/.test(m)) return true
   if (/(?:compart|envi|mand|pas)[a-z]*.{0,30}(?:informacion|info\b|material|detalle)/.test(m)) return true
   const last = text(rows(history).filter(row => row.role === 'bot').at(-1)?.content)
+  const choosingProjectOption = /(?:le gustar[ií]a|desea).{0,45}(?:informaci[oó]n|conocer).{0,45}(?:opciones|alternativas)/i.test(last)
   return /^(?:si|si por favor|claro|de acuerdo|si gracias|si compartame|por favor)$/.test(m)
+    && !choosingProjectOption
     && /(?:compart|envi|mand|pas)[a-z]*.{0,45}(?:informaci[oó]n|material|brochure|folleto)/i.test(last)
 }
 

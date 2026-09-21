@@ -9,6 +9,7 @@ import { AutomationLeadsTable } from '@/components/inmobiliaria/automation/Autom
 import { AutomationLeadDetailDrawer } from '@/components/inmobiliaria/automation/AutomationLeadDetailDrawer'
 import { AutomationSectionTabs } from '@/components/inmobiliaria/automation/AutomationSectionTabs'
 import { AutomationFilters } from '@/components/inmobiliaria/automation/AutomationFilters'
+import { AdvisorAttentionQueue } from '@/components/inmobiliaria/automation/AdvisorAttentionQueue'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
 import { Pagination } from '@/components/ui/Pagination'
@@ -19,7 +20,7 @@ import styles from '@/components/inmobiliaria/automation/AutomationWorkspace.mod
 function AutomationDashboard() {
   const dashboard = useLeadAutomationDashboard()
   const inbox = useVisitInboxContext()
-  const { rows, kpis, projects, advisors, isLoading, error, total, page, pageSize, filters, hasFilters,
+  const { rows, attentionRows, currentUserId, kpis, projects, advisors, isLoading, error, total, page, pageSize, filters, hasFilters,
     selectedLeadId, detail, detailLoading, detailError, updateFilter, updateFilters, resetFilters,
     setPage, openLead, closeLead, reload, updatedAt } = dashboard
   const sources = Array.from(new Set([...kpis.leads_by_source.map(item => item.source), filters.source]
@@ -35,7 +36,7 @@ function AutomationDashboard() {
         <p className={styles.description}>Una vista clara de cada lead, su conversación y el siguiente paso de atención.</p>
       </div>
       <div className={styles.headerActions}>
-        <AutomationSectionTabs active="monitoreo" />
+        <AutomationSectionTabs active="monitoreo" attentionCount={attentionRows.filter(row => row.handoff_status !== 'resolved').length} />
         <div className={styles.actions}>
           <button type="button" className={styles.action} disabled={isLoading || inbox.loading} onClick={refresh}><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />Actualizar</button>
           <button type="button" className={`${styles.action} ${styles.primary}`} onClick={() => inbox.openInbox()}><Inbox size={14} />Bandeja de citas{inbox.ready ? ` (${inbox.pending.length})` : ''}</button>
@@ -56,6 +57,8 @@ function AutomationDashboard() {
         {next && <button type="button" className={`${styles.action} ${styles.primary}`} onClick={() => inbox.openRequest(next)}>Atender siguiente<ArrowRight size={13} /></button>}
       </div>
     </section>}
+
+    <AdvisorAttentionQueue rows={attentionRows} currentUserId={currentUserId} loading={isLoading} onOpenLead={openLead} onOpenVisitInbox={() => inbox.openInbox('pending')} onChanged={reload} />
 
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-stone-400"><span>Indicadores del proyecto y período seleccionados</span>{updatedAt && !isLoading && !error && <span>Actualizado: {formatAgendaDateTime(updatedAt)}</span>}</div>

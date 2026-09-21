@@ -14,6 +14,7 @@ import { OpenAIRequestError } from './openai-request'
 import { GenerationRecoveryError, recoverGenerationFailure } from './generation-recovery'
 import { claimTestMessages } from './test-response-mode'
 import { isCommercialContextReadFailure } from './context-read'
+import { processAdvisorOutbound } from './advisor-outbound'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -58,7 +59,10 @@ export async function runAutomation(testContact?: string) {
       const first = object(batch[0]), ids = batch.map(row => row.id)
       try {
         let result: Row
-        if (first.kind === 'inbound') {
+        if (first.kind === 'advisor_outbound') {
+          result = await processAdvisorOutbound(first)
+        }
+        else if (first.kind === 'inbound') {
           await guard()
           await cancelNutrition24h(Number(object(first.payload).kommoId))
           await cancelNutritionWeekOne(Number(object(first.payload).kommoId))

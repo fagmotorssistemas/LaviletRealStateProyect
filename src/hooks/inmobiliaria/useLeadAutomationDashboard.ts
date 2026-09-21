@@ -9,6 +9,7 @@ import { listProjects } from '@/services/inmobiliaria.service'
 import {
   getLeadAutomationDetail,
   getLeadAutomationKpis,
+  listLeadAttentionQueue,
   listLeadAutomationDashboard,
 } from '@/services/leadAutomation.service'
 import {
@@ -20,7 +21,7 @@ import {
   toInclusiveRange,
 } from '@/lib/inmobiliaria/leadAutomation'
 import type { Project, TeamProfile } from '@/types/inmobiliaria'
-import type { LeadAutomationDetail, LeadAutomationFilters, LeadAutomationRow } from '@/types/leadAutomation'
+import type { LeadAttentionRow, LeadAutomationDetail, LeadAutomationFilters, LeadAutomationRow } from '@/types/leadAutomation'
 
 const PAGE_SIZE = 25
 
@@ -39,6 +40,7 @@ export function useLeadAutomationDashboard() {
   const selectedLeadId = searchParams.get('lead')
 
   const [rows, setRows] = useState<LeadAutomationRow[]>([])
+  const [attentionRows, setAttentionRows] = useState<LeadAttentionRow[]>([])
   const [kpis, setKpis] = useState(EMPTY_AUTOMATION_KPIS)
   const [projects, setProjects] = useState<Project[]>([])
   const [advisors, setAdvisors] = useState<TeamProfile[]>([])
@@ -68,6 +70,7 @@ export function useLeadAutomationDashboard() {
     if (authLoading) return
     if (!user) {
       setRows([])
+      setAttentionRows([])
       setKpis(EMPTY_AUTOMATION_KPIS)
       setIsLoading(false)
       return
@@ -81,6 +84,7 @@ export function useLeadAutomationDashboard() {
       setTenantIds(ids)
       if (!ids.length) {
         setRows([])
+        setAttentionRows([])
         setKpis(EMPTY_AUTOMATION_KPIS)
         setProjects([])
         setTotal(0)
@@ -88,7 +92,7 @@ export function useLeadAutomationDashboard() {
       }
 
       const range = toInclusiveRange(filters.from, filters.to)
-      const [projectRows, profileRows, list, kpiRows] = await Promise.all([
+      const [projectRows, profileRows, list, kpiRows, attention] = await Promise.all([
         listProjects(supabase, ids[0], ids),
         supabase.from('profiles').select('id, full_name, role, avatar_url, is_active').order('full_name', { ascending: true }),
         listLeadAutomationDashboard(supabase, {
@@ -104,6 +108,7 @@ export function useLeadAutomationDashboard() {
           from: range.from,
           to: range.to,
         }),
+        listLeadAttentionQueue(supabase, ids),
       ])
 
       if (sequence !== loadSequence.current) return
@@ -112,6 +117,7 @@ export function useLeadAutomationDashboard() {
       setProjects(projectRows)
       setAdvisors(((profileRows.data ?? []) as TeamProfile[]).filter((profile) => profile.is_active !== false))
       setRows(list.data)
+      setAttentionRows(attention)
       setTotal(list.total)
       setKpis(kpiRows)
       setUpdatedAt(new Date().toISOString())
@@ -120,6 +126,7 @@ export function useLeadAutomationDashboard() {
       const message = err instanceof Error ? err.message : 'No se pudo cargar el monitoreo'
       setError(message)
       setRows([])
+      setAttentionRows([])
       setKpis(EMPTY_AUTOMATION_KPIS)
       toast.error(message)
     } finally {
@@ -129,7 +136,10 @@ export function useLeadAutomationDashboard() {
 
   useEffect(() => {
     void load()
-    return () => { loadSequence.current++ }
+    const activeSequence = loadSequence.current
+    return () => {
+      if (loadSequence.current === activeSequence) loadSequence.current = activeSequence + 1
+    }
   }, [load])
 
   useEffect(() => {
@@ -187,9 +197,11 @@ export function useLeadAutomationDashboard() {
 
   return {
     rows,
+    attentionRows,
     kpis,
     projects,
     advisors,
+    currentUserId: user?.id ?? '',
     tenantId,
     isLoading,
     updatedAt,

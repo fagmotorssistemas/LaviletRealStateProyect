@@ -2,6 +2,7 @@
 export const UNIT_MODEL_PATH = '/tour/modelo-3d/segunda-planta.html'
 export const UNIT_MODEL_ORIGIN = 'https://www.lavilett.com'
 export const UNIT_REFERENCE_PATH = '/tour/unidad'
+export const UNIT_TOUR_PATH = '/tour'
 export const UNIT_MODELS = [
   { number: '201', id: 'a88ce32b-4f7d-4dbd-8c3d-bfcd7b8ac485' },
   { number: '202', id: 'af29eae0-658d-432a-9ea0-eba48deb89ce' },
@@ -32,4 +33,10 @@ export function unitReferenceUrl(unit: Record<string, unknown>) {
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(unit.id))
     || !/^\d{3,4}$/.test(String(unit.unit_number))) return null
   return `${UNIT_MODEL_ORIGIN}${UNIT_REFERENCE_PATH}/${unit.id}`
+}
+
+/** Public showroom URL used by conversational channels. */
+export function unitTourUrl(unitNumber?: unknown) {
+  const number = String(unitNumber ?? '').trim()
+  return `${UNIT_MODEL_ORIGIN}${UNIT_TOUR_PATH}${number ? `?unidad=${encodeURIComponent(number)}` : ''}`
 }

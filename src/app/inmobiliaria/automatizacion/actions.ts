@@ -26,6 +26,7 @@ import { verifyNutritionTemplate, verifyWeekOneTemplates, verifyLaterTemplates }
 import { nutritionLaterConfig, withNutritionLater, type LaterWeek } from '@/lib/inmobiliaria/nutritionLater'
 import { nutritionWeekOneConfig, withNutritionWeekOne, type NutritionWeekOneConfig } from '@/lib/inmobiliaria/nutritionWeekOne'
 import { botVisitPolicy, withBotVisitPolicy, type BotVisitPolicy } from '@/lib/inmobiliaria/botVisits'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 function readableMessage(message: string) {
   const trimmed = message.trim()
@@ -77,7 +78,52 @@ export async function loadAutomationRulesAction(projectId: string) {
       loadAutomationRules(client, { tenantId: project.tenant_id, projectId }),
       listTeamProfiles(client),
     ])
-    return { ...rules, profiles: profiles as TeamProfile[], nutrition24h: nutrition24hConfig(project.policies_json), nutritionWeekOne: nutritionWeekOneConfig(project.policies_json), nutritionLater: nutritionLaterConfig(project.policies_json), botVisits: botVisitPolicy(project.policies_json, rules.config?.mode || 'lanzamiento'), projectUpdatedAt: project.updated_at as string }
+    let automationAudience = {
+      enabled: false,
+      dryRun: false,
+      restricted: true,
+      allowedLeadId: null as string | null,
+      allowedLeadName: null as string | null,
+      allowedPhone: null as string | null,
+    }
+    try {
+      // El administrador ya fue validado por withAdminSession. Se usa el
+      // cliente de servicio únicamente para resumir la compuerta operativa,
+      // que no se expone directamente al navegador mediante RLS.
+      const admin = createAdminClient()
+      const runtime = await admin.from('lv_auto_config')
+        .select('enabled,dry_run,test_only,test_lead_id')
+        .eq('tenant_id', project.tenant_id)
+        .eq('project_id', projectId)
+        .maybeSingle()
+      const allowedLeadId = runtime.data?.test_only === true && typeof runtime.data.test_lead_id === 'string'
+        ? runtime.data.test_lead_id
+        : null
+      const allowed = allowedLeadId
+        ? await admin.from('leads').select('id,name,phone').eq('id', allowedLeadId).eq('project_id', projectId).maybeSingle()
+        : null
+      automationAudience = {
+        enabled: runtime.data?.enabled === true,
+        dryRun: runtime.data?.dry_run === true,
+        restricted: runtime.data?.test_only !== false,
+        allowedLeadId,
+        allowedLeadName: allowed?.data?.name ?? null,
+        allowedPhone: allowed?.data?.phone ?? null,
+      }
+    } catch {
+      // La configuracion comercial sigue siendo util aunque el resumen del
+      // ejecutor no este disponible temporalmente.
+    }
+    return {
+      ...rules,
+      profiles: profiles as TeamProfile[],
+      nutrition24h: nutrition24hConfig(project.policies_json),
+      nutritionWeekOne: nutritionWeekOneConfig(project.policies_json),
+      nutritionLater: nutritionLaterConfig(project.policies_json),
+      botVisits: botVisitPolicy(project.policies_json, rules.config?.mode || 'lanzamiento'),
+      projectUpdatedAt: project.updated_at as string,
+      automationAudience,
+    }
   })
 }
 

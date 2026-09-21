@@ -51,7 +51,8 @@ export async function loadAutomationRules(
   }
   if (configRes.error) throw new Error(configRes.error.message)
   if (scoringRes.error) throw new Error(scoringRes.error.message)
-  if (nutritionRes.error) throw new Error(nutritionRes.error.message)
+  // nutrition_steps es una fuente histórica. Su ausencia o una política RLS
+  // antigua no debe impedir abrir los controles actuales de policies_json.
 
   const salespersonIds = teamRows.map((row) => row.salesperson_id)
   const profilesRes = salespersonIds.length
@@ -86,7 +87,7 @@ export async function loadAutomationRules(
       }
     }),
     scoringRules: (scoringRes.data ?? []) as ScoringRuleRow[],
-    nutritionSteps: (nutritionRes.data ?? []) as NutritionStepRow[],
+    nutritionSteps: nutritionRes.error ? [] : (nutritionRes.data ?? []) as NutritionStepRow[],
   }
 }
 

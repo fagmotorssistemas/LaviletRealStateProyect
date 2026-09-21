@@ -20,14 +20,14 @@ export function NutritionLaterSettings({ projectId, initial, updatedAt, onSaved 
     finally { setSaving(false) }
   }
   return <div className="space-y-5 text-sm text-[#3a3d36]">
-    <p>Se programan a los 14 y 21 días sin respuesta. Se respeta un mínimo de siete días entre seguimientos; una semana aplazada puede desplazar la siguiente. Cada semana se envía como máximo una vez por contacto y proyecto.</p>
+    <p>Se programan a los 14 y 21 días sin respuesta. Se respeta un mínimo de siete días entre seguimientos; un mensaje aplazado puede desplazar el siguiente. Cada paso se envía como máximo una vez por contacto y proyecto.</p>
     {([2, 3] as const).map(week => <div key={week} className="space-y-3 rounded-xl border border-[#deded4] p-4">
-      <label className="flex gap-2 font-semibold"><input type="checkbox" checked={enabled[week]} onChange={e => setEnabled({ ...enabled, [week]: e.target.checked })} />Activar semana {week}</label>
+      <label className="flex gap-2 font-semibold"><input type="checkbox" checked={enabled[week]} onChange={e => setEnabled({ ...enabled, [week]: e.target.checked })} />Activar día {week === 2 ? '14' : '21'}</label>
       <p>{week === 2 ? 'Invita a compartir una duda pendiente. La variable describe lo que busca: hogar, local, inversión o una opción por definir.' : 'Ofrece un siguiente paso pertinente: información de financiamiento, proceso de compra o conversación con un asesor. Si ya se ofreció o explicó, se busca otra opción útil; si no la hay, se omite el mensaje.'}</p>
       <details><summary className="cursor-pointer">Ver plantilla y conexión</summary><p className="mt-3 whitespace-pre-line">{LATER_ROUTES[week].body.replace('{{1}}', `[Nutricion_${week}s]`)}</p><p className="mt-2 text-xs">Salesbot {LATER_ROUTES[week].botId} · campo {LATER_ROUTES[week].fieldId}{week === 2 ? ' · incluye LaVilet.png' : ''}</p></details>
     </div>)}
     <p>Al responder el lead se cancelan los pendientes y se atiende lo que respondió. Un «sí» a información financiera no autoriza una solicitud de crédito. Se mantienen las pausas por cita, evaluación, atención humana y falta de permiso de seguimiento.</p>
-    <p className="text-xs">La activación no escribe a conversaciones antiguas. La semana 4 sigue pendiente y no se envía.</p>
-    <Button disabled={saving} onClick={() => void save()}>{saving ? 'Guardando…' : 'Guardar semanas 2 y 3'}</Button>
+    <p className="text-xs">La activación se aplica a los nuevos turnos atendidos y no crea mensajes retroactivos para conversaciones antiguas.</p>
+    <Button disabled={saving} onClick={() => void save()}>{saving ? 'Guardando…' : 'Guardar días 14 y 21'}</Button>
   </div>
 }

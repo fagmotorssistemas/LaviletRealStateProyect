@@ -30,7 +30,7 @@ export function asksUnitPrice(value: string, propertyScope = false) {
 // never grounds to infer thousands or claim that financing is already approved.
 export function statedBudget(current: string) {
   const m = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
-  const amount = m.match(/\b(?:cuento con|dispongo de|tengo|presupuesto(?: es)?(?: de)?)(?:\s+solo)?\s*\$?\s*(\d(?:[\d.,]*\d)?)(?:\s*(mil|miles|k)\b)?/)
+  const amount = m.match(/\b(?:(?:cuento con|dispongo de|tengo)(?:\s+un)?(?:\s+presupuesto)?(?:\s+aproximado)?(?:\s+de)?|mi presupuesto(?:\s+(?:es|seria))?(?:\s+de)?|presupuesto(?:\s+(?:es|seria))?(?:\s+de)?)(?:\s+solo)?\s*\$?\s*(\d(?:[\d.,]*\d)?)(?:\s*(mil|miles|k)\b)?/)
     ?? m.match(/\b(?:quiero|busco|quisiera) (?:uno|una|un local|un departamento|una suite) (?:de |entre |por |hasta )?(?:unos? |unas? |alrededor de )?\$?\s*(\d(?:[\d.,]*\d)?)(?:\s*(mil|miles|k)\b)?/)
   if (!amount) return null
   const after = m.slice((amount.index || 0) + amount[0].length)
@@ -44,7 +44,7 @@ export function statedBudget(current: string) {
 export function budgetOptionsReply(info:Row,current:string):string {
   const budget=statedBudget(current), policy=object(info.politica_comercial)
   const simple=current.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()
-  if(!/^(?:(?:quiero|busco|quisiera) (?:uno|una|un local|un departamento|una suite) (?:de |entre |por |hasta )?(?:unos? |unas? |alrededor de )?|(?:cuento con|dispongo de|tengo|presupuesto(?: es)?(?: de)?)(?: solo)?\s+)\$?\s*\d(?:[\d.,]*\d)?(?:\s*(?:mil|miles|k))?(?:\s*(?:dolares|usd))?[.!]?$/.test(simple))return ''
+  if(!/^(?:(?:quiero|busco|quisiera) (?:uno|una|un local|un departamento|una suite) (?:de |entre |por |hasta )?(?:unos? |unas? |alrededor de )?|(?:(?:cuento con|dispongo de|tengo)(?: un)?(?: presupuesto)?(?: aproximado)?(?: de)?|mi presupuesto(?: (?:es|seria))?(?: de)?|presupuesto(?: (?:es|seria))?(?: de)?)(?: solo)?\s*)\$?\s*\d(?:[\d.,]*\d)?(?:\s*(?:mil|miles|k))?(?:\s*(?:dolares|usd))?[.!]?$/.test(simple))return ''
   if(budget===null || policy.precios_autorizados!==true || /[¿?\n]|credito|financ|ingreso|cuota|entrada|metros|dormitorio|terraza|balcon|vista|piso|planta|\b(?:entre\s+\d+.*\by\b|LC[- ]?\d+)/i.test(current))return ''
   const category=text(object(info.lead).preferred_category)
   if(!['local','suite','departamento'].includes(category))return ''
@@ -55,8 +55,11 @@ export function budgetOptionsReply(info:Row,current:string):string {
   const money=(v:unknown)=>'$'+Number(v).toLocaleString('es-EC',{maximumFractionDigits:2})
   const amounts=chosen.map(u=>`${u.unit_number}: ${money(u.published_commercial_price)}`).join('; ')
   const note=policy.precios_aproximados===true?' Son precios referenciales de lanzamiento y pueden variar.':''
-  if(within.length)return `Estas opciones están dentro de ese monto: ${amounts}.${note} ¿Cuál le gustaría revisar?`
-  return `La opción de menor precio del catálogo es ${amounts}; supera ese monto en ${money(Number(chosen[0].published_commercial_price)-budget)}.${note} ¿Tiene flexibilidad para considerar esa diferencia?`
+  if(within.length)return `Con ese presupuesto podemos concentrarnos en estas opciones: ${amounts}.${note} ¿Cuál le gustaría revisar?`
+  const finance = object(info.financiamiento)
+  const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
+  const label = category === 'local' ? 'locales comerciales' : category === 'suite' ? 'suites' : 'departamentos'
+  return `Actualmente los ${label} parten de ${money(Number(chosen[0].published_commercial_price))}, por lo que ese presupuesto no alcanza para cubrir el valor total; la diferencia frente a la opción de menor precio es de ${money(Number(chosen[0].published_commercial_price)-budget)}.${note}${partners.length ? ' Contamos con alternativas de financiamiento, pero primero conviene identificar la unidad que le interesa.' : ''} ¿Prefiere que comparemos las opciones por planta y valor?`
 }
 
 function variant(options: string[], history: unknown) {
@@ -136,11 +139,14 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
   if (priced.length < selected.length) reply += ' Podemos consultar también el valor de las demás opciones.'
   const budget = statedBudget(current)
   const lowBudget = hasAffordabilityConcern(current) || (budget !== null && budget < Math.min(...priced.map(unit => Number(unit.published_commercial_price))))
+  if (budget !== null && priced.length > 1 && budget < Math.min(...priced.map(unit => Number(unit.published_commercial_price)))) {
+    reply += ` Ese presupuesto no cubre el valor total de estas opciones. Podemos revisar alternativas de financiamiento después de identificar la unidad que más le interese.`
+  }
   const finance = object(info.financiamiento)
   const memory = salesMemory(summary._sales_memory, info.historial)
   const engagement = commercialEngagement(current, info.historial, summary._sales_memory)
   let financingOffer = ''
-  if ((!engagement.passive || lowBudget) && (!memory.financing_mentioned || lowBudget) && !mentionsFinancing(current) && !/no (?:quiero|necesito|deseo).*financ|sin credito/.test(m) && !Object.keys(object(finance.current)).length) {
+  if (priced.length === 1 && budget !== null && lowBudget && (!engagement.passive || lowBudget) && (!memory.financing_mentioned || lowBudget) && !mentionsFinancing(current) && !/no (?:quiero|necesito|deseo).*financ|sin credito/.test(m) && !Object.keys(object(finance.current)).length) {
     const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
     if (partners.length) financingOffer = variant(lowBudget ? [
       `Si necesita financiar la compra, podemos ayudarle a revisar opciones con ${partners.join(' o ')}.`,
@@ -185,6 +191,10 @@ export function priceReplyIssues(reply: string, info: Row, current = '', expecte
   if (!/aprob|garanti|asegur/.test(normalized(current)) && /aprobacion depende|entidad evalua cada solicitud/.test(m)) return ['style']
   const discloses = /(?:\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares))/i.test(reply) && /precio|valor|cuesta|costo|desde|opciones/.test(m)
   if (!discloses) return []
+  const disclosureRequested = asksUnitPrice(current, true) || statedBudget(current) !== null || hasAffordabilityConcern(current)
+    || /\bno (?:se|estoy segur[oa]|tengo claro|tengo idea)\b.*\b(?:presupuesto|dinero|invertir|gastar|pagar)\b/.test(normalized(current))
+    || /\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)\b.*\b(?:suite|departamento|local|unidad)\s*(?:numero\s*)?\d{1,4}\b/.test(normalized(current))
+  if (current.trim() && !disclosureRequested) return ['style']
   if (policy.precios_autorizados !== true) return ['unsupported_fact']
   const allowed = expectedPrices || rows(info.catalogo).map(unit => Number(unit.published_commercial_price)).filter(value => value > 0)
   for (const match of reply.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)) {

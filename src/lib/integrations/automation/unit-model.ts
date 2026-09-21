@@ -1,34 +1,48 @@
-import { unitModelUrl, unitReferenceUrl, UNIT_MODEL_PATH, UNIT_REFERENCE_PATH } from '@/lib/tour/unitModels'
+import { unitTourUrl, UNIT_TOUR_PATH } from '@/lib/tour/unitModels'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isUnitPhotoRequest, isUnitVisualRequest } from './unit-visual-request'
 
-export function unitModelDelivery(reference: { explicit: boolean; matches: Row[] }, current: string, history: unknown, sentUnitIds: unknown = []) {
+export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention?: boolean; matches: Row[] }, current: string, history: unknown, sentUnitIds: unknown = []) {
   const m = normalized(current)
   const asksModel = isUnitVisualRequest(current)
-  const declines = /\bno\b[^.!?\n]{0,45}\b(?:envie|mande|quiero|necesito|interesa|modelo|recorrido|3d|enlace|link|fotos?|fotografias?|imagenes?)\b/.test(m)
-  if (declines || reference.matches.length !== 1 || (!reference.explicit && !asksModel)) return null
-  const unit = reference.matches[0], url = unitReferenceUrl(unit)
-  if (!url) return null
+  // La negación debe referirse al material visual. Frases como «no necesito que
+  // sean habitaciones independientes» no rechazan el recorrido de la unidad.
+  const visual = '(?:modelo|recorrido|3d|enlace|link|fotos?|fotografias?|imagenes?)'
+  const declines = new RegExp(`\\bno\\s+(?:me\\s+)?(?:envie|mande|comparta|muestre)\\b[^.!?\\n]{0,55}\\b${visual}\\b`).test(m)
+    || new RegExp(`\\bno\\s+(?:quiero|necesito|deseo)\\b[^.!?\\n]{0,55}\\b${visual}\\b`).test(m)
+    || new RegExp(`\\bno\\s+me\\s+(?:interesa|sirve)\\b[^.!?\\n]{0,55}\\b${visual}\\b`).test(m)
+    || new RegExp(`\\b${visual}\\b[^.!?\\n]{0,55}\\bno\\s+me\\s+(?:interesa|sirve)\\b`).test(m)
+  if (declines || (!reference.explicit && !asksModel)) return null
+  if (reference.matches.length > 1 || (reference.hasUnitMention && reference.matches.length === 0)) return null
+  const candidate = reference.matches.length === 1 ? reference.matches[0] : null
+  const unit = candidate && ['suite', 'departamento', 'penthouse'].includes(text(candidate.category))
+    && candidate.is_published !== false && (!candidate.status || candidate.status === 'disponible')
+    && /^\d{3,4}$/.test(text(candidate.unit_number))
+    ? candidate
+    : null
+  const url = unitTourUrl(unit?.unit_number)
   // Persisted outbound messages are the authority, not the LLM's summary or a quoted client URL.
-  const alreadySent = (Array.isArray(sentUnitIds) && sentUnitIds.includes(unit.id)) || (Array.isArray(history) ? history : []).map(object).some(row => {
+  const alreadySent = Boolean(unit && Array.isArray(sentUnitIds) && sentUnitIds.includes(unit.id)) || (Array.isArray(history) ? history : []).map(object).some(row => {
     const content = text(row.content)
-    return ['bot', 'asesor'].includes(text(row.role)) && (
-      (content.includes(UNIT_MODEL_PATH) && new RegExp(`[?&]unidad=${text(unit.unit_number)}(?:\\b|$)`).test(content))
-      || content.includes(`${UNIT_REFERENCE_PATH}/${text(unit.id)}`))
+    if (!['bot', 'asesor'].includes(text(row.role))) return false
+    if (!unit) return content.includes(unitTourUrl()) && !/[?&]unidad=/.test(content)
+    return content.includes(UNIT_TOUR_PATH)
+      && new RegExp(`[?&]unidad=${text(unit.unit_number)}(?:\\b|$)`).test(content)
   })
   if (alreadySent && !asksModel) return null
-  const modelAvailable = Boolean(unitModelUrl(unit))
-  const label = `${unit.category === 'suite' ? 'la suite' : 'el departamento'} ${text(unit.unit_number)}`
-  return { unit_id: text(unit.id), unit_number: text(unit.unit_number), url, model_available: modelAvailable,
-    caption: modelAvailable ? `Aquí puede explorar ${label} en 3D: ${url}`
-      : `Le comparto la ficha ${unit.category === 'suite' ? 'de la suite' : 'del departamento'} ${text(unit.unit_number)} y una referencia interactiva del proyecto. El modelo específico de esta unidad aún está pendiente: ${url}` }
+  if (!unit) return { unit_id: null, unit_number: null, url, model_available: true,
+    caption: `Aquí puede explorar el tour general de La Vilet: ${url}` }
+  const label = `${unit.category === 'suite' ? 'la suite' : unit.category === 'penthouse' ? 'el penthouse' : 'el departamento'} ${text(unit.unit_number)}`
+  return { unit_id: text(unit.id), unit_number: text(unit.unit_number), url, model_available: true,
+    caption: `Aquí puede explorar ${label} en el tour de La Vilet: ${url}` }
 }
 
 export function appendUnitModel(reply: string, delivery: ReturnType<typeof unitModelDelivery>) {
   if (!delivery) return reply
   if (reply.includes(delivery.url) && reply.length <= 1400) return reply
   const caption = delivery.caption.trim()
+  if (/^(?:claro|con gusto)[,.:!\s]*$/i.test(reply.trim())) return caption
   // The attachment is a promised action, so reserve its complete caption and URL first.
   // Compact an oversized draft by removing whole trailing sentences/paragraphs only;
   // never slice through a price, date or URL. A single oversized paragraph may leave
@@ -71,13 +85,11 @@ export function unitModelRequestReply(matches: Row[], current: string, willSend:
   }
   if (!isUnitVisualRequest(current)
     || /\bno\b|precio|cuanto cuesta|ofrece|incluye|financ|metros|medida|dormitorio|ubicacion|visita|cita/.test(m)) return ''
+  if (willSend && matches.length === 0) return 'Claro.'
   if (matches.length > 1) return `Con gusto. ¿De cuál unidad desea ver el modelo: ${matches.map(u => text(u.unit_number)).join(', ')}?`
   if (!matches.length) return 'Claro, con gusto. ¿Qué número de departamento o suite le interesa?'
-  if (willSend) return !unitModelUrl(matches[0])
-    ? `Puede revisar los detalles de la unidad ${text(matches[0].unit_number)} en el enlace que le comparto.`
-    : isUnitPhotoRequest(current)
-      ? 'En esta vista interactiva puede girar el modelo y acercarse a los espacios.'
-      : 'Puede explorar la distribución a su ritmo en esta vista interactiva.'
-  if (!unitModelUrl(matches[0])) return `De la unidad ${text(matches[0].unit_number)} todavía no tengo un recorrido 3D disponible. Puedo ayudarle con la información de su distribución.`
+  if (willSend) return isUnitPhotoRequest(current)
+      ? 'En el tour puede recorrer la unidad y acercarse a sus espacios.'
+      : 'Puede explorar la unidad a su ritmo en el tour.'
   return ''
 }
