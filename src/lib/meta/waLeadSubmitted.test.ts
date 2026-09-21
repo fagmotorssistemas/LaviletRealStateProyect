@@ -30,7 +30,7 @@ describe('waLeadSubmittedEligibility', () => {
     assert.equal(r.blocker, WA_BLOCK_GREETING)
   })
 
-  it('selección de unidad ofrecida: me interesa el más grande', () => {
+  it('selección de unidad ofrecida: me interesa el más grande CON oferta', () => {
     const r = evaluateWaLeadSubmittedEligibility({
       currentMessage: 'me interesa mas el mas grande',
       recentOfferText:
@@ -38,29 +38,64 @@ describe('waLeadSubmittedEligibility', () => {
     })
     assert.equal(r.eligibleForConversion, true)
     assert.equal(r.commercialInterest, true)
+    assert.equal(r.turnCommercialInterest, true)
   })
 
-  it('selección comparativa sin oferta también cuenta (turno actual)', () => {
+  it('sin oferta: «me interesa más el más grande» NO es interés inmobiliario', () => {
     const r = evaluateWaLeadSubmittedEligibility({
       currentMessage: 'me interesa mas el mas grande',
+    })
+    assert.equal(r.eligibleForConversion, false)
+    assert.equal(r.blocker, 'commercial_interest_required')
+  })
+
+  it('oferta de asesor también habilita la selección', () => {
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage: 'me interesa esa',
+      recentOfferText:
+        'Le comparto el departamento 301 y la suite 202 con sus metros.',
     })
     assert.equal(r.eligibleForConversion, true)
   })
 
-  it('deíxis «esa» solo con oferta reciente de unidades', () => {
+  it('deíxis «esa» sin oferta: no elegible', () => {
     assert.equal(
       evaluateWaLeadSubmittedEligibility({
         currentMessage: 'me interesa esa',
       }).eligibleForConversion,
       false,
     )
-    assert.equal(
-      evaluateWaLeadSubmittedEligibility({
-        currentMessage: 'me interesa esa',
-        recentOfferText: 'Tenemos el departamento 301 y la suite 202 disponibles.',
-      }).eligibleForConversion,
-      true,
-    )
+  })
+
+  it('aceptación sola (sin sello reciente) no es interés', () => {
+    const msg =
+      'Acepto que usen mis datos para medición publicitaria de Meta'
+    assert.equal(detectsWhatsappAdsConsentGrant(msg), true)
+    const r = evaluateWaLeadSubmittedEligibility({ currentMessage: msg })
+    assert.equal(r.eligibleForConversion, false)
+    assert.equal(r.blocker, 'commercial_interest_required')
+  })
+
+  it('secuencia: interés sellado + aceptación encola (sin otro mensaje comercial)', () => {
+    const stamped = new Date().toISOString()
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage:
+        'Acepto que usen mis datos para medición publicitaria de Meta',
+      commercialInterestAt: stamped,
+    })
+    assert.equal(r.eligibleForConversion, true)
+    assert.equal(r.turnCommercialInterest, false)
+    assert.equal(r.usedRecentInterestWithConsent, true)
+  })
+
+  it('sello antiguo no reutiliza interés (sin backfill)', () => {
+    const old = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage:
+        'Acepto que usen mis datos para medición publicitaria de Meta',
+      commercialInterestAt: old,
+    })
+    assert.equal(r.eligibleForConversion, false)
   })
 
   it('histórico propertyInterest no convierte mensaje ambiguo (sin backfill)', () => {

@@ -125,11 +125,12 @@ export async function maybeRegisterWaLeadSubmitted(input: {
     tenant_id?: string | null
     project_id?: string | null
     meta_wa_lead_submitted_event_id?: string | null
+    meta_wa_commercial_interest_at?: string | null
   }
   contactId: number | string
   currentMessage: string
   scoreEvents?: string[] | null
-  /** Última oferta del bot en el hilo (contexto del turno; no backfill). */
+  /** Última oferta bot/asesor con unidades (contexto; no backfill). */
   recentOfferText?: string | null
   history?: unknown
   behaviorSignals?: unknown
@@ -151,12 +152,32 @@ export async function maybeRegisterWaLeadSubmitted(input: {
   const contactId = String(input.contactId)
   const idempotencyKey = waLeadSubmittedIdempotencyKey(input.lead.id)
 
-  // Solo interés del turno actual (texto / score events / selección de oferta reciente).
-  // Engagement histórico no convierte; no hay backfill de mensajes pasados.
+  // Fuente autorizada: consent + sello de interés (antes de elegibilidad).
+  let consentRow: Record<string, unknown> | null = null
+  let consentError: { message?: string } | null = null
+  if (admin) {
+    const read = await admin
+      .from('leads')
+      .select(
+        'meta_ads_consent, meta_ads_consent_evidence_message, meta_ads_consent_evidence_at, meta_ads_consent_scope, tenant_id, project_id, meta_wa_lead_submitted_event_id, meta_wa_commercial_interest_at, phone, name, email',
+      )
+      .eq('id', input.lead.id)
+      .maybeSingle()
+    consentRow = (read.data as Record<string, unknown> | null) || null
+    consentError = read.error
+    if (consentRow?.meta_wa_commercial_interest_at) {
+      input.lead.meta_wa_commercial_interest_at = String(
+        consentRow.meta_wa_commercial_interest_at,
+      )
+    }
+  }
+
+  // Interés del turno, o aceptación + sello reciente (grant ≠ interés; sin backfill).
   const eligibility = evaluateWaLeadSubmittedEligibility({
     currentMessage: input.currentMessage,
     scoreEvents: input.scoreEvents,
     recentOfferText: input.recentOfferText,
+    commercialInterestAt: input.lead.meta_wa_commercial_interest_at,
   })
 
   if (!eligibility.eligibleForConversion) {
@@ -170,6 +191,9 @@ export async function maybeRegisterWaLeadSubmitted(input: {
       details: {
         greeting_only: eligibility.greetingOnly,
         commercial_interest: eligibility.commercialInterest,
+        turn_commercial_interest: eligibility.turnCommercialInterest,
+        used_recent_interest_with_consent:
+          eligibility.usedRecentInterestWithConsent,
       },
     })
     return {
@@ -184,6 +208,20 @@ export async function maybeRegisterWaLeadSubmitted(input: {
     }
   }
 
+  // Sellar interés del turno actual (no el grant de consentimiento).
+  if (admin && eligibility.turnCommercialInterest) {
+    const stamped = new Date().toISOString()
+    try {
+      await admin
+        .from('leads')
+        .update({ meta_wa_commercial_interest_at: stamped })
+        .eq('id', input.lead.id)
+      input.lead.meta_wa_commercial_interest_at = stamped
+    } catch {
+      /* soft-fail */
+    }
+  }
+
   if (!admin) {
     return {
       attempted: true,
@@ -195,20 +233,13 @@ export async function maybeRegisterWaLeadSubmitted(input: {
     }
   }
 
-  // Fuente autorizada: revalidar lead (consent + evidencia + event_id).
-  const { data: consentRow, error: consentError } = await admin
-    .from('leads')
-    .select(
-      'meta_ads_consent, meta_ads_consent_evidence_message, meta_ads_consent_evidence_at, meta_ads_consent_scope, tenant_id, project_id, meta_wa_lead_submitted_event_id, phone, name, email',
-    )
-    .eq('id', input.lead.id)
-    .maybeSingle()
-
   const gate = decideWaLeadSubmittedConsentGate({
     queryOk: !consentError,
     leadFound: Boolean(consentRow),
-    metaAdsConsent: consentRow?.meta_ads_consent,
-    evidenceMessage: consentRow?.meta_ads_consent_evidence_message as string | null,
+    metaAdsConsent: consentRow?.meta_ads_consent as boolean | null | undefined,
+    evidenceMessage: consentRow?.meta_ads_consent_evidence_message as
+      | string
+      | null,
     evidenceAt: consentRow?.meta_ads_consent_evidence_at
       ? String(consentRow.meta_ads_consent_evidence_at)
       : null,

@@ -70,8 +70,9 @@ export async function applyWhatsappAdsConsentFromClientMessage(input: {
  * Independiente de que el bot responda: sirve para bot_paused / outside_test_lead.
  * No reenvía histórico: solo el mensaje actual (+ scoreEvents del turno si existen).
  *
- * Si consentimiento o CTWA llegan en un turno posterior con interés comercial nuevo,
- * puede encolar entonces. No hay backfill de turnos pasados.
+ * Si consentimiento llega en un turno posterior tras interés sellado reciente,
+ * la aceptación puede encolar sin otro mensaje comercial (ventana corta).
+ * La aceptación sola no es interés. No hay backfill de turnos pasados.
  */
 export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
   admin: SupabaseClient
@@ -102,7 +103,7 @@ export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
   const { data: fresh } = await input.admin
     .from('leads')
     .select(
-      'id, phone, name, email, meta_ads_consent, meta_ads_consent_evidence_message, meta_ads_consent_evidence_at, meta_ads_consent_scope, meta_wa_lead_submitted_event_id, tenant_id, project_id',
+      'id, phone, name, email, meta_ads_consent, meta_ads_consent_evidence_message, meta_ads_consent_evidence_at, meta_ads_consent_scope, meta_wa_lead_submitted_event_id, meta_wa_commercial_interest_at, tenant_id, project_id',
     )
     .eq('id', lead.id)
     .maybeSingle()
@@ -126,6 +127,9 @@ export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
       project_id:
         (row.project_id as string | null) || input.projectId || null,
       meta_wa_lead_submitted_event_id: row.meta_wa_lead_submitted_event_id as
+        | string
+        | null,
+      meta_wa_commercial_interest_at: row.meta_wa_commercial_interest_at as
         | string
         | null,
     },

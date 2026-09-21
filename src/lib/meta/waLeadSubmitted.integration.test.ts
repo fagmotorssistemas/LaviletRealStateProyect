@@ -455,6 +455,7 @@ describe('waLeadSubmitted integration', () => {
       tenant_id: TENANT_A,
       project_id: PROJECT_A,
       meta_wa_lead_submitted_event_id: null,
+      meta_wa_commercial_interest_at: null as string | null,
     }
     const admin = mockAdmin({
       lead,
@@ -479,5 +480,82 @@ describe('waLeadSubmitted integration', () => {
     // Interés sí; bloquea por consentimiento (no por commercial_interest_required)
     assert.equal(result.stage, 'blocked')
     assert.match(String(result.reason), /ads_consent/)
+    assert.ok(lead.meta_wa_commercial_interest_at)
+  })
+
+  it('secuencia interés → aceptación: encola con sello reciente, grant no es interés', async () => {
+    const lead = {
+      id: LEAD_ID,
+      meta_ads_consent: true,
+      meta_ads_consent_evidence_message:
+        'Acepto que usen mis datos para medición publicitaria de Meta',
+      meta_ads_consent_evidence_at: '2026-09-21T18:00:00.000Z',
+      meta_ads_consent_scope: 'whatsapp_ads',
+      tenant_id: TENANT_A,
+      project_id: PROJECT_A,
+      meta_wa_lead_submitted_event_id: null,
+      meta_wa_commercial_interest_at: new Date().toISOString(),
+    }
+    const admin = mockAdmin({
+      lead,
+      ctwaRows: [
+        {
+          ctwa_clid: 'Aff.SEQ',
+          tenant_id: TENANT_A,
+          project_id: PROJECT_A,
+          contact_id: '55',
+        },
+      ],
+    })
+    const result = await maybeRegisterWaLeadSubmitted({
+      admin: admin as never,
+      lead: lead as never,
+      contactId: 55,
+      currentMessage:
+        'Acepto que usen mis datos para medición publicitaria de Meta',
+      env: {
+        ...envOn,
+        META_WABA_ID: '1410020224338488',
+        META_MESSAGING_DATASET_ID: '4419657838288963',
+      },
+    })
+    assert.equal(result.stage, 'enqueued')
+    assert.ok(result.eventId)
+  })
+
+  it('aceptación sin sello reciente: bloquea commercial_interest_required', async () => {
+    const lead = {
+      id: LEAD_ID,
+      meta_ads_consent: true,
+      meta_ads_consent_evidence_message:
+        'Acepto que usen mis datos para medición publicitaria de Meta',
+      meta_ads_consent_evidence_at: '2026-09-21T18:00:00.000Z',
+      meta_ads_consent_scope: 'whatsapp_ads',
+      tenant_id: TENANT_A,
+      project_id: PROJECT_A,
+      meta_wa_lead_submitted_event_id: null,
+      meta_wa_commercial_interest_at: null,
+    }
+    const admin = mockAdmin({
+      lead,
+      ctwaRows: [
+        {
+          ctwa_clid: 'Aff.NOS',
+          tenant_id: TENANT_A,
+          project_id: PROJECT_A,
+          contact_id: '55',
+        },
+      ],
+    })
+    const result = await maybeRegisterWaLeadSubmitted({
+      admin: admin as never,
+      lead: lead as never,
+      contactId: 55,
+      currentMessage:
+        'Acepto que usen mis datos para medición publicitaria de Meta',
+      env: envOn,
+    })
+    assert.equal(result.stage, 'blocked')
+    assert.equal(result.reason, 'commercial_interest_required')
   })
 })

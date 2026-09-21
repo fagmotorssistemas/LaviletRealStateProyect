@@ -7,7 +7,9 @@
  *    y lo envía manualmente por Kommo.
  * 3. El cliente responde con la frase esperada →
  *    `applyWhatsappAdsConsentFromClientMessage` → RPC evidencia.
- * 4. Un turno nuevo con interés comercial puede encolar (sin backfill).
+ * 4. Si hubo interés comercial sellado en la ventana (48h), la aceptación
+ *    puede encolar sin otro mensaje comercial. La aceptación sola no es interés.
+ *    No hay backfill indiscriminado de mensajes antiguos.
  *
  * Distinto de tracking_consent (novedades) del guion / drawer.
  */
@@ -33,6 +35,7 @@ export function waAdsConsentRequestBrief() {
       'No sustituye tracking_consent ni cookies del showroom.',
       'Negaciones, preguntas y citas no conceden.',
       'Revocación cancela outbox pending/needs_review/review_hold antes del envío.',
+      'Secuencia: interés → script manual → aceptación (reutiliza sello reciente; grant ≠ interés).',
     ],
   }
 }

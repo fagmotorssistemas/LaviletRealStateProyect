@@ -27,11 +27,13 @@ Estados del trabajo (actualizar al ejecutar):
 
 No podemos depender de que el cliente mencione Meta espontáneamente.
 
-1. Bitácora `/inmobiliaria/marketing/capi` (sección WhatsApp) muestra bloqueos `ads_consent_*`.
+1. Bitácora `/inmobiliaria/marketing/capi` (sección WhatsApp) muestra bloqueos `ads_consent_*` tras **interés comercial** (sella `meta_wa_commercial_interest_at`).
 2. Asesor copia el **script** de la misma sección («Consentimiento Meta») o `WA_ADS_CONSENT_REQUEST_SCRIPT` en código.
 3. Lo envía **manual** por Kommo (canal `advisor_manual_kommo`). El bot **no** lo dispara.
-4. Cliente responde exactamente: *«Acepto que usen mis datos para medición publicitaria de Meta»*.
-5. Un **turno nuevo** con interés comercial puede encolar (sin backfill de mensajes viejos).
+4. Cliente responde: *«Acepto que usen mis datos para medición publicitaria de Meta»*.
+5. **La aceptación reutiliza el sello de interés reciente (ventana 48h)** y puede encolar si hay CTWA + evidencia. **No** exige otro mensaje comercial. **La aceptación sola** (sin sello) **no** es interés. **No** hay backfill de mensajes antiguos.
+
+Ofertas de **bot o asesor** cuentan como contexto para «el más grande» / «esa»; sin oferta de unidades, esa frase no convierte.
 
 Código: `src/lib/meta/waLeadSubmittedConsentRequest.ts`.
 

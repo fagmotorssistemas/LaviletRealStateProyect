@@ -13,6 +13,8 @@ import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoFiel
 import { inboundFromRow, type Inbound } from './webhook'
 import { preserveCtwaForContact } from './ctwa-lead-store'
 import { applyWhatsappAdsConsentFromClientMessage, evaluateWaLeadSubmittedForCurrentTurn } from '@/lib/meta/waLeadSubmittedTurn'
+import { resolveRecentUnitOfferText } from '@/lib/meta/waLeadSubmittedOfferContext'
+import { isUnitOfferContext } from '@/lib/meta/waLeadSubmittedEligibility'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
@@ -190,12 +192,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (inbound.hasNew && registeredLeadId) {
         const outsideLead = await one('leads', registeredLeadId)
         const msg = (inbound.normalized.map(e => e.text).join('\n') || last.text || '').slice(0, 30_000)
+        const recentOfferText = await resolveRecentUnitOfferText({
+          admin: db(),
+          conversationId: text(inbound.registration.conversation_id),
+        })
         await evaluateWaLeadSubmittedForCurrentTurn({
           admin: db(),
           rpc,
           lead: { ...outsideLead, id: registeredLeadId },
           contactId: last.contactId,
           currentMessage: msg,
+          recentOfferText,
           tenantId: scope.tenant_id,
           projectId: scope.project_id,
         })
@@ -237,12 +244,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     trace.finish(permissionStep, 'paused', { reason })
     // Cliente fuera del bot / pausado: elegible a LeadSubmitted sin respuesta automática.
     try {
+      const recentOfferText = await resolveRecentUnitOfferText({
+        admin: db(),
+        conversationId: text(inbound.registration.conversation_id),
+      })
       await evaluateWaLeadSubmittedForCurrentTurn({
         admin: db(),
         rpc,
         lead: { ...lead, id: String(lead.id) },
         contactId: last.contactId,
         currentMessage: turnMessage,
+        recentOfferText,
         tenantId: scope.tenant_id,
         projectId: scope.project_id,
       })
@@ -256,12 +268,35 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const processingStarted = Date.now()
   const conversationBefore = await one('conversations', text(inbound.registration.conversation_id))
-  const recentOutbound = await db().from('messages').select('role,sent_at')
+  const recentOutbound = await db().from('messages').select('role,sent_at,content')
     .eq('conversation_id', conversationBefore.id).in('role', ['bot', 'asesor'])
-    .lt('sent_at', activeLast.sentAt).order('sent_at', { ascending: false }).limit(2)
+    .lt('sent_at', activeLast.sentAt).order('sent_at', { ascending: false }).limit(12)
   if (recentOutbound.error) throw new Error('HUMAN_ACTIVITY_CHECK_FAILED')
   if (advisorOwnsConversation(recentOutbound.data || [], activeLast.sentAt)) {
     trace.finish(permissionStep, 'paused', { reason: 'ADVISOR_OWNS_CONVERSATION' })
+    // Asesor atiende: igual se evalúa LeadSubmitted (oferta puede ser del asesor).
+    try {
+      const recentOfferText = await resolveRecentUnitOfferText({
+        admin: db(),
+        conversationId: text(conversationBefore.id),
+        preferredText:
+          (recentOutbound.data || [])
+            .map((row: { content?: string }) => text(row.content))
+            .find((c: string) => isUnitOfferContext(c)) || null,
+      })
+      await evaluateWaLeadSubmittedForCurrentTurn({
+        admin: db(),
+        rpc,
+        lead: { ...lead, id: String(lead.id) },
+        contactId: last.contactId,
+        currentMessage: turnMessage,
+        recentOfferText,
+        tenantId: scope.tenant_id,
+        projectId: scope.project_id,
+      })
+    } catch {
+      /* soft-fail */
+    }
     return { action: 'human_attention' }
   }
   trace.finish(permissionStep, 'succeeded', { reason: 'BOT_CAN_RESPOND' })
@@ -682,7 +717,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           contactId: last.contactId,
           currentMessage: current,
           scoreEvents: extracted.events as string[],
-          recentOfferText: text(state.ultima_respuesta) || null,
+          recentOfferText: await resolveRecentUnitOfferText({
+            admin: db(),
+            conversationId: text(inbound.registration.conversation_id),
+            preferredText: text(state.ultima_respuesta) || null,
+          }),
           tenantId: scope.tenant_id,
           projectId: scope.project_id,
         })
