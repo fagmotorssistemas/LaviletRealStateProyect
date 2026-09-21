@@ -54,13 +54,59 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     }
     const target = settings.testLeadId || (config.test_only === true ? text(config.test_lead_id) : null)
     if (target && Number((await one('leads', target)).kommo_id) !== last.kommoId) {
+      try {
+        if (text(registration.lead_id)) {
+          const outsideLead = await one('leads', text(registration.lead_id))
+          const { evaluateWaLeadSubmittedForCurrentTurn } = await import('@/lib/meta/waLeadSubmittedTurn')
+          await evaluateWaLeadSubmittedForCurrentTurn({
+            admin: db(),
+            rpc,
+            lead: { ...outsideLead, id: String(registration.lead_id) },
+            contactId: last.contactId,
+            currentMessage: events.map(e => e.text).join('\n').slice(0, 30_000),
+            tenantId: scope.tenant_id,
+            projectId: scope.project_id,
+          })
+        }
+      } catch { /* soft-fail */ }
       return { action: 'outside_test_lead', message_persisted: true }
     }
-    if (botStopped(remote)) return { action: 'bot_paused' }
+    if (botStopped(remote)) {
+      try {
+        if (text(registration.lead_id)) {
+          const pausedLead = await one('leads', text(registration.lead_id))
+          const { evaluateWaLeadSubmittedForCurrentTurn } = await import('@/lib/meta/waLeadSubmittedTurn')
+          await evaluateWaLeadSubmittedForCurrentTurn({
+            admin: db(),
+            rpc,
+            lead: { ...pausedLead, id: String(registration.lead_id) },
+            contactId: last.contactId,
+            currentMessage: events.map(e => e.text).join('\n').slice(0, 30_000),
+            tenantId: scope.tenant_id,
+            projectId: scope.project_id,
+          })
+        }
+      } catch { /* soft-fail */ }
+      return { action: 'bot_paused' }
+    }
     const lead = await one('leads', text(registration.lead_id)), conversationId = text(registration.conversation_id)
     const conversation = await one('conversations', conversationId)
     if (conversation.lead_id !== lead.id || Number(lead.kommo_id) !== last.kommoId) throw Error('CONVERSATION_SCOPE_MISMATCH')
-    if (!permitted(config, lead, settings.testLeadId) || lead.bot_enabled !== true || lead.tracking_opt_out_at) return { action: 'bot_paused' }
+    if (!permitted(config, lead, settings.testLeadId) || lead.bot_enabled !== true || lead.tracking_opt_out_at) {
+      try {
+        const { evaluateWaLeadSubmittedForCurrentTurn } = await import('@/lib/meta/waLeadSubmittedTurn')
+        await evaluateWaLeadSubmittedForCurrentTurn({
+          admin: db(),
+          rpc,
+          lead: { ...lead, id: String(lead.id) },
+          contactId: last.contactId,
+          currentMessage: events.map(e => e.text).join('\n').slice(0, 30_000),
+          tenantId: scope.tenant_id,
+          projectId: scope.project_id,
+        })
+      } catch { /* soft-fail */ }
+      return { action: 'bot_paused' }
+    }
     if (/no (?:me )?(?:envien|mande|manden|escriban|contacten)|dejen de (?:escribirme|contactarme)|no (?:quiero|deseo) recibir.*mensaj/.test(normalized(events.map(e => e.text).join(' ')))) {
       await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
       return { action: 'opt_out' }

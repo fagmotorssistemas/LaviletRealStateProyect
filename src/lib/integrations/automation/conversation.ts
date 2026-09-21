@@ -12,11 +12,7 @@ import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } fr
 import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { inboundFromRow, type Inbound } from './webhook'
 import { preserveCtwaForContact } from './ctwa-lead-store'
-import {
-  detectsWhatsappAdsConsentGrant,
-  detectsWhatsappAdsConsentRevoke,
-} from '@/lib/meta/waLeadSubmittedConsent'
-import { maybeRegisterWaLeadSubmitted } from '@/lib/meta/waLeadSubmittedDelivery'
+import { applyWhatsappAdsConsentFromClientMessage, evaluateWaLeadSubmittedForCurrentTurn } from '@/lib/meta/waLeadSubmittedTurn'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
@@ -141,13 +137,48 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
   if (target) {
     const l = await one('leads', target)
     if (Number(l.kommo_id) !== last.kommoId) {
+      // Fuera del bot de prueba: mensajes ya persistidos; evaluar LS sin responder.
+      try {
+        if (inbound.hasNew && text(inbound.registration.lead_id)) {
+          const outsideLead = await one('leads', text(inbound.registration.lead_id))
+          const msg = (inbound.normalized.map(e => e.text).join('\n') || last.text || '').slice(0, 30_000)
+          await evaluateWaLeadSubmittedForCurrentTurn({
+            admin: db(),
+            rpc,
+            lead: { ...outsideLead, id: String(inbound.registration.lead_id) },
+            contactId: last.contactId,
+            currentMessage: msg,
+            tenantId: scope.tenant_id,
+            projectId: scope.project_id,
+          })
+        }
+      } catch {
+        /* soft-fail */
+      }
       return { action: 'outside_test_lead', message_persisted: true, is_duplicate: inbound.hasNew !== true }
     }
   }
   if (!inbound.hasNew) return { action: 'duplicate' }
   let lead = await one('leads', text(inbound.registration.lead_id))
+  const turnMessage = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
   if (!permitted(initialConfig, lead, settings.testLeadId) || lead.bot_enabled !== true
-    || lead.tracking_opt_out_at || inbound.stopped) return { action: 'bot_paused' }
+    || lead.tracking_opt_out_at || inbound.stopped) {
+    // Cliente fuera del bot / pausado: elegible a LeadSubmitted sin respuesta automática.
+    try {
+      await evaluateWaLeadSubmittedForCurrentTurn({
+        admin: db(),
+        rpc,
+        lead: { ...lead, id: String(lead.id) },
+        contactId: last.contactId,
+        currentMessage: turnMessage,
+        tenantId: scope.tenant_id,
+        projectId: scope.project_id,
+      })
+    } catch {
+      /* soft-fail */
+    }
+    return { action: 'bot_paused' }
+  }
   const activeLast = inbound.normalized[inbound.normalized.length - 1]
   let current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
@@ -434,33 +465,19 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
       reply = 'Hemos registrado su solicitud de no recibir más mensajes.'; finalNotice = true
     } else {
       if (extracted.tracking_consent) await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: true, p_reason: 'aceptó recibir novedades' })
-      // Consentimiento ads/Meta: explícito y distinto de tracking_consent. Iniciar chat no concede.
-      if (detectsWhatsappAdsConsentRevoke(current)) {
-        try {
-          await rpc('lv_set_whatsapp_meta_ads_consent', {
-            p_lead_id: lead.id,
-            p_ads_consent: false,
-            p_reason: 'revocó publicidad por WhatsApp',
-            p_evidence_message: String(current).slice(0, 500),
-            p_scope: 'whatsapp_ads',
-          })
-          lead = { ...lead, meta_ads_consent: false }
-        } catch {
-          /* soft-fail: CRM continúa */
+      // Consentimiento ads/Meta: explícito (evidencia) y distinto de tracking_consent.
+      try {
+        lead = {
+          ...lead,
+          ...(await applyWhatsappAdsConsentFromClientMessage({
+            rpc,
+            leadId: String(lead.id),
+            currentMessage: current,
+            lead,
+          })),
         }
-      } else if (detectsWhatsappAdsConsentGrant(current, { fromBot: false })) {
-        try {
-          await rpc('lv_set_whatsapp_meta_ads_consent', {
-            p_lead_id: lead.id,
-            p_ads_consent: true,
-            p_reason: 'aceptó publicidad por WhatsApp',
-            p_evidence_message: String(current).slice(0, 500),
-            p_scope: 'whatsapp_ads',
-          })
-          lead = { ...lead, meta_ads_consent: true }
-        } catch {
-          /* soft-fail */
-        }
+      } catch {
+        /* soft-fail */
       }
       await rpc('apply_lead_events', { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
       // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
@@ -483,30 +500,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard) {
         if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
         lead = { ...lead, ...resetSearch, behavior_signals: signals }
       }
-      // LeadSubmitted BM: interés comercial real; no saludo. Soft-fail.
+      // LeadSubmitted BM: interés del turno actual; fuera/dentro del bot. Soft-fail.
       try {
-        const fresh = await one('leads', text(lead.id))
-        lead = { ...lead, ...fresh }
-        await maybeRegisterWaLeadSubmitted({
+        await evaluateWaLeadSubmittedForCurrentTurn({
           admin: db(),
-          lead: {
-            id: String(lead.id),
-            phone: lead.phone as string | null | undefined,
-            name: lead.name as string | null | undefined,
-            email: lead.email as string | null | undefined,
-            meta_ads_consent: lead.meta_ads_consent as boolean | null | undefined,
-            tenant_id: (lead.tenant_id as string | null | undefined) || scope.tenant_id,
-            project_id: (lead.project_id as string | null | undefined) || scope.project_id,
-            meta_wa_lead_submitted_event_id: lead.meta_wa_lead_submitted_event_id as
-              | string
-              | null
-              | undefined,
-          },
+          rpc,
+          lead: { ...lead, id: String(lead.id) },
           contactId: last.contactId,
           currentMessage: current,
           scoreEvents: extracted.events as string[],
-          history: context.historial,
-          behaviorSignals: lead.behavior_signals,
+          tenantId: scope.tenant_id,
+          projectId: scope.project_id,
         })
       } catch {
         /* soft-fail: nunca corta la atención */

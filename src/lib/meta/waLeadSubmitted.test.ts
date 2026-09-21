@@ -156,9 +156,9 @@ describe('planWaLeadSubmitted', () => {
     assert.deepEqual(p.blockers, [])
   })
 
-  it('delivery off: no pending', () => {
+  it('delivery off: anota blocker pero puede pending', () => {
     const p = planWaLeadSubmitted({ ...base, deliveryEnabled: false })
-    assert.equal(p.canEnqueuePending, false)
+    assert.equal(p.canEnqueuePending, true)
     assert.ok(p.blockers.includes('wa_lead_submitted_delivery_inactive'))
   })
 
@@ -198,6 +198,9 @@ describe('waLeadSubmittedConsentGate', () => {
     queryOk: true,
     leadFound: true,
     metaAdsConsent: true as boolean | null,
+    evidenceMessage: 'Acepto recibir publicidad y anuncios',
+    evidenceAt: '2026-09-21T12:00:00.000Z',
+    evidenceScope: 'whatsapp_ads',
     leadTenantId: 't1',
     leadProjectId: 'p1',
     eventTenantId: 't1',
@@ -205,8 +208,15 @@ describe('waLeadSubmittedConsentGate', () => {
     eventContactId: 'c1',
   }
 
-  it('solo true permite envío', () => {
+  it('true + evidencia permite envío', () => {
     assert.equal(decideWaLeadSubmittedConsentGate(scoped).action, 'allow_send')
+  })
+
+  it('true sin evidencia no permite envío', () => {
+    assert.equal(
+      decideWaLeadSubmittedConsentGate({ ...scoped, evidenceMessage: null }).action,
+      'hold_pending',
+    )
   })
 
   it('false / null / error / ausente no permiten envío', () => {

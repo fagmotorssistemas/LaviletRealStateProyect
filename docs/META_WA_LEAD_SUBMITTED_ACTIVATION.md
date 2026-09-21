@@ -12,6 +12,19 @@ Estados del trabajo (actualizar al ejecutar):
 | **Validación CTWA real pendiente** | Sin evidencia de que Kommo entregue `ctwa_clid`; 0 filas en atribución prod |
 | **Activación de conversiones pendiente** | Flags OFF; no envíos Meta BM reales autorizados aquí |
 
+### Consentimiento WhatsApp ads (operativo)
+
+El cliente debe escribir una aceptación **explícita** de publicidad/anuncios (p. ej. «Acepto recibir publicidad y anuncios»).  
+Eso llama `lv_set_whatsapp_meta_ads_consent` con alcance `whatsapp_ads` y guarda evidencia (mensaje + fecha).  
+No basta la casilla de contacto del showroom, cookies ni `tracking_consent`.  
+No se envían mensajes automáticos nuevos para pedir el consentimiento en esta entrega.
+
+### Llegada tardía de consentimiento o CTWA
+
+- Un turno **nuevo** con interés comercial puede encolar si ya hay evidencia + CTWA scoped.
+- No hay backfill de saludos ni de mensajes históricos.
+- Sin CTWA/consent no se sella `meta_wa_lead_submitted_event_id` (permite reintento real).
+
 ---
 
 ## Inventario por repositorio

@@ -1,7 +1,14 @@
 /**
- * Gate consentimiento LeadSubmitted (fuente autorizada: leads.meta_ads_consent).
- * Solo === true autoriza. Misma semántica que Nest wa-lead-submitted-consent-gate.
+ * Gate consentimiento LeadSubmitted (fuente autorizada: leads + evidencia).
+ * meta_ads_consent === true no basta: hace falta mensaje, fecha y alcance whatsapp_ads.
+ * Contacto / cookies / tracking_consent no autorizan.
  */
+
+import {
+  hasVerifiableWaAdsConsentEvidence,
+  waAdsConsentEvidenceBlockReason,
+  type WaAdsConsentEvidenceFields,
+} from '@/lib/meta/waLeadSubmittedConsentEvidence'
 
 export type WaLeadSubmittedConsentAction =
   | 'allow_send'
@@ -33,6 +40,9 @@ export function decideWaLeadSubmittedConsentGate(input: {
   eventTenantId?: string | null
   eventProjectId?: string | null
   eventContactId?: string | null
+  evidenceMessage?: string | null
+  evidenceAt?: string | null
+  evidenceScope?: string | null
 }): WaLeadSubmittedConsentDecision {
   const contactId = normId(input.eventContactId)
   if (!contactId) {
@@ -53,8 +63,18 @@ export function decideWaLeadSubmittedConsentGate(input: {
   if (input.metaAdsConsent === false) {
     return { action: 'cancel_revoked', reason: 'ads_consent_false' }
   }
-  if (input.metaAdsConsent === true) {
-    return { action: 'allow_send', reason: 'ads_consent_true' }
+
+  const evidence: WaAdsConsentEvidenceFields = {
+    meta_ads_consent: input.metaAdsConsent,
+    meta_ads_consent_evidence_message: input.evidenceMessage,
+    meta_ads_consent_evidence_at: input.evidenceAt,
+    meta_ads_consent_scope: input.evidenceScope,
   }
-  return { action: 'hold_pending', reason: 'ads_consent_not_true' }
+  if (!hasVerifiableWaAdsConsentEvidence(evidence)) {
+    return {
+      action: 'hold_pending',
+      reason: waAdsConsentEvidenceBlockReason(evidence) || 'ads_consent_not_true',
+    }
+  }
+  return { action: 'allow_send', reason: 'ads_consent_true_with_evidence' }
 }
