@@ -63,8 +63,8 @@ export const WORKFLOWS = {
       }),
       node('extractor', 830, 190, {
         title: 'Extractor semántico', eyebrow: 'GPT', kind: 'ai',
-        summary: 'Interpreta intención, referencias, errores ortográficos y datos expresados en el turno actual.',
-        source: 'ai.ts · conversation-rules.ts', reads: ['Mensaje actual', 'Historial contextual'], result: 'Intención y entidades estructuradas',
+        summary: 'Interpreta intención, referencias, errores ortográficos y la respuesta a la última pregunta pendiente.',
+        source: 'ai.ts · conversation-rules.ts · turn-semantics.ts', reads: ['Mensaje actual', 'Historial contextual', 'Pregunta pendiente'], result: 'Intención, evidencia y entidades estructuradas',
       }),
       node('router', 1110, 190, {
         title: 'Enrutador de intención', eyebrow: 'Decisión', kind: 'decision',
@@ -92,9 +92,9 @@ export const WORKFLOWS = {
         source: 'conversation.ts · handoff_lead', reads: ['Motivo', 'Asesor disponible'], result: 'Consulta asignada o en cola',
       }),
       node('quality', 1680, 190, {
-        title: 'Control de respuesta', eyebrow: 'Validación', kind: 'decision',
-        summary: 'Revisa continuidad, repetición, datos no verificados y que el turno quede contestado.',
-        source: 'turn-completeness.ts · commercial-accuracy.ts', reads: ['Respuesta propuesta', 'Pregunta del lead'], result: 'Respuesta aprobada o corregida',
+        title: 'Plan y control de respuesta', eyebrow: 'Validación', kind: 'decision',
+        summary: 'Bloquea las respuestas operativas verificadas; en las respuestas abiertas revisa continuidad, repetición y datos no verificados.',
+        source: 'response-plan.ts · turn-completeness.ts', reads: ['Respuesta propuesta', 'Acción ejecutada', 'Datos obligatorios'], result: 'Respuesta protegida o revisión controlada',
       }),
       node('delivery', 1960, 190, {
         title: 'Envío por Salesbot', eyebrow: 'Salida', kind: 'success',

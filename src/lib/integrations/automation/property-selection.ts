@@ -2,6 +2,7 @@ import { unitTourUrl } from '@/lib/tour/unitModels'
 import { object, text, type Row } from './data'
 import { statedBudget } from './price-reply'
 import { normalized } from './sdr-rules'
+import { semanticBudgetStatus } from './turn-semantics'
 
 type PropertyCategory = 'suite' | 'departamento' | 'local'
 
@@ -66,7 +67,8 @@ function simpleLivingPurpose(current: string) {
     || /^(?:quiero|quisiera|busco|necesito) (?:algo|una vivienda|un lugar) para vivir(?: con mi familia)?$/.test(message)
 }
 
-function budgetUncertain(current: string) {
+function budgetUncertain(current: string, semantics?: unknown) {
+  if (semanticBudgetStatus(semantics) === 'unknown') return true
   const message = normalized(current)
   return /\bno (?:se|estoy segur[oa]|tengo claro|tengo idea|he pensado)\b/.test(message)
     && /\b(?:presupuesto|cuanto|dinero|invertir|gastar|pagar)\b/.test(message)
@@ -100,7 +102,7 @@ function budgetFromInfo(info: Row, current = '') {
 }
 
 function budgetWasDeferred(info: Row, current = '') {
-  if (budgetUncertain(current)) return true
+  if (budgetUncertain(current, info.semantica_turno)) return true
   const history = historyRows(info)
   let lastBot = ''
   for (const row of history) {
@@ -108,6 +110,27 @@ function budgetWasDeferred(info: Row, current = '') {
     else if (row.role === 'cliente' && /presupuesto|cuanto.*invertir/.test(lastBot) && budgetUncertain(text(row.content))) return true
   }
   return false
+}
+
+function activeUnit(info: Row) {
+  const matches = rows(object(info.referencia_unidad).matches)
+  if (matches.length === 1) return matches[0]
+  const saved = text(object(info.lead).unit_id)
+  return saved ? availableCatalog(info).find(unit => text(unit.id) === saved) || null : null
+}
+
+function confirmedBudgetReply(info: Row, unit: Row) {
+  const rawCategory = text(unit.category)
+  const category = categoryFrom(rawCategory) || 'departamento'
+  const label = rawCategory === 'penthouse' ? 'penthouse' : categoryLabels[category].singular
+  const article = category === 'suite' ? 'la' : 'el'
+  const unitNumber = text(unit.unit_number)
+  let reply = `Perfecto. Entonces ${article} ${label} ${unitNumber} se ajusta a su presupuesto y podemos continuar con esta opción.`
+  const tour = rawCategory !== 'local' && /^\d{3,4}$/.test(unitNumber) ? unitTourUrl(unitNumber) : ''
+  const alreadySent = tour && historyRows(info).some(row => ['bot', 'asesor'].includes(text(row.role)) && text(row.content).includes(tour))
+  if (tour && !alreadySent) reply += ` Puede explorarlo en el recorrido virtual: ${tour}`
+  reply += ' ¿Le gustaría coordinar una visita para conocer el proyecto con más detalle?'
+  return reply
 }
 
 function floorNumber(current: string, allowBareAnswer: boolean) {
@@ -248,6 +271,13 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
   } }
 
   const category = currentCategory(info, current)
+  const semanticBudget = semanticBudgetStatus(info.semantica_turno)
+  if (semanticBudget === 'sufficient_for_selected_unit') {
+    const unit = activeUnit(info)
+    if (unit) return { reply: confirmedBudgetReply(info, unit), audit: {
+      source: 'property_budget_confirmed', unit_reference: { ids: [unit.id], numbers: [unit.unit_number] }, fallback: false,
+    } }
+  }
   const previous = normalized(lastOutbound(info))
   const genericUncertainty = /^(?:no (?:se|estoy segur[oa]|tengo claro|tengo idea)|todavia no lo se)$/.test(normalized(current))
   const positiveAnswer = /^(?:si|si por favor|claro|de acuerdo|esta bien|perfecto|por favor)$/.test(normalized(current))
@@ -261,7 +291,7 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
     if (reply) return { reply, audit: { source: 'property_floor_options', selected_floor: floor, fallback: false } }
   }
 
-  if (category && (budgetUncertain(current) || genericUncertainty && /presupuesto|cuanto.*invertir/.test(previous))) {
+  if (category && (budgetUncertain(current, info.semantica_turno) || genericUncertainty && /presupuesto|cuanto.*invertir/.test(previous))) {
     return { reply: uncertainBudgetReply(info, category), audit: { source: 'property_budget_deferred', fallback: false } }
   }
 
@@ -269,7 +299,7 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
     return { reply: 'Está bien, puede decidirlo con calma. Podemos continuar cuando tenga una preferencia o si desea comparar las diferencias entre las opciones.', audit: { source: 'property_category_deferred', fallback: false } }
   }
 
-  if (!category && (budgetUncertain(current) || genericUncertainty && /presupuesto|cuanto.*invertir/.test(previous))) {
+  if (!category && (budgetUncertain(current, info.semantica_turno) || genericUncertainty && /presupuesto|cuanto.*invertir/.test(previous))) {
     return { reply: 'No se preocupe. Primero podemos identificar qué tipo de propiedad se adapta mejor a lo que busca y después revisar el presupuesto. ¿Le interesan las suites, los departamentos o los locales comerciales?', audit: { source: 'property_budget_deferred', fallback: false } }
   }
 

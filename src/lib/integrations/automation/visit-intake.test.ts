@@ -24,4 +24,14 @@ describe('visit business hours before date collection', () => {
     assert.match(reply, /¿Qué día le convendría\?/)
     assert.doesNotMatch(reply, /asesor de nuestro equipo/)
   })
+
+  it('does not carry 6 p. m. to weekdays when a one-hour visit would end after closing', () => {
+    const reply = visitBusinessHoursReply(hours, { action: 'closed_day', slot: {
+      requested_date: '2026-09-27', start_time: '2026-09-27T23:00:00Z', confidence: 'exact',
+    } }, '2026-09-21T16:27:00Z')
+
+    assert.equal(reply.match(/domingo 27 de septiembre/gi)?.length, 1)
+    assert.match(reply, /¿Qué otro día y hora le convendrían dentro de esos horarios\?/)
+    assert.doesNotMatch(reply, /Como indicó a las 6 p\. m\., puede solicitar esa hora/)
+  })
 })

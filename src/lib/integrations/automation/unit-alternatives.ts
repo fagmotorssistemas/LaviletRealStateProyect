@@ -167,7 +167,7 @@ export function continueUnitAlternative(info: Row, current: string): Alternative
       const unit = catalog.find(candidate => candidate.id === matches[0].id) || matches[0]
       const details = unitDetails(unit)
       return {
-        reply: `${unitLabel(unit).charAt(0).toUpperCase() + unitLabel(unit).slice(1)}${details ? ` tiene ${details}` : ' es la opción seleccionada'}.\n\n${nextUnitQuestion(info)}`,
+        reply: `${unitLabel(unit).charAt(0).toUpperCase() + unitLabel(unit).slice(1)}${details ? ` tiene ${details}` : ' es la opción seleccionada'}. Puede explorarlo en 360 aquí: ${unitTourUrl(text(unit.unit_number))}\n\n${nextUnitQuestion(info)}`,
         phase: 'review_unit',
         unit,
       }

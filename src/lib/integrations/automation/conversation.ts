@@ -58,6 +58,8 @@ import { completeTurnReply } from './turn-completeness'
 import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
 import { financingPrerequisiteReply } from './property-selection'
+import { answersPendingQuestion, normalizeTurnSemantics, pendingQuestionFromReply, TURN_SEMANTIC_EXTRACTION_RULES } from './turn-semantics'
+import { responsePlan } from './response-plan'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out","visit_preference":null}.
@@ -540,18 +542,25 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     await guard()
     const finance = await financingContext(lead)
     const reference = resolveCatalogReference(await publishedUnitCatalog(), current, previousSummary._unit_reference, context.historial)
-    const semanticStep = trace.start('semantic_extraction', 'Interpretar intención y datos', 'ai', 'ai.ts · conversation-rules.ts', {
+    const semanticStep = trace.start('semantic_extraction', 'Interpretar intención y datos', 'ai', 'ai.ts · conversation-rules.ts · turn-semantics.ts', {
       message: traceText(current), has_previous_summary: Object.keys(previousSummary).length > 0,
       catalog_matches: reference.matches.length,
     })
+    const lastResponse = text(state.ultima_respuesta)
+    const rememberedQuestion = object(previousSummary._pending_question)
+    const pendingQuestion = text(rememberedQuestion.question) && lastResponse.includes(text(rememberedQuestion.question))
+      ? rememberedQuestion
+      : pendingQuestionFromReply(lastResponse)
     const [summaryPrompt, extractorPrompt] = await Promise.all([activePrompt('resumen_conversacion'), activePrompt('extractor_eventos')])
     const [newSummary, rawEvents] = await Promise.all([
       aiJson(summaryPrompt, { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current }),
-      aiJson(extractorPrompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
-        { resumen: previousSummary, historial: context.historial, tema_actual: salesSubject(current, context.historial), ultima_pregunta: state.ultima_respuesta, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:reference.matches, mensaje_actual: current })
+      aiJson(extractorPrompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES + '\n' + TURN_SEMANTIC_EXTRACTION_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
+        { resumen: previousSummary, historial: context.historial, historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-8) : [], tema_actual: salesSubject(current, context.historial), ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:reference.matches, mensaje_actual: current })
     ])
     summary = {...newSummary, _unit_reference: reference.memory, _sales_memory: previousSummary._sales_memory}
     const extracted = normalizeEvents(rawEvents, current)
+    const turnSemantics = normalizeTurnSemantics(rawEvents, current, pendingQuestion)
+    extracted.turn_semantics = turnSemantics
     if(financeContinuation) Object.assign(extracted,financeContinuation)
     const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
     extracted.financing_consent = financeInput.consent
@@ -562,7 +571,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     // A semantic acceptance is actionable only while a durable visit draft is
     // already collecting details. This prevents a bare "sí" from starting a
     // visit while financing, pricing or another feature is active.
-    const semanticVisitAcceptance = semanticVisit.kind === 'accept_visit_preference' && collectingVisit
+    const semanticVisitAcceptance = (semanticVisit.kind === 'accept_visit_preference' && collectingVisit)
+      || answersPendingQuestion(turnSemantics, 'visit_invitation', 'affirmative')
     const explicitVisitRequest = explicitlyRequestsVisit(current)
     const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta))
     const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
@@ -584,6 +594,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       financing_partner: text(extracted.financing_partner) || null,
       financing_turn: financeTurn,
       visit_intent: text(semanticVisit.kind) || null,
+      primary_intent: text(turnSemantics.primary_intent),
+      answers_question: text(object(turnSemantics.answer_to_previous).question_id) || null,
+      answer_kind: text(object(turnSemantics.answer_to_previous).kind) || null,
+      budget_status: text(object(turnSemantics.budget).status) || null,
     })
     await guard()
     if (extracted.opt_out) {
@@ -743,7 +757,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         const model = unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
         const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, propuestas: proposals,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
-          referencia_unidad:reference, archivos_no_leidos:inbound.mediaErrors,
+          referencia_unidad:reference, semantica_turno: turnSemantics, archivos_no_leidos:inbound.mediaErrors,
           modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true, modelo_especifico_disponible: model.model_available, texto_de_entrega: model.caption } : null }
         const placeClarification = info.estado_proyecto
           ? readinessPlaceClarification(info.estado_proyecto as ProjectReadiness,current) : ''
@@ -782,7 +796,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     // checklist. Only an actual information gap should trigger human help.
     audit = { ...audit, answered_topics: prepared.topics.filter(topic => !completed.missing.includes(topic)) }
   }
-  if (['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model', 'product_clarification', 'team_attendance'].includes(text(audit.source))) {
+  const plannedResponse = responsePlan(reply, audit)
+  audit = { ...audit, response_plan: plannedResponse }
+  if (!plannedResponse.locked && ['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model', 'product_clarification', 'team_attendance'].includes(text(audit.source))) {
     await guard()
     const engagement = commercialEngagement(current, context.historial, previousSummary._sales_memory)
     const composed = await operationalReply(reply, current, context.historial, { ...audit, reglas_interes: passiveSalesRules(engagement) })
@@ -791,7 +807,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (complete && respectsInterest) reply = composed.reply
     audit = { ...audit, ai_operational_copy: complete && respectsInterest && composed.generated, passive_sales: engagement.passive }
   }
-  if (!['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification', 'commercial_location_budget'].includes(text(audit.source))) {
+  if (!plannedResponse.locked && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
     const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       estado_operativo: audit, coordinacion_visita: visitDraft }
@@ -913,6 +929,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _last_operational_step: ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'financing_question' || audit.source === 'budget_financing_guidance') && /(?:iniciar|iniciemos|revisión|revisemos)/i.test(reply) && /\?/.test(reply)
       ? { kind: 'financing_consent', reply } : {},
     ...(audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),
+    _pending_question: pendingQuestionFromReply(reply),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),
     _brand_introduced: previousSummary._brand_introduced === true || /la\s*vilet/i.test(reply) || (Array.isArray(context.historial) ? context.historial.map(object) : []).some(row => ['bot', 'asesor'].includes(text(row.role)) && /la\s*vilet/i.test(text(row.content))),
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }

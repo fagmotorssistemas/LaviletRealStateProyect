@@ -3,6 +3,10 @@ import { describe, it } from 'node:test'
 import { budgetOptionsReply, priceReplyIssues, statedBudget } from './price-reply'
 import { financingPrerequisiteReply, propertySelectionReply } from './property-selection'
 import { resolveCatalogReference } from './catalog-reference'
+import { acceptsVisitInvitation } from './sales-policy'
+import { continueUnitAlternative } from './unit-alternatives'
+import { normalizeTurnSemantics, pendingQuestionFromReply } from './turn-semantics'
+import { responsePlan } from './response-plan'
 
 const suite001 = { id: 'suite-001', category: 'suite', unit_number: '001', floor: 'Planta Baja', floor_number: 0, bedrooms: 1, published_commercial_price: 210000 }
 const suite210 = { id: 'suite-210', category: 'suite', unit_number: '210', floor: 'Segunda Planta Alta', floor_number: 2, bedrooms: 1, published_commercial_price: 250000 }
@@ -51,6 +55,26 @@ describe('property selection journey', () => {
     assert.match(result?.reply || '', /después evaluar si necesita financiamiento/i)
   })
 
+  it('uses semantic evidence when a typo prevents literal budget matching', () => {
+    const current = 'Bueno no tesoty seguro de mi presupuesto'
+    const pending = pendingQuestionFromReply('¿Con qué presupuesto aproximado cuenta?')
+    const semantics = normalizeTurnSemantics({ turn_semantics: {
+      primary_intent: 'discuss_budget', primary_evidence: current, confidence: 'high',
+      answer_to_previous: { question_id: 'budget_amount', kind: 'uncertain', evidence: current, confidence: 'high' },
+      budget: { status: 'unknown', amount: null, evidence: current, confidence: 'high' },
+    } }, current, pending)
+    const info = baseInfo({
+      lead: { preferred_category: 'suite', purchase_purpose: 'vivir' },
+      historial: [{ role: 'bot', content: '¿Con qué presupuesto aproximado cuenta?' }],
+      semantica_turno: semantics,
+    })
+    const result = propertySelectionReply(info, current)
+
+    assert.match(result?.reply || '', /primero podemos encontrar/i)
+    assert.match(result?.reply || '', /Planta Baja \(USD 210\.000\)/i)
+    assert.doesNotMatch(result?.reply || '', /Banco Pichincha|Cooperativa JEP/i)
+  })
+
   it('lists the units on the floor selected by the lead', () => {
     const info = baseInfo({
       lead: { preferred_category: 'suite' },
@@ -89,6 +113,24 @@ describe('property selection journey', () => {
     assert.match(result?.reply || '', /avanzar con esa revisión/i)
   })
 
+  it('acknowledges that the selected unit fits without repeating its price', () => {
+    const current = 'Sí está bien ese precio, sí se ajusta a mi presupuesto'
+    const info = baseInfo({
+      lead: { preferred_category: 'departamento', unit_id: apartment202.id },
+      referencia_unidad: { explicit: false, matches: [apartment202] },
+      semantica_turno: {
+        budget: { status: 'sufficient_for_selected_unit', evidence: current, confidence: 'high' },
+      },
+    })
+    const result = propertySelectionReply(info, current)
+
+    assert.equal(result?.audit.source, 'property_budget_confirmed')
+    assert.match(result?.reply || '', /departamento 202 se ajusta a su presupuesto/i)
+    assert.match(result?.reply || '', /tour\?unidad=202/i)
+    assert.match(result?.reply || '', /coordinar una visita/i)
+    assert.doesNotMatch(result?.reply || '', /300\.000|rango|Banco Pichincha/i)
+  })
+
   it('does not start financing until a unit and budget status are known', () => {
     const withoutUnit = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite' } }), 'Quiero financiamiento')
     assert.match(withoutUnit, /primero definamos qué suite/i)
@@ -103,6 +145,39 @@ describe('property selection journey', () => {
       behavior_signals: { sdr: { presupuesto_texto: 'Tengo 100 mil dólares' } },
     } }), 'Sí, quiero iniciar la revisión')
     assert.equal(ready, '')
+  })
+})
+
+describe('semantic continuation and locked response plan', () => {
+  it('recognizes a combined affirmative answer to a visit invitation', () => {
+    const last = '¿Le gustaría coordinar una visita para conocer el proyecto con más detalle?'
+    const pending = pendingQuestionFromReply(last)
+    const semantics = normalizeTurnSemantics({ turn_semantics: {
+      primary_intent: 'answer_previous', primary_evidence: 'si esta bien', confidence: 'high',
+      answer_to_previous: { question_id: 'visit_invitation', kind: 'affirmative', evidence: 'si esta bien', confidence: 'high' },
+      budget: { status: 'not_discussed', amount: null, evidence: '', confidence: 'low' },
+    } }, 'si esta bien', pending)
+
+    assert.equal(pending.id, 'visit_invitation')
+    assert.equal((semantics.answer_to_previous as Record<string, unknown>).kind, 'affirmative')
+    assert.equal(acceptsVisitInvitation('si esta bien', last), true)
+  })
+
+  it('locks verified visit copy against later AI rewriting', () => {
+    const reply = 'El domingo 27 de septiembre no está habilitado para visitas. Nuestro horario es de lunes a viernes de 08:30 a 18:30.'
+    const plan = responsePlan(reply, { source: 'visit_intake', action: 'closed_day' })
+
+    assert.equal(plan.locked, true)
+    assert.equal(reply.match(/domingo 27/g)?.length, 1)
+  })
+
+  it('includes the unit tour when a lead chooses an offered apartment', () => {
+    const result = continueUnitAlternative(baseInfo({
+      historial: [{ role: 'bot', content: 'Estas son las opciones. ¿Cuál desea explorar en 360?' }],
+      referencia_unidad: { explicit: true, matches: [apartment202] },
+    }), 'El 202')
+
+    assert.match(result?.reply || '', /tour\?unidad=202/i)
   })
 })
 
