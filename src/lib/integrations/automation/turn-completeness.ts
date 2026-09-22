@@ -1,3 +1,5 @@
+import { finalWriterContract, FINAL_WRITER_RULES } from './response-plan'
+import { operationalCopyIssues } from './operational-copy'
 import { currentTopicReply } from './current-topic'
 import { CURRENT_TONE } from './conversation-tone'
 import { inventedRentalPolicy, COMMERCIAL_ACCURACY_RULES } from './commercial-accuracy'
@@ -155,6 +157,11 @@ export function safeRentalCreditBase(base: string, current: string, verified: Ro
 
 export function turnCompletenessIssues(input: TurnCompletenessInput, reply: string, question: Question): string[] {
   const issues: string[] = [], source = input.baseReply, facts = verifiedText(input.verified)
+  const contract = finalWriterContract(source, input.audit)
+  if (contract.decisiones_protegidas) {
+    issues.push(...operationalCopyIssues(source, reply, { ...input.audit, current_message: input.current }))
+    if (contract.pregunta_siguiente && !reply.includes(contract.pregunta_siguiente)) issues.push('protected_question_changed')
+  }
   if (isVisitCopy(input.audit ?? {})) issues.push(...visitCopyIssues(source, reply))
   issues.push(...residentialContinuationIssues(reply, input.current, { ...input.verified, historial: input.history }))
   if (!reply.trim() || reply.length > 1500) issues.push('length')
@@ -217,7 +224,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const unresolved = assessed.unresolved
     const reply = input.baseReply || (originalBase.trim() && input.current.trim() ? 'Para orientarle mejor, ¿qué opciones le gustaría revisar?' : '')
     return { reply, changed: reply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
+      audit: { writer_contract: finalWriterContract(originalBase, input.audit), status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments,
         needs_advisor: unresolved.length > 0, unresolved, draft_rejected: true, independent_review: reviewMissing.length > 0 || status === 'rejected_review',
         base_preview: traceText(originalBase, 1000), proposed_preview: traceText(proposedReply, 1000), final_preview: traceText(reply, 1000) } }
@@ -229,7 +236,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
   const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory)
-  const context = { mensaje_actual: input.current, historial_reciente: history, respuesta_base: input.baseReply,
+  const context = { contrato_redaccion: finalWriterContract(input.baseReply, input.audit), mensaje_actual: input.current, historial_reciente: history, respuesta_base: input.baseReply,
     contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     material_protegido: { cifras_obligatorias: numbers(input.baseReply), cifras_permitidas: [...new Set([...numbers(input.baseReply), ...numbers(verifiedText(input.verified))])],
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
@@ -240,7 +247,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ? '\nLa respuesta_base proviene de una consulta ejecutada sobre el catálogo. Puede reorganizarla y agrupar opciones equivalentes para explicar diferencias con claridad. Preserve relaciones entre unidades, categorías y medidas y la pregunta con su referente; no repita una ficha por unidad si basta explicar grupos y plantas. Las medidas ya incluidas son pertinentes aunque el turno sea «sí» o «esa opción». Añada respuestas a otras solicitudes actuales; no convierta máximos en selección ni mezcle otros dormitorios en los rangos. catalog_comparison y catalog_coverage indican qué dimensiones están respondidas; no derive por desconocer diferencias no solicitadas. No calcule cifras nuevas que no estén verificadas.'
       : turnWritingRules(input.current, memory)
     if (object(input.audit?.alternative_presentation).kind === 'category_overview') writingRules += '\nEsta respuesta presenta alternativas por categoría antes de elegir una. Conserve las superficies máximas verificadas de cada categoría y su cantidad de dormitorios. No la convierta en una lista de códigos de unidades, fichas, baños, superficies exteriores o plantas. Conserve el propósito de la pregunta pendiente: aceptar explorar alternativas o elegir la categoría que desea revisar primero. No añada categorías descartadas ni vuelva a opciones de menos dormitorios que las alternativas propuestas.'
-    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + writingRules + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
+    const candidate = await generate(COVERAGE_RULES + '\n' + FINAL_WRITER_RULES + RESIDENTIAL_CONTINUITY_RULES + writingRules + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')
@@ -267,7 +274,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const assessed = assessMissingFacts(unresolved, input.audit || {}, requests)
     unresolved = assessed.unresolved
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
+      audit: { writer_contract: context.contrato_redaccion, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
         independent_review: reviewRequired,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments, needs_advisor: unresolved.length > 0, unresolved,
         base_preview: traceText(originalBase, 1000), proposed_preview: traceText(proposedReply, 1000), final_preview: traceText(reply, 1000) } }

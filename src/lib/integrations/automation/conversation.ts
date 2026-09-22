@@ -44,10 +44,7 @@ import { classifyBusinessScope, type BusinessScopeDecision } from './business-sc
 import { financingFieldAnswer, financingCollectionIssues } from './financing-continuation'
 import { directReply } from './direct-reply'
 import { sectorClaimsReply } from './commercial-accuracy'
-import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
-import { operationalReply } from './operational-copy'
 import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
-import { commercialCoverageIssues, commercialTurnTopics } from './multi-topic-turn'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { selectedVisitOption } from './visit-choice'
 import { visitParserReady } from './visit-parser-health'
@@ -61,6 +58,7 @@ import { traceForEvents, traceText, type AutomationExecutionTrace } from './exec
 import { financingPrerequisiteReply } from './property-selection'
 import { answersPendingQuestion, normalizedPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
 import { responsePlan } from './response-plan'
+import { commercialTurnTopics } from './multi-topic-turn'
 import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
 import { withAIExecutionTrace } from './ai-execution-trace'
@@ -981,7 +979,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const plannedResponse = responsePlan(reply, audit)
   const catalogBaseReply = audit.verified_catalog === true ? reply : ''
   audit = { ...audit, response_plan: plannedResponse, turn_contract: CONVERSATION_CONTRACT_VERSION,
-    interpretation: interpretation.diagnostic }
+    interpretation: interpretation.diagnostic, writer_greeting: turnGreeting }
   const commercialPromptRoute = !text(audit.source) || ['commercial', 'verified_information_gap'].includes(text(audit.source))
   const dialogueStep = trace.add('dialogue_decision', 'Decidir la respuesta y la siguiente pregunta', 'decision', 'conversation.ts · catalog-dialogue.ts', 'succeeded',
     { primary_intent: turnSemantics.primary_intent, operation: object(turnSemantics.property).operation },
@@ -999,16 +997,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           : commercialPromptRoute
             ? { kind: 'prompt', label: 'Conversación y orientación comercial', href: '/inmobiliaria/automatizacion/guion#respuestas', source: 'sdr.ts · respuesta_comercial · revisor_respuesta' }
             : { kind: 'code', label: 'Ruta especializada de respuesta', source: `conversation.ts · ruta ${text(audit.source)}` } }) })
-  if (!plannedResponse.locked && ['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model', 'product_clarification', 'team_attendance'].includes(text(audit.source))) {
-    await guard()
-    const engagement = commercialEngagement(current, context.historial, previousSummary._sales_memory)
-    const composed = await operationalReply(reply, current, context.historial, { ...audit, reglas_interes: passiveSalesRules(engagement) })
-    const complete = !commercialCoverageIssues(composed.reply, commercialTurnTopics(current, context.historial, ['property', 'mixed'].includes(businessScope.kind))).length
-    const respectsInterest = passiveSalesCopy(composed.reply, current, engagement) === composed.reply
-    if (complete && respectsInterest) reply = composed.reply
-    audit = { ...audit, ai_operational_copy: complete && respectsInterest && composed.generated, passive_sales: engagement.passive }
-  }
-  if (!finalNotice && !plannedResponse.locked && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification', 'commercial_location_budget'].includes(text(audit.source))) {
+  if (!finalNotice && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
     const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
@@ -1018,13 +1007,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     // The map URL is not a suggestion the writer may add opportunistically.
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)
-    const coverageStep = trace.start('response_coverage', 'Revisar la respuesta y los datos pendientes', 'decision', 'turn-completeness.ts', {
+    const coverageStep = trace.start('response_coverage', 'Redactar y validar la respuesta final', 'decision', 'turn-completeness.ts', {
       base_preview: traceText(reply, 1000), source: text(audit.source) || 'commercial',
       catalog_coverage: audit.catalog_coverage,
     })
     const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
-      preserveOperationalQuestion: ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
+      preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
     const catalogValidation = validateCatalogReply(reviewed.reply, audit)
     if (!invalidPrice && catalogValidation.valid) {

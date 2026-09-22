@@ -22,6 +22,40 @@ function model(...answers) {
   return { generate, calls }
 }
 
+test('final writer receives a route-specific contract for information, price and financing', async () => {
+  for (const [source, baseReply, extra] of [
+    ['project_overview', 'Conozca La Vilet: https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf', {}],
+    ['unit_price', 'El precio es $250.000.', { verified_price_only: true }],
+    ['financing_question', 'Podemos orientarle con Banco Pichincha.', {}],
+  ]) {
+    const mock = model({ reply: baseReply, requests: [covered('Quiero conocer las opciones')], question: noQuestion })
+    const result = await completeTurnReply({ current: 'Quiero conocer las opciones', baseReply, verified: {}, audit: { source, ...extra } }, mock.generate)
+    const contract = mock.calls[0][1].contrato_redaccion
+    assert.equal(contract.ruta, source)
+    assert.equal(contract.decisiones_protegidas, source !== 'project_overview')
+    assert.deepEqual(result.audit.writer_contract, contract)
+    assert.equal(result.reply, baseReply)
+    if (source === 'project_overview') assert.equal(contract.enlaces_obligatorios.length, 1)
+    if (source === 'unit_price') assert.ok(contract.cifras_obligatorias.includes('250.000'))
+  }
+})
+
+test('protected route allows natural wording but rejects changing the next question', async () => {
+  const baseReply = 'Tenemos alternativas. ¿Qué planta prefiere?'
+  const question = { text: '¿Qué planta prefiere?', purpose: 'choose_property', missing_datum: 'Planta', next_decision: 'Filtrar alternativas' }
+  const input = { current: 'Quiero ver alternativas', baseReply, verified: {}, audit: { source: 'property_floor_options' }, preserveOperationalQuestion: true }
+  const draft = 'Con gusto le mostramos las alternativas. ¿Qué planta prefiere?'
+  const mock = model({ reply: draft, requests: [covered(input.current)], question }, approved)
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.reply, draft)
+  assert.equal(result.changed, true)
+  const changed = 'Tenemos alternativas. ¿Cuál es su presupuesto?'
+  const bad = model({ reply: changed, requests: [covered(input.current)], question: { ...question, text: '¿Cuál es su presupuesto?' } })
+  const rejected = await completeTurnReply(input, bad.generate)
+  assert.equal(rejected.reply, baseReply)
+  assert.ok(rejected.audit.issues.includes('protected_question_changed'))
+})
+
 test('visit rewrite missing the date keeps the complete base instead of splicing duplicate hours', async () => {
   const current = 'Me parece bien mañana a las 4 de la tarde'
   const baseReply = 'Revisaremos la disponibilidad para mañana, viernes 18 de septiembre a las 4 p. m. en nuestra oficina. Le avisaremos cuando el equipo confirme el horario.'
