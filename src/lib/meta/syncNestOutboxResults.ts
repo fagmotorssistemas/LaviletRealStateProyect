@@ -16,6 +16,7 @@ export type NestOutboxSyncResult = {
   writtenAccepted: number
   writtenRejected: number
   writtenUnverified: number
+  notFound: number
   skipped: number
   errors: number
 }
@@ -143,6 +144,7 @@ export async function syncNestOutboxResults(
     writtenAccepted: 0,
     writtenRejected: 0,
     writtenUnverified: 0,
+    notFound: 0,
     skipped: 0,
     errors: 0,
   }
@@ -218,15 +220,20 @@ export async function syncNestOutboxResults(
       typeof payload.project_id === 'string' ? payload.project_id : null
 
     if (!nest.lookupOk) {
+      // Timeout / red / fallo de consulta: no escribir meta_rejected.
       result.errors += 1
       continue
     }
     if (!nest.found) {
-      result.skipped += 1
+      result.notFound += 1
       continue
     }
 
     if (nest.apiAccepted) {
+      if (done.has(row.event_id)) {
+        result.skipped += 1
+        continue
+      }
       const ok = await logConversion(admin, {
         stage: 'meta_accepted',
         eventName: row.event_name,
@@ -247,8 +254,10 @@ export async function syncNestOutboxResults(
           acceptance_tier: nest.acceptanceTier,
         },
       })
-      if (ok) result.writtenAccepted += 1
-      else result.errors += 1
+      if (ok) {
+        result.writtenAccepted += 1
+        done.add(row.event_id)
+      } else result.errors += 1
       continue
     }
 
@@ -257,6 +266,10 @@ export async function syncNestOutboxResults(
       nest.status === 'failed' ||
       nest.acceptanceTier === 'api_rejected'
     ) {
+      if (done.has(row.event_id)) {
+        result.skipped += 1
+        continue
+      }
       const ok = await logConversion(admin, {
         stage: 'meta_rejected',
         eventName: row.event_name,
@@ -276,34 +289,38 @@ export async function syncNestOutboxResults(
           http_status: nest.httpStatus,
         },
       })
-      if (ok) result.writtenRejected += 1
-      else result.errors += 1
+      if (ok) {
+        result.writtenRejected += 1
+        done.add(row.event_id)
+      } else result.errors += 1
       continue
     }
 
     // Nest recibió pero sin evidencia Graph suficiente: una sola marca unverified.
-    if (!alreadyUnverified.has(row.event_id)) {
-      const ok = await logConversion(admin, {
-        stage: 'nest_lookup_unverified',
-        eventName: row.event_name,
-        reason: nest.acceptanceTier || 'insufficient_evidence',
-        leadId: row.lead_id,
-        tenantId,
-        projectId,
-        eventId: row.event_id,
-        idempotencyKey: row.idempotency_key,
-        deliveryLane: nest.deliveryLane || row.delivery_lane,
-        details: {
-          source: 'fe_nest_lookup_sync',
-          nest_status: nest.status,
-          note: 'Nest recibió; aceptación Graph no verificada. Conservar nest_received en panel.',
-        },
-      })
-      if (ok) result.writtenUnverified += 1
-      else result.errors += 1
-    } else {
+    if (alreadyUnverified.has(row.event_id) || done.has(row.event_id)) {
       result.skipped += 1
+      continue
     }
+    const ok = await logConversion(admin, {
+      stage: 'nest_lookup_unverified',
+      eventName: row.event_name,
+      reason: nest.acceptanceTier || 'insufficient_evidence',
+      leadId: row.lead_id,
+      tenantId,
+      projectId,
+      eventId: row.event_id,
+      idempotencyKey: row.idempotency_key,
+      deliveryLane: nest.deliveryLane || row.delivery_lane,
+      details: {
+        source: 'fe_nest_lookup_sync',
+        nest_status: nest.status,
+        note: 'Nest recibió; aceptación Graph no verificada. Conservar nest_received en panel.',
+      },
+    })
+    if (ok) {
+      result.writtenUnverified += 1
+      alreadyUnverified.add(row.event_id)
+    } else result.errors += 1
   }
 
   return result

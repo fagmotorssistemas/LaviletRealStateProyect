@@ -1,7 +1,10 @@
 /**
  * Disparo browser AddToWishlist tras favorito guardado (Pixel + POST outbox).
- * Solo llamar después de save OK; idempotencia server evita duplicados.
- * Dedupe cliente: un disparo en vuelo por unitId (rerender / reintento / concurrente).
+ * Solo llamar después de save OK; idempotencia server (wishlist:lead:unit) evita duplicados.
+ *
+ * Dedupe cliente limitada a (leadId|anon)+unitId:
+ * - evita doble disparo por rerender/reintento/concurrencia del mismo visitante/lead
+ * - no bloquea a otra persona (otro leadId) en el mismo navegador
  */
 'use client'
 
@@ -13,8 +16,14 @@ import {
 } from '@/lib/marketing/metaEventSourceUrl'
 import { newMetaEventId, trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
 
-const inFlightByUnit = new Set<string>()
-const sentSessionByUnit = new Set<string>()
+const inFlightByKey = new Set<string>()
+/** Solo con leadId: evita re-disparo de sesión del mismo lead+unidad. */
+const sentSessionByLeadUnit = new Set<string>()
+
+function clientDedupeKey(leadId: string | null | undefined, unitId: string): string {
+  const lead = String(leadId || '').trim()
+  return `${lead || '_anon'}:${unitId}`
+}
 
 export function captureWishlistAfterSave(opts: {
   unitId?: string | null
@@ -23,13 +32,17 @@ export function captureWishlistAfterSave(opts: {
   leadId?: string | null
 }): void {
   const unitId = String(opts.unitId || '').trim()
+  const leadId = String(opts.leadId || '').trim() || null
   if (!unitId || !hasAdsConsent()) return
-  if (inFlightByUnit.has(unitId) || sentSessionByUnit.has(unitId)) return
+
+  const key = clientDedupeKey(leadId, unitId)
+  if (inFlightByKey.has(key)) return
+  if (leadId && sentSessionByLeadUnit.has(`${leadId}:${unitId}`)) return
 
   const eventId = newMetaEventId()
   if (!/^[0-9a-f-]{36}$/i.test(eventId)) return
 
-  inFlightByUnit.add(unitId)
+  inFlightByKey.add(key)
 
   const conservative = isMetaCoreSetupConservative()
   const unitNumber = String(opts.unitNumber || '').trim()
@@ -54,7 +67,7 @@ export function captureWishlistAfterSave(opts: {
       unit_id: unitId,
       unit_number: unitNumber || undefined,
       typology_code: typologyCode || undefined,
-      lead_id: opts.leadId || undefined,
+      lead_id: leadId || undefined,
       event_source_url: currentMetaEventSourceUrl(),
       fbp: ids.fbp || undefined,
       fbc: ids.fbc || undefined,
@@ -63,10 +76,12 @@ export function captureWishlistAfterSave(opts: {
     keepalive: true,
   })
     .then((res) => {
-      if (res.ok || res.status === 202) sentSessionByUnit.add(unitId)
+      if ((res.ok || res.status === 202) && leadId) {
+        sentSessionByLeadUnit.add(`${leadId}:${unitId}`)
+      }
     })
     .catch(() => {})
     .finally(() => {
-      inFlightByUnit.delete(unitId)
+      inFlightByKey.delete(key)
     })
 }
