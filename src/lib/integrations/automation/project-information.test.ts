@@ -18,6 +18,13 @@ const info = (history: unknown[] = []) => ({
 })
 
 describe('project information conversation', () => {
+  it('does not replace specific project questions or operational requests with an overview', () => {
+    for (const current of ['Quiero información del proyecto y el precio del 502',
+      'Quiero información del proyecto y agendar una visita', 'Quiero información del proyecto y del crédito',
+      'Quiero información del proyecto, cuándo es la entrega', 'Quiero información del proyecto y sus departamentos de 3 dormitorios']) {
+      assert.equal(projectInformationReply(info(), current, BROCHURE_URL), '', current)
+    }
+  })
   it('greets a first substantive message, explains the project and includes the brochure', () => {
     const reply = projectInformationReply(info(), 'Quiero información', BROCHURE_URL)
 

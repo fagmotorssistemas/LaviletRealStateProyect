@@ -91,6 +91,9 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  // Explicit project information wins over an inferred or remembered catalogue query.
+  const overview = projectInformationReply(info, current, BROCHURE_URL)
+  if (overview) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }
   info = { ...info, catalogue_price_requested: asksUnitPrice(current, info.alcance_negocio === 'property') }
   if (!text(object(info.referencia_unidad).reason)) {
     const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
@@ -109,8 +112,6 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
   const informationChoice = projectInformationChoiceReply(current, info.historial)
   if (informationChoice) return { reply: informationChoice, audit: { source: 'project_information_choice', fallback: false } }
-  const overview = projectInformationReply(info, current, BROCHURE_URL)
-  if (overview && !/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|constructora|entrega|ubicacion|sector|alrededor|cerca/i.test(current)) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }
   const material = brochureReply(current, info.historial, text(info.modo_comercial),!!info.estado_proyecto)
   if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
   const resolvedReference = object(info.referencia_unidad)

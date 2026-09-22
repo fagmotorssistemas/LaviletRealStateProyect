@@ -2435,6 +2435,47 @@ const checkedBaseCoverage = async input => require('../src/lib/integrations/auto
     purpose: /¿/.test(input.baseReply) ? 'choose_property' : 'none', missing_datum: /¿/.test(input.baseReply) ? 'opción de interés' : '',
     next_decision: /¿/.test(input.baseReply) ? 'mostrar detalles de esa opción' : '' } }))
 
+test('project overview takes priority over a broad catalogue interpretation throughout the conversation', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_OVERVIEW_REPLAY') })
+  const commercialInfo = { ...priceInfo(), catalogo: dialogueReplayCatalog, posicionamiento_proyecto: {},
+    instalaciones: [{ amenity_name: 'Piscina' }, { amenity_name: 'Gimnasio' }, { amenity_name: 'Jardines' }] }
+  for (const current of ['quiero informacion', 'hola, quiero informacion', 'buenos dias, quiero informacion', 'Quisiera información del proyecto']) {
+    const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo, realCommercial: true,
+      commercialAi: deterministicOnly, captureTrace: true,
+      history: [{ role: 'bot', content: 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?' }],
+      extracted: { turn_semantics: extractedProperty(current, { group: 'residential', operation: 'search' }) } })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.equal(sent.p_tool_calls.source, 'project_overview', current)
+    assert.match(sent.p_content, /Puertas del Sol, Cuenca/)
+    assert.match(sent.p_content, /piscina, gimnasio y jardines/)
+    assert.match(sent.p_content, /brochure-la-vilet-v5\.pdf/)
+    assert.doesNotMatch(sent.p_content, /Qué tipo de (?:propiedad|vivienda) le gustaría conocer/)
+    assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
+    const decision = h.calls.find(call => call.name === 'execution_trace').args.find(step => step.step_key === 'dialogue_decision')
+    assert.equal(decision.output_summary.source, 'project_overview')
+  }
+})
+
+test('commercial overview precedes even a remembered catalogue selection, but specific requests retain their route', async () => {
+  const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': deterministicOnly })
+  const unit = dialogueReplayCatalog.find(unit => unit.unit_number === '502')
+  const info = { ...priceInfo(), catalogo: dialogueReplayCatalog, posicionamiento_proyecto: {},
+    instalaciones: [{ amenity_name: 'Piscina' }],
+    referencia_unidad: { reason: 'focused', explicit: true, matches: [unit], query: { category: 'departamento', operation: 'details' } },
+    property_context: { selected_ids: [unit.id] } }
+  const result = await commercialReply(info, 'Quiero información del proyecto', {}, async () => {})
+  assert.equal(result.audit.source, 'project_overview')
+  assert.match(result.reply, /piscina/)
+  assert.match(result.reply, /brochure-la-vilet-v5\.pdf/)
+  const details = await commercialReply(info, 'Quiero información del departamento 502', {}, async () => {})
+  assert.equal(details.audit.source, 'catalog_details')
+  assert.match(details.reply, /502/)
+  assert.doesNotMatch(details.reply, /brochure-la-vilet-v5\.pdf/)
+})
+
 test('dialogue v2 replays the reported housing conversation with durable filters, ties and focused acceptance', async t => {
   live(t)
   t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_DIALOGUE_REPLAY') })

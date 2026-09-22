@@ -665,6 +665,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     return null
   }
 
+  // General information is about the project even when extraction also assigns
+  // a property group/search. Keep operational actions ahead of this presentation.
+  if (!reply && !inbound.mediaFailed && !operationalTurn && isProjectInformationRequest(current)) {
+    const info = await commercialContext(lead, context.historial)
+    reply = projectInformationReply(info, current, BROCHURE_URL)
+    if (reply) audit = { source: 'project_overview', brochure_sent: true }
+  }
+
   if (!inbound.mediaFailed && !operationalTurn && !catalogTurn) {
     if (!reply && asksTeamAttendance(current)) {
       const appointments = await db().from('appointments').select('id,status,start_time,end_time').match(scope)
@@ -680,12 +688,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (!reply) {
       reply = projectInformationChoiceReply(current, context.historial)
       if (reply) audit = { source: 'project_information_choice' }
-    }
-    if (!reply && isProjectInformationRequest(current)
-      && !/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|agendar|constructora|entrega|ubicacion|sector|alrededor|cerca/i.test(current)) {
-      const info = await commercialContext(lead, context.historial)
-      reply = projectInformationReply(info, current, BROCHURE_URL)
-      if (reply) audit = { source: 'project_overview', brochure_sent: true }
     }
     if (!reply && wantsBrochure(current, context.historial)) {
       const info = await commercialContext(lead, context.historial)

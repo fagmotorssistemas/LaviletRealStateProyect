@@ -292,6 +292,9 @@ export function projectOverviewReply(info: Row, current: string) {
 }
 
 export function projectInformationReply(info: Row, current: string, brochureUrl: string) {
+  // Shared eligibility for both conversation entry and commercial fallback.
+  // A general presentation must not consume specific questions or visit actions.
+  if (/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|agendar|constructora|entrega|ubicacion|sector|alrededor|cerca/.test(normalized(current))) return ''
   const overview = projectOverviewReply(info, current)
   if (!overview) return ''
   return `${overview}\n\nPuede conocer el proyecto con más detalle en el brochure: ${brochureUrl}\n\n¿Le gustaría que le compartamos información de alguna de estas opciones?`
