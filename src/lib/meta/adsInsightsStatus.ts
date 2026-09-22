@@ -17,7 +17,7 @@ export type AdsInsightsStatus =
     }
   | {
       connected: false
-      message: 'Métricas publicitarias no conectadas'
+      message: 'Datos publicitarios no disponibles'
       missing: string[]
       note: string
     }
@@ -38,9 +38,9 @@ export function getAdsInsightsStatus(
   }
   return {
     connected: false,
-    message: 'Métricas publicitarias no conectadas',
+    message: 'Datos publicitarios no disponibles',
     missing: adsMarketingMissingHints(env),
     note:
-      'Gasto, impresiones, clics y resultados Meta deben venir de Ads Insights. El CRM y la cola CAPI no las sustituyen. No reutilizar META_CAPI_* ni META_WA_CAPI_*.',
+      'Faltan META_AD_ACCOUNT_ID y/o META_ADS_ACCESS_TOKEN (ads_read). Gasto e Insights no sustituyen CAPI. No reutilizar META_CAPI_* ni META_WA_CAPI_*.',
   }
 }

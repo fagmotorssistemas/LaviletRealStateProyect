@@ -121,7 +121,7 @@ describe('adsInsightsStatus', () => {
       META_AD_ACCOUNT_ID: '',
     })
     assert.equal(status.connected, false)
-    assert.equal(status.message, 'Métricas publicitarias no conectadas')
+    assert.equal(status.message, 'Datos publicitarios no disponibles')
     assert.ok(status.missing.length >= 1)
   })
 

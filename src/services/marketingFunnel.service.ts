@@ -684,7 +684,7 @@ export async function buildMarketingFunnelReport(
 
   if (!adsCreds) {
     limitations.push(
-      'Gasto / CPL / nombres campaña: faltan META_AD_ACCOUNT_ID y META_ADS_ACCESS_TOKEN (System User ads_read). No reutilizar META_CAPI_* ni META_WA_CAPI_*.',
+      'Datos publicitarios no disponibles: faltan META_AD_ACCOUNT_ID y META_ADS_ACCESS_TOKEN (System User ads_read). No reutilizar META_CAPI_* ni META_WA_CAPI_*.',
     )
   } else {
     limitations.push(

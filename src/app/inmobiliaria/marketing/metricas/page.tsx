@@ -28,16 +28,29 @@ export default async function MarketingMetricasPage({
   const sp = await searchParams
   const from = sp.from || defaultFrom()
   const to = sp.to || new Date().toISOString().slice(0, 10)
-  const projects = await listMarketingFunnelProjects()
+
+  let projects: { id: string; name: string }[] = []
+  let projectsError: string | null = null
+  try {
+    projects = await listMarketingFunnelProjects()
+  } catch (error) {
+    projectsError =
+      error instanceof Error
+        ? error.message
+        : 'No se pudieron cargar los proyectos del embudo'
+  }
+
   const projectId =
     sp.projectId && projects.some((p) => p.id === sp.projectId)
       ? sp.projectId
       : projects[0]?.id || LAVILET_PROJECT_ID
 
-  const result = await fetchMarketingFunnelMetrics({
-    period: { from, to },
-    projectId,
-  })
+  const result = projectsError
+    ? { ok: false as const, error: projectsError }
+    : await fetchMarketingFunnelMetrics({
+        period: { from, to },
+        projectId,
+      })
 
   return (
     <MarketingFunnelMetricsView

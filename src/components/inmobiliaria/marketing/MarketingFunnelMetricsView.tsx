@@ -69,6 +69,34 @@ function adLabel(row: AttributedAdFunnelRow) {
   return parts.join(' · ')
 }
 
+function resolutionStatusLabel(
+  status: AttributedAdFunnelRow['resolutionStatus'],
+): string {
+  if (status === 'missing_ads_token') return 'Datos publicitarios no disponibles'
+  if (status === 'graph_permission_denied') return 'Sin permiso Graph (ads_read)'
+  if (status === 'not_found') return 'Anuncio no encontrado'
+  if (status === 'resolved') return 'Resuelto'
+  return 'Sin resolver'
+}
+
+function spendOrCplLabel(
+  row: AttributedAdFunnelRow,
+  value: number | null | undefined,
+): string {
+  if (row.resolutionStatus === 'missing_ads_token') {
+    return 'Datos publicitarios no disponibles'
+  }
+  if (value == null) return 'n/d'
+  return formatAmount(value, 'USD')
+}
+
+function metaResultsLabel(row: AttributedAdFunnelRow): string | number {
+  if (row.resolutionStatus === 'missing_ads_token') {
+    return 'Datos publicitarios no disponibles'
+  }
+  return row.metaReportedResults == null ? 'n/d' : row.metaReportedResults
+}
+
 function SectionTitle({
   title,
   hint,
@@ -278,7 +306,7 @@ export function MarketingFunnelMetricsView({
                             {row.adId ? `ad ${row.adId}` : 'sin source_id'}
                             {row.campaignId ? ` · camp ${row.campaignId}` : ''}
                             {' · '}
-                            {row.resolutionStatus}
+                            {resolutionStatusLabel(row.resolutionStatus)}
                           </span>
                         </td>
                         <td className="px-2 py-2 tabular-nums">{row.leadsUnique}</td>
@@ -286,17 +314,13 @@ export function MarketingFunnelMetricsView({
                           <TempInline temperature={row.temperature} />
                         </td>
                         <td className="px-2 py-2 tabular-nums">
-                          {row.adSpend == null ? 'n/d' : formatAmount(row.adSpend, 'USD')}
+                          {spendOrCplLabel(row, row.adSpend)}
                         </td>
                         <td className="px-2 py-2 tabular-nums">
-                          {row.costPerLead == null
-                            ? 'No disponible'
-                            : formatAmount(row.costPerLead, 'USD')}
+                          {spendOrCplLabel(row, row.costPerLead)}
                         </td>
                         <td className="px-2 py-2 tabular-nums">
-                          {row.metaReportedResults == null
-                            ? 'n/d'
-                            : row.metaReportedResults}
+                          {metaResultsLabel(row)}
                         </td>
                         <td className="px-2 py-2 tabular-nums">
                           {row.leadsWithAppointmentRequested}

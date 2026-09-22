@@ -61,11 +61,19 @@ export function resolveMetaCapiChannel(
 
   const isWhatsApp =
     messagingChannel === 'whatsapp' || actionSource === 'business_messaging'
+  // website + URL de origen = evidencia web.
+  // system_generated por sí solo NO demuestra web (puede ser servidor/CRM).
   const isWeb =
     !isWhatsApp &&
     (actionSource === 'website' ||
-      Boolean(eventSourceUrl) ||
-      actionSource === 'system_generated')
+      (Boolean(eventSourceUrl) && actionSource !== 'system_generated' && actionSource !== 'business_messaging' && actionSource !== 'chat'))
+
+  // Si solo hay system_generated sin messaging ni URL → undetermined (no forzar Web).
+  const onlySystemGenerated =
+    !isWhatsApp &&
+    actionSource === 'system_generated' &&
+    !eventSourceUrl &&
+    !messagingDatasetId
 
   let channel: MetaCapiChannelKind = 'undetermined'
   let channelLabel = 'No determinado'
@@ -75,6 +83,9 @@ export function resolveMetaCapiChannel(
   } else if (isWeb) {
     channel = 'web'
     channelLabel = 'Web'
+  } else if (onlySystemGenerated) {
+    channel = 'undetermined'
+    channelLabel = 'No determinado (system_generated)'
   }
 
   const lane = deliveryLane || '—'

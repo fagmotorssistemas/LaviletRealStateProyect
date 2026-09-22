@@ -40,4 +40,26 @@ describe('resolveMetaCapiChannel', () => {
     assert.equal(r.channel, 'undetermined')
     assert.equal(r.destination, 'undetermined')
   })
+
+  it('system_generated solo no implica Web', () => {
+    const r = resolveMetaCapiChannel({ action_source: 'system_generated' }, 'live')
+    assert.equal(r.channel, 'undetermined')
+    assert.match(r.channelLabel, /system_generated/i)
+    assert.equal(r.destination, 'undetermined')
+  })
+
+  it('website sin URL sigue siendo Web', () => {
+    const r = resolveMetaCapiChannel({ action_source: 'website' }, 'live')
+    assert.equal(r.channel, 'web')
+    assert.equal(r.destination, 'website_nest')
+  })
+
+  it('URL sola sin action_source web-like → Web por host (no system_generated)', () => {
+    const r = resolveMetaCapiChannel(
+      { event_source_url: 'https://www.lavilett.com/tour' },
+      'live',
+    )
+    assert.equal(r.channel, 'web')
+    assert.equal(r.eventSourceHost, 'www.lavilett.com')
+  })
 })
