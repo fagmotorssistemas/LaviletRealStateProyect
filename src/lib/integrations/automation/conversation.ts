@@ -27,6 +27,8 @@ import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusin
 import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
 import { commercialMemory, isProjectInformationRequest, rememberCommercialReply, projectInformationChoiceReply, projectInformationReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
+import { propertyContext, resolvePropertyTurn, rememberPropertyReply } from './property-context'
+import { preferredPropertyCategory } from './property-selection'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { acceptsUnitOptions, acceptsVisitInvitation, ambiguousVisitAcceptance, rememberSalesReply } from './sales-policy'
 import { mediaFailureReply, unreadMediaMarker } from './media-format'
@@ -313,6 +315,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (continuation) current = continuation.message
   let reply = '', finalNotice = false, handoffNotice = '', pendingCommercialHandoff = ''
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
+  let turnCatalog: Row[] = [], propertyTurn: Row = {}, currentSemantics: Row = {}
   let greeting = !inbound.mediaFailed && isGreetingOnly(current)
   const previousSummary = object(conversationBefore.summary)
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
@@ -609,10 +612,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!reply) {
     await guard()
     const finance = await financingContext(lead)
-    const reference = resolveCatalogReference(await publishedUnitCatalog(), current, previousSummary._unit_reference, context.historial)
+    turnCatalog = await publishedUnitCatalog()
+    const initialReference = resolveCatalogReference(turnCatalog, current, previousSummary._unit_reference, context.historial)
+    const previousPropertyContext = propertyContext(turnCatalog, previousSummary._property_context, context.historial)
     const semanticStep = trace.start('semantic_extraction', 'Interpretar intención y datos', 'ai', 'ai.ts · conversation-rules.ts · turn-semantics.ts', {
       message: traceText(current), has_previous_summary: Object.keys(previousSummary).length > 0,
-      catalog_matches: reference.matches.length,
+      catalog_matches: initialReference.matches.length,
     })
     const lastResponse = text(state.ultima_respuesta)
     const rememberedQuestion = object(previousSummary._pending_question)
@@ -623,11 +628,20 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const [newSummary, rawEvents] = await Promise.all([
       aiJson(summaryPrompt, { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current }),
       aiJson(extractorPrompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES + '\n' + TURN_SEMANTIC_EXTRACTION_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
-        { resumen: previousSummary, historial: context.historial, historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-8) : [], tema_actual: salesSubject(current, context.historial), ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:reference.matches, mensaje_actual: current })
+        { resumen: previousSummary, historial: context.historial, historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-8) : [], tema_actual: salesSubject(current, context.historial), ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion, contexto_propiedades: previousPropertyContext, catalogo_unidades: turnCatalog, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:initialReference.matches, mensaje_actual: current })
     ])
-    summary = {...newSummary, _unit_reference: reference.memory, _sales_memory: previousSummary._sales_memory}
     const extracted = normalizeEvents(rawEvents, current)
     const turnSemantics = normalizeTurnSemantics(rawEvents, current, pendingQuestion)
+    const categoryPreference = preferredPropertyCategory(current, turnSemantics)
+    // Legacy extraction cannot overwrite the new, evidenced interpretation with a mentioned rejection.
+    extracted.preferred_category = categoryPreference
+    if (categoryPreference && object(turnSemantics.property).confidence !== 'high') {
+      turnSemantics.property = { ...object(turnSemantics.property), category: categoryPreference, confidence: 'high', evidence: current.slice(0, 240) }
+    }
+    const reference = resolvePropertyTurn(turnCatalog, current, previousSummary, context.historial, turnSemantics)
+    propertyTurn = reference
+    currentSemantics = turnSemantics
+    summary = {...newSummary, _unit_reference: reference.memory, _property_context: reference.context, _sales_memory: previousSummary._sales_memory}
     extracted.turn_semantics = turnSemantics
     if(financeContinuation) Object.assign(extracted,financeContinuation)
     const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
@@ -666,6 +680,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       answers_question: text(object(turnSemantics.answer_to_previous).question_id) || null,
       answer_kind: text(object(turnSemantics.answer_to_previous).kind) || null,
       budget_status: text(object(turnSemantics.budget).status) || null,
+      property_category: text(object(turnSemantics.property).category) || null,
+      property_excluded_categories: object(turnSemantics.property).excluded_categories,
+      reference_reason: reference.reason, reference_unit_ids: reference.matches.map(unit => unit.id),
+      reference_needs_clarification: reference.needsClarification,
     })
     await guard()
     if (extracted.opt_out) {
@@ -689,7 +707,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       }
       await rpc('apply_lead_events', { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
       // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
-      const unitId = (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
+      const unitId = !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
       if (unitId) extracted.preferred_category = reference.matches[0].category
       const previousCategory = lead.preferred_category
       const declarations = object(await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
@@ -697,7 +715,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       lead = { ...lead, ...declarations }
       const facts = qualifiedFacts(object(extracted.qualification), current)
       const categoryChanged = previousCategory && lead.preferred_category !== previousCategory
-      if (categoryChanged && !unitId) { reference.matches = []; summary._unit_reference = {} }
+      if (categoryChanged && !unitId && reference.reason === 'category_change') { reference.matches = []; summary._unit_reference = {} }
       if (Object.keys(facts).length || categoryChanged) {
         const previousFacts = object(object(lead.behavior_signals).sdr)
         // A switch from housing to commercial property starts a different search.
@@ -800,10 +818,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         }
       }
       else {
-        const model = unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
+        const model = reference.needsClarification ? null : unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
         const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, propuestas: proposals,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
-          referencia_unidad:reference, semantica_turno: turnSemantics, archivos_no_leidos:inbound.mediaErrors,
+          referencia_unidad:reference, property_context: reference.context, semantica_turno: turnSemantics, archivos_no_leidos:inbound.mediaErrors,
           modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true, modelo_especifico_disponible: model.model_available, texto_de_entrega: model.caption } : null }
         const placeClarification = info.estado_proyecto
           ? readinessPlaceClarification(info.estado_proyecto as ProjectReadiness,current) : ''
@@ -856,10 +874,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!plannedResponse.locked && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
     const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
-      estado_operativo: audit, coordinacion_visita: visitDraft }
+      estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
+      property_context: object(propertyTurn.context), semantica_turno: currentSemantics }
     // The map URL is not a suggestion the writer may add opportunistically.
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
-    const quote = unitPriceQuote(info, current, previousSummary)
+    const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)
     const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
       preserveOperationalQuestion: ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
@@ -975,6 +994,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _last_operational_step: ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'financing_question' || audit.source === 'budget_financing_guidance') && /(?:iniciar|iniciemos|revisión|revisemos)/i.test(reply) && /\?/.test(reply)
       ? { kind: 'financing_consent', reply } : {},
     ...(audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),
+    _property_context: rememberPropertyReply(turnCatalog, summary._property_context || previousSummary._property_context, reply, audit),
     _pending_question: pendingQuestionFromReply(reply),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),
     _brand_introduced: previousSummary._brand_introduced === true || /la\s*vilet/i.test(reply) || (Array.isArray(context.historial) ? context.historial.map(object) : []).some(row => ['bot', 'asesor'].includes(text(row.role)) && /la\s*vilet/i.test(text(row.content))),

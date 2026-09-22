@@ -4,12 +4,13 @@ import { statedBudget } from './price-reply'
 import { normalized } from './sdr-rules'
 import { semanticBudgetStatus } from './turn-semantics'
 
-type PropertyCategory = 'suite' | 'departamento' | 'local'
+type PropertyCategory = 'suite' | 'departamento' | 'penthouse' | 'local'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 const categoryLabels: Record<PropertyCategory, { singular: string; plural: string }> = {
   suite: { singular: 'suite', plural: 'suites' },
   departamento: { singular: 'departamento', plural: 'departamentos' },
+  penthouse: { singular: 'penthouse', plural: 'penthouses' },
   local: { singular: 'local comercial', plural: 'locales comerciales' },
 }
 const numberWords: Record<string, number> = {
@@ -26,19 +27,53 @@ function availableCatalog(info: Row, category?: PropertyCategory) {
 
 function categoryFrom(value: unknown): PropertyCategory | null {
   const category = text(value)
-  return ['suite', 'departamento', 'local'].includes(category) ? category as PropertyCategory : null
+  return ['suite', 'departamento', 'penthouse', 'local'].includes(category) ? category as PropertyCategory : null
+}
+
+function categoryMentions(current: string): PropertyCategory[] {
+  const message = normalized(current)
+  const categories: PropertyCategory[] = []
+  if (/\blocal(?:es)?(?: comerciales?)?\b/.test(message)) categories.push('local')
+  if (/\bsuites?\b/.test(message)) categories.push('suite')
+  if (/\bdepart(?:a|e)?mentos?\b|\b(?:deptos?|dptos?|apartamentos?)\b/.test(message)) categories.push('departamento')
+  if (/\bpent[ -]?houses?\b/.test(message)) categories.push('penthouse')
+  return categories
 }
 
 function mentionedCategory(current: string): PropertyCategory | null {
+  const categories = categoryMentions(current)
+  return categories.length === 1 ? categories[0] : null
+}
+
+/** A mentioned objection is not a declared preference. High-confidence semantics
+ * take precedence; the conservative fallback only accepts a positive clause. */
+export function preferredPropertyCategory(current: string, semantics?: unknown): PropertyCategory | null {
+  const property = object(object(semantics).property)
+  if (property.confidence === 'high') {
+    const category = categoryFrom(property.category)
+    const excluded = Array.isArray(property.excluded_categories) ? property.excluded_categories : []
+    return category && !excluded.includes(category) ? category : null
+  }
   const message = normalized(current)
-  if (/\blocal(?:es)?(?: comerciales?)?\b/.test(message)) return 'local'
-  if (/\bsuites?\b/.test(message)) return 'suite'
-  if (/\bdepart(?:a|e)?mentos?\b|\bdeptos?\b/.test(message)) return 'departamento'
-  return null
+  if (/\b(?:comparar|comparacion|diferencia|ambas|ambos)\b/.test(message)) return null
+  const clauses = current.split(/[,;.!?]/).flatMap(part => normalized(part)
+    .split(/\b(?:porque|por que|pero|aunque|sin embargo|en cambio|en lugar de)\b|\by\s+(?=no\s)/))
+  const choices = clauses.flatMap(clause => {
+    if (/\bno\s+(?:me\s+)?(?:interesa|gust|quiero|prefiero|necesito)|\b(?:descarto|rechazo|no estoy segur[oa]|no se si)\b/.test(clause)) return []
+    // A comparative preference names the desired option before "a" or "antes que".
+    const positive = clause.split(/\b(?:antes que|frente a)\b|\s+a\s+(?:los?|las?|un|una)\s+/)[0]
+    const categories = categoryMentions(positive)
+    if (categories.length !== 1) return []
+    const affirmative = /\b(?:prefiero|me interesa(?:n)?|me conviene|elijo|escojo|me quedo con|quisiera|quiero|revisemos|veamos|primero)\b/.test(positive)
+      || /^(?:(?:la|el|las|los|un|una)\s+)?(?:suite|departamento|departemento|depto|dpto|apartamento|local(?: comercial)?|pent[ -]?house)s?$/.test(positive.trim())
+    return affirmative ? categories : []
+  })
+  const unique = [...new Set(choices)]
+  return unique.length === 1 ? unique[0] : null
 }
 
 function currentCategory(info: Row, current: string) {
-  return mentionedCategory(current) || categoryFrom(object(info.lead).preferred_category)
+  return preferredPropertyCategory(current, info.semantica_turno) || categoryFrom(object(info.lead).preferred_category)
 }
 
 function money(value: unknown) {
@@ -52,12 +87,17 @@ function priceRange(units: Row[]) {
   return minimum === maximum ? money(minimum) : `${money(minimum)} a ${money(maximum)}`
 }
 
-function categoryWasChosen(current: string) {
+function categoryWasChosen(current: string, semantics?: unknown) {
   const message = normalized(current)
-  if (!mentionedCategory(current) || /[?¿]/.test(current)) return false
-  if (/\b(?:precio|valor|cuesta|financ|credito|presupuesto|planta|piso|dormitorio|habitacion|metros|m2|visita|cita)\b/.test(message)) return false
-  return /\b(?:prefiero|me interesa|me conviene|elijo|escojo|me quedo con|quiero (?:una?|el)|quisiera (?:una?|el))\b/.test(message)
-    || /^(?:una? |el )?(?:suite|departamento|local(?: comercial)?)$/.test(message)
+  if (!preferredPropertyCategory(current, semantics)) return false
+  // Category preference may accompany a harder requirement. Let its dedicated
+  // route answer that requirement before asking the generic budget question.
+  if (/\b(?:precios?|valor|cuesta|financiamiento|credito|presupuesto|plantas?|pisos?|niveles?|dormitorios?|habitaciones?|cuartos?|metros|m2|terrazas?|patios?|jardines?|jardin|estudios?|oficinas?|piscinas?|balcones?|parqueaderos?|garajes?|visitas?|citas?)\b/.test(message)) return false
+  if (object(object(semantics).property).confidence === 'high') return object(semantics).primary_intent === 'select_property'
+    || object(object(semantics).answer_to_previous).question_id === 'property_category'
+    || /\b(?:prefiero|me interesa|elijo|escojo|quiero)\b/.test(message)
+  if (/[?¿]/.test(current)) return false
+  return true
 }
 
 function simpleLivingPurpose(current: string) {
@@ -168,10 +208,18 @@ function floorOptions(units: Row[], pricesAllowed: boolean) {
 function explicitUnitSelection(info: Row, current: string) {
   const reference = object(info.referencia_unidad)
   const matches = rows(reference.matches)
-  if (matches.length !== 1 || reference.explicit !== true) return null
+  if (matches.length !== 1 || reference.needsClarification) return null
+  const semantics = object(info.semantica_turno)
+  const property = object(semantics.property)
+  const semanticSelection = semantics.primary_intent === 'select_property'
+    && property.confidence === 'high' && ['explicit', 'relative'].includes(text(property.reference_kind))
+  const relativeSelection = ['relative_selection', 'confirmed_single_option'].includes(text(reference.reason))
+  if (reference.explicit !== true && !semanticSelection && !relativeSelection) return null
   const message = normalized(current)
-  if (!/\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero (?:revisar|conocer|esa?|la|el)|quisiera (?:revisar|conocer|esa?|la|el))\b/.test(message)) return null
-  return matches[0]
+  if (['ask_price', 'request_visit', 'ask_financing'].includes(text(semantics.primary_intent))) return null
+  if (/\b(?:precio|cuesta|valor|brochure|folleto|financiamiento|credito|visita|cita|agendar)\b/.test(message)) return null
+  if (!semanticSelection && !relativeSelection && !/\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero (?:revisar|conocer|esa?|la|el)|quisiera (?:revisar|conocer|esa?|la|el))\b/.test(message)) return null
+  return availableCatalog(info).find(unit => text(unit.id) === text(matches[0].id)) || null
 }
 
 function purposeReply(info: Row) {
@@ -193,7 +241,7 @@ function categoryReply(info: Row, current: string, category: PropertyCategory) {
       : 'Perfecto, podemos concentrarnos en las suites.'
     return `${fit} Tenemos opciones en distintas plantas, con diferencias de ubicación y valor. ¿Podría compartirnos un presupuesto aproximado para orientarle hacia las alternativas más convenientes?`
   }
-  if (category === 'departamento') {
+  if (category === 'departamento' || category === 'penthouse') {
     const bedrooms = [...new Set(availableCatalog(info, category).map(unit => Number(unit.bedrooms)).filter(value => value > 0))].sort((a, b) => a - b)
     return `Perfecto. Disponemos de ${label.plural}${bedrooms.length ? ` de ${bedrooms.join(' o ')} dormitorios` : ''} en distintas plantas. ¿Podría compartirnos un presupuesto aproximado para orientarle hacia las opciones más convenientes?`
   }
@@ -265,9 +313,10 @@ function selectedUnitReply(info: Row, unit: Row, current: string) {
 }
 
 export function propertySelectionReply(info: Row, current: string): { reply: string; audit: Row } | null {
+  if (object(info.referencia_unidad).needsClarification) return null
   const selected = explicitUnitSelection(info, current)
   if (selected) return { reply: selectedUnitReply(info, selected, current), audit: {
-    source: 'property_unit_selected', unit_reference: { ids: [selected.id], numbers: [selected.unit_number] }, fallback: false,
+    source: 'property_unit_selected', unit_reference: { ids: [selected.id], numbers: [selected.unit_number] }, selected_unit_ids: [selected.id], fallback: false,
   } }
 
   const category = currentCategory(info, current)
@@ -288,7 +337,10 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
   const floor = category ? floorNumber(current, /planta|piso|nivel/.test(previous)) : null
   if (category && floor !== null && (/planta|piso|nivel/.test(normalized(current)) || /planta|piso|nivel/.test(previous))) {
     const reply = floorReply(info, category, floor)
-    if (reply) return { reply, audit: { source: 'property_floor_options', selected_floor: floor, fallback: false } }
+    if (reply) return { reply, audit: { source: 'property_floor_options', selected_floor: floor,
+      offered_unit_ids: availableCatalog(info, category).filter(unit => Number(unit.floor_number) === floor)
+        .sort((a, b) => Number(a.published_commercial_price || Infinity) - Number(b.published_commercial_price || Infinity)
+          || text(a.unit_number).localeCompare(text(b.unit_number), 'es', { numeric: true })).slice(0, 6).map(unit => unit.id), fallback: false } }
   }
 
   if (category && (budgetUncertain(current, info.semantica_turno) || genericUncertainty && /presupuesto|cuanto.*invertir/.test(previous))) {
@@ -303,7 +355,7 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
     return { reply: 'No se preocupe. Primero podemos identificar qué tipo de propiedad se adapta mejor a lo que busca y después revisar el presupuesto. ¿Le interesan las suites, los departamentos o los locales comerciales?', audit: { source: 'property_budget_deferred', fallback: false } }
   }
 
-  if (category && categoryWasChosen(current)) {
+  if (category && categoryWasChosen(current, info.semantica_turno)) {
     return { reply: categoryReply(info, current, category), audit: { source: 'property_category_selected', category, fallback: false } }
   }
 

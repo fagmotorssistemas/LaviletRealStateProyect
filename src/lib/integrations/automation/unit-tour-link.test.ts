@@ -131,11 +131,13 @@ describe('tour links in the conversation automation', () => {
     assert.equal(floor?.phase, 'choose_unit')
     assert.match(floor?.reply ?? '', /departamento 202/i)
     assert.match(floor?.reply ?? '', /departamento 203/i)
-    assert.match(floor?.reply ?? '', /explorar en 360/i)
+    assert.match(floor?.reply ?? '', /Cuál de estas opciones le gustaría conocer/i)
+    assert.doesNotMatch(floor?.reply ?? '', /360|https:/i)
+    assert.deepEqual(floor?.offered_unit_ids, [apartment202.id, apartment203.id])
 
     const selected = continueUnitAlternative({
       catalogo: [apartment202, apartment203, penthouse602],
-      referencia_unidad: { matches: [apartment202] },
+      referencia_unidad: { explicit: true, matches: [apartment202] },
       historial: [{ role: 'bot', content: floor?.reply }],
     }, 'El 202')
 
@@ -153,7 +155,7 @@ describe('tour links in the conversation automation', () => {
     assert.equal(delivery?.url, 'https://www.lavilett.com/tour?unidad=202')
   })
 
-  it('shares the penthouse tour only after the lead chooses that category', () => {
+  it('requires choosing the unit before sending the only penthouse tour', () => {
     const result = continueUnitAlternative({
       catalogo: [apartment202, apartment203, penthouse602],
       historial: [{
@@ -162,12 +164,20 @@ describe('tour links in the conversation automation', () => {
       }],
     }, 'Prefiero revisar los penthouses')
 
-    assert.equal(result?.phase, 'review_unit')
-    assert.equal(result?.unit?.id, penthouse602.id)
+    assert.equal(result?.phase, 'choose_unit')
+    assert.equal(result?.unit, undefined)
+    assert.deepEqual(result?.offered_unit_ids, [penthouse602.id])
     assert.match(result?.reply ?? '', /penthouse 602/i)
-    assert.match(result?.reply ?? '', /https:\/\/www\.lavilett\.com\/tour\?unidad=602/)
-    assert.match(result?.reply ?? '', /presupuesto total aproximado/i)
-    assert.doesNotMatch(result?.reply ?? '', /asesor/i)
+    assert.match(result?.reply ?? '', /gustaría conocer esta opción/i)
+    assert.doesNotMatch(result?.reply ?? '', /asesor|https:|presupuesto/i)
+    const accepted = continueUnitAlternative({
+      catalogo: [apartment202, apartment203, penthouse602],
+      referencia_unidad: { matches: [penthouse602], explicit: false },
+      historial: [{ role: 'bot', content: result?.reply }],
+    }, 'Sí, por favor')
+    assert.equal(accepted?.phase, 'review_unit')
+    assert.equal(accepted?.unit?.id, penthouse602.id)
+    assert.match(accepted?.reply ?? '', /https:\/\/www\.lavilett\.com\/tour\?unidad=602/)
   })
 
   it('does not ask for the budget again when it is already known', () => {
@@ -176,9 +186,10 @@ describe('tour links in the conversation automation', () => {
       conversacion: { datos_conocidos: { presupuesto: 180000 } },
       historial: [{
         role: 'bot',
-        content: 'Contamos con departamentos de hasta 3 dormitorios. También tenemos penthouses. ¿Desea revisar primero los departamentos o los penthouses?',
+        content: 'Perfecto. En esta categoría tenemos el penthouse 602. ¿Le gustaría conocer esta opción?',
       }],
-    }, 'Prefiero los penthouses')
+      referencia_unidad: { matches: [penthouse602], explicit: true },
+    }, 'Quiero conocer el 602')
 
     assert.match(result?.reply ?? '', /comparemos esta opci.n con otra/i)
     assert.doesNotMatch(result?.reply ?? '', /presupuesto total|monto disponible inicialmente/i)

@@ -9,7 +9,7 @@ import { catalogReferenceReply, resolveCatalogReference } from './catalog-refere
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { unitModelRequestReply } from './unit-model'
 import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
-import { passiveSalesCopy } from './commercial-engagement'
+import { commercialEngagement, passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
 import { acceptedPriceOption, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
@@ -28,6 +28,7 @@ import { acceptedUnitAlternative, continueUnitAlternative, unitAlternative } fro
 import { readCommercialContext } from './context-read'
 import { commercialLocationBudgetRecommendation } from './commercial-location-recommendation'
 import { propertySelectionReply } from './property-selection'
+import { resolvePropertyTurn } from './property-context'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -89,6 +90,10 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  if (!text(object(info.referencia_unidad).reason)) {
+    const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
+    info = { ...info, referencia_unidad: reference, property_context: reference.context }
+  }
   const clarification=recommendationClarification(info,current)
   if(clarification)return {reply:clarification,audit:{source:'recommendation_clarification',fallback:false}}
   const house = houseProductReply(current, text(object(info.conversacion).ultima_respuesta))
@@ -104,6 +109,11 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (overview && !/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|constructora|entrega|ubicacion|sector|alrededor|cerca/i.test(current)) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }
   const material = brochureReply(current, info.historial, text(info.modo_comercial),!!info.estado_proyecto)
   if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
+  const resolvedReference = object(info.referencia_unidad)
+  if (resolvedReference.needsClarification === true) return {
+    reply: text(resolvedReference.clarification),
+    audit: { source: 'property_reference_clarification', fallback: false, reference_reason: resolvedReference.reason },
+  }
   const acceptedOption = acceptedPriceOption(info, current, summary)
   if (acceptedOption) return acceptedOption
   const alternativeJourney = continueUnitAlternative(info, current)
@@ -117,7 +127,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
         fallback: false,
         alternative_phase: alternativeJourney.phase,
         alternative_unit_id: alternativeJourney.unit?.id || null,
-        ...(journeyUnits.length ? {
+        offered_unit_ids: alternativeJourney.offered_unit_ids || [],
+        selected_unit_ids: alternativeJourney.selected_unit_ids || [],
+        ...(alternativeJourney.selected_unit_ids?.length && journeyUnits.length ? {
           unit_reference: { ids: journeyUnits.map(unit => unit.id), numbers: journeyUnits.map(unit => unit.unit_number) },
         } : {}),
       },
@@ -130,13 +142,17 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
       source: 'accepted_unit_alternative',
       fallback: false,
       alternative_unit_id: acceptedAlternative.unit.id,
+      selected_unit_ids: [acceptedAlternative.unit.id],
       unit_reference: { ids: [acceptedAlternative.unit.id], numbers: [acceptedAlternative.unit.unit_number] },
     },
   }
   const locationBudget = commercialLocationBudgetRecommendation(info, current)
   if (locationBudget) return { reply: locationBudget, audit: { source: 'commercial_location_budget', fallback: false } }
   const selection = propertySelectionReply(info, current)
-  if (selection) return selection
+  if (selection) return { ...selection, audit: { ...selection.audit,
+    ...(selection.audit.source === 'property_unit_selected' && Array.isArray(resolvedReference.matches)
+      ? { selected_unit_ids: resolvedReference.matches.map(unit => object(unit).id) } : {}),
+  } }
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
   const attachBrochure = wantsBrochure(current, info.historial)
   const quote = unitPriceQuote(info, current, summary)
@@ -167,7 +183,13 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (quote && turnAnswers.topics.every(topic => ['price', 'options', 'affordability', 'financing'].includes(topic)) && !/qu[eé] (?:incluye|ofrece|tiene)|cu[aá]ntos dormitorios|c[oó]mo|por qu[eé]|ubicaci[oó]n|d[oó]nde|sector|jard[ií]n|distribuci[oó]n|constructora|due[nñ]o|foto|imagen|modelo|plano|descuento|negocia|cuota|entrada/i.test(current.replace(/jard[ií]n\s*(?:azuayo|zauayo)/gi, ''))) {
     const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
     const financing = mentionsFinancing(current) ? priceFinancingReply(current, { partners, current: object(finance.current) }) : ''
-    return finish(quote.reply + (financing ? ' ' + financing : ''), { source: 'unit_price', approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
+    return finish(quote.reply + (financing ? ' ' + financing : ''), { source: 'unit_price',
+      verified_price_only: quote.quoted === true && turnAnswers.topics.every(topic => ['price', 'options'].includes(topic)),
+      passive_sales: commercialEngagement(current, info.historial, summary._sales_memory).passive,
+      ...(quote.comparison ? { price_comparison: quote.comparison } : {}),
+      ...(quote.units?.length ? { comparison_unit_ids: quote.units.length > 1 ? quote.units.map(unit => unit.id) : [],
+        unit_reference: { ids: quote.units.map(unit => unit.id), numbers: quote.units.map(unit => unit.unit_number) } } : {}),
+      approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
   }
   if (!quote && info.posicionamiento_proyecto && !/precio|metros|tama[nñ]o|qu[eé] (?:ofrece|incluye)|[mM]²/i.test(current) && /constructora|qui[eé]n(?:es)?[^?\n]*(?:constru|hizo|hace|hicieron|hacen)/i.test(current)) {
     const ownerToo = /due[nñ]o|propietario/i.test(current)
@@ -194,6 +216,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + (info.estado_proyecto ? '\n' + readinessRules(info.estado_proyecto as ProjectReadiness) : info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
+    + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'
     + '\nEl campo modelo_3d indica que el sistema añadirá el enlace al tour en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Responda en menos de 850 caracteres sin ofrecer enviarlo después, pedir permiso ni inventar otro enlace: el sistema añade texto_de_entrega. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
   const reasons: string[] = []
   let reply = variedReplyOpening(await draftReply(prompt + rules, input), info.historial)

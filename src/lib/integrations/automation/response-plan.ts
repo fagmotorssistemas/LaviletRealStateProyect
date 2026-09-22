@@ -7,12 +7,13 @@ const lockedSources = new Set([
   'property_living_options', 'unit_alternative', 'unit_alternative_journey',
   'accepted_unit_alternative', 'accepted_price_option', 'budget_options',
   'financing_selection_required', 'financing_question', 'team_attendance',
+  'property_reference_clarification',
 ])
 
 /** Deterministic copy already represents the verified action and must not be rewritten by another model. */
 export function responsePlan(baseReply: string, audit: Row) {
   const source = text(audit.source)
-  const locked = lockedSources.has(source)
+  const locked = lockedSources.has(source) || source === 'unit_price' && audit.verified_price_only === true
   return {
     source,
     locked,

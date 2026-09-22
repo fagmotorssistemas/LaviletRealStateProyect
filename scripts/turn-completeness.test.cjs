@@ -110,6 +110,12 @@ test('ambiguous options clarify two plausible paths and do not require an adviso
   assert.equal(result.reply, reply)
 })
 
+test('an obsolete denial cannot leave the client without a response when the reviewer fails', async () => {
+  const result = await completeTurnReply({current:'¿Qué opciones tengo?',baseReply:'No ofrecemos crédito directo.',verified:{}},async()=>{throw Error('offline')})
+  assert.match(result.reply,/qué opciones le gustaría revisar/)
+  assert.equal(result.needsAdvisor,false)
+})
+
 test('unknown concrete facts preserve answered information and return only missing fragments', async () => {
   const input = { current: 'Qué precio tiene el 202? Tiene certificación acústica?', baseReply: 'El departamento 202 tiene un valor referencial de $250.000.', verified: {} }
   const reply = 'El departamento 202 tiene un valor referencial de $250.000. La certificación acústica necesita verificarse.'

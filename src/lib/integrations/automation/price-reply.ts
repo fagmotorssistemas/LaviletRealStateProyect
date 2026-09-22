@@ -67,49 +67,95 @@ function variant(options: string[], history: unknown) {
   return options.find(option => !previous.includes(option)) || options[0]
 }
 
+const availableUnit = (unit: Row) => unit.is_published !== false && (!unit.status || unit.status === 'disponible')
+const moneyValue = (unit: Row) => {
+  const value = Number(unit.published_commercial_price)
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null
+}
+const ids = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : []
+
+// References identify units, never their prices. Hydrate every reference from the
+// current catalog, including after a summary, screenshot or semantic extraction.
+function priceSelection(info: Row, current: string, summary: Row) {
+  const catalog = rows(info.catalogo), m = normalized(current)
+  const reference = object(info.referencia_unidad)
+  const propertyContext = object(info.property_context || summary._property_context || reference.context)
+  const resolved = resolveCatalogReference(catalog, current, summary._unit_reference, info.historial)
+  const hydrate = (unitIds: unknown[]) => catalog.filter(unit => unitIds.includes(unit.id))
+  const referenceUnits = hydrate(rows(reference.matches).map(unit => unit.id))
+  const comparisonIds = ids(propertyContext.comparison_ids)
+  const topic = salesSubject(current, info.historial)
+  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite'
+    : /\bpenthouses?\b/.test(m) ? 'penthouse' : /\bdepart[ae]?mentos?\b/.test(m) ? 'departamento'
+    : /\bviviendas?\b/.test(m) || topic.acceptedRedirect ? 'vivienda' : ''
+  const matchesCategory = (unit: Row, value: string) => value === 'vivienda' ? ['suite', 'departamento', 'penthouse'].includes(text(unit.category)) : unit.category === value
+  const bedroomWords: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 }
+  const bedroomMatch = m.match(/\b(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:dormitorios?|habitaciones?|cuartos?)\b/)
+  const bedrooms = bedroomMatch ? Number(bedroomWords[bedroomMatch[1]] || bedroomMatch[1]) : 0
+  const explicit = reference.hasUnitMention === true || resolved.hasUnitMention
+  let selected: Row[], contextual = false
+  if (reference.needsClarification === true) return { selected: [], category, bedrooms, explicit, contextual, needsClarification: true }
+  if (text(reference.reason) && (referenceUnits.length || explicit)) {
+    selected = referenceUnits; contextual = true
+  } else if (resolved.hasUnitMention) {
+    selected = resolved.matches; contextual = true
+  } else if (category || bedrooms) {
+    selected = catalog.filter(unit => (!category || matchesCategory(unit, category)) && (!bedrooms || Number(unit.bedrooms) === bedrooms))
+  } else if (referenceUnits.length) {
+    selected = referenceUnits; contextual = true
+  } else if (comparisonIds.length) {
+    selected = hydrate(comparisonIds); contextual = true
+    // A missing member must not silently turn a comparison into another quote.
+    if (selected.length !== new Set(comparisonIds).size) return { selected: [], category, bedrooms, explicit, contextual, needsClarification: true }
+  } else if (ids(propertyContext.selected_ids).length) {
+    selected = hydrate(ids(propertyContext.selected_ids)); contextual = true
+  } else if (resolved.matches.length && (!topic.category || resolved.matches.every(unit => matchesCategory(unit, topic.category!)))) {
+    selected = resolved.matches; contextual = true
+  } else {
+    const savedIds = ids(object(summary._unit_reference).ids)
+    // Legacy summaries may mix offered options and selected units. Once the new
+    // property context exists, only its explicit selection/comparison is reusable.
+    const remembered = Object.keys(propertyContext).length ? [] : hydrate(savedIds)
+      .filter(unit => !topic.category || matchesCategory(unit, topic.category))
+    const preferred = topic.category || text(object(info.lead).preferred_category)
+    const preferredBedrooms = preferred === 'local' ? 0 : Number(object(info.lead).preferred_bedrooms)
+    selected = remembered.length ? remembered : preferred ? catalog.filter(unit => matchesCategory(unit, preferred) && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
+  }
+  return { selected, category, bedrooms, explicit, contextual, needsClarification: false }
+}
+
+function comparisonFacts(units: Row[], contextual: boolean) {
+  if (!contextual || units.length !== 2 || units.some(unit => !availableUnit(unit) || moneyValue(unit) === null)) return null
+  const [first, second] = units.map(unit => moneyValue(unit)!)
+  return { ids: units.map(unit => text(unit.id)), difference: Math.abs(Math.round(first * 100) - Math.round(second * 100)) / 100 }
+}
+
 // Price facts always come from this turn's authorized catalog. A media reference or
 // conversation summary identifies a unit but never authorizes disclosing its price.
-export function unitPriceQuote(info: Row, current: string, summary: Row) {
+type PriceQuote = { reply: string; quoted: boolean; needsAdvisor?: boolean; financingOffer?: string; units?: Row[]; prices?: number[]; comparison?: { ids: string[]; difference: number } }
+export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQuote | null {
   if (asksForHouse(current)) return null
   if (!asksUnitPrice(current, ['property', 'mixed'].includes(text(info.alcance_negocio)))) return null
   const policy = object(info.politica_comercial), m = normalized(current)
   if (policy.precios_autorizados !== true) return {
     reply: '', quoted: false, needsAdvisor: true,
   }
-  const catalog = rows(info.catalogo)
-  const topic = salesSubject(current, info.historial)
-  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite' : /\bdepart[ae]?mentos?\b/.test(m) ? 'departamento'
-    : /\bviviendas?\b/.test(m) || topic.acceptedRedirect ? 'vivienda' : ''
-  const matchesCategory = (unit: Row, value: string) => value === 'vivienda' ? ['suite', 'departamento'].includes(text(unit.category)) : unit.category === value
-  const bedroomWords: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 }
-  const bedroomMatch = m.match(/\b(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:dormitorios?|habitaciones?|cuartos?)\b/)
-  const bedrooms = bedroomMatch ? Number(bedroomWords[bedroomMatch[1]] || bedroomMatch[1]) : 0
-  const resolved = resolveCatalogReference(catalog, current, summary._unit_reference, info.historial)
-  const reference = object(info.referencia_unidad)
-  const referenceIds = rows(reference.matches).map(unit => unit.id)
-  const savedIds = rows(catalog).filter(unit => (Array.isArray(object(summary._unit_reference).ids) ? object(summary._unit_reference).ids as unknown[] : []).includes(unit.id)).map(unit => unit.id)
-  const remembered = resolved.matches.length ? resolved.matches : catalog.filter(unit => (referenceIds.length ? referenceIds : savedIds).includes(unit.id))
-  let selected: Row[]
-  if (resolved.hasUnitMention || reference.hasUnitMention === true) selected = resolved.matches
-  else if (category || bedrooms) selected = catalog.filter(unit => (!category || matchesCategory(unit, category)) && (!bedrooms || Number(unit.bedrooms) === bedrooms))
-  else if (remembered.length && (!topic.category || remembered.every(unit => matchesCategory(unit, topic.category!)))) {
-    selected = remembered
-  } else {
-    const preferred = topic.category || text(object(info.lead).preferred_category) || ''
-    const preferredBedrooms = preferred === 'local' ? 0 : Number(object(info.lead).preferred_bedrooms)
-    selected = preferred ? catalog.filter(unit => matchesCategory(unit, preferred) && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
-    if (!preferred) return { reply: '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false }
-  }
-  if (!selected.length && bedrooms && !resolved.hasUnitMention && reference.hasUnitMention !== true) {
+  const catalog = rows(info.catalogo).filter(availableUnit)
+  const selection = priceSelection(info, current, summary)
+  if (selection.needsClarification) return null
+  const { category, bedrooms, explicit, contextual } = selection
+  const selected = selection.selected.filter(availableUnit)
+  if (!selected.length && !category && !bedrooms && !explicit && !selection.selected.length) return { reply: '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false }
+  if (!selected.length && bedrooms && !explicit) {
     const recommendation=unitAlternative(info,current,statedBudget(current))
     if(recommendation)return {reply:recommendation.reply,quoted:false}
-    const alternatives = [...new Set(catalog.filter(unit => category ? matchesCategory(unit, category) : ['suite', 'departamento'].includes(text(unit.category))).map(unit => Number(unit.bedrooms)).filter(value => value > 0))].sort((a, b) => a - b)
+    const alternatives = [...new Set(catalog.filter(unit => category ? category === 'vivienda' ? ['suite', 'departamento', 'penthouse'].includes(text(unit.category)) : unit.category === category : ['suite', 'departamento', 'penthouse'].includes(text(unit.category))).map(unit => Number(unit.bedrooms)).filter(value => value > 0))].sort((a, b) => a - b)
     if (alternatives.length) return { reply: `No encuentro opciones de ${bedrooms} dormitorios en nuestro catálogo disponible. Tenemos opciones de ${alternatives.join(' o ')} dormitorios. ¿Le gustaría revisar alguna de ellas?`, quoted: false }
   }
-  const priced = selected.filter(unit => Number.isFinite(Number(unit.published_commercial_price)) && Number(unit.published_commercial_price) > 0)
+  const priced = selected.filter(unit => moneyValue(unit) !== null)
   if (!priced.length) return { reply: '', quoted: false, needsAdvisor: true }
   const money = (value: unknown) => '$' + Number(value).toLocaleString('es-EC', { maximumFractionDigits: 2 })
-  const unitName = (unit: Row) => `${unit.category === 'local' ? 'local' : unit.category === 'suite' ? 'suite' : 'departamento'} ${text(unit.unit_number)}`
+  const unitName = (unit: Row) => `${unit.category === 'local' ? 'local' : unit.category === 'suite' ? 'suite' : unit.category === 'penthouse' ? 'penthouse' : 'departamento'} ${text(unit.unit_number)}`
   const approximate = policy.precios_aproximados === true
   let reply: string
   if (priced.length === 1) {
@@ -131,6 +177,8 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
     const intro = variant([subject, count ? `Para ${count} dormitorios, los valores` : 'Para estas opciones, los valores', 'En estas opciones, los precios'], info.historial)
     reply = `${intro} ${min === max ? `parten de ${money(min)}` : `van de ${money(min)} a ${money(max)}`} USD.`
   }
+  const comparison = comparisonFacts(selection.selected, contextual)
+  if (comparison) reply += comparison.difference === 0 ? ' Ambas opciones tienen el mismo precio.' : ` La diferencia es de ${money(comparison.difference)} USD.`
   if (approximate) reply += ' ' + variant([
     'Son valores referenciales de lanzamiento y pueden cambiar.',
     'Por ahora son valores aproximados de lanzamiento, sujetos a cambios.',
@@ -157,7 +205,7 @@ export function unitPriceQuote(info: Row, current: string, summary: Row) {
       `Para el financiamiento trabajamos con ${partners.join(' o ')}; podemos orientarle durante el proceso.`,
     ], info.historial)
   }
-  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, units: priced, prices: priced.map(unit => Number(unit.published_commercial_price)) }
+  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, units: priced, prices: priced.map(unit => moneyValue(unit)!), ...(comparison ? { comparison } : {}) }
 }
 
 export function acceptedPriceOption(info: Row, current: string, summary: Row) {
@@ -167,7 +215,9 @@ export function acceptedPriceOption(info: Row, current: string, summary: Row) {
   const named = resolveCatalogReference(catalog, last).matches
   const lastPrice = [...history].reverse().find(row => row.role === 'cliente' && asksUnitPrice(text(row.content)))
   const options = named.length ? named : lastPrice ? unitPriceQuote(info, text(lastPrice.content), summary)?.units || [] : []
-  const unit = [...options].sort((a, b) => Number(a.published_commercial_price) - Number(b.published_commercial_price))[0]
+  // An affirmative answer accepts reviewing options; it does not select the
+  // cheapest of several units on the client's behalf.
+  const unit = options.length === 1 && availableUnit(options[0]) ? options[0] : null
   if (!unit) return null
   const detail = catalogReferenceReply([unit], 'Qué ofrece')
   const model = unitModelDelivery({ explicit: true, matches: [unit] }, 'Quiero ver esta unidad', info.historial, summary._unit_models_sent)
@@ -180,6 +230,7 @@ Solo informe precios de catálogo autorizados: nunca reutilice un precio recorda
 En Lanzamiento, si precios_aproximados es true, identifique el valor como aproximado y explique brevemente que es referencial de lanzamiento y puede cambiar.
 En Preventa informe el precio sin esa aclaración. No invente descuentos, precios, cuotas ni notificaciones futuras.
 Si hay respuesta_precio_verificada, incluya esos datos y resuelva también las otras consultas; no vuelva a pedir la unidad ya identificada.
+Si se comparan unidades concretas y el cliente pregunta «¿y en precio?», conserve esa comparación: informe cada precio verificado y la diferencia calculada. No sustituya las unidades por el rango de toda una categoría. Un importe calculado como diferencia no es el precio de ninguna unidad.
 Hable al cliente con naturalidad. Nunca diga «precio registrado», «precio autorizado», «registrado en el sistema» ni explique cómo almacenamos los precios. Diga el valor o el rango de las opciones de su interés.
 Si el cliente dice «tengo 100 dólares» o un presupuesto inferior al precio, puede ofrecer orientación sobre financiamiento sin interrogarlo por la cifra. Respete el monto literal: no lo multiplique por mil ni asegure que alcanza para una entrada o que se aprobará un crédito.
 No repita ofertas de financiamiento ya mencionadas. No añada por rutina «la aprobación depende de la entidad» ni «la entidad evalúa cada solicitud»; ofrezca acompañamiento en el proceso.
@@ -196,9 +247,21 @@ export function priceReplyIssues(reply: string, info: Row, current = '', expecte
     || /\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)\b.*\b(?:suite|departamento|local|unidad)\s*(?:numero\s*)?\d{1,4}\b/.test(normalized(current))
   if (current.trim() && !disclosureRequested) return ['style']
   if (policy.precios_autorizados !== true) return ['unsupported_fact']
-  const allowed = expectedPrices || rows(info.catalogo).map(unit => Number(unit.published_commercial_price)).filter(value => value > 0)
+  if (/€|£|\b(?:EUR|GBP|euros|libras esterlinas)\b/i.test(reply)) return ['unsupported_fact']
+  const selection = priceSelection(info, current, {})
+  const comparison = comparisonFacts(selection.selected, selection.contextual)
+  const allowed = expectedPrices || (selection.contextual ? selection.selected : rows(info.catalogo))
+    .filter(availableUnit).map(moneyValue).filter((value): value is number => value !== null)
   for (const match of reply.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)) {
-    try { if (!allowed.includes(parseCommercialPrice((match[1] || match[2]).replace(/[.,]$/, '')) || 0)) return ['unsupported_fact'] }
+    try {
+      const amount = parseCommercialPrice((match[1] || match[2]).replace(/[.,]$/, '')) || 0
+      const before = normalized(reply.slice(0, match.index).split(/[.!?;\n]/).at(-1) || '')
+      const after = normalized(reply.slice((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 45))
+      const differenceLabel = /\bdiferencia\b[^.!?;\n]{0,80}$/.test(before) || /^(?:usd|dolares)?\s*(?:mas|menos)\b/.test(after)
+      if (differenceLabel) {
+        if (!comparison || comparison.difference !== amount) return ['unsupported_fact']
+      } else if (!allowed.includes(amount)) return ['unsupported_fact']
+    }
     catch { return ['unsupported_fact'] }
   }
   if (policy.precios_aproximados === true && (!/aproximad|referencial/.test(m) || !/lanzamiento/.test(m))) return ['unsupported_fact']

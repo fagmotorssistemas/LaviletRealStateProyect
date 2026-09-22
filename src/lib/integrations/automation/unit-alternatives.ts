@@ -1,11 +1,12 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { unitTourUrl } from '@/lib/tour/unitModels'
+import { preferredPropertyCategory } from './property-selection'
 
 export const UNIT_ALTERNATIVE_RULES = `
 ALTERNATIVAS DE INMUEBLES, EN TODOS LOS TONOS Y FLUJOS:
 Si el catálogo verificado no ofrece la cantidad de dormitorios solicitada, explique brevemente la limitación y pida permiso para comparar los departamentos más amplios y los penthouses. No elija todavía una unidad ni suponga que el cliente acepta menos dormitorios, un penthouse o un precio mayor. Cuando acepte comparar, explique ambas categorías con datos reales y pregunte cuál desea revisar primero.
-Después de que el cliente elija una categoría, avance con un solo dato útil pendiente. Para departamentos amplios, pregunte la planta entre las que realmente tienen opciones; después enumere las unidades verificadas de esa planta e invite a elegir cuál explorar en 360. Si elige una unidad o solo existe una en la categoría elegida, comparta su recorrido y pregunte si su presupuesto corresponde al valor total de compra o al monto disponible inicialmente. No repita dormitorios, propósito, categoría, planta ni presupuesto ya conocidos.
+Después de que el cliente elija una categoría, avance con un solo dato útil pendiente. Para departamentos amplios, pregunte la planta entre las que realmente tienen opciones; después enumere las unidades verificadas de esa planta y pregunte cuál le gustaría conocer. Una categoría mencionada para rechazarla o explicar una objeción no es la categoría elegida. Interprete "el más grande" o "el primero" sobre las últimas opciones que realmente se presentaron, no sobre una preferencia antigua. Si elige una unidad o pide su recorrido, comparta el enlace correspondiente; que quede una sola opción no significa que ya la haya elegido. No repita dormitorios, propósito, categoría, planta ni presupuesto ya conocidos.
 Para requisitos distintos de dormitorios, recomiende una alternativa concreta publicada y disponible solo cuando la comparación sea inequívoca, justificándola con datos reales de área interior, dormitorios, planta o espacios. Considere conjuntamente las necesidades y el presupuesto conocidos; si una alternativa supera el presupuesto, indique la diferencia solo cuando los precios estén autorizados y no asuma flexibilidad. Si no conoce el precio, no afirme que se ajusta al presupuesto.
 Una característica no documentada es desconocida, no prueba de que no exista. No invente estudios, habitaciones convertibles, vistas ni comodidad equivalente. No convierta balcones en área interior. Si el requisito es indispensable o ya rechazó esa alternativa, reconozca que no hay coincidencia y no insista. Recomendar tres dormitorios no cambia la preferencia declarada de cinco ni significa que el cliente aceptó el cambio.
 Ofrezca revisar la distribución solo cuando sea pertinente; no envíe automáticamente un recorrido ni cambie a otra unidad si pidió una cita para una unidad concreta. Mantenga el agendamiento, la pregunta de financiamiento y las demás solicitudes activas. Esta regla aplica cuando se consultan alternativas, no obliga a añadir ofertas en cada turno, recordatorio o plantilla aprobada. El estilo adapta la redacción, nunca estos hechos y restricciones.
@@ -16,6 +17,8 @@ type AlternativeJourney = {
   phase: 'compare_categories' | 'choose_category' | 'choose_floor' | 'choose_unit' | 'review_unit'
   unit?: Row | null
   units?: Row[]
+  offered_unit_ids?: string[]
+  selected_unit_ids?: string[]
 }
 
 const residentialUnits = (info: Row) => (Array.isArray(info.catalogo) ? info.catalogo : [])
@@ -51,13 +54,6 @@ const nextUnitQuestion = (info: Row) => {
 const positiveAnswer = (message: string) => /^(?:si|si por favor|si esta bien|si me parece bien|claro|de acuerdo|esta bien|me parece bien|perfecto|bueno|a ver|revisemos|veamos)(?: gracias)?$/.test(message)
 
 const wantsComparison = (message: string) => /\b(?:diferencia|comparar|comparacion|ambas|ambos|cual conviene|que cambia)\b/.test(message)
-
-const chosenCategory = (message: string): 'departamento' | 'penthouse' | null => {
-  if (wantsComparison(message) || (/\bdepartamentos?\b/.test(message) && /\bpenthouses?\b/.test(message))) return null
-  if (/\b(?:prefiero|interesa(?:n)?|quiero|quisiera|revisemos|veamos|primero|opcion)\b[\s\S]{0,60}\bpenthouses?\b|^penthouses?$/.test(message)) return 'penthouse'
-  if (/\b(?:prefiero|interesa(?:n)?|quiero|quisiera|revisemos|veamos|primero|opcion)\b[\s\S]{0,60}\bdepartamentos?\b|^departamentos?$/.test(message)) return 'departamento'
-  return null
-}
 
 const floorNumber = (message: string) => {
   const words: Record<string, number> = { primera: 1, primer: 1, segunda: 2, segundo: 2, tercera: 3, tercer: 3, cuarta: 4, cuarto: 4, quinta: 5, quinto: 5, sexta: 6, sexto: 6 }
@@ -102,23 +98,25 @@ function apartmentFloorReply(catalog: Row[]): AlternativeJourney | null {
   }
 }
 
-function categoryUnitsReply(info: Row, catalog: Row[], category: 'departamento' | 'penthouse'): AlternativeJourney | null {
+function categoryUnitsReply(catalog: Row[], category: 'departamento' | 'penthouse'): AlternativeJourney | null {
   const candidates = catalog.filter(unit => unit.category === category)
     .sort((a, b) => Number(b.area_internal_m2) - Number(a.area_internal_m2) || text(a.unit_number).localeCompare(text(b.unit_number)))
   if (!candidates.length) return null
   if (candidates.length === 1) {
     const unit = candidates[0]
     return {
-      reply: `Perfecto. En esta categoría tenemos ${unitLabel(unit)}${unitDetails(unit) ? `: ${unitDetails(unit)}` : ''}. Puede explorarlo en 360 aquí: ${unitTourUrl(text(unit.unit_number))}\n\n${nextUnitQuestion(info)}`,
-      phase: 'review_unit',
-      unit,
+      reply: `Perfecto. En esta categoría tenemos ${unitLabel(unit)}${unitDetails(unit) ? `: ${unitDetails(unit)}` : ''}. ¿Le gustaría conocer esta opción?`,
+      phase: 'choose_unit',
+      units: [unit],
+      offered_unit_ids: [text(unit.id)],
     }
   }
   const choices = candidates.slice(0, 4).map(unit => `${unitLabel(unit)}${unitDetails(unit) ? ` (${unitDetails(unit)})` : ''}`)
   return {
-    reply: `Perfecto. Estas son las opciones disponibles: ${choices.join('; ')}. ¿Cuál desea explorar en 360?`,
+    reply: `Perfecto. Estas son las opciones disponibles: ${choices.join('; ')}. ¿Cuál de estas opciones le gustaría conocer?`,
     phase: 'choose_unit',
     units: candidates.slice(0, 4),
+    offered_unit_ids: candidates.slice(0, 4).map(unit => text(unit.id)),
   }
 }
 
@@ -128,22 +126,33 @@ export function continueUnitAlternative(info: Row, current: string): Alternative
   if (!catalog.length) return null
   const message = normalized(current)
   const previous = normalized(lastBotReply(info))
+  const context = object(info.property_context)
+  const phase = context.journey === 'residential_alternatives' ? text(context.phase) : ''
+  const semantics = object(info.semantica_turno)
+  const reference = object(info.referencia_unidad)
+  if (reference.needsClarification) return null
+  if (['ask_price', 'request_visit', 'ask_financing'].includes(text(semantics.primary_intent))) return null
+  if (/\b(?:dormitorios?|habitaciones?|cuartos?|metros|m2|terrazas?|patios?|jardin|jardines|estudios?|oficinas?|piscinas?|parqueaderos?|garajes?|indispensable|obligatorio|exactamente)\b/.test(message)) return null
+  const selectedCategory = preferredPropertyCategory(current, semantics)
   const offeredCategories = /(?:compararle ambas alternativas|departamentos?[\s\S]{0,180}penthouses?|penthouses?[\s\S]{0,180}departamentos?)/.test(previous)
     && /alternativas?|comparar|compararle|revisar/.test(previous)
-  const categoryQuestion = /revisar primero los departamentos o los penthouses|departamentos o los penthouses/.test(previous)
+  const categoryQuestion = phase === 'choose_category'
+    || /revisar primero los departamentos o los penthouses|departamentos o los penthouses/.test(previous)
 
-  if (offeredCategories && (positiveAnswer(message) || wantsComparison(message))) return compareResidentialCategories(catalog)
+  if (!selectedCategory && (offeredCategories || phase === 'compare_categories') && (positiveAnswer(message) || wantsComparison(message))) return compareResidentialCategories(catalog)
 
-  if (offeredCategories || categoryQuestion) {
-    const category = chosenCategory(message)
+  if (offeredCategories || categoryQuestion || ['choose_floor', 'choose_unit'].includes(phase)) {
+    const category = selectedCategory
     if (category === 'departamento') return apartmentFloorReply(catalog)
-    if (category === 'penthouse') return categoryUnitsReply(info, catalog, 'penthouse')
+    if (category === 'penthouse') return categoryUnitsReply(catalog, 'penthouse')
     if (categoryQuestion && positiveAnswer(message)) {
+      if (catalog.every(unit => unit.category === 'departamento')) return apartmentFloorReply(catalog)
+      if (catalog.every(unit => unit.category === 'penthouse')) return categoryUnitsReply(catalog, 'penthouse')
       return { reply: 'Claro. ¿Desea empezar por los departamentos o por los penthouses?', phase: 'choose_category' }
     }
   }
 
-  if (/que planta prefiere/.test(previous)) {
+  if (phase === 'choose_floor' || /que planta prefiere/.test(previous)) {
     const requestedFloor = floorNumber(message)
     if (requestedFloor === null) return null
     const apartments = catalog.filter(unit => unit.category === 'departamento')
@@ -154,22 +163,29 @@ export function continueUnitAlternative(info: Row, current: string): Alternative
       reply: `En esa planta no aparece un departamento de ${maxBedrooms || 'la categoría más amplia'} dormitorios disponible. Puedo mostrarle las plantas que sí tienen opciones.`,
       phase: 'choose_floor',
     }
-    if (spacious.length === 1) return categoryUnitsReply(info, spacious, 'departamento')
+    if (spacious.length === 1) return categoryUnitsReply(spacious, 'departamento')
     const choices = spacious.map(unit => `${unitLabel(unit)} (${unitDetails(unit)})`)
-    return { reply: `En ${text(spacious[0].floor).trim() || `la planta ${requestedFloor}`} están disponibles ${choices.join('; ')}. ¿Cuál desea explorar en 360?`, phase: 'choose_unit', units: spacious }
+    return { reply: `En ${text(spacious[0].floor).trim() || `la planta ${requestedFloor}`} están disponibles ${choices.join('; ')}. ¿Cuál de estas opciones le gustaría conocer?`, phase: 'choose_unit', units: spacious, offered_unit_ids: spacious.map(unit => text(unit.id)) }
   }
 
-  if (/cual desea explorar en 360/.test(previous)) {
-    const reference = object(info.referencia_unidad)
+  if (phase === 'choose_unit' || /cual.*(?:explorar en 360|opciones.*conocer)|le gustaria conocer esta opcion/.test(previous)) {
+    if (['ask_price', 'request_visit', 'ask_financing'].includes(text(semantics.primary_intent))
+      || /\b(?:precio|cuesta|valor|diferencia|comparar|visita|cita|agendar|financiamiento|credito)\b/.test(message)) return null
     const matches = Array.isArray(reference.matches) ? reference.matches.map(object)
       .filter(unit => ['departamento', 'penthouse'].includes(text(unit.category))) : []
     if (matches.length === 1) {
-      const unit = catalog.find(candidate => candidate.id === matches[0].id) || matches[0]
+      const accepted = reference.explicit === true || reference.reason === 'relative_selection'
+        || object(semantics.property).reference_kind === 'relative'
+        || positiveAnswer(message) || /\b(?:me interesa|prefiero|quiero|quisiera|elijo|escojo|mas grande|mas pequeno)\b/.test(message)
+      if (!accepted) return null
+      const unit = catalog.find(candidate => candidate.id === matches[0].id)
+      if (!unit) return null
       const details = unitDetails(unit)
       return {
         reply: `${unitLabel(unit).charAt(0).toUpperCase() + unitLabel(unit).slice(1)}${details ? ` tiene ${details}` : ' es la opción seleccionada'}. Puede explorarlo en 360 aquí: ${unitTourUrl(text(unit.unit_number))}\n\n${nextUnitQuestion(info)}`,
         phase: 'review_unit',
         unit,
+        selected_unit_ids: [text(unit.id)],
       }
     }
   }
@@ -254,23 +270,33 @@ export function unitAlternative(info: Row, current: string, budget: number|null 
   if(catalog.some(u=>(bedrooms!==null&&u.bedrooms==null)||(level!==null&&u.floor_number==null)||(size!==null&&u.area_internal_m2==null)))return null
   const requirement=[bedrooms!==null?`${bedrooms} dormitorios`:'',level!==null?`piso ${level}`:'',size!==null?`al menos ${size.toLocaleString('es-EC')} m² interiores`:''].filter(Boolean).join(', ')
   const intro=bedrooms!==null&&level===null&&size===null?`Actualmente no contamos con departamentos disponibles de ${bedrooms} dormitorios.`:`Actualmente no contamos con un departamento disponible que reúna estas características: ${requirement}.`
+  if(/indispensable|obligatorio|exactamente|\bsolo\b|no (?:acepto|quiero).*alternativ/.test(m))return {reply:intro,unit:null}
   const previousBot=[...history].reverse().find(row=>row.role==='bot')
   const previousReply=normalized(text(previousBot?.content))
   const sameUnavailableBedrooms=bedrooms!==null&&new RegExp(`no (?:contamos|tenemos|hay|ofrecemos)[\\s\\S]{0,100}(?:de |con )?${bedrooms} dormitorios`).test(previousReply)
   if(sameUnavailableBedrooms&&!/[¿?]|\bpor que\b/.test(m)) {
     const independent=/\bindependientes?\b/.test(m)?' independientes':''
-    return {reply:`Entiendo: necesita ${bedrooms} dormitorios${independent}. En este momento ninguna unidad residencial disponible en La Vilet cumple ese requisito; nuestras opciones llegan hasta ${Math.max(...catalog.map(unit=>Number(unit.bedrooms)).filter(value=>value>0))} dormitorios. ¿Desea comparar los departamentos más amplios y los penthouses teniendo presente esa diferencia?`,unit:null,phase:'compare_categories'}
+    const categories = [catalog.some(unit=>unit.category==='departamento')?'los departamentos más amplios':'',catalog.some(unit=>unit.category==='penthouse')?'los penthouses':''].filter(Boolean)
+    return {reply:`Entiendo: necesita ${bedrooms} dormitorios${independent}. En este momento ninguna unidad residencial disponible en La Vilet cumple ese requisito; nuestras opciones llegan hasta ${Math.max(...catalog.map(unit=>Number(unit.bedrooms)).filter(value=>value>0))} dormitorios. ¿Desea ${categories.length>1?'comparar':'revisar'} ${categories.join(' y ')} teniendo presente esa diferencia?`,unit:null,phase:'compare_categories'}
   }
-  if(/indispensable|obligatorio|exactamente|\bsolo\b|no (?:acepto|quiero).*alternativ/.test(m))return {reply:intro,unit:null}
   if(bedrooms!==null&&level===null&&size===null) {
-    const maxApartmentBedrooms = Math.max(0, ...catalog.filter(unit => unit.category === 'departamento').map(unit => Number(unit.bedrooms) || 0))
-    const maxApartmentArea = Math.max(0, ...catalog.filter(unit => unit.category === 'departamento').map(unit => Number(unit.area_internal_m2) || 0))
-    const maxPenthouseArea = Math.max(0, ...catalog.filter(unit => unit.category === 'penthouse').map(unit => Number(unit.area_internal_m2) || 0))
+    const apartments = catalog.filter(unit => unit.category === 'departamento')
+    const penthouses = catalog.filter(unit => unit.category === 'penthouse')
+    const maxApartmentBedrooms = Math.max(0, ...apartments.map(unit => Number(unit.bedrooms) || 0))
+    const maxApartmentArea = Math.max(0, ...apartments.map(unit => Number(unit.area_internal_m2) || 0))
+    const maxPenthouseArea = Math.max(0, ...penthouses.map(unit => Number(unit.area_internal_m2) || 0))
     const penthousePositioning = maxPenthouseArea >= maxApartmentArea && maxPenthouseArea > 0
       ? ', donde se encuentran las mayores superficies del proyecto'
       : ''
+    const alternatives = [
+      apartments.length ? `departamentos${maxApartmentBedrooms ? ` de ${maxApartmentBedrooms} dormitorios` : ''} con distribuciones generosas` : '',
+      penthouses.length ? `penthouses${penthousePositioning}` : '',
+    ].filter(Boolean).join(' y ')
+    const question = apartments.length && penthouses.length
+      ? '¿Le gustaría que comparemos ambas alternativas para valorar cuál se adapta mejor a lo que busca?'
+      : '¿Le gustaría que revisemos estas opciones para valorar si alguna se adapta a lo que busca?'
     return {
-      reply:`${intro} Sin embargo, podemos ayudarle a evaluar nuestras alternativas residenciales más amplias, entre ellas departamentos${maxApartmentBedrooms ? ` de ${maxApartmentBedrooms} dormitorios` : ''} con distribuciones generosas y penthouses${penthousePositioning}. ¿Le gustaría que comparemos ambas alternativas para valorar cuál se adapta mejor a lo que busca?`,
+      reply:`${intro} Sin embargo, podemos ayudarle a evaluar nuestras alternativas residenciales más amplias: ${alternatives}. ${question}`,
       unit:null,
       phase:'compare_categories',
     }

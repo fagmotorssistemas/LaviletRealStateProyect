@@ -23,6 +23,9 @@ const budgetStatuses = new Set([
   'not_discussed', 'unknown', 'amount', 'maximum_total', 'initial_capital',
   'sufficient_for_selected_unit', 'insufficient_for_selected_unit', 'declines_to_disclose',
 ])
+const propertyCategories = new Set(['suite', 'departamento', 'penthouse', 'local'])
+const referenceKinds = new Set(['none', 'explicit', 'relative', 'comparison', 'followup'])
+const unitSelectors = new Set(['largest', 'smallest', 'cheapest', 'most_expensive', 'first', 'last'])
 
 export const TURN_SEMANTIC_EXTRACTION_RULES = `
 Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
@@ -33,6 +36,15 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
   "answer_to_previous":{
     "question_id":"visit_invitation|visit_date_time|budget_amount|budget_kind|property_category|property_floor|unit_choice|purchase_timing|none",
     "kind":"affirmative|negative|uncertain|value|none",
+    "evidence":"copia literal breve del mensaje actual o cadena vacía",
+    "confidence":"high|medium|low"
+  },
+  "property":{
+    "category":null,
+    "excluded_categories":[],
+    "reference_kind":"none|explicit|relative|comparison|followup",
+    "unit_numbers":[],
+    "selector":null,
     "evidence":"copia literal breve del mensaje actual o cadena vacía",
     "confidence":"high|medium|low"
   },
@@ -48,6 +60,9 @@ answer_to_previous solo puede usar el question_id exacto recibido en pregunta_pe
 Una aceptación de una invitación a visita, incluso "sí está bien", es affirmative de visit_invitation. Una fecha u hora dada como respuesta es value de visit_date_time.
 En budget, unknown incluye dudas sobre cuánto puede gastar aunque haya errores ortográficos. sufficient_for_selected_unit significa que el cliente afirma que el precio de la unidad elegida sí se ajusta a su presupuesto; insufficient_for_selected_unit significa que afirma lo contrario. No convierta una simple aceptación, una cifra del precio citada por el bot ni una duda en una declaración de capacidad de pago.
 amount se completa solo con una cifra expresada por el cliente en el mensaje actual. No copie cifras del historial.
+property.category solo indica una preferencia AFIRMADA AHORA: suite|departamento|penthouse|local, no la última categoría mencionada ni una inferencia del historial. En "me interesan más los departamentos porque los penthouse deben ser muy caros", category=departamento y excluded_categories=[penthouse]. Mencionar una opción para descartarla no es elegirla. Una preocupación por precios no declara un presupuesto.
+property.reference_kind: explicit si identifica una unidad; comparison si compara varias; relative para "el más grande", "la primera", "el más barato"; followup para continuar una consulta sobre unidades previas ("¿y en precio?"). En relative seleccione selector=largest|smallest|cheapest|most_expensive|first|last según corresponda. Use las opciones que el bot REALMENTE acaba de mostrar, no otra categoría guardada anteriormente. Un empate no permite elegir una unidad.
+unit_numbers contiene solo códigos del catálogo realmente referidos. En explicit deben aparecer en el mensaje actual; en comparison/followup pueden proceder de la comparación activa del contexto. Nunca convierta precios, áreas, horas o pisos en números de unidad. En relative no invente un código: el sistema resuelve selector contra las opciones mostradas. Una pregunta "¿y en precio?" tras comparar 202 y 302 se refiere a AMBAS unidades, no a todo el catálogo.
 Use confidence=high solo cuando la evidencia literal y el contexto produzcan una única interpretación. No invente intención, unidad, presupuesto ni aceptación.
 `
 
@@ -76,9 +91,9 @@ export function pendingQuestionFromReply(reply: string): Row {
     && /gustaria|desea|quiere|coordin|agend|animaria/.test(value)) id = 'visit_invitation'
   else if (/presupuesto total|monto disponible|capital inicial|entrada/.test(value)) id = 'budget_kind'
   else if (/presupuesto|cuanto.*(?:invertir|dispone|cuenta)|capital aproximado/.test(value)) id = 'budget_amount'
-  else if (/que tipo de espacio|suite.*departamento|departamento.*suite|locales comerciales/.test(value)) id = 'property_category'
+  else if (/que tipo de espacio|suite.*departamento|departamento.*suite|departamento.*penthouse|penthouse.*departamento|locales comerciales/.test(value)) id = 'property_category'
   else if (/que planta|cual.*planta|que piso|cual.*piso/.test(value)) id = 'property_floor'
-  else if (/cual.*(?:revisar|explorar|prefiere|interesa)|que opcion/.test(value)) id = 'unit_choice'
+  else if (/cual.*(?:revisar|explorar|conocer|prefiere|interesa)|que opcion/.test(value)) id = 'unit_choice'
   else if (/cuando.*decision|plazo.*compra/.test(value)) id = 'purchase_timing'
   return id ? { id, question: question.slice(0, 500) } : {}
 }
@@ -103,11 +118,26 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     && budget.status !== 'not_discussed' ? text(budget.status) : 'not_discussed'
   const amount = typeof budget.amount === 'number' && Number.isFinite(budget.amount) && budget.amount > 0
     && /\d/.test(budgetEvidence) ? Number(budget.amount) : null
+  const property = object(data.property)
+  const propertyEvidence = literalEvidence(property.evidence, current)
+  const propertyConfident = property.confidence === 'high' && !!propertyEvidence
+  const excluded = propertyConfident && Array.isArray(property.excluded_categories)
+    ? [...new Set(property.excluded_categories.map(text).filter(value => propertyCategories.has(value)))] : []
+  const category = propertyConfident && propertyCategories.has(text(property.category)) && !excluded.includes(text(property.category))
+    ? text(property.category) : null
 
   return {
     primary_intent: primaryIntent,
     primary_evidence: primaryIntent === 'other' ? null : primaryEvidence,
     confidence: primaryIntent === 'other' ? 'low' : 'high',
+    property: {
+      category, excluded_categories: excluded,
+      reference_kind: propertyConfident && referenceKinds.has(text(property.reference_kind)) ? text(property.reference_kind) : 'none',
+      unit_numbers: propertyConfident && Array.isArray(property.unit_numbers)
+        ? [...new Set(property.unit_numbers.map(text).filter(value => /^(?:LC-?)?\d{1,4}$/i.test(value)))].slice(0, 12) : [],
+      selector: propertyConfident && unitSelectors.has(text(property.selector)) ? text(property.selector) : null,
+      evidence: propertyConfident ? propertyEvidence : null, confidence: propertyConfident ? 'high' : 'low',
+    },
     answer_to_previous: answerQuestionId ? {
       question_id: answerQuestionId,
       kind: text(answer.kind),
@@ -129,4 +159,3 @@ export function semanticBudgetStatus(semantics: unknown) {
   const budget = object(object(semantics).budget)
   return budget.confidence === 'high' && budgetStatuses.has(text(budget.status)) ? text(budget.status) : 'not_discussed'
 }
-

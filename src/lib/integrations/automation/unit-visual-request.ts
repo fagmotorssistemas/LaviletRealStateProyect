@@ -4,6 +4,7 @@ import { normalized } from './sdr-rules'
 export function isUnitVisualRequest(current: string) {
   const m = normalized(current.replace(/\[(?:Imagen|Archivo PDF):[\s\S]*?\]/g, ''))
   return /\b(?:modelos?|recorridos?|animacion|animaciones|3d|360|html|fotos?|fotografias?|imagenes?|renders?|planos?|videos?)\b/.test(m)
+    || /\b(?:referencia|vista|ficha) interactiva\b/.test(m)
     || (/\b(?:muestr[ae](?:me|nos)?|ver)\b/.test(m) && /\b(?:sala|comedor|cocina|dormitorio|habitacion|bano|balcon|terraza|estudio|lavanderia|despensa)\b/.test(m))
     || (/\b(?:enlace|link)\b/.test(m) && !/ubicacion|mapa|llegar|direccion/.test(m))
 }

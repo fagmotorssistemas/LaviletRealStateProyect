@@ -194,10 +194,13 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   input = { ...input, baseReply: currentTopicReply(safeBase.reply,input.current) }
   const fallback = (status: string, requests: Coverage[] = [], issues: string[] = []): TurnCompletenessResult => {
     const unresolved = uniqueFragments([...safeBase.unresolved, ...requests.filter(row => row.base_status === 'missing_fact' || row.status === 'missing_fact' || (row.base_status === 'unanswered' && row.request_type === 'specific_fact')).map(row => row.fragment)])
-    return { reply: input.baseReply, changed: input.baseReply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
+    const reply = input.baseReply || (originalBase.trim() && input.current.trim() ? 'Para orientarle mejor, ¿qué opciones le gustaría revisar?' : '')
+    return { reply, changed: reply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
       audit: { status, requests, issues, unsupported_rental_claim_removed: safeBase.removed } }
   }
-  if (!input.current.trim() || !input.baseReply.trim()) return fallback('skipped_empty')
+  // Removing an obsolete denial must not skip the semantic repair itself. The
+  // current question may ask about the remaining legitimate alternatives.
+  if (!input.current.trim() || !originalBase.trim()) return fallback('skipped_empty')
   const history = (Array.isArray(input.history) ? input.history : []).map(object).slice(-8)
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
