@@ -52,7 +52,7 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   const contextualJepTypo = !!jep && /\bgep\b/.test(message)
     && (/\bcooperativa gep\b/.test(message) || /\bjep\b/.test(normalized(lastReply)))
   if (contextualJepTypo) message = message.replace(/\bgep\b/g, 'jep')
-  const asksConsent = asksFinancingConsent(lastReply, lastStep)
+  const asksConsent = !acceptsUnitOptions(current, lastReply) && asksFinancingConsent(lastReply, lastStep)
   const decision = message.split(/\n+|\s+y\s+(?=(?:el local|la vivienda|el departamento|cuanto|que|como|eso)\b)/)[0]
   const explicitHelp = /^(?:si |claro |de acuerdo )?(?:ayudeme|ayudenme|ayudennos|ayudanos) (?:con|en) (?:el |la )?(?:financiamiento|revision|evaluacion)\b/.test(decision)
   const acceptsFinancialHelp = explicitHelp && /^(?:si|claro|de acuerdo)\b/.test(message) && /financ|credito|revision/.test(normalized(lastReply))

@@ -3,6 +3,7 @@ import { object, text, type Row } from './data'
 import { statedBudget } from './price-reply'
 import { normalized } from './sdr-rules'
 import { semanticBudgetStatus } from './turn-semantics'
+import { catalogDialogueReply } from './catalog-dialogue'
 
 type PropertyCategory = 'suite' | 'departamento' | 'penthouse' | 'local'
 
@@ -313,6 +314,8 @@ function selectedUnitReply(info: Row, unit: Row, current: string) {
 }
 
 export function propertySelectionReply(info: Row, current: string): { reply: string; audit: Row } | null {
+  const catalogueAnswer = catalogDialogueReply(info, current)
+  if (catalogueAnswer) return catalogueAnswer
   if (object(info.referencia_unidad).needsClarification) return null
   const selected = explicitUnitSelection(info, current)
   if (selected) return { reply: selectedUnitReply(info, selected, current), audit: {

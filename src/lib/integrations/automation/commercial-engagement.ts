@@ -7,6 +7,16 @@ const property = /inmueble|departamento|suite|vivienda|local|proyecto|propiedad|
 const identifiedProperty =
   /(?:este|esta|ese|esa)\s+(?:bien|inmueble|departamento|suite|propiedad|unidad|local)|la\s+suite|el\s+departamento|\bunidad\s*\d|\b\d{2,4}\b.*(?:piso|suite|depto|departamento)/
 
+/** A factual question can show interest without revoking an earlier sales refusal. */
+function renewedPropertyInterest(m: string) {
+  return /(?:quiero|quisiera|busco|deseo|me interesa|estoy interesad[oa] en) (?:comprar|adquirir|invertir)/.test(m)
+    && (property.test(m) || !/taxi|comida|cafe|capuchino|vehiculo|carro|vuelo|moto/.test(m))
+    || /(?:ahora si|si) (?:me interesa|estoy interesad[oa])/.test(m) && property.test(m)
+    || /(?:quiero|quisiera|deseo|me gustaria).*(?:visitar|agendar una visita|revisar (?:mi |el )?financiamiento|iniciar (?:la |una )?evaluacion)/.test(m)
+    || /(?:busco|quiero|quisiera|me interesa|necesito).*(?:departamento|suite|vivienda|local)/.test(m)
+      && /\b[123] (?:dormitorios|habitaciones|cuartos)|para (?:vivir|invertir|mi negocio)|presupuesto|\$|\b\d{3}\b/.test(m)
+}
+
 export function explicitPropertyInterest(value: string) {
   const m = normalized(value)
   if (/no (?:estoy interesad|me interesa|quiero comprar|quiero adquirir)|solo (?:por )?curiosidad/.test(m)) return false
@@ -26,12 +36,7 @@ export function explicitPropertyInterest(value: string) {
   ) {
     return true
   }
-  return /(?:quiero|quisiera|busco|deseo|me interesa|estoy interesad[oa] en) (?:comprar|adquirir|invertir)/.test(m)
-    && (property.test(m) || !/taxi|comida|cafe|capuchino|vehiculo|carro|vuelo|moto/.test(m))
-    || /(?:ahora si|si) (?:me interesa|estoy interesad[oa])/.test(m) && property.test(m)
-    || /(?:quiero|quisiera|deseo|me gustaria).*(?:visitar|agendar una visita|revisar (?:mi |el )?financiamiento|iniciar (?:la |una )?evaluacion)/.test(m)
-    || /(?:busco|quiero|quisiera|me interesa|necesito).*(?:departamento|suite|vivienda|local)/.test(m)
-      && /\b[123] (?:dormitorios|habitaciones|cuartos)|para (?:vivir|invertir|mi negocio)|presupuesto|\$|\b\d{3}\b/.test(m)
+  return renewedPropertyInterest(m)
 }
 
 /** Scope comprehension is not buying interest. Remember an explicit stop until real renewed interest. */
@@ -43,7 +48,7 @@ export function commercialEngagement(current: string, history: unknown, previous
     const content = text(row.content), m = normalized(content)
     if (row.role === 'cliente') {
       if (/no (?:no )?(?:estoy interesad[oa]|me interesa)(?:\b|$)|no (?:quiero|deseo) (?:comprar|adquirir)|solo (?:por )?curiosidad|(?:numero|chat) equivocado|me equivoque de (?:numero|chat)/.test(m)) { passive = true; interested = false }
-      else if (explicitPropertyInterest(content)) { passive = false; interested = true }
+      else if (explicitPropertyInterest(content) && (!passive || renewedPropertyInterest(m))) { passive = false; interested = true }
     } else if (['bot', 'asesor'].includes(text(row.role)) && isPropertyScopeRedirect(content)
       && !/no (?:vendemos|ofrecemos).{0,20}(?:casas|credito directo)/.test(m)) { passive = true; interested = false }
   }

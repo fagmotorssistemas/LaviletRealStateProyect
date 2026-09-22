@@ -12,7 +12,7 @@ import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sa
 import { commercialEngagement, passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
-import { acceptedPriceOption, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
+import { acceptedPriceOption, asksUnitPrice, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
 import { priceFinancingReply } from './financing'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
@@ -29,6 +29,7 @@ import { readCommercialContext } from './context-read'
 import { commercialLocationBudgetRecommendation } from './commercial-location-recommendation'
 import { propertySelectionReply } from './property-selection'
 import { resolvePropertyTurn } from './property-context'
+import { catalogDialogueReply } from './catalog-dialogue'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -90,10 +91,13 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  info = { ...info, catalogue_price_requested: asksUnitPrice(current, info.alcance_negocio === 'property') }
   if (!text(object(info.referencia_unidad).reason)) {
     const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
     info = { ...info, referencia_unidad: reference, property_context: reference.context }
   }
+  const catalogueAnswer = catalogDialogueReply(info, current)
+  if (catalogueAnswer) return catalogueAnswer
   const clarification=recommendationClarification(info,current)
   if(clarification)return {reply:clarification,audit:{source:'recommendation_clarification',fallback:false}}
   const house = houseProductReply(current, text(object(info.conversacion).ultima_respuesta))

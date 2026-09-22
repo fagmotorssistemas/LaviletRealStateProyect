@@ -27,6 +27,10 @@ export interface WorkflowExecution {
   leadName: string
   message: string
   traceAvailable: boolean
+  traceSource?: 'recorded' | 'inferred'
+  traceWarning?: string | null
+  stopReason?: string | null
+  versions?: Record<string, unknown>
   steps: WorkflowExecutionStep[]
 }
 
@@ -49,6 +53,17 @@ const KEY_LABELS: Record<string, string> = {
   uncertain: 'Interpretación incierta', visit_intent: 'Intención de visita',
   nutrition_24h: 'Seguimiento de 24 h', nutrition_week_one: 'Seguimiento de primera semana',
   nutrition_later: 'Seguimiento posterior', provider: 'Proveedor', response_registered: 'Respuesta registrada',
+  trace_schema: 'Versión de bitácora', code_version: 'Versión de código', contract_version: 'Contrato de interpretación',
+  model: 'Modelo', prompt_versions: 'Versiones de instrucciones', primary_intent: 'Intención principal',
+  confidence: 'Confianza', answers_question: 'Pregunta respondida', answer_kind: 'Tipo de respuesta',
+  filters: 'Filtros aplicados', candidate_unit_ids: 'Unidades candidatas', selected_unit_ids: 'Unidades elegidas',
+  reference_reason: 'Motivo de la referencia', needs_clarification: 'Requiere aclaración',
+  next_question: 'Siguiente pregunta', question_target_ids: 'Unidades de la pregunta', locked: 'Respuesta protegida',
+  facts_valid: 'Hechos validados', coverage_checked: 'Cobertura comprobada', delivery_confirmed: 'Entrega al teléfono confirmada',
+  method: 'Método de interpretación', property_group: 'Grupo de propiedades', property_category: 'Categoría interpretada',
+  operation: 'Operación solicitada', query_scope: 'Alcance de la búsqueda', query: 'Consulta aplicada',
+  reference_kind: 'Tipo de referencia', request_count: 'Solicitudes reconocidas', discarded_request_count: 'Solicitudes sin evidencia',
+  prompt_revision: 'Huella de instrucciones',
 }
 
 export function fieldLabel(key: string) {
@@ -80,6 +95,7 @@ function statusLabel(status: string) {
 
 function resultSummary(step: WorkflowExecutionStep) {
   if (step.errorCode) return `Error: ${step.errorCode}`
+  if (step.key === 'message_delivery' && step.output.action === 'accepted') return 'Kommo aceptó iniciar Salesbot; entrega al teléfono sin confirmar.'
   const entries = Object.entries(step.output)
   if (!entries.length) return statusLabel(step.status)
   return entries.slice(0, 3).map(([key, value]) => `${fieldLabel(key)}: ${displayValue(value)}`).join(' · ')
@@ -87,12 +103,13 @@ function resultSummary(step: WorkflowExecutionStep) {
 
 export function workflowFromExecution(execution: WorkflowExecution): WorkflowDefinition | null {
   if (!execution.steps?.length) return null
-  const nodes: WorkflowNode[] = execution.steps.map((step, index) => ({
+  const steps = [...execution.steps].sort((a, b) => a.order - b.order)
+  const nodes: WorkflowNode[] = steps.map((step, index) => ({
     id: `step-${step.order}`,
     type: 'workflow',
     position: { x: index * 285, y: index % 2 === 0 ? 180 : 230 },
     data: {
-      title: step.label,
+      title: step.key === 'message_delivery' && step.output.action === 'accepted' ? 'Aceptación de Kommo' : step.label,
       eyebrow: `${String(step.order).padStart(2, '0')} · ${statusLabel(step.status)}`,
       summary: resultSummary(step),
       kind: nodeKind(step),
@@ -115,7 +132,7 @@ export function workflowFromExecution(execution: WorkflowExecution): WorkflowDef
   }))
   return {
     label: `Ejecución de ${execution.leadName}`,
-    description: `${execution.outcome}. Cada nodo corresponde a un paso registrado por esa ejecución.`,
+    description: `${execution.outcome}. Cada nodo corresponde a un paso registrado; los pasos ausentes no se dan por ejecutados.`,
     nodes,
     edges,
   }

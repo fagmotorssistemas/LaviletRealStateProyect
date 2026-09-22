@@ -1,6 +1,6 @@
 # Automatización de La Vilet: referencia canónica
 
-**Revisión:** 20 de septiembre de 2026
+**Revisión:** 22 de septiembre de 2026. Motor conversacional v2: cambios locales pendientes de despliegue.
 **Alcance:** mensajes de WhatsApp recibidos mediante Kommo, respuestas del bot, citas, financiamiento, nutrición y traspasos a asesores.
 **Propósito:** explicar el comportamiento real sin mezclar reglas activas, cambios locales y propuestas futuras.
 
@@ -77,6 +77,8 @@ Un lead puede estar al mismo tiempo en **Oportunidad**, **Tibio** y con **nutric
 4. [Citas y financiamiento](./04-citas-y-financiamiento.md): estados, notificaciones, recordatorios y precalificación.
 5. [Leads, temperatura y seguimiento](./05-leads-y-seguimiento.md): etapas, puntos, nutrición y recuperación.
 6. [Configuración y mapa del código](./06-configuracion-y-codigo.md): pantallas, tablas, Salesbots, campos y módulos responsables.
+7. [Motor conversacional y diagnóstico por turno](./07-motor-conversacional.md): contrato común, catálogo, memoria, trazas y pruebas.
+8. [Caso de continuidad del 22 de septiembre](./08-regresion-conversacional-2026-09-22.md): fallos observados, correcciones y límites de la validación local.
 
 ## Qué permite ver el flujo visual
 

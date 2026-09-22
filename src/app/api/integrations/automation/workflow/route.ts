@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getSessionProfile, getSessionUser } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
+import { executionOutcome, executionRoute } from '@/lib/integrations/automation/execution-route'
+import { sanitizeTraceSummary, traceText } from '@/lib/integrations/automation/trace-summary'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -31,42 +33,6 @@ function object(value: unknown): Row {
 
 function text(value: unknown) {
   return typeof value === 'string' ? value : ''
-}
-
-function traceFor(kind: string, payload: Row, result: Row, lead?: Row) {
-  const action = text(result.action)
-  const source = text(result.source)
-  const task = text(payload.task)
-  if (kind === 'maintenance' && task.startsWith('nutrition_')) {
-    return { workflowId: 'nutrition', path: ['timer', 'eligible', 'activity', 'context', action === 'cancelled' ? 'cancel' : 'send'] }
-  }
-  if (['bot_paused', 'human_attention', 'paused_before_reply', 'paused_before_salesbot'].includes(action)) {
-    if (action === 'human_attention') return { workflowId: 'pauses', path: ['inbound', 'manual', 'optout', 'human', 'pause'] }
-    if (lead?.tracking_opt_out_at) return { workflowId: 'pauses', path: ['inbound', 'manual', 'optout', 'pause'] }
-    return { workflowId: 'pauses', path: ['inbound', 'manual', 'pause'] }
-  }
-  if (['confirmed', 'duplicate'].includes(action) || /visit|appointment|reagend|cita/.test(`${source} ${text(result.state)}`)) {
-    return { workflowId: 'visits', path: ['intent', 'state', 'enough', 'request', 'advisor', 'client', action === 'confirmed' ? 'confirmed' : 'retry'] }
-  }
-  if (/financ/.test(`${source} ${text(result.state)}`)) {
-    const complete = action === 'advisor_handoff' || /complete|handoff|revision/.test(text(result.state))
-    return { workflowId: 'financing', path: ['intent', 'scope', 'progress', 'next', complete ? 'validate' : 'question', ...(complete ? ['handoff'] : [])] }
-  }
-  const branch = action === 'advisor_handoff' ? 'handoff' : 'commercial'
-  return { workflowId: 'overview', path: ['inbound', 'guard', 'context', 'extractor', 'router', branch, 'quality', ...(action === 'accepted' ? ['delivery'] : [])] }
-}
-
-function outcomeLabel(status: string, action: string) {
-  if (status === 'uncertain') return 'Requiere revisión'
-  if (status === 'pending') return 'Pendiente'
-  if (status === 'processing') return 'Procesando'
-  const labels: Record<string, string> = {
-    accepted: 'Respuesta enviada', confirmed: 'Cita confirmada', advisor_handoff: 'Asignado a asesor',
-    bot_paused: 'IA detenida', human_attention: 'Atención del asesor', duplicate: 'Evento duplicado',
-    cancelled: 'Cancelado', expired: 'Ventana vencida', paused_before_reply: 'Pausado antes de responder',
-    paused_before_salesbot: 'Pausado antes del envío', courtesy_already_acknowledged: 'Cortesía ya atendida',
-  }
-  return labels[action] || action.replaceAll('_', ' ') || (status === 'completed' ? 'Completado' : status)
 }
 
 export async function GET() {
@@ -105,7 +71,7 @@ export async function GET() {
           category: text(step.category), status: text(step.status), source: text(step.source_module),
           startedAt: text(step.started_at), completedAt: text(step.completed_at),
           durationMs: Number(step.duration_ms) || 0,
-          input: object(step.input_summary), output: object(step.output_summary),
+          input: sanitizeTraceSummary(step.input_summary), output: sanitizeTraceSummary(step.output_summary),
           errorCode: text(step.error_code) || null,
         }
         stepsByEvent.set(eventId, [...(stepsByEvent.get(eventId) || []), normalized])
@@ -123,21 +89,25 @@ export async function GET() {
     const executions = (events.data || []).map(row => {
       const payload = object(row.payload), result = object(row.result)
       const lead = leadByKommo.get(Number(payload.kommoId))
-      const trace = traceFor(row.kind, payload, result, lead)
       const action = text(result.action) || text(result.reason)
       const content = text(payload.text) || text(payload.message) || text(payload.content)
       const steps = stepsByEvent.get(row.id) || []
+      const trace = executionRoute(steps, row.kind, payload, result, lead)
       return {
         id: row.id,
         workflowId: trace.workflowId,
         path: trace.path,
         status: row.status,
         action,
-        outcome: outcomeLabel(row.status, action),
+        outcome: executionOutcome(row.status, action),
         occurredAt: row.completed_at || row.received_at,
         leadName: text(lead?.name) || (payload.kommoId ? `Lead Kommo #${payload.kommoId}` : 'Tarea automática'),
-        message: content.slice(0, 180),
+        message: traceText(content, 180),
         traceAvailable: steps.length > 0,
+        traceSource: trace.traceSource,
+        traceWarning: stepQuery.error ? 'AUDIT_READ_FAILED' : !steps.length ? 'NO_RECORDED_STEPS' : null,
+        stopReason: trace.stopReason,
+        versions: trace.versions,
         steps,
       }
     })

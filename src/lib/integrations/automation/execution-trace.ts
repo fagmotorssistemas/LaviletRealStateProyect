@@ -1,5 +1,7 @@
 import 'server-only'
 import { db, object, scope, text, type Row } from './data'
+import { sanitizeTraceSummary, traceErrorCode } from './trace-summary'
+export { traceText } from './trace-summary'
 
 export type TraceCategory = 'input' | 'control' | 'context' | 'ai' | 'decision' | 'action' | 'output'
 export type TraceStatus = 'succeeded' | 'paused' | 'skipped' | 'failed'
@@ -19,29 +21,48 @@ type PendingStep = {
 }
 
 const UUID = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i
-
-export function traceText(value: unknown, max = 360) {
-  return text(value)
-    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[correo protegido]')
-    .replace(/(?:\+?\d[\s().-]*){10,13}/g, '[dato protegido]')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, max)
+export const TRACE_SCHEMA_VERSION = 'lavilet-trace-v2'
+export type TraceVersions = { contractVersion?: string; model?: string; promptVersions?: Record<string, string | number> }
+type TraceDependencies = {
+  persist: (rows: Row[]) => PromiseLike<{ error?: unknown }>
+  report: (record: Row) => void
 }
-
-function safeError(error: unknown) {
-  const value = error instanceof Error ? error.message : String(error || '')
-  return /^[A-Z0-9_]+$/.test(value) ? value.slice(0, 120) : 'PROCESSING_FAILED'
+const defaults: TraceDependencies = {
+  persist: rows => db().from('lv_automation_execution_steps').upsert(rows, { onConflict: 'event_id,step_order' })
+    .abortSignal(AbortSignal.timeout(5000)),
+  report: record => console.error(JSON.stringify(record)),
 }
+const versionValue = (value: unknown) => typeof value === 'string' && /^[\w.:-]{1,160}$/.test(value) ? value : null
 
 export class AutomationExecutionTrace {
   private steps: PendingStep[] = []
   private leadId: string | null = null
   private conversationId: string | null = null
   private readonly eventIds: string[]
+  private readonly dependencies: TraceDependencies
 
-  constructor(events: Row[]) {
+  constructor(events: Row[], dependencies: Partial<TraceDependencies> = {}) {
+    this.dependencies = { ...defaults, ...dependencies }
     this.eventIds = [...new Set(events.map(event => text(event.id)).filter(id => UUID.test(id)))]
+    this.add('execution_version', 'Versión de la ejecución', 'context', 'execution-trace.ts', 'succeeded', {}, {
+      trace_schema: TRACE_SCHEMA_VERSION,
+      code_version: versionValue(process.env.VERCEL_GIT_COMMIT_SHA || process.env.AUTOMATION_CODE_VERSION),
+      contract_version: null,
+      model: versionValue(process.env.OPENAI_MODEL),
+      prompt_versions: {},
+    })
+  }
+
+  /** Only identities actually used by this turn; absence stays explicit. No prompt content. */
+  setVersions(values: TraceVersions) {
+    const version = this.steps.find(step => step.key === 'execution_version')!
+    if (values.contractVersion) version.output.contract_version = versionValue(values.contractVersion)
+    if (values.model) version.output.model = versionValue(values.model)
+    const prompts = object(version.output.prompt_versions)
+    for (const [name, value] of Object.entries(values.promptVersions || {})) {
+      if (/^[\w.-]{1,80}$/.test(name) && (typeof value === 'number' && Number.isFinite(value) || versionValue(value))) prompts[name] = value
+    }
+    version.output.prompt_versions = prompts
   }
 
   setContext(values: { leadId?: unknown; conversationId?: unknown }) {
@@ -57,7 +78,7 @@ export class AutomationExecutionTrace {
       category,
       source,
       startedMs: Date.now(),
-      input: object(input),
+      input: sanitizeTraceSummary(input),
       output: {},
     }
     this.steps.push(step)
@@ -69,8 +90,8 @@ export class AutomationExecutionTrace {
     if (!step || step.status) return
     step.completedMs = Date.now()
     step.status = status
-    step.output = object(output)
-    if (error) step.errorCode = safeError(error)
+    step.output = sanitizeTraceSummary(output)
+    if (error) step.errorCode = traceErrorCode(error)
   }
 
   add(key: string, label: string, category: TraceCategory, source: string, status: TraceStatus, input: Row = {}, output: Row = {}, error?: unknown) {
@@ -101,14 +122,17 @@ export class AutomationExecutionTrace {
         started_at: new Date(step.startedMs).toISOString(),
         completed_at: new Date(step.completedMs || now).toISOString(),
         duration_ms: Math.min(600000, Math.max(0, (step.completedMs || now) - step.startedMs)),
-        input_summary: step.input,
-        output_summary: step.output,
-        error_code: step.errorCode || null,
+        input_summary: sanitizeTraceSummary(step.input),
+        output_summary: sanitizeTraceSummary(step.output),
+        error_code: step.errorCode || (!step.status ? 'TRACE_STEP_NOT_FINISHED' : null),
       })))
     try {
-      await db().from('lv_automation_execution_steps').upsert(rows, { onConflict: 'event_id,step_order' })
-    } catch {
-      // La auditoría nunca debe impedir una respuesta al lead.
+      const result = await this.dependencies.persist(rows)
+      if (result.error) throw result.error
+    } catch (error) {
+      // Report both returned Supabase errors and thrown failures; never replay delivery.
+      try { this.dependencies.report({ event: 'AUTOMATION_TRACE_FLUSH_FAILED', code: traceErrorCode(error), event_count: this.eventIds.length, step_count: this.steps.length }) }
+      catch { /* Observability cannot change the outcome of an accepted send. */ }
     }
   }
 }

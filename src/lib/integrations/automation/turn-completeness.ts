@@ -212,7 +212,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   let requests: Coverage[] = []
   try {
     const visitRules = COMMERCIAL_ACCURACY_RULES + (isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + (input.verified.estado_proyecto ? '\n'+readinessRules(input.verified.estado_proyecto as ProjectReadiness) : '')
-    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(input.current, memory) + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
+    const writingRules = input.audit?.verified_catalog === true
+      ? '\nLa respuesta_base proviene de una consulta ejecutada sobre el catálogo. Preserve sus resultados, categorías, medidas y pregunta con su referente. Las medidas ya incluidas son pertinentes aunque el turno sea «sí» o «esa opción». Añada solamente respuestas a otras solicitudes actuales; no convierta una consulta de máximos en una selección ni mezcle otros dormitorios en sus rangos.'
+      : turnWritingRules(input.current, memory)
+    const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + writingRules + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
     if (!rows || !declaredQuestion) return fallback('invalid_coverage')
     requests = rows

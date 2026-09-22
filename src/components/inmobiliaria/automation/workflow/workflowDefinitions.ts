@@ -62,9 +62,14 @@ export const WORKFLOWS = {
         source: 'context-read.ts · data.ts', reads: ['Historial reciente', 'Catálogo vigente', 'Estado del lead'], result: 'Contexto acotado para interpretar el turno',
       }),
       node('extractor', 830, 190, {
-        title: 'Extractor semántico', eyebrow: 'GPT', kind: 'ai',
-        summary: 'Interpreta intención, referencias, errores ortográficos y la respuesta a la última pregunta pendiente.',
-        source: 'ai.ts · conversation-rules.ts · turn-semantics.ts', reads: ['Mensaje actual', 'Historial contextual', 'Pregunta pendiente'], result: 'Intención, evidencia y entidades estructuradas',
+        title: 'Interpretación del turno', eyebrow: 'IA', kind: 'ai',
+        summary: 'Interpreta los mensajes elegibles antes de elegir la respuesta, conservando la pregunta pendiente y sus referentes.',
+        source: 'turn-interpretation.ts · turn-semantics.ts', reads: ['Mensaje actual', 'Historial contextual', 'Pregunta pendiente'], result: 'Intención, evidencia y entidades estructuradas',
+      }),
+      node('catalog', 1110, 500, {
+        title: 'Resolver con el catálogo', eyebrow: 'Hechos', kind: 'process',
+        summary: 'Aplica restricciones de categoría, planta y superficie, y conserva las unidades que respaldan el resultado.',
+        source: 'property-context.ts · commercialContext', reads: ['Interpretación', 'Catálogo disponible', 'Pregunta pendiente'], result: 'Filtros, candidatas y motivo de selección o aclaración',
       }),
       node('router', 1110, 190, {
         title: 'Enrutador de intención', eyebrow: 'Decisión', kind: 'decision',
@@ -93,19 +98,24 @@ export const WORKFLOWS = {
       }),
       node('quality', 1680, 190, {
         title: 'Plan y control de respuesta', eyebrow: 'Validación', kind: 'decision',
-        summary: 'Bloquea las respuestas operativas verificadas; en las respuestas abiertas revisa continuidad, repetición y datos no verificados.',
+        summary: 'Valida hechos y resultados operativos. La bitácora indica qué controles se ejecutaron y qué respuesta quedó protegida.',
         source: 'response-plan.ts · turn-completeness.ts', reads: ['Respuesta propuesta', 'Acción ejecutada', 'Datos obligatorios'], result: 'Respuesta protegida o revisión controlada',
       }),
       node('delivery', 1960, 190, {
-        title: 'Envío por Salesbot', eyebrow: 'Salida', kind: 'success',
+        title: 'Aceptación de Kommo', eyebrow: 'Salida', kind: 'success',
         summary: 'Comprueba de nuevo que nadie haya respondido antes de enviar y registra la salida.',
-        source: 'conversation.ts · kommo.ts', reads: ['Permiso vigente', 'Mensajes concurrentes'], result: 'Respuesta enviada y auditada',
+        source: 'conversation.ts · kommo.ts', reads: ['Permiso vigente', 'Mensajes concurrentes'], result: 'Kommo aceptó iniciar Salesbot; entrega al teléfono sin confirmar',
+      }),
+      node('memory', 2240, 190, {
+        title: 'Guardar memoria', eyebrow: 'Estado', kind: 'process',
+        summary: 'Conserva preferencias, opciones, selección y pregunta pendiente después de la aceptación; registra si falla el guardado.',
+        source: 'conversation.ts · property-context.ts', reads: ['Respuesta aceptada', 'Decisión del turno'], result: 'Memoria actualizada o fallo visible',
       }),
     ],
     edges: [
-      edge('inbound', 'guard'), edge('guard', 'context', 'continúa'), edge('context', 'extractor'), edge('extractor', 'router'),
+      edge('inbound', 'guard'), edge('guard', 'context', 'continúa'), edge('context', 'extractor'), edge('extractor', 'catalog'), edge('catalog', 'router'),
       edge('router', 'commercial', 'información'), edge('router', 'visit', 'visita'), edge('router', 'finance', 'financiamiento'), edge('router', 'handoff', 'asesor'),
-      edge('commercial', 'quality'), edge('visit', 'quality'), edge('finance', 'quality'), edge('handoff', 'quality'), edge('quality', 'delivery'),
+      edge('commercial', 'quality'), edge('visit', 'quality'), edge('finance', 'quality'), edge('handoff', 'quality'), edge('quality', 'delivery'), edge('delivery', 'memory'),
     ],
   },
   pauses: {
@@ -280,7 +290,7 @@ export const WORKFLOWS = {
       node('send', 1240, 190, {
         title: 'Enviar seguimiento', eyebrow: 'Salida', kind: 'success',
         summary: 'Completa las variables autorizadas, envía la plantilla y registra el resultado.',
-        source: 'nutrition.ts · kommo.ts', reads: ['Plantilla aprobada', 'Variables'], result: 'Seguimiento enviado y auditado',
+        source: 'nutrition.ts · kommo.ts', reads: ['Plantilla aprobada', 'Variables'], result: 'Solicitud aceptada por Kommo; entrega al teléfono sin confirmar',
       }),
       node('cancel', 930, 410, {
         title: 'Cancelar seguimiento', eyebrow: 'Resultado', kind: 'pause',
