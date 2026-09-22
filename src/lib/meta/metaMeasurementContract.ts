@@ -52,7 +52,10 @@ export function isPurchaseMetaSendEnabled(
 
 /**
  * Corte verificable: ISO en META_PURCHASE_ACTIVATED_AT.
- * Elegibilidad por registered_at (registro), no por sale_at backdateable.
+ * Elegibilidad exige AMBAS evidencias existentes (no inventadas):
+ * - registered_at: cuándo se registró el cierre en CRM
+ * - sale_at: confirmación comercial ya registrada en el cierre
+ * Un histórico cargado después (registered_at reciente + sale_at antiguo) queda fuera.
  */
 export function getPurchaseActivatedAtMs(
   env: NodeJS.ProcessEnv = process.env,
@@ -63,23 +66,37 @@ export function getPurchaseActivatedAtMs(
   return Number.isFinite(ms) ? ms : null
 }
 
+function parseExistingTimestampMs(
+  raw: string | number | Date | null | undefined,
+): number | null {
+  if (raw == null) return null
+  if (raw instanceof Date) {
+    const ms = raw.getTime()
+    return Number.isFinite(ms) ? ms : null
+  }
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw)) return null
+    return raw > 1e12 ? raw : raw * 1000
+  }
+  const ms = Date.parse(String(raw))
+  return Number.isFinite(ms) ? ms : null
+}
+
 export function isPurchaseSaleEligibleForDelivery(
-  registeredAt: string | number | Date,
+  input: {
+    registeredAt: string | number | Date | null | undefined
+    /** Confirmación comercial existente (sale_at). No inventar ni reescribir. */
+    commercialConfirmedAt: string | number | Date | null | undefined
+  },
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   if (!isPurchaseMetaSendEnabled(env)) return false
   const cut = getPurchaseActivatedAtMs(env)
   if (cut == null) return false
-  const regMs =
-    registeredAt instanceof Date
-      ? registeredAt.getTime()
-      : typeof registeredAt === 'number'
-        ? registeredAt > 1e12
-          ? registeredAt
-          : registeredAt * 1000
-        : Date.parse(String(registeredAt))
-  if (!Number.isFinite(regMs)) return false
-  return regMs >= cut
+  const regMs = parseExistingTimestampMs(input.registeredAt)
+  const confirmedMs = parseExistingTimestampMs(input.commercialConfirmedAt)
+  if (regMs == null || confirmedMs == null) return false
+  return regMs >= cut && confirmedMs >= cut
 }
 
 export function nestSupportsEventSend(name: string): boolean {

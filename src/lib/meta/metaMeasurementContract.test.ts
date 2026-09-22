@@ -45,18 +45,39 @@ describe('metaMeasurementContract', () => {
     }
   })
 
-  it('corte Purchase por registered_at', () => {
+  it('corte Purchase exige registered_at y sale_at ambos >= ACTIVATED_AT', () => {
     const prevD = process.env.META_PURCHASE_DELIVERY_ENABLED
     const prevA = process.env.META_PURCHASE_ACTIVATED_AT
     try {
       process.env.META_PURCHASE_DELIVERY_ENABLED = 'true'
       process.env.META_PURCHASE_ACTIVATED_AT = '2026-09-22T21:30:00.000Z'
+      // Histórico cargado después: registered reciente + sale_at antiguo
       assert.equal(
-        isPurchaseSaleEligibleForDelivery('2026-09-22T21:29:59.000Z'),
+        isPurchaseSaleEligibleForDelivery({
+          registeredAt: '2026-09-22T22:00:00.000Z',
+          commercialConfirmedAt: '2026-09-01T12:00:00.000Z',
+        }),
         false,
       )
       assert.equal(
-        isPurchaseSaleEligibleForDelivery('2026-09-22T21:30:00.000Z'),
+        isPurchaseSaleEligibleForDelivery({
+          registeredAt: '2026-09-22T21:29:59.000Z',
+          commercialConfirmedAt: '2026-09-22T21:30:00.000Z',
+        }),
+        false,
+      )
+      assert.equal(
+        isPurchaseSaleEligibleForDelivery({
+          registeredAt: '2026-09-22T21:30:00.000Z',
+          commercialConfirmedAt: null,
+        }),
+        false,
+      )
+      assert.equal(
+        isPurchaseSaleEligibleForDelivery({
+          registeredAt: '2026-09-22T21:30:00.000Z',
+          commercialConfirmedAt: '2026-09-22T21:30:00.000Z',
+        }),
         true,
       )
     } finally {

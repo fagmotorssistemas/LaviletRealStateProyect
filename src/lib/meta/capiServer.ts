@@ -122,6 +122,8 @@ export type EnqueueMetaEventInput = {
   tenantId?: string | null
   projectId?: string | null
   registeredAt?: string | null
+  /** Confirmación comercial existente (Purchase). No inventar. */
+  saleAt?: string | null
   value?: number | null
   currency?: string | null
   clientIpAddress?: string | null
@@ -201,6 +203,7 @@ export async function enqueueMetaEvent(
         tenant_id: input.tenantId || undefined,
         project_id: input.projectId || undefined,
         registered_at: input.registeredAt || undefined,
+        sale_at: input.saleAt || undefined,
         value: input.value ?? undefined,
         currency: input.currency || undefined,
         delivery_lane: input.deliveryLane,

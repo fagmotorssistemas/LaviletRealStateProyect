@@ -1,8 +1,9 @@
 /**
- * Captura Purchase (cierre comercial) → outbox.
- * Con delivery ON + corte + currency ISO → pending (flush Nest).
+ * Captura Purchase (cierre comercial CRM) → outbox.
+ * Con delivery ON + corte dual + currency ISO → pending (flush Nest).
  * Históricos / sin moneda / antes del corte → review_hold (no liberar en masa).
- * Canal siempre website (dataset web); no confundir con procedencia WA del lead.
+ * action_source=system_generated (Meta CAPI CRM/offline). No website por registrar
+ * en CRM ni business_messaging por procedencia WA del lead.
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -73,8 +74,12 @@ export async function persistPurchasePrepared(
 
   const currency = normalizeCurrency(input.currency)
   const registeredAt = String(input.registeredAt || new Date().toISOString())
+  const saleAt = String(input.saleAt || '').trim()
   const deliveryOn = isPurchaseMetaSendEnabled()
-  const afterCutover = isPurchaseSaleEligibleForDelivery(registeredAt)
+  const afterCutover = isPurchaseSaleEligibleForDelivery({
+    registeredAt,
+    commercialConfirmedAt: saleAt || null,
+  })
   const deliveryEligible = Boolean(deliveryOn && afterCutover && currency)
 
   let blockReason: string | null = null
@@ -102,7 +107,7 @@ export async function persistPurchasePrepared(
     status,
     lastError: blockReason,
     payload: {
-      action_source: 'website',
+      action_source: 'system_generated',
       lv_internal_subtype: 'compra',
       value: input.value,
       ...(currency ? { currency } : {}),
@@ -114,7 +119,7 @@ export async function persistPurchasePrepared(
           }),
       sale_id: saleId,
       unit_id: unitId,
-      sale_at: input.saleAt,
+      sale_at: saleAt || input.saleAt,
       registered_at: registeredAt,
       tenant_id: input.tenantId || undefined,
       project_id: input.projectId || undefined,
@@ -128,8 +133,8 @@ export async function persistPurchasePrepared(
         block_reason: blockReason,
         activation_cutover: process.env.META_PURCHASE_ACTIVATED_AT || null,
         annulment_gate: 'cancel_on_contract_anulado',
-        channel: 'website',
-        dataset: 'web_pixel',
+        action_source_reason: 'crm_closing_system_generated',
+        channel: 'crm',
       },
     },
   })

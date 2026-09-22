@@ -296,12 +296,19 @@ export async function flushLocalMetaOutbox(
       continue
     }
     if (row.event_name === 'Purchase') {
+      const p = row.payload as {
+        registered_at?: string
+        sale_at?: string
+      } | null
       const reg =
-        typeof (row.payload as { registered_at?: string } | null)?.registered_at ===
-        'string'
-          ? String((row.payload as { registered_at: string }).registered_at)
-          : null
-      if (!reg || !isPurchaseSaleEligibleForDelivery(reg)) {
+        typeof p?.registered_at === 'string' ? String(p.registered_at) : null
+      const saleAt = typeof p?.sale_at === 'string' ? String(p.sale_at) : null
+      if (
+        !isPurchaseSaleEligibleForDelivery({
+          registeredAt: reg,
+          commercialConfirmedAt: saleAt,
+        })
+      ) {
         skipped += 1
         console.info('[meta-outbox] flush skip purchase_before_cutover', {
           event_id: row.event_id,
@@ -367,6 +374,7 @@ export async function flushLocalMetaOutbox(
       projectId: typeof payload.project_id === 'string' ? payload.project_id : undefined,
       registeredAt:
         typeof payload.registered_at === 'string' ? payload.registered_at : undefined,
+      saleAt: typeof payload.sale_at === 'string' ? payload.sale_at : undefined,
       value:
         typeof payload.value === 'number'
           ? payload.value
