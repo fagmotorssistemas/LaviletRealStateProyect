@@ -59,10 +59,14 @@ function Kpi({
 
 function adLabel(row: AttributedAdFunnelRow) {
   const sourceId = row.adId || row.attributionKey || 'sin_id'
-  const name = row.adName?.trim()
-  return name
-    ? `Anuncio CTWA (${sourceId}) · ${name}`
-    : `Anuncio CTWA (${sourceId})`
+  const adName = row.adName?.trim()
+  const campaign = row.campaignName?.trim()
+  const parts = [
+    adName ? `Anuncio ${adName}` : `Anuncio CTWA (${sourceId})`,
+    campaign ? `Campaña ${campaign}` : null,
+    row.adsetName ? `Conjunto ${row.adsetName}` : null,
+  ].filter(Boolean)
+  return parts.join(' · ')
 }
 
 function SectionTitle({
@@ -249,18 +253,17 @@ export function MarketingFunnelMetricsView({
                 <table className="min-w-full text-left text-[11px]">
                   <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase">
                     <tr>
-                      <th className="px-2 py-2 font-semibold">Anuncio</th>
-                      <th className="px-2 py-2 font-semibold">Leads</th>
+                      <th className="px-2 py-2 font-semibold">Anuncio / campaña</th>
+                      <th className="px-2 py-2 font-semibold">Leads CRM</th>
                       <th className="px-2 py-2 font-semibold">F/T/C/SC</th>
+                      <th className="px-2 py-2 font-semibold">Gasto</th>
+                      <th className="px-2 py-2 font-semibold">CPL</th>
+                      <th className="px-2 py-2 font-semibold">Meta results</th>
                       <th className="px-2 py-2 font-semibold">Citas sol.</th>
                       <th className="px-2 py-2 font-semibold">Conf.</th>
                       <th className="px-2 py-2 font-semibold">Realiz.</th>
-                      <th className="px-2 py-2 font-semibold">Canc.</th>
-                      <th className="px-2 py-2 font-semibold">No-show</th>
-                      <th className="px-2 py-2 font-semibold">Reprog.</th>
                       <th className="px-2 py-2 font-semibold">Reservas</th>
                       <th className="px-2 py-2 font-semibold">Ventas</th>
-                      <th className="px-2 py-2 font-semibold">Importe</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -269,17 +272,31 @@ export function MarketingFunnelMetricsView({
                         key={row.attributionKey}
                         className="border-b border-[#f0ebe3] align-top"
                       >
-                        <td className="max-w-[16rem] px-2 py-2 text-[#1f1a14]">
+                        <td className="max-w-[18rem] px-2 py-2 text-[#1f1a14]">
                           <span className="font-medium">{adLabel(row)}</span>
-                          {row.resolutionStatus !== 'resolved' ? (
-                            <span className="mt-0.5 block text-[10px] text-[#8a8176]">
-                              {row.resolutionStatus}
-                            </span>
-                          ) : null}
+                          <span className="mt-0.5 block text-[10px] text-[#8a8176]">
+                            {row.adId ? `ad ${row.adId}` : 'sin source_id'}
+                            {row.campaignId ? ` · camp ${row.campaignId}` : ''}
+                            {' · '}
+                            {row.resolutionStatus}
+                          </span>
                         </td>
                         <td className="px-2 py-2 tabular-nums">{row.leadsUnique}</td>
                         <td className="px-2 py-2">
                           <TempInline temperature={row.temperature} />
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {row.adSpend == null ? 'n/d' : formatAmount(row.adSpend, 'USD')}
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {row.costPerLead == null
+                            ? 'No disponible'
+                            : formatAmount(row.costPerLead, 'USD')}
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {row.metaReportedResults == null
+                            ? 'n/d'
+                            : row.metaReportedResults}
                         </td>
                         <td className="px-2 py-2 tabular-nums">
                           {row.leadsWithAppointmentRequested}
@@ -290,20 +307,8 @@ export function MarketingFunnelMetricsView({
                         <td className="px-2 py-2 tabular-nums">
                           {row.leadsWithAppointmentDone}
                         </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {row.appointmentCancelCount}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {row.appointmentNoShowCount}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {row.appointmentReprogrammedCount}
-                        </td>
                         <td className="px-2 py-2 tabular-nums">{row.leadsReserved}</td>
                         <td className="px-2 py-2 tabular-nums">{row.salesConfirmed}</td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {formatAmount(row.salesAmount, row.salesCurrency)}
-                        </td>
                       </tr>
                     ))}
                   </tbody>

@@ -15,6 +15,13 @@ import {
 import type { MetaDeliveryLane } from '@/lib/meta/deliveryLane'
 import { classifyOutboxStatus, type MetaCapiStatusBucket } from '@/lib/meta/metaCapiStatus'
 import {
+  classifyDeliveryOutcome,
+  deliveryOutcomeMatchesFilter,
+  type ConversionLogEvidence,
+  type MetaCapiDeliveryOutcome,
+  type NestEventLookupEvidence,
+} from '@/lib/meta/metaCapiDeliveryOutcome'
+import {
   phoneFromEventPayload,
   resolveMetaCapiPhone,
   type MetaCapiPhoneSource,
@@ -63,12 +70,22 @@ export type MetaCapiListFilters = {
 
 export type MetaCapiOutboxKpis = {
   total: number
+  /** Recibido por Nest (forwarded; aún puede faltar Graph). */
+  nestReceived: number
+  /** @deprecated Prefer nestReceived */
   deliveredBackend: number
   pending: number
+  /** Aceptados Meta con evidencia Graph. */
+  metaAccepted: number
+  blocked: number
+  /** @deprecated Prefer blocked */
   blockedConfig: number
   retained: number
   cancelled: number
+  failedRetrying: number
+  /** @deprecated Prefer failedRetrying */
   failed: number
+  unknown: number
   /** Solo fallidos terminales (dead); no incluye not_configured. */
   deadErrorPct: number | null
   /** true si hay bloqueos de configuración — no usar % error como “salud”. */
@@ -78,9 +95,11 @@ export type MetaCapiOutboxKpis = {
 
 export type MetaReceptionStatus =
   | 'delivered_to_backend'
+  | 'meta_accepted'
   | 'meta_reception_unverified'
   | 'not_applicable'
   | 'nest_lookup_unavailable'
+  | 'failed'
 
 export type MetaCapiOutboxRow = {
   id: string
@@ -99,6 +118,12 @@ export type MetaCapiOutboxRow = {
   status: string
   statusLabel: string
   statusBucket: Exclude<MetaCapiStatusBucket, 'all'>
+  /** Contrato panel: pendiente | nest_received | meta_accepted | blocked | failed_retrying | unknown */
+  deliveryOutcome: MetaCapiDeliveryOutcome
+  deliveryOutcomeLabel: string
+  deliveryReason: string | null
+  graphFbtraceId: string | null
+  graphEventsReceived: number | null
   detail: string
   lastError: string | null
   deliveryLane: string
@@ -346,25 +371,6 @@ function unixToIso(unix: number | null | undefined): string | null {
   return new Date(Number(unix) * 1000).toISOString()
 }
 
-function receptionForRow(
-  bucket: Exclude<MetaCapiStatusBucket, 'all'>,
-  nestHint: MetaReceptionStatus | null,
-): { status: MetaReceptionStatus; label: string } {
-  if (bucket !== 'delivered_backend') {
-    return { status: 'not_applicable', label: '—' }
-  }
-  if (nestHint === 'delivered_to_backend') {
-    return {
-      status: 'delivered_to_backend',
-      label: 'Entregado al backend Nest (no implica aceptación Meta Graph)',
-    }
-  }
-  return {
-    status: 'meta_reception_unverified',
-    label: 'Recepción Meta Graph no verificada',
-  }
-}
-
 function inScope(
   row: OutboxDbRow,
   tenantIds: string[],
@@ -380,14 +386,39 @@ function inScope(
   return includeOrphanShowroom
 }
 
+function receptionForOutcome(
+  outcome: MetaCapiDeliveryOutcome,
+  receptionLabel: string,
+): { status: MetaReceptionStatus; label: string } {
+  if (outcome === 'pending' || outcome === 'blocked') {
+    return { status: 'not_applicable', label: '—' }
+  }
+  if (outcome === 'meta_accepted') {
+    return { status: 'meta_accepted', label: receptionLabel }
+  }
+  if (outcome === 'failed_retrying') {
+    return { status: 'failed', label: receptionLabel }
+  }
+  if (outcome === 'nest_received') {
+    return { status: 'delivered_to_backend', label: receptionLabel }
+  }
+  return { status: 'meta_reception_unverified', label: receptionLabel }
+}
+
 function mapRow(
   row: OutboxDbRow,
-  nestByEventId: Map<string, MetaReceptionStatus>,
+  nestByEventId: Map<string, NestEventLookupEvidence>,
+  conversionByEventId: Map<string, ConversionLogEvidence>,
   accessibleTenantIds: string[],
 ): MetaCapiOutboxRow {
   const payload = asRecord(row.payload)
-  const classified = classifyOutboxStatus(row.status, row.last_error)
-  const reception = receptionForRow(classified.bucket, nestByEventId.get(row.event_id) ?? null)
+  const delivery = classifyDeliveryOutcome({
+    outboxStatus: row.status,
+    lastError: row.last_error,
+    conversion: conversionByEventId.get(row.event_id) ?? null,
+    nest: nestByEventId.get(row.event_id) ?? null,
+  })
+  const reception = receptionForOutcome(delivery.outcome, delivery.receptionLabel)
   const phone = resolveMetaCapiPhone({
     eventPhone: phoneFromPayload(payload),
     leadId: row.lead_id,
@@ -413,8 +444,20 @@ function mapRow(
     timezone: DISPLAY_TZ,
     eventName: row.event_name,
     status: row.status,
-    statusLabel: classified.label,
-    statusBucket: classified.bucket,
+    statusLabel: delivery.label,
+    statusBucket:
+      delivery.outcome === 'nest_received'
+        ? 'delivered_backend'
+        : delivery.outcome === 'failed_retrying'
+          ? 'failed'
+          : delivery.outcome === 'blocked' && row.last_error === 'not_configured'
+            ? 'blocked_config'
+            : delivery.outcome,
+    deliveryOutcome: delivery.outcome,
+    deliveryOutcomeLabel: delivery.label,
+    deliveryReason: delivery.reason,
+    graphFbtraceId: delivery.graphEvidence?.fbtraceId ?? null,
+    graphEventsReceived: delivery.graphEvidence?.eventsReceived ?? null,
     detail: detailLine(payload, row.event_id, row.last_error),
     lastError: row.last_error,
     deliveryLane: row.delivery_lane,
@@ -437,12 +480,76 @@ function mapRow(
   }
 }
 
+async function loadConversionEvidence(
+  admin: SupabaseClient,
+  eventIds: string[],
+): Promise<Map<string, ConversionLogEvidence>> {
+  const out = new Map<string, ConversionLogEvidence>()
+  const ids = [...new Set(eventIds.filter(Boolean))]
+  if (!ids.length) return out
+  // Preferir stages Graph / Nest; última por event_id.
+  const { data, error } = await admin
+    .from('meta_capi_conversion_log')
+    .select('event_id, stage, reason, created_at, details')
+    .in('event_id', ids)
+    .in('stage', ['meta_accepted', 'meta_rejected', 'backend_accepted'])
+    .order('created_at', { ascending: false })
+    .limit(Math.min(ids.length * 4, 400))
+  if (error || !data) return out
+  for (const raw of data) {
+    const eid = raw.event_id ? String(raw.event_id) : ''
+    if (!eid || out.has(eid)) continue
+    const details =
+      raw.details && typeof raw.details === 'object' && !Array.isArray(raw.details)
+        ? (raw.details as Record<string, unknown>)
+        : {}
+    const eventsReceivedRaw = details.events_received
+    const eventsReceived =
+      typeof eventsReceivedRaw === 'number'
+        ? eventsReceivedRaw
+        : typeof eventsReceivedRaw === 'string' && eventsReceivedRaw.trim()
+          ? Number(eventsReceivedRaw)
+          : null
+    out.set(eid, {
+      stage: String(raw.stage || ''),
+      reason: raw.reason ? String(raw.reason) : null,
+      createdAt: String(raw.created_at),
+      fbtraceId:
+        typeof details.fbtrace_id === 'string' ? details.fbtrace_id : null,
+      eventsReceived:
+        eventsReceived != null && Number.isFinite(eventsReceived)
+          ? eventsReceived
+          : null,
+      httpStatus:
+        typeof details.http_status === 'number' ? details.http_status : null,
+      datasetId:
+        typeof details.dataset_id === 'string' ? details.dataset_id : null,
+    })
+  }
+  return out
+}
+
 async function probeNestReception(
   eventIds: string[],
-): Promise<Map<string, MetaReceptionStatus>> {
-  const out = new Map<string, MetaReceptionStatus>()
+): Promise<Map<string, NestEventLookupEvidence>> {
+  const out = new Map<string, NestEventLookupEvidence>()
+  const empty = (lookupOk: boolean): NestEventLookupEvidence => ({
+    found: false,
+    status: null,
+    attemptCount: null,
+    lastError: null,
+    deliveryLane: null,
+    datasetId: null,
+    sentAt: null,
+    apiAccepted: false,
+    acceptanceTier: null,
+    eventsReceived: null,
+    fbtraceId: null,
+    httpStatus: null,
+    lookupOk,
+  })
   if (!eventIds.length || !isMetaCapiConfigured()) {
-    for (const id of eventIds) out.set(id, 'nest_lookup_unavailable')
+    for (const id of eventIds) out.set(id, empty(false))
     return out
   }
   const base = (
@@ -451,7 +558,6 @@ async function probeNestReception(
     ''
   ).replace(/\/$/, '')
   const secret = process.env.META_CAPI_INTERNAL_SECRET?.trim() || ''
-  // Contrato Nest de lookup no documentado en este front: no inventar aceptación Graph.
   for (const id of eventIds.slice(0, 40)) {
     try {
       const res = await fetch(`${base}/api/v1/events/${encodeURIComponent(id)}`, {
@@ -460,13 +566,40 @@ async function probeNestReception(
         cache: 'no-store',
         signal: AbortSignal.timeout(2500),
       })
-      if (res.ok) {
-        out.set(id, 'delivered_to_backend')
-      } else {
-        out.set(id, 'meta_reception_unverified')
+      if (!res.ok) {
+        out.set(id, { ...empty(true), found: false })
+        continue
       }
+      const body = (await res.json()) as Record<string, unknown>
+      const meta =
+        body.meta_response &&
+        typeof body.meta_response === 'object' &&
+        !Array.isArray(body.meta_response)
+          ? (body.meta_response as Record<string, unknown>)
+          : null
+      out.set(id, {
+        found: body.found === true || body.ok === true,
+        status: typeof body.status === 'string' ? body.status : null,
+        attemptCount:
+          typeof body.attempt_count === 'number' ? body.attempt_count : null,
+        lastError: typeof body.last_error === 'string' ? body.last_error : null,
+        deliveryLane:
+          typeof body.delivery_lane === 'string' ? body.delivery_lane : null,
+        datasetId: typeof body.dataset_id === 'string' ? body.dataset_id : null,
+        sentAt: typeof body.sent_at === 'string' ? body.sent_at : null,
+        apiAccepted: body.api_accepted === true,
+        acceptanceTier:
+          typeof body.acceptance_tier === 'string' ? body.acceptance_tier : null,
+        eventsReceived:
+          typeof meta?.events_received === 'number'
+            ? meta.events_received
+            : null,
+        fbtraceId: typeof meta?.fbtrace_id === 'string' ? meta.fbtrace_id : null,
+        httpStatus: typeof meta?.http_status === 'number' ? meta.http_status : null,
+        lookupOk: true,
+      })
     } catch {
-      out.set(id, 'nest_lookup_unavailable')
+      out.set(id, empty(false))
     }
   }
   return out
@@ -1018,40 +1151,67 @@ export async function listMetaCapiOutbox(
     })
   }
 
-  // KPIs de la ventana (fecha/origen) sin el filtro de pestaña estado.
+  // Evidencia Graph desde conversion_log (toda la ventana filtrada).
+  const conversionMap = await loadConversionEvidence(
+    admin,
+    working.map((r) => r.event_id),
+  )
+
+  // KPIs con outcomes reales (conversion_log); Nest probe solo en página.
   const byEventName: Record<string, number> = {}
-  let deliveredBackend = 0
+  let nestReceived = 0
   let pending = 0
+  let metaAccepted = 0
+  let blocked = 0
   let blockedConfig = 0
   let retained = 0
   let cancelled = 0
-  let failed = 0
+  let failedRetrying = 0
+  let unknown = 0
+  const outcomeById = new Map<string, MetaCapiDeliveryOutcome>()
   for (const row of working) {
     byEventName[row.event_name] = (byEventName[row.event_name] || 0) + 1
-    const b = classifyOutboxStatus(row.status, row.last_error).bucket
-    if (b === 'delivered_backend') deliveredBackend += 1
-    else if (b === 'pending') pending += 1
-    else if (b === 'blocked_config') blockedConfig += 1
-    else if (b === 'retained') retained += 1
-    else if (b === 'cancelled') cancelled += 1
-    else if (b === 'failed') failed += 1
+    const delivery = classifyDeliveryOutcome({
+      outboxStatus: row.status,
+      lastError: row.last_error,
+      conversion: conversionMap.get(row.event_id) ?? null,
+      nest: null,
+    })
+    outcomeById.set(row.id, delivery.outcome)
+    if (delivery.outcome === 'nest_received') nestReceived += 1
+    else if (delivery.outcome === 'pending') pending += 1
+    else if (delivery.outcome === 'meta_accepted') metaAccepted += 1
+    else if (delivery.outcome === 'blocked') {
+      blocked += 1
+      if (row.last_error === 'not_configured') blockedConfig += 1
+      if (row.status === 'needs_review' || row.status === 'review_hold') retained += 1
+      if (row.status === 'cancelled') cancelled += 1
+    } else if (delivery.outcome === 'failed_retrying') failedRetrying += 1
+    else if (delivery.outcome === 'unknown') unknown += 1
   }
   const total = working.length
   const deadErrorPct =
-    total > 0 && failed > 0 ? Math.round((failed / total) * 1000) / 10 : failed === 0 ? 0 : null
+    total > 0 && failedRetrying > 0
+      ? Math.round((failedRetrying / total) * 1000) / 10
+      : failedRetrying === 0
+        ? 0
+        : null
 
   if (filters.statusBucket && filters.statusBucket !== 'all') {
-    working = working.filter(
-      (r) => classifyOutboxStatus(r.status, r.last_error).bucket === filters.statusBucket,
+    working = working.filter((r) =>
+      deliveryOutcomeMatchesFilter(
+        outcomeById.get(r.id) || 'pending',
+        filters.statusBucket,
+      ),
     )
   }
 
   const totalFiltered = working.length
   const slice = working.slice((page - 1) * pageSize, page * pageSize)
-  const nestMap = await probeNestReception(
-    slice.filter((r) => r.status === 'forwarded').map((r) => r.event_id),
+  const nestMap = await probeNestReception(slice.map((r) => r.event_id))
+  const rows = slice.map((r) =>
+    mapRow(r, nestMap, conversionMap, tenantIds),
   )
-  const rows = slice.map((r) => mapRow(r, nestMap, tenantIds))
 
   const notConfiguredRows = scoped
     .filter(
@@ -1124,13 +1284,18 @@ export async function listMetaCapiOutbox(
   return {
     kpis: {
       total,
-      deliveredBackend,
+      nestReceived,
+      deliveredBackend: nestReceived,
       pending,
+      metaAccepted,
+      blocked,
       blockedConfig,
       retained,
       cancelled,
-      failed,
-      deadErrorPct: blockedConfig > 0 && failed === 0 ? null : deadErrorPct,
+      failedRetrying,
+      failed: failedRetrying,
+      unknown,
+      deadErrorPct: blockedConfig > 0 && failedRetrying === 0 ? null : deadErrorPct,
       hasConfigBlocks: blockedConfig > 0,
       byEventName,
     },

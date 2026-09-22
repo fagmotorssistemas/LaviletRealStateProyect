@@ -268,7 +268,10 @@ export function MetaCapiWhatsAppSection({
         <p className="mt-2 text-[12px] font-medium text-[#6b645c]">{whatsapp.adsInsights.message}</p>
         <p className="mt-1 text-[11px] text-[#8a8176]">{whatsapp.adsInsights.note}</p>
         <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[10px] text-[#8a8176]">
-          {whatsapp.adsInsights.missing.map((item) => (
+          {(whatsapp.adsInsights.connected
+            ? [`Cuenta: ${whatsapp.adsInsights.adAccountId}`]
+            : whatsapp.adsInsights.missing
+          ).map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ul>

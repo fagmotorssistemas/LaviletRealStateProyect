@@ -113,10 +113,25 @@ describe('waCrmVisibility', () => {
 })
 
 describe('adsInsightsStatus', () => {
-  it('no inventa ceros conectados', () => {
-    const status = getAdsInsightsStatus()
+  it('sin credenciales Ads no inventa conectado', () => {
+    const status = getAdsInsightsStatus({
+      META_ADS_ACCESS_TOKEN: '',
+      META_MARKETING_ACCESS_TOKEN: '',
+      META_SYSTEM_USER_TOKEN: '',
+      META_AD_ACCOUNT_ID: '',
+    })
     assert.equal(status.connected, false)
     assert.equal(status.message, 'Métricas publicitarias no conectadas')
-    assert.ok(status.missing.length >= 3)
+    assert.ok(status.missing.length >= 1)
+  })
+
+  it('con token Ads + cuenta marca connected sin usar CAPI', () => {
+    const status = getAdsInsightsStatus({
+      META_ADS_ACCESS_TOKEN: 'ads-token-test',
+      META_AD_ACCOUNT_ID: 'act_123',
+      META_CAPI_ACCESS_TOKEN: 'capi-other',
+    })
+    assert.equal(status.connected, true)
+    if (status.connected) assert.equal(status.adAccountId, 'act_123')
   })
 })

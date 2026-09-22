@@ -14,6 +14,12 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
+  computeCrmCostPerLead,
+  fetchAdSpendForPeriod,
+  readAdsMarketingCredentials,
+  resolveAdHierarchy,
+} from '@/lib/meta/adsMarketingClient'
+import {
   FUNNEL_UNIVERSES,
   bucketTemp,
   classifyAppointmentInPeriod,
@@ -53,6 +59,7 @@ export type AttributedAdFunnelRow = {
     | 'resolved'
     | 'missing_ads_token'
     | 'graph_permission_denied'
+    | 'not_found'
   sourceUrlPresent: boolean
   referralSourceType: string | null
   /** Universo: cohorte leads */
@@ -72,6 +79,13 @@ export type AttributedAdFunnelRow = {
   salesCurrency: 'USD' | 'no_disponible'
   adSpend: number | null
   costPerLead: number | null
+  /** Resultados/contactos reportados por Meta Insights (no leads CRM). */
+  metaReportedResults: number | null
+  /** Conversiones CAPI meta_accepted de leads de esta cohorte/anuncio. */
+  capiMetaAccepted: number | null
+  spendFetchedAt: string | null
+  /** CPL = adSpend / leadsUnique (CRM). null → UI “No disponible”. */
+  costPerLeadDefinition: 'ad_spend_div_crm_leads_unique'
   note: string
 }
 
@@ -234,8 +248,6 @@ export async function buildMarketingFunnelReport(
   const nowIso = new Date().toISOString()
 
   const limitations: string[] = [
-    'Gasto / CPL: no disponible (sin Insights ni token ads_read).',
-    'Resolución ad→adset→campaign: Graph META_CAPI_* → 100/33; falta System User con ads_read.',
     'byAttributedAd = CTWA source_id; no son campañas del planificador.',
     'Moneda: unit_sales_closings sin currency → salesCurrency=no_disponible.',
     'Importes null no se convierten a 0; salesAmount null si ningún importe conocido.',
@@ -244,6 +256,7 @@ export async function buildMarketingFunnelReport(
     'Reserva por unidad: solo titular comprobado (exactamente 1 lead status=reservado vinculado); 0 o >1 → “titular no determinado” (no se atribuye a todos los interesados).',
     'Contratos anulados: snapshot actual; annulledAt desconocida (no usar signed_at/created_at).',
     'No mezclar universos al calcular tasas (ver report.universes).',
+    'Aceptación técnica Meta (CAPI Graph) ≠ atribución a campaña/ads Insights.',
     'Gates Meta (Pixel/CAPI/WA) no se modifican.',
   ]
 
@@ -562,7 +575,7 @@ export async function buildMarketingFunnelReport(
     byKey.set(key, bucket)
   }
 
-  function summarizeAttributedAd(key: string, agg: Agg): AttributedAdFunnelRow {
+  function summarizeAttributedAdBase(key: string, agg: Agg) {
     const temp = emptyTemp()
     let req = 0
     let conf = 0
@@ -592,12 +605,14 @@ export async function buildMarketingFunnelReport(
     return {
       attributionKey: key,
       adId,
-      adName: null,
-      adsetId: null,
-      adsetName: null,
-      campaignId: null,
-      campaignName: null,
-      resolutionStatus: adId ? 'graph_permission_denied' : 'unresolved',
+      adName: null as string | null,
+      adsetId: null as string | null,
+      adsetName: null as string | null,
+      campaignId: null as string | null,
+      campaignName: null as string | null,
+      resolutionStatus: (adId
+        ? 'missing_ads_token'
+        : 'unresolved') as AttributedAdFunnelRow['resolutionStatus'],
       sourceUrlPresent: Boolean(agg.attr?.source_url),
       referralSourceType: agg.attr?.referral_source_type || null,
       leadsUnique: agg.leads.length,
@@ -611,19 +626,71 @@ export async function buildMarketingFunnelReport(
       leadsReserved: reserved,
       salesConfirmed: salesN,
       salesAmount: sumKnownAmounts(saleAmounts),
-      salesCurrency: 'no_disponible',
-      adSpend: null,
-      costPerLead: null,
+      salesCurrency: 'no_disponible' as const,
+      adSpend: null as number | null,
+      costPerLead: null as number | null,
+      metaReportedResults: null as number | null,
+      capiMetaAccepted: null as number | null,
+      spendFetchedAt: null as string | null,
+      costPerLeadDefinition: 'ad_spend_div_crm_leads_unique' as const,
       note:
         key === 'sin_atribucion'
           ? 'Sin first-touch CTWA. Universos: leads cohorte; citas cohorte sin filtro temporal; ventas sale_at∈período.'
-          : 'CTWA source_id. Universos: leads cohorte; citas cohorte sin filtro temporal; ventas sale_at∈período. adset/campaign no resueltos (falta ads_read).',
+          : 'CTWA source_id. CPL = gasto Insights ÷ leadsUnique CRM. Aceptación CAPI Graph ≠ atribución campaña.',
     }
   }
 
-  const byAttributedAd = [...byKey.entries()]
-    .map(([k, v]) => summarizeAttributedAd(k, v))
-    .sort((a, b) => b.leadsUnique - a.leadsUnique)
+  const adsCreds = readAdsMarketingCredentials()
+  const byAttributedAdBase = [...byKey.entries()].map(([k, v]) =>
+    summarizeAttributedAdBase(k, v),
+  )
+
+  // Resolución jerarquía + gasto (solo si hay credenciales Ads dedicadas).
+  const byAttributedAd: AttributedAdFunnelRow[] = []
+  for (const row of byAttributedAdBase) {
+    if (!row.adId || !adsCreds) {
+      if (row.adId && !adsCreds) {
+        row.resolutionStatus = 'missing_ads_token'
+        row.note =
+          'CTWA source_id presente. Falta META_AD_ACCOUNT_ID + META_ADS_ACCESS_TOKEN (ads_read). No se usan tokens CAPI/WA.'
+      }
+      byAttributedAd.push(row)
+      continue
+    }
+    const hierarchy = await resolveAdHierarchy(row.adId)
+    row.adName = hierarchy.adName
+    row.adsetId = hierarchy.adsetId
+    row.adsetName = hierarchy.adsetName
+    row.campaignId = hierarchy.campaignId
+    row.campaignName = hierarchy.campaignName
+    row.resolutionStatus = hierarchy.resolutionStatus
+    if (hierarchy.error) {
+      row.note = `CTWA source_id. Resolución: ${hierarchy.error}`
+    }
+    const spendSnap = await fetchAdSpendForPeriod(row.adId, {
+      from: input.period.from,
+      to: input.period.to,
+    })
+    row.adSpend = spendSnap.spend
+    row.metaReportedResults = spendSnap.metaReportedResults
+    row.spendFetchedAt = spendSnap.fetchedAt
+    row.costPerLead = computeCrmCostPerLead(spendSnap.spend, row.leadsUnique)
+    if (spendSnap.error) {
+      row.note = `${row.note} Gasto: ${spendSnap.error}`
+    }
+    byAttributedAd.push(row)
+  }
+  byAttributedAd.sort((a, b) => b.leadsUnique - a.leadsUnique)
+
+  if (!adsCreds) {
+    limitations.push(
+      'Gasto / CPL / nombres campaña: faltan META_AD_ACCOUNT_ID y META_ADS_ACCESS_TOKEN (System User ads_read). No reutilizar META_CAPI_* ni META_WA_CAPI_*.',
+    )
+  } else {
+    limitations.push(
+      'CPL = adSpend (Insights, mismo período) ÷ leadsUnique CRM atribuidos CTWA. Sin leadsUnique>0 → “No disponible”. Resultados Meta (actions) van aparte de leads CRM y de CAPI meta_accepted.',
+    )
+  }
 
   // ——— Por unidad (interés + cita real + reserva real + showroom + ventas) ———
   type UAgg = {

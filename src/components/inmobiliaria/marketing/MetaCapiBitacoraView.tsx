@@ -102,6 +102,15 @@ function EventRowCard({ row, tz }: { row: MetaCapiOutboxRow; tz: string }) {
         </div>
       </dl>
       <p className="text-[11px] leading-snug text-[#6b645c]">{row.receptionLabel}</p>
+      {row.graphFbtraceId || row.graphEventsReceived != null ? (
+        <p className="text-[10px] text-emerald-800">
+          Graph
+          {row.graphEventsReceived != null
+            ? ` · events_received=${row.graphEventsReceived}`
+            : ''}
+          {row.graphFbtraceId ? ` · fbtrace=${row.graphFbtraceId.slice(0, 12)}…` : ''}
+        </p>
+      ) : null}
       {row.detail ? (
         <p className="break-all font-mono text-[10px] leading-snug text-[#8a8176]">{row.detail}</p>
       ) : null}
@@ -113,22 +122,28 @@ function EventRowCard({ row, tz }: { row: MetaCapiOutboxRow; tz: string }) {
 }
 
 function StatusBadge({ row }: { row: MetaCapiOutboxRow }) {
-  const bucket = row.statusBucket
+  const outcome = String(row.deliveryOutcome || row.statusBucket)
   const tone =
-    bucket === 'delivered_backend'
-      ? 'bg-emerald-100 text-emerald-800'
-      : bucket === 'failed'
-        ? 'bg-rose-100 text-rose-800'
-        : bucket === 'blocked_config'
-          ? 'bg-orange-100 text-orange-900'
-          : 'bg-amber-100 text-amber-900'
+    outcome === 'meta_accepted'
+      ? 'bg-emerald-100 text-emerald-900'
+      : outcome === 'nest_received' || outcome === 'delivered_backend'
+        ? 'bg-sky-100 text-sky-900'
+        : outcome === 'failed_retrying' || outcome === 'failed'
+          ? 'bg-rose-100 text-rose-800'
+          : outcome === 'blocked' || outcome === 'blocked_config'
+            ? 'bg-orange-100 text-orange-900'
+            : outcome === 'unknown'
+              ? 'bg-stone-200 text-stone-800'
+              : 'bg-amber-100 text-amber-900'
 
   const Icon =
-    bucket === 'delivered_backend'
+    outcome === 'meta_accepted' ||
+    outcome === 'nest_received' ||
+    outcome === 'delivered_backend'
       ? Check
-      : bucket === 'failed'
+      : outcome === 'failed_retrying' || outcome === 'failed'
         ? X
-        : bucket === 'blocked_config'
+        : outcome === 'blocked' || outcome === 'blocked_config'
           ? AlertTriangle
           : null
 
@@ -138,22 +153,24 @@ function StatusBadge({ row }: { row: MetaCapiOutboxRow }) {
         'inline-flex h-8 w-[11.5rem] shrink-0 items-center justify-center gap-1 rounded-full px-2.5 text-center text-[10px] font-semibold tracking-[0.06em] uppercase',
         tone,
       )}
-      title={row.statusLabel}
+      title={row.deliveryReason || row.statusLabel}
     >
       {Icon ? <Icon size={12} className="shrink-0" aria-hidden /> : null}
-      <span className="min-w-0 truncate leading-tight">{row.statusLabel}</span>
+      <span className="min-w-0 truncate leading-tight">
+        {row.deliveryOutcomeLabel || row.statusLabel}
+      </span>
     </span>
   )
 }
 
 const STATUS_OPTIONS: { value: MetaCapiStatusBucket; label: string }[] = [
   { value: 'all', label: 'Todos los estados' },
-  { value: 'delivered_backend', label: 'Entregado al backend' },
-  { value: 'pending', label: 'Encolado / pendiente' },
-  { value: 'blocked_config', label: 'Bloqueado (config)' },
-  { value: 'retained', label: 'Retenido' },
-  { value: 'cancelled', label: 'Cancelado' },
-  { value: 'failed', label: 'Fallido' },
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'nest_received', label: 'Recibido por Nest' },
+  { value: 'meta_accepted', label: 'Aceptado por Meta' },
+  { value: 'blocked', label: 'Bloqueado' },
+  { value: 'failed_retrying', label: 'Fallido / reintentando' },
+  { value: 'unknown', label: 'Resultado desconocido' },
 ]
 
 const emptyFilters = (): MetaCapiListFilters => ({
@@ -233,13 +250,26 @@ export function MetaCapiBitacoraView() {
         <p className="text-[11px] text-[#6b645c]">
           Indicadores de outbox Meta (no incluyen mensajes CRM WhatsApp). Separación por canal abajo.
         </p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
           <KpiCard label="Total (alcance)" value={kpis?.total ?? '—'} />
-          <KpiCard label="Entregado backend" value={kpis?.deliveredBackend ?? '—'} tone="good" />
           <KpiCard label="Pendiente" value={kpis?.pending ?? '—'} tone="muted" />
-          <KpiCard label="Bloqueado config" value={kpis?.blockedConfig ?? '—'} tone="warn" />
-          <KpiCard label="Retenido" value={kpis?.retained ?? '—'} tone="warn" />
-          <KpiCard label="Fallido (dead)" value={kpis?.failed ?? '—'} tone={(kpis?.failed ?? 0) > 0 ? 'bad' : 'muted'} />
+          <KpiCard
+            label="Recibido Nest"
+            value={kpis?.nestReceived ?? kpis?.deliveredBackend ?? '—'}
+            tone="good"
+          />
+          <KpiCard label="Aceptado Meta" value={kpis?.metaAccepted ?? '—'} tone="good" />
+          <KpiCard
+            label="Bloqueado"
+            value={kpis?.blocked ?? kpis?.blockedConfig ?? '—'}
+            tone="warn"
+          />
+          <KpiCard
+            label="Fallido"
+            value={kpis?.failedRetrying ?? kpis?.failed ?? '—'}
+            tone={(kpis?.failedRetrying ?? kpis?.failed ?? 0) > 0 ? 'bad' : 'muted'}
+          />
+          <KpiCard label="Desconocido" value={kpis?.unknown ?? '—'} tone="muted" />
         </div>
         <div className="grid grid-cols-3 gap-2">
           <KpiCard label="Outbox web" value={data?.kpisByChannel.web ?? '—'} tone="muted" />
