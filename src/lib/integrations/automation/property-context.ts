@@ -74,7 +74,9 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const base = resolveCatalogReference(catalog, current, summary._unit_reference, history)
   const m = normalized(current)
   const pending = normalizedPendingQuestion(Object.keys(object(summary._pending_question)).length ? summary._pending_question : context.pending_question)
-  const positive = /^(?:si(?: por favor| esta bien| me parece bien)?|claro|de acuerdo|esta bien|me parece bien|perfecto|revisemos|veamos|si (?:prefiero|quiero|me interesa) (?:esa|esta) opcion|(?:prefiero|quiero|me interesa) (?:esa|esta) opcion)(?: gracias)?$/.test(m.replace(/[.!¡,]/g, '').trim())
+  const acceptsDetails = pending.act === 'show_unit_details'
+    && /^(?:si\s+)?(?:por favor\s+)?(?:envieme|mandeme|compartame|muestreme)\s+(?:los\s+)?detalles(?:\s+por favor)?$/.test(m)
+  const positive = acceptsDetails || /^(?:si(?: por favor| esta bien| me parece bien)?|claro|de acuerdo|esta bien|me parece bien|perfecto|revisemos|veamos|si (?:prefiero|quiero|me interesa) (?:esa|esta) opcion|(?:prefiero|quiero|me interesa) (?:esa|esta) opcion)(?: gracias)?$/.test(m.replace(/[.!¡,]/g, '').trim())
   const confirmsSet = positive && ['choose_category', 'explore_alternatives'].includes(text(pending.act))
   const semanticValid = semantic.confidence === 'high'
   const category = semanticValid && !confirmsSet ? text(semantic.category) : ''
@@ -148,6 +150,16 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   if (category) {
     context.preference_category = category
     context.excluded_categories = excluded
+  }
+  // A literal answer to the offered choice outranks an inconsistent AI search.
+  // Do not promote mentions in comparisons, prices, refusals or mixed requests.
+  const choice = m.match(/^(?:(?:perfecto|entonces|bien)\s+)*(?:revisemos|veamos|quiero ver|quiero conocer|elijo|escojo|prefiero)\s+(?:(?:el|la|opcion|departamento|suite|penthouse|unidad)\s+)*(\d{3,4})(?:\s+(?:entonces|entocnes|por favor))?$/)
+  const chosen = choice && pending.act === 'choose_unit'
+    ? fromIds(pending.candidate_ids).filter(unit => code(unit.unit_number) === code(choice[1]) && !excluded.includes(text(unit.category))) : []
+  if (chosen.length === 1) {
+    context.selected_ids = unitIds(chosen); context.focused_ids = unitIds(chosen); context.comparison_ids = []
+    query.operation = 'select'; query.selector = null
+    return result(chosen, 'explicit_pending_choice', true)
   }
   // A reply to a durable, focused question names its subject without requiring
   // the customer to repeat a code. Accepting details never books a visit or purchase.

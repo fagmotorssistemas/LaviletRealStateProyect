@@ -2792,6 +2792,30 @@ test('dialogue v2 retains a focused question when a requested map follows it', a
   assert.deepEqual(saved._pending_question.target_ids, ['depto-502'])
 })
 
+test('dialogue v2 recorded 502 choice and detail acceptance deliver the showroom despite inconsistent extraction', async t => {
+  live(t)
+  for (const acceptance of [false, true]) {
+    const current = acceptance ? 'si envieme los detalles' : 'revisemos la opcion 502 entocnes'
+    const question = acceptance ? '¿Le gustaría ver los detalles de departamento 502?' : '¿Cuál de estas opciones le gustaría conocer?'
+    const pending = { id: 'unit_choice', act: acceptance ? 'show_unit_details' : 'choose_unit', question,
+      target_ids: acceptance ? ['depto-502'] : [], candidate_ids: ['depto-202', 'depto-302', 'depto-402', 'depto-502'] }
+    const summary = { _pending_question: pending, _property_context: { version: 2, last_reply: question,
+      offered_ids: pending.candidate_ids, focused_ids: pending.target_ids, pending_question: pending } }
+    const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog },
+      realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, summary, history: [{ role: 'bot', content: question }],
+      extracted: { turn_semantics: extractedProperty(current, { operation: 'search', reference_kind: acceptance ? 'followup' : 'explicit',
+        unit_numbers: acceptance ? [] : ['502'], category: 'departamento', filters: { bedrooms: 3, floor_number: 5 }, query_scope: 'offered' }) },
+      // Simulate a writer dropping the attachment: final validation must retain the verified base.
+      turnComplete: async input => ({ ...await checkedBaseCoverage(input), reply: 'El departamento 502 tiene 3 dormitorios.', changed: true }) })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.match(sent.p_content, /tour\?unidad=502/)
+    assert.doesNotMatch(sent.p_content, /brochure|gustaría ver los detalles/i)
+    assert.equal(sent.p_tool_calls.turn_completeness.status, 'rejected_catalog_guard')
+  }
+})
+
 test('dialogue v2 preserves the focused unit through unreadable audio and understands the repeated answer', async t => {
   live(t)
   const question = '¿Le gustaría ver los detalles del departamento 502?'

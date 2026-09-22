@@ -32,6 +32,9 @@ export function wantsBrochure(current: string, history: unknown = []) {
   const m = normalized(current)
   if (/\bno\b.{0,40}(?:envie|mande|quiero|necesito|compart|brochure|folleto|informacion)/.test(m)) return false
   if (/brochure|brochur|folleto|catalogo|\bpdf\b/.test(m)) return true
+  const previous = normalized(text(rows(history).filter(row => row.role === 'bot').at(-1)?.content))
+  if (/^(?:si\s+)?(?:por favor\s+)?(?:envieme|mandeme|compartame|muestreme)\s+(?:los\s+)?detalles(?:\s+por favor)?$/.test(m)
+    && /(?:ver|conocer|mostrar|enviar).{0,25}detalles.{0,30}(?:departamento|suite|penthouse|unidad)\s+\d{3,4}\b/.test(previous)) return false
   if (/(?:compart|envi|mand|pas)[a-z]*.{0,30}(?:informacion|info\b|material|detalle)/.test(m)) return true
   const last = text(rows(history).filter(row => row.role === 'bot').at(-1)?.content)
   const choosingProjectOption = /(?:le gustar[ií]a|desea).{0,45}(?:informaci[oó]n|conocer).{0,45}(?:opciones|alternativas)/i.test(last)

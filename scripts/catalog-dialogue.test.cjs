@@ -25,6 +25,41 @@ const info = (query, extra = {}) => ({
   referencia_unidad: { reason: 'catalog_query', query, matches: [], needsClarification: false }, ...extra,
 })
 
+test('recorded 502 search inconsistency resolves the offered choice and protects its showroom', () => {
+  const pending = { id: 'unit_choice', act: 'choose_unit', question: '¿Cuál de estas opciones le gustaría conocer?', candidate_ids: ['unit-202', 'unit-302', 'unit-402', 'unit-502'], target_ids: [] }
+  const summary = { _pending_question: pending, _property_context: { offered_ids: pending.candidate_ids, pending_question: pending } }
+  const semantics = { primary_intent: 'select_property', property: { confidence: 'high', group: 'residential', category: 'departamento', operation: 'search', reference_kind: 'explicit', unit_numbers: ['502'], query_scope: 'offered', filters: { bedrooms: 3, floor_number: 5 } } }
+  const current = 'revisemos la opcion 502 entocnes'
+  const ref = resolvePropertyTurn(catalogue, current, summary, [], semantics)
+  assert.equal(ref.reason, 'explicit_pending_choice')
+  assert.equal(ref.query.operation, 'select')
+  assert.deepEqual(ref.matches.map(unit => unit.unit_number), ['502'])
+  const answer = catalogDialogueReply({ catalogo: catalogue, referencia_unidad: ref, property_context: ref.context }, current)
+  assert.match(answer.reply, /https:\/\/www.lavilett.com\/tour\?unidad=502/)
+  assert.doesNotMatch(answer.reply, /gustaría ver los detalles/)
+  assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
+  assert.equal(validateCatalogReply(answer.reply.replace(/https:\/\/\S+/, ''), answer.audit).reason, 'unit_tour_omitted')
+  for (const text of ['cuanto cuesta el 502', 'compare el 502 y 202', 'no quiero el 502', 'revisemos el 502 pero no envie el recorrido', 'revisemos la opcion 999']) {
+    assert.notEqual(resolvePropertyTurn(catalogue, text, summary, [], semantics).reason, 'explicit_pending_choice', text)
+  }
+})
+
+test('send details accepts the focused unit while an explicit brochure remains a brochure', () => {
+  const { wantsBrochure } = require('../src/lib/integrations/automation/project-material.ts')
+  const question = '¿Le gustaría ver los detalles de departamento 502?'
+  const pending = { id: 'unit_choice', act: 'show_unit_details', question, target_ids: ['unit-502'], candidate_ids: ['unit-502'] }
+  const history = [{ role: 'bot', content: question }]
+  const summary = { _pending_question: pending, _property_context: { pending_question: pending, focused_ids: ['unit-502'] } }
+  const current = 'si envieme los detalles'
+  assert.equal(wantsBrochure(current, history), false)
+  assert.equal(wantsBrochure('si envieme el brochure', history), true)
+  assert.equal(wantsBrochure(current, []), true)
+  const ref = resolvePropertyTurn(catalogue, current, summary, history, {})
+  const answer = catalogDialogueReply({ catalogo: catalogue, referencia_unidad: ref, property_context: ref.context }, current)
+  assert.equal(ref.query.operation, 'select')
+  assert.match(answer.reply, /tour\?unidad=502/)
+})
+
 test('broad housing presents one-bedroom suites and apartments without inventing a category choice', () => {
   const q = query('search')
   for (const current of ['me interesa vivienda', 'busco algo para vivir', 'vivienda']) {

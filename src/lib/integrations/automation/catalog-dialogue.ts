@@ -97,6 +97,8 @@ export function compareCatalog(units: Row[]) {
  * to be completed by the normal coverage stage. */
 export function validateCatalogReply(reply: string, audit: Row): { valid: boolean; reason?: string } {
   if (audit.verified_catalog !== true) return { valid: true }
+  const requiredTour = text(object(audit.unit_model).url)
+  if (requiredTour && !reply.includes(requiredTour)) return { valid: false, reason: 'unit_tour_omitted' }
   if (object(audit.alternative_presentation).kind === 'category_overview'
     && /\b(?:departamentos?|penthouses?|suites?|unidades?)\s+\d{2,4}\b/i.test(reply)) return { valid: false, reason: 'alternative_unit_list_premature' }
   const pending = object(audit.pending_question)
