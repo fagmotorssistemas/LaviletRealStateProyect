@@ -20,6 +20,7 @@ import {
   ecuadorDayBoundsUtc,
   emptyTemp,
   resolveAppointmentUnitIds,
+  resolveReservationTitular,
   resolveReservedUnitIds,
   snapshotAnulledContracts,
   sumKnownAmounts,
@@ -84,7 +85,10 @@ export type UnitFunnelRow = {
   showroomViews: number
   commercialInterestLeads: number
   appointmentLeads: number
+  /** 0 o 1: solo titular comprobado (status=reservado único en la unidad). */
   reservedLeads: number
+  /** Sin titular único → UI “titular no determinado” (no atribuir a interesados). */
+  reservationTitularUndetermined: boolean
   salesConfirmed: number
   salesAmount: number | null
   temperature: Record<TemperatureBucket, number>
@@ -134,6 +138,8 @@ export type MarketingFunnelReport = {
     appointmentLeads: number
     reservedLeads: number
   }
+  /** Unidades reservadas sin titular único comprobado. */
+  undeterminedTitularUnits: number
   limitations: string[]
   metaSendGatesUntouched: true
 }
@@ -235,6 +241,7 @@ export async function buildMarketingFunnelReport(
     'Importes null no se convierten a 0; salesAmount null si ningún importe conocido.',
     'Confirmación de cita exige confirmed_at; reprogramación solo por status.',
     'Cita→unidad solo vía appointment_units; reserva→unidad solo vía units.status=reservado + lead_units; si falta → “unidad no determinada”.',
+    'Reserva por unidad: solo titular comprobado (exactamente 1 lead status=reservado vinculado); 0 o >1 → “titular no determinado” (no se atribuye a todos los interesados).',
     'Contratos anulados: snapshot actual; annulledAt desconocida (no usar signed_at/created_at).',
     'No mezclar universos al calcular tasas (ver report.universes).',
     'Gates Meta (Pixel/CAPI/WA) no se modifican.',
@@ -623,6 +630,7 @@ export async function buildMarketingFunnelReport(
     interest: Set<string>
     appt: Set<string>
     reserved: Set<string>
+    reservationTitularUndetermined: boolean
     sales: SaleRow[]
     temp: Record<TemperatureBucket, number>
   }
@@ -634,6 +642,7 @@ export async function buildMarketingFunnelReport(
         interest: new Set(),
         appt: new Set(),
         reserved: new Set(),
+        reservationTitularUndetermined: false,
         sales: [],
         temp: emptyTemp(),
       }
@@ -644,6 +653,7 @@ export async function buildMarketingFunnelReport(
 
   let undeterminedApptLeads = 0
   let undeterminedReservedLeads = 0
+  let undeterminedTitularUnits = 0
 
   for (const lu of leadUnits) {
     if (lu.rejected) continue
@@ -671,24 +681,80 @@ export async function buildMarketingFunnelReport(
   }
   undeterminedApptLeads = undeterminedApptLeadSet.size
 
-  // Reservas → solo unidades reservadas reales
+  // Reservas → leads cohorte sin unidad reservada real → “unidad no determinada”
   const undeterminedResLeadSet = new Set<string>()
   for (const lead of leads) {
-    const { unitIds, undetermined } = resolveReservedUnitIds({
+    const { undetermined } = resolveReservedUnitIds({
       leadId: lead.id,
       leadStatus: lead.status,
       leadUnitIds: leadUnitIdsByLead.get(lead.id) || [],
       unitStatusById,
     })
-    if (undetermined) {
-      undeterminedResLeadSet.add(lead.id)
-      continue
-    }
-    for (const uid of unitIds) {
-      ensureUnit(uid).reserved.add(lead.id)
-    }
+    if (undetermined) undeterminedResLeadSet.add(lead.id)
   }
   undeterminedReservedLeads = undeterminedResLeadSet.size
+
+  // Titular por unidad reservada (todos los vinculados, no solo cohorte)
+  const reservedProjectUnits = projectUnits.filter(
+    (u) => String(u.status || '').toLowerCase() === 'reservado',
+  )
+  const reservedUnitIdList = reservedProjectUnits.map((u) => u.id)
+  const reservedUnitLinks = await fetchAllInChunks(reservedUnitIdList, (chunk) =>
+    fetchAllPages<{ lead_id: string; unit_id: string; rejected: boolean | null }>(
+      (from, to) =>
+        admin
+          .from('lead_units')
+          .select('lead_id,unit_id,rejected')
+          .in('unit_id', chunk)
+          .range(from, to),
+    ),
+  )
+  const activeReservedLinks = reservedUnitLinks.filter((l) => !l.rejected)
+  const titularCandidateLeadIds = [
+    ...new Set(activeReservedLinks.map((l) => l.lead_id)),
+  ]
+  const titularLeads = await fetchAllInChunks(titularCandidateLeadIds, (chunk) =>
+    fetchAllPages<{ id: string; status: string | null }>((from, to) =>
+      admin
+        .from('leads')
+        .select('id,status')
+        .eq('tenant_id', input.tenantId)
+        .eq('project_id', input.projectId)
+        .in('id', chunk)
+        .range(from, to),
+    ),
+  )
+  const titularStatusByLead = new Map(
+    titularLeads.map((l) => [l.id, l.status as string | null]),
+  )
+  const linkedUnitsByLead = new Map<string, string[]>()
+  for (const link of activeReservedLinks) {
+    const list = linkedUnitsByLead.get(link.lead_id) || []
+    list.push(link.unit_id)
+    linkedUnitsByLead.set(link.lead_id, list)
+  }
+  const titularCandidates = titularCandidateLeadIds.map((leadId) => ({
+    leadId,
+    leadStatus: titularStatusByLead.get(leadId) ?? null,
+    linkedUnitIds: linkedUnitsByLead.get(leadId) || [],
+  }))
+
+  for (const unit of reservedProjectUnits) {
+    const { titularLeadId, undeterminedTitular } = resolveReservationTitular({
+      unitId: unit.id,
+      unitStatus: unit.status,
+      candidates: titularCandidates,
+    })
+    const row = ensureUnit(unit.id)
+    if (undeterminedTitular) {
+      row.reservationTitularUndetermined = true
+      undeterminedTitularUnits += 1
+      continue
+    }
+    if (titularLeadId) {
+      row.reserved.add(titularLeadId)
+    }
+  }
 
   for (const s of sales) {
     ensureUnit(s.unit_id).sales.push(s)
@@ -712,7 +778,10 @@ export async function buildMarketingFunnelReport(
       showroomViews: showroomUnitCounts.get(unitId) || 0,
       commercialInterestLeads: agg.interest.size,
       appointmentLeads: agg.appt.size,
-      reservedLeads: agg.reserved.size,
+      reservedLeads: agg.reservationTitularUndetermined
+        ? 0
+        : agg.reserved.size,
+      reservationTitularUndetermined: agg.reservationTitularUndetermined,
       salesConfirmed: agg.sales.length,
       salesAmount: sumKnownAmounts(agg.sales.map((s) => s.sale_price_final)),
       temperature: agg.temp,
@@ -759,6 +828,7 @@ export async function buildMarketingFunnelReport(
       appointmentLeads: undeterminedApptLeads,
       reservedLeads: undeterminedReservedLeads,
     },
+    undeterminedTitularUnits,
     limitations,
     metaSendGatesUntouched: true,
   }

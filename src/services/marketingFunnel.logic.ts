@@ -105,7 +105,8 @@ export function resolveAppointmentUnitIds(
 
 /**
  * Reserva de un lead: solo unidades con status reservado vinculadas al lead.
- * Si el lead está reservado pero ninguna unidad califica → undetermined.
+ * Si el lead está reservado pero ninguna unidad califica → undetermined (unidad).
+ * No atribuye la reserva a todos los interesados de la unidad.
  */
 export function resolveReservedUnitIds(input: {
   leadId: string
@@ -124,6 +125,34 @@ export function resolveReservedUnitIds(input: {
     return { unitIds: [], undetermined: true }
   }
   return { unitIds, undetermined: false }
+}
+
+/**
+ * Titular comprobado de una unidad en status=reservado.
+ * Exactamente 1 lead con status=reservado vinculado → titular.
+ * 0 o >1 → titular no determinado (no atribuir a interesados).
+ */
+export function resolveReservationTitular(input: {
+  unitId: string
+  unitStatus: string | null
+  candidates: Array<{
+    leadId: string
+    leadStatus: string | null
+    linkedUnitIds: string[]
+  }>
+}): { titularLeadId: string | null; undeterminedTitular: boolean } {
+  if (String(input.unitStatus || '').toLowerCase() !== 'reservado') {
+    return { titularLeadId: null, undeterminedTitular: false }
+  }
+  const titulares = input.candidates.filter(
+    (c) =>
+      String(c.leadStatus || '').toLowerCase() === 'reservado' &&
+      c.linkedUnitIds.includes(input.unitId),
+  )
+  if (titulares.length === 1) {
+    return { titularLeadId: titulares[0].leadId, undeterminedTitular: false }
+  }
+  return { titularLeadId: null, undeterminedTitular: true }
 }
 
 export type ContractAnulSnapshot = {

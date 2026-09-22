@@ -55,3 +55,24 @@ export async function fetchMarketingFunnelMetrics(input: {
     }
   }
 }
+
+/** Proyectos del tenant accesible (selector de filtro). */
+export async function listMarketingFunnelProjects(input?: {
+  tenantId?: string
+}): Promise<{ id: string; name: string }[]> {
+  await assertCanAccessCrmPath(PATH)
+  const userClient = await createClient()
+  const tenantIds = await getAccessibleTenantIds(userClient)
+  const tenantId = input?.tenantId || LAVILET_TENANT_ID
+  if (!tenantIds.includes(tenantId)) return []
+  const { data, error } = await userClient
+    .from('projects')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .order('name', { ascending: true })
+  if (error) return []
+  return (data || []).map((row) => ({
+    id: String(row.id),
+    name: String(row.name || row.id),
+  }))
+}

@@ -52,6 +52,7 @@ export const crmModules: {
     href: '/inmobiliaria/marketing/capi',
     items: [
       { label: 'CAPI Meta', href: '/inmobiliaria/marketing/capi', icon: Megaphone },
+      { label: 'Métricas embudo', href: '/inmobiliaria/marketing/metricas', icon: BarChart3 },
     ],
   },
   {

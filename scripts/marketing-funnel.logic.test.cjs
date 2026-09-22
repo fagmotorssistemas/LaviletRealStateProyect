@@ -85,6 +85,21 @@ function resolveReservedUnitIds(input) {
   return { unitIds, undetermined: false }
 }
 
+function resolveReservationTitular(input) {
+  if (String(input.unitStatus || '').toLowerCase() !== 'reservado') {
+    return { titularLeadId: null, undeterminedTitular: false }
+  }
+  const titulares = input.candidates.filter(
+    (c) =>
+      String(c.leadStatus || '').toLowerCase() === 'reservado' &&
+      c.linkedUnitIds.includes(input.unitId),
+  )
+  if (titulares.length === 1) {
+    return { titularLeadId: titulares[0].leadId, undeterminedTitular: false }
+  }
+  return { titularLeadId: null, undeterminedTitular: true }
+}
+
 function snapshotAnulledContracts(rows) {
   return rows
     .filter((r) => String(r.status || '').toLowerCase() === 'anulado')
@@ -148,6 +163,68 @@ describe('marketingFunnel casos controlados', () => {
       unitStatusById: status,
     })
     assert.equal(none.undetermined, true)
+  })
+
+  it('titular único; no atribuir a todos los interesados', () => {
+    const candidates = [
+      {
+        leadId: 'L1',
+        leadStatus: 'reservado',
+        linkedUnitIds: ['u1'],
+      },
+      {
+        leadId: 'L2',
+        leadStatus: 'interesado',
+        linkedUnitIds: ['u1'],
+      },
+      {
+        leadId: 'L3',
+        leadStatus: 'nuevo',
+        linkedUnitIds: ['u1'],
+      },
+    ]
+    const ok = resolveReservationTitular({
+      unitId: 'u1',
+      unitStatus: 'reservado',
+      candidates,
+    })
+    assert.equal(ok.titularLeadId, 'L1')
+    assert.equal(ok.undeterminedTitular, false)
+  })
+
+  it('0 o >1 lead reservado → titular no determinado', () => {
+    const none = resolveReservationTitular({
+      unitId: 'u1',
+      unitStatus: 'reservado',
+      candidates: [
+        {
+          leadId: 'L2',
+          leadStatus: 'interesado',
+          linkedUnitIds: ['u1'],
+        },
+      ],
+    })
+    assert.equal(none.titularLeadId, null)
+    assert.equal(none.undeterminedTitular, true)
+
+    const many = resolveReservationTitular({
+      unitId: 'u1',
+      unitStatus: 'reservado',
+      candidates: [
+        {
+          leadId: 'L1',
+          leadStatus: 'reservado',
+          linkedUnitIds: ['u1'],
+        },
+        {
+          leadId: 'L2',
+          leadStatus: 'reservado',
+          linkedUnitIds: ['u1'],
+        },
+      ],
+    })
+    assert.equal(many.titularLeadId, null)
+    assert.equal(many.undeterminedTitular, true)
   })
 
   it('futura/cancelada ≠ realizada', () => {
