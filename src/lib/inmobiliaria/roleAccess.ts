@@ -171,6 +171,13 @@ export function canAccessPath(
   if (!pathname.startsWith('/inmobiliaria')) return true
   const paths = effectiveCrmPaths(role, customPaths)
   if (paths.length === 0) return false
+  // Entrada del módulo Marketing (sin page hija): permitir si hay alguna vista marketing.
+  if (pathname === '/inmobiliaria/marketing' || pathname === '/inmobiliaria/marketing/') {
+    return paths.some(
+      (href) =>
+        href === '/inmobiliaria/marketing' || href.startsWith('/inmobiliaria/marketing/'),
+    )
+  }
   return paths.some((href) => pathname === href || pathname.startsWith(`${href}/`))
 }
 
