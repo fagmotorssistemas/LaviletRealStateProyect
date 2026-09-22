@@ -157,6 +157,8 @@ export async function rpcIdentifyTourLeadWithMetaOutbox(
     eventTime?: number | null
     deliveryLane?: 'test' | 'live'
     payload?: Record<string, unknown>
+    /** Solo true para info_request (Lead CAPI). Identificar/favorito = false. */
+    emitLead?: boolean
   },
 ): Promise<IdentifyTourLeadWithMetaResult> {
   const { data, error } = await admin.rpc('identify_tour_lead_with_meta_outbox', {
@@ -171,6 +173,7 @@ export async function rpcIdentifyTourLeadWithMetaOutbox(
     p_event_time: args.eventTime ?? null,
     p_delivery_lane: args.deliveryLane || 'live',
     p_payload: args.payload || {},
+    p_emit_lead: args.emitLead === true,
   })
   if (error) throw rpcError('identify_tour_lead_with_meta_outbox', error)
   const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null

@@ -49,6 +49,7 @@ import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import { COOKIE_BANNER_ENABLED, openCookiePreferences } from '@/lib/tour/consent'
 import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
+import { MetaViewContentShowroom } from '@/components/marketing/MetaViewContentShowroom'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
 import {
   buildTourRooms,
@@ -819,6 +820,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
   const [fichaOpen, setFichaOpen] = useState(() => Boolean(readUnitQueryParam()))
+  const [showroomReady, setShowroomReady] = useState(false)
   const [fichaExpanded, setFichaExpanded] = useState(() => Boolean(readUnitQueryParam()))
   const [simulatorOpen, setSimulatorOpen] = useState(false)
   const [simulatorEntry, setSimulatorEntry] = useState<{
@@ -1059,6 +1061,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           setUnits(nextUnits ?? [])
           setFinish(startFinish)
           setLight('dia')
+          if (!cancelled) setShowroomReady(true)
         }
         setBooting(false)
         return
@@ -1165,6 +1168,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         events.ReadyEvent.type,
         () => {
           preloadCurrentRoom(viewer, startNode.id, startUrl)
+          if (!cancelled) setShowroomReady(true)
         },
         { once: true },
       )
@@ -3460,6 +3464,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           category={selectedUnit.category}
         />
       ) : null}
+      <MetaViewContentShowroom ready={showroomReady && !bootError} />
 
       {showPlanShell || showUnitChrome ? (
         <TourFichaDrawer

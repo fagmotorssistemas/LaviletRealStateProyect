@@ -23,7 +23,12 @@ export type FbqFn = ((...args: unknown[]) => void) & {
   allowDuplicatePageViews?: boolean
 }
 
-export type MetaBrowserEvent = 'PageView' | 'ViewContent' | 'Lead' | 'Schedule'
+export type MetaBrowserEvent =
+  | 'PageView'
+  | 'ViewContent'
+  | 'Lead'
+  | 'Schedule'
+  | 'AddToWishlist'
 
 const EXCLUDED_PREFIXES = [
   '/inmobiliaria',

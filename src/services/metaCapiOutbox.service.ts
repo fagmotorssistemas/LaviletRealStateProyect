@@ -41,6 +41,10 @@ import {
   isMetaCapiProbeRow,
 } from '@/lib/meta/capiConversionLogLabels'
 import {
+  labelMetaInternalSubtype,
+  subtypeForEventName,
+} from '@/lib/meta/metaMeasurementContract'
+import {
   buildContactDetails,
   dedupeInboundMessages,
   inPeriod,
@@ -120,12 +124,17 @@ export type MetaCapiOutboxRow = {
   status: string
   statusLabel: string
   statusBucket: Exclude<MetaCapiStatusBucket, 'all'>
-  /** Contrato panel: pendiente | nest_received | meta_accepted | blocked | failed_retrying | unknown */
+  /** Contrato panel: pendiente | nest_received | meta_accepted | blocked | failed_retrying | unknown | pending_backend_support | internal_activity */
   deliveryOutcome: MetaCapiDeliveryOutcome
   deliveryOutcomeLabel: string
   deliveryReason: string | null
   graphFbtraceId: string | null
   graphEventsReceived: number | null
+  /** Subtipo interno (showroom_general, detalle_unidad, favorito, …). */
+  internalSubtype: string | null
+  internalSubtypeLabel: string
+  /** Unidad/propiedad si el payload la trae. */
+  unitLabel: string | null
   detail: string
   lastError: string | null
   deliveryLane: string
@@ -395,8 +404,19 @@ function receptionForOutcome(
   outcome: MetaCapiDeliveryOutcome,
   receptionLabel: string,
 ): { status: MetaReceptionStatus; label: string } {
-  if (outcome === 'pending' || outcome === 'blocked') {
-    return { status: 'not_applicable', label: '—' }
+  if (
+    outcome === 'pending' ||
+    outcome === 'blocked' ||
+    outcome === 'pending_backend_support' ||
+    outcome === 'internal_activity'
+  ) {
+    return {
+      status: 'not_applicable',
+      label:
+        outcome === 'pending_backend_support' || outcome === 'internal_activity'
+          ? receptionLabel
+          : '—',
+    }
   }
   if (outcome === 'meta_accepted') {
     return { status: 'meta_accepted', label: receptionLabel }
@@ -416,12 +436,13 @@ function mapRow(
   conversionByEventId: Map<string, ConversionLogEvidence>,
   accessibleTenantIds: string[],
 ): MetaCapiOutboxRow {
-  const payload = asRecord(row.payload)
+  const payload = asRecord(row.payload) || {}
   const delivery = classifyDeliveryOutcome({
     outboxStatus: row.status,
     lastError: row.last_error,
     conversion: conversionByEventId.get(row.event_id) ?? null,
     nest: nestByEventId.get(row.event_id) ?? null,
+    eventName: row.event_name,
   })
   const reception = receptionForOutcome(delivery.outcome, delivery.receptionLabel)
   const phone = resolveMetaCapiPhone({
@@ -432,6 +453,25 @@ function mapRow(
     accessibleTenantIds,
   })
   const channelView = resolveMetaCapiChannel(payload, row.delivery_lane)
+  const subtype =
+    subtypeForEventName(
+      row.event_name,
+      typeof payload.lv_internal_subtype === 'string' ? payload.lv_internal_subtype : null,
+    ) ||
+    (typeof payload.lv_internal_subtype === 'string' ? payload.lv_internal_subtype : null)
+  const unitId =
+    typeof payload.unit_id === 'string'
+      ? payload.unit_id
+      : Array.isArray(payload.content_ids) && typeof payload.content_ids[0] === 'string'
+        ? payload.content_ids[0]
+        : null
+  const unitNumber =
+    typeof payload.unit_number === 'string'
+      ? payload.unit_number
+      : typeof payload.content_name === 'string'
+        ? payload.content_name
+        : null
+  const unitLabel = unitNumber || (unitId ? `Unidad ${unitId.slice(0, 8)}…` : null)
   return {
     id: row.id,
     phone: phone.source === 'none' ? null : phone.display,
@@ -457,12 +497,18 @@ function mapRow(
           ? 'failed'
           : delivery.outcome === 'blocked' && row.last_error === 'not_configured'
             ? 'blocked_config'
-            : delivery.outcome,
+            : delivery.outcome === 'pending_backend_support' ||
+                delivery.outcome === 'internal_activity'
+              ? 'retained'
+              : delivery.outcome,
     deliveryOutcome: delivery.outcome,
     deliveryOutcomeLabel: delivery.label,
     deliveryReason: delivery.reason,
     graphFbtraceId: delivery.graphEvidence?.fbtraceId ?? null,
     graphEventsReceived: delivery.graphEvidence?.eventsReceived ?? null,
+    internalSubtype: subtype,
+    internalSubtypeLabel: labelMetaInternalSubtype(subtype),
+    unitLabel,
     detail: detailLine(payload, row.event_id, row.last_error),
     lastError: row.last_error,
     deliveryLane: row.delivery_lane,

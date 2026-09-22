@@ -11,6 +11,7 @@ import {
   type TourFavorite,
 } from '@/lib/tour/tourFavorites'
 import {
+  getShowroomLeadId,
   getShowroomPhone,
   isShowroomIdentified,
   normalizeShowroomPhone,
@@ -21,6 +22,7 @@ import {
   logTourEvent,
   openTourSession,
 } from '@/lib/tour/visitorTracking'
+import { captureWishlistAfterSave } from '@/lib/meta/wishlistBrowser'
 import { cn } from '@/lib/utils'
 
 type FavoritesContext = {
@@ -172,6 +174,12 @@ export function TourFavoritesPanel({
             source: 'favorites_gate',
           },
         })
+        captureWishlistAfterSave({
+          unitId: context.unitId,
+          unitNumber: context.unitNumber,
+          typologyCode: context.typologyCode,
+          leadId,
+        })
         toast.success(`Guardamos el departamento ${context.unitNumber}`)
       } else {
         toast.success('Listo. Ya puede simular su inversión')
@@ -208,6 +216,12 @@ export function TourFavoritesPanel({
         phone_tail: getShowroomPhone().replace(/\D/g, '').slice(-4) || null,
         source: 'favorites_panel',
       },
+    })
+    captureWishlistAfterSave({
+      unitId: context.unitId,
+      unitNumber: context.unitNumber,
+      typologyCode: context.typologyCode,
+      leadId: getShowroomLeadId() || null,
     })
     refresh()
     toast.success(`Agregamos el departamento ${context.unitNumber}`)

@@ -81,6 +81,7 @@ export function MetaViewContentUnit({
             visit_key: visitKey,
             event_id: eventId,
             unit_id: unitId,
+            lv_internal_subtype: 'detalle_unidad',
             ...(conservative
               ? {}
               : {

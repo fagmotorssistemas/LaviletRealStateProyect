@@ -172,6 +172,7 @@ export async function POST(request: Request) {
         phone,
         adsConsent,
         deliveryLane: intendedLane(),
+        emitLead: requestKind === 'info_request',
         payload: {
           action_source: 'website',
           event_source_url:
@@ -308,7 +309,9 @@ export async function POST(request: Request) {
       }
     })
 
-    const emitMetaLead = Boolean(identified.emit_meta_lead && identified.meta_event_id)
+    const emitMetaLead =
+      requestKind === 'info_request' &&
+      Boolean(identified.emit_meta_lead && identified.meta_event_id)
     const response = NextResponse.json({
       lead_id: leadId,
       emit_meta_lead: emitMetaLead,

@@ -68,6 +68,12 @@ function EventRowCard({ row, tz }: { row: MetaCapiOutboxRow; tz: string }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-medium text-[#5b4a9a]">{row.eventName}</p>
+          {row.internalSubtypeLabel && row.internalSubtypeLabel !== '—' ? (
+            <p className="text-[10px] text-[#8a8176]">Subtipo · {row.internalSubtypeLabel}</p>
+          ) : null}
+          {row.unitLabel ? (
+            <p className="text-[10px] text-[#6b645c]">Unidad · {row.unitLabel}</p>
+          ) : null}
           <p
             className={cn(
               'mt-0.5 text-sm',
@@ -132,9 +138,11 @@ function StatusBadge({ row }: { row: MetaCapiOutboxRow }) {
           ? 'bg-rose-100 text-rose-800'
           : outcome === 'blocked' || outcome === 'blocked_config'
             ? 'bg-orange-100 text-orange-900'
-            : outcome === 'unknown'
-              ? 'bg-stone-200 text-stone-800'
-              : 'bg-amber-100 text-amber-900'
+            : outcome === 'pending_backend_support' || outcome === 'internal_activity' || outcome === 'retained'
+              ? 'bg-violet-100 text-violet-900'
+              : outcome === 'unknown'
+                ? 'bg-stone-200 text-stone-800'
+                : 'bg-amber-100 text-amber-900'
 
   const Icon =
     outcome === 'meta_accepted' ||
@@ -171,6 +179,7 @@ const STATUS_OPTIONS: { value: MetaCapiStatusBucket; label: string }[] = [
   { value: 'blocked', label: 'Bloqueado' },
   { value: 'failed_retrying', label: 'Fallido / reintentando' },
   { value: 'unknown', label: 'Resultado desconocido' },
+  { value: 'retained', label: 'Actividad interna / backend pendiente' },
 ]
 
 const emptyFilters = (): MetaCapiListFilters => ({
@@ -306,7 +315,14 @@ export function MetaCapiBitacoraView() {
               onChange={(e) => apply({ eventName: e.target.value })}
             >
               <option value="all">Todos</option>
-              {(data?.eventNames ?? ['ViewContent', 'Lead', 'Schedule']).map((name) => (
+              {(data?.eventNames ?? [
+                'ViewContent',
+                'Lead',
+                'Schedule',
+                'LeadSubmitted',
+                'AddToWishlist',
+                'Purchase',
+              ]).map((name) => (
                 <option key={name} value={name}>
                   {name}
                 </option>
@@ -490,6 +506,12 @@ export function MetaCapiBitacoraView() {
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-medium text-[#5b4a9a]">{row.eventName}</p>
+                        {row.internalSubtypeLabel && row.internalSubtypeLabel !== '—' ? (
+                          <p className="text-[10px] text-[#8a8176]">{row.internalSubtypeLabel}</p>
+                        ) : null}
+                        {row.unitLabel ? (
+                          <p className="text-[10px] text-[#6b645c]">{row.unitLabel}</p>
+                        ) : null}
                         {row.datasetHint ? (
                           <p className="text-[10px] text-[#8a8176]">dataset {row.datasetHint}</p>
                         ) : null}

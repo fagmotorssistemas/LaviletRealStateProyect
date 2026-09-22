@@ -2,7 +2,7 @@
 
 **Repos:** `FrontLaVilet` + Nest `lavilet-meta-capi`.  
 **No toca:** flags Meta, consentimiento, bot, Kommo, recepción WA, CTWA captura, showroom.  
-**Pendientes separados:** Purchase CAPI; bloqueos comerciales LeadSubmitted (`commercial_interest_required`).
+**Pendientes separados:** Purchase CAPI (captura FE `review_hold`; Nest tipado pendiente — ver `META_NEST_BACKEND_CONTRACT.md`); LeadSubmitted Nest Droplet redeploy consent-absent.
 
 ---
 

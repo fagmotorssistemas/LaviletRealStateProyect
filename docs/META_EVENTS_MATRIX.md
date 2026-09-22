@@ -1,24 +1,29 @@
-# Matriz eventos Meta — La Vilet (auditoría, sin envíos)
+# Matriz eventos Meta — La Vilet (auditoría operativa)
 
-| Hecho comercial | Evento admitido | Canal | Dataset | Parámetros clave | Disparador actual | Dedup |
-| --- | --- | --- | --- | --- | --- | --- |
-| Vista ficha / tour unidad | `ViewContent` | `website` | Pixel/web `923439043758658` | `content_ids`, consent ads web | `MetaViewContentUnit` → `/api/meta/enqueue` | visit key / idempotency |
-| Lead web identificado | `Lead` | `website` | web | hashed PII, consent | identify + outbox | `lead:{lead_id}` |
-| Cita confirmada (web) | `Schedule` | `website` | web | appointment scope | post-confirm + flags Schedule | `schedule:{appointment_id}` |
-| Interés lead en hilo WA CTWA | `LeadSubmitted` | `business_messaging` | `4419657838288963` | `ctwa_clid`, WABA; bloqueo solo `meta_ads_consent=false` | `maybeRegisterWaLeadSubmitted` | `wa_lead_submitted:{lead_id}` |
-| Cita por WhatsApp BM | `Schedule` BM | — | — | — | **Rechazado** Nest (`business_messaging_schedule_not_supported_by_meta`) | — |
-| Venta / cierre | `Purchase` BM o web | — | — | value/currency | **No implementado** en Nest tipado | Propuesta: `purchase:{sale_id}` |
+| Hecho | Evento | Canal | Nest envío | Disparador FE | Dedup |
+| --- | --- | --- | --- | --- | --- |
+| Visita página pública | `PageView` | Pixel browser | No (solo Pixel) | `MetaPixel` layout | Pixel |
+| Showroom 360 listo | `ViewContent` + subtipo `showroom_general` | website | Sí | `MetaViewContentShowroom` | `view:showroom:{visitor}` |
+| Abre ficha unidad | `ViewContent` + subtipo `detalle_unidad` | website | Sí | `MetaViewContentUnit` | `view:{visitor}:{unit}` |
+| Guarda favorito | `AddToWishlist` + `favorito` | website | **No** (captura `review_hold`) | post-`saveTourUnit` | `wishlist:{lead}:{unit}` |
+| Solicita info web | `Lead` + `solicitud` | website | Sí | `info_request` only | `lead:{lead_id}` |
+| Interés WA CTWA | `LeadSubmitted` | BM | Sí* | `maybeRegisterWaLeadSubmitted` | `wa_lead_submitted:{lead}` |
+| Cita confirmada web | `Schedule` + `cita` | website | Flags Schedule | post-confirm | `schedule:{appointment}` |
+| Cita WA BM | Schedule BM | — | Rechazado Nest | — | — |
+| Venta confirmada CRM | `Purchase` + `compra` | website | **No** (preparado) | post-`unit_sales_closings` | `purchase:{sale_id}` |
+| Búsqueda web | `Search` | — | — | **Sin disparador** | — |
+| Reserva | — | — | — | **Fuera de matriz** | — |
+
+\*LeadSubmitted: FE consent-absent OK; **Nest Droplet debe redeploy** gate alineado (ver `META_NEST_BACKEND_CONTRACT.md`).
 
 ### Categorías (no mezclar)
-1. **Temperatura lead** (`frio|tibio|caliente|sin_clasificar`) — CRM scoring.
-2. **Categoría inmueble** (`units.category`) — suite/depto.
-3. **Categoría publicitaria** — Meta Ads; **no disponible** sin Insights.
+1. Temperatura lead CRM  
+2. `units.category`  
+3. Categoría Ads Insights  
 
-### Purchase (propuesta, no enviar ahora)
-- `value` = `unit_sales_closings.sale_price_final` (importe final).
-- `currency` = documentar USD cuando el negocio lo confirme (hoy columna ausente → no inventar).
-- Dedup por `sale_id` / `unit_id` único de cierre; no repetir por cuotas de `contracts.anticipo`.
-- Anulación: contrato `anulado` / política de reopen — definir antes de cablear CAPI.
+### Purchase (preparado)
+- `value` = `sale_price_final`; currency omitida si no hay columna.
+- Sin cuotas/anticipos; anulación `contracts.anulado` antes de activar CAPI.
 
 ### “sent” ≠ aceptación Meta
-En Nest, outbox `sent` exige evidencia Graph `api_accepted`. En bitácora FE, `stage=meta_accepted` es el correlato. Agregados oficiales Events Manager son capa aparte (`metaOfficialMetrics`).
+Bitácora: `meta_accepted` solo con evidencia Graph. `pending_backend_support` = captura sin Nest tipado.

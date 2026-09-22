@@ -2535,6 +2535,7 @@ export async function recordUnitClosing(
   }
 
   const [hydrated] = await hydrateSalesClosings(supabase, [data as UnitSalesClosing])
+
   return hydrated
 }
 

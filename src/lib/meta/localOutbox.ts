@@ -3,12 +3,13 @@ import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { enqueueMetaEvent, isMetaCapiConfigured, type EnqueueMetaEventInput } from '@/lib/meta/capiServer'
 import { resolveDeliveryLane } from '@/lib/meta/deliveryLane'
+import { isMetaNestPendingEvent, type MetaCaptureEventName } from '@/lib/meta/metaMeasurementContract'
 
 export type LocalOutboxRow = {
   id: string
   idempotency_key: string
   event_id: string
-  event_name: 'ViewContent' | 'Lead' | 'Schedule' | 'LeadSubmitted'
+  event_name: MetaCaptureEventName
   event_time: number
   payload: Record<string, unknown>
   status: string
@@ -44,7 +45,7 @@ function intendedLane(): 'test' | 'live' {
 export async function persistMetaConversion(
   admin: SupabaseClient,
   input: {
-    eventName: 'ViewContent' | 'Lead' | 'Schedule' | 'LeadSubmitted'
+    eventName: MetaCaptureEventName
     idempotencyKey: string
     eventId?: string
     eventTime?: number
@@ -280,6 +281,17 @@ export async function flushLocalMetaOutbox(
       continue
     }
 
+    // AddToWishlist / Purchase: captura preparada; Nest tipado aún no — no flush aunque pending.
+    if (isMetaNestPendingEvent(row.event_name)) {
+      skipped += 1
+      console.info('[meta-outbox] flush skip nest_pending_event', {
+        event_id: row.event_id,
+        event_name: row.event_name,
+        status: row.status,
+      })
+      continue
+    }
+
     if (row.ads_consent_required) {
       if (row.lead_id) {
         const consent = await getLeadAdsConsent(admin, row.lead_id)
@@ -304,7 +316,7 @@ export async function flushLocalMetaOutbox(
 
     const payload = row.payload || {}
     const input: EnqueueMetaEventInput = {
-      eventName: row.event_name,
+      eventName: row.event_name as EnqueueMetaEventInput['eventName'],
       idempotencyKey: row.idempotency_key,
       eventId: row.event_id,
       eventTime: row.event_time,

@@ -11,6 +11,10 @@ export type MetaCapiDeliveryOutcome =
   | 'blocked'
   | 'failed_retrying'
   | 'unknown'
+  /** Captura local / CRM sin envío CAPI. */
+  | 'internal_activity'
+  /** Outbox retenido: Nest tipado aún no acepta el event_name. */
+  | 'pending_backend_support'
 
 export type MetaCapiStatusBucket =
   | 'all'
@@ -83,11 +87,38 @@ export function classifyDeliveryOutcome(input: {
   lastError: string | null
   conversion: ConversionLogEvidence | null
   nest: NestEventLookupEvidence | null
+  eventName?: string | null
 }): DeliveryOutcomeResult {
   const status = String(input.outboxStatus || '')
   const err = String(input.lastError || '')
   const conv = input.conversion
   const nest = input.nest
+  const eventName = String(input.eventName || '')
+
+  // Captura preparada: no es conversión enviada.
+  if (
+    err === 'nest_backend_pending' ||
+    ((eventName === 'AddToWishlist' || eventName === 'Purchase') &&
+      (status === 'review_hold' || status === 'needs_review'))
+  ) {
+    return {
+      outcome: 'pending_backend_support',
+      label: 'Pendiente de soporte backend',
+      reason: err || 'nest_backend_pending',
+      graphEvidence: null,
+      receptionLabel: 'Captura interna; Nest aún no tipa este evento',
+    }
+  }
+
+  if (conv?.stage === 'internal_activity') {
+    return {
+      outcome: 'internal_activity',
+      label: 'Actividad interna',
+      reason: conv.reason,
+      graphEvidence: null,
+      receptionLabel: 'Solo CRM; no es conversión Meta',
+    }
+  }
 
   if (hasMetaAcceptedEvidence(conv)) {
     return {
@@ -238,6 +269,12 @@ export function classifyOutboxStatus(
   if (outcome.outcome === 'unknown') {
     return { label: outcome.label, bucket: 'unknown' }
   }
+  if (outcome.outcome === 'pending_backend_support') {
+    return { label: outcome.label, bucket: 'retained' }
+  }
+  if (outcome.outcome === 'internal_activity') {
+    return { label: outcome.label, bucket: 'retained' }
+  }
   return { label: 'Pendiente', bucket: 'pending' }
 }
 
@@ -253,7 +290,9 @@ export function deliveryOutcomeMatchesFilter(
   if (filter === 'failed' && outcome === 'failed_retrying') return true
   if (
     (filter === 'retained' || filter === 'cancelled') &&
-    outcome === 'blocked'
+    (outcome === 'blocked' ||
+      outcome === 'pending_backend_support' ||
+      outcome === 'internal_activity')
   ) {
     return true
   }

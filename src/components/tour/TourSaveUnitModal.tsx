@@ -9,6 +9,7 @@ import {
   openTourSession,
 } from '@/lib/tour/visitorTracking'
 import {
+  getShowroomLeadId,
   getShowroomPhone,
   isShowroomIdentified,
   normalizeShowroomPhone,
@@ -17,6 +18,7 @@ import {
 import {
   addTourFavorite,
 } from '@/lib/tour/tourFavorites'
+import { captureWishlistAfterSave } from '@/lib/meta/wishlistBrowser'
 import { cn } from '@/lib/utils'
 
 export type TourSaveContext = {
@@ -86,6 +88,13 @@ export async function saveTourUnit(context: TourSaveContext, phone?: string) {
       phone_tail: (getShowroomPhone() || phone || '').replace(/\D/g, '').slice(-4) || null,
       lead_id: leadId,
     },
+  })
+
+  captureWishlistAfterSave({
+    unitId: context.unitId,
+    unitNumber: context.unitNumber,
+    typologyCode: context.typologyCode,
+    leadId: leadId || getShowroomLeadId() || null,
   })
 }
 
