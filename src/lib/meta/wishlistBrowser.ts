@@ -1,6 +1,7 @@
 /**
  * Disparo browser AddToWishlist tras favorito guardado (Pixel + POST outbox).
  * Solo llamar después de save OK; idempotencia server evita duplicados.
+ * Dedupe cliente: un disparo en vuelo por unitId (rerender / reintento / concurrente).
  */
 'use client'
 
@@ -12,6 +13,9 @@ import {
 } from '@/lib/marketing/metaEventSourceUrl'
 import { newMetaEventId, trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
 
+const inFlightByUnit = new Set<string>()
+const sentSessionByUnit = new Set<string>()
+
 export function captureWishlistAfterSave(opts: {
   unitId?: string | null
   unitNumber?: string | null
@@ -20,9 +24,12 @@ export function captureWishlistAfterSave(opts: {
 }): void {
   const unitId = String(opts.unitId || '').trim()
   if (!unitId || !hasAdsConsent()) return
+  if (inFlightByUnit.has(unitId) || sentSessionByUnit.has(unitId)) return
 
   const eventId = newMetaEventId()
   if (!/^[0-9a-f-]{36}$/i.test(eventId)) return
+
+  inFlightByUnit.add(unitId)
 
   const conservative = isMetaCoreSetupConservative()
   const unitNumber = String(opts.unitNumber || '').trim()
@@ -35,6 +42,7 @@ export function captureWishlistAfterSave(opts: {
         content_category: typologyCode || 'unit',
       }
 
+  // Mismo event_name + event_id que CAPI (dedupe Pixel/servidor).
   trackMetaPixelEvent('AddToWishlist', params, eventId)
 
   const ids = getMetaClickIds()
@@ -53,5 +61,12 @@ export function captureWishlistAfterSave(opts: {
       fbclid: ids.fbclid || undefined,
     }),
     keepalive: true,
-  }).catch(() => {})
+  })
+    .then((res) => {
+      if (res.ok || res.status === 202) sentSessionByUnit.add(unitId)
+    })
+    .catch(() => {})
+    .finally(() => {
+      inFlightByUnit.delete(unitId)
+    })
 }

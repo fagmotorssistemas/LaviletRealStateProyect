@@ -518,6 +518,8 @@ export interface UnitSalesClosing {
   sold_by_id: string | null
   published_price_snapshot: number | null
   sale_price_final: number
+  /** ISO-4217; null = desconocida (históricos). */
+  currency?: string | null
   sale_at: string
   notes: string | null
   created_at: string

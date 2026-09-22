@@ -37,6 +37,11 @@ export async function recordUnitClosingAction(
             unitId: payload.unit_id,
             saleAt: String(closing.sale_at || payload.sale_at || new Date().toISOString()),
             value: payload.sale_price_final,
+            currency:
+              (closing as { currency?: string | null }).currency ||
+              payload.currency ||
+              process.env.META_SALES_CURRENCY?.trim().toUpperCase() ||
+              null,
           })
         }
       } catch (error) {

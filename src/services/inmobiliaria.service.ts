@@ -2500,12 +2500,20 @@ export async function recordUnitClosing(
     lead_id?: string | null
     sold_by_id: string
     sale_price_final: number
+    /** ISO-4217. Si falta, queda NULL (no inventar USD). */
+    currency?: string | null
     published_price_snapshot?: number | null
     sale_at?: string
     notes?: string | null
     contract_id?: string | null
   },
 ) {
+  const currencyRaw = String(payload.currency || '')
+    .trim()
+    .toUpperCase()
+  const currency =
+    currencyRaw && /^[A-Z]{3}$/.test(currencyRaw) ? currencyRaw : null
+
   const { data, error } = await supabase
     .from('unit_sales_closings')
     .insert({
@@ -2514,6 +2522,7 @@ export async function recordUnitClosing(
       lead_id: payload.lead_id || null,
       sold_by_id: payload.sold_by_id,
       sale_price_final: payload.sale_price_final,
+      currency,
       published_price_snapshot: payload.published_price_snapshot ?? null,
       sale_at: payload.sale_at || new Date().toISOString(),
       notes: payload.notes?.trim() || null,

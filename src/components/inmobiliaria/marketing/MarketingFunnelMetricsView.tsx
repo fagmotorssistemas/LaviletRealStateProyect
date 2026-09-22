@@ -117,11 +117,18 @@ export function MarketingFunnelMetricsView({
   projects,
   selectedProjectId,
   error,
+  adsInsights,
 }: {
   report: MarketingFunnelReport | null
   projects: ProjectOption[]
   selectedProjectId: string
   error?: string | null
+  adsInsights?: {
+    connected: boolean
+    message: string
+    note: string
+    missing?: string[]
+  } | null
 }) {
   const from = report?.period.from ?? ''
   const to = report?.period.to ?? ''
@@ -136,6 +143,20 @@ export function MarketingFunnelMetricsView({
         description="Informe interno CTWA / CRM · America/Guayaquil. No dispara CAPI ni Pixel."
       />
 
+      {adsInsights && !adsInsights.connected ? (
+        <div className="rounded-2xl border border-[#e8d9c4] bg-[#fff8ef] px-4 py-3 text-sm text-[#5c5348]">
+          <p className="font-semibold text-[#1f1a14]">{adsInsights.message}</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-[#8a8176]">
+            {adsInsights.note}
+          </p>
+        </div>
+      ) : null}
+      {adsInsights?.connected ? (
+        <p className="text-[11px] text-[#8a8176]">
+          Ads: {adsInsights.message}. TZ informe {report?.timezone || 'America/Guayaquil'}.
+          Gasto ≠ leads CRM ≠ CAPI aceptado.
+        </p>
+      ) : null}
       <form
         method="get"
         className="flex flex-wrap items-end gap-3 rounded-2xl border border-[#ece6dc] bg-white p-4"

@@ -88,7 +88,7 @@ Guardar favorito **no** genera Lead. Solo `info_request` genera Lead.
 
 ## 6. Payload Purchase (preparado)
 
-Fuente: `unit_sales_closings` (`id` = sale_id, `sale_price_final`, `sale_at`, `unit_id`, `lead_id`).
+Fuente: `unit_sales_closings` (`id` = sale_id, `sale_price_final`, `currency` ISO-4217 nullable, `sale_at`, `unit_id`, `lead_id`).
 
 ```json
 {
@@ -98,13 +98,22 @@ Fuente: `unit_sales_closings` (`id` = sale_id, `sale_price_final`, `sale_at`, `u
   "sale_id": "<uuid>",
   "lead_id": "<uuid>",
   "unit_id": "<uuid>",
-  "value": 123456.78
+  "value": 123456.78,
+  "currency": "USD"
 }
 ```
 
-- Sin columna currency en CRM → **omitir** `currency` (no inventar USD).
+- `currency` en CRM es nullable: históricos NULL no reciben USD inventado.
+- Nest debe **rechazar** Purchase sin currency ISO-4217 (`purchase_currency_required_iso4217`).
+- FE cancela outbox Purchase al anular contrato (`contract_anulado`).
 - No emitir por temperatura, favorito, cita, reserva ni anticipo/cuotas.
-- Anulaciones: contrato `anulado` — Nest debe cancelar/no reenviar antes de activar.
+- `META_PURCHASE_DELIVERY_ENABLED` default off (FE+Nest).
+
+### Sync resultados Nest (FE)
+
+`GET /api/meta/sync-nest-results` (Bearer `CRON_SECRET` o `X-Internal-Secret`) + al abrir bitácora:
+consulta `GET /api/v1/events/:eventId`, escribe `meta_accepted` / `meta_rejected` / `nest_lookup_unverified`.
+**No reenvía** eventos.
 
 ---
 

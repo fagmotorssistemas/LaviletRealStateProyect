@@ -19,6 +19,7 @@ import {
   listProjects,
   updateContract,
 } from '@/services/inmobiliaria.service'
+import { cancelPurchaseOnContractAnulledAction } from '@/app/inmobiliaria/contratos/actions'
 import { toast } from 'sonner'
 import { Building2, ExternalLink, FileText, Pencil, Receipt, User } from 'lucide-react'
 import { AppointmentInterestUnitsPicker } from '@/components/inmobiliaria/agenda/AppointmentInterestUnitsPicker'
@@ -216,6 +217,10 @@ export function ContractDetailModal({
         },
         selectedUnits.map((u) => u.id),
       )
+
+      if (form.status === 'anulado') {
+        void cancelPurchaseOnContractAnulledAction(detail.id)
+      }
 
       const fresh = await getContract(supabase, detail.id, scope)
       setDetail(fresh)

@@ -1,5 +1,6 @@
 import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
 import { MarketingFunnelMetricsView } from '@/components/inmobiliaria/marketing/MarketingFunnelMetricsView'
+import { getAdsInsightsStatus } from '@/lib/meta/adsInsightsStatus'
 import {
   fetchMarketingFunnelMetrics,
   listMarketingFunnelProjects,
@@ -28,6 +29,7 @@ export default async function MarketingMetricasPage({
   const sp = await searchParams
   const from = sp.from || defaultFrom()
   const to = sp.to || new Date().toISOString().slice(0, 10)
+  const adsInsights = getAdsInsightsStatus()
 
   let projects: { id: string; name: string }[] = []
   let projectsError: string | null = null
@@ -58,6 +60,7 @@ export default async function MarketingMetricasPage({
       projects={projects}
       selectedProjectId={projectId}
       error={result.ok ? null : result.error}
+      adsInsights={adsInsights}
     />
   )
 }

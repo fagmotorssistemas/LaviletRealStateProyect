@@ -86,9 +86,10 @@ export async function persistPurchasePrepared(
         currency_omitted: !hasCurrency,
         currency_note: hasCurrency
           ? null
-          : 'unit_sales_closings sin currency; no inventar USD hasta confirmación de negocio',
+          : 'currency NULL u omitida; no inventar USD. Nest bloqueará Purchase sin ISO-4217.',
         delivery_enabled: isPurchaseMetaSendEnabled(),
         nest_backend_pending: true,
+        annulment_gate: 'cancel_on_contract_anulado',
       },
     },
   })

@@ -543,13 +543,33 @@ async function loadConversionEvidence(
     .from('meta_capi_conversion_log')
     .select('event_id, stage, reason, created_at, details')
     .in('event_id', ids)
-    .in('stage', ['meta_accepted', 'meta_rejected', 'backend_accepted'])
+    .in('stage', [
+      'meta_accepted',
+      'meta_rejected',
+      'backend_accepted',
+      'nest_lookup_unverified',
+    ])
     .order('created_at', { ascending: false })
     .limit(Math.min(ids.length * 4, 400))
   if (error || !data) return out
+  // Prioridad: meta_accepted > meta_rejected > nest_lookup_unverified > backend_accepted
+  const rank = (stage: string) => {
+    if (stage === 'meta_accepted') return 4
+    if (stage === 'meta_rejected') return 3
+    if (stage === 'nest_lookup_unverified') return 2
+    if (stage === 'backend_accepted') return 1
+    return 0
+  }
+  const best = new Map<string, (typeof data)[number]>()
   for (const raw of data) {
     const eid = raw.event_id ? String(raw.event_id) : ''
-    if (!eid || out.has(eid)) continue
+    if (!eid) continue
+    const prev = best.get(eid)
+    if (!prev || rank(String(raw.stage || '')) > rank(String(prev.stage || ''))) {
+      best.set(eid, raw)
+    }
+  }
+  for (const [eid, raw] of best) {
     const details =
       raw.details && typeof raw.details === 'object' && !Array.isArray(raw.details)
         ? (raw.details as Record<string, unknown>)
@@ -1247,6 +1267,16 @@ export async function listMetaCapiOutbox(
     })
   }
 
+  // Sync Nest → conversion_log (página + backlog acotado) antes de KPIs. Sin reenvío.
+  try {
+    const { syncNestOutboxResults } = await import('@/lib/meta/syncNestOutboxResults')
+    await syncNestOutboxResults(admin, { limit: 25 })
+  } catch (error) {
+    console.error('[meta-capi] nest sync', {
+      error: error instanceof Error ? error.message.slice(0, 160) : 'error',
+    })
+  }
+
   // Evidencia Graph desde conversion_log (toda la ventana filtrada).
   const conversionMap = await loadConversionEvidence(
     admin,
@@ -1343,7 +1373,7 @@ export async function listMetaCapiOutbox(
         historicalLocal,
         currentProcessCapiConfigured: isMetaCapiConfigured(),
         likelyOrigin: historicalLocal
-          ? `Entorno local (${host || 'host no determinado'}) · lane test · ViewContent web · sin entrega al backend`
+          ? `Prueba local/preview (${host || 'localhost'}) · lane=test · not_configured en ese proceso · no reenviar ni promover a live`
           : `Lane ${r.delivery_lane} · ${channelView.channelLabel} · config CAPI ausente en el proceso que hizo flush (no afirma fallo de Production)`,
         nestReceivedEvidence: 'none',
       }

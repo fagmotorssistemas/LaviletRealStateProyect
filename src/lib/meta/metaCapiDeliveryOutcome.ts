@@ -95,18 +95,26 @@ export function classifyDeliveryOutcome(input: {
   const nest = input.nest
   const eventName = String(input.eventName || '')
 
-  // Captura preparada: no es conversión enviada.
+  // Captura preparada Purchase / wishlist histórico retenido: no es conversión enviada.
   if (
     err === 'nest_backend_pending' ||
-    ((eventName === 'AddToWishlist' || eventName === 'Purchase') &&
+    (eventName === 'Purchase' &&
+      (status === 'review_hold' || status === 'needs_review')) ||
+    (eventName === 'AddToWishlist' &&
       (status === 'review_hold' || status === 'needs_review'))
   ) {
     return {
       outcome: 'pending_backend_support',
-      label: 'Pendiente de soporte backend',
+      label:
+        eventName === 'AddToWishlist' && status === 'review_hold'
+          ? 'Favorito retenido (histórico)'
+          : 'Pendiente de soporte backend',
       reason: err || 'nest_backend_pending',
       graphEvidence: null,
-      receptionLabel: 'Captura interna; Nest aún no tipa este evento',
+      receptionLabel:
+        eventName === 'AddToWishlist'
+          ? 'Histórico review_hold; no se libera en masa'
+          : 'Captura interna; envío Purchase desactivado',
     }
   }
 
@@ -157,6 +165,18 @@ export function classifyDeliveryOutcome(input: {
       reason: conv.reason || 'meta_rejected',
       graphEvidence: null,
       receptionLabel: `Meta rechazó o evidencia insuficiente (${conv.reason || 'meta_rejected'})`,
+    }
+  }
+
+  // Nest recibió; Graph aún no verificable — conservar nest_received (no inventar aceptación).
+  if (conv?.stage === 'nest_lookup_unverified' && status === 'forwarded') {
+    return {
+      outcome: 'nest_received',
+      label: 'Recibido Nest',
+      reason: conv.reason || 'insufficient_evidence',
+      graphEvidence: null,
+      receptionLabel:
+        'Nest recibió el evento; aceptación Graph no verificada (sin reenvío)',
     }
   }
 
