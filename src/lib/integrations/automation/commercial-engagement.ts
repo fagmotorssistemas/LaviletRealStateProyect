@@ -2,10 +2,30 @@ import { object, text } from './data'
 import { normalized } from './sdr-rules'
 import { isPropertyScopeRedirect } from './sales-subject'
 
-const property = /inmueble|departamento|suite|vivienda|local|proyecto|propiedad|la vilet|lavilet/
+const property = /inmueble|departamento|suite|vivienda|local|proyecto|propiedad|la vilet|lavilet|bien(?:es)?(?:\s+inmueble)?|unidad/
+/** Referencia a un inmueble concreto (no saludo genérico). */
+const identifiedProperty =
+  /(?:este|esta|ese|esa)\s+(?:bien|inmueble|departamento|suite|propiedad|unidad|local)|la\s+suite|el\s+departamento|\bunidad\s*\d|\b\d{2,4}\b.*(?:piso|suite|depto|departamento)/
+
 export function explicitPropertyInterest(value: string) {
   const m = normalized(value)
   if (/no (?:estoy interesad|me interesa|quiero comprar|quiero adquirir)|solo (?:por )?curiosidad/.test(m)) return false
+  // Consulta concreta de disponibilidad / precio / visita sobre propiedad identificada.
+  if (
+    identifiedProperty.test(m) &&
+    /(?:disponib|sigue\s+libre|todavia\s+est[aá]|precio|cu[aá]nto\s+(?:cuesta|cuesta|vale)|valor|visita|agendar|conocer\s+el\s+(?:depto|departamento|suite)|mas\s+informacion\s+sobre\s+(?:este|esta|el|la))/.test(
+      m,
+    )
+  ) {
+    return true
+  }
+  // Disponibilidad explícita aunque el eco del anuncio no repita tipología.
+  if (
+    /(?:todavia|aun)\s+est[aá]\s+disponib|est[aá]\s+disponib(?:le)?(?:\s+todavia)?|sigue\s+disponib/.test(m) &&
+    !/taxi|comida|cafe|capuchino|vehiculo|carro|vuelo|moto/.test(m)
+  ) {
+    return true
+  }
   return /(?:quiero|quisiera|busco|deseo|me interesa|estoy interesad[oa] en) (?:comprar|adquirir|invertir)/.test(m)
     && (property.test(m) || !/taxi|comida|cafe|capuchino|vehiculo|carro|vuelo|moto/.test(m))
     || /(?:ahora si|si) (?:me interesa|estoy interesad[oa])/.test(m) && property.test(m)

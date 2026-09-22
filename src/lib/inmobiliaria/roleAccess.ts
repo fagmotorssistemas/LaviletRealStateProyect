@@ -24,6 +24,7 @@ export const CRM_VIEW_OPTIONS: {
   { href: '/inmobiliaria/financiamiento', label: 'Financiamiento', group: 'contabilidad' },
   { href: '/inmobiliaria/contratos', label: 'Contratos', group: 'contabilidad' },
   { href: '/inmobiliaria/marketing/capi', label: 'CAPI Meta', group: 'marketing' },
+  { href: '/inmobiliaria/marketing/metricas', label: 'Métricas embudo', group: 'marketing' },
   { href: '/inmobiliaria/usuarios', label: 'Usuarios', group: 'admin' },
 ]
 
@@ -67,6 +68,7 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
     '/inmobiliaria/inventario',
     '/inmobiliaria/proyectos',
     '/inmobiliaria/marketing/capi',
+    '/inmobiliaria/marketing/metricas',
   ],
   asesor: [
     '/inmobiliaria/inventario',
@@ -94,6 +96,7 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
     '/inmobiliaria/financiamiento',
     '/inmobiliaria/contratos',
     '/inmobiliaria/marketing/capi',
+    '/inmobiliaria/marketing/metricas',
     '/inmobiliaria/usuarios',
   ],
 }
