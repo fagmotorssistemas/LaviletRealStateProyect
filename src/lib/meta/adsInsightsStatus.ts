@@ -41,6 +41,6 @@ export function getAdsInsightsStatus(
     message: 'Datos publicitarios no disponibles',
     missing: adsMarketingMissingHints(env),
     note:
-      'Faltan META_AD_ACCOUNT_ID y/o META_ADS_ACCESS_TOKEN (ads_read). Gasto e Insights no sustituyen CAPI. No reutilizar META_CAPI_* ni META_WA_CAPI_*.',
+      'Paso: Meta Business Suite → Configuración → Usuarios del sistema → System User con acceso a la cuenta publicitaria (ads_read) → generar token → en Vercel Production (server-only) definir META_AD_ACCOUNT_ID=act_… y META_ADS_ACCESS_TOKEN (no pegar el token en chats). No reutilizar META_CAPI_* ni META_WA_CAPI_*. Redeploy tras guardar.',
   }
 }

@@ -96,7 +96,17 @@ META_ADS_ACCESS_TOKEN=…   # System User ads_read
 # NUNCA: META_CAPI_ACCESS_TOKEN / META_WA_CAPI_ACCESS_TOKEN
 ```
 
-Si faltan: `resolutionStatus=missing_ads_token` y limitaciones explícitas en el informe.
+Si faltan: `resolutionStatus=missing_ads_token` / UI **“Datos publicitarios no disponibles”**.
+
+**Cómo obtener el token (ops, sin pegarlo en chats):**
+
+1. Meta Business Suite → **Configuración del negocio** → **Usuarios** → **Usuarios del sistema**.
+2. Crear o elegir un System User; asignar la **cuenta publicitaria** correcta (`act_…`) con permiso **`ads_read`** (Insights / lectura de anuncios).
+3. Generar un token de ese System User (Marketing API).
+4. En **Vercel → Project → Settings → Environment Variables → Production** (server-only):  
+   `META_AD_ACCOUNT_ID=act_…` y `META_ADS_ACCESS_TOKEN=…`  
+   **No** reutilizar `META_CAPI_*` ni `META_WA_CAPI_*`.
+5. Redeploy Production. Verificar en `/inmobiliaria/marketing/metricas` nombres/gasto o el mensaje de no disponibles.
 
 **Aceptación Graph CAPI ≠ atribución a campaña.** Una fila `meta_accepted` no prueba “esta campaña”; el embudo usa CTWA `source_id` + Insights.
 

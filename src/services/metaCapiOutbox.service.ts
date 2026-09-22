@@ -44,9 +44,11 @@ import {
   buildContactDetails,
   dedupeInboundMessages,
   inPeriod,
+  maskPhoneDisplay,
   periodBounds,
   summarizeWaCrmPeriod,
   type WaCrmContactDetail,
+  type WaCrmCtwaAttributionInfo,
   type WaCrmInboundMessageRow,
 } from '@/lib/meta/waCrmVisibility'
 
@@ -219,6 +221,9 @@ export type MetaWaConversionLogItem = {
   createdAt: string
   leadId: string | null
   contactId: string | null
+  /** Teléfono enmascarado del lead CRM si existe; nunca completo en UI. */
+  phoneMasked: string | null
+  leadHref: string | null
   eventName: string
   stage: string
   stageLabel: string
@@ -714,6 +719,7 @@ async function buildWaConversionTracking(
     },
     rows: [],
     indicatorHelp: [
+      'Solo event_name=LeadSubmitted (no ViewContent/Lead web).',
       'evaluated / blocked: evaluación local (mensaje recibido en CRM; aún no hay cola).',
       'enqueued: intent local en outbox (aún no Nest).',
       'backend_accepted: Nest aceptó el envío (no implica Graph).',
@@ -731,6 +737,8 @@ async function buildWaConversionTracking(
     )
     .in('tenant_id', tenantIds)
     .not('tenant_id', 'is', null)
+    // Solo LeadSubmitted BM: no mezclar ViewContent/Lead web en KPIs WhatsApp.
+    .eq('event_name', 'LeadSubmitted')
     .order('created_at', { ascending: false })
     .limit(200)
   if (fromIso) q = q.gte('created_at', fromIso)
@@ -744,12 +752,35 @@ async function buildWaConversionTracking(
     }
   }
 
+  const leadIds = [
+    ...new Set(
+      (data || [])
+        .map((r) => (r.lead_id ? String(r.lead_id) : null))
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ]
+  const phoneByLead = new Map<string, string | null>()
+  if (leadIds.length) {
+    const { data: leadPhones } = await admin
+      .from('leads')
+      .select('id, phone')
+      .in('id', leadIds)
+      .in('tenant_id', tenantIds)
+    for (const row of leadPhones || []) {
+      phoneByLead.set(
+        String(row.id),
+        typeof row.phone === 'string' && row.phone.trim() ? row.phone.trim() : null,
+      )
+    }
+  }
+
   const tenantSet = new Set(tenantIds)
   const rows: MetaWaConversionLogItem[] = []
   const kpis = { ...empty.kpis }
   for (const raw of data || []) {
     const tenantId = raw.tenant_id ? String(raw.tenant_id) : null
     if (!tenantId || !tenantSet.has(tenantId)) continue
+    if (String(raw.event_name || '') !== 'LeadSubmitted') continue
     const stage = String(raw.stage || '')
     if (stage === 'evaluated') kpis.evaluated += 1
     else if (stage === 'blocked') kpis.blocked += 1
@@ -761,11 +792,16 @@ async function buildWaConversionTracking(
       raw.details && typeof raw.details === 'object' && !Array.isArray(raw.details)
         ? (raw.details as Record<string, unknown>)
         : {}
+    const leadId = raw.lead_id ? String(raw.lead_id) : null
     rows.push({
       id: String(raw.id),
       createdAt: String(raw.created_at),
-      leadId: raw.lead_id ? String(raw.lead_id) : null,
+      leadId,
       contactId: raw.contact_id ? String(raw.contact_id) : null,
+      phoneMasked: leadId ? maskPhoneDisplay(phoneByLead.get(leadId) ?? null) : null,
+      leadHref: leadId
+        ? `/inmobiliaria/leads?lead=${encodeURIComponent(leadId)}`
+        : null,
       eventName: String(raw.event_name || ''),
       stage,
       stageLabel: labelMetaCapiStage(stage),
@@ -951,15 +987,28 @@ async function buildWhatsAppVisibility(
 
   const { data: ctwaRows } = await admin
     .from('lv_whatsapp_ctwa_attribution')
-    .select('id, project_id, contact_id')
+    .select('id, project_id, contact_id, source_id, referral_source_type, captured_at')
     .in('tenant_id', tenantIds)
+    .order('captured_at', { ascending: true })
     .limit(2000)
 
-  const ctwaKeys = new Set(
-    (ctwaRows ?? [])
-      .filter((r) => r.project_id && r.contact_id)
-      .map((r) => `${String(r.project_id)}:${String(r.contact_id)}`),
-  )
+  const ctwaKeys = new Set<string>()
+  const ctwaByKey = new Map<string, WaCrmCtwaAttributionInfo>()
+  for (const r of ctwaRows ?? []) {
+    if (!r.project_id || !r.contact_id) continue
+    const key = `${String(r.project_id)}:${String(r.contact_id)}`
+    ctwaKeys.add(key)
+    // First-touch: conservar la captura más antigua (orden ascendente).
+    if (!ctwaByKey.has(key)) {
+      ctwaByKey.set(key, {
+        sourceId: r.source_id ? String(r.source_id) : null,
+        referralSourceType: r.referral_source_type
+          ? String(r.referral_source_type)
+          : null,
+        capturedAt: r.captured_at ? String(r.captured_at) : null,
+      })
+    }
+  }
   const ctwaCaptures = ctwaKeys.size
 
   const leadsForDetails = waLeads.map((l) => ({
@@ -978,6 +1027,7 @@ async function buildWhatsAppVisibility(
     leads: leadsForDetails,
     inboundByLead,
     ctwaKeys,
+    ctwaByKey,
   })
   const inboundTotal = [...inboundByLead.values()].reduce((n, rows) => n + rows.length, 0)
   const periodSummary = summarizeWaCrmPeriod(contactDetails, inboundTotal)

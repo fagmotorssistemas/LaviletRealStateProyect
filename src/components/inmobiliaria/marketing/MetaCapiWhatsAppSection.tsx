@@ -116,13 +116,14 @@ export function MetaCapiWhatsAppSection({
                 <th className="px-2 py-2 font-semibold">Msgs</th>
                 <th className="px-2 py-2 font-semibold">Origen CRM</th>
                 <th className="px-2 py-2 font-semibold">Atribución</th>
+                <th className="px-2 py-2 font-semibold">Anuncio CTWA</th>
                 <th className="px-2 py-2 font-semibold">Ficha</th>
               </tr>
             </thead>
             <tbody>
               {whatsapp.contactDetails.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-2 py-6 text-center text-[#8a8176]">
+                  <td colSpan={7} className="px-2 py-6 text-center text-[#8a8176]">
                     Sin mensajes entrantes WhatsApp en el periodo y alcance.
                   </td>
                 </tr>
@@ -157,6 +158,20 @@ export function MetaCapiWhatsAppSection({
                       >
                         {row.attributionStatus === 'confirmed' ? 'CTWA confirmada' : 'Sin CTWA'}
                       </span>
+                    </td>
+                    <td className="px-2 py-2 text-[#6b645c]">
+                      {row.ctwaSourceId ? (
+                        <>
+                          <span className="font-mono text-[10px]">{row.ctwaSourceId}</span>
+                          {row.ctwaReferralSourceType ? (
+                            <span className="mt-0.5 block text-[10px] text-[#8a8176]">
+                              {row.ctwaReferralSourceType}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="px-2 py-2">
                       <Link
@@ -203,6 +218,7 @@ export function MetaCapiWhatsAppSection({
             <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase">
               <tr>
                 <th className="px-2 py-2 font-semibold">Fecha</th>
+                <th className="px-2 py-2 font-semibold">Lead</th>
                 <th className="px-2 py-2 font-semibold">Evento</th>
                 <th className="px-2 py-2 font-semibold">Etapa</th>
                 <th className="px-2 py-2 font-semibold">Motivo</th>
@@ -212,14 +228,31 @@ export function MetaCapiWhatsAppSection({
             <tbody>
               {conv.rows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-2 py-6 text-center text-[#8a8176]">
-                    Sin registros de conversión WhatsApp en el periodo.
+                  <td colSpan={6} className="px-2 py-6 text-center text-[#8a8176]">
+                    Sin registros LeadSubmitted en el periodo.
                   </td>
                 </tr>
               ) : (
                 conv.rows.map((row) => (
                   <tr key={row.id} className="border-b border-[#f0ebe3] align-top">
                     <td className="px-2 py-2 text-[#6b645c]">{formatWhen(row.createdAt, tz)}</td>
+                    <td className="px-2 py-2">
+                      {row.leadHref ? (
+                        <Link
+                          href={row.leadHref}
+                          className="font-semibold text-[#5b4a9a] underline-offset-2 hover:underline"
+                        >
+                          {row.phoneMasked || 'Sin teléfono'}
+                        </Link>
+                      ) : (
+                        <span className="text-[#8a8176]">{row.phoneMasked || 'Sin lead'}</span>
+                      )}
+                      {row.leadId ? (
+                        <span className="mt-0.5 block font-mono text-[9px] text-[#8a8176]">
+                          {row.leadId.slice(0, 8)}…
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-2 py-2">
                       {row.eventName}
                       {row.isTechnicalProbe ? (

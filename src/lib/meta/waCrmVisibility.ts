@@ -27,9 +27,25 @@ export type WaCrmContactDetail = {
   attributionStatus: WaCrmAttributionStatus
   /** Origen CRM (source/channel). Nunca prueba de ctwa_clid. */
   crmOriginLabel: string
+  /** source_id del anuncio CTWA first-touch, solo si hay fila de atribución. */
+  ctwaSourceId: string | null
+  ctwaReferralSourceType: string | null
   /** Solo si algún mensaje del periodo coincide con huella explícita. */
   technicalProbe: { id: string; label: string } | null
   leadHref: string
+}
+
+export type WaCrmCtwaAttributionInfo = {
+  sourceId: string | null
+  referralSourceType: string | null
+  capturedAt: string | null
+}
+
+export function maskPhoneDisplay(phone: string | null | undefined): string | null {
+  if (!phone) return null
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length < 4) return '****'
+  return `${'*'.repeat(Math.max(digits.length - 4, 0))}${digits.slice(-4)}`
 }
 
 export function periodBounds(dateFrom?: string | null, dateTo?: string | null): {
@@ -118,6 +134,7 @@ export function buildContactDetails(input: {
   }>
   inboundByLead: Map<string, WaCrmInboundMessageRow[]>
   ctwaKeys: Set<string>
+  ctwaByKey?: Map<string, WaCrmCtwaAttributionInfo>
   probes?: WaCrmTechnicalProbe[]
 }): WaCrmContactDetail[] {
   const details: WaCrmContactDetail[] = []
@@ -138,6 +155,16 @@ export function buildContactDetails(input: {
         break
       }
     }
+    const ctwaKey =
+      lead.contact_id && lead.project_id
+        ? `${lead.project_id}:${lead.contact_id}`
+        : null
+    const ctwaInfo = ctwaKey ? input.ctwaByKey?.get(ctwaKey) : undefined
+    const attributionStatus = attributionStatusForContact({
+      contactId: lead.contact_id,
+      projectId: lead.project_id,
+      ctwaKeys: input.ctwaKeys,
+    })
     details.push({
       leadId: lead.id,
       name: lead.name,
@@ -150,12 +177,14 @@ export function buildContactDetails(input: {
       channelOrigin: lead.channel_origin,
       inboundCount: inbound.length,
       lastInboundAt: last.sentAt,
-      attributionStatus: attributionStatusForContact({
-        contactId: lead.contact_id,
-        projectId: lead.project_id,
-        ctwaKeys: input.ctwaKeys,
-      }),
+      attributionStatus,
       crmOriginLabel: crmOriginLabel(lead.source, lead.channel_origin),
+      ctwaSourceId:
+        attributionStatus === 'confirmed' ? ctwaInfo?.sourceId ?? null : null,
+      ctwaReferralSourceType:
+        attributionStatus === 'confirmed'
+          ? ctwaInfo?.referralSourceType ?? null
+          : null,
       technicalProbe,
       leadHref: `/inmobiliaria/leads?lead=${encodeURIComponent(lead.id)}`,
     })

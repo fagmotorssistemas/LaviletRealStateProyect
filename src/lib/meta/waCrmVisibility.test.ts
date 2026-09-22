@@ -5,6 +5,7 @@ import {
   buildContactDetails,
   dedupeInboundMessages,
   maskCtwaClid,
+  maskPhoneDisplay,
   summarizeWaCrmPeriod,
 } from './waCrmVisibility'
 import { matchTechnicalProbeMessage } from './waCrmTechnicalProbes'
@@ -95,9 +96,57 @@ describe('waCrmVisibility', () => {
     })
     assert.equal(details.length, 1)
     assert.equal(details[0].attributionStatus, 'not_confirmed')
+    assert.equal(details[0].ctwaSourceId, null)
     assert.equal(details[0].crmOriginLabel.includes('whatsapp'), true)
     assert.ok(details[0].technicalProbe)
     assert.match(details[0].leadHref, /lead=lead-1/)
+
+    const withCtwa = buildContactDetails({
+      leads: [
+        {
+          id: 'lead-2',
+          name: 'Ana',
+          phone: '0991234567',
+          kommo_id: 1,
+          contact_id: 'c2',
+          project_id: 'proj',
+          tenant_id: 'ten',
+          source: 'waba',
+          channel_origin: 'whatsapp',
+        },
+      ],
+      inboundByLead: new Map([
+        [
+          'lead-2',
+          [
+            {
+              id: 'm2',
+              conversationId: 'c2',
+              leadId: 'lead-2',
+              role: 'cliente',
+              sentAt: '2026-09-22T10:00:00.000Z',
+              externalMessageId: 'ext-2',
+              contentPreview: 'info',
+            },
+          ],
+        ],
+      ]),
+      ctwaKeys: new Set(['proj:c2']),
+      ctwaByKey: new Map([
+        [
+          'proj:c2',
+          {
+            sourceId: '52625518901665',
+            referralSourceType: 'ad',
+            capturedAt: '2026-09-22T10:00:01.000Z',
+          },
+        ],
+      ]),
+    })
+    assert.equal(withCtwa[0].attributionStatus, 'confirmed')
+    assert.equal(withCtwa[0].ctwaSourceId, '52625518901665')
+    assert.equal(withCtwa[0].ctwaReferralSourceType, 'ad')
+    assert.equal(maskPhoneDisplay('0991234567'), '******4567')
 
     const summary = summarizeWaCrmPeriod(details, 1)
     assert.equal(summary.inboundMessages, 1)
