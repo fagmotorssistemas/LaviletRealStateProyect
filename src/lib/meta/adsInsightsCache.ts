@@ -91,8 +91,17 @@ export function spendSnapshotFromCache(
   cache: AdsInsightsCacheRow,
   liveError: string | null,
 ): AdSpendSnapshot & { stale: true; staleFetchedAt: string } {
+  const h =
+    cache.hierarchy && typeof cache.hierarchy === 'object'
+      ? (cache.hierarchy as Record<string, unknown>)
+      : {}
   return {
     adId: cache.entity_id,
+    adName: typeof h.adName === 'string' ? h.adName : null,
+    adsetId: typeof h.adsetId === 'string' ? h.adsetId : null,
+    adsetName: typeof h.adsetName === 'string' ? h.adsetName : null,
+    campaignId: typeof h.campaignId === 'string' ? h.campaignId : null,
+    campaignName: typeof h.campaignName === 'string' ? h.campaignName : null,
     spend: cache.spend == null ? null : Number(cache.spend),
     currency: cache.currency,
     impressions: cache.impressions == null ? null : Number(cache.impressions),
@@ -101,6 +110,13 @@ export function spendSnapshotFromCache(
       cache.meta_reported_results == null
         ? null
         : Number(cache.meta_reported_results),
+    metaResultActionType:
+      typeof h.metaResultActionType === 'string' ? h.metaResultActionType : null,
+    metaResultLabel:
+      typeof h.metaResultLabel === 'string' ? h.metaResultLabel : null,
+    metaOtherActionTypes: Array.isArray(h.metaOtherActionTypes)
+      ? h.metaOtherActionTypes.filter((x): x is string => typeof x === 'string')
+      : [],
     periodFrom: cache.period_from,
     periodTo: cache.period_to,
     fetchedAt: new Date().toISOString(),

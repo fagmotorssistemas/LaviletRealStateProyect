@@ -5,6 +5,8 @@
  * Las llamadas Graph deben ejecutarse solo en server (services con server-only).
  */
 
+import { selectPrimaryMetaResult } from '@/lib/meta/metaAdsActions'
+
 export type AdHierarchyResolution = {
   adId: string
   adName: string | null
@@ -23,12 +25,23 @@ export type AdHierarchyResolution = {
 
 export type AdSpendSnapshot = {
   adId: string
+  adName?: string | null
+  adsetId?: string | null
+  adsetName?: string | null
+  campaignId?: string | null
+  campaignName?: string | null
   spend: number | null
   currency: string | null
   impressions: number | null
   clicks: number | null
-  /** Contactos/resultados reportados por Meta (actions), no leads CRM. */
+  /**
+   * Resultado Meta primario (un action_type). No es suma de actions.
+   * No confundir con leads CRM.
+   */
   metaReportedResults: number | null
+  metaResultActionType: string | null
+  metaResultLabel: string | null
+  metaOtherActionTypes: string[]
   periodFrom: string
   periodTo: string
   fetchedAt: string
@@ -119,13 +132,14 @@ async function graphGet<T>(
   url: string,
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
+  timeoutMs = 12000,
 ): Promise<{ ok: true; data: T } | { ok: false; status: number; message: string }> {
   try {
     const res = await fetchImpl(url, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
-      signal: signal ?? AbortSignal.timeout(8000),
+      signal: signal ?? AbortSignal.timeout(timeoutMs),
     })
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
     if (!res.ok) {
@@ -142,6 +156,111 @@ async function graphGet<T>(
       status: 0,
       message: e instanceof Error ? e.message : 'graph_fetch_failed',
     }
+  }
+}
+
+/** Sigue paging.next hasta agotar (máx. páginas de seguridad). */
+async function graphGetAllDataRows(
+  firstUrl: string,
+  fetchImpl: typeof fetch,
+  signal?: AbortSignal,
+  maxPages = 40,
+): Promise<
+  | { ok: true; rows: Array<Record<string, unknown>>; pages: number; incomplete: boolean }
+  | { ok: false; status: number; message: string; rows: Array<Record<string, unknown>>; pages: number }
+> {
+  const rows: Array<Record<string, unknown>> = []
+  let url: string | null = firstUrl
+  let pages = 0
+  while (url && pages < maxPages) {
+    pages += 1
+    const res: Awaited<ReturnType<typeof graphGet<{
+      data?: Array<Record<string, unknown>>
+      paging?: { next?: string }
+    }>>> = await graphGet<{
+      data?: Array<Record<string, unknown>>
+      paging?: { next?: string }
+    }>(url, fetchImpl, signal, 20000)
+    if (!res.ok) {
+      return { ok: false, status: res.status, message: res.message, rows, pages }
+    }
+    for (const row of res.data.data || []) rows.push(row)
+    url = typeof res.data.paging?.next === 'string' ? res.data.paging.next : null
+  }
+  return { ok: true, rows, pages, incomplete: Boolean(url) }
+}
+
+function insightRowToSnapshot(
+  row: Record<string, unknown>,
+  period: { from: string; to: string },
+  fetchedAt: string,
+  fallbackAdId?: string,
+): AdSpendSnapshot {
+  const primary = selectPrimaryMetaResult(row.actions)
+  const adId =
+    (typeof row.ad_id === 'string' && row.ad_id) ||
+    (typeof row.campaign_id === 'string' && fallbackAdId) ||
+    fallbackAdId ||
+    ''
+  const spendRaw = row.spend
+  const spend =
+    spendRaw == null || spendRaw === ''
+      ? null
+      : Number.isFinite(Number(spendRaw))
+        ? Number(spendRaw)
+        : null
+  return {
+    adId,
+    adName: typeof row.ad_name === 'string' ? row.ad_name : null,
+    adsetId: typeof row.adset_id === 'string' ? row.adset_id : null,
+    adsetName: typeof row.adset_name === 'string' ? row.adset_name : null,
+    campaignId: typeof row.campaign_id === 'string' ? row.campaign_id : null,
+    campaignName: typeof row.campaign_name === 'string' ? row.campaign_name : null,
+    spend,
+    currency:
+      typeof row.account_currency === 'string' ? row.account_currency : null,
+    impressions:
+      row.impressions == null ? null : Number(row.impressions) || null,
+    clicks: row.clicks == null ? null : Number(row.clicks) || null,
+    metaReportedResults: primary?.value ?? null,
+    metaResultActionType: primary?.actionType ?? null,
+    metaResultLabel: primary?.label ?? null,
+    metaOtherActionTypes: primary?.otherActionTypes ?? [],
+    periodFrom: period.from,
+    periodTo: period.to,
+    fetchedAt,
+    error: null,
+    stale: false,
+    staleFetchedAt: null,
+  }
+}
+
+function emptySpendSnapshot(
+  id: string,
+  period: { from: string; to: string },
+  fetchedAt: string,
+): AdSpendSnapshot {
+  return {
+    adId: id,
+    adName: null,
+    adsetId: null,
+    adsetName: null,
+    campaignId: null,
+    campaignName: null,
+    spend: null,
+    currency: null,
+    impressions: null,
+    clicks: null,
+    metaReportedResults: null,
+    metaResultActionType: null,
+    metaResultLabel: null,
+    metaOtherActionTypes: [],
+    periodFrom: period.from,
+    periodTo: period.to,
+    fetchedAt,
+    error: null,
+    stale: false,
+    staleFetchedAt: null,
   }
 }
 
@@ -224,6 +343,7 @@ export async function resolveAdHierarchy(
 /**
  * Gasto del anuncio en período (YYYY-MM-DD, timezone cuenta Meta).
  * level=ad, filtering por ad.id. No reparte gasto a unidades.
+ * Resultado Meta = un action_type preferente (no suma).
  */
 export async function fetchAdSpendForPeriod(
   adId: string,
@@ -236,24 +356,10 @@ export async function fetchAdSpendForPeriod(
 ): Promise<AdSpendSnapshot> {
   const fetchedAt = new Date().toISOString()
   const id = String(adId || '').trim()
-  const empty: AdSpendSnapshot = {
-    adId: id,
-    spend: null,
-    currency: null,
-    impressions: null,
-    clicks: null,
-    metaReportedResults: null,
-    periodFrom: period.from,
-    periodTo: period.to,
-    fetchedAt,
-    error: null,
-  }
+  const empty = emptySpendSnapshot(id, period, fetchedAt)
   const creds = readAdsMarketingCredentials(opts?.env)
   if (!creds) {
-    return {
-      ...empty,
-      error: adsMarketingMissingHints(opts?.env).join('; '),
-    }
+    return { ...empty, error: adsMarketingMissingHints(opts?.env).join('; ') }
   }
   if (!id) return { ...empty, error: 'ad_id_empty' }
 
@@ -263,7 +369,7 @@ export async function fetchAdSpendForPeriod(
   )
   url.searchParams.set(
     'fields',
-    'ad_id,ad_name,spend,impressions,clicks,actions,account_currency',
+    'ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,actions,account_currency',
   )
   url.searchParams.set('level', 'ad')
   url.searchParams.set('time_range', JSON.stringify({ since: period.from, until: period.to }))
@@ -271,58 +377,20 @@ export async function fetchAdSpendForPeriod(
     'filtering',
     JSON.stringify([{ field: 'ad.id', operator: 'IN', value: [id] }]),
   )
+  url.searchParams.set('limit', '100')
   url.searchParams.set('access_token', creds.token)
 
-  const res = await graphGet<{ data?: Array<Record<string, unknown>> }>(
-    url.toString(),
-    fetchImpl,
-    opts?.signal,
-  )
-  if (!res.ok) {
-    return { ...empty, error: res.message.slice(0, 200) }
+  const paged = await graphGetAllDataRows(url.toString(), fetchImpl, opts?.signal, 5)
+  if (!paged.ok && !paged.rows.length) {
+    return { ...empty, error: paged.message.slice(0, 200) }
   }
-  const row = (res.data.data || [])[0]
+  const row = paged.rows[0]
   if (!row) {
-    return { ...empty, spend: 0, error: null }
+    return { ...empty, spend: 0 }
   }
-  const spendRaw = row.spend
-  const spend =
-    spendRaw == null || spendRaw === ''
-      ? null
-      : Number.isFinite(Number(spendRaw))
-        ? Number(spendRaw)
-        : null
-  let metaReportedResults: number | null = null
-  const actions = row.actions
-  if (Array.isArray(actions)) {
-    let sum = 0
-    let any = false
-    for (const a of actions) {
-      if (!a || typeof a !== 'object') continue
-      const v = Number((a as Record<string, unknown>).value)
-      if (Number.isFinite(v)) {
-        sum += v
-        any = true
-      }
-    }
-    metaReportedResults = any ? sum : null
-  }
-  return {
-    adId: id,
-    spend,
-    currency:
-      typeof row.account_currency === 'string' ? row.account_currency : null,
-    impressions:
-      row.impressions == null ? null : Number(row.impressions) || null,
-    clicks: row.clicks == null ? null : Number(row.clicks) || null,
-    metaReportedResults,
-    periodFrom: period.from,
-    periodTo: period.to,
-    fetchedAt,
-    error: null,
-    stale: false,
-    staleFetchedAt: null,
-  }
+  const snap = insightRowToSnapshot(row, period, fetchedAt, id)
+  if (!paged.ok) snap.error = `partial:${paged.message.slice(0, 160)}`
+  return snap
 }
 
 /**
@@ -397,20 +465,7 @@ export async function fetchCampaignSpendForPeriod(
 ): Promise<AdSpendSnapshot> {
   const fetchedAt = new Date().toISOString()
   const id = String(campaignId || '').trim()
-  const empty: AdSpendSnapshot = {
-    adId: id,
-    spend: null,
-    currency: null,
-    impressions: null,
-    clicks: null,
-    metaReportedResults: null,
-    periodFrom: period.from,
-    periodTo: period.to,
-    fetchedAt,
-    error: null,
-    stale: false,
-    staleFetchedAt: null,
-  }
+  const empty = emptySpendSnapshot(id, period, fetchedAt)
   const creds = readAdsMarketingCredentials(opts?.env)
   if (!creds) {
     return { ...empty, error: adsMarketingMissingHints(opts?.env).join('; ') }
@@ -431,56 +486,103 @@ export async function fetchCampaignSpendForPeriod(
     'filtering',
     JSON.stringify([{ field: 'campaign.id', operator: 'IN', value: [id] }]),
   )
+  url.searchParams.set('limit', '50')
   url.searchParams.set('access_token', creds.token)
 
-  const res = await graphGet<{ data?: Array<Record<string, unknown>> }>(
-    url.toString(),
-    fetchImpl,
-    opts?.signal,
-  )
-  if (!res.ok) {
-    return { ...empty, error: res.message.slice(0, 200) }
+  const paged = await graphGetAllDataRows(url.toString(), fetchImpl, opts?.signal, 5)
+  if (!paged.ok && !paged.rows.length) {
+    return { ...empty, error: paged.message.slice(0, 200) }
   }
-  const row = (res.data.data || [])[0]
-  if (!row) {
-    return { ...empty, spend: 0, error: null }
-  }
-  const spendRaw = row.spend
-  const spend =
-    spendRaw == null || spendRaw === ''
-      ? null
-      : Number.isFinite(Number(spendRaw))
-        ? Number(spendRaw)
-        : null
-  let metaReportedResults: number | null = null
-  const actions = row.actions
-  if (Array.isArray(actions)) {
-    let sum = 0
-    let any = false
-    for (const a of actions) {
-      if (!a || typeof a !== 'object') continue
-      const v = Number((a as Record<string, unknown>).value)
-      if (Number.isFinite(v)) {
-        sum += v
-        any = true
-      }
+  const row = paged.rows[0]
+  if (!row) return { ...empty, spend: 0 }
+  const snap = insightRowToSnapshot(row, period, fetchedAt, id)
+  snap.campaignId = id
+  if (typeof row.campaign_name === 'string') snap.campaignName = row.campaign_name
+  if (!paged.ok) snap.error = `partial:${paged.message.slice(0, 160)}`
+  return snap
+}
+
+export type AccountAdInsightsResult = {
+  ads: AdSpendSnapshot[]
+  fetchedAt: string
+  pages: number
+  incomplete: boolean
+  error: string | null
+  /** Suma de spend de filas con misma moneda; null si monedas mixtas o vacío. */
+  spendSumSameCurrency: number | null
+  currency: string | null
+}
+
+/**
+ * Insights level=ad de toda la cuenta en el período (paginado).
+ * Incluye anuncios con gasto aunque no tengan leads CRM/CTWA.
+ */
+export async function fetchAccountAdInsightsForPeriod(
+  period: { from: string; to: string },
+  opts?: {
+    env?: NodeJS.ProcessEnv | Record<string, string | undefined>
+    fetchImpl?: typeof fetch
+    signal?: AbortSignal
+    /** Si true, solo filas con spend>0. Default true. */
+    onlyWithSpend?: boolean
+  },
+): Promise<AccountAdInsightsResult> {
+  const fetchedAt = new Date().toISOString()
+  const creds = readAdsMarketingCredentials(opts?.env)
+  if (!creds) {
+    return {
+      ads: [],
+      fetchedAt,
+      pages: 0,
+      incomplete: false,
+      error: adsMarketingMissingHints(opts?.env).join('; '),
+      spendSumSameCurrency: null,
+      currency: null,
     }
-    metaReportedResults = any ? sum : null
   }
+  const fetchImpl = opts?.fetchImpl ?? fetch
+  const url = new URL(
+    `https://graph.facebook.com/${creds.graphVersion}/${encodeURIComponent(creds.adAccountId)}/insights`,
+  )
+  url.searchParams.set(
+    'fields',
+    'ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,actions,account_currency',
+  )
+  url.searchParams.set('level', 'ad')
+  url.searchParams.set('time_range', JSON.stringify({ since: period.from, until: period.to }))
+  url.searchParams.set('limit', '500')
+  url.searchParams.set('access_token', creds.token)
+
+  const paged = await graphGetAllDataRows(url.toString(), fetchImpl, opts?.signal, 40)
+  const onlyWithSpend = opts?.onlyWithSpend !== false
+  const ads: AdSpendSnapshot[] = []
+  for (const row of paged.rows) {
+    const snap = insightRowToSnapshot(row, period, fetchedAt)
+    if (!snap.adId) continue
+    if (onlyWithSpend && !(snap.spend != null && snap.spend > 0)) continue
+    ads.push(snap)
+  }
+  const currencies = [
+    ...new Set(ads.map((a) => (a.currency || '').trim().toUpperCase()).filter(Boolean)),
+  ]
+  let spendSumSameCurrency: number | null = null
+  let currency: string | null = null
+  if (currencies.length === 1) {
+    currency = currencies[0]!
+    spendSumSameCurrency =
+      Math.round(ads.reduce((s, a) => s + (a.spend || 0), 0) * 100) / 100
+  } else if (currencies.length === 0 && ads.every((a) => a.spend == null || a.spend === 0)) {
+    spendSumSameCurrency = 0
+  }
+
   return {
-    adId: id,
-    spend,
-    currency:
-      typeof row.account_currency === 'string' ? row.account_currency : null,
-    impressions:
-      row.impressions == null ? null : Number(row.impressions) || null,
-    clicks: row.clicks == null ? null : Number(row.clicks) || null,
-    metaReportedResults,
-    periodFrom: period.from,
-    periodTo: period.to,
+    ads,
     fetchedAt,
-    error: null,
-    stale: false,
-    staleFetchedAt: null,
+    pages: paged.pages,
+    incomplete: paged.ok ? paged.incomplete : true,
+    error: paged.ok ? null : paged.message.slice(0, 200),
+    spendSumSameCurrency,
+    currency,
   }
 }
+

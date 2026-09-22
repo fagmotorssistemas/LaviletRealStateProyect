@@ -4,6 +4,7 @@ import { getAdsInsightsStatus } from '@/lib/meta/adsInsightsStatus'
 import {
   fetchMarketingFunnelMetrics,
   listMarketingFunnelProjects,
+  probeAdsConnectionAction,
 } from './actions'
 
 export const dynamic = 'force-dynamic'
@@ -29,7 +30,17 @@ export default async function MarketingMetricasPage({
   const sp = await searchParams
   const from = sp.from || defaultFrom()
   const to = sp.to || new Date().toISOString().slice(0, 10)
-  const adsInsights = getAdsInsightsStatus()
+
+  const probe = await probeAdsConnectionAction()
+  const adsInsights = getAdsInsightsStatus(process.env, {
+    connected: probe.connected,
+    adAccountId: probe.adAccountId,
+    currency: probe.currency,
+    timezone: probe.timezone,
+    fetchedAt: probe.fetchedAt,
+    error: probe.error,
+    accountName: probe.accountName,
+  })
 
   let projects: { id: string; name: string }[] = []
   let projectsError: string | null = null
@@ -61,6 +72,7 @@ export default async function MarketingMetricasPage({
       selectedProjectId={projectId}
       error={result.ok ? null : result.error}
       adsInsights={adsInsights}
+      adsProbe={probe}
     />
   )
 }

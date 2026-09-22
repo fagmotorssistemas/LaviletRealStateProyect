@@ -17,6 +17,7 @@ import {
   computeCrmCostPerLead,
   fetchAdAccountSnapshot,
   fetchAdSpendForPeriod,
+  fetchAccountAdInsightsForPeriod,
   fetchCampaignSpendForPeriod,
   readAdsMarketingCredentials,
   resolveAdHierarchy,
@@ -30,6 +31,11 @@ import {
 } from '@/lib/meta/adsInsightsCache'
 import { rollupAttributedAdsByCampaign } from '@/lib/meta/adsCampaignRollup'
 import type { CampaignFunnelRollupRow } from '@/lib/meta/adsCampaignRollup'
+import {
+  listActiveAdPromotedUnits,
+  summarizePromotedUnit,
+  type AdPromotedUnitSummary,
+} from '@/lib/meta/adPromotedUnits'
 import {
   FUNNEL_UNIVERSES,
   bucketTemp,
@@ -87,19 +93,28 @@ export type AttributedAdFunnelRow = {
   /** Universo: ventas del período de leads de la cohorte */
   salesConfirmed: number
   salesAmount: number | null
-  salesCurrency: 'USD' | 'no_disponible'
+  salesCurrency: string | 'no_disponible'
   adSpend: number | null
   /** Moneda Insights (account_currency). null si no hay gasto verificable. */
   currency: string | null
   costPerLead: number | null
-  /** Resultados/contactos reportados por Meta Insights (no leads CRM). */
+  /**
+   * Resultado Meta primario (un action_type etiquetado). No suma actions distintos.
+   */
   metaReportedResults: number | null
+  metaResultActionType: string | null
+  metaResultLabel: string | null
   /** Conversiones CAPI meta_accepted de leads de esta cohorte/anuncio. */
   capiMetaAccepted: number | null
   spendFetchedAt: string | null
   /** true si gasto/jerarquía vienen de caché tras fallo Graph. */
   spendStale: boolean
   spendStaleFetchedAt: string | null
+  /** IDs CRM para drill-down (mismo universo que leadsUnique). */
+  leadIds: string[]
+  /** Solo Insights (gasto>0) sin leads CTWA en la cohorte. */
+  insightsOnly: boolean
+  promotedUnit: AdPromotedUnitSummary
   /** CPL = adSpend / leadsUnique (CRM). null → UI “No disponible”. */
   costPerLeadDefinition: 'ad_spend_div_crm_leads_unique'
   note: string
@@ -107,6 +122,22 @@ export type AttributedAdFunnelRow = {
 
 /** @deprecated Use AttributedAdFunnelRow */
 export type CampaignFunnelRow = AttributedAdFunnelRow
+
+export type PromotedUnitFunnelRow = {
+  unitId: string | null
+  unitLabel: string
+  adCount: number
+  adIds: string[]
+  adSpend: number | null
+  currency: string | null
+  leadsUnique: number
+  temperature: Record<TemperatureBucket, number>
+  costPerLead: number | null
+  leadsWithAppointmentConfirmed: number
+  leadsWithAppointmentDone: number
+  salesConfirmed: number
+  note: string
+}
 
 export type UnitFunnelRow = {
   unitId: string | null
@@ -155,7 +186,7 @@ export type MarketingFunnelReport = {
     leadsWithAppointmentInPeriod: number
     salesOccurredInPeriod: number
     salesAmountInPeriod: number | null
-    salesCurrency: 'USD' | 'no_disponible'
+    salesCurrency: string | 'no_disponible'
     /**
      * Snapshot de contratos anulado del project (no “en período”:
      * no hay annulled_at; signed_at/created_at no son fecha de anulación).
@@ -168,10 +199,24 @@ export type MarketingFunnelReport = {
   byAttributedAd: AttributedAdFunnelRow[]
   /** Rollup por campaign_id resuelto (nunca source_id como campaign). */
   byCampaign: CampaignFunnelRollupRow[]
+  /** Gasto por unidad promocionada (solo anuncios con vínculo inequívoco). */
+  byPromotedUnit: PromotedUnitFunnelRow[]
+  adsInsightsCoverage: {
+    adsWithSpend: number
+    adsWithCrmLeads: number
+    adsSpendWithoutLeads: number
+    accountAdSpendSum: number | null
+    accountAdSpendCurrency: string | null
+    insightsIncomplete: boolean
+    insightsFetchedAt: string | null
+    insightsError: string | null
+  }
   byUnit: UnitFunnelRow[]
   undeterminedUnit: {
     appointmentLeads: number
     reservedLeads: number
+    /** Aclara: citas de la cohorte sin appointment_units (≠ totales del período). */
+    note: string
   }
   /** Unidades reservadas sin titular único comprobado. */
   undeterminedTitularUnits: number
@@ -252,6 +297,7 @@ type SaleRow = {
   unit_id: string
   sale_price_final: number | null
   sale_at: string
+  currency: string | null
 }
 
 export async function buildMarketingFunnelReport(
@@ -270,7 +316,7 @@ export async function buildMarketingFunnelReport(
 
   const limitations: string[] = [
     'byAttributedAd = CTWA source_id; no son campañas del planificador.',
-    'Moneda: unit_sales_closings sin currency → salesCurrency=no_disponible.',
+    'Moneda de ventas: unit_sales_closings.currency (ISO-4217); null histórico → no_disponible.',
     'Importes null no se convierten a 0; salesAmount null si ningún importe conocido.',
     'Confirmación de cita exige confirmed_at; reprogramación solo por status.',
     'Cita→unidad solo vía appointment_units; reserva→unidad solo vía units.status=reservado + lead_units; si falta → “unidad no determinada”.',
@@ -416,13 +462,22 @@ export async function buildMarketingFunnelReport(
   const salesRaw = await fetchAllPages<SaleRow>((from, to) =>
     admin
       .from('unit_sales_closings')
-      .select('id,lead_id,unit_id,sale_price_final,sale_at')
+      .select('id,lead_id,unit_id,sale_price_final,sale_at,currency')
       .eq('tenant_id', input.tenantId)
       .gte('sale_at', fromIso)
       .lt('sale_at', toExclusiveIso)
       .range(from, to),
   )
   const sales = salesRaw.filter((s) => projectUnitIds.has(s.unit_id))
+  const saleCurrencies = [
+    ...new Set(
+      sales
+        .map((s) => (s.currency || '').trim().toUpperCase())
+        .filter((c) => /^[A-Z]{3}$/.test(c)),
+    ),
+  ]
+  const salesCurrencyResolved: string | 'no_disponible' =
+    saleCurrencies.length === 1 ? saleCurrencies[0]! : 'no_disponible'
 
   const salesByLead = new Map<string, SaleRow[]>()
   for (const s of sales) {
@@ -647,15 +702,26 @@ export async function buildMarketingFunnelReport(
       leadsReserved: reserved,
       salesConfirmed: salesN,
       salesAmount: sumKnownAmounts(saleAmounts),
-      salesCurrency: 'no_disponible' as const,
+      salesCurrency: salesCurrencyResolved,
       adSpend: null as number | null,
       currency: null as string | null,
       costPerLead: null as number | null,
       metaReportedResults: null as number | null,
+      metaResultActionType: null as string | null,
+      metaResultLabel: null as string | null,
       capiMetaAccepted: null as number | null,
       spendFetchedAt: null as string | null,
       spendStale: false,
       spendStaleFetchedAt: null as string | null,
+      leadIds: agg.leads.map((l) => l.id),
+      insightsOnly: false,
+      promotedUnit: {
+        adId: adId || '',
+        kind: 'none' as const,
+        label: 'Unidad no asignada',
+        links: [],
+        unambiguousUnitId: null,
+      },
       costPerLeadDefinition: 'ad_spend_div_crm_leads_unique' as const,
       note:
         key === 'sin_atribucion'
@@ -746,6 +812,9 @@ export async function buildMarketingFunnelReport(
           adsetName: row.adsetName,
           campaignId: row.campaignId,
           campaignName: row.campaignName,
+          metaResultActionType: spendSnap.metaResultActionType,
+          metaResultLabel: spendSnap.metaResultLabel,
+          metaOtherActionTypes: spendSnap.metaOtherActionTypes,
         },
         fetchedAt: spendSnap.fetchedAt,
         lastError: null,
@@ -768,10 +837,22 @@ export async function buildMarketingFunnelReport(
     row.adSpend = spendSnap.spend
     row.currency = spendSnap.currency
     row.metaReportedResults = spendSnap.metaReportedResults
+    row.metaResultActionType = spendSnap.metaResultActionType ?? null
+    row.metaResultLabel = spendSnap.metaResultLabel ?? null
     row.spendFetchedAt = spendSnap.stale
       ? spendSnap.staleFetchedAt || spendSnap.fetchedAt
       : spendSnap.fetchedAt
     row.costPerLead = computeCrmCostPerLead(spendSnap.spend, row.leadsUnique)
+    if (spendSnap.adName && !row.adName) row.adName = spendSnap.adName
+    if (spendSnap.adsetId && !row.adsetId) row.adsetId = spendSnap.adsetId
+    if (spendSnap.adsetName && !row.adsetName) row.adsetName = spendSnap.adsetName
+    if (spendSnap.campaignId && !row.campaignId) {
+      row.campaignId = spendSnap.campaignId
+      row.campaignName = spendSnap.campaignName ?? row.campaignName
+      if (row.resolutionStatus === 'missing_ads_token') {
+        row.resolutionStatus = 'resolved'
+      }
+    }
     if (spendSnap.error) {
       row.note = `${row.note} Gasto: ${spendSnap.error}`
     }
@@ -781,6 +862,146 @@ export async function buildMarketingFunnelReport(
     byAttributedAd.push(row)
   }
   byAttributedAd.sort((a, b) => b.leadsUnique - a.leadsUnique)
+
+  // Insights cuenta completa: anuncios con gasto aunque leads CRM = 0.
+  let accountInsights = await fetchAccountAdInsightsForPeriod(input.period)
+  const adsInsightsCoverage = {
+    adsWithSpend: accountInsights.ads.length,
+    adsWithCrmLeads: byAttributedAd.filter((r) => r.adId && r.leadsUnique > 0)
+      .length,
+    adsSpendWithoutLeads: 0,
+    accountAdSpendSum: accountInsights.spendSumSameCurrency,
+    accountAdSpendCurrency: accountInsights.currency,
+    insightsIncomplete: accountInsights.incomplete || Boolean(accountInsights.error),
+    insightsFetchedAt: accountInsights.fetchedAt,
+    insightsError: accountInsights.error,
+  }
+  if (adsCreds && !accountInsights.error) {
+    const known = new Set(
+      byAttributedAd.map((r) => r.adId).filter(Boolean) as string[],
+    )
+    for (const snap of accountInsights.ads) {
+      if (!snap.adId || known.has(snap.adId)) {
+        // Actualizar gasto/nombres si la fila CTWA ya existe y aún no tiene spend.
+        const existing = byAttributedAd.find((r) => r.adId === snap.adId)
+        if (existing && existing.adSpend == null && snap.spend != null) {
+          existing.adSpend = snap.spend
+          existing.currency = snap.currency
+          existing.metaReportedResults = snap.metaReportedResults
+          existing.metaResultActionType = snap.metaResultActionType
+          existing.metaResultLabel = snap.metaResultLabel
+          existing.costPerLead = computeCrmCostPerLead(
+            snap.spend,
+            existing.leadsUnique,
+          )
+          existing.spendFetchedAt = snap.fetchedAt
+          if (snap.adName) existing.adName = snap.adName
+          if (snap.campaignId) {
+            existing.campaignId = snap.campaignId
+            existing.campaignName = snap.campaignName ?? null
+            existing.resolutionStatus = 'resolved'
+          }
+        }
+        continue
+      }
+      known.add(snap.adId)
+      byAttributedAd.push({
+        attributionKey: `ad:${snap.adId}`,
+        adId: snap.adId,
+        adName: snap.adName ?? null,
+        adsetId: snap.adsetId ?? null,
+        adsetName: snap.adsetName ?? null,
+        campaignId: snap.campaignId ?? null,
+        campaignName: snap.campaignName ?? null,
+        resolutionStatus: snap.campaignId ? 'resolved' : 'unresolved',
+        sourceUrlPresent: false,
+        referralSourceType: null,
+        leadsUnique: 0,
+        temperature: emptyTemp(),
+        leadsWithAppointmentRequested: 0,
+        leadsWithAppointmentConfirmed: 0,
+        leadsWithAppointmentDone: 0,
+        appointmentCancelCount: 0,
+        appointmentNoShowCount: 0,
+        appointmentReprogrammedCount: 0,
+        leadsReserved: 0,
+        salesConfirmed: 0,
+        salesAmount: null,
+        salesCurrency: 'no_disponible',
+        adSpend: snap.spend,
+        currency: snap.currency,
+        costPerLead: null,
+        metaReportedResults: snap.metaReportedResults,
+        metaResultActionType: snap.metaResultActionType,
+        metaResultLabel: snap.metaResultLabel,
+        capiMetaAccepted: null,
+        spendFetchedAt: snap.fetchedAt,
+        spendStale: false,
+        spendStaleFetchedAt: null,
+        leadIds: [],
+        insightsOnly: true,
+        promotedUnit: {
+          adId: snap.adId,
+          kind: 'none',
+          label: 'Unidad no asignada',
+          links: [],
+          unambiguousUnitId: null,
+        },
+        costPerLeadDefinition: 'ad_spend_div_crm_leads_unique',
+        note:
+          'Anuncio con gasto reportado por Meta (Insights) sin leads CRM first-touch CTWA en la cohorte del período. CPL No disponible.',
+      })
+    }
+    adsInsightsCoverage.adsSpendWithoutLeads = byAttributedAd.filter(
+      (r) => r.insightsOnly,
+    ).length
+    // Cache account-level rows best-effort
+    for (const snap of accountInsights.ads.slice(0, 80)) {
+      if (snap.spend == null) continue
+      await upsertAdsInsightsCache(admin, {
+        adAccountId: adsCreds.adAccountId,
+        entityLevel: 'ad',
+        entityId: snap.adId,
+        periodFrom: input.period.from,
+        periodTo: input.period.to,
+        spend: snap.spend,
+        currency: snap.currency,
+        impressions: snap.impressions,
+        clicks: snap.clicks,
+        metaReportedResults: snap.metaReportedResults,
+        hierarchy: {
+          adName: snap.adName,
+          adsetId: snap.adsetId,
+          adsetName: snap.adsetName,
+          campaignId: snap.campaignId,
+          campaignName: snap.campaignName,
+          metaResultActionType: snap.metaResultActionType,
+          metaResultLabel: snap.metaResultLabel,
+        },
+        fetchedAt: snap.fetchedAt,
+      })
+    }
+  } else if (accountInsights.error && adsCreds) {
+    limitations.push(`Insights cuenta: ${accountInsights.error}`)
+  }
+
+  // Vínculos anuncio → unidad promocionada
+  const promotedMap = await listActiveAdPromotedUnits(admin, {
+    tenantId: input.tenantId,
+    projectId: input.projectId,
+    adIds: byAttributedAd.map((r) => r.adId).filter(Boolean) as string[],
+  })
+  for (const row of byAttributedAd) {
+    if (!row.adId) continue
+    row.promotedUnit = summarizePromotedUnit(row.adId, promotedMap)
+  }
+
+  byAttributedAd.sort((a, b) => {
+    const sa = a.adSpend ?? -1
+    const sb = b.adSpend ?? -1
+    if (sb !== sa) return sb - sa
+    return b.leadsUnique - a.leadsUnique
+  })
 
   // Rollup por campaña + gasto campaign-level cuando hay campaignId resuelto.
   let byCampaign = rollupAttributedAdsByCampaign(
@@ -865,17 +1086,110 @@ export async function buildMarketingFunnelReport(
     )
   } else {
     limitations.push(
-      'CPL = gasto Insights (mismo período YYYY-MM-DD, TZ cuenta Ads) ÷ leadsUnique CRM atribuidos CTWA (cohorte created_at en America/Guayaquil). Sin leadsUnique>0 o sin gasto → “No disponible”. Resultados Meta (actions) aparte de leads CRM y de CAPI meta_accepted.',
+      'CPL = gasto Insights (YYYY-MM-DD, TZ cuenta Ads) ÷ leadsUnique CRM first-touch CTWA (cohorte Guayaquil). Sin leads>0 o sin gasto → “No disponible”. Resultado Meta = un action_type preferente (no suma de actions).',
+    )
+    limitations.push(
+      'Gasto = reportado por Meta (Insights), no presupuesto. Totales de anuncios vs Insights level=campaign cuando hay campaign_id.',
     )
     if (adsAccount?.timezoneName) {
+      const aligned =
+        adsAccount.timezoneName === MARKETING_REPORT_TZ ||
+        adsAccount.timezoneName === 'America/Guayaquil'
       limitations.push(
-        `TZ Ads cuenta: ${adsAccount.timezoneName}. TZ informe CRM: ${MARKETING_REPORT_TZ}. Los días del filtro se envían a Insights como YYYY-MM-DD (calendario cuenta); los leads usan bounds Guayaquil.`,
+        aligned
+          ? `TZ Ads (${adsAccount.timezoneName}) alineada con informe CRM.`
+          : `TZ Ads: ${adsAccount.timezoneName}. TZ CRM: ${MARKETING_REPORT_TZ}. Insights usa YYYY-MM-DD de la cuenta; leads usan bounds Guayaquil — validar bordes de día si difieren.`,
       )
     }
-    if (adsAccount?.error) {
-      limitations.push(`Cuenta Ads: ${adsAccount.error}`)
+    if (adsAccount?.error) limitations.push(`Cuenta Ads: ${adsAccount.error}`)
+    if (adsInsightsCoverage.insightsIncomplete) {
+      limitations.push(
+        'Insights de cuenta incompleto o con error; revisar paginación/caché.',
+      )
     }
   }
+
+  // Gasto por unidad promocionada (solo vínculos inequívocos).
+  type PAgg = {
+    unitId: string
+    unitLabel: string
+    adIds: Set<string>
+    spends: Array<{ spend: number; currency: string | null }>
+    leads: Set<string>
+    temperature: Record<TemperatureBucket, number>
+    conf: number
+    done: number
+    sales: number
+  }
+  const promotedAgg = new Map<string, PAgg>()
+  for (const row of byAttributedAd) {
+    const uid = row.promotedUnit.unambiguousUnitId
+    if (!uid || !row.adId) continue
+    let acc = promotedAgg.get(uid)
+    if (!acc) {
+      acc = {
+        unitId: uid,
+        unitLabel: row.promotedUnit.label,
+        adIds: new Set(),
+        spends: [],
+        leads: new Set(),
+        temperature: emptyTemp(),
+        conf: 0,
+        done: 0,
+        sales: 0,
+      }
+      promotedAgg.set(uid, acc)
+    }
+    acc.adIds.add(row.adId)
+    if (row.adSpend != null) acc.spends.push({ spend: row.adSpend, currency: row.currency })
+    for (const lid of row.leadIds) acc.leads.add(lid)
+    for (const k of Object.keys(acc.temperature) as TemperatureBucket[]) {
+      acc.temperature[k] += row.temperature[k] || 0
+    }
+    acc.conf += row.leadsWithAppointmentConfirmed
+    acc.done += row.leadsWithAppointmentDone
+    acc.sales += row.salesConfirmed
+  }
+  const byPromotedUnit: PromotedUnitFunnelRow[] = [...promotedAgg.values()].map(
+    (acc) => {
+      const currencies = [
+        ...new Set(
+          acc.spends
+            .map((s) => (s.currency || '').trim().toUpperCase())
+            .filter(Boolean),
+        ),
+      ]
+      let adSpend: number | null = null
+      let currency: string | null = null
+      let note =
+        'Suma de gasto de anuncios con vínculo inequívoco a esta unidad. Distinto de lead_units (interés del lead).'
+      if (!acc.spends.length) note += ' Sin gasto verificable.'
+      else if (currencies.length > 1) {
+        note += ' Monedas distintas; gasto no sumado.'
+      } else {
+        adSpend =
+          Math.round(acc.spends.reduce((s, x) => s + x.spend, 0) * 100) / 100
+        currency = currencies[0] || acc.spends[0]?.currency || null
+      }
+      const leadsUnique = acc.leads.size
+      return {
+        unitId: acc.unitId,
+        unitLabel: acc.unitLabel,
+        adCount: acc.adIds.size,
+        adIds: [...acc.adIds],
+        adSpend,
+        currency,
+        leadsUnique,
+        temperature: acc.temperature,
+        costPerLead: computeCrmCostPerLead(adSpend, leadsUnique),
+        leadsWithAppointmentConfirmed: acc.conf,
+        leadsWithAppointmentDone: acc.done,
+        salesConfirmed: acc.sales,
+        note,
+      }
+    },
+  )
+  byPromotedUnit.sort((a, b) => (b.adSpend || 0) - (a.adSpend || 0))
 
   // ——— Por unidad (interés + cita real + reserva real + showroom + ventas) ———
   type UAgg = {
@@ -1071,17 +1385,21 @@ export async function buildMarketingFunnelReport(
       salesAmountInPeriod: sumKnownAmounts(
         sales.map((s) => s.sale_price_final),
       ),
-      salesCurrency: 'no_disponible',
+      salesCurrency: salesCurrencyResolved,
       contractsCurrentlyAnulled: anulledSnapshot.length,
       contractsAnulledAnnulmentDateKnown: false,
       contractsAnulledInPeriod: 0,
     },
     byAttributedAd,
     byCampaign,
+    byPromotedUnit,
+    adsInsightsCoverage,
     byUnit,
     undeterminedUnit: {
       appointmentLeads: undeterminedApptLeads,
       reservedLeads: undeterminedReservedLeads,
+      note:
+        'Citas de la cohorte (leads acquired en período) sin filas en appointment_units — no son las “citas del período” del KPI total (start_time ∈ período).',
     },
     undeterminedTitularUnits,
     limitations,

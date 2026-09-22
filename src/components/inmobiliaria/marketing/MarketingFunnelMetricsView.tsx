@@ -1,10 +1,11 @@
 import Link from 'next/link'
-import { BarChart3, Layers, Megaphone } from 'lucide-react'
+import { BarChart3, Layers } from 'lucide-react'
 import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
+import { MarketingCommercialBoard } from '@/components/inmobiliaria/marketing/MarketingCommercialBoard'
 import { cn } from '@/lib/utils'
+import type { AdsConnectionProbe } from '@/app/inmobiliaria/marketing/metricas/actions'
 import type {
-  AttributedAdFunnelRow,
   MarketingFunnelReport,
   UnitFunnelRow,
 } from '@/services/marketingFunnel.service'
@@ -42,13 +43,18 @@ function Kpi({
   label,
   value,
   hint,
+  title,
 }: {
   label: string
   value: string | number
   hint?: string
+  title?: string
 }) {
   return (
-    <div className="rounded-2xl border border-[#ece6dc] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(40,30,20,0.04)]">
+    <div
+      className="rounded-2xl border border-[#ece6dc] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(40,30,20,0.04)]"
+      title={title}
+    >
       <p className="text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
         {label}
       </p>
@@ -56,49 +62,6 @@ function Kpi({
       {hint ? <p className="mt-1 text-[11px] leading-snug text-[#8a8176]">{hint}</p> : null}
     </div>
   )
-}
-
-function adLabel(row: AttributedAdFunnelRow) {
-  const sourceId = row.adId || row.attributionKey || 'sin_id'
-  const adName = row.adName?.trim()
-  const campaign = row.campaignName?.trim()
-  const parts = [
-    adName ? `Anuncio ${adName}` : `Anuncio CTWA (${sourceId})`,
-    campaign ? `Campaña ${campaign}` : null,
-    row.adsetName ? `Conjunto ${row.adsetName}` : null,
-  ].filter(Boolean)
-  return parts.join(' · ')
-}
-
-function resolutionStatusLabel(
-  status: AttributedAdFunnelRow['resolutionStatus'],
-): string {
-  if (status === 'missing_ads_token') return 'Datos publicitarios no disponibles'
-  if (status === 'graph_permission_denied') return 'Sin permiso Graph (ads_read)'
-  if (status === 'not_found') return 'Anuncio no encontrado'
-  if (status === 'resolved') return 'Resuelto'
-  return 'Sin resolver'
-}
-
-function spendLabel(row: AttributedAdFunnelRow): string {
-  if (row.resolutionStatus === 'missing_ads_token') {
-    return 'Datos publicitarios no disponibles'
-  }
-  if (row.adSpend == null) return 'No disponible'
-  const base = formatAmount(row.adSpend, row.currency)
-  return row.spendStale ? `${base} (stale)` : base
-}
-
-function cplLabel(row: { costPerLead: number | null; currency?: string | null }): string {
-  if (row.costPerLead == null) return 'No disponible'
-  return formatAmount(row.costPerLead, row.currency)
-}
-
-function metaResultsLabel(row: AttributedAdFunnelRow): string | number {
-  if (row.resolutionStatus === 'missing_ads_token') {
-    return 'Datos publicitarios no disponibles'
-  }
-  return row.metaReportedResults == null ? 'No disponible' : row.metaReportedResults
 }
 
 function SectionTitle({
@@ -122,6 +85,7 @@ export function MarketingFunnelMetricsView({
   selectedProjectId,
   error,
   adsInsights,
+  adsProbe,
 }: {
   report: MarketingFunnelReport | null
   projects: ProjectOption[]
@@ -132,12 +96,22 @@ export function MarketingFunnelMetricsView({
     message: string
     note: string
     missing?: string[]
+    currency?: string | null
+    timezone?: string | null
+    fetchedAt?: string | null
+    adAccountId?: string
+    liveVerified?: boolean
+    error?: string | null
   } | null
+  adsProbe?: AdsConnectionProbe | null
 }) {
   const from = report?.period.from ?? ''
   const to = report?.period.to ?? ''
   const ap = report?.totals.appointmentsInPeriod
   const showProjectSelect = projects.length > 1
+  const undeterminedNote =
+    report?.undeterminedUnit.note ||
+    'undeterminedUnit = cohorte sin appointment_units (≠ citas del período por start_time).'
 
   return (
     <div className="space-y-6">
@@ -147,35 +121,6 @@ export function MarketingFunnelMetricsView({
         description="Informe interno CTWA / CRM · America/Guayaquil. No dispara CAPI ni Pixel."
       />
 
-      {adsInsights && !adsInsights.connected ? (
-        <div className="rounded-2xl border border-[#e8d9c4] bg-[#fff8ef] px-4 py-3 text-sm text-[#5c5348]">
-          <p className="font-semibold text-[#1f1a14]">{adsInsights.message}</p>
-          <p className="mt-1 text-[12px] leading-relaxed text-[#8a8176]">
-            {adsInsights.note}
-          </p>
-          {adsInsights.missing?.length ? (
-            <p className="mt-2 text-[11px] text-[#8a8176]">
-              Faltan: {adsInsights.missing.join(' · ')}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-      {adsInsights?.connected ? (
-        <p className="text-[11px] text-[#8a8176]">
-          Ads: {adsInsights.message}. TZ informe CRM{' '}
-          {report?.timezone || 'America/Guayaquil'}
-          {report?.adsAccountTimezone
-            ? ` · TZ cuenta Ads ${report.adsAccountTimezone}`
-            : ''}
-          {report?.adsAccount?.adAccountId
-            ? ` · ${report.adsAccount.adAccountId}`
-            : ''}
-          {report?.adsAccount?.currency
-            ? ` · moneda ${report.adsAccount.currency}`
-            : ''}
-          . Gasto ≠ leads CRM ≠ CAPI aceptado. CTWA source_id = ad_id (no campaign_id).
-        </p>
-      ) : null}
       <form
         method="get"
         className="flex flex-wrap items-end gap-3 rounded-2xl border border-[#ece6dc] bg-white p-4"
@@ -230,6 +175,33 @@ export function MarketingFunnelMetricsView({
         </p>
       </form>
 
+      {!report && adsInsights ? (
+        <div
+          className={cn(
+            'rounded-2xl border px-4 py-3 text-sm',
+            adsInsights.connected
+              ? 'border-[#ece6dc] bg-[#faf8f5] text-[#5c5348]'
+              : 'border-[#e8d9c4] bg-[#fff8ef] text-[#5c5348]',
+          )}
+        >
+          <p className="font-semibold text-[#1f1a14]">{adsInsights.message}</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-[#8a8176]">
+            {adsInsights.note}
+            {adsProbe?.currency || adsInsights.currency
+              ? ` · Moneda ${adsProbe?.currency || adsInsights.currency}`
+              : ''}
+            {adsProbe?.timezone || adsInsights.timezone
+              ? ` · TZ ${adsProbe?.timezone || adsInsights.timezone}`
+              : ''}
+          </p>
+          {adsInsights.missing?.length ? (
+            <p className="mt-2 text-[11px] text-[#8a8176]">
+              Faltan: {adsInsights.missing.join(' · ')}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
           {error}
@@ -277,15 +249,18 @@ export function MarketingFunnelMetricsView({
                 label="Citas programadas"
                 value={ap?.scheduled ?? 0}
                 hint="start_time ∈ período · no = realizadas"
+                title={`${undeterminedNote} La fila “unidad no determinada” es cohorte sin appointment_units, no este KPI.`}
               />
               <Kpi
                 label="Citas realizadas"
                 value={ap?.completed ?? 0}
                 hint="Completadas (no cancel/futura)"
+                title={`${undeterminedNote} Distinto de undeterminedUnit (cohorte sin appointment_units).`}
               />
               <Kpi
                 label="Cancel / no-show"
                 value={`${ap?.cancelled ?? 0} / ${ap?.noShow ?? 0}`}
+                title={undeterminedNote}
               />
               <Kpi
                 label="Ventas del período"
@@ -301,152 +276,21 @@ export function MarketingFunnelMetricsView({
               . Fecha de anulación desconocida
               {report.totals.contractsAnulledAnnulmentDateKnown
                 ? ''
-                : ' (no se inventa con signed_at)'}.
+                : ' (no se inventa con signed_at)'}
+              .
             </p>
           </section>
 
-          <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
-            <SectionTitle
-              title="Por campaña (resuelta)"
-              hint="Solo filas con campaign_id vía Graph (ad→adset→campaign). CTWA source_id nunca se usa como campaign_id. Gasto preferente: Insights level=campaign; si falla, suma de anuncios CTWA solo si la moneda coincide. CPL = gasto ÷ leads CRM únicos first-touch del período."
-            />
-            {(report.byCampaign?.length ?? 0) === 0 ? (
-              <EmptyState
-                icon={Layers}
-                title="Sin campañas resueltas"
-                description="Faltan credenciales Ads, o los anuncios CTWA aún no resolvieron jerarquía Graph."
-              />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-[11px]">
-                  <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase">
-                    <tr>
-                      <th className="px-2 py-2 font-semibold">Campaña</th>
-                      <th className="px-2 py-2 font-semibold">Anuncios</th>
-                      <th className="px-2 py-2 font-semibold">Leads CRM</th>
-                      <th className="px-2 py-2 font-semibold">F/T/C/SC</th>
-                      <th className="px-2 py-2 font-semibold">Gasto</th>
-                      <th className="px-2 py-2 font-semibold">CPL</th>
-                      <th className="px-2 py-2 font-semibold">Meta results</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {report.byCampaign.map((row) => (
-                      <tr
-                        key={row.campaignId}
-                        className="border-b border-[#f0ebe3] align-top"
-                      >
-                        <td className="max-w-[18rem] px-2 py-2 text-[#1f1a14]">
-                          <span className="font-medium">
-                            {row.campaignName || `Campaña ${row.campaignId}`}
-                          </span>
-                          <span className="mt-0.5 block text-[10px] text-[#8a8176]">
-                            camp {row.campaignId}
-                            {row.spendStale ? ' · datos stale' : ''}
-                            {row.currency ? ` · ${row.currency}` : ''}
-                          </span>
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">{row.adCount}</td>
-                        <td className="px-2 py-2 tabular-nums">{row.leadsUnique}</td>
-                        <td className="px-2 py-2">
-                          <TempInline temperature={row.temperature} />
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {row.adSpend == null
-                            ? 'No disponible'
-                            : `${formatAmount(row.adSpend, row.currency)}${row.spendStale ? ' (stale)' : ''}`}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">{cplLabel(row)}</td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {row.metaReportedResults == null
-                            ? 'No disponible'
-                            : row.metaReportedResults}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          <MarketingCommercialBoard
+            report={report}
+            adsInsights={adsInsights}
+            adsProbe={adsProbe}
+          />
 
           <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
             <SectionTitle
-              title="Por anuncio atribuido"
-              hint="Etiqueta = Anuncio CTWA (source_id = ad_id). Campaña/conjunto solo si Graph resuelve. Citas = todas las de la cohorte (sin filtro temporal de cita). Ventas = sale_at ∈ período ∧ lead de la cohorte. Meta results ≠ leads CRM."
-            />
-            {report.byAttributedAd.length === 0 ? (
-              <EmptyState
-                icon={Megaphone}
-                title="Sin anuncios atribuidos"
-                description="No hay leads CTWA en la cohorte del período."
-              />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-[11px]">
-                  <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase">
-                    <tr>
-                      <th className="px-2 py-2 font-semibold">Anuncio / campaña</th>
-                      <th className="px-2 py-2 font-semibold">Leads CRM</th>
-                      <th className="px-2 py-2 font-semibold">F/T/C/SC</th>
-                      <th className="px-2 py-2 font-semibold">Gasto</th>
-                      <th className="px-2 py-2 font-semibold">CPL</th>
-                      <th className="px-2 py-2 font-semibold">Meta results</th>
-                      <th className="px-2 py-2 font-semibold">Citas sol.</th>
-                      <th className="px-2 py-2 font-semibold">Conf.</th>
-                      <th className="px-2 py-2 font-semibold">Realiz.</th>
-                      <th className="px-2 py-2 font-semibold">Reservas</th>
-                      <th className="px-2 py-2 font-semibold">Ventas</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {report.byAttributedAd.map((row) => (
-                      <tr
-                        key={row.attributionKey}
-                        className="border-b border-[#f0ebe3] align-top"
-                      >
-                        <td className="max-w-[18rem] px-2 py-2 text-[#1f1a14]">
-                          <span className="font-medium">{adLabel(row)}</span>
-                          <span className="mt-0.5 block text-[10px] text-[#8a8176]">
-                            {row.adId ? `ad ${row.adId}` : 'sin source_id'}
-                            {row.campaignId ? ` · camp ${row.campaignId}` : ''}
-                            {' · '}
-                            {resolutionStatusLabel(row.resolutionStatus)}
-                            {row.spendStale ? ' · stale' : ''}
-                          </span>
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">{row.leadsUnique}</td>
-                        <td className="px-2 py-2">
-                          <TempInline temperature={row.temperature} />
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">{spendLabel(row)}</td>
-                        <td className="px-2 py-2 tabular-nums">{cplLabel(row)}</td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {metaResultsLabel(row)}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {row.leadsWithAppointmentRequested}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {row.leadsWithAppointmentConfirmed}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {row.leadsWithAppointmentDone}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">{row.leadsReserved}</td>
-                        <td className="px-2 py-2 tabular-nums">{row.salesConfirmed}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
-            <SectionTitle
-              title="Por unidad"
-              hint="Solo unidades con showroom o citas en el alcance del project. Reserva = titular comprobado; sin titular único → “titular no determinado”. La fila de unidad no determinada agrupa citas/reservas sin unidad real."
+              title="Por unidad (showroom / citas)"
+              hint="Solo unidades con showroom o citas en el alcance del project. Reserva = titular comprobado; sin titular único → “titular no determinado”. La fila de unidad no determinada agrupa citas/reservas de la cohorte sin appointment_units (≠ KPI citas del período)."
             />
             <UnitTable
               rows={report.byUnit}
@@ -514,10 +358,16 @@ function UnitTable({
           className={cn(
             'mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950',
           )}
+          title={undetermined.note}
         >
           Unidad no determinada — citas:{' '}
           <strong>{undetermined.appointmentLeads}</strong> · reservas:{' '}
           <strong>{undetermined.reservedLeads}</strong>
+          {undetermined.note ? (
+            <span className="mt-1 block text-[11px] text-amber-900/80">
+              {undetermined.note}
+            </span>
+          ) : null}
         </p>
       ) : null}
       {undeterminedTitularUnits > 0 ? (
