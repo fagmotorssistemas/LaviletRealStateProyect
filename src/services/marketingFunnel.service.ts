@@ -3,32 +3,44 @@
  * No dispara CAPI ni cambia gates de envío Meta.
  * Zona horaria de informe: America/Guayaquil.
  *
- * Fechas por estado (no reconstruir desde estado actual sin historial):
- * - Lead adquirido: leads.created_at
- * - Cita solicitada (cohorte): appointments.requested_at || created_at (estado solicitada/pendiente)
- * - Cita confirmada: appointments.confirmed_at (si null, no se inventa desde status)
- * - Cita ocurrida / no-show: appointments.start_time (+ no_show al cierre atendido)
- * - Cancelación: filas con status=cancelado (sin cancelled_at dedicado en schema)
- * - Reprogramación: status=reprogramado (sin timestamp dedicado de reprogramación)
- * - Venta confirmada: unit_sales_closings.sale_at
- * - Anulación contractual: contracts.status=anulado + signed_at||created_at (no hay anulación de closing)
+ * Universos temporales (no mezclar en tasas):
+ * - Cohorte leads: created_at ∈ período
+ * - byAttributedAd citas: todas las citas de leads de la cohorte (sin filtro temporal)
+ * - byAttributedAd ventas: sale_at ∈ período ∧ lead de la cohorte
+ * - Totales citas del período: start_time ∈ período, clasificadas (no toda cita = realizada)
+ * - Totales ventas: sale_at ∈ período
+ * - Contratos anulados: snapshot de estado actual; fecha de anulación desconocida
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  FUNNEL_UNIVERSES,
+  bucketTemp,
+  classifyAppointmentInPeriod,
+  ecuadorDayBoundsUtc,
+  emptyTemp,
+  resolveAppointmentUnitIds,
+  resolveReservedUnitIds,
+  snapshotAnulledContracts,
+  sumKnownAmounts,
+  type TemperatureBucket,
+} from '@/services/marketingFunnel.logic'
+
+export {
+  ecuadorDayBoundsUtc,
+  FUNNEL_UNIVERSES,
+  type TemperatureBucket,
+} from '@/services/marketingFunnel.logic'
 
 export const MARKETING_REPORT_TZ = 'America/Guayaquil'
 
 export type MarketingFunnelPeriod = {
-  /** ISO date YYYY-MM-DD (día Ecuador inclusivo) */
   from: string
   to: string
 }
 
-export type TemperatureBucket = 'frio' | 'tibio' | 'caliente' | 'sin_clasificar'
-
 export type AttributedAdFunnelRow = {
   attributionKey: string
-  /** CTWA referral source_id — anuncio opaco hasta resolución Marketing API */
   adId: string | null
   adName: string | null
   adsetId: string | null
@@ -42,8 +54,10 @@ export type AttributedAdFunnelRow = {
     | 'graph_permission_denied'
   sourceUrlPresent: boolean
   referralSourceType: string | null
+  /** Universo: cohorte leads */
   leadsUnique: number
   temperature: Record<TemperatureBucket, number>
+  /** Universo: citas de la cohorte sin filtro temporal */
   leadsWithAppointmentRequested: number
   leadsWithAppointmentConfirmed: number
   leadsWithAppointmentDone: number
@@ -51,6 +65,7 @@ export type AttributedAdFunnelRow = {
   appointmentNoShowCount: number
   appointmentReprogrammedCount: number
   leadsReserved: number
+  /** Universo: ventas del período de leads de la cohorte */
   salesConfirmed: number
   salesAmount: number | null
   salesCurrency: 'USD' | 'no_disponible'
@@ -59,7 +74,7 @@ export type AttributedAdFunnelRow = {
   note: string
 }
 
-/** @deprecated Use AttributedAdFunnelRow — no son “campañas” Meta. */
+/** @deprecated Use AttributedAdFunnelRow */
 export type CampaignFunnelRow = AttributedAdFunnelRow
 
 export type UnitFunnelRow = {
@@ -75,57 +90,90 @@ export type UnitFunnelRow = {
   temperature: Record<TemperatureBucket, number>
 }
 
+export type AppointmentPeriodBreakdown = {
+  scheduled: number
+  completed: number
+  cancelled: number
+  noShow: number
+  other: number
+  /** Completadas (atendido ∧ ¬no_show). No incluye futuras ni canceladas. */
+  leadsWithCompletedAppointment: number
+}
+
 export type MarketingFunnelReport = {
   timezone: typeof MARKETING_REPORT_TZ
   period: MarketingFunnelPeriod
   tenantId: string
   projectId: string
+  universes: typeof FUNNEL_UNIVERSES
   totals: {
     leadsAcquiredInPeriod: number
     leadsWithAttribution: number
     leadsWithoutAttribution: number
     temperature: Record<TemperatureBucket, number>
+    /** Desglose por start_time ∈ período (no usar completed como proxy de “todas”). */
+    appointmentsInPeriod: AppointmentPeriodBreakdown
+    /** @deprecated Prefer appointmentsInPeriod.completed */
     appointmentsOccurredInPeriod: number
     leadsWithAppointmentInPeriod: number
     salesOccurredInPeriod: number
     salesAmountInPeriod: number | null
     salesCurrency: 'USD' | 'no_disponible'
+    /**
+     * Snapshot de contratos anulado del project (no “en período”:
+     * no hay annulled_at; signed_at/created_at no son fecha de anulación).
+     */
+    contractsCurrentlyAnulled: number
+    contractsAnulledAnnulmentDateKnown: false
+    /** @deprecated Prefer contractsCurrentlyAnulled */
     contractsAnulledInPeriod: number
   }
-  /** Anuncios atribuidos (ad_id = CTWA source_id), no grupos planificador ni campaigns Ads. */
   byAttributedAd: AttributedAdFunnelRow[]
   byUnit: UnitFunnelRow[]
+  undeterminedUnit: {
+    appointmentLeads: number
+    reservedLeads: number
+  }
   limitations: string[]
   metaSendGatesUntouched: true
 }
 
-function emptyTemp(): Record<TemperatureBucket, number> {
-  return { frio: 0, tibio: 0, caliente: 0, sin_clasificar: 0 }
-}
+const PAGE = 1000
+const IN_CHUNK = 200
 
-function bucketTemp(raw: string | null | undefined): TemperatureBucket {
-  const t = String(raw || '').trim().toLowerCase()
-  if (t === 'frio' || t === 'tibio' || t === 'caliente') return t
-  return 'sin_clasificar'
-}
-
-function isDateYmd(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value)
-}
-
-/** Límites UTC del día Ecuador inclusivo [from, to]. */
-export function ecuadorDayBoundsUtc(fromYmd: string, toYmd: string): {
-  fromIso: string
-  toExclusiveIso: string
-} {
-  if (!isDateYmd(fromYmd) || !isDateYmd(toYmd)) {
-    throw new Error('period_from_to_must_be_YYYY-MM-DD')
+async function fetchAllPages<T>(
+  fetchPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{
+    data: T[] | null
+    error: { message: string } | null
+  }>,
+): Promise<T[]> {
+  const out: T[] = []
+  let from = 0
+  for (;;) {
+    const to = from + PAGE - 1
+    const { data, error } = await fetchPage(from, to)
+    if (error) throw error
+    const rows = data || []
+    out.push(...rows)
+    if (rows.length < PAGE) break
+    from += PAGE
   }
-  // Medianoche Ecuador = 05:00 UTC (sin DST).
-  const fromIso = `${fromYmd}T05:00:00.000Z`
-  const toDate = new Date(`${toYmd}T05:00:00.000Z`)
-  toDate.setUTCDate(toDate.getUTCDate() + 1)
-  return { fromIso, toExclusiveIso: toDate.toISOString() }
+  return out
+}
+
+async function fetchAllInChunks<T, Id>(
+  ids: Id[],
+  fetchChunk: (chunk: Id[]) => Promise<T[]>,
+): Promise<T[]> {
+  if (!ids.length) return []
+  const out: T[] = []
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    out.push(...(await fetchChunk(ids.slice(i, i + IN_CHUNK))))
+  }
+  return out
 }
 
 type LeadRow = {
@@ -165,9 +213,6 @@ type SaleRow = {
   sale_at: string
 }
 
-/**
- * First-touch: una fila attribution por contact; no tratar source_id como campaign_id.
- */
 export async function buildMarketingFunnelReport(
   admin: SupabaseClient,
   input: {
@@ -180,217 +225,163 @@ export async function buildMarketingFunnelReport(
     input.period.from,
     input.period.to,
   )
+  const nowIso = new Date().toISOString()
+
   const limitations: string[] = [
-    'Gasto publicitario / CPL: no disponible (sin Insights ni token Marketing API con ads_read).',
-    'Resolución ad→adset→campaign: Graph con META_CAPI_* / META_WA_CAPI_* → error 100/33 (objeto inexistente o sin permisos ads). Falta System User token con ads_read sobre la cuenta publicitaria del anuncio.',
-    'byAttributedAd agrupa por CTWA source_id (=ad_id opaco); no son “campañas” del planificador ni campaign_id Meta.',
-    'Moneda de ventas: no hay currency en unit_sales_closings → salesCurrency=no_disponible.',
-    'Anulación de venta: no hay cancelación de unit_sales_closings; solo contracts.status=anulado (fecha signed_at||created_at).',
-    'Cita confirmada exige appointments.confirmed_at (no se deduce solo del status). Reprogramación: solo status=reprogramado sin timestamp dedicado.',
-    'Cohorte leads = created_at Ecuador; citas ocurridas = start_time; ventas = sale_at.',
-    'Sumar byUnit.commercialInterestLeads puede superar leads únicos globales.',
-    'Paginación defensiva: hasta 10000 leads/attrs/citas por consulta.',
-    'Gates de envío Meta (Pixel/CAPI/WA) no se modifican en este informe.',
+    'Gasto / CPL: no disponible (sin Insights ni token ads_read).',
+    'Resolución ad→adset→campaign: Graph META_CAPI_* → 100/33; falta System User con ads_read.',
+    'byAttributedAd = CTWA source_id; no son campañas del planificador.',
+    'Moneda: unit_sales_closings sin currency → salesCurrency=no_disponible.',
+    'Importes null no se convierten a 0; salesAmount null si ningún importe conocido.',
+    'Confirmación de cita exige confirmed_at; reprogramación solo por status.',
+    'Cita→unidad solo vía appointment_units; reserva→unidad solo vía units.status=reservado + lead_units; si falta → “unidad no determinada”.',
+    'Contratos anulados: snapshot actual; annulledAt desconocida (no usar signed_at/created_at).',
+    'No mezclar universos al calcular tasas (ver report.universes).',
+    'Gates Meta (Pixel/CAPI/WA) no se modifican.',
   ]
 
-  const leadsRes = await admin
-    .from('leads')
-    .select('id,temperature,status,contact_id,kommo_id,created_at')
+  // 1) Proyecto pertenece al tenant
+  const projectRes = await admin
+    .from('projects')
+    .select('id,tenant_id')
+    .eq('id', input.projectId)
     .eq('tenant_id', input.tenantId)
-    .eq('project_id', input.projectId)
-    .gte('created_at', fromIso)
-    .lt('created_at', toExclusiveIso)
-    .order('created_at', { ascending: true })
-    .limit(10000)
-
-  if (leadsRes.error) throw leadsRes.error
-  const leads = (leadsRes.data || []) as LeadRow[]
-
-  // Paginación defensiva: si hay exactamente 10000, marcar truncación.
-  if (leads.length >= 10000) {
-    limitations.push(
-      'Leads del período truncados a 10000 filas; ampliar paginación si el volumen crece.',
-    )
+    .maybeSingle()
+  if (projectRes.error) throw projectRes.error
+  if (!projectRes.data) {
+    throw new Error('project_not_in_authorized_tenant')
   }
 
+  // Unidades del proyecto (aislamiento)
+  const projectUnits = await fetchAllPages<{
+    id: string
+    unit_number: string | null
+    category: string | null
+    status: string | null
+  }>((from, to) =>
+    admin
+      .from('units')
+      .select('id,unit_number,category,status')
+      .eq('tenant_id', input.tenantId)
+      .eq('project_id', input.projectId)
+      .range(from, to),
+  )
+  const projectUnitIds = new Set(projectUnits.map((u) => u.id))
+  const unitsById = new Map(projectUnits.map((u) => [u.id, u]))
+  const unitStatusById = new Map(
+    projectUnits.map((u) => [u.id, u.status as string | null]),
+  )
+
+  // Cohorte leads
+  const leads = await fetchAllPages<LeadRow>((from, to) =>
+    admin
+      .from('leads')
+      .select('id,temperature,status,contact_id,kommo_id,created_at')
+      .eq('tenant_id', input.tenantId)
+      .eq('project_id', input.projectId)
+      .gte('created_at', fromIso)
+      .lt('created_at', toExclusiveIso)
+      .order('created_at', { ascending: true })
+      .range(from, to),
+  )
+  const leadIds = leads.map((l) => l.id)
+  const leadById = new Map(leads.map((l) => [l.id, l]))
   const contactIds = [
     ...new Set(
       leads.map((l) => l.contact_id).filter((c): c is string => Boolean(c)),
     ),
   ]
-  const leadIds = leads.map((l) => l.id)
 
-  let attrs: AttrRow[] = []
-  if (contactIds.length) {
-    const attrRes = await admin
-      .from('lv_whatsapp_ctwa_attribution')
-      .select(
-        'contact_id,kommo_id,source_id,source_url,referral_source_type,captured_at',
-      )
-      .eq('tenant_id', input.tenantId)
-      .eq('project_id', input.projectId)
-      .in('contact_id', contactIds)
-      .limit(10000)
-    if (attrRes.error) throw attrRes.error
-    attrs = (attrRes.data || []) as AttrRow[]
-  }
-
+  // Attribution
+  const attrs = await fetchAllInChunks(contactIds, (chunk) =>
+    fetchAllPages<AttrRow>((from, to) =>
+      admin
+        .from('lv_whatsapp_ctwa_attribution')
+        .select(
+          'contact_id,kommo_id,source_id,source_url,referral_source_type,captured_at',
+        )
+        .eq('tenant_id', input.tenantId)
+        .eq('project_id', input.projectId)
+        .in('contact_id', chunk)
+        .range(from, to),
+    ),
+  )
   const attrByContact = new Map<string, AttrRow>()
   for (const a of attrs) {
     if (!attrByContact.has(a.contact_id)) attrByContact.set(a.contact_id, a)
   }
 
-  let appts: ApptRow[] = []
-  if (leadIds.length) {
-    const apptRes = await admin
-      .from('appointments')
-      .select(
-        'id,lead_id,status,no_show,requested_at,confirmed_at,start_time,created_at',
-      )
-      .eq('tenant_id', input.tenantId)
-      .eq('project_id', input.projectId)
-      .in('lead_id', leadIds)
-      .limit(10000)
-    if (apptRes.error) throw apptRes.error
-    appts = (apptRes.data || []) as ApptRow[]
+  // Citas de la cohorte (sin filtro temporal) — universo byAttributedAd
+  const cohortAppts = await fetchAllInChunks(leadIds, (chunk) =>
+    fetchAllPages<ApptRow>((from, to) =>
+      admin
+        .from('appointments')
+        .select(
+          'id,lead_id,status,no_show,requested_at,confirmed_at,start_time,created_at',
+        )
+        .eq('tenant_id', input.tenantId)
+        .eq('project_id', input.projectId)
+        .in('lead_id', chunk)
+        .range(from, to),
+    ),
+  )
+  const apptsByLead = new Map<string, ApptRow[]>()
+  for (const a of cohortAppts) {
+    const list = apptsByLead.get(a.lead_id) || []
+    list.push(a)
+    apptsByLead.set(a.lead_id, list)
   }
 
-  // Citas cuyo start_time cae en el período (ocurrencia), aparte de cohorte lead.
-  const apptsOccurredRes = await admin
-    .from('appointments')
-    .select('id,lead_id,status,no_show,start_time')
-    .eq('tenant_id', input.tenantId)
-    .eq('project_id', input.projectId)
-    .gte('start_time', fromIso)
-    .lt('start_time', toExclusiveIso)
-    .limit(10000)
-  if (apptsOccurredRes.error) throw apptsOccurredRes.error
-  const apptsOccurred = (apptsOccurredRes.data || []) as Array<{
+  // Citas del período por start_time (totales) — clasificadas
+  const periodAppts = await fetchAllPages<{
     id: string
     lead_id: string
     status: string | null
     no_show: boolean | null
     start_time: string | null
-  }>
-
-  let sales: SaleRow[] = []
-  const salesRes = await admin
-    .from('unit_sales_closings')
-    .select('id,lead_id,unit_id,sale_price_final,sale_at')
-    .eq('tenant_id', input.tenantId)
-    .gte('sale_at', fromIso)
-    .lt('sale_at', toExclusiveIso)
-    .limit(5000)
-  if (salesRes.error) throw salesRes.error
-  sales = (salesRes.data || []) as SaleRow[]
-
-  const leadUnitsRes = leadIds.length
-    ? await admin
-        .from('lead_units')
-        .select('lead_id,unit_id,interest_level,rejected')
-        .in('lead_id', leadIds)
-        .limit(20000)
-    : { data: [], error: null }
-  if (leadUnitsRes.error) throw leadUnitsRes.error
-  const leadUnits = (leadUnitsRes.data || []) as Array<{
-    lead_id: string
-    unit_id: string
-    interest_level: string | null
-    rejected: boolean | null
-  }>
-
-  const unitIds = [
-    ...new Set([
-      ...leadUnits.map((u) => u.unit_id),
-      ...sales.map((s) => s.unit_id),
-    ]),
-  ]
-  const unitsRes = unitIds.length
-    ? await admin
-        .from('units')
-        .select('id,unit_number,category,project_id,tenant_id')
-        .eq('tenant_id', input.tenantId)
-        .in('id', unitIds)
-        .limit(5000)
-    : { data: [], error: null }
-  if (unitsRes.error) throw unitsRes.error
-  const unitsById = new Map(
-    ((unitsRes.data || []) as Array<{
-      id: string
-      unit_number: string | null
-      category: string | null
-    }>).map((u) => [u.id, u]),
+  }>((from, to) =>
+    admin
+      .from('appointments')
+      .select('id,lead_id,status,no_show,start_time')
+      .eq('tenant_id', input.tenantId)
+      .eq('project_id', input.projectId)
+      .gte('start_time', fromIso)
+      .lt('start_time', toExclusiveIso)
+      .range(from, to),
   )
 
-  // Showroom: visitas en período → unidades
-  const showroomRes = await admin
-    .from('showroom_visits')
-    .select('id,visit_start,created_at')
-    .eq('tenant_id', input.tenantId)
-    .limit(5000)
-  const showroomVisits = ((showroomRes.data || []) as Array<{
-    id: string
-    visit_start?: string | null
-    created_at?: string | null
-  }>).filter((v) => {
-    const ts = v.visit_start || v.created_at
-    if (!ts) return false
-    return ts >= fromIso && ts < toExclusiveIso
-  })
-  if (showroomRes.error) {
-    limitations.push(`showroom_visits: ${showroomRes.error.message}`)
+  const apptBreakdown: AppointmentPeriodBreakdown = {
+    scheduled: 0,
+    completed: 0,
+    cancelled: 0,
+    noShow: 0,
+    other: 0,
+    leadsWithCompletedAppointment: 0,
   }
-  const showroomIds = showroomVisits.map((v) => v.id)
-  const showroomUnitsRes = showroomIds.length
-    ? await admin
-        .from('showroom_visit_units')
-        .select('showroom_visit_id,unit_id')
-        .in('showroom_visit_id', showroomIds)
-        .limit(20000)
-    : { data: [], error: null }
-  if (showroomUnitsRes.error) throw showroomUnitsRes.error
-  const showroomUnitCounts = new Map<string, number>()
-  for (const row of (showroomUnitsRes.data || []) as Array<{
-    unit_id: string
-  }>) {
-    showroomUnitCounts.set(
-      row.unit_id,
-      (showroomUnitCounts.get(row.unit_id) || 0) + 1,
-    )
+  const completedLeadIds = new Set<string>()
+  for (const a of periodAppts) {
+    const c = classifyAppointmentInPeriod(a, nowIso)
+    if (c === 'scheduled') apptBreakdown.scheduled += 1
+    else if (c === 'completed') {
+      apptBreakdown.completed += 1
+      completedLeadIds.add(a.lead_id)
+    } else if (c === 'cancelled') apptBreakdown.cancelled += 1
+    else if (c === 'no_show') apptBreakdown.noShow += 1
+    else apptBreakdown.other += 1
   }
+  apptBreakdown.leadsWithCompletedAppointment = completedLeadIds.size
 
-  const totalsTemp = emptyTemp()
-  for (const l of leads) totalsTemp[bucketTemp(l.temperature)] += 1
-
-  const withAttr = leads.filter(
-    (l) => l.contact_id && attrByContact.has(l.contact_id),
-  ).length
-
-  // Agrupar por ad_id (source_id) o sin_atribucion
-  type Agg = {
-    leads: LeadRow[]
-    attr: AttrRow | null
-  }
-  const byKey = new Map<string, Agg>()
-  for (const lead of leads) {
-    const attr = lead.contact_id
-      ? attrByContact.get(lead.contact_id) || null
-      : null
-    const key = attr?.source_id
-      ? `ad:${attr.source_id}`
-      : 'sin_atribucion'
-    const bucket = byKey.get(key) || { leads: [], attr }
-    bucket.leads.push(lead)
-    if (!bucket.attr && attr) bucket.attr = attr
-    byKey.set(key, bucket)
-  }
-
-  const apptsByLead = new Map<string, ApptRow[]>()
-  for (const a of appts) {
-    const list = apptsByLead.get(a.lead_id) || []
-    list.push(a)
-    apptsByLead.set(a.lead_id, list)
-  }
+  // Ventas del período aisladas por unidad∈project
+  const salesRaw = await fetchAllPages<SaleRow>((from, to) =>
+    admin
+      .from('unit_sales_closings')
+      .select('id,lead_id,unit_id,sale_price_final,sale_at')
+      .eq('tenant_id', input.tenantId)
+      .gte('sale_at', fromIso)
+      .lt('sale_at', toExclusiveIso)
+      .range(from, to),
+  )
+  const sales = salesRaw.filter((s) => projectUnitIds.has(s.unit_id))
 
   const salesByLead = new Map<string, SaleRow[]>()
   for (const s of sales) {
@@ -398,6 +389,170 @@ export async function buildMarketingFunnelReport(
     const list = salesByLead.get(s.lead_id) || []
     list.push(s)
     salesByLead.set(s.lead_id, list)
+  }
+
+  // lead_units de cohorte, solo unidades del project
+  const leadUnitsRaw = await fetchAllInChunks(leadIds, (chunk) =>
+    fetchAllPages<{
+      lead_id: string
+      unit_id: string
+      interest_level: string | null
+      rejected: boolean | null
+    }>((from, to) =>
+      admin
+        .from('lead_units')
+        .select('lead_id,unit_id,interest_level,rejected')
+        .in('lead_id', chunk)
+        .range(from, to),
+    ),
+  )
+  const leadUnits = leadUnitsRaw.filter((lu) => projectUnitIds.has(lu.unit_id))
+  const leadUnitIdsByLead = new Map<string, string[]>()
+  for (const lu of leadUnits) {
+    if (lu.rejected) continue
+    const list = leadUnitIdsByLead.get(lu.lead_id) || []
+    list.push(lu.unit_id)
+    leadUnitIdsByLead.set(lu.lead_id, list)
+  }
+
+  // appointment_units (relación real cita→unidad)
+  const allApptIds = [
+    ...new Set([
+      ...cohortAppts.map((a) => a.id),
+      ...periodAppts.map((a) => a.id),
+    ]),
+  ]
+  const apptUnitLinksRaw = await fetchAllInChunks(allApptIds, (chunk) =>
+    fetchAllPages<{ appointment_id: string; unit_id: string }>((from, to) =>
+      admin
+        .from('appointment_units')
+        .select('appointment_id,unit_id')
+        .in('appointment_id', chunk)
+        .range(from, to),
+    ),
+  )
+  const apptUnitLinks = apptUnitLinksRaw.filter((l) =>
+    projectUnitIds.has(l.unit_id),
+  )
+
+  // Showroom del proyecto + fechas en consulta
+  const showroomVisits = await fetchAllPages<{ id: string }>((from, to) =>
+    admin
+      .from('showroom_visits')
+      .select('id')
+      .eq('tenant_id', input.tenantId)
+      .eq('project_id', input.projectId)
+      .gte('visit_start', fromIso)
+      .lt('visit_start', toExclusiveIso)
+      .range(from, to),
+  )
+  const showroomIds = showroomVisits.map((v) => v.id)
+  const showroomUnitCounts = new Map<string, number>()
+  const svu = await fetchAllInChunks(showroomIds, (chunk) =>
+    fetchAllPages<{ showroom_visit_id: string; unit_id: string }>((from, to) =>
+      admin
+        .from('showroom_visit_units')
+        .select('showroom_visit_id,unit_id')
+        .in('showroom_visit_id', chunk)
+        .range(from, to),
+    ),
+  )
+  for (const row of svu) {
+    if (!projectUnitIds.has(row.unit_id)) continue
+    showroomUnitCounts.set(
+      row.unit_id,
+      (showroomUnitCounts.get(row.unit_id) || 0) + 1,
+    )
+  }
+
+  // Contratos anulados: snapshot vía leads del project o contract_units→units
+  const projectLeadIdsAll = await fetchAllPages<{ id: string }>((from, to) =>
+    admin
+      .from('leads')
+      .select('id')
+      .eq('tenant_id', input.tenantId)
+      .eq('project_id', input.projectId)
+      .range(from, to),
+  )
+  const allProjectLeadIds = projectLeadIdsAll.map((l) => l.id)
+  let anulledContracts: Array<{
+    id: string
+    status: string | null
+    signed_at: string | null
+    created_at: string
+    lead_id: string | null
+  }> = []
+  anulledContracts = await fetchAllInChunks(allProjectLeadIds, (chunk) =>
+    fetchAllPages((from, to) =>
+      admin
+        .from('contracts')
+        .select('id,status,signed_at,created_at,lead_id')
+        .eq('tenant_id', input.tenantId)
+        .eq('status', 'anulado')
+        .in('lead_id', chunk)
+        .range(from, to),
+    ),
+  )
+
+  // También vía contract_units → units del project
+  const contractUnitRows = await fetchAllInChunks([...projectUnitIds], (chunk) =>
+    fetchAllPages<{ contract_id: string; unit_id: string }>((from, to) =>
+      admin
+        .from('contract_units')
+        .select('contract_id,unit_id')
+        .in('unit_id', chunk)
+        .range(from, to),
+    ),
+  )
+  const contractIdsFromUnits = [
+    ...new Set(contractUnitRows.map((c) => c.contract_id)),
+  ]
+  if (contractIdsFromUnits.length) {
+    const known = new Set(anulledContracts.map((c) => c.id))
+    const extra = await fetchAllInChunks(contractIdsFromUnits, (chunk) =>
+      fetchAllPages<{
+        id: string
+        status: string | null
+        signed_at: string | null
+        created_at: string
+        lead_id: string | null
+      }>((from, to) =>
+        admin
+          .from('contracts')
+          .select('id,status,signed_at,created_at,lead_id')
+          .eq('tenant_id', input.tenantId)
+          .eq('status', 'anulado')
+          .in('id', chunk)
+          .range(from, to),
+      ),
+    )
+    for (const r of extra) {
+      if (!known.has(r.id)) {
+        known.add(r.id)
+        anulledContracts.push(r)
+      }
+    }
+  }
+  const anulledSnapshot = snapshotAnulledContracts(anulledContracts)
+
+  // ——— Agregación por anuncio ———
+  const totalsTemp = emptyTemp()
+  for (const l of leads) totalsTemp[bucketTemp(l.temperature)] += 1
+  const withAttr = leads.filter(
+    (l) => l.contact_id && attrByContact.has(l.contact_id),
+  ).length
+
+  type Agg = { leads: LeadRow[]; attr: AttrRow | null }
+  const byKey = new Map<string, Agg>()
+  for (const lead of leads) {
+    const attr = lead.contact_id
+      ? attrByContact.get(lead.contact_id) || null
+      : null
+    const key = attr?.source_id ? `ad:${attr.source_id}` : 'sin_atribucion'
+    const bucket = byKey.get(key) || { leads: [], attr }
+    bucket.leads.push(lead)
+    if (!bucket.attr && attr) bucket.attr = attr
+    byKey.set(key, bucket)
   }
 
   function summarizeAttributedAd(key: string, agg: Agg): AttributedAdFunnelRow {
@@ -410,15 +565,13 @@ export async function buildMarketingFunnelReport(
     let reprog = 0
     let reserved = 0
     let salesN = 0
-    let salesAmt = 0
+    const saleAmounts: Array<number | null> = []
     for (const lead of agg.leads) {
       temp[bucketTemp(lead.temperature)] += 1
-      const status = String(lead.status || '').toLowerCase()
-      if (status === 'reservado') reserved += 1
+      if (String(lead.status || '').toLowerCase() === 'reservado') reserved += 1
       const list = apptsByLead.get(lead.id) || []
       if (list.some((a) => a.status === 'solicitada' || a.status === 'pendiente'))
         req += 1
-      // Solo confirmed_at — no inventar confirmación desde status.
       if (list.some((a) => Boolean(a.confirmed_at))) conf += 1
       if (list.some((a) => a.status === 'atendido' && !a.no_show)) done += 1
       cancel += list.filter((a) => a.status === 'cancelado').length
@@ -426,7 +579,7 @@ export async function buildMarketingFunnelReport(
       reprog += list.filter((a) => a.status === 'reprogramado').length
       const ls = salesByLead.get(lead.id) || []
       salesN += ls.length
-      for (const s of ls) salesAmt += Number(s.sale_price_final || 0)
+      for (const s of ls) saleAmounts.push(s.sale_price_final)
     }
     const adId = agg.attr?.source_id || null
     return {
@@ -450,14 +603,14 @@ export async function buildMarketingFunnelReport(
       appointmentReprogrammedCount: reprog,
       leadsReserved: reserved,
       salesConfirmed: salesN,
-      salesAmount: salesN > 0 ? salesAmt : null,
+      salesAmount: sumKnownAmounts(saleAmounts),
       salesCurrency: 'no_disponible',
       adSpend: null,
       costPerLead: null,
       note:
         key === 'sin_atribucion'
-          ? 'Sin first-touch CTWA verificable'
-          : 'Anuncio atribuido (CTWA source_id). adset/campaign no resueltos: falta token Marketing API ads_read (Graph 100/33 con tokens CAPI).',
+          ? 'Sin first-touch CTWA. Universos: leads cohorte; citas cohorte sin filtro temporal; ventas sale_at∈período.'
+          : 'CTWA source_id. Universos: leads cohorte; citas cohorte sin filtro temporal; ventas sale_at∈período. adset/campaign no resueltos (falta ads_read).',
     }
   }
 
@@ -465,23 +618,19 @@ export async function buildMarketingFunnelReport(
     .map(([k, v]) => summarizeAttributedAd(k, v))
     .sort((a, b) => b.leadsUnique - a.leadsUnique)
 
-  // Por unidad
-  const unitAgg = new Map<
-    string,
-    {
-      leadIds: Set<string>
-      interest: Set<string>
-      appt: Set<string>
-      reserved: Set<string>
-      sales: SaleRow[]
-      temp: Record<TemperatureBucket, number>
-    }
-  >()
-  function ensureUnit(id: string) {
+  // ——— Por unidad (interés + cita real + reserva real + showroom + ventas) ———
+  type UAgg = {
+    interest: Set<string>
+    appt: Set<string>
+    reserved: Set<string>
+    sales: SaleRow[]
+    temp: Record<TemperatureBucket, number>
+  }
+  const unitAgg = new Map<string, UAgg>()
+  function ensureUnit(id: string): UAgg {
     let row = unitAgg.get(id)
     if (!row) {
       row = {
-        leadIds: new Set(),
         interest: new Set(),
         appt: new Set(),
         reserved: new Set(),
@@ -493,94 +642,123 @@ export async function buildMarketingFunnelReport(
     return row
   }
 
-  const leadById = new Map(leads.map((l) => [l.id, l]))
+  let undeterminedApptLeads = 0
+  let undeterminedReservedLeads = 0
+
   for (const lu of leadUnits) {
     if (lu.rejected) continue
     const lead = leadById.get(lu.lead_id)
     if (!lead) continue
     const row = ensureUnit(lu.unit_id)
-    row.leadIds.add(lu.lead_id)
     row.interest.add(lu.lead_id)
     row.temp[bucketTemp(lead.temperature)] += 1
-    if (String(lead.status || '').toLowerCase() === 'reservado') {
-      row.reserved.add(lu.lead_id)
-    }
-    if ((apptsByLead.get(lu.lead_id) || []).length) row.appt.add(lu.lead_id)
   }
+
+  // Citas → solo unidades de appointment_units
+  const undeterminedApptLeadSet = new Set<string>()
+  for (const appt of cohortAppts) {
+    const { unitIds, undetermined } = resolveAppointmentUnitIds(
+      appt.id,
+      apptUnitLinks,
+    )
+    if (undetermined) {
+      undeterminedApptLeadSet.add(appt.lead_id)
+      continue
+    }
+    for (const uid of unitIds) {
+      ensureUnit(uid).appt.add(appt.lead_id)
+    }
+  }
+  undeterminedApptLeads = undeterminedApptLeadSet.size
+
+  // Reservas → solo unidades reservadas reales
+  const undeterminedResLeadSet = new Set<string>()
+  for (const lead of leads) {
+    const { unitIds, undetermined } = resolveReservedUnitIds({
+      leadId: lead.id,
+      leadStatus: lead.status,
+      leadUnitIds: leadUnitIdsByLead.get(lead.id) || [],
+      unitStatusById,
+    })
+    if (undetermined) {
+      undeterminedResLeadSet.add(lead.id)
+      continue
+    }
+    for (const uid of unitIds) {
+      ensureUnit(uid).reserved.add(lead.id)
+    }
+  }
+  undeterminedReservedLeads = undeterminedResLeadSet.size
+
   for (const s of sales) {
-    const row = ensureUnit(s.unit_id)
-    row.sales.push(s)
-    if (s.lead_id) row.leadIds.add(s.lead_id)
+    ensureUnit(s.unit_id).sales.push(s)
+  }
+
+  // Incluir unidades solo showroom o solo cita (ya en unitAgg vía appt/showroom)
+  for (const [uid, count] of showroomUnitCounts) {
+    if (count > 0) ensureUnit(uid)
   }
 
   const byUnit: UnitFunnelRow[] = [...unitAgg.entries()].map(([unitId, agg]) => {
     const meta = unitsById.get(unitId)
-    const salesAmt = agg.sales.reduce(
-      (n, s) => n + Number(s.sale_price_final || 0),
-      0,
-    )
     return {
       unitId,
       unitLabel: meta?.unit_number
         ? `${meta.category || 'unidad'} ${meta.unit_number}`
-        : `unidad:${unitId.slice(0, 8)}`,
+        : unitId
+          ? `unidad:${unitId.slice(0, 8)}`
+          : 'unidad no determinada',
       category: meta?.category || null,
       showroomViews: showroomUnitCounts.get(unitId) || 0,
       commercialInterestLeads: agg.interest.size,
       appointmentLeads: agg.appt.size,
       reservedLeads: agg.reserved.size,
       salesConfirmed: agg.sales.length,
-      salesAmount: agg.sales.length ? salesAmt : null,
+      salesAmount: sumKnownAmounts(agg.sales.map((s) => s.sale_price_final)),
       temperature: agg.temp,
     }
   })
   byUnit.sort(
     (a, b) =>
-      b.commercialInterestLeads + b.salesConfirmed -
-      (a.commercialInterestLeads + a.salesConfirmed),
+      b.showroomViews +
+        b.commercialInterestLeads +
+        b.appointmentLeads +
+        b.salesConfirmed -
+        (a.showroomViews +
+          a.commercialInterestLeads +
+          a.appointmentLeads +
+          a.salesConfirmed),
   )
-
-  const salesAmountInPeriod = sales.length
-    ? sales.reduce((n, s) => n + Number(s.sale_price_final || 0), 0)
-    : null
-
-  const contractsAnulRes = await admin
-    .from('contracts')
-    .select('id,status,signed_at,created_at')
-    .eq('tenant_id', input.tenantId)
-    .eq('status', 'anulado')
-    .limit(5000)
-  if (contractsAnulRes.error) throw contractsAnulRes.error
-  const contractsAnulledInPeriod = (
-    (contractsAnulRes.data || []) as Array<{
-      signed_at: string | null
-      created_at: string
-    }>
-  ).filter((c) => {
-    const ts = c.signed_at || c.created_at
-    return ts >= fromIso && ts < toExclusiveIso
-  }).length
 
   return {
     timezone: MARKETING_REPORT_TZ,
     period: input.period,
     tenantId: input.tenantId,
     projectId: input.projectId,
+    universes: FUNNEL_UNIVERSES,
     totals: {
       leadsAcquiredInPeriod: leads.length,
       leadsWithAttribution: withAttr,
       leadsWithoutAttribution: leads.length - withAttr,
       temperature: totalsTemp,
-      appointmentsOccurredInPeriod: apptsOccurred.length,
-      leadsWithAppointmentInPeriod: new Set(apptsOccurred.map((a) => a.lead_id))
-        .size,
+      appointmentsInPeriod: apptBreakdown,
+      appointmentsOccurredInPeriod: apptBreakdown.completed,
+      leadsWithAppointmentInPeriod: apptBreakdown.leadsWithCompletedAppointment,
       salesOccurredInPeriod: sales.length,
-      salesAmountInPeriod,
+      salesAmountInPeriod: sumKnownAmounts(
+        sales.map((s) => s.sale_price_final),
+      ),
       salesCurrency: 'no_disponible',
-      contractsAnulledInPeriod,
+      contractsCurrentlyAnulled: anulledSnapshot.length,
+      contractsAnulledAnnulmentDateKnown: false,
+      contractsAnulledInPeriod: 0,
     },
     byAttributedAd,
     byUnit,
+    undeterminedUnit: {
+      appointmentLeads: undeterminedApptLeads,
+      reservedLeads: undeterminedReservedLeads,
+    },
     limitations,
     metaSendGatesUntouched: true,
   }

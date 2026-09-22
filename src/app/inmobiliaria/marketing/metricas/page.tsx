@@ -25,7 +25,15 @@ export default async function MarketingMetricasPage({
     )
   }
 
-  const { totals, byAttributedAd, limitations } = result.data
+  const {
+    totals,
+    byAttributedAd,
+    byUnit,
+    undeterminedUnit,
+    universes,
+    limitations,
+  } = result.data
+  const ap = totals.appointmentsInPeriod
   return (
     <main style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 960 }}>
       <h1>Métricas embudo</h1>
@@ -34,7 +42,7 @@ export default async function MarketingMetricasPage({
       </p>
       <h2>Totales</h2>
       <ul>
-        <li>Leads adquiridos: {totals.leadsAcquiredInPeriod}</li>
+        <li>Leads adquiridos (cohorte created_at): {totals.leadsAcquiredInPeriod}</li>
         <li>Con atribución CTWA: {totals.leadsWithAttribution}</li>
         <li>Sin atribución: {totals.leadsWithoutAttribution}</li>
         <li>
@@ -43,21 +51,38 @@ export default async function MarketingMetricasPage({
           {totals.temperature.caliente}/{totals.temperature.sin_clasificar}
         </li>
         <li>
-          Citas ocurridas (start_time): {totals.appointmentsOccurredInPeriod}{' '}
-          · leads con cita: {totals.leadsWithAppointmentInPeriod}
+          Citas start_time∈período — programadas:{ap.scheduled} ·
+          realizadas:{ap.completed} · canceladas:{ap.cancelled} ·
+          no-show:{ap.noShow} · otras:{ap.other}
         </li>
         <li>
-          Ventas (sale_at): {totals.salesOccurredInPeriod} · importe:{' '}
+          Leads con cita realizada en período:{' '}
+          {totals.leadsWithAppointmentInPeriod}
+        </li>
+        <li>
+          Ventas (sale_at∈período): {totals.salesOccurredInPeriod} · importe:{' '}
           {totals.salesAmountInPeriod ?? 'n/d'} ({totals.salesCurrency})
         </li>
         <li>
-          Contratos anulados (signed_at||created_at):{' '}
-          {totals.contractsAnulledInPeriod}
+          Contratos anulados (snapshot actual; fecha anulación desconocida):{' '}
+          {totals.contractsCurrentlyAnulled}
+        </li>
+        <li>
+          Unidad no determinada — citas:{undeterminedUnit.appointmentLeads} ·
+          reservas:{undeterminedUnit.reservedLeads}
         </li>
       </ul>
+      <h2>Universos (no mezclar en tasas)</h2>
+      <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
+        {JSON.stringify(universes, null, 2)}
+      </pre>
       <h2>Anuncios atribuidos (CTWA source_id)</h2>
       <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
         {JSON.stringify(byAttributedAd.slice(0, 20), null, 2)}
+      </pre>
+      <h2>Unidades</h2>
+      <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
+        {JSON.stringify(byUnit.slice(0, 30), null, 2)}
       </pre>
       <h2>Limitaciones</h2>
       <ul>
