@@ -2544,6 +2544,38 @@ test('dialogue v2 accepts the focused 502 after mentioning 502 and 504, includin
   }
 })
 
+test('dialogue v2 five-bedroom preference survives false mandatory extraction and opens requested alternatives', async t => {
+  live(t)
+  for (const strict of [false, true]) {
+    let summary = {}, history = []
+    const turns = strict ? ['Necesito exactamente 5 dormitorios', 'Bueno que opciones tiene?']
+      : ['Me interesa una vivienda, tiene opciones de 5 habitaciones?', 'Es que si me serviría con 5 dormitorios.', 'Bueno que opciones tiene?']
+    for (const [index, current] of turns.entries()) {
+      const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog, historial: history },
+        realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, turnComplete: checkedBaseCoverage, history, summary,
+        extracted: { turn_semantics: extractedProperty(current, { group: 'residential', operation: 'search', query_scope: 'catalog', filters: { bedrooms: 5, bedrooms_required: true } }) } })
+      h.rows[0].payload.text = current
+      await h.process([h.rows[0]], async () => {})
+      const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+      if (strict && index === 0) {
+        assert.match(sent.p_content, /no contamos.*5 dormitorios/)
+        assert.doesNotMatch(sent.p_content, /120[.,]83|142[.,]09/)
+      } else {
+        assert.match(sent.p_content, /120[.,]83/)
+        assert.match(sent.p_content, /142[.,]09/)
+        assert.match(sent.p_content, /penthouses/i)
+      }
+      summary = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+      history.push({ role: 'cliente', content: current }, { role: 'bot', content: sent.p_content })
+      if (index === turns.length - 1) {
+        assert.equal(summary._property_context.query.filters.bedrooms, 3)
+        assert.equal(summary._property_context.original_query.filters.bedrooms, 5)
+        assert.equal(summary._property_context.original_query.filters.bedrooms_required, strict ? true : null)
+      }
+    }
+  }
+})
+
 test('dialogue v2 replays five bedrooms, two affirmatives, apartment choice and differences without losing the accepted alternative', async t => {
   live(t)
   t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_DIALOGUE_REPLAY') })

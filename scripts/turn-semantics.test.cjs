@@ -12,6 +12,19 @@ function extract(current, property, pending = {}, answer = {}) {
   } }, current, pending)
 }
 
+test('five bedrooms are not mandatory merely because the model asserts they are', () => {
+  for (const current of ['Me interesa una vivienda, tiene opciones de 5 habitaciones?', 'Es que si me serviría con 5 dormitorios.']) {
+    const result = extract(current, { group: 'residential', operation: 'search', filters: { bedrooms: 5, bedrooms_required: true } })
+    assert.equal(result.property.filters.bedrooms, 5)
+    assert.equal(result.property.filters.bedrooms_required, null)
+    assert.ok(result.normalization_issues.includes('bedrooms_requirement_without_explicit_evidence'))
+  }
+  for (const current of ['Necesito exactamente 5 dormitorios', 'Necesito 5 dormitorios, menos no me sirve', 'Son indispensables 5 habitaciones']) {
+    assert.equal(extract(current, { filters: { bedrooms: 5, bedrooms_required: true } }).property.filters.bedrooms_required, true)
+  }
+  assert.equal(extract('No es indispensable tener 5 dormitorios', { filters: { bedrooms: 5, bedrooms_required: true } }).property.filters.bedrooms_required, null)
+})
+
 test('general housing interest cannot silently become an apartment category', () => {
   for (const current of ['me interesa vivienda', 'quiero algo para vivir']) {
     const result = extract(current, { category: 'departamento', operation: 'select' })

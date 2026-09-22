@@ -83,7 +83,7 @@ const tokenNumber = (value: string) => numberWords[value] ?? Number.parseInt(val
 
 /** Conservative spelling compatibility; model values still carry the original evidence. */
 export function propertyFiltersFromText(current: string, pendingId = ''): PropertyFilters {
-  const value = normalized(current).replace(/habiataciones|habitacones|abitaciones/g, 'habitaciones')
+  const value = normalized(current).replace(/(?<![a-z])(?:habiataciones|habitacones|abitaciones)\b/g, 'habitaciones')
   const filters = emptyPropertyFilters()
   const floor = value.match(new RegExp('\\b(?:planta|piso|nivel)\\s*(?:numero\\s*)?(' + numberToken + ')\\b'))
     || value.match(new RegExp('\\b(' + numberToken + ')\\s*(?:planta|piso|nivel)\\b'))
@@ -92,7 +92,9 @@ export function propertyFiltersFromText(current: string, pendingId = ''): Proper
   if (/\bplanta baja\b/.test(value)) filters.floor_number = 0
   const bedrooms = value.match(new RegExp('(?:^|[^a-z0-9])(?:de\\s*)?(' + numberToken + ')\\s*(?:dormitorios?|habitaciones?|cuartos?)\\b'))
   if (bedrooms) filters.bedrooms = tokenNumber(bedrooms[1])
-  if (bedrooms && /\b(?:exactamente|indispensable|obligatorio|necesariamente)\b/.test(value)) filters.bedrooms_required = true
+  if (bedrooms && !/\bno (?:es|son|necesito|necesariamente|tienen que ser)\b/.test(value)
+    && (/\b(?:exactamente|indispensables?|obligatori[oa]s?|necesariamente)\b/.test(value)
+      || /\b(?:menos|otra cantidad)\b.{0,25}\bno me sirve\b|\bno (?:acepto|quiero) menos\b/.test(value))) filters.bedrooms_required = true
   const area = value.match(/\b(al menos|minimo|desde|hasta|maximo|menos de|mas de)\s*(\d+(?:[.,]\d+)?)\s*(?:m2|m²|metros)/)
   if (area) filters[/hasta|maximo|menos de/.test(area[1]) ? 'max_area_m2' : 'min_area_m2'] = Number(area[2].replace(',', '.'))
   return normalizedPropertyFilters(filters)
@@ -233,6 +235,10 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     : category ? 'residential' : propertyConfident && ['residential', 'commercial'].includes(text(property.group)) ? text(property.group) : null
   const lexicalFilters = propertyFiltersFromText(current, pendingId)
   const semanticFilters = propertyConfident ? normalizedPropertyFilters(property.filters) : emptyPropertyFilters()
+  if (semanticFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true) {
+    semanticFilters.bedrooms_required = null
+    normalizationIssues.push('bedrooms_requirement_without_explicit_evidence')
+  }
   const filters = Object.fromEntries(Object.entries(lexicalFilters).map(([key, literal]) => [key, literal ?? semanticFilters[key as keyof PropertyFilters]])) as PropertyFilters
   const hasFilters = Object.values(filters).some(value => value !== null)
   if (hasFilters && pendingId.startsWith('budget') && /habit|dormitor|cuarto|planta|piso|opciones/.test(value)) {

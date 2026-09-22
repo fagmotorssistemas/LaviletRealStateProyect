@@ -109,6 +109,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   }
   const lexicalFilters = propertyFiltersFromText(current, text(pending.id))
   const currentFilters = normalizedPropertyFilters(semantic.filters)
+  if (currentFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true) currentFilters.bedrooms_required = null
   const suppliedFilters = Object.fromEntries(Object.entries(lexicalFilters).map(([key, value]) => [key, value ?? currentFilters[key as keyof typeof currentFilters]]))
   const hasCurrentFilters = Object.values(suppliedFilters).some(value => value !== null)
   const group = confirmsSet ? text(previousQuery.group) : text(semantic.group) || (category === 'local' ? 'commercial' : category ? 'residential' : '')
@@ -146,6 +147,27 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       ? `Entre las opciones que revisamos hay varias que encajan: ${matches.map(unit => `${text(unit.category)} ${text(unit.unit_number)}`).join(', ')}. ¿Cuál de estas opciones le gustaría conocer?`
       : 'Para orientarle con la opción correcta, ¿puede indicarme el número de la unidad que le interesa?') : '',
     }
+  }
+  // Asking to explore after an unavailable bedroom count authorizes a separate
+  // alternative query; it does not erase the client's original requirement.
+  const oldFilters = normalizedPropertyFilters(previousQuery.filters)
+  const asksAlternatives = /^(?:bueno |entonces |y |ok )*(?:que (?:otras )?(?:opciones|alternativas) (?:tiene|tienen|hay)|(?:muestreme|veamos|revisemos) (?:las |otras )?(?:opciones|alternativas))$/.test(m)
+  const originalBedrooms = oldFilters.bedrooms
+  const residentialQuery = previousQuery.group === 'residential' || query.group === 'residential'
+  const alternatives = catalog.filter(unit => ['suite', 'departamento', 'penthouse'].includes(text(unit.category))
+    && (!query.category || unit.category === query.category)
+    && !ids(context.excluded_categories).includes(text(unit.category)) && !excluded.includes(text(unit.category))
+    && (oldFilters.floor_number === null || Number(unit.floor_number) === oldFilters.floor_number)
+    && (oldFilters.min_area_m2 === null || Number(unit.area_internal_m2) >= oldFilters.min_area_m2)
+    && (oldFilters.max_area_m2 === null || Number(unit.area_internal_m2) <= oldFilters.max_area_m2))
+  if (asksAlternatives && residentialQuery && originalBedrooms !== null && lexicalFilters.bedrooms === null
+    && alternatives.length && !alternatives.some(unit => Number(unit.bedrooms) === originalBedrooms)
+    && alternatives.every(unit => Number(unit.bedrooms) > 0)) {
+    if (!Object.keys(object(context.original_query)).length) context.original_query = normalizedPropertyQuery(previousQuery)
+    query.filters = { ...oldFilters, bedrooms: Math.max(...alternatives.map(unit => Number(unit.bedrooms))), bedrooms_required: false }
+    query.operation = 'search'; query.selector = null; query.scope = 'catalog'
+    context.selected_ids = []; context.focused_ids = []; context.comparison_ids = []; context.pending_question = {}
+    return result(alternatives.filter(unit => Number(unit.bedrooms) === object(query.filters).bedrooms), 'requested_alternatives_after_no_match')
   }
   if (category) {
     context.preference_category = category
