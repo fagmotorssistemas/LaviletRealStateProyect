@@ -509,9 +509,9 @@ function RisingWords({ text, delay = 0 }: { text: string; delay?: number }) {
         <motion.span
           key={`${word}-${index}`}
           className="mr-[0.22em] inline-block"
-          variants={{
+        variants={{
             hidden: { opacity: 0, y: 24, filter: 'blur(5px)' },
-            show: {
+          show: {
               opacity: 1,
               y: 0,
               filter: 'blur(0px)',
@@ -775,8 +775,8 @@ export function StoryBoard({
                 stepped && 'story-featured-photo',
               )}
               style={stepped ? { clipPath: `url(#${clipId})` } : undefined}
-            >
-              <Image
+      >
+        <Image
                 src={featured.src}
                 alt={featured.alt}
                 fill
@@ -867,7 +867,7 @@ export function LaviletStory() {
           className="object-cover object-left"
         />
         <div className="absolute inset-0 bg-[#f3ece4]/28 backdrop-blur-[8px] mkt-dark:bg-[#8c8478]/24" />
-      </div>
+            </div>
       <div className="relative z-10 mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12">
         <StoryBoard
           eyebrow="El espacio"
@@ -913,12 +913,12 @@ export function LaviletStory() {
             </p>
             <h2 className="mt-3 max-w-2xl font-serif text-[clamp(2.35rem,5vw,4.8rem)] leading-[0.92] tracking-[-0.04em] text-[#72735A]">
               Diseño para vivir la ciudad sin llevarla dentro de casa.
-            </h2>
+          </h2>
             <p className="mt-6 max-w-2xl text-[15px] leading-relaxed text-[#2B1A18]/72 sm:text-[17px]">
               La actividad comercial permanece cerca y la vivienda conserva su propio recorrido.
               Una relación clara entre movimiento, privacidad y vida cotidiana.
             </p>
-          </div>
+        </div>
         </motion.div>
       </div>
     </section>

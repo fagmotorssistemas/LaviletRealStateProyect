@@ -176,6 +176,10 @@ export async function identifyTourLead(input: {
   phone: string
   consent: boolean
   mode?: 'full' | 'phone'
+  request_kind?: 'identify' | 'info_request' | 'save_unit'
+  client_request_id?: string | null
+  motivo?: string | null
+  mensaje?: string | null
   typology_code?: string | null
   unit_type_id?: string | null
   interest_room?: string | null
@@ -185,9 +189,16 @@ export async function identifyTourLead(input: {
   unit_number?: string | null
 }) {
   const clickIds = getMetaClickIds()
+  const clientRequestId =
+    input.client_request_id?.trim() ||
+    (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)
 
   const body = JSON.stringify({
     ...input,
+    client_request_id: clientRequestId,
+    request_kind: input.request_kind ?? (input.mode === 'phone' ? 'save_unit' : 'identify'),
     visitor_key: getVisitorKey(),
     session_id: ids?.session_id ?? null,
     fbp: clickIds.fbp || undefined,
@@ -222,22 +233,6 @@ export async function identifyTourLead(input: {
 
   mergeGuestFavoritesIntoPhone(normalizeShowroomPhone(input.phone))
   setShowroomIdentity(input.phone, json.lead_id)
-  logTourEvent({
-    event_type: 'lead_identificado',
-    typology_code: input.typology_code,
-    unit_type_id: input.unit_type_id,
-    finish: input.finish,
-    light: input.light,
-    room: input.interest_room,
-    metadata: {
-      lead_id: json.lead_id,
-      interest_room: input.interest_room ?? null,
-      mode: input.mode ?? 'full',
-      unit_id: input.unit_id ?? null,
-      unit_number: input.unit_number ?? null,
-      emit_meta_lead: Boolean(json.emit_meta_lead),
-      meta_event_id: json.meta_event_id ?? null,
-    },
-  })
+  // lead_identificado lo emite solo identify_tour_lead en servidor (una vez por visitante).
   return json.lead_id
 }

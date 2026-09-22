@@ -49,9 +49,11 @@ export function hasText(value: unknown): boolean {
 
 export type WaLeadSubmittedPlanInput = {
   featureEnabled: boolean
+  /** Informativo: Nest no claima LS si delivery OFF; no bloquea encolar pending. */
   deliveryEnabled: boolean
   greetingOnly: boolean
   commercialInterest: boolean
+  /** meta_ads_consent === true + evidencia whatsapp_ads (fecha/mensaje/alcance). */
   adsConsent: boolean
   ctwaClid: string | null | undefined
   wabaId: string | null | undefined
@@ -91,19 +93,19 @@ export function planWaLeadSubmitted(input: WaLeadSubmittedPlanInput): WaLeadSubm
   if (!hasText(input.ctwaClid)) blockers.push(WA_BLOCK_CTWA)
   if (!hasText(input.wabaId)) blockers.push(WA_BLOCK_WABA)
   if (!hasText(input.messagingDatasetId)) blockers.push(WA_BLOCK_MESSAGING_DATASET)
+  // Delivery OFF: se anota pero Nest no claima; el FE sí puede dejar pending.
   if (!input.deliveryEnabled) blockers.push(WA_BLOCK_DELIVERY_OFF)
 
-  const sendBlockers = blockers.filter(
+  const hardBlockers = blockers.filter(
     (b) =>
       b === WA_BLOCK_ADS_CONSENT ||
       b === WA_BLOCK_CTWA ||
       b === WA_BLOCK_WABA ||
-      b === WA_BLOCK_MESSAGING_DATASET ||
-      b === WA_BLOCK_DELIVERY_OFF,
+      b === WA_BLOCK_MESSAGING_DATASET,
   )
 
   return {
-    canEnqueuePending: sendBlockers.length === 0,
+    canEnqueuePending: hardBlockers.length === 0,
     blockers,
     retainAttention: true,
   }

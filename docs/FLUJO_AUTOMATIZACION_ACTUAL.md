@@ -81,7 +81,7 @@ El recordatorio de dos horas usa el Salesbot `22246` después de completar los c
 
 ## Atención humana, financiamiento y tareas periódicas
 
-**Atención humana.** Una petición explícita de asesor/llamada o la finalización de la recopilación financiera ejecuta `handoff_lead`. En horario laboral intenta asignar un asesor habilitado; fuera de horario deja la solicitud en cola. Guarda la asignación y el escalamiento en Supabase, pausa el bot y establece `STOP_IA` en Kommo. No agenda automáticamente una llamada con hora confirmada.
+**Atención humana.** Una petición explícita de asesor/llamada o la finalización de la recopilación financiera ejecuta `handoff_lead`. En horario laboral intenta asignar un asesor habilitado; fuera de horario deja la solicitud en cola. Guarda la asignación y el escalamiento en Supabase sin apagar el bot ni establecer `STOP_IA` en Kommo. El bot se aparta únicamente cuando el último mensaje saliente de esa conversación pertenece a un asesor; una conversación nueva vuelve a ser atendible. `DETENER IA`, el opt-out del cliente y la actividad humana real permanecen como causas de pausa. No agenda automáticamente una llamada con hora confirmada.
 
 La asignación al asesor se realiza en el sistema. Esta integración no actualiza automáticamente el responsable, pipeline ni etapa de Kommo. Si el horario está abierto pero no hay asesor elegible, la función de derivación puede fallar; no todos esos casos pasan a una cola automáticamente.
 
@@ -89,7 +89,7 @@ La asignación al asesor se realiza en el sistema. Esta integración no actualiz
 
 **Tareas periódicas.** El ejecutor planifica avisos de visitas. Liberar reservas de horario vencidas, escalar solicitudes sin respuesta, atender la cola de derivaciones y reducir temperatura por inactividad requieren además `AUTOMATION_GLOBAL_MAINTENANCE=true`, sin restricciones de prueba. No se verificó ese valor en el despliegue de Vercel. Un registro de mantenimiento completado no demuestra que todas esas funciones condicionales se ejecutaron.
 
-**Nutrición.** Existen configuración y tablas, pero el ejecutor actual no procesa una secuencia de nutrición. Guardar o activar sus pasos en la pantalla todavía no programa esos mensajes.
+**Nutrición.** El ejecutor puede programar seguimientos a las 24 horas y en los días 7, 14 y 21 después de un turno atendido. Cada ruta exige activación vigente, plantilla autorizada, consentimiento y elegibilidad, y vuelve a validar el contexto antes del envío. Los trabajos actuales se guardan en `lv_integration_events`; las tablas legadas de nutrición no son la fuente de esos trabajos. La recuperación después del día 21 todavía no está implementada. La semántica completa está en [Flujo de leads, nutrición y recuperación](FLUJO_LEADS_NUTRICION_RECUPERACION.md).
 
 ## Integración con los módulos
 
@@ -97,7 +97,7 @@ La asignación al asesor se realiza en el sistema. Esta integración no actualiz
 | --- | --- | --- |
 | Automatización / leads | `leads`, `conversations`, `messages`, eventos de puntuación e historiales de temperatura y etapa. Muestra diálogo y evolución. | El listado no se suscribe a cada nuevo mensaje; puede requerir actualización. Los nuevos detalles SDR no tienen todos un campo visible propio. |
 | Automatización / Guion | Lee y guarda `agent_prompts`, con control de versiones. | Los textos fijos del código y algunas rutas especializadas no se editan mediante el prompt comercial. |
-| Automatización / Reglas | `project_automation_config`, reglas de puntuación, equipo y `nutrition_steps`. | El interruptor del proyecto no es el interruptor efectivo de todo el ejecutor. Nutrición no está conectada a envíos. |
+| Automatización / Reglas | `project_automation_config`, reglas de puntuación, equipo, políticas de seguimiento y `nutrition_steps` legados. | El interruptor del proyecto no sustituye los controles efectivos del ejecutor. Cada envío requiere activación, plantilla, consentimiento y elegibilidad; recuperación sigue pendiente. |
 | Agenda | `appointments`, `appointment_reschedule_requests`, reservas/asignaciones, `lv_visit_state` y `lv_outbox`. | La bandeja de solicitudes tiene actualizaciones en tiempo real y respaldo por consulta cada 25 segundos; el envío depende del ejecutor. |
 | Financiamiento | Avance en `financing_prequalifications`, interesados en `leads` y casos completos en `asesoria_financiamiento`. | Las simulaciones manuales en `lead_financing` y los planes de pago son procesos distintos. |
 | Proyecto / inventario | Proyecto, unidades publicadas, amenidades y puntos de interés alimentan las respuestas. | Sin precios publicados y modo habilitado no hay valores que comunicar. |
@@ -115,7 +115,7 @@ La asignación al asesor se realiza en el sistema. Esta integración no actualiz
 | Señal de derivación por puntuación no utilizada | `apply_lead_events` puede devolver `handoff_required`, pero la conversación no utiliza ese resultado. Un lead caliente no asegura por sí solo que se asigne un asesor. |
 | Confirmación de entrega incompleta | Una petición aceptada por Kommo se registra como `accepted`. No existe en esta ruta una confirmación de entrega o lectura del proveedor. |
 | Dependencias de proveedores y capacidad | Saldo/modelo de OpenAI, token/permisos/Salesbots de Kommo, tiempo de ejecución y acumulación de lotes pueden detener o demorar respuestas. Un saludo fijo exitoso no valida que la IA pueda responder consultas comerciales. |
-| Mantenimiento condicional y nutrición pendiente | Pueden existir pantallas y registros sin que la tarea global o la secuencia de nutrición estén ejecutándose. |
+| Activación fragmentada del seguimiento | Que exista una pantalla o configuración no demuestra que un paso esté programado: cada ruta exige activación, plantilla, consentimiento, elegibilidad y ejecución correcta. No existe todavía recuperación posterior al día 21. |
 
 ## Orden de cierre propuesto
 
@@ -123,7 +123,7 @@ La asignación al asesor se realiza en el sistema. Esta integración no actualiz
 2. Unificar los controles de activación/pausa, definiendo expresamente si los avisos transaccionales de citas deben continuar durante atención humana.
 3. Distinguir errores antes del envío de resultados ambiguos, registrar cada paso y ofrecer recuperación revisable desde la interfaz.
 4. Integrar la toma de conversación por un humano y las derivaciones por puntuación; comprobar que haya asesores elegibles.
-5. Hacer visibles estado de ejecutor, errores y aceptación/entrega; completar nutrición como flujo separado.
+5. Hacer visibles estado de ejecutor, errores, aceptación/entrega y el estado de seguimiento; implementar recuperación como continuación del flujo separado de nutrición.
 6. Verificar el despliegue exacto y probar de extremo a extremo conversación comercial, visita, cambio/cancelación, derivación y fallos de proveedor. Las pruebas locales previas no sustituyen esa comprobación en producción.
 
 ## Referencias del código revisado

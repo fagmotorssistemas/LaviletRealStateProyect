@@ -4,19 +4,19 @@ import { db, object, scope, text, type Row } from './data'
 import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
 import type { Guard } from './visits'
 import { NATURAL_CONVERSATION_RULES, conversationalFirstName } from './conversation-style'
-import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, experienceContext, experienceIssues, PROJECT_POSITIONING, turnWritingRules, unresolvedCommercialReply, projectOverviewReply, RESIDENTIAL_CONTINUITY_RULES } from './commercial-experience'
+import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, experienceContext, experienceIssues, PROJECT_POSITIONING, turnWritingRules, unresolvedCommercialReply, projectInformationChoiceReply, projectInformationReply, RESIDENTIAL_CONTINUITY_RULES } from './commercial-experience'
 import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { unitModelRequestReply } from './unit-model'
 import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
-import { passiveSalesCopy } from './commercial-engagement'
+import { commercialEngagement, passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
 import { acceptedPriceOption, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
 import { priceFinancingReply } from './financing'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
-import { botReadiness, projectReadiness, readinessRules, readinessMaterialReply, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
+import { projectReadiness, readinessRules, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { salesSubject } from './sales-subject'
 import { unitRecommendation } from './unit-recommendation'
 import { recommendationClarification } from './commercial-accuracy'
@@ -24,7 +24,11 @@ import { locationRequestKind, withVisitLocation } from './visit-location'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { commercialCoverageIssues } from './multi-topic-turn'
 import { houseProductReply, PRODUCT_FIT_RULES } from './product-fit'
-import { unitAlternative } from './unit-alternatives'
+import { acceptedUnitAlternative, continueUnitAlternative, unitAlternative } from './unit-alternatives'
+import { readCommercialContext } from './context-read'
+import { commercialLocationBudgetRecommendation } from './commercial-location-recommendation'
+import { propertySelectionReply } from './property-selection'
+import { resolvePropertyTurn } from './property-context'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -34,26 +38,43 @@ export async function publishedUnitCatalog() {
 }
 
 export async function commercialContext(lead: Row, history: unknown) {
-  const [units, amenities, places, project, config] = await Promise.all([
-    db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces')
-      .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('location_pois').select('poi_name,poi_category').eq('project_id', scope.project_id).limit(100).abortSignal(AbortSignal.timeout(10_000)),
-    db().from('projects').select('name,address,description,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
-    db().from('project_automation_config').select('mode,timezone,business_hours,visit_location_url').match(scope).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
-  ])
-  if ([units, amenities, places, project, config].some(r => r.error)) throw new Error('COMMERCIAL_CONTEXT_FAILED')
-  const settings = object(config.data), mode = text(settings.mode) || 'lanzamiento'
-  const projectData = object(project.data)
+  const sources = await readCommercialContext({
+    units: (attempt) => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces')
+      .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
+    amenities: (attempt) => db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100)
+      .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
+    places: (attempt) => db().from('location_pois').select('poi_name,poi_category').eq('project_id', scope.project_id).limit(100)
+      .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
+    project: (attempt) => db().from('projects').select('name,address,description,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id)
+      .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)).maybeSingle(),
+    config: (attempt) => db().from('project_automation_config').select('mode,timezone,business_hours,visit_location_url').match(scope)
+      .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)).maybeSingle(),
+  })
+  const units = (Array.isArray(sources.units.data) ? sources.units.data : []) as Row[]
+  const amenities = (Array.isArray(sources.amenities.data) ? sources.amenities.data : []) as Row[]
+  const places = (Array.isArray(sources.places.data) ? sources.places.data : []) as Row[]
+  const settings = object(sources.config.data), mode = text(settings.mode) || 'lanzamiento'
+  const projectData = object(sources.project.data)
+  const areaFactsResult = await db().from('project_area_facts')
+    .select('fact_key,category,headline,safe_sales_text,audiences,commercial_modes,verified_on')
+    .match(scope).eq('review_status', 'verified').eq('approved_for_bot', true)
+    .abortSignal(AbortSignal.timeout(10_000))
+  // This context was added after the original automation tables. During a
+  // staggered deployment, a missing optional table must not stop all replies.
+  const areaFacts = areaFactsResult.error ? [] : (areaFactsResult.data || []).filter(fact => {
+    const modes = Array.isArray(fact.commercial_modes) ? fact.commercial_modes : []
+    return !modes.length || modes.includes(mode)
+  })
   const pricing = botPricingPolicy(mode, launchPricesVisible(projectData.policies_json))
   const pricesAllowed = pricing.visible
-  const catalog = (units.data || []).map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
+  const catalog = units.map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
   return { lead: { name: conversationalFirstName(text(lead.name)), preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
-    preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage }, historial: history,
+    preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage, unit_id: lead.unit_id, budget: lead.budget,
+    budget_max: lead.budget_max, behavior_signals: lead.behavior_signals }, historial: history,
     conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
-    estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? botReadiness(projectReadiness(projectData.policies_json,mode).value) : null,
+    estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       precios_aproximados: pricing.approximate,
@@ -61,7 +82,7 @@ export async function commercialContext(lead: Row, history: unknown) {
     alcance_producto: 'La Vilet ofrece suites, departamentos y locales comerciales en Cuenca; no casas independientes.',
     politica_financiera: { credito_directo: false,
       informacion_bancaria_verificada: 'No hay información verificada sobre aceptación o rechazo de arriendos futuros como respaldo. Esto NO es una prohibición del proyecto. Mencione esa incertidumbre solo si el cliente pregunta específicamente por ese respaldo.' },
-    catalogo: catalog, instalaciones: amenities.data, lugares_cercanos: places.data,
+    catalogo: catalog, instalaciones: amenities, lugares_cercanos: places, contexto_sector: areaFacts,
     condiciones_instalaciones: 'El catálogo describe instalaciones, pero no contiene condiciones verificadas sobre cuotas de condominio, membresías o pagos por usarlas. No deducir gratuidad ni pagos adicionales de su existencia. Si preguntan esos costos o condiciones, debe verificarlos el equipo.',
     horario_atencion: settings.business_hours,
     ubicacion: settings.visit_location_url,
@@ -69,12 +90,12 @@ export async function commercialContext(lead: Row, history: unknown) {
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  if (!text(object(info.referencia_unidad).reason)) {
+    const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
+    info = { ...info, referencia_unidad: reference, property_context: reference.context }
+  }
   const clarification=recommendationClarification(info,current)
   if(clarification)return {reply:clarification,audit:{source:'recommendation_clarification',fallback:false}}
-  if(info.estado_proyecto) {
-    const material=readinessMaterialReply(info.estado_proyecto as ProjectReadiness,current)
-    if(material)return {reply:material,audit:{source:'project_material',fallback:false}}
-  }
   const house = houseProductReply(current, text(object(info.conversacion).ultima_respuesta))
   if (house) {
     const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
@@ -82,24 +103,65 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   const offTopic = ['property', 'mixed'].includes(text(info.alcance_negocio)) ? '' : vehicleScopeReply(current, info.historial)
   if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
+  const informationChoice = projectInformationChoiceReply(current, info.historial)
+  if (informationChoice) return { reply: informationChoice, audit: { source: 'project_information_choice', fallback: false } }
+  const overview = projectInformationReply(info, current, BROCHURE_URL)
+  if (overview && !/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|constructora|entrega|ubicacion|sector|alrededor|cerca/i.test(current)) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }
   const material = brochureReply(current, info.historial, text(info.modo_comercial),!!info.estado_proyecto)
   if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
+  const resolvedReference = object(info.referencia_unidad)
+  if (resolvedReference.needsClarification === true) return {
+    reply: text(resolvedReference.clarification),
+    audit: { source: 'property_reference_clarification', fallback: false, reference_reason: resolvedReference.reason },
+  }
   const acceptedOption = acceptedPriceOption(info, current, summary)
   if (acceptedOption) return acceptedOption
+  const alternativeJourney = continueUnitAlternative(info, current)
+  if (alternativeJourney) {
+    const journeyUnits = alternativeJourney.units?.length ? alternativeJourney.units
+      : alternativeJourney.unit ? [alternativeJourney.unit] : []
+    return {
+      reply: alternativeJourney.reply,
+      audit: {
+        source: 'unit_alternative_journey',
+        fallback: false,
+        alternative_phase: alternativeJourney.phase,
+        alternative_unit_id: alternativeJourney.unit?.id || null,
+        offered_unit_ids: alternativeJourney.offered_unit_ids || [],
+        selected_unit_ids: alternativeJourney.selected_unit_ids || [],
+        ...(alternativeJourney.selected_unit_ids?.length && journeyUnits.length ? {
+          unit_reference: { ids: journeyUnits.map(unit => unit.id), numbers: journeyUnits.map(unit => unit.unit_number) },
+        } : {}),
+      },
+    }
+  }
+  const acceptedAlternative = acceptedUnitAlternative(info, current)
+  if (acceptedAlternative) return {
+    reply: acceptedAlternative.reply,
+    audit: {
+      source: 'accepted_unit_alternative',
+      fallback: false,
+      alternative_unit_id: acceptedAlternative.unit.id,
+      selected_unit_ids: [acceptedAlternative.unit.id],
+      unit_reference: { ids: [acceptedAlternative.unit.id], numbers: [acceptedAlternative.unit.unit_number] },
+    },
+  }
+  const locationBudget = commercialLocationBudgetRecommendation(info, current)
+  if (locationBudget) return { reply: locationBudget, audit: { source: 'commercial_location_budget', fallback: false } }
+  const selection = propertySelectionReply(info, current)
+  if (selection) return { ...selection, audit: { ...selection.audit,
+    ...(selection.audit.source === 'property_unit_selected' && Array.isArray(resolvedReference.matches)
+      ? { selected_unit_ids: resolvedReference.matches.map(unit => object(unit).id) } : {}),
+  } }
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
   const attachBrochure = wantsBrochure(current, info.historial)
   const quote = unitPriceQuote(info, current, summary)
   const alternative = !quote ? unitAlternative(info,current,statedBudget(current)) : null
-  if(alternative)return {reply:alternative.reply,audit:{source:'unit_alternative',fallback:false,alternative_unit_id:alternative.unit?.id||null}}
+  if(alternative)return {reply:alternative.reply,audit:{source:'unit_alternative',fallback:false,
+    alternative_phase: text(object(alternative).phase) || null, alternative_unit_id:alternative.unit?.id||null}}
   const budgetOptions=budgetOptionsReply(info,current)
   if(budgetOptions && !quote)return {reply:budgetOptions,audit:{source:'budget_options',fallback:false}}
   const turnAnswers = turnAnswerFacts(info, current, summary)
-  const budget = statedBudget(current)
-  const finance = object(info.financiamiento)
-  const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
-  if (!quote && turnAnswers.topics.every(topic => ['affordability', 'financing'].includes(topic)) && budget !== null && budget < 1000 && partners.length && !/no (?:quiero|necesito|deseo).*financ|sin credito/i.test(current)) {
-    return { reply: `Podemos acompañarle a revisar opciones de financiamiento con ${partners.join(' o ')}. ¿Le gustaría que iniciemos la revisión de su caso?`, audit: { source: 'budget_financing_guidance', fallback: false } }
-  }
   const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true, unidades_cotizadas: quote?.units }, current, summary)
   const finish = (reply: string, audit: Row) => {
     if (quote?.needsAdvisor) return { reply, audit: { ...audit, requires_advisor: true, handoff_reason: 'precio por verificar' } }
@@ -115,15 +177,19 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     answer += plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''
     return { reply: withVisitLocation(answer, info, !!locationRequestKind(current)), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }
   }
-  const overview = projectOverviewReply(info, current)
-  if (overview && !/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|constructora|entrega|ubicacion|sector|alrededor|cerca/i.test(current)) return finish(overview + `\n\nAquí puede conocer la propuesta con más detalle: ${BROCHURE_URL}`, { source: 'project_overview', brochure_sent: true, fallback: false })
   const mediaExplanation = mediaClarificationReply(current)
   if (mediaExplanation) return {reply:mediaExplanation,audit:{source:'media_clarification',rewritten:false,review_reasons:[],fallback:false}}
   if (fabricatedActionRequest(current)) return {reply:'Para confirmarle una cita o una reserva, primero debe quedar registrada y aprobada en el sistema. Puedo ayudarle a coordinarla.',audit:{source:'action_not_recorded',rewritten:false,review_reasons:[],fallback:false}}
   if (quote && turnAnswers.topics.every(topic => ['price', 'options', 'affordability', 'financing'].includes(topic)) && !/qu[eé] (?:incluye|ofrece|tiene)|cu[aá]ntos dormitorios|c[oó]mo|por qu[eé]|ubicaci[oó]n|d[oó]nde|sector|jard[ií]n|distribuci[oó]n|constructora|due[nñ]o|foto|imagen|modelo|plano|descuento|negocia|cuota|entrada/i.test(current.replace(/jard[ií]n\s*(?:azuayo|zauayo)/gi, ''))) {
     const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
     const financing = mentionsFinancing(current) ? priceFinancingReply(current, { partners, current: object(finance.current) }) : ''
-    return finish(quote.reply + (financing ? ' ' + financing : ''), { source: 'unit_price', approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
+    return finish(quote.reply + (financing ? ' ' + financing : ''), { source: 'unit_price',
+      verified_price_only: quote.quoted === true && turnAnswers.topics.every(topic => ['price', 'options'].includes(topic)),
+      passive_sales: commercialEngagement(current, info.historial, summary._sales_memory).passive,
+      ...(quote.comparison ? { price_comparison: quote.comparison } : {}),
+      ...(quote.units?.length ? { comparison_unit_ids: quote.units.length > 1 ? quote.units.map(unit => unit.id) : [],
+        unit_reference: { ids: quote.units.map(unit => unit.id), numbers: quote.units.map(unit => unit.unit_number) } } : {}),
+      approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
   }
   if (!quote && info.posicionamiento_proyecto && !/precio|metros|tama[nñ]o|qu[eé] (?:ofrece|incluye)|[mM]²/i.test(current) && /constructora|qui[eé]n(?:es)?[^?\n]*(?:constru|hizo|hace|hicieron|hacen)/i.test(current)) {
     const ownerToo = /due[nñ]o|propietario/i.test(current)
@@ -135,10 +201,6 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const modelReply = unitModelRequestReply(matches, current, object(info.modelo_3d).se_adjunta_en_esta_respuesta === true)
   if (modelReply && !quote) return finish(modelReply, { source: 'unit_model_request', rewritten: false, review_reasons: [], fallback: false })
   if (plan.positive_after_model) return finish(plan.memory.visit_declined ? 'Me alegra que le haya gustado. Puede explorar los espacios a su ritmo en el recorrido.' : 'Me alegra que le haya gustado. El recorrido le permite explorar la distribución y ver cómo encaja con lo que busca.', { source: 'interest_after_model', fallback: false })
-  if (!quote && memory.deferred_fields.includes('presupuesto') && /no (?:sé|se|estoy segur|tengo claro|tengo idea)/i.test(current) && !/sector|jard[ií]n|precio|dormitorio|foto/i.test(current)) {
-    const alreadyHelped = /entrada y una cuota|cuota mensual.*c[oó]modo/.test(text(object(info.conversacion).ultima_respuesta))
-    return finish(alreadyHelped ? 'Está bien, puede definirlo con calma. Por ahora podemos revisar qué opción se adapta a sus necesidades, sin fijar todavía un presupuesto.' : 'Podemos orientarle partiendo de una entrada y una cuota mensual con las que se sienta cómodo, sin comprometerse todavía. ¿Le ayudaría revisar las opciones de financiamiento?', { source: 'budget_guidance', fallback: false })
-  }
   const unitReply = catalogReferenceReply(matches, current)
   if (unitReply && !quote) return finish(unitReply, {source:'catalog_reference',rewritten:false,review_reasons:[],fallback:false})
   const recommendation = !quote ? unitRecommendation(info, current, summary) : null
@@ -154,7 +216,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + (info.estado_proyecto ? '\n' + readinessRules(info.estado_proyecto as ProjectReadiness) : info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
-    + '\nEl campo modelo_3d indica que se adjunta material en ESTA respuesta. Si modelo_especifico_disponible=false, es una ficha de la unidad con referencia general del proyecto: no describa la geometría como si fuera la unidad solicitada. Si está presente, responda en menos de 850 caracteres sin ofrecer enviarlo después, pedir permiso ni afirmar que no existe. No escriba ni invente enlaces: el sistema añade texto_de_entrega. Si no hay modelo_3d no prometa enviar un modelo. No confunda este material con una cita presencial.'
+    + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'
+    + '\nEl campo modelo_3d indica que el sistema añadirá el enlace al tour en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Responda en menos de 850 caracteres sin ofrecer enviarlo después, pedir permiso ni inventar otro enlace: el sistema añade texto_de_entrega. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
   const reasons: string[] = []
   let reply = variedReplyOpening(await draftReply(prompt + rules, input), info.historial)
   // One bounded rewrite; rejected drafts never reach Kommo.

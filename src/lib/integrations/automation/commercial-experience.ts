@@ -262,10 +262,48 @@ export function commercialFallback(info: Row, current: string, memory: Commercia
   return ''
 }
 
+export function isProjectInformationRequest(current: string) {
+  const message = normalized(current)
+  if (/\b(?:brochure|brochur|folleto|catalogo|pdf)\b/.test(message)) return false
+  return /(?:informacion|detalles|cuenteme|cuentame|hablame).*(?:proyecto|edificio)/.test(message)
+    || /^(?:(?:hola|buenos dias|buenas tardes|buenas noches|por favor)\s+)*(?:(?:quiero|quisiera|necesito|deseo|me gustaria)\s+)?(?:mas\s+)?(?:informacion|info|detalles)(?:\s+por favor)?$/.test(message)
+    || /^(?:(?:hola|buenos dias|buenas tardes|buenas noches)\s+)*(?:por favor\s+)?(?:compartame|comparteme|envieme|mandeme)\s+(?:mas\s+)?informacion(?:\s+(?:del|sobre el)\s+proyecto)?$/.test(message)
+}
+
 export function projectOverviewReply(info: Row, current: string) {
-  if (!/(?:informacion|detalles|cuenteme|cuentame|hablame).*(?:proyecto|edificio)/.test(normalized(current)) || !info.posicionamiento_proyecto) return ''
-  return 'La Vilet es un proyecto de viviendas y locales comerciales en Puertas del Sol, Cuenca, pensado para disfrutar de privacidad y comodidad.'
-    + (!info.estado_proyecto && info.modo_comercial === 'lanzamiento' ? ' Estamos en lanzamiento y la construcción aún no ha comenzado.' : '')
+  const message = normalized(current)
+  if (!isProjectInformationRequest(current) || !info.posicionamiento_proyecto) return ''
+  const history = (Array.isArray(info.historial) ? info.historial : []).map(object)
+  const firstReply = !history.some(row => ['bot', 'asesor'].includes(text(row.role)))
+  const includesGreeting = /^(?:hola|buenos dias|buen dia|buenas tardes|buenas noches|buenas|saludos|que tal)\b/.test(message)
+  const facilities = normalized(JSON.stringify(info.instalaciones || []))
+  const highlights = [
+    /piscina/.test(facilities) && 'piscina',
+    /gimnasio/.test(facilities) && 'gimnasio',
+    /jardin|areas verdes|espacios verdes/.test(facilities) && 'jardines',
+    /seguridad|vigilancia|monitoreo/.test(facilities) && 'medidas de seguridad',
+    /parqueadero|estacionamiento/.test(facilities) && 'parqueaderos',
+  ].filter((value): value is string => !!value).slice(0, 4)
+  const list = highlights.length > 1 ? `${highlights.slice(0, -1).join(', ')} y ${highlights.at(-1)}` : highlights[0] || ''
+  const opening = firstReply && !includesGreeting ? 'Hola. Claro que sí, con mucho gusto. ' : 'Claro que sí, con mucho gusto. '
+  return opening + 'La Vilet es un proyecto inmobiliario en Puertas del Sol, Cuenca, que reúne opciones para vivienda, como suites y departamentos, además de locales comerciales para negocio o inversión. La propuesta combina privacidad, comodidad y espacios pensados para residentes y actividades comerciales.'
+    + (list ? ` Entre sus instalaciones se encuentran ${list}.` : '')
+    + (!info.estado_proyecto && info.modo_comercial === 'lanzamiento' ? ' Actualmente está en lanzamiento; las imágenes muestran el diseño previsto y la construcción aún no ha comenzado.' : '')
+}
+
+export function projectInformationReply(info: Row, current: string, brochureUrl: string) {
+  const overview = projectOverviewReply(info, current)
+  if (!overview) return ''
+  return `${overview}\n\nPuede conocer el proyecto con más detalle en el brochure: ${brochureUrl}\n\n¿Le gustaría que le compartamos información de alguna de estas opciones?`
+}
+
+export function projectInformationChoiceReply(current: string, history: unknown) {
+  const message = normalized(current)
+  if (!/^(?:si|si por favor|claro|de acuerdo|esta bien|me parece bien|perfecto|por favor)$/.test(message)) return ''
+  const previous = normalized(text((Array.isArray(history) ? history : []).map(object)
+    .filter(row => ['bot', 'asesor'].includes(text(row.role))).at(-1)?.content))
+  if (!/(?:le gustaria|desea).{0,45}(?:informacion|conocer).{0,45}(?:opciones|alternativas)/.test(previous)) return ''
+  return 'Claro. Tenemos opciones para vivienda, como suites y departamentos, y también locales comerciales para negocio. ¿Con cuál de estas opciones le gustaría empezar?'
 }
 
 export function unresolvedCommercialReply(reply: string) {

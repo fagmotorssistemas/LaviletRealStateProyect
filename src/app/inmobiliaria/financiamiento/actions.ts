@@ -83,7 +83,20 @@ export async function createLeadFinancingAction(
     })
     partnerId = partner.id
   }
-  return createLeadFinancing(admin, { ...rest, financing_partner_id: partnerId })
+  try {
+    return await createLeadFinancing(admin, { ...rest, financing_partner_id: partnerId })
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'object' &&
+            error &&
+            'message' in error &&
+            typeof (error as { message: unknown }).message === 'string'
+          ? (error as { message: string }).message
+          : 'No se pudo guardar la proforma'
+    throw new Error(message)
+  }
 }
 
 export async function createAsesoriaFinanciamientoAction(

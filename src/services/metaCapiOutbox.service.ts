@@ -23,6 +23,25 @@ import {
   fetchMetaOfficialAggregates,
   type MetaOfficialMetricsResult,
 } from '@/lib/meta/metaOfficialMetrics'
+import { getAdsInsightsStatus, type AdsInsightsStatus } from '@/lib/meta/adsInsightsStatus'
+import {
+  isWaLeadSubmittedDeliveryEnabled,
+  isWaLeadSubmittedEnabled,
+} from '@/lib/meta/waLeadSubmittedFlags'
+import {
+  labelMetaCapiReason,
+  labelMetaCapiStage,
+  isMetaCapiProbeRow,
+} from '@/lib/meta/capiConversionLogLabels'
+import {
+  buildContactDetails,
+  dedupeInboundMessages,
+  inPeriod,
+  periodBounds,
+  summarizeWaCrmPeriod,
+  type WaCrmContactDetail,
+  type WaCrmInboundMessageRow,
+} from '@/lib/meta/waCrmVisibility'
 
 export type { MetaCapiStatusBucket, MetaCapiPhoneSource }
 export { classifyOutboxStatus }
@@ -170,9 +189,51 @@ export type MetaWhatsAppCrmMessage = {
   externalMessageId: string | null
 }
 
+export type MetaWaConversionLogItem = {
+  id: string
+  createdAt: string
+  leadId: string | null
+  contactId: string | null
+  eventName: string
+  stage: string
+  stageLabel: string
+  reason: string | null
+  reasonLabel: string
+  deliveryLane: string | null
+  isTechnicalProbe: boolean
+  /** Distinción: recibido CRM / entregado Nest / aceptado Meta — según stage. */
+  pipelineStep: 'evaluated_or_blocked' | 'enqueued' | 'backend_accepted' | 'meta_accepted' | 'meta_rejected'
+}
+
+export type MetaWaConversionTracking = {
+  featureEnabled: boolean
+  deliveryEnabled: boolean
+  banner: string | null
+  kpis: {
+    evaluated: number
+    blocked: number
+    enqueued: number
+    backendAccepted: number
+    metaAccepted: number
+    metaRejected: number
+  }
+  rows: MetaWaConversionLogItem[]
+  indicatorHelp: string[]
+}
+
 export type MetaWhatsAppVisibility = {
   disclaimer: string
+  indicatorHelp: string[]
+  period: { dateFrom: string | null; dateTo: string | null }
+  periodSummary: {
+    inboundMessages: number
+    uniqueContacts: number
+    contactsWithCtwa: number
+    contactsWithoutCtwa: number
+    lastReceptionAt: string | null
+  }
   contacts: MetaWhatsAppCrmContact[]
+  contactDetails: WaCrmContactDetail[]
   recentMessages: MetaWhatsAppCrmMessage[]
   totals: {
     contacts: number
@@ -184,11 +245,21 @@ export type MetaWhatsAppVisibility = {
     captures: number
     note: string
   }
+  conversions: MetaWaConversionTracking
+  adsInsights: AdsInsightsStatus
   scheduleWhatsappBlocked: true
+}
+
+export type MetaCapiChannelKpis = {
+  web: number
+  whatsapp: number
+  undetermined: number
 }
 
 export type MetaCapiOutboxResult = {
   kpis: MetaCapiOutboxKpis
+  /** Conteos outbox por canal (misma ventana de filtros, sin mezclar con CRM WA). */
+  kpisByChannel: MetaCapiChannelKpis
   rows: MetaCapiOutboxRow[]
   totalFiltered: number
   page: number
@@ -476,28 +547,176 @@ function isWhatsAppLeadRow(row: {
   )
 }
 
+function pipelineStepFromStage(stage: string): MetaWaConversionLogItem['pipelineStep'] {
+  if (stage === 'enqueued') return 'enqueued'
+  if (stage === 'backend_accepted') return 'backend_accepted'
+  if (stage === 'meta_accepted') return 'meta_accepted'
+  if (stage === 'meta_rejected') return 'meta_rejected'
+  return 'evaluated_or_blocked'
+}
+
+async function buildWaConversionTracking(
+  admin: SupabaseClient,
+  tenantIds: string[],
+  dateFrom?: string | null,
+  dateTo?: string | null,
+): Promise<MetaWaConversionTracking> {
+  const featureEnabled = isWaLeadSubmittedEnabled()
+  const deliveryEnabled = isWaLeadSubmittedDeliveryEnabled()
+  const banner =
+    !featureEnabled || !deliveryEnabled
+      ? 'Envío de conversiones WhatsApp desactivado'
+      : null
+  const empty: MetaWaConversionTracking = {
+    featureEnabled,
+    deliveryEnabled,
+    banner,
+    kpis: {
+      evaluated: 0,
+      blocked: 0,
+      enqueued: 0,
+      backendAccepted: 0,
+      metaAccepted: 0,
+      metaRejected: 0,
+    },
+    rows: [],
+    indicatorHelp: [
+      'evaluated / blocked: evaluación local (mensaje recibido en CRM; aún no hay cola).',
+      'enqueued: intent local en outbox (aún no Nest).',
+      'backend_accepted: Nest aceptó el envío (no implica Graph).',
+      'meta_accepted / meta_rejected: respuesta de Meta cuando exista registro real.',
+      'Flags OFF: no se crean envíos; la recepción CRM sigue visible aparte.',
+    ],
+  }
+  if (!tenantIds.length) return empty
+
+  const { fromIso, toIso } = periodBounds(dateFrom, dateTo)
+  let q = admin
+    .from('meta_capi_conversion_log')
+    .select(
+      'id, created_at, tenant_id, project_id, lead_id, contact_id, event_name, stage, reason, event_id, idempotency_key, delivery_lane, details',
+    )
+    .in('tenant_id', tenantIds)
+    .not('tenant_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (fromIso) q = q.gte('created_at', fromIso)
+  if (toIso) q = q.lte('created_at', toIso)
+
+  const { data, error } = await q
+  if (error) {
+    return {
+      ...empty,
+      banner: banner || `No se pudo leer conversion_log: ${error.message.slice(0, 80)}`,
+    }
+  }
+
+  const tenantSet = new Set(tenantIds)
+  const rows: MetaWaConversionLogItem[] = []
+  const kpis = { ...empty.kpis }
+  for (const raw of data || []) {
+    const tenantId = raw.tenant_id ? String(raw.tenant_id) : null
+    if (!tenantId || !tenantSet.has(tenantId)) continue
+    const stage = String(raw.stage || '')
+    if (stage === 'evaluated') kpis.evaluated += 1
+    else if (stage === 'blocked') kpis.blocked += 1
+    else if (stage === 'enqueued') kpis.enqueued += 1
+    else if (stage === 'backend_accepted') kpis.backendAccepted += 1
+    else if (stage === 'meta_accepted') kpis.metaAccepted += 1
+    else if (stage === 'meta_rejected') kpis.metaRejected += 1
+    const details =
+      raw.details && typeof raw.details === 'object' && !Array.isArray(raw.details)
+        ? (raw.details as Record<string, unknown>)
+        : {}
+    rows.push({
+      id: String(raw.id),
+      createdAt: String(raw.created_at),
+      leadId: raw.lead_id ? String(raw.lead_id) : null,
+      contactId: raw.contact_id ? String(raw.contact_id) : null,
+      eventName: String(raw.event_name || ''),
+      stage,
+      stageLabel: labelMetaCapiStage(stage),
+      reason: raw.reason ? String(raw.reason) : null,
+      reasonLabel: labelMetaCapiReason(raw.reason ? String(raw.reason) : null),
+      deliveryLane: raw.delivery_lane ? String(raw.delivery_lane) : null,
+      isTechnicalProbe: isMetaCapiProbeRow({
+        delivery_lane: raw.delivery_lane ? String(raw.delivery_lane) : null,
+        idempotency_key: raw.idempotency_key ? String(raw.idempotency_key) : null,
+        details,
+      }),
+      pipelineStep: pipelineStepFromStage(stage),
+    })
+  }
+
+  return { ...empty, featureEnabled, deliveryEnabled, banner, kpis, rows }
+}
+
 /**
  * Visibilidad CRM WhatsApp/Kommo: contactos y mensajes reales con tenant/proyecto.
  * Nunca se presentan como conversiones CAPI enviadas a Meta.
+ * source=WHATSAPP / tarjeta de anuncio ≠ prueba de ctwa_clid.
  */
 async function buildWhatsAppVisibility(
   admin: SupabaseClient,
   tenantIds: string[],
   scopedOutbox: OutboxDbRow[],
+  dateFrom?: string | null,
+  dateTo?: string | null,
 ): Promise<MetaWhatsAppVisibility> {
+  const { fromIso, toIso } = periodBounds(dateFrom, dateTo)
+  const indicatorHelp = [
+    'Mensajes entrantes: filas messages con role=cliente en el periodo, deduplicadas por external_message_id.',
+    'Contactos únicos: leads con al menos un inbound en el periodo (alcance tenant).',
+    'CTWA confirmada: solo filas en lv_whatsapp_ctwa_attribution (project_id+contact_id). No cuenta source/channel WHATSAPP ni tarjeta de anuncio.',
+    'Sin atribución confirmada: inbound en periodo sin captura CTWA.',
+    'Última recepción: max(sent_at) inbound del periodo.',
+    'Prueba técnica: solo huella explícita mensaje (kommo+contact+minuto); no marca el contacto entero.',
+  ]
   const empty: MetaWhatsAppVisibility = {
     disclaimer:
-      'Sección CRM Kommo/WhatsApp: contactos y mensajes del tenant. No son conversiones CAPI ni aceptación Meta.',
+      'Sección CRM Kommo/WhatsApp: recepción almacenada. No son conversiones CAPI ni aceptación Meta.',
+    indicatorHelp,
+    period: { dateFrom: dateFrom ?? null, dateTo: dateTo ?? null },
+    periodSummary: {
+      inboundMessages: 0,
+      uniqueContacts: 0,
+      contactsWithCtwa: 0,
+      contactsWithoutCtwa: 0,
+      lastReceptionAt: null,
+    },
     contacts: [],
+    contactDetails: [],
     recentMessages: [],
     totals: { contacts: 0, messages: 0, ctwaCaptures: 0, capiWhatsappOutbox: 0 },
     ctwa: {
       captures: 0,
       note: 'Sin capturas ctwa_clid en lv_whatsapp_ctwa_attribution para el alcance.',
     },
+    conversions: {
+      featureEnabled: isWaLeadSubmittedEnabled(),
+      deliveryEnabled: isWaLeadSubmittedDeliveryEnabled(),
+      banner:
+        !isWaLeadSubmittedEnabled() || !isWaLeadSubmittedDeliveryEnabled()
+          ? 'Envío de conversiones WhatsApp desactivado'
+          : null,
+      kpis: {
+        evaluated: 0,
+        blocked: 0,
+        enqueued: 0,
+        backendAccepted: 0,
+        metaAccepted: 0,
+        metaRejected: 0,
+      },
+      rows: [],
+      indicatorHelp: [],
+    },
+    adsInsights: getAdsInsightsStatus(),
     scheduleWhatsappBlocked: true,
   }
-  if (!tenantIds.length) return empty
+  if (!tenantIds.length) {
+    empty.conversions = await buildWaConversionTracking(admin, tenantIds, dateFrom, dateTo)
+    return empty
+  }
 
   const { data: leadRows, error: leadError } = await admin
     .from('leads')
@@ -506,12 +725,14 @@ async function buildWhatsAppVisibility(
     )
     .in('tenant_id', tenantIds)
     .order('created_at', { ascending: false })
-    .limit(400)
+    .limit(500)
 
   if (leadError) {
+    const conversions = await buildWaConversionTracking(admin, tenantIds, dateFrom, dateTo)
     return {
       ...empty,
       disclaimer: `${empty.disclaimer} (lectura leads: ${leadError.message.slice(0, 80)})`,
+      conversions,
     }
   }
 
@@ -523,123 +744,160 @@ async function buildWhatsAppVisibility(
     waLeads.map((l) => [String(l.id), (l.phone as string | null) ?? null]),
   )
 
-  let messageCountByLead = new Map<string, number>()
-  let lastMessageByLead = new Map<string, string>()
+  const inboundByLead = new Map<string, WaCrmInboundMessageRow[]>()
   const recentMessages: MetaWhatsAppCrmMessage[] = []
-  let messagesTotal = 0
+  let messagesTotalAllRoles = 0
 
   if (leadIds.length) {
     const { data: conversations } = await admin
       .from('conversations')
-      .select('id, lead_id, last_message_at')
+      .select('id, lead_id, tenant_id, project_id')
       .in('lead_id', leadIds)
       .in('tenant_id', tenantIds)
 
-    const convIds = (conversations ?? []).map((c) => String(c.id))
-    const leadByConv = new Map(
-      (conversations ?? []).map((c) => [String(c.id), String(c.lead_id)]),
-    )
-
-    for (const c of conversations ?? []) {
-      const leadId = String(c.lead_id)
-      if (c.last_message_at) {
-        const prev = lastMessageByLead.get(leadId)
-        if (!prev || String(c.last_message_at) > prev) {
-          lastMessageByLead.set(leadId, String(c.last_message_at))
-        }
-      }
-    }
+    const convRows = conversations ?? []
+    const convIds = convRows.map((c) => String(c.id))
+    const leadByConv = new Map(convRows.map((c) => [String(c.id), String(c.lead_id)]))
 
     if (convIds.length) {
       const { count: msgCount } = await admin
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .in('conversation_id', convIds)
-      messagesTotal = msgCount ?? 0
+      messagesTotalAllRoles = msgCount ?? 0
 
-      const { data: msgs } = await admin
+      let msgQuery = admin
         .from('messages')
         .select('id, conversation_id, role, content, sent_at, external_message_id')
         .in('conversation_id', convIds)
+        .eq('role', 'cliente')
         .order('sent_at', { ascending: false })
-        .limit(200)
+        .limit(800)
+      if (fromIso) msgQuery = msgQuery.gte('sent_at', fromIso)
+      if (toIso) msgQuery = msgQuery.lte('sent_at', toIso)
 
+      const { data: msgs } = await msgQuery
+      const inboundRaw: WaCrmInboundMessageRow[] = []
       for (const m of msgs ?? []) {
         const leadId = leadByConv.get(String(m.conversation_id))
         if (!leadId) continue
-        messageCountByLead.set(leadId, (messageCountByLead.get(leadId) || 0) + 1)
-      }
-
-      // Si hay más de 200 mensajes globales, los conteos por lead del sample son parciales:
-      // preferimos total exacto y sample reciente para la lista.
-      for (const m of (msgs ?? []).slice(0, 15)) {
-        const leadId = leadByConv.get(String(m.conversation_id))
-        if (!leadId) continue
+        const sentAt = String(m.sent_at || '')
+        if (!sentAt || !inPeriod(sentAt, fromIso, toIso)) continue
         const content = typeof m.content === 'string' ? m.content : ''
-        recentMessages.push({
-          messageId: String(m.id),
+        inboundRaw.push({
+          id: String(m.id),
+          conversationId: String(m.conversation_id),
           leadId,
-          phone: phoneByLead.get(leadId) ?? null,
-          role: String(m.role || ''),
-          sentAt: String(m.sent_at || ''),
-          preview: content.slice(0, 100),
+          role: 'cliente',
+          sentAt,
           externalMessageId:
             m.external_message_id == null ? null : String(m.external_message_id),
+          contentPreview: content.slice(0, 120),
         })
       }
+      const inbound = dedupeInboundMessages(inboundRaw)
+      for (const row of inbound) {
+        const list = inboundByLead.get(row.leadId) || []
+        list.push(row)
+        inboundByLead.set(row.leadId, list)
+      }
 
-      if (messagesTotal > 200) {
-        // Conteos por lead del sample son incompletos: marcar con total conocido vía conversación.
-        messageCountByLead = new Map(
-          leadIds.map((id) => [id, messageCountByLead.get(id) || 0]),
-        )
+      for (const row of inbound.slice(0, 20)) {
+        recentMessages.push({
+          messageId: row.id,
+          leadId: row.leadId,
+          phone: phoneByLead.get(row.leadId) ?? null,
+          role: row.role,
+          sentAt: row.sentAt,
+          preview: row.contentPreview,
+          externalMessageId: row.externalMessageId,
+        })
       }
     }
   }
 
-  const { count: ctwaCaptures } = await admin
+  const { data: ctwaRows } = await admin
     .from('lv_whatsapp_ctwa_attribution')
-    .select('id', { count: 'exact', head: true })
+    .select('id, project_id, contact_id')
     .in('tenant_id', tenantIds)
+    .limit(2000)
+
+  const ctwaKeys = new Set(
+    (ctwaRows ?? [])
+      .filter((r) => r.project_id && r.contact_id)
+      .map((r) => `${String(r.project_id)}:${String(r.contact_id)}`),
+  )
+  const ctwaCaptures = ctwaKeys.size
+
+  const leadsForDetails = waLeads.map((l) => ({
+    id: String(l.id),
+    name: typeof l.name === 'string' ? l.name : null,
+    phone: typeof l.phone === 'string' && l.phone.trim() ? l.phone.trim() : null,
+    kommo_id: l.kommo_id == null ? null : Number(l.kommo_id),
+    contact_id: l.contact_id == null ? null : String(l.contact_id),
+    project_id: l.project_id == null ? null : String(l.project_id),
+    tenant_id: String(l.tenant_id),
+    source: typeof l.source === 'string' ? l.source : null,
+    channel_origin: typeof l.channel_origin === 'string' ? l.channel_origin : null,
+  }))
+
+  const contactDetails = buildContactDetails({
+    leads: leadsForDetails,
+    inboundByLead,
+    ctwaKeys,
+  })
+  const inboundTotal = [...inboundByLead.values()].reduce((n, rows) => n + rows.length, 0)
+  const periodSummary = summarizeWaCrmPeriod(contactDetails, inboundTotal)
 
   const capiWhatsappOutbox = scopedOutbox.filter((r) => {
     const ch = resolveMetaCapiChannel(asRecord(r.payload), r.delivery_lane)
     return ch.channel === 'whatsapp'
   }).length
 
-  const contacts: MetaWhatsAppCrmContact[] = waLeads.map((l) => ({
-    leadId: String(l.id),
-    phone: typeof l.phone === 'string' && l.phone.trim() ? l.phone.trim() : null,
-    phoneSource: 'crm_lead' as const,
-    name: typeof l.name === 'string' ? l.name : null,
-    source: typeof l.source === 'string' ? l.source : null,
-    channelOrigin: typeof l.channel_origin === 'string' ? l.channel_origin : null,
-    hasKommo: l.kommo_id != null && String(l.kommo_id).trim() !== '',
-    contactId: l.contact_id == null ? null : String(l.contact_id),
-    projectId: l.project_id == null ? null : String(l.project_id),
-    createdAt: String(l.created_at),
-    messageCount: messageCountByLead.get(String(l.id)) || 0,
-    lastMessageAt: lastMessageByLead.get(String(l.id)) || null,
-  }))
+  const contacts: MetaWhatsAppCrmContact[] = contactDetails.map((d) => {
+    const lead = waLeads.find((l) => String(l.id) === d.leadId)
+    return {
+      leadId: d.leadId,
+      phone: d.phone,
+      phoneSource: 'crm_lead' as const,
+      name: d.name,
+      source: d.source,
+      channelOrigin: d.channelOrigin,
+      hasKommo: d.kommoId != null,
+      contactId: d.contactId,
+      projectId: d.projectId,
+      createdAt: lead ? String(lead.created_at) : '',
+      messageCount: d.inboundCount,
+      lastMessageAt: d.lastInboundAt,
+    }
+  })
+
+  const conversions = await buildWaConversionTracking(admin, tenantIds, dateFrom, dateTo)
 
   return {
     disclaimer:
-      'Sección CRM Kommo/WhatsApp: contactos y mensajes del tenant con relaciones verificadas. No son conversiones CAPI ni aceptación Meta Graph.',
+      'Sección CRM Kommo/WhatsApp: recepción almacenada con aislamiento tenant. No son conversiones CAPI ni aceptación Meta Graph. source=WHATSAPP no prueba ctwa_clid.',
+    indicatorHelp,
+    period: { dateFrom: dateFrom ?? null, dateTo: dateTo ?? null },
+    periodSummary,
     contacts,
+    contactDetails,
     recentMessages,
     totals: {
       contacts: contacts.length,
-      messages: messagesTotal,
-      ctwaCaptures: ctwaCaptures ?? 0,
+      messages: messagesTotalAllRoles,
+      ctwaCaptures,
       capiWhatsappOutbox,
     },
     ctwa: {
-      captures: ctwaCaptures ?? 0,
+      captures: ctwaCaptures,
       note:
-        (ctwaCaptures ?? 0) === 0
-          ? '0 capturas first-touch en lv_whatsapp_ctwa_attribution. ctwa_clid presente ≠ atribución confirmada; hoy no hay captura persistida.'
-          : `${ctwaCaptures} captura(s) first-touch. Presencia de ctwa_clid no implica atribución ads confirmada ni envío CAPI.`,
+        ctwaCaptures === 0
+          ? '0 capturas first-touch en lv_whatsapp_ctwa_attribution. Origen CRM WHATSAPP ≠ atribución confirmada.'
+          : `${ctwaCaptures} contacto(s) con captura first-touch. Presencia de clid no implica envío CAPI ni atribución comercial Meta.`,
     },
+    conversions,
+    adsInsights: getAdsInsightsStatus(),
     scheduleWhatsappBlocked: true,
   }
 }
@@ -836,8 +1094,32 @@ export async function listMetaCapiOutbox(
     })
 
   const absence = await buildAbsenceReport(admin, scoped)
-  const whatsapp = await buildWhatsAppVisibility(admin, tenantIds, scoped)
+  const whatsapp = await buildWhatsAppVisibility(
+    admin,
+    tenantIds,
+    scoped,
+    filters.dateFrom,
+    filters.dateTo,
+  )
   const metaOfficialMetrics = await fetchMetaOfficialAggregates()
+
+  const kpisByChannel: MetaCapiChannelKpis = { web: 0, whatsapp: 0, undetermined: 0 }
+  let channelBase = scoped
+  if (filters.origin && filters.origin !== 'all') {
+    channelBase = channelBase.filter((r) => originFromPayload(asRecord(r.payload)) === filters.origin)
+  }
+  if (filters.dataset && filters.dataset !== 'all') {
+    channelBase = channelBase.filter((r) => {
+      const hint = resolveMetaCapiChannel(asRecord(r.payload), r.delivery_lane).destinationIdHint
+      return hint === filters.dataset
+    })
+  }
+  for (const row of channelBase) {
+    const ch = resolveMetaCapiChannel(asRecord(row.payload), row.delivery_lane).channel
+    if (ch === 'web') kpisByChannel.web += 1
+    else if (ch === 'whatsapp') kpisByChannel.whatsapp += 1
+    else kpisByChannel.undetermined += 1
+  }
 
   return {
     kpis: {
@@ -852,6 +1134,7 @@ export async function listMetaCapiOutbox(
       hasConfigBlocks: blockedConfig > 0,
       byEventName,
     },
+    kpisByChannel,
     rows,
     totalFiltered,
     page,

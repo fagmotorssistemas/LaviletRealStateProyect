@@ -24,6 +24,7 @@ import {
   findLegacyRoomAsset,
   isLegacySceneFile,
   parseRoomSceneFileName,
+  canonicalFinishSlug,
   sceneCombos,
 } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
@@ -85,10 +86,18 @@ const TypologyHotspotEditor = dynamic(
 
 function labeledFinishes(rows: { slug: string; name: string }[]) {
   const source = rows.length > 0 ? rows : [...DEFAULT_FINISHES]
-  return source.map((item, index) => ({
-    slug: item.slug,
-    name: `Acabado ${index + 1}`,
-  }))
+  const seen = new Set<string>()
+  const list: { slug: string; name: string }[] = []
+  for (const item of source) {
+    const key = canonicalFinishSlug(item.slug) ?? item.slug
+    if (!item.slug || seen.has(key)) continue
+    seen.add(key)
+    list.push({
+      slug: item.slug,
+      name: `Acabado ${list.length + 1}`,
+    })
+  }
+  return list.length > 0 ? list : [...DEFAULT_FINISHES]
 }
 
 export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProps) {
@@ -539,7 +548,10 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   }
 
   const findSlotAsset = (room: string, finish: string | null, light: TourLightMode) => {
-    const exact = assets.find((row) => fileMatchesScene(row.file_name, room, finish, light))
+    // Un archivo → una celda: ambiente exacto (no dormitorio ↔ dormitorio-1) y acabado de la celda.
+    const exact = assets.find((row) =>
+      fileMatchesScene(row.file_name, room, finish, light, { exactRoom: true }),
+    )
     if (exact) return exact
     // Galería (vista-*): no reutilizar fotos del 360/ambiente sin prefijo.
     if (isVistaRoomSlug(room)) return undefined
@@ -557,7 +569,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
       const siblings =
         target && parsed?.light
           ? assets.filter((row) =>
-              fileMatchesScene(row.file_name, parsed.room, parsed.finish, parsed.light ?? 'dia'),
+              fileMatchesScene(row.file_name, parsed.room, parsed.finish, parsed.light ?? 'dia', {
+                exactRoom: true,
+              }),
             )
           : target
             ? [target]

@@ -13,6 +13,8 @@ import { kommoDeliveryBlock, rejectedWriteStatus } from './delivery-state'
 import { OpenAIRequestError } from './openai-request'
 import { GenerationRecoveryError, recoverGenerationFailure } from './generation-recovery'
 import { claimTestMessages } from './test-response-mode'
+import { isCommercialContextReadFailure } from './context-read'
+import { processAdvisorOutbound } from './advisor-outbound'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -57,7 +59,10 @@ export async function runAutomation(testContact?: string) {
       const first = object(batch[0]), ids = batch.map(row => row.id)
       try {
         let result: Row
-        if (first.kind === 'inbound') {
+        if (first.kind === 'advisor_outbound') {
+          result = await processAdvisorOutbound(first)
+        }
+        else if (first.kind === 'inbound') {
           await guard()
           await cancelNutrition24h(Number(object(first.payload).kommoId))
           await cancelNutritionWeekOne(Number(object(first.payload).kommoId))
@@ -115,12 +120,15 @@ export async function runAutomation(testContact?: string) {
         const rejected = failure instanceof ProviderError && !failure.uncertain && rejectedWriteStatus(failure.status)
         const detail = failure instanceof ProviderError ? { provider_operation: failure.operation, delivery_uncertain: failure.uncertain, http_status: failure.status } : {}
         const generationNotSent = generationFailure && !recoveryUncertain && !(failure instanceof ProviderError && failure.uncertain)
+        const contextNotSent = isCommercialContextReadFailure(reason)
         // A rejected attempt stays visible for advisor review, but must not
         // permanently lock the contact as if a Salesbot might have been sent.
-        const status = rejected || generationNotSent ? 'cancelled' : 'uncertain'
+        const status = rejected || generationNotSent || contextNotSent ? 'cancelled' : 'uncertain'
         await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: status,
           p_result: { reason, ...detail, requires_review: true, ...(generationFailure ? { generation_error: error.message } : {}),
-            ...(rejected ? { delivery_status: 'rejected', recovery: 'not_replayed' } : generationNotSent ? { delivery_status: 'generation_failed' } : {}) } })
+            ...(rejected ? { delivery_status: 'rejected', recovery: 'not_replayed' }
+              : generationNotSent ? { delivery_status: 'generation_failed' }
+                : contextNotSent ? { delivery_status: 'not_sent', recovery: 'safe_read_failure' } : {}) } })
         results.push({ kind: first.kind, status, reason })
       }
       if (await kommoDeliveryBlock()) return { mode: 'live', processed: results.length, reason: 'kommo_account_blocked', results }

@@ -41,6 +41,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  serverExternalPackages: ['jspdf', 'fflate'],
   allowedDevOrigins: [
     'localhost',
     '127.0.0.1',

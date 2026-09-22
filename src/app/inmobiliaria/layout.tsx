@@ -9,9 +9,10 @@ import { AppointmentInboxBanner } from '@/components/layout/AppointmentInboxBann
 import { AutomationDeliveryBanner } from '@/components/layout/AutomationDeliveryBanner'
 import { VisitInboxProvider } from '@/contexts/VisitInboxContext'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
+import { AdvisorNotificationsProvider } from '@/contexts/AdvisorNotificationsContext'
 
-/** Rutas de lead/cliente (cookies/teléfono) sin login CRM. Redirigen a /simulador. */
-const PUBLIC_INMOBILIARIA_PREFIXES = ['/inmobiliaria/mis-escenarios', '/inmobiliaria/simulador']
+/** Rutas de lead/cliente (cookies/teléfono) sin login CRM. */
+const PUBLIC_INMOBILIARIA_PREFIXES = ['/inmobiliaria/mis-escenarios']
 
 
 export default function InmobiliariaLayout({ children }: { children: React.ReactNode }) {
@@ -30,19 +31,21 @@ export default function InmobiliariaLayout({ children }: { children: React.React
 
   return (
     <CrmRoleGate>
-      <VisitInboxProvider>
-      <div className="crm-app relative flex h-[100dvh] overflow-hidden">
-        <InmobiliariaSidebar />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <InmobiliariaTopbar />
-          <AppointmentInboxBanner />
-          <div className="crm-app-canvas min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 pt-[calc(3.5rem+2rem)] sm:px-8 md:pt-8 lg:px-12">
-            <AutomationDeliveryBanner />
-            <InmobiliariaRouteKey>{children}</InmobiliariaRouteKey>
+      <AdvisorNotificationsProvider>
+        <VisitInboxProvider>
+          <div className="crm-app relative flex h-[100dvh] overflow-hidden">
+            <InmobiliariaSidebar />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <InmobiliariaTopbar />
+              <AppointmentInboxBanner />
+              <div className="crm-app-canvas min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 pt-[calc(3.5rem+2rem)] sm:px-8 md:pt-8 lg:px-12">
+                <AutomationDeliveryBanner />
+                <InmobiliariaRouteKey>{children}</InmobiliariaRouteKey>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-      </VisitInboxProvider>
+        </VisitInboxProvider>
+      </AdvisorNotificationsProvider>
     </CrmRoleGate>
   )
 }

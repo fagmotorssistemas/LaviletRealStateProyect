@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { InvestmentConfigurator } from '@/components/financing/InvestmentConfigurator'
 import { MisEscenariosView } from '@/components/financing/MisEscenariosView'
 import { Spinner } from '@/components/ui/Spinner'
@@ -15,9 +15,14 @@ type UnitOption = {
   published_commercial_price: number | null
 }
 
-export function ClientSimulatorPage() {
+export function ClientSimulatorPage({ variant = 'public' }: { variant?: 'public' | 'crm' }) {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
+  const basePath = pathname.startsWith('/inmobiliaria/simulador')
+    ? '/inmobiliaria/simulador'
+    : '/simulador'
+  const isCrm = variant === 'crm'
   const initialUnit = searchParams.get('unidad')?.trim() || ''
   const openSaved = searchParams.get('tab') === 'escenarios' || searchParams.get('guardados') === '1'
 
@@ -62,8 +67,8 @@ export function ClientSimulatorPage() {
     const qs = next.toString()
     const current = searchParams.toString()
     if (qs === current) return
-    router.replace(qs ? `/simulador?${qs}` : '/simulador', { scroll: false })
-  }, [selectedUnit, showSaved, identified, router, searchParams])
+    router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false })
+  }, [selectedUnit, showSaved, identified, router, searchParams, basePath])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -72,20 +77,25 @@ export function ClientSimulatorPage() {
   }, [units, query])
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
-      <header className="space-y-2">
-        <h1 className="font-serif text-3xl leading-tight text-[#1f1a14] sm:text-4xl">
-          Simulador de inversión
-        </h1>
-        <p className="max-w-xl text-sm leading-relaxed text-[#6b645c]">
-          Elija un departamento, ajuste alquiler y gastos, y vea el retorno estimado de la inversión.
-        </p>
-      </header>
+    <div className={isCrm ? 'space-y-6' : 'mx-auto max-w-6xl space-y-8'}>
+      {!isCrm ? (
+        <header className="space-y-2">
+          <h1 className="font-serif text-3xl leading-tight text-[#1f1a14] sm:text-4xl">
+            Simulador de inversión
+          </h1>
+          <p className="max-w-xl text-sm leading-relaxed text-[#6b645c]">
+            Elija un departamento, ajuste alquiler y gastos, y vea el retorno estimado de la
+            inversión.
+          </p>
+        </header>
+      ) : null}
 
       {identified ? (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#BDA27E]/35 bg-[#BDA27E]/10 px-4 py-3">
           <p className="min-w-0 flex-1 text-sm text-[#4a433c]">
-            Ya tiene su celular registrado. Puede simular y guardar sus cálculos.
+            {isCrm
+              ? 'Hay un celular registrado en este navegador. Puede simular y revisar cálculos guardados.'
+              : 'Ya tiene su celular registrado. Puede simular y guardar sus cálculos.'}
           </p>
           <button
             type="button"
@@ -95,7 +105,7 @@ export function ClientSimulatorPage() {
             {showSaved ? 'Ocultar guardados' : 'Ver guardados'}
           </button>
         </div>
-      ) : (
+      ) : isCrm ? null : (
         <div className="rounded-2xl border border-[#e4ddd3] bg-white px-4 py-3 text-sm leading-relaxed text-[#6b645c]">
           Puede explorar libremente.{' '}
           <Link href="/tour" className="font-medium text-[#1a2744] underline-offset-2 hover:underline">
@@ -107,7 +117,7 @@ export function ClientSimulatorPage() {
 
       {showSaved && identified ? (
         <section className="space-y-3">
-          <h2 className="font-serif text-xl text-[#1f1a14]">Cálculos guardados</h2>
+          <h2 className="text-lg font-semibold text-[#1f1a14]">Cálculos guardados</h2>
           <MisEscenariosView
             embedded
             onReopen={(scenario) => {

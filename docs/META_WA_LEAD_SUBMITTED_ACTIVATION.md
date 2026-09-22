@@ -12,6 +12,39 @@ Estados del trabajo (actualizar al ejecutar):
 | **Validación CTWA real pendiente** | Sin evidencia de que Kommo entregue `ctwa_clid`; 0 filas en atribución prod |
 | **Activación de conversiones pendiente** | Flags OFF; no envíos Meta BM reales autorizados aquí |
 
+### Consentimiento WhatsApp ads (operativo)
+
+**Cómo se ejecuta `lv_set_whatsapp_meta_ads_consent` hoy**
+
+- **No hay pantalla CRM** que registre aceptación en nombre del cliente.
+- Se reconoce **automáticamente** cuando llega un mensaje **del cliente** por WhatsApp (webhook Kommo → `processConversation` / evaluación fuera del bot) y el texto coincide con aceptación **explícita** de medición/publicidad **Meta** (alcance `whatsapp_ads`).
+- Cadena: mensaje entrante → `applyWhatsappAdsConsentFromClientMessage` → RPC `lv_set_whatsapp_meta_ads_consent` (evidencia: mensaje + fecha + scope).
+- Frases genéricas («acepto publicidad»), **preguntas**, **negaciones** y **citas** **no** conceden.
+- `tracking_consent`, cookies y casilla de contacto del showroom **no** sustituyen este alcance.
+- Revocación (`detectsWhatsappAdsConsentRevoke` → RPC false) cancela outbox `pending` / `needs_review` / `review_hold` con `ads_consent_required` **antes** del envío (RPC + defensa FE).
+
+### Flujo utilizable para solicitar el consentimiento (sin bot auto)
+
+No podemos depender de que el cliente mencione Meta espontáneamente.
+
+1. Bitácora `/inmobiliaria/marketing/capi` (sección WhatsApp) muestra bloqueos `ads_consent_*` tras **interés comercial** (sella `meta_wa_commercial_interest_at`).
+2. Asesor copia el **script** de la misma sección («Consentimiento Meta») o `WA_ADS_CONSENT_REQUEST_SCRIPT` en código.
+3. Lo envía **manual** por Kommo (canal `advisor_manual_kommo`). El bot **no** lo dispara.
+4. Cliente responde: *«Acepto que usen mis datos para medición publicitaria de Meta»*.
+5. **La aceptación reutiliza el sello de interés reciente (ventana 48h)** y puede encolar si hay CTWA + evidencia. **No** exige otro mensaje comercial. **La aceptación sola** (sin sello) **no** es interés. **No** hay backfill de mensajes antiguos.
+
+Ofertas de **bot o asesor** cuentan como contexto para «el más grande» / «esa»; sin oferta de unidades, esa frase no convierte.
+
+Código: `src/lib/meta/waLeadSubmittedConsentRequest.ts`.
+
+El cliente debe escribir algo inequívoco; no se envían mensajes automáticos del bot para pedirlo.
+
+### Llegada tardía de consentimiento o CTWA
+
+- Un turno **nuevo** con interés comercial puede encolar si ya hay evidencia + CTWA scoped.
+- No hay backfill de saludos ni de mensajes históricos.
+- Sin CTWA/consent no se sella `meta_wa_lead_submitted_event_id` (permite reintento real).
+
 ---
 
 ## Inventario por repositorio

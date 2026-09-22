@@ -1,56 +1,64 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { FinancingSettingsView } from '@/components/financing/FinancingSettingsView'
 import { FinancingAnalyticsView } from '@/components/financing/FinancingAnalyticsView'
-import { FinancingAuditLogView } from '@/components/financing/FinancingAuditLogView'
-import { cn } from '@/lib/utils'
+import type { FinancingScenario } from '@/types/financingSimulator'
+import { Spinner } from '@/components/ui/Spinner'
+import { useRoleAccess } from '@/hooks/useRoleAccess'
 
-type AdminSection = 'bancos' | 'configuracion' | 'analytics' | 'auditoria'
-
-const SECTIONS: { id: AdminSection; label: string }[] = [
-  { id: 'bancos', label: 'Bancos' },
-  { id: 'configuracion', label: 'Configuración' },
-  { id: 'analytics', label: 'Analytics' },
-  { id: 'auditoria', label: 'Auditoría' },
-]
-
-/** Panel admin del simulador público: una sola fila de secciones (sin pestañas anidadas). */
+/** Panel admin del simulador público: una sola vista responsive, bloques al mismo nivel. */
 export function FinancingSimulatorAdminPanel() {
-  const [section, setSection] = useState<AdminSection>('bancos')
+  const { isAdmin, isLoading: roleLoading } = useRoleAccess()
+  const [scenarios, setScenarios] = useState<FinancingScenario[] | null>(null)
+  const [overviewError, setOverviewError] = useState<string | null>(null)
+
+  const loadOverview = useCallback(async () => {
+    setOverviewError(null)
+    try {
+      const res = await fetch('/api/financing/admin/overview', { credentials: 'same-origin' })
+      const json = (await res.json()) as {
+        scenarios?: FinancingScenario[]
+        error?: string
+      }
+      if (!res.ok) throw new Error(json.error || 'No se pudo cargar analytics')
+      setScenarios(json.scenarios ?? [])
+    } catch (error) {
+      console.error(error)
+      setScenarios([])
+      setOverviewError(error instanceof Error ? error.message : 'Error al cargar')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isAdmin) void loadOverview()
+  }, [isAdmin, loadOverview])
+
+  const overviewLoading = roleLoading || !isAdmin || scenarios == null
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-[#6b645c]">
+    <div className="space-y-4 sm:space-y-6">
+      <p className="max-w-3xl text-sm leading-relaxed text-[#6b645c]">
         Configuración del simulador que ven los clientes en{' '}
         <a href="/simulador" className="font-medium text-[#1a2744] underline" target="_blank" rel="noreferrer">
           /simulador
         </a>
         .
       </p>
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Secciones del simulador">
-        {SECTIONS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={section === item.id}
-            onClick={() => setSection(item.id)}
-            className={cn(
-              'rounded-full px-4 py-2 text-[11px] font-semibold tracking-[0.14em] uppercase transition-colors',
-              section === item.id
-                ? 'bg-[#1a2744] text-white'
-                : 'bg-white text-[#4a433c] ring-1 ring-[#e4ddd3] hover:bg-[#faf7f2]',
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
+
+      <div className="grid gap-4 sm:gap-6">
+        <FinancingSettingsView embedded />
+        {overviewError ? (
+          <p className="text-sm text-[#8a5c58]">{overviewError}</p>
+        ) : null}
+        {overviewLoading ? (
+          <div className="flex min-h-[12vh] items-center justify-center">
+            <Spinner size="lg" />
+          </div>
+        ) : (
+          <FinancingAnalyticsView embedded scenarios={scenarios} />
+        )}
       </div>
-      {section === 'bancos' ? <FinancingSettingsView embedded section="partners" /> : null}
-      {section === 'configuracion' ? <FinancingSettingsView embedded section="config" /> : null}
-      {section === 'analytics' ? <FinancingAnalyticsView embedded /> : null}
-      {section === 'auditoria' ? <FinancingAuditLogView embedded /> : null}
     </div>
   )
 }

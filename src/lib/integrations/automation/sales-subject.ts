@@ -11,12 +11,17 @@ const propertyContext = /parque|garaje|estacion|parte de pago|como pago|permuta|
 
 // Recognize the semantic classifier's replies as well as older vehicle templates.
 // Accepting an explanation about any unrelated service returns to the offered
-// property context; the previous off-topic noun must not own later price questions.
+// property context. A bare price question is intentionally not acceptance: it
+// can still refer to the unrelated product and must be clarified by scope routing.
 export function isPropertyScopeRedirect(value: string) {
   const m = normalized(value)
   const property = /la\s*vilet|inmobiliari|suite|departamento|vivienda|local(?:es)? comercial/.test(m)
   const boundary = /no (?:somos|gestionamos|organizamos|vendemos|alquilamos|prestamos|ofrecemos|atendemos|realizamos|brindamos)|no (?:los )?(?:vendemos|alquilamos)|no (?:le )?podemos ayudar|no poder ayudar|no corresponde a|nuestra atencion se centra|solo (?:atendemos|brindamos informacion|podemos ayudar)/.test(m)
-  return property && boundary
+  // An unavailable property or a financing/visit limitation is still an
+  // in-scope sales conversation. It must not turn a following price question
+  // into a clarification about an unrelated product.
+  const propertyLimitation = /\bno (?:gestionamos|vendemos|alquilamos|prestamos|ofrecemos|atendemos|realizamos|brindamos)\s+(?:(?:la|las|los|el|un|una)\s+)?(?:(?:compra|venta|alquiler) de\s+)?(?:suites?|depart[ae]mentos?|deptos?|penthouses?|casas?|viviendas?|inmuebles?|local(?:es)?(?: comercial(?:es)?)?|financiamiento|creditos?|hipotecas?|visitas?|citas?)\b/.test(m)
+  return property && boundary && !propertyLimitation
 }
 
 export const purchasePriceQuestion = (value: string) => /\b(?:precios?|valor(?:es)?|vale|valen|cuesta|cuestan|costos?|cotizacion|cotizar|coticemos|cotice|cotizame)\b|\bcuanto (?:sale|salen|piden|paga)/.test(normalized(value))
@@ -67,7 +72,7 @@ export function salesSubject(current: string, history: unknown = []) {
     if (direct) {
       subject = direct.subject; category = direct.category; acceptedRedirect = false
       if (direct.subject === 'property') redirected = null
-    } else if (redirected && (acknowledged(m) || purchasePriceQuestion(m)
+    } else if (redirected && (acknowledged(m)
       || /financ|credito|hipoteca|(?:lo|los) que (?:si )?(?:venden|ofrecen|tienen)|los suyos/.test(m))) {
       subject = 'property'; category = redirected; acceptedRedirect = true
     }

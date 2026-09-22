@@ -29,6 +29,6 @@ No se promete avisar automáticamente cuando se fijen los precios: actualmente n
 
 Los nombres solicitados para reconocer las plantillas son «Mensaje de nutricion 24h» y «Mensaje de nutricion semana1» hasta «semana4». Como identificadores técnicos propuestos pueden usarse `mensaje_nutricion_24h` y `mensaje_nutricion_semana1` hasta `mensaje_nutricion_semana4`. Al conectarlas deben registrarse los identificadores reales de las plantillas aprobadas, el idioma y su cuenta de WhatsApp; no se debe asumir que el nombre visible coincide con el técnico.
 
-Esta entrega no aprueba, activa ni sustituye plantillas, ni conecta la secuencia de nutrición. La configuración existente permite preparar las cuatro semanas y permanece separada de los envíos.
+Esta entrega histórica no aprobó ni activó plantillas. El estado posterior cambió: el ejecutor ya dispone de rutas a las 24 horas y en los días 7, 14 y 21, pero cada una depende de su activación, plantilla, consentimiento y elegibilidad. Consulte la definición vigente en [Flujo de leads, nutrición y recuperación](FLUJO_LEADS_NUTRICION_RECUPERACION.md).
 
 Referencia: [Kommo: crear y gestionar plantillas de WhatsApp](https://support.kommo.com/docs/manage-whatsapp-business-message-templates), consultada el 13 de septiembre de 2026. El nombre visible se puede editar y no se muestra al cliente; las plantillas necesitan estado Approved para enviarse.

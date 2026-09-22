@@ -23,12 +23,7 @@ import type {
   Project,
 } from '@/types/inmobiliaria'
 
-export type FinancingTab =
-  | 'planes'
-  | 'solicitudes'
-  | 'asesorias'
-  | 'interesados'
-  | 'simulador'
+export type FinancingTab = 'solicitudes' | 'asesorias' | 'interesados' | 'simulador'
 
 export function useFinancing() {
   const { supabase, user, isLoading: authLoading } = useAuth()
@@ -42,7 +37,6 @@ export function useFinancing() {
   const [partners, setPartners] = useState<FinancingPartner[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [projectId, setProjectId] = useState('')
   const [status, setStatus] = useState('')
 
   const load = useCallback(async () => {
@@ -76,11 +70,7 @@ export function useFinancing() {
 
       const [planRows, requestRows, asesoriaRows, leadRows, partnerRows] = await Promise.all([
         projectIds.length
-          ? listPaymentPlans(supabase, {
-              projectIds,
-              projectId: projectId || undefined,
-              search: search || undefined,
-            })
+          ? listPaymentPlans(supabase, { projectIds })
           : Promise.resolve([] as PaymentPlan[]),
         listLeadFinancingAction({
           status: status || undefined,
@@ -116,7 +106,7 @@ export function useFinancing() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, user, authLoading, search, projectId, status, tab])
+  }, [supabase, user, authLoading, search, status, tab])
 
   useEffect(() => {
     load()
@@ -124,7 +114,6 @@ export function useFinancing() {
 
   const resetFilters = () => {
     setSearch('')
-    setProjectId('')
     setStatus('')
   }
 
@@ -141,8 +130,6 @@ export function useFinancing() {
     isLoading,
     search,
     setSearch,
-    projectId,
-    setProjectId,
     status,
     setStatus,
     resetFilters,

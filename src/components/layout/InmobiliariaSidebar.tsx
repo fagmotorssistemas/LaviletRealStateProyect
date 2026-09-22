@@ -14,6 +14,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { knownRole } from '@/lib/inmobiliaria/roleAccess'
 import { VisitInboxTrigger } from '@/components/inmobiliaria/agenda/VisitInboxTrigger'
+import { AdvisorNotificationsTrigger } from '@/components/layout/AdvisorNotificationsTrigger'
 
 const SIDEBAR_STORAGE_KEY = 'lavilet-sidebar-collapsed'
 
@@ -79,6 +80,7 @@ export function InmobiliariaSidebar() {
           Lavilet
         </Link>
         <div className="ml-auto flex items-center gap-2">
+          <AdvisorNotificationsTrigger compact />
           <VisitInboxTrigger compact />
           <InmobiliariaAccountMenu tone="dark" />
         </div>
@@ -159,22 +161,19 @@ export function InmobiliariaSidebar() {
               ))
             : null}
           {menuItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                title={item.label}
-                className={cn(
-                  'relative flex items-center gap-3 py-3 text-[13px] font-semibold tracking-[0.16em] uppercase transition-colors duration-200',
-                  collapsed ? 'justify-center px-0' : 'px-3.5 md:pr-4',
-                  isActive
-                    ? 'z-10 bg-white text-[#787D62] md:bg-transparent'
-                    : 'rounded-2xl text-white/80 hover:bg-white/10 hover:text-white md:mr-3',
-                  isActive && 'rounded-2xl md:rounded-none',
-                )}
-              >
+            const isActive =
+              !item.external &&
+              (pathname === item.href || pathname.startsWith(`${item.href}/`))
+            const className = cn(
+              'relative flex items-center gap-3 py-3 text-[13px] font-semibold tracking-[0.16em] uppercase transition-colors duration-200',
+              collapsed ? 'justify-center px-0' : 'px-3.5 md:pr-4',
+              isActive
+                ? 'z-10 bg-white text-[#787D62] md:bg-transparent'
+                : 'rounded-2xl text-white/80 hover:bg-white/10 hover:text-white md:mr-3',
+              isActive && 'rounded-2xl md:rounded-none',
+            )
+            const content = (
+              <>
                 {isActive && <span className="crm-nav-cutout" aria-hidden />}
                 <item.icon
                   size={20}
@@ -184,6 +183,32 @@ export function InmobiliariaSidebar() {
                 <span className={cn('relative z-10 truncate', collapsed && 'md:sr-only')}>
                   {item.label}
                 </span>
+              </>
+            )
+            if (item.external) {
+              return (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setMobileOpen(false)}
+                  title={item.label}
+                  className={className}
+                >
+                  {content}
+                </a>
+              )
+            }
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+                title={item.label}
+                className={className}
+              >
+                {content}
               </Link>
             )
           })}

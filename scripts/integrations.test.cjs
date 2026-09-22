@@ -139,7 +139,7 @@ test('renewed purchase interest reopens guidance while questions alone do not', 
   const current = 'Ahora sí quiero comprar un departamento. ¿Cuánto vale el 502?'
   assert.equal(commercialEngagement(current, [], saved).interested, true)
   const result = await commercialReply(priceInfo(), current, { _sales_memory: saved }, async () => {})
-  assert.match(result.reply, /financ/i)
+  assert.doesNotMatch(result.reply, /financ/i)
   const history = [{ role: 'cliente', content: 'Quiero comprar un departamento' }, { role: 'bot', content: 'No ofrecemos crédito directo con el proyecto. Puede consultar las opciones bancarias.' }]
   assert.equal(commercialEngagement('Cuánto vale?', history).passive, false)
   const requested = await commercialReply(priceInfo(), '¿Cuánto vale el 502 y tienen crédito directo?', { _sales_memory: saved }, async () => {})
@@ -253,15 +253,15 @@ test('details plus permission to visit answers both even when the extractor miss
   assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false)
 })
 
-test('unanswerable property questions actually enqueue an advisor and pause the bot before acknowledging', async t => {
+test('unanswerable property questions enqueue an advisor while keeping the bot active until human takeover', async t => {
   live(t)
   const h = conversationHarness({ commercialResult: { reply: '', audit: { requires_advisor: true, handoff_reason: 'dato no disponible' } } })
   h.rows[0].payload.text = '¿Cuál es el número de licencia urbanística?'; h.rows[1].payload.text = ''
   await h.process(h.rows, async () => {})
   assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
   assert.match(h.calls.find(c => c.name === 'handoff_lead').args.p_reason, /licencia urbanística/)
-  assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === false))
-  assert.ok(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530 && c.args[2] === 'true'))
+  assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === true))
+  assert.equal(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530 && c.args[2] === 'true'), false)
   assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /bandeja del equipo/)
   assert.doesNotMatch(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /Podrá continuar|sin volver a explicar/)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
@@ -478,13 +478,15 @@ test('accepted nutrition records the actual approved message; timeouts never aut
   assert.equal(failing.calls.some(c => c.name === 'register_outbound_message'), false)
 })
 
-test('the reported low budget and price turn offers financing without interrogating the amount or implying approval', async () => {
+test('the reported low budget and price turn defers financing until a unit is identified', async () => {
   const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
   const info = { ...priceInfo(), catalogo: Array.from({ length: 5 }, (_, i) => ({ ...priceCatalog[0], id: `d${i}`, unit_number: String(300 + i), bedrooms: 3, published_commercial_price: 250000 + i * 25000 })), lead: { preferred_category: 'departamento', preferred_bedrooms: 3 } }
   const reply = (await commercialReply(info, 'De 3 dormitorios me parece bien cuál es el precio?\nUl cuento con 100 dólares', {}, async () => {})).reply
   assert.match(reply, /3 dormitorios.*250[.,]000.*350[.,]000/)
   assert.match(reply, /referenciales.*lanzamiento.*cambiar/)
-  assert.match(reply, /financiar.*Banco Pichincha.*Cooperativa JEP/)
+  assert.match(reply, /no cubre el valor total/i)
+  assert.match(reply, /financiamiento después de identificar la unidad/i)
+  assert.doesNotMatch(reply, /Banco Pichincha|Cooperativa JEP/)
   assert.doesNotMatch(reply, /registrad|autorizad|visita|se refiere|aclare|aprobado|le alcanza/)
 })
 
@@ -639,9 +641,10 @@ test('acknowledging a redirect changes the topic; explicit insistence and unansw
   assert.equal(salesSubject('No entiendo, ¿qué motos tienen?', vehicleHistory).subject, 'vehicle')
   assert.equal(salesSubject('¿Aceptan financiamiento para una moto?', []).subject, 'vehicle')
   assert.equal(salesSubject('¿Reciben un vehículo como parte de pago?', []).subject, 'property')
-  for (const current of ['¿Y cuánto valen?', '¿Y los que sí venden cuánto cuestan?', '¿Dan financiamiento?', 'Me refiero a los inmuebles']) {
+  for (const current of ['¿Y los que sí venden cuánto cuestan?', '¿Dan financiamiento?', 'Me refiero a los inmuebles']) {
     assert.equal(salesSubject(current, vehicleHistory).subject, 'property', current)
   }
+  assert.equal(salesSubject('¿Y cuánto valen?', vehicleHistory).subject, 'vehicle')
 })
 
 test('acknowledging the property scope allows a passive price answer, not unsolicited finance or a visit', async t => {
@@ -698,7 +701,7 @@ test('accepting the price next step delivers the offered unit and verified model
   const history = [{ role: 'cliente', content: 'Precio de la suite 210' }, { role: 'bot', content: 'La suite 210 cuesta $250.000. ¿Le gustaría revisar la distribución de la suite 210?' }]
   const result = await commercialReply({ ...priceInfo(), catalogo: [u], historial: history }, 'Sí, por favor', {}, async () => {})
   assert.match(result.reply, /210.*60 m².*sala, cocina/s)
-  assert.match(result.reply, /segunda-planta.html\?unidad=210/)
+  assert.match(result.reply, /https:\/\/www\.lavilett\.com\/tour\?unidad=210/)
   assert.equal(result.audit.source, 'accepted_price_option')
   assert.deepEqual(result.audit.unit_reference.ids, [u.id])
   assert.doesNotMatch(result.reply, /¿|visita|financiamiento/)
@@ -926,18 +929,20 @@ test('JEP natural acceptance advances the actual chosen lender and technical fai
       assert.equal(result.failure_code, 'RPC_PROCESS_FINANCING_MESSAGE_V2_23514')
       assert.match(sent, /bandeja del equipo|pasado su consulta/)
       assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
-      assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === false))
+      assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === true))
+      assert.equal(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530 && c.args[2] === 'true'), false)
     } else { assert.match(sent, /nombre completo.*cédula/); assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false) }
   }
 })
 
-test('unknown financing states are handed off instead of dropping the client reply', async t => {
+test('a new financing request selects a property before opening a financial form', async t => {
   live(t)
   const h = conversationHarness({ financeContext: contextualInfo().financiamiento, financing: { active: true, state: 'unexpected_state' } })
   h.rows[0].payload.text = 'Quiero iniciar una revisión con Cooperativa JEP'
   const result = await h.process([h.rows[0]], async () => {})
-  assert.equal(result.source, 'financing_handoff')
-  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+  assert.equal(result.source, 'financing_selection_required')
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 0)
+  assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length, 0)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
 })
 
@@ -997,7 +1002,7 @@ test('launch prices hydrate the exact unit from the authorized catalog and invit
   const first = await commercialReply(info, 'Saludos, ¿cuánto cuesta el 502?', {}, async () => {})
   assert.match(first.reply, /precio aproximado.*502.*310[.,]000/)
   assert.match(first.reply, /lanzamiento.*pueden? cambiar/)
-  assert.match(first.reply, /acompañarle.*Banco Pichincha.*Cooperativa JEP/)
+  assert.doesNotMatch(first.reply, /Banco Pichincha|Cooperativa JEP|financiamiento/)
   assert.match(first.reply, /coordinar una visita/)
   assert.doesNotMatch(first.reply, /notificar|enviaremos|confirmada|registrada|aprobación depende/)
   const memory = p.rememberSalesReply({}, [], '¿Cuánto cuesta el 502?', first.reply)
@@ -1087,7 +1092,7 @@ test('mixed questions keep a verified price and reject a generated fixed launch 
   assert.equal(drafts, 2)
   assert.match(result.reply, /aproximado.*310[.,]000.*lanzamiento/)
   assert.match(result.reply, /sala y cocina/)
-  assert.match(result.reply, /financiar.*acompañarle/)
+  assert.doesNotMatch(result.reply, /financiar|acompañarle/)
   assert.doesNotMatch(result.reply, /visita/)
 })
 
@@ -1260,15 +1265,20 @@ test('OpenAI billing errors retain a safe diagnostic code that the worker can re
 })
 
 function conversationHarness(options = {}) {
-  const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false }
+  const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false, ...options.config }
   let escalationAttempted = false, escalationStored = options.proposals?.[0] || null
   const query = table => {
     const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: 0 }).then(resolve) } }
-    for (const name of ['update', 'delete', 'select', 'eq', 'match', 'gt', 'in', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
-    q.update = values => { calls.push({ name: 'update:' + table, args: values }); return q }
+    for (const name of ['update', 'delete', 'select', 'eq', 'match', 'is', 'gt', 'lt', 'in', 'order', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
+    q.update = values => {
+      calls.push({ name: 'update:' + table, args: values })
+      if (table === 'leads') Object.assign(lead, structuredClone(values))
+      return q
+    }
     return q
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
+    './tone-settings': { withConversationTone: async work => work(), conversationToneAudit: () => ({ style: options.tone || 'actual', warmth: 1, detail: 1, source: 'test' }) },
     './visit-parser-health': { visitParserReady: async () => options.parserReady !== false },
     './operational-copy': { operationalReply: async reply => ({ reply: options.operationalCopy || reply, generated: !!options.operationalCopy }) },
     './turn-completeness': { protectedSentences: require('../src/lib/integrations/automation/turn-completeness.ts').protectedSentences, completeTurnReply: async input => {
@@ -1298,8 +1308,9 @@ function conversationHarness(options = {}) {
     './nutrition-week-one': { scheduleNutritionWeekOne: async () => ({ scheduled: false, reason: 'test' }) },
     './nutrition-later': { scheduleNutritionLater: async () => ({ scheduled: false, reason: 'test' }) },
     './data': { ...data, db: () => ({ from: table => query(table) }), autoConfig: async () => config,
-      one: async table => {
+      one: async (table, id) => {
         if (options.urgentReadFails && escalationAttempted) throw Error('READ_URGENT_STATE_FAILED')
+        if (table === 'leads' && options.testLead && id === config.test_lead_id) return options.testLead
         return table === 'conversations' ? { ...scope, lead_id: 'lead', summary: options.summary } : table === 'appointment_reschedule_requests' ? escalationStored : lead
       },
       rpc: async (name, args) => {
@@ -1309,7 +1320,7 @@ function conversationHarness(options = {}) {
         if (name === 'lv_app_visit_preference') return options.slot || {}
         if (name === 'lv_apply_client_visit_intent') return options.applied || { action: 'reply', request_id: 'request', mensaje: 'Texto anterior que debe sustituirse' }
         if (name === 'lv_client_select_visit_option') return options.selectedVisitResult || { status: 'confirmed' }
-        if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose }).filter(([, v]) => v != null))); return lead }
+        if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose, unit_id: args.p_unit_id }).filter(([, v]) => v != null))); return lead }
         if (name === 'lv_collect_visit_intake') return options.intake ? {request_id:'request',...options.intake} : { request_id:'request', action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
         if (name === 'lv_intake_visit_once') return 'appointment'
         if (name === 'process_financing_message_v2') return typeof options.financing === 'function' ? options.financing(args) : options.financing || { active: false }
@@ -1441,7 +1452,8 @@ test('rejected price rewrites retain the verified answer without pausing; real m
     assert.match(sent, /310[.,]000/)
     assert.equal(result.turn_completeness.status, 'rejected_price_guard')
     assert.equal(h.calls.some(c => c.name === 'handoff_lead'), missing)
-    assert.equal(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530), missing)
+    assert.equal(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530), false)
+    if (missing) assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === true))
     if (!missing) assert.doesNotMatch(sent, /pasado su consulta|bandeja del equipo/)
   }
 })
@@ -1610,11 +1622,13 @@ test('all three reported questions survive rejected drafts without a generic han
   assert.doesNotMatch(r.reply,/presupuesto|información imprecisa|piscina|gimnasio/)
 })
 
-test('unknown budget receives help and does not repeat the financing offer on the next uncertainty', async () => {
+test('unknown budget returns to property selection and does not start financing', async () => {
   const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{activePrompt:async()=>{throw Error('UNEXPECTED_GENERATION')}}})
   const info={historial:[{role:'bot',content:'¿Qué presupuesto tiene?'}]}
   const a=await commercialReply(info,'No estoy seguro de mi presupuesto',{},async()=>{})
-  assert.match(a.reply,/entrada y una cuota/)
+  assert.match(a.reply,/identificar qué tipo de propiedad/i)
+  assert.match(a.reply,/suites, los departamentos o los locales comerciales/i)
+  assert.doesNotMatch(a.reply,/entrada y una cuota|iniciar.*financiamiento/i)
   const b=await commercialReply({...info,conversacion:{ultima_respuesta:a.reply}},'No estoy seguro',{},async()=>{})
   assert.doesNotMatch(b.reply,/\?|¿Qué presupuesto/)
 })
@@ -1639,6 +1653,22 @@ test('conversation groups two inputs into one reply and records outbound only af
   assert.equal(h.calls.filter(c => c.name === 'register_inbound_message').length, 2)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
   assert.ok(h.calls.findIndex(c => c.name === 'register_outbound_message') > h.calls.findIndex(c => c.name === 'launch'))
+})
+test('test-only pauses every non-target lead and mirrors DETENER IA in Kommo', async t => {
+  live(t)
+  const h = conversationHarness({
+    config: { test_only: true, test_lead_id: 'test-lead' },
+    testLead: { ...scope, id: 'test-lead', kommo_id: 999, bot_enabled: true },
+  })
+  const result = await h.process(h.rows, async () => {})
+  assert.equal(result.action, 'outside_test_lead')
+  assert.equal(result.bot_paused, true)
+  assert.equal(result.kommo_stop_synced, true)
+  assert.deepEqual(h.calls.filter(c => c.name === 'patch').map(c => c.args), [[123, 451530, 'true']])
+  assert.equal(h.calls.some(c => c.name === 'launch'), false)
+  assert.equal(h.calls.filter(c => c.name === 'register_inbound_message').length, h.rows.length)
+  assert.equal(result.message_persisted, true)
+  assert.equal(h.calls.some(c => ['apply_lead_events', 'commercialReply', 'process_financing_message_v2'].includes(c.name)), false)
 })
 test('duplicate inbound messages never produce another reply', async t => {
   live(t); const h = conversationHarness({ duplicate: true })
@@ -2223,24 +2253,28 @@ const modelDelivery = require('../src/lib/integrations/automation/unit-model.ts'
 test('text and readable plan titles select the same real unit; an ambiguous area does not', () => {
   for (const text of ['Quiero ver el departamento #202','El dpto. N° 202','[Imagen: DEPARTAMENTO 202. Área interior: 120,83 m².]','el 202','Quiero el piso 202']) {
     const reference = catalogModels.resolveCatalogReference([unit202,unit302],text)
-    assert.equal(modelDelivery.unitModelDelivery(reference,text,[])?.url,'https://www.lavilett.com/tour/modelo-3d/segunda-planta.html?unidad=202')
+    assert.equal(modelDelivery.unitModelDelivery(reference,text,[])?.url,'https://www.lavilett.com/tour?unidad=202')
   }
   for (const text of ['Cuál es el de 120.83?','Departamento 202 o departamento 302','Quiero el piso 2']) {
     assert.equal(modelDelivery.unitModelDelivery(catalogModels.resolveCatalogReference([unit202,unit302],text),text,[]),null)
   }
 })
 
-test('a new unavailable code never reuses the previous model, and another floor is not mapped to 202', () => {
+test('an unavailable code never reuses the previous tour, and every known floor links its own unit', () => {
   const previous={ids:[unit202.id],numbers:['202']}
-  for (const text of ['Ahora quiero ese departamento 999','Quiero ver el departamento 302','[Imagen: LOCAL COMERCIAL 05]']) {
+  for (const text of ['Ahora quiero ese departamento 999','[Imagen: LOCAL COMERCIAL 05]']) {
     const ref=catalogModels.resolveCatalogReference([unit202,unit302],text,previous)
     assert.equal(modelDelivery.unitModelDelivery(ref,text,[]),null)
   }
+  const nextFloor = modelDelivery.unitModelDelivery(catalogModels.resolveCatalogReference([unit202,unit302], 'Quiero ver el departamento 302', previous), 'Quiero ver el departamento 302', [])
+  assert.equal(nextFloor.url, 'https://www.lavilett.com/tour?unidad=302')
+  assert.equal(nextFloor.unit_number, '302')
+  assert.doesNotMatch(nextFloor.caption, /unidad=202|segunda-planta/)
   const {unitModelUrl}=require('../src/lib/tour/unitModels.ts')
   assert.equal(unitModelUrl({...unit202,id:'another-project'}),null)
   assert.equal(unitModelUrl({...unit202,is_published:false}),null)
   assert.equal(catalogModels.resolveCatalogReference([unit202],'[Imagen: Podría ser DEPARTAMENTO 202, el título no es legible.]').matches.length,0)
-  assert.match(modelDelivery.unitModelRequestReply([unit302],'Quiero ver el modelo del departamento 302',false),/302.*no tengo/)
+  assert.match(modelDelivery.unitModelRequestReply([unit302],'Quiero ver el modelo del departamento 302',true), /unidad 302.*departamento/)
   assert.match(modelDelivery.unitModelRequestReply([unit202,unit302],'Quiero ver el modelo',false),/202, 302/)
 })
 
@@ -2309,10 +2343,14 @@ test('a photo request uses the latest unit from the client, recovers a lost summ
     activePrompt:async()=>{throw Error('Known model must not fall back to a generic prompt')},
   }})
   for(const message of ['Me interesa el departamento 210','En envíeme una fotografía']) {
-    const reply=await commercialReply({referencia_unidad:{matches:[unit210]},modelo_3d:{unidad:'210',se_adjunta_en_esta_respuesta:true}},message,{},async()=>{})
+    const reply=await commercialReply({catalogo:[unit202,unit210],historial:history,referencia_unidad:{matches:[unit210]},modelo_3d:{unidad:'210',se_adjunta_en_esta_respuesta:true}},message,{},async()=>{})
     assert.doesNotMatch(reply.reply,/asesor|convendría|mayor tamaño|preferir|otra opción|aquí.*foto/i)
-    if(message.includes('fotografía')) assert.match(reply.reply,/vista interactiva/)
-    else assert.match(reply.reply,/210.*suite.*un dormitorio/)
+    if(message.includes('fotografía')) assert.match(reply.reply,/tour.*recorrer/)
+    else {
+      assert.match(reply.reply,/suite 210/)
+      assert.match(reply.reply,/tour\?unidad=210/)
+      assert.doesNotMatch(reply.reply,/departamento 202|unidad=202/)
+    }
   }
 })
 
@@ -2320,12 +2358,19 @@ test('visual followups never resurrect an older unit after a new unknown or ambi
   for(const content of ['Ahora quiero el departamento 999','Prefiero el local 210','Departamento 202 o departamento 210','Ahora quiero un local']) {
     const ref=catalogModels.resolveCatalogReference([unit202,unit210],'Envíeme una foto',{ids:[unit202.id]},[
       {role:'cliente',content:'Me interesa el departamento 202'},{role:'cliente',content}])
-    assert.equal(modelDelivery.unitModelDelivery(ref,'Envíeme una foto',[]),null)
+    const delivery = modelDelivery.unitModelDelivery(ref,'Envíeme una foto',[])
+    if (ref.matches.length > 1) assert.equal(delivery, null)
+    else {
+      assert.equal(delivery?.url, 'https://www.lavilett.com/tour')
+      assert.equal(delivery?.unit_id, null)
+    }
   }
   const ref=catalogModels.resolveCatalogReference([unit210],'Mándeme una foto',{},[
     {role:'cliente',content:'Departamento 210'}, {role:'cliente',content:'Mi entrada sería 25000.00'}])
   assert.deepEqual(ref.matches,[unit210])
-  assert.equal(modelDelivery.unitModelDelivery(catalogModels.resolveCatalogReference([unit210],'Envíeme una foto de la fachada',{ids:[unit210.id]}),'Envíeme una foto de la fachada',[]),null)
+  const facade = modelDelivery.unitModelDelivery(catalogModels.resolveCatalogReference([unit210],'Envíeme una foto de la fachada',{ids:[unit210.id]}),'Envíeme una foto de la fachada',[])
+  assert.equal(facade?.url, 'https://www.lavilett.com/tour')
+  assert.equal(facade?.unit_id, null)
 })
 
 test('the reported 210 conversation saves and sends the same unit in the next visual turn',async t=>{
@@ -2349,6 +2394,99 @@ test('the reported 210 conversation saves and sends the same unit in the next vi
     assert.equal(next.calls.filter(c=>c.name==='launch').length,1)
     assert.equal(next.calls.filter(c=>c.name==='lv_collect_visit_intake').length,0)
   }
+})
+
+const continuityCatalog = [
+  { ...unit202, bedrooms: 3, floor: 'Segunda Planta Alta', published_commercial_price: 250000, is_published: true, status: 'disponible' },
+  { ...unit302, bedrooms: 3, floor: 'Tercera Planta Alta', published_commercial_price: 270000, is_published: true, status: 'disponible' },
+  { id: 'penthouse-602', unit_number: '602', category: 'penthouse', bedrooms: 3, floor: 'Sexta Planta Alta', floor_number: 6, area_internal_m2: 142.09, published_commercial_price: 550000, is_published: true, status: 'disponible' },
+  { id: 'penthouse-605', unit_number: '605', category: 'penthouse', bedrooms: 3, floor: 'Sexta Planta Alta', floor_number: 6, area_internal_m2: 140.53, published_commercial_price: 530000, is_published: true, status: 'disponible' },
+]
+const continuityInfo = () => ({ ...priceInfo(), catalogo: continuityCatalog, politica_visitas: { allowSuggestions: false, launchDestination: 'office' } })
+const deterministicOnly = { activePrompt: async () => { throw Error('UNEXPECTED_COMMERCIAL_GENERATION') } }
+const extractedProperty = (message, property, intent = 'select_property') => ({
+  primary_intent: intent, primary_evidence: message, confidence: 'high',
+  property: { category: null, excluded_categories: [], reference_kind: 'none', unit_numbers: [], selector: null, ...property, evidence: message, confidence: 'high' },
+})
+
+test('the delivered pipeline prioritizes evidenced apartment preference over a rejected penthouse extraction in every configured tone', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_CONTINUITY_TEST') })
+  const current = 'bueno, me interesa mas los departamentos por que los penthouse deben ser muy caros.'
+  const history = [{ role: 'bot', content: 'Tenemos departamentos de tres dormitorios y penthouses. ¿Desea revisar primero los departamentos o los penthouses?' }]
+  for (const tone of ['actual', 'cercano', 'equilibrado', 'elegante']) {
+    const h = conversationHarness({ tone, catalog: continuityCatalog, commercialInfo: { ...continuityInfo(), historial: history }, realCommercial: true, commercialAi: deterministicOnly, history,
+      extracted: { preferred_category: 'penthouse', declaration_evidence: { preferred_category: 'penthouse' }, events: ['declared_unit_type'],
+        turn_semantics: extractedProperty(current, { category: 'departamento', excluded_categories: ['penthouse'] }) } })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    const extraction = h.calls.find(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos'))
+    assert.deepEqual(extraction.args.input.historial_reciente, history)
+    assert.equal(extraction.args.input.catalogo_unidades.length, continuityCatalog.length)
+    assert.equal(h.calls.find(call => call.name === 'save_lead_declarations').args.p_preferred_category, 'departamento')
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.match(sent.p_content, /departamentos.*Segunda Planta Alta.*Tercera Planta Alta.*Qué planta prefiere/s)
+    assert.doesNotMatch(sent.p_content, /penthouse 602|penthouse 605|360|\$|cuántos dormitorios/i)
+    assert.equal(sent.p_tool_calls.conversation_tone.style, tone)
+    const saved = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+    assert.equal(saved._property_context.preference_category, 'departamento')
+    assert.deepEqual(saved._property_context.selected_ids, [])
+    assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
+  }
+})
+
+test('the delivered pipeline selects the largest actually displayed penthouse despite older apartment interest', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_CONTINUITY_TEST') })
+  const current = 'me interesa mas el mas grande'
+  const offered = 'Estas son las opciones: el penthouse 602, de 142,09 m² interiores; el penthouse 605, de 140,53 m² interiores. ¿Cuál de estas opciones le gustaría conocer?'
+  const h = conversationHarness({ catalog: continuityCatalog, commercialInfo: continuityInfo(), realCommercial: true, commercialAi: deterministicOnly,
+    lead: { preferred_category: 'departamento', unit_id: unit202.id }, history: [{ role: 'bot', content: offered }],
+    summary: { _unit_reference: { ids: [unit202.id] }, _property_context: { journey: 'residential_alternatives', phase: 'choose_unit', preference_category: 'departamento', offered_ids: [unit202.id], selected_ids: [unit202.id] } },
+    extracted: { turn_semantics: extractedProperty(current, { reference_kind: 'relative', selector: 'largest' }) } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const declarations = h.calls.find(call => call.name === 'save_lead_declarations').args
+  assert.equal(declarations.p_unit_id, 'penthouse-602')
+  assert.equal(declarations.p_preferred_category, 'penthouse')
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.match(sent.p_content, /penthouse 602.*142[.,]09/s)
+  assert.match(sent.p_content, /https:\/\/www\.lavilett\.com\/tour\?unidad=602/)
+  assert.doesNotMatch(sent.p_content, /departamento 202|departamento 302|120[.,]83/)
+  const saved = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+  assert.deepEqual(saved._property_context.selected_ids, ['penthouse-602'])
+  assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
+})
+
+test('the real conversation pipeline persists a two-unit comparison and quotes both on the next price follow-up', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_CONTINUITY_TEST') })
+  const current = 'y cual es la diferencia entre el 202 y el 302?'
+  const draft = 'La diferencia está en la planta: el departamento 202 está en la Segunda Planta Alta y el departamento 302 en la Tercera Planta Alta. Ambos tienen 3 dormitorios y 120,83 m² interiores.'
+  const first = conversationHarness({ catalog: continuityCatalog, commercialInfo: continuityInfo(), realCommercial: true,
+    commercialAi: { activePrompt: async () => '', draftReply: async () => draft, aiJson: async () => ({ aprobada: true, motivos: [] }) },
+    extracted: { turn_semantics: extractedProperty(current, { reference_kind: 'comparison', unit_numbers: ['202', '302'] }, 'project_information') } })
+  first.rows[0].payload.text = current
+  await first.process([first.rows[0]], async () => {})
+  const firstSent = first.calls.find(call => call.name === 'register_outbound_message').args.p_content
+  const firstSaved = JSON.parse(first.calls.find(call => call.name === 'update:conversations').args.summary)
+  assert.deepEqual(firstSaved._property_context.comparison_ids, [unit202.id, unit302.id])
+  assert.equal(first.calls.find(call => call.name === 'save_lead_declarations').args.p_unit_id, null)
+  assert.doesNotMatch(firstSent, /unidad=|\$/)
+  const followup = 'y en precio?'
+  const next = conversationHarness({ catalog: continuityCatalog, commercialInfo: continuityInfo(), realCommercial: true, commercialAi: deterministicOnly,
+    history: [{ role: 'cliente', content: current }, { role: 'bot', content: firstSent }], summary: firstSaved,
+    extracted: { turn_semantics: extractedProperty(followup, { reference_kind: 'followup', unit_numbers: ['202', '302'] }, 'ask_price') } })
+  next.rows[0].payload.text = followup
+  await next.process([next.rows[0]], async () => {})
+  const sent = next.calls.find(call => call.name === 'register_outbound_message').args
+  assert.match(sent.p_content, /202.*250[.,]000.*302.*270[.,]000.*diferencia.*20[.,]000/s)
+  assert.match(sent.p_content, /referenciales de lanzamiento/)
+  assert.doesNotMatch(sent.p_content, /550[.,]000|530[.,]000|asesor|unidad=/)
+  assert.deepEqual(sent.p_tool_calls.comparison_unit_ids, [unit202.id, unit302.id])
+  assert.equal(sent.p_tool_calls.price_comparison.difference, 20000)
+  assert.deepEqual(JSON.parse(next.calls.find(call => call.name === 'update:conversations').args.summary)._property_context.comparison_ids, [unit202.id, unit302.id])
+  assert.equal(next.calls.some(call => call.name === 'handoff_lead'), false)
 })
 
 // September 14 regression cases: a failed voice message must not revive an

@@ -9,13 +9,22 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
     /(?:numero|titulo|codigo)[^.]*?(?:ilegible|no (?:se|es)|dudoso)|no (?:se (?:lee|distingue)|puedo leer)|podria ser|parece ser|posiblemente/i.test(normalized(block)) ? '' : block)
   const m = normalized(readable), saved = object(previous)
   const savedIds = Array.isArray(saved.ids) ? saved.ids : []
-  const codes = [...m.matchAll(/\b(?:lc|local(?: comercial)?|depart[ae]mento|depto|dpto|apto|apartamento|suite|unidad|piso)\s*(?:numero\s*|n(?:ro|o)?\s*)?(\d{1,4})\b/g)]
+  const codes = [...m.matchAll(/\b(?:lc-?|local(?: comercial)?|depart[ae]mento|depto|dpto|apto|apartamento|penthouse|suite|unidad|piso)\s*(?:numero\s*|n(?:ro|o)?\s*)?(\d{1,4})\b/g)]
+  // A comparison names a set, including the second code without repeating its category.
+  if (/\b(?:compar|diferencia|entre|mismo precio)/.test(m) || codes.length) {
+    codes.push(...m.matchAll(/\b(?:el|del|la|de la|y|con|entre|o)\s+(?:(?:el|la)\s+)?(\d{3,4})\b/g))
+  }
   // «Cuánto cuesta el 502» also names a unit, not an amount or a floor.
   if (!codes.length && /\b(?:precio|valor|vale|valen|cuesta|cuestan|cost[oa])\b/.test(m)) {
     codes.push(...m.matchAll(/\b(?:el|del|la|de la)\s+(\d{3,4})\b/g))
   }
+  // After the bot lists concrete options, clients commonly choose one with
+  // phrases such as “me interesa la 210” without repeating “suite”.
+  if (!codes.length && /\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)\b/.test(m)) {
+    codes.push(...m.matchAll(/\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)(?:\s+(?:revisar|conocer|ver))?\s+(?:la|el|unidad)?\s*(\d{3,4})\b/g))
+  }
   // A named project subject supersedes a remembered unit for this turn.
-  const projectTopic=/\b(?:edificio|proyecto|areas comunes|amenidades)\b/.test(m)
+  const projectTopic=/\b(?:edificio|proyecto|fachada|areas comunes|amenidades)\b/.test(m)
   const largest=/\bdepartamento (?:mas grande|de mayor (?:superficie|area|tamano))\b/.test(m)
   if(!codes.length && largest) {
     const candidates=catalog.filter(u=>u.category==='departamento'&&u.is_published!==false&&(!u.status||u.status==='disponible'))
@@ -72,7 +81,7 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
       .find(r => /\[Imagen:|\[Archivo PDF:/.test(text(r.content)) && (!r.sent_at || Date.now() - Date.parse(text(r.sent_at)) < 15 * 60_000))
     if (recentImage) matches = resolveCatalogReference(catalog, text(recentImage.content)).matches
   }
-  return { explicit, hasUnitMention, matches, memory: matches.length ? { ids: matches.map(u => u.id), numbers: matches.map(u => u.unit_number) } : codes.length || historyResolved ? {} : saved }
+  return { explicit, hasUnitMention, matches, requestedCodes: [...new Set(codes.map(match => match[1]))], memory: matches.length ? { ids: matches.map(u => u.id), numbers: matches.map(u => u.unit_number) } : codes.length || historyResolved ? {} : saved }
 }
 
 export function catalogReferenceReply(matches: Row[], current: string) {

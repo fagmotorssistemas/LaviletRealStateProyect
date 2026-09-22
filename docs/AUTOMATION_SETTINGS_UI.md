@@ -10,7 +10,7 @@ Al abrir Reglas y SLA se selecciona por defecto Edificio La Vilet si está entre
 
 SLA significa acuerdo de nivel de servicio. `sla_response_minutes` mide el plazo de respuesta del asesor tras el traspaso; `review_sla_minutes` mide el plazo para revisar una solicitud de cita. Ninguno programa una espera antes de responder con IA. La pantalla lee estos valores del proyecto. Los puntos por evento siguen siendo reglas compartidas de la plataforma.
 
-La secuencia de cuatro semanas se prepara con todos sus pasos desactivados y sin aprobación de Meta. **Desactivar toda la secuencia** actualiza solamente `active = false` de `nutrition_steps` del proyecto seleccionado, mediante una acción que exige administrador y acceso al proyecto. No borra temas ni cambia aprobaciones. El seguimiento aún no tiene conectado un ejecutor de envíos automáticos; la pantalla lo indica.
+La definición funcional de etapas, nutrición y recuperación está en [Flujo de leads, nutrición y recuperación](FLUJO_LEADS_NUTRICION_RECUPERACION.md). El ejecutor dispone de seguimientos a las 24 horas y en los días 7, 14 y 21. Cada paso se programa únicamente si su control está activo y se cumplen plantilla, consentimiento, horario y elegibilidad. Los pasos históricos de `nutrition_steps` no son por sí solos prueba de que exista un envío programado. La recuperación posterior al día 21 todavía está pendiente de implementación.
 
 ## Guion del bot
 

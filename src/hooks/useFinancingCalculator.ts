@@ -424,7 +424,7 @@ export function useFinancingCalculator(
     // Tour público: solo instituciones administradas (no tasa manual).
     const partner = selectedPartner ?? partners[0] ?? null
     if (!partner) {
-      patchState({ mode: 'cash', partnerId: null, interestRate: 0, savedResults: null, fidelityMessage: null })
+      setSaveMessage('Aún no hay instituciones disponibles. Espere un momento e intente de nuevo.')
       return
     }
     patchState({

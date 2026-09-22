@@ -85,12 +85,17 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
   }
 
   rows.push({
-    label: scaledTopUp < 0 ? 'Aporte adicional' : 'Excedente',
+    label:
+      scaledTopUp < 0
+        ? 'Tu aporte mensual estimado'
+        : scaledTopUp > 0
+          ? 'Dinero que te queda cada mes'
+          : 'Los ingresos cubren gastos y cuota',
     value: scaledTopUp,
     strong: true,
     note:
       scaledTopUp < 0
-        ? 'El aporte no se convierte íntegramente en patrimonio (intereses y gastos)'
+        ? 'Tras aplicar el alquiler neto a la cuota. No es solo capital amortizado.'
         : undefined,
   })
 

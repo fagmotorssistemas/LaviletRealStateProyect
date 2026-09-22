@@ -275,6 +275,52 @@ export async function rpcSetTrackingPreference(
   if (error) throw rpcError('set_tracking_preference', error)
 }
 
+export type RegisterTourInfoRequestResult = {
+  id: string
+  lead_id: string
+  created: boolean
+  duplicate: boolean
+}
+
+export async function rpcRegisterTourInfoRequest(
+  admin: SupabaseClient,
+  args: {
+    leadId: string
+    visitorKey?: string | null
+    sessionId?: string | null
+    unitId?: string | null
+    unitTypeId?: string | null
+    typologyCode?: string | null
+    motivo: string
+    mensaje?: string | null
+    clientRequestId?: string | null
+  },
+): Promise<RegisterTourInfoRequestResult> {
+  const { data, error } = await admin.rpc('register_tour_info_request', {
+    p_tenant_id: TOUR_TENANT_ID,
+    p_lead_id: args.leadId,
+    p_visitor_key: args.visitorKey || null,
+    p_session_id: args.sessionId || null,
+    p_unit_id: args.unitId || null,
+    p_unit_type_id: args.unitTypeId || null,
+    p_typology_code: args.typologyCode || null,
+    p_motivo: args.motivo,
+    p_mensaje: args.mensaje || null,
+    p_client_request_id: args.clientRequestId || null,
+  })
+  if (error) throw rpcError('register_tour_info_request', error)
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown>
+  const id = typeof row?.id === 'string' ? row.id : null
+  const leadId = typeof row?.lead_id === 'string' ? row.lead_id : null
+  if (!id || !leadId) throw new Error('register_tour_info_request no devolvió id')
+  return {
+    id,
+    lead_id: leadId,
+    created: Boolean(row?.created),
+    duplicate: Boolean(row?.duplicate),
+  }
+}
+
 export async function resolveUnitTypeId(admin: SupabaseClient, code?: string | null) {
   const value = String(code ?? '').trim()
   if (!value) return null

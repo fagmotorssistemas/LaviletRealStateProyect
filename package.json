@@ -18,14 +18,16 @@
     "automation:tick": "node scripts/automation-cron.mjs",
     "automation:watch": "node scripts/automation-cron.mjs --watch",
     "test:meta-schedule": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/scheduleIntegration.test.ts src/lib/meta/scheduleEnqueue.review.test.ts src/lib/meta/scheduleAgendaHook.test.ts src/lib/meta/scheduleContract.test.ts src/lib/meta/scheduleDelivery.test.ts src/lib/meta/scheduleFlushExclusion.test.ts src/lib/meta/scheduleReliability.test.ts src/lib/meta/scheduleMigrations.test.ts",
-    "test:meta-wa-lead-submitted": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/waLeadSubmitted.test.ts src/lib/meta/waLeadSubmittedMigrations.test.ts",
+    "test:meta-wa-lead-submitted": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/waLeadSubmitted.test.ts src/lib/meta/waLeadSubmittedMigrations.test.ts src/lib/meta/waLeadSubmitted.integration.test.ts",
     "test:meta-schedule-recover-db": "powershell -File scripts/meta-schedule-recover-isolated/run.ps1",
     "test:meta-whatsapp-demo": "node --require ./scripts/test-typescript.cjs --test scripts/meta-whatsapp-capi-demo-isolated/demo.test.cjs",
-    "test:meta-capi-bitacora": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/metaOfficialMetrics.test.ts src/lib/meta/metaCapiStatus.test.ts src/lib/meta/metaCapiChannel.test.ts src/lib/meta/metaCapiPhone.test.ts src/lib/meta/deliveryLane.test.ts",
+    "test:meta-capi-bitacora": "node --require ./scripts/test-typescript.cjs --test src/lib/meta/metaOfficialMetrics.test.ts src/lib/meta/metaCapiStatus.test.ts src/lib/meta/metaCapiChannel.test.ts src/lib/meta/metaCapiPhone.test.ts src/lib/meta/deliveryLane.test.ts src/lib/meta/waCrmVisibility.test.ts",
     "test:meta-pixel-unit": "node --require ./scripts/test-typescript.cjs --test src/lib/marketing/metaPixel.behavior.test.ts",
     "test:meta-pixel-browser": "node scripts/meta-pixel-browser-harness.cjs",
-    "test:automation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts src/lib/integrations/automation/visit-reminder.test.ts src/services/automationRules.service.test.ts src/services/unitPrices.service.test.ts",
-    "test:financing": "node --require ./scripts/test-typescript.cjs --test src/lib/financing/calculator.test.ts src/lib/financing/scenarioPersist.test.ts src/lib/financing/migration.pglite.test.ts src/lib/financing/scenarioValidate.test.ts src/lib/financing/calculatorUnitPrice.test.ts"
+    "test:automation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/slaStatus.test.ts src/lib/inmobiliaria/automationRules.test.ts src/lib/inmobiliaria/automationGuion.test.ts src/lib/inmobiliaria/agendaTime.test.ts src/lib/inmobiliaria/fairAssignment.test.ts src/lib/inmobiliaria/visitClock.test.ts src/lib/inmobiliaria/leadControl.test.ts src/lib/integrations/automation/context-read.test.ts src/lib/integrations/automation/human-attention.test.ts src/lib/integrations/automation/webhook-advisor-outbound.test.ts src/lib/integrations/automation/visit-reminder.test.ts src/lib/integrations/automation/visit-intake.test.ts src/lib/integrations/automation/commercial-location-recommendation.test.ts src/lib/integrations/automation/project-information.test.ts src/lib/integrations/automation/property-selection.test.ts src/lib/integrations/automation/unit-tour-link.test.ts src/services/automationRules.service.test.ts src/services/unitPrices.service.test.ts",
+    "test:conversation": "node --test scripts/property-context.test.cjs scripts/property-journey-regression.test.cjs scripts/comparison-price.test.cjs scripts/business-scope.test.cjs scripts/unit-alternatives.test.cjs scripts/residential-continuity.test.cjs scripts/turn-completeness.test.cjs scripts/visit-turn-routing.test.cjs scripts/visit-date-context.test.cjs",
+    "test:financing": "node --require ./scripts/test-typescript.cjs --test src/lib/financing/calculator.test.ts src/lib/financing/wealthProjection.test.ts src/lib/financing/scenarioPersist.test.ts src/lib/financing/migration.pglite.test.ts src/lib/financing/scenarioValidate.test.ts src/lib/financing/calculatorUnitPrice.test.ts",
+    "test:tour-identity": "node --require ./scripts/test-typescript.cjs --test scripts/tour-identity-continuity.pglite.test.ts"
   },
   "engines": {
     "node": "24.x"
@@ -43,6 +45,7 @@
     "@photo-sphere-viewer/virtual-tour-plugin": "^5.15.1",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.3",
+    "@xyflow/react": "^12.11.6",
     "browser-image-compression": "^2.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

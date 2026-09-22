@@ -39,4 +39,17 @@ describe('waLeadSubmitted migrations + docs', () => {
     assert.match(md, /Marketing → CAPI/)
     assert.match(md, /bloqueo externo|CTWA/)
   })
+
+  it('migración evidencia/CTWA scope exige whatsapp_ads en intent', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260921221156_wa_lead_submitted_evidence_and_ctwa_scope.sql',
+      ),
+      'utf8',
+    )
+    assert.match(sql, /ads_consent_evidence_message_required/)
+    assert.match(sql, /p_tenant_id/)
+    assert.match(sql, /lv_app_get_ctwa/)
+  })
 })

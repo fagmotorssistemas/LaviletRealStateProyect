@@ -51,7 +51,7 @@ export function NutritionWeekOneSettings({ projectId, initial, updatedAt, onSave
       <p>Seguimiento: {WEEK_ONE_ROUTES.followup.templateName} · Salesbot {WEEK_ONE_ROUTES.followup.botId} · campo {WEEK_ONE_ROUTES.followup.fieldId}</p>
       <p>La variable contiene una frase corta, por ejemplo «conocer la distribución del departamento 202». La conexión usa el ID del campo, aunque cambie su nombre.</p>
     </div></details>
-    <Button onClick={() => void save()} disabled={busy}>{busy ? 'Guardando…' : 'Guardar semana 1'}</Button>
+    <Button onClick={() => void save()} disabled={busy}>{busy ? 'Guardando…' : 'Guardar día 7'}</Button>
     <div className="space-y-3 rounded-xl border border-[#deded4] bg-[#f7f7f2] p-4">
       <p className="font-semibold">Brochure entregado por un asesor</p><p>Si lo compartió por fuera del sistema, registre la entrega para evitar repetirlo. Los mensajes automáticos quedan registrados al ser aceptados por Kommo; eso no confirma su lectura.</p>
       <label className="block">ID del lead en Kommo<Input type="number" min="1" value={leadId} onChange={e => setLeadId(e.target.value)} /></label>

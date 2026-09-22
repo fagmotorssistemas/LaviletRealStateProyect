@@ -1,4 +1,4 @@
-import { formatVisitDateRelative, formatVisitWhen, formatVisitWhenRelative } from '@/lib/inmobiliaria/visitClock'
+import { addMinutesHm, formatVisitClock, formatVisitDateRelative, formatVisitWhen, formatVisitWhenRelative } from '@/lib/inmobiliaria/visitClock'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { visitCoordinationReply } from './conversation-style'
@@ -95,10 +95,29 @@ export function visitBusinessHoursReply(hours: unknown, result: Row, at: string 
     else groups.push({ days: [day], open: text(slot.open), close: text(slot.close) })
   }
   if (!groups.length) return ''
-  const parts = groups.map(group => `${group.days.length > 1 ? 'de ' + names[group.days[0] - 1] + ' a ' + names[group.days.at(-1)! - 1] : 'los ' + names[group.days[0] - 1]} de ${group.open} a ${group.close}`)
-  const day = text(object(result.slot).requested_date)
+  const recurringNames = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos']
+  const parts = groups.map(group => `${group.days.length > 1 ? 'de ' + names[group.days[0] - 1] + ' a ' + names[group.days.at(-1)! - 1] : 'los ' + recurringNames[group.days[0] - 1]} de ${group.open} a ${group.close}`)
+  const slot = object(result.slot)
+  const day = text(slot.requested_date)
+  const start = text(slot.start_time)
+  const preferredClock = start ? formatVisitClock(start) : ''
+  const timeParts = start ? new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Guayaquil', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(start)) : ''
+  const validDaysForTime = /^\d{2}:\d{2}$/.test(timeParts) ? groups.filter(group => {
+    return timeParts >= group.open && addMinutesHm(timeParts, 60) <= group.close
+  }) : []
+  const validDayNames = validDaysForTime.flatMap(group => group.days.map(value => names[value - 1]))
+  if (result.action === 'closed_day' && day) {
+    const closedDay = formatVisitDateRelative(day + 'T12:00:00-05:00', at)
+    const timeChoice = preferredClock && validDayNames.length
+      ? `Como indicó ${preferredClock}, puede solicitar esa hora ${validDayNames.length > 1 ? 'de ' + validDayNames[0] + ' a ' + validDayNames.at(-1) : 'el ' + validDayNames[0]}. ¿Qué día le convendría?`
+      : '¿Qué otro día y hora le convendrían dentro de esos horarios?'
+    return `${closedDay.charAt(0).toLocaleUpperCase('es-EC') + closedDay.slice(1)} no está habilitado para visitas. Nuestro horario de atención es ${parts.join('; ')}. ${timeChoice}`
+  }
+  if (result.action === 'outside_hours' && day) {
+    return `La hora indicada queda fuera del horario de atención. Atendemos ${parts.join('; ')}. ¿Qué hora dentro de ese horario le convendría para ${formatVisitDateRelative(day + 'T12:00:00-05:00', at)}?`
+  }
   const request = day
     ? `Para ${formatVisitDateRelative(day + 'T12:00:00-05:00', at)}, indíquenos qué hora le vendría bien`
-    : 'Indíquenos qué fecha y hora le vendrían bien'
-  return `Nuestro horario de atención es ${parts.join('; ')}. ${request}; verificaremos la disponibilidad del equipo y le confirmaremos la cita por aquí.`
+    : 'Después de revisar estos horarios, indíquenos qué fecha y hora le vendrían bien'
+  return `Nuestro horario de atención es ${parts.join('; ')}. ${request}; cuando recibamos su preferencia, verificaremos la disponibilidad del equipo y le confirmaremos la cita por aquí.`
 }

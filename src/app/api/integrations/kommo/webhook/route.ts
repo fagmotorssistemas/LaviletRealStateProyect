@@ -1,7 +1,17 @@
 import { after, NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { automationSettings, secretMatches } from '@/lib/integrations/automation/config'
 import { rpc } from '@/lib/integrations/automation/data'
-import { limitedBody, normalizeWebhook } from '@/lib/integrations/automation/webhook'
+import {
+  attachCtwaProbeSummary,
+  limitedBody,
+  logKommoCtwaFieldProbe,
+  normalizeKommoWebhook,
+  probeKommoCtwaFields,
+  type AdvisorOutbound,
+  type Inbound,
+  type KommoCtwaFieldProbe,
+} from '@/lib/integrations/automation/webhook'
 import { accelerateTestMessages, testResponseMode } from '@/lib/integrations/automation/test-response-mode'
 import { TEST_RESPONSE_SECONDS } from '@/lib/inmobiliaria/testResponseMode'
 
@@ -15,17 +25,37 @@ export async function POST(request: Request) {
   if (!secretMatches(provided, process.env.KOMMO_WEBHOOK_SECRET)) return NextResponse.json({ error: 'No autorizado' }, { status: 401, headers })
   const settings = automationSettings()
   if (!settings.live) return NextResponse.json({ error: 'Recepción no activada' }, { status: 503, headers })
-  let events
+  const correlationId = request.headers.get('x-request-id')?.trim() || randomUUID()
+  let events: Inbound[] = []
+  let advisorOutbound: AdvisorOutbound[] = []
+  let probe: KommoCtwaFieldProbe | null = null
   try {
     const raw = await limitedBody(request)
-    events = normalizeWebhook(raw, request.headers.get('content-type') || '')
+    const contentType = request.headers.get('content-type') || ''
+    try {
+      probe = probeKommoCtwaFields(raw, contentType, correlationId)
+      logKommoCtwaFieldProbe(probe)
+    } catch {
+      console.info(JSON.stringify({
+        event: 'kommo_ctwa_field_probe',
+        correlationId,
+        probeFailed: true,
+        reason: 'PARSE_OR_UNSUPPORTED',
+      }))
+    }
+    const normalized = normalizeKommoWebhook(raw, contentType)
+    events = normalized.inbound.filter(event => Date.parse(event.sentAt) >= Date.parse(settings.activatedAt))
+    advisorOutbound = normalized.advisorOutbound
       .filter(event => Date.parse(event.sentAt) >= Date.parse(settings.activatedAt))
+    if (probe) events = attachCtwaProbeSummary(events, probe)
   } catch {
     return NextResponse.json({ error: 'Evento inválido' }, { status: 400, headers })
   }
   try {
     // Persist before acknowledging. An optional post-response task wakes the same worker.
-    const inserted = events.length ? await rpc('lv_app_receive', { p_events: events }) : 0
+    const inserted = events.length ? await rpc<number>('lv_app_receive', { p_events: events }) : 0
+    const advisorInserted = advisorOutbound.length
+      ? await rpc<number>('lv_app_receive_advisor_outbound', { p_events: advisorOutbound }) : 0
     if(inserted) after(async()=>{
       try {
         const mode=await testResponseMode()
@@ -40,7 +70,23 @@ export async function POST(request: Request) {
         console.error('TEST_RESPONSE_WAKE_FAILED')
       }
     })
-    return NextResponse.json({ accepted: true, received: events.length, inserted }, { status: 200, headers })
+    return NextResponse.json({
+      accepted: true,
+      received: events.length + advisorOutbound.length,
+      inbound: events.length,
+      advisor_outbound: advisorOutbound.length,
+      inserted: inserted + advisorInserted,
+      inbound_inserted: inserted,
+      advisor_outbound_inserted: advisorInserted,
+      correlationId,
+      ctwaProbe: probe
+        ? {
+            fieldsAbsent: probe.fieldsAbsent,
+            pathCount: probe.referralOrCtwaPaths.length,
+            extracted: Object.values(probe.extractedByIndex).some(Boolean),
+          }
+        : null,
+    }, { status: 200, headers })
   } catch {
     return NextResponse.json({ error: 'No se pudo persistir el evento' }, { status: 503, headers })
   }

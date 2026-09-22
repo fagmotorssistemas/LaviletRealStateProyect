@@ -23,6 +23,8 @@ function load(file, mocks) {
 const subjects = load('src/lib/integrations/automation/sales-subject.ts', { './data': data, './sdr-rules': { normalized } })
 const scopeModule = aiJson => load('src/lib/integrations/automation/business-scope.ts', {
   'server-only': {}, './ai': { aiJson }, './data': data, './sales-subject': subjects,
+  './conversation-tone': { CURRENT_TONE: { outsideTone: '' } },
+  './openai-request': { OpenAIRequestError: class OpenAIRequestError extends Error {} },
 })
 const validReply = 'Lo siento, no somos una agencia de viajes ni gestionamos vuelos. Somos La Vilet, un proyecto inmobiliario.'
 
@@ -53,7 +55,7 @@ test('mixed extraction keeps property date and excludes the flight date', async 
   assert.equal(result.kind, 'mixed')
   assert.equal(result.property_message, 'También quiero visitar la oficina el viernes a las diez.')
   assert.doesNotMatch(result.property_message, /martes|ocho|vuelo/)
-  assert.equal(result.reply, validReply)
+  assert.equal(result.reply, 'Lo siento, no somos una agencia de viajes ni gestionamos vuelos. Somos un proyecto inmobiliario.')
 })
 
 test('mixed extraction rejects invented, historical, reordered and whole-turn fragments', () => {
@@ -130,8 +132,126 @@ test('negated property nouns do not override an explicit vehicle request', () =>
 test('singular valor identifies a property price question after a scope correction', () => {
   const history = [{ role: 'cliente', content: 'Quiero una moto' }, { role: 'bot', content: validReply }]
   assert.equal(subjects.purchasePriceQuestion('Cuál es el valor de los departamentos?'), true)
-  assert.equal(subjects.salesSubject('Y cuál es el valor?', history).subject, 'property')
+  assert.equal(subjects.salesSubject('Y cuál es el valor?', history).subject, 'vehicle')
   assert.equal(subjects.purchasePriceQuestion('Me interesa el valor de reventa'), true)
+})
+
+test('bare price after an unrelated request is clarified instead of opening the property catalogue', async () => {
+  const desired = 'Si se refiere al precio de las papas, como le indiqué, lamentablemente no gestionamos la venta de alimentos. Sin embargo, si desea conocer los precios de La Vilet, le comento que contamos con suites, departamentos y locales comerciales. Si su consulta es sobre alguna de estas opciones, indíqueme cuál le interesa y con gusto le comparto los precios disponibles.'
+  let request
+  const module = scopeModule(async (_instructions, input) => {
+    request = input
+    return { kind: 'out_of_scope', property_fragments: [], reply: desired }
+  })
+  const history = [
+    { role: 'cliente', content: 'Quiero papas' },
+    { role: 'bot', content: 'Lo siento, solo le puedo ayudar con información sobre nuestro proyecto inmobiliario en Cuenca. No gestionamos la compra ni venta de alimentos.' },
+  ]
+  const result = await module.classifyBusinessScope('¿Y qué precio tiene?', history, true)
+  assert.equal(request.referencia_de_precio_ambigua, true)
+  assert.equal(result.kind, 'out_of_scope')
+  assert.equal(result.reply, desired)
+  assert.equal(result.property_message, '')
+})
+
+test('ambiguous price fails safe even if the model tries to open the property catalogue', async () => {
+  const module = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
+  const history = [
+    { role: 'cliente', content: 'Necesito comprar una bicicleta' },
+    { role: 'bot', content: 'No gestionamos la venta de bicicletas. Somos La Vilet, un proyecto inmobiliario con suites, departamentos y locales comerciales.' },
+  ]
+  const result = await module.classifyBusinessScope('¿Y cuánto cuesta?', history, true)
+  assert.equal(result.kind, 'out_of_scope')
+  assert.match(result.reply, /solicitud anterior/)
+  assert.match(result.reply, /suites, departamentos y locales comerciales/)
+})
+
+test('an unresolved outside price cannot fall through neutral or mixed classifier labels', async () => {
+  const history = [
+    { role: 'cliente', content: 'Me interesa el departamento 202' },
+    { role: 'bot', content: 'El departamento 202 está en la segunda planta.' },
+    { role: 'cliente', content: 'Quiero papas' },
+    { role: 'bot', content: 'No gestionamos la venta de alimentos. Somos La Vilet, un proyecto inmobiliario.' },
+    { role: 'cliente', content: '¿Y qué precio tiene?' },
+  ]
+  for (const kind of ['property', 'neutral', 'mixed']) {
+    const module = scopeModule(async () => ({ kind, property_fragments: kind === 'mixed' ? ['qué precio tiene'] : [], reply: '' }))
+    const result = await module.classifyBusinessScope('¿Y qué precio tiene?', history)
+    assert.equal(result.kind, 'out_of_scope', kind)
+    assert.equal(result.property_message, '', kind)
+    assert.doesNotMatch(result.reply, /202|\d|https?:/, kind)
+    assert.match(result.reply, /Si se refiere al precio/, kind)
+  }
+})
+
+test('scope boundary survives consecutive client messages and repeated price questions', () => {
+  const module = scopeModule(async () => { throw Error('not used') })
+  const history = [
+    { role: 'cliente', content: 'Quiero reparar mi teléfono' },
+    { role: 'bot', content: 'Lo siento, no prestamos ese servicio. Somos un proyecto inmobiliario.' },
+    { role: 'cliente', content: 'Es urgente' },
+    { role: 'cliente', content: 'Cuánto cuesta?' },
+  ]
+  assert.equal(module.hasAmbiguousPriceReference('Cuánto cuesta?', history), true)
+  const repeated = [...history,
+    { role: 'bot', content: 'Si se refiere al precio de la reparación, no gestionamos ese servicio. Si su consulta es sobre La Vilet, indíqueme qué opción le interesa.' },
+    { role: 'cliente', content: 'Y el valor?' },
+  ]
+  assert.equal(module.hasAmbiguousPriceReference('Y el valor?', repeated), true)
+})
+
+test('explicit acknowledgement or a real property reference releases the scope boundary', async () => {
+  const history = [
+    { role: 'cliente', content: 'Quiero papas' },
+    { role: 'bot', content: 'No gestionamos la venta de alimentos. Somos La Vilet, un proyecto inmobiliario.' },
+  ]
+  const module = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
+  for (const current of ['Oh entiendo. ¿Cuánto valen?', 'Me refiero a sus departamentos, ¿qué precios tienen?', '¿Cuánto cuestan los que sí venden?']) {
+    assert.equal(module.hasAmbiguousPriceReference(current, history), false, current)
+    assert.equal((await module.classifyBusinessScope(current, [...history, { role: 'cliente', content: current }])).kind, 'property', current)
+  }
+  assert.equal(module.hasAmbiguousPriceReference('¿Y en precio?', [...history,
+    { role: 'cliente', content: 'Quiero conocer sus suites' },
+    { role: 'bot', content: 'Contamos con suites en varias plantas.' },
+  ]), false)
+  assert.equal(module.hasAmbiguousPriceReference('No entiendo, ¿cuánto cuesta?', history), true)
+})
+
+test('contextual clarification adapts to the unrelated service without fixing the topic to food', async () => {
+  const desired = 'Si se refiere al precio de reparar su bicicleta, como le indiqué, lamentablemente no prestamos ese servicio. Sin embargo, si desea conocer los precios de La Vilet, contamos con suites, departamentos y locales comerciales. Si su consulta es sobre alguna de estas opciones, indíqueme cuál le interesa y con gusto le comparto los precios disponibles.'
+  const module = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: desired }))
+  const result = await module.classifyBusinessScope('Y cuánto cuesta?', [
+    { role: 'cliente', content: 'Quiero reparar mi bicicleta' },
+    { role: 'bot', content: 'No prestamos servicios de reparación. Somos La Vilet, un proyecto inmobiliario.' },
+  ])
+  assert.equal(result.reply, desired)
+  assert.doesNotMatch(result.reply, /papas|alimentos/)
+})
+
+test('property availability and financing restrictions do not create an outside-product boundary', () => {
+  const module = scopeModule(async () => { throw Error('not used') })
+  for (const reply of [
+    'No ofrecemos departamentos de cinco dormitorios. En La Vilet tenemos alternativas de tres dormitorios.',
+    'La Vilet no ofrece financiamiento directo. Podemos revisar las opciones bancarias.',
+    'No ofrecemos financiamiento directo para departamentos. Trabajamos con bancos.',
+    'No realizamos visitas los domingos. Podemos coordinar la visita a La Vilet en horario de atención.',
+    'No vendemos casas independientes. En La Vilet disponemos de suites y departamentos.',
+  ]) {
+    assert.equal(subjects.isPropertyScopeRedirect(reply), false, reply)
+    assert.equal(module.hasAmbiguousPriceReference('Y cuánto cuesta?', [
+      { role: 'cliente', content: 'Me interesan los departamentos' }, { role: 'bot', content: reply },
+    ]), false, reply)
+  }
+})
+
+test('explicit property price remains a property question after an unrelated request', () => {
+  const history = [
+    { role: 'cliente', content: 'Quiero papas' },
+    { role: 'bot', content: 'No gestionamos alimentos. Somos La Vilet, un proyecto inmobiliario con suites, departamentos y locales comerciales.' },
+  ]
+  const module = scopeModule(async () => { throw Error('not used') })
+  assert.equal(module.hasAmbiguousPriceReference('¿Cuánto cuestan los departamentos?', history), false)
+  assert.equal(subjects.salesSubject('¿Cuánto cuestan los departamentos?', history).subject, 'property')
 })
 
 test('owned vehicles stay a housing requirement but buying vehicles remains out of scope', () => {

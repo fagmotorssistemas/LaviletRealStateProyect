@@ -24,6 +24,7 @@ export interface LeadAutomationRow {
   score: number
   temperature_updated_at: string | null
   preferred_category: string | null
+  interest_unit_number: string | null
   purchase_purpose: LeadPurchasePurpose | null
   bot_enabled: boolean
   tracking_consent: boolean
@@ -52,6 +53,11 @@ export interface LeadAutomationRow {
   last_temperature_reason: string | null
   last_stage_reason: string | null
   sla_status: LeadSlaStatus
+}
+
+export interface LeadAttentionRow extends LeadAutomationRow {
+  last_customer_message: string | null
+  last_customer_message_at: string | null
 }
 
 export interface LeadAutomationKpiCount {
@@ -169,24 +175,21 @@ export interface LeadVisitRow {
   units?: { id: string; unit_number: string }[]
 }
 
-export interface LeadNutritionRow {
-  lead_id: string
-  next_week: number
-  next_send_at: string
-  last_sent_at: string | null
-  completed_at: string | null
-  paused_at: string | null
-  last_error: string | null
-}
+export type NutritionTask =
+  | 'nutrition_24h'
+  | 'nutrition_week_one'
+  | 'nutrition_week_two'
+  | 'nutrition_week_three'
 
-export interface NutritionDeliveryRow {
+export interface LeadNutritionJob {
   id: string
-  lead_id: string
-  week_number: number
-  meta_template_name: string
+  task: NutritionTask
   status: string
-  error: string | null
-  created_at: string
+  scheduled_at: string | null
+  created_at: string | null
+  completed_at: string | null
+  reason: string | null
+  delivery_status: string | null
 }
 
 export interface BotEscalationRow {
@@ -226,8 +229,7 @@ export interface LeadAutomationDetail {
   stageHistory: LeadStageHistoryRow[]
   units: LeadInterestUnitRow[]
   visits: LeadVisitRow[]
-  nutrition: LeadNutritionRow | null
-  nutritionHistory: NutritionDeliveryRow[]
+  nutritionJobs: LeadNutritionJob[]
   escalations: BotEscalationRow[]
   timeline: AutomationTimelineItem[]
 }

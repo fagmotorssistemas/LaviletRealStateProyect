@@ -894,6 +894,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const [compareLightB, setCompareLightB] = useState<TourLightMode>('dia')
   const [compareSplit, setCompareSplit] = useState(50)
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  const consultUnitLoggedRef = useRef<string | null>(null)
   const [viewMode, setViewMode] = useState<TourViewMode>(() =>
     readUnitQueryParam() ? 'galeria' : 'planos-3d',
   )
@@ -1347,6 +1348,34 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (!selectedUnit) return
     writeUnitQueryParam(selectedUnit.unit_number)
   }, [selectedUnit])
+
+  // Interés comercial: consulta de ficha de unidad concreta (mapa Marketing).
+  useEffect(() => {
+    if (!fichaOpen || !selectedUnit?.id) {
+      if (!fichaOpen) consultUnitLoggedRef.current = null
+      return
+    }
+    const key = selectedUnit.id
+    if (consultUnitLoggedRef.current === key) return
+    consultUnitLoggedRef.current = key
+    logTourEvent({
+      event_type: 'consultar_unidad',
+      typology_code: selectedUnit.typology_code || selectedTypology || null,
+      unit_type_id: currentTypology?.id ?? null,
+      metadata: {
+        unit_id: selectedUnit.id,
+        unit_number: selectedUnit.unit_number,
+        action: 'ficha',
+      },
+    })
+  }, [
+    fichaOpen,
+    selectedUnit?.id,
+    selectedUnit?.unit_number,
+    selectedUnit?.typology_code,
+    selectedTypology,
+    currentTypology?.id,
+  ])
 
   const compareUnitB = useMemo(
     () => allUnits.find((item) => item.id === compareUnitBId) ?? null,
@@ -3005,14 +3034,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         <div
           className={cn(
             'pointer-events-none absolute top-0 left-0 z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5',
-            // Hueco para Preferencias (capa hermana z-90).
-            !embedded && COOKIE_BANNER_ENABLED && 'pt-[max(3.25rem,calc(env(safe-area-inset-top)+2.75rem))] sm:pt-[3.75rem]',
+            // Hueco para Preferencias (arriba izquierda; en planos va a la derecha).
+            !embedded &&
+              COOKIE_BANNER_ENABLED &&
+              !showPlanShell &&
+              'pt-[max(3.25rem,calc(env(safe-area-inset-top)+2.75rem))] sm:pt-[3.75rem]',
             // En planos: bajar "Volver" para no tapar el toggle 2D/3D.
             showPlanShell && 'pt-[max(3.75rem,calc(env(safe-area-inset-top)+3.25rem))] sm:pt-16',
-            showPlanShell &&
-              !embedded &&
-              COOKIE_BANNER_ENABLED &&
-              'pt-[max(6.5rem,calc(env(safe-area-inset-top)+5.75rem))] sm:pt-[7.25rem]',
           )}
         >
           {/* Desktop: botones sueltos */}
@@ -3404,9 +3432,16 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         />
       ) : null}
 
-      {/* Bajo drawers (z-70): ocultar si el simulador está abierto para no tapar el encabezado. */}
+      {/* En planos: arriba derecha para no tapar el toggle 2D/3D (izq). En unidad: arriba izq. */}
       {!embedded && COOKIE_BANNER_ENABLED && !(isComparador || isFinishCompare) && !simulatorOpen ? (
-        <div className="pointer-events-auto absolute top-0 left-0 z-[50] w-[min(12rem,calc(100vw-1.5rem))] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5">
+        <div
+          className={cn(
+            'pointer-events-auto absolute top-0 z-[50] w-[min(12rem,calc(100vw-1.5rem))] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:w-[12.5rem] sm:p-3.5',
+            showPlanShell
+              ? 'right-0 pr-[max(0.5rem,env(safe-area-inset-right))]'
+              : 'left-0 pl-[max(0.5rem,env(safe-area-inset-left))]',
+          )}
+        >
           <button
             type="button"
             onClick={openCookiePreferences}
@@ -3524,6 +3559,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           units={allUnits.length > 0 ? allUnits : fichaUnits.length > 0 ? fichaUnits : displayUnits}
           initialMode={simulatorEntry.mode}
           initialSection={simulatorEntry.section}
+          onRequestInfo={() => {
+            setSimulatorOpen(false)
+            setInfoRequestOpen(true)
+          }}
           onSelectUnit={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)

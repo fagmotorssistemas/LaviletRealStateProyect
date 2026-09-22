@@ -338,6 +338,19 @@ export interface LeadInteraction {
   responsible?: { full_name: string | null }
 }
 
+/** Mensaje WhatsApp ya almacenado (no se copia a lead_interactions). */
+export interface LeadWhatsappMessage {
+  id: string
+  role: string
+  content: string | null
+  sent_at: string
+  direction: 'inbound' | 'outbound'
+}
+
+export type LeadTimelineItem =
+  | { kind: 'interaction'; id: string; at: string; interaction: LeadInteraction }
+  | { kind: 'whatsapp'; id: string; at: string; message: LeadWhatsappMessage }
+
 export interface AppointmentRescheduleRequest {
   id: string
   tenant_id: string
@@ -383,6 +396,23 @@ export interface AppointmentRescheduleRequest {
 
 export type VisitInboxItem = Omit<AppointmentRescheduleRequest, 'lead'> & {
   lead?: { id: string; name: string | null; phone: string | null; kommo_id?: number | null; preferred_category?: string | null } | null
+}
+
+export interface AdvisorNotification {
+  id: string
+  tenant_id: string
+  project_id: string
+  recipient_id: string
+  lead_id: string
+  kind: 'lead_assigned'
+  title: string
+  body: string
+  assignment_at: string
+  read_at: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  lead?: { id: string; name: string | null; phone: string | null; kommo_id: number | null } | null
+  project?: { id: string; name: string } | null
 }
 
 export interface VisitTimeSlot {
@@ -666,8 +696,28 @@ export interface LeadFinancing {
   generated_by: string | null
   pdf_url: string | null
   notes: string | null
-  lead?: { id: string; name: string; phone: string | null }
-  unit?: { id: string; unit_number: string; project?: { name: string } | null }
+  lead?: {
+    id: string
+    name: string
+    phone: string | null
+    email?: string | null
+    source?: string | null
+    status?: string | null
+  }
+  unit?: {
+    id: string
+    unit_number: string
+    category?: string | null
+    floor?: string | null
+    floor_number?: number | null
+    bedrooms?: number | null
+    bathrooms?: number | null
+    area_internal_m2?: number | null
+    area_total_m2?: number | null
+    parking_assigned?: number | null
+    published_commercial_price?: number | null
+    project?: { name: string } | null
+  }
   partner?: Pick<FinancingPartner, 'id' | 'name' | 'partner_type' | 'approx_rate'> | null
 }
 

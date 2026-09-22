@@ -253,7 +253,7 @@ export async function getTourRecorridoAction(sessionId: string): Promise<TourRec
 }
 
 export async function listLeadTourRecorridosAction(leadId: string): Promise<TourRecorridoDetail[]> {
-  await assertCanAccessCrmPath('/inmobiliaria/recorrido')
+  await assertCanAccessCrmPath('/inmobiliaria/leads')
   const client = await getCrmDataClient()
   const { data, error } = await client
     .from('tour_sessions')
@@ -261,6 +261,49 @@ export async function listLeadTourRecorridosAction(leadId: string): Promise<Tour
     .eq('lead_id', leadId)
     .order('started_at', { ascending: false })
   if (error) throw new Error(error.message)
-  const details = await Promise.all((data ?? []).map((row) => getTourRecorridoAction(row.id)))
+  const details = await Promise.all(
+    (data ?? []).map(async (row) => {
+      // Reutiliza la carga de detalle sin exigir path /recorrido (asesores con Leads).
+      const { data: session, error: sessionError } = await client
+        .from('tour_sessions')
+        .select(
+          'id, visitor_id, lead_id, started_at, last_seen_at, total_seconds, city, country, utm_source, landing_path, salesperson_ref, device_type, tracking_consent',
+        )
+        .eq('id', row.id)
+        .maybeSingle()
+      if (sessionError) throw new Error(sessionError.message)
+      if (!session) return null
+
+      const [{ data: lead }, { data: events, error: eventsError }] = await Promise.all([
+        session.lead_id
+          ? client.from('leads').select('id, name, email, phone, first_utm_source').eq('id', session.lead_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+        client
+          .from('tour_events')
+          .select('id, tour_session_id, event_type, room, seconds, created_at, metadata')
+          .eq('tour_session_id', row.id)
+          .order('created_at', { ascending: true }),
+      ])
+      if (eventsError) throw new Error(eventsError.message)
+
+      const eventRows = (events ?? []) as EventRow[]
+      const [mapped] = await mapSessions(
+        [session as SessionRow],
+        lead ? [lead as LeadRow] : [],
+        eventRows,
+      )
+      return {
+        ...mapped,
+        events: eventRows.map((item) => ({
+          id: item.id,
+          eventType: item.event_type,
+          room: item.room,
+          seconds: Math.max(0, Number(item.seconds) || 0),
+          createdAt: item.created_at,
+          typology: item.metadata?.typology_code ?? null,
+        })),
+      } satisfies TourRecorridoDetail
+    }),
+  )
   return details.filter((row): row is TourRecorridoDetail => Boolean(row))
 }

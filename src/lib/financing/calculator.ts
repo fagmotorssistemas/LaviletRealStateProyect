@@ -523,6 +523,12 @@ export function buildWealthProjection(input: WealthProjectionInput): WealthProje
   const annualCashFlowYieldPercent =
     initialOutlay > 0 ? roundMoney((preview.annualNetCashFlow / initialOutlay) * 100) : null
 
+  const propertyAppreciation = roundMoney(futurePropertyValue - preview.unitPrice)
+  const annualNetRentYieldPercent =
+    preview.unitPrice > 0
+      ? roundMoney(((monthlyNetRent * 12) / preview.unitPrice) * 100)
+      : null
+
   const zeroFv = roundMoney(Math.max(0, futureNoApprec - saleCosts))
   const zeroEquity = roundMoney(zeroFv - remainingDebt)
   const zeroGain = roundMoney(zeroEquity + cumulativeSurplus - totalCashInvested)
@@ -531,27 +537,33 @@ export function buildWealthProjection(input: WealthProjectionInput): WealthProje
 
   const notes: string[] = [
     'La plusvalía es una hipótesis editable; no es una previsión de mercado verificada.',
+    'Ganancia total proyectada = (valor menos deuda) + alquileres/excedentes acumulados − dinero aportado. No es solo el aumento de valor.',
     'El aporte adicional no se convierte íntegramente en patrimonio: parte de la cuota cubre intereses y gastos.',
+    'Montos redondeados a 2 decimales (centavos) en cada paso del motor.',
     saleCosts > 0
       ? `Costos de salida modelados: ${saleCosts}.`
       : 'Sin costos de venta/salida en este escenario.',
-    'El rendimiento anual de flujo de caja es distinto del retorno acumulado del horizonte.',
+    'El rendimiento anual de flujo de caja es distinto del retorno acumulado del horizonte. No se anualiza el retorno acumulado.',
   ]
 
   return {
     horizonYears,
     appreciationRateAnnual,
     futurePropertyValue,
+    propertyAppreciation,
     remainingDebt,
     endingEquity,
     cumulativeTopUps,
     cumulativeSurplus,
     totalCashInvested,
+    initialOutlay,
     projectedGainOrLoss,
     cumulativeReturnOnCashPercent,
+    annualNetRentYieldPercent,
     saleCosts,
     saleCostsIncluded: saleCosts > 0,
     annualCashFlowYieldPercent,
+    monthlyNetRentAverageYear1: monthlyNetRent,
     zeroAppreciation: {
       futurePropertyValue: futureNoApprec,
       endingEquity: zeroEquity,
@@ -566,16 +578,24 @@ export type WealthProjection = {
   horizonYears: number
   appreciationRateAnnual: number
   futurePropertyValue: number
+  /** FV − precio de compra (antes de costos de salida). */
+  propertyAppreciation: number
   remainingDebt: number
   endingEquity: number
   cumulativeTopUps: number
+  /** Excedentes mensuales positivos acumulados (alquiler neto − deuda) en el horizonte. */
   cumulativeSurplus: number
   totalCashInvested: number
+  initialOutlay: number
   projectedGainOrLoss: number
   cumulativeReturnOnCashPercent: number | null
+  /** (alquiler neto anual año 1) / precio × 100. No es TIR ni retorno del horizonte. */
+  annualNetRentYieldPercent: number | null
   saleCosts: number
   saleCostsIncluded: boolean
   annualCashFlowYieldPercent: number | null
+  /** Promedio mensual del alquiler neto disponible (año 1 / 12). */
+  monthlyNetRentAverageYear1: number
   zeroAppreciation: {
     futurePropertyValue: number
     endingEquity: number
@@ -583,6 +603,46 @@ export type WealthProjection = {
     cumulativeReturnOnCashPercent: number | null
   }
   notes: string[]
+}
+
+/** Compara contado vs financiado con los mismos supuestos de unidad, alquiler, gastos y horizonte. */
+export function buildCashVsFinancedComparison(input: {
+  shared: Omit<BuildInvestmentInput, 'mode' | 'downPaymentPercent'>
+  downPaymentPercent: number
+  horizonYears: number
+  appreciationRateAnnual: number
+  saleCosts?: number
+}): {
+  cash: { preview: InvestmentPreview; coverage: RentCoverageAnalysis; wealth: WealthProjection }
+  financed: { preview: InvestmentPreview; coverage: RentCoverageAnalysis; wealth: WealthProjection }
+} {
+  const cashPreview = buildInvestmentPreview({
+    ...input.shared,
+    mode: 'cash',
+    downPaymentPercent: 100,
+  })
+  const financedPreview = buildInvestmentPreview({
+    ...input.shared,
+    mode: 'financed',
+    downPaymentPercent: input.downPaymentPercent,
+  })
+  const wealthOpts = {
+    horizonYears: input.horizonYears,
+    appreciationRateAnnual: input.appreciationRateAnnual,
+    saleCosts: input.saleCosts,
+  }
+  return {
+    cash: {
+      preview: cashPreview,
+      coverage: buildRentCoverageAnalysis(cashPreview),
+      wealth: buildWealthProjection({ preview: cashPreview, ...wealthOpts }),
+    },
+    financed: {
+      preview: financedPreview,
+      coverage: buildRentCoverageAnalysis(financedPreview),
+      wealth: buildWealthProjection({ preview: financedPreview, ...wealthOpts }),
+    },
+  }
 }
 
 /**

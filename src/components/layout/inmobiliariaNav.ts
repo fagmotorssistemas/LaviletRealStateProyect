@@ -11,6 +11,8 @@ import {
   Compass,
   Activity,
   Megaphone,
+  Calculator,
+  Flame,
   type LucideIcon,
 } from 'lucide-react'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
@@ -22,6 +24,8 @@ export interface CrmNavItem {
   label: string
   href: string
   icon: LucideIcon
+  /** Enlace fuera del CRM (p. ej. /simulador público). */
+  external?: boolean
 }
 
 export const crmModules: {
@@ -52,6 +56,7 @@ export const crmModules: {
     href: '/inmobiliaria/marketing/capi',
     items: [
       { label: 'CAPI Meta', href: '/inmobiliaria/marketing/capi', icon: Megaphone },
+      { label: 'Interés recorrido', href: '/inmobiliaria/marketing/interes', icon: Flame },
       { label: 'Métricas embudo', href: '/inmobiliaria/marketing/metricas', icon: BarChart3 },
     ],
   },
@@ -61,6 +66,7 @@ export const crmModules: {
     href: '/inmobiliaria/financiamiento',
     items: [
       { label: 'Financiamiento', href: '/inmobiliaria/financiamiento', icon: CircleDollarSign },
+      { label: 'Simulador', href: '/inmobiliaria/simulador', icon: Calculator },
       { label: 'Contratos', href: '/inmobiliaria/contratos', icon: FileText },
     ],
   },

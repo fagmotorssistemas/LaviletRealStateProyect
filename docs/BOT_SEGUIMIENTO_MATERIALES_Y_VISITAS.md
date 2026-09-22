@@ -21,7 +21,7 @@ Archivo original: `Brochure_Digital_LaVilet_Interactivo_v5.pdf`. Publicación: `
 
 ## Seguimiento contextual a las 24 horas
 
-En **Automatización → Reglas y SLA → Seguimiento** está el bloque de 24 horas. Es independiente de las cuatro semanas, que siguen sin ejecutor de envíos.
+En **Automatización → Reglas y SLA → Seguimiento** está el bloque de 24 horas. El ejecutor también dispone de pasos en los días 7, 14 y 21, cada uno condicionado por su activación, plantilla y elegibilidad. Las reglas comunes, las pausas y la recuperación pendiente están definidas en [Flujo de leads, nutrición y recuperación](FLUJO_LEADS_NUTRICION_RECUPERACION.md).
 
 Texto para una plantilla **WhatsApp / Marketing** en Kommo:
 

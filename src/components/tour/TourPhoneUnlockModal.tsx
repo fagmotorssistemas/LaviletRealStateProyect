@@ -87,6 +87,7 @@ export function TourPhoneUnlockModal({
         mode: 'phone',
         phone: normalized,
         consent: true,
+        request_kind: 'identify',
         typology_code: typologyCode || null,
         unit_type_id: unitTypeId || null,
         unit_id: unitId || null,

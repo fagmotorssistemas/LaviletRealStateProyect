@@ -51,6 +51,7 @@ export async function saveTourUnit(context: TourSaveContext, phone?: string) {
       mode: 'phone',
       phone: normalized,
       consent: true,
+      request_kind: 'save_unit',
       typology_code: context.typologyCode || null,
       unit_type_id: context.unitTypeId || null,
       interest_room: context.roomLabel || null,

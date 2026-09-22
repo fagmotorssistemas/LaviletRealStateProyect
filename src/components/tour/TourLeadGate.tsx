@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
+import { isShowroomIdentified } from '@/lib/tour/showroomIdentity'
 import { tourGateCopy } from '@/lib/tour/gateCopy'
 
 export function TourLeadGate({
@@ -30,6 +31,12 @@ export function TourLeadGate({
 
   useEffect(() => {
     if (!open) return
+    // Mismo proceso de identidad: si ya dejó datos en otro formulario, no volver a pedir.
+    if (isShowroomIdentified()) {
+      onIdentified()
+      onClose()
+      return
+    }
     setConsented(false)
     logTourEvent({
       event_type: 'gate_mostrado',
@@ -40,9 +47,9 @@ export function TourLeadGate({
       light,
       metadata: { interest_room: roomLabel ?? null },
     })
-  }, [open, typology, unitTypeId, roomLabel, finish, light])
+  }, [open, typology, unitTypeId, roomLabel, finish, light, onClose, onIdentified])
 
-  if (!open) return null
+  if (!open || isShowroomIdentified()) return null
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -58,6 +65,7 @@ export function TourLeadGate({
         email: String(data.get('email') ?? ''),
         phone: String(data.get('phone') ?? ''),
         consent: true,
+        request_kind: 'identify',
         typology_code: typology || null,
         unit_type_id: unitTypeId || null,
         interest_room: roomLabel || null,
