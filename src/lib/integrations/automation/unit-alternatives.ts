@@ -122,6 +122,8 @@ function categoryUnitsReply(catalog: Row[], category: 'departamento' | 'penthous
 
 /** Continúa, sin LLM, la comparación residencial que el bot dejó pendiente. */
 export function continueUnitAlternative(info: Row, current: string): AlternativeJourney | null {
+  const interpretedQuery = object(object(info.referencia_unidad).query || object(info.property_context).query || object(info.semantica_turno).property)
+  if (['rank', 'compare'].includes(text(interpretedQuery.operation))) return null // Informational queries never imply an alternative selection.
   const catalog = residentialUnits(info)
   if (!catalog.length) return null
   const message = normalized(current)
@@ -153,7 +155,8 @@ export function continueUnitAlternative(info: Row, current: string): Alternative
   }
 
   if (phase === 'choose_floor' || /que planta prefiere/.test(previous)) {
-    const requestedFloor = floorNumber(message)
+    const semanticFloor = object(interpretedQuery.filters).floor_number
+    const requestedFloor = typeof semanticFloor === 'number' && Number.isInteger(semanticFloor) && semanticFloor >= 0 ? semanticFloor : floorNumber(message)
     if (requestedFloor === null) return null
     const apartments = catalog.filter(unit => unit.category === 'departamento')
     const maxBedrooms = Math.max(0, ...apartments.map(unit => Number(unit.bedrooms) || 0))
@@ -241,6 +244,8 @@ export function acceptedUnitAlternative(info: Row, current: string) {
 
 /** Verified starting point for numerical residential requirements; no lead mutations. */
 export function unitAlternative(info: Row, current: string, budget: number|null = null) {
+  const interpretedQuery = object(object(info.referencia_unidad).query || object(info.property_context).query || object(info.semantica_turno).property)
+  if (['rank', 'compare'].includes(text(interpretedQuery.operation))) return null
   const m=normalized(current.replace(/m²/g,'m2'))
   const history=(Array.isArray(info.historial)?info.historial:[]).map(object)
   const earlier=history.filter(r=>r.role==='cliente').map(r=>normalized(text(r.content))).join(' ')

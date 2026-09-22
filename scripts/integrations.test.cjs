@@ -700,9 +700,9 @@ test('accepting the price next step delivers the offered unit and verified model
   const u = { ...priceCatalog[1], id: UNIT_MODELS.find(u => u.number === '210').id, area_internal_m2: 60, spaces: ['Sala', 'Cocina'] }
   const history = [{ role: 'cliente', content: 'Precio de la suite 210' }, { role: 'bot', content: 'La suite 210 cuesta $250.000. ¿Le gustaría revisar la distribución de la suite 210?' }]
   const result = await commercialReply({ ...priceInfo(), catalogo: [u], historial: history }, 'Sí, por favor', {}, async () => {})
-  assert.match(result.reply, /210.*60 m².*sala, cocina/s)
+  assert.match(result.reply, /210.*60 m².*sala(?:,| y) cocina/s)
   assert.match(result.reply, /https:\/\/www\.lavilett\.com\/tour\?unidad=210/)
-  assert.equal(result.audit.source, 'accepted_price_option')
+  assert.equal(result.audit.source, 'catalog_select')
   assert.deepEqual(result.audit.unit_reference.ids, [u.id])
   assert.doesNotMatch(result.reply, /¿|visita|financiamiento/)
 })
@@ -1278,6 +1278,12 @@ function conversationHarness(options = {}) {
     return q
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
+    ...(options.captureTrace ? { './execution-trace': {
+      ...require('../src/lib/integrations/automation/execution-trace.ts'),
+      traceForEvents: () => new (require('../src/lib/integrations/automation/execution-trace.ts').AutomationExecutionTrace)(
+        [{ id: '10000000-0000-4000-8000-000000000001' }],
+        { persist: async rows => { calls.push({ name: 'execution_trace', args: rows }); return {} } }),
+    } } : {}),
     './tone-settings': { withConversationTone: async work => work(), conversationToneAudit: () => ({ style: options.tone || 'actual', warmth: 1, detail: 1, source: 'test' }) },
     './visit-parser-health': { visitParserReady: async () => options.parserReady !== false },
     './operational-copy': { operationalReply: async reply => ({ reply: options.operationalCopy || reply, generated: !!options.operationalCopy }) },
@@ -1328,12 +1334,13 @@ function conversationHarness(options = {}) {
         return {}
       },
     },
-    './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) },
-    './sdr': { publishedUnitCatalog: async () => options.catalog || [], commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
+    './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => { if (options.financeReadFails) throw Error('FINANCING_CONTEXT_FAILED'); return options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) } },
+    './sdr': { publishedUnitCatalog: async () => { if (options.catalogReadFails) throw Error('CATALOG_CONTEXT_FAILED'); return options.catalog || [] }, commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
       commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? (options.commercialAi ? load('src/lib/integrations/automation/sdr.ts',{'./ai':options.commercialAi}) : require('../src/lib/integrations/automation/sdr.ts')).commercialReply(info, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error(options.mediaFailureCode || 'MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
+        if (options.extractionFails && prompt.startsWith('extractor_eventos')) throw Error('OPENAI_INCOMPLETE')
         return prompt.startsWith('extractor_eventos') ? { events: [], opt_out: options.optOut === true, ...options.extracted }
           : prompt.startsWith('Clasifique') ? { intent: options.intent || 'question' }
             : prompt === 'revisor_respuesta' ? { aprobada: true } : {}
@@ -1350,7 +1357,7 @@ function conversationHarness(options = {}) {
   })
   const rows = ['one', 'two'].map(externalId => ({ payload: { externalId, kommoId: 123, contactId: 456, chatId: 'chat', text: 'Hola',
     name: 'Cliente de prueba', sentAt: new Date(Date.now() - 1000).toISOString(), origin: 'waba', media: null } }))
-  return { calls, rows, process: mod.processConversation }
+  return { calls, rows, process: mod.processConversation, lead }
 }
 
 test('room synonyms and common apartment spelling select the requested catalogue prices', () => {
@@ -1869,7 +1876,8 @@ test('thanks after a recorded preference closes briefly without scoring, repeati
   h.rows[0].payload.text = 'Perfecto, muchas gracias'
   await h.process([h.rows[0]], async () => {})
   assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Con mucho gusto.')
-  assert.equal(h.calls.filter(c => ['ai', 'lv_intake_visit_once', 'apply_lead_events'].includes(c.name)).length, 0)
+  assert.equal(h.calls.filter(c => c.name === 'ai' && c.args.prompt.startsWith('extractor_eventos')).length, 1)
+  assert.equal(h.calls.filter(c => ['lv_intake_visit_once', 'apply_lead_events'].includes(c.name)).length, 0)
 })
 test('a second courtesy cannot generate an endless acknowledgement loop', async t => {
   live(t)
@@ -2409,6 +2417,270 @@ const extractedProperty = (message, property, intent = 'select_property') => ({
   property: { category: null, excluded_categories: [], reference_kind: 'none', unit_numbers: [], selector: null, ...property, evidence: message, confidence: 'high' },
 })
 
+// Replay the reported wording through interpretation, real routing, catalog,
+// validation, outbound registration and persisted memory. Only external services
+// and model output are fixtures; no network or real lead is used.
+const dialogueReplayCatalog = [
+  { ...unit210, category: 'suite', bedrooms: 1, floor_number: 2, area_internal_m2: 60, is_published: true, status: 'disponible' },
+  ...[2, 3, 4, 5].map(floor => ({ id: `depto-${floor}02`, unit_number: `${floor}02`, category: 'departamento', bedrooms: 3,
+    floor_number: floor, floor: ['Segunda', 'Tercera', 'Cuarta', 'Quinta'][floor - 2] + ' Planta Alta', area_internal_m2: 120.83, area_exterior_m2: 27.03, is_published: true, status: 'disponible' })),
+  ...[3, 4, 5].map(floor => ({ id: `depto-${floor}04`, unit_number: `${floor}04`, category: 'departamento', bedrooms: 2,
+    floor_number: floor, area_internal_m2: 109.69, area_exterior_m2: 34.59, is_published: true, status: 'disponible' })),
+  ...continuityCatalog.filter(unit => unit.category === 'penthouse'),
+]
+const checkedBaseCoverage = async input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input,
+  async () => ({ reply: input.baseReply, requests: [], question: { text: input.baseReply.match(/¿[^?]+\?/g)?.at(-1) || '',
+    purpose: /¿/.test(input.baseReply) ? 'choose_property' : 'none', missing_datum: /¿/.test(input.baseReply) ? 'opción de interés' : '',
+    next_decision: /¿/.test(input.baseReply) ? 'mostrar detalles de esa opción' : '' } }))
+
+test('dialogue v2 replays the reported housing conversation with durable filters, ties and focused acceptance', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_DIALOGUE_REPLAY') })
+  const turns = [
+    ['me interesa vivienda', { category: 'departamento', operation: 'select' }, reply => assert.match(reply, /suites de 1 dormitorio.*departamentos de 2 o 3 dormitorios/is)],
+    ['no tiene opciones de 5 habiataciones', { operation: 'search', filters: { bedrooms: 5 } }, reply => assert.match(reply, /no contamos.*5 dormitorios/i)],
+    ['si', {}, reply => assert.doesNotMatch(reply, /número de la unidad/i)],
+    ['bueno, me interesa mas los departametnos por que los penthouse deben ser muy caros.', { category: 'departamento', excluded_categories: ['penthouse'], operation: 'search' }, reply => assert.doesNotMatch(reply, /número de la unidad/i)],
+    ['cual es la opcion mas grande?', { reference_kind: 'relative', selector: 'largest', operation: 'rank' }, reply => {
+      assert.match(reply, /202.*302.*402.*502.*120[.,]83/s); assert.doesNotMatch(reply, /número de la unidad/i)
+    }],
+    ['o sea cual es la opcion de departamento mas grande de la que dispone?', { category: 'departamento', reference_kind: 'explicit', unit_numbers: ['202', '302', '402', '502'], selector: 'largest', operation: 'rank' }, reply => assert.match(reply, /120[.,]83/)],
+    ['o sea todos tienen el mismo tamaños?', { operation: 'compare', reference_kind: 'comparison' }, reply => assert.match(reply, /misma superficie interior.*120[.,]83/i)],
+    ['ya pero todos los departametnos de 3 habiatciones tienen el mismo tamaño)', { category: 'departamento', operation: 'compare', filters: { bedrooms: 3 } }, reply => {
+      assert.match(reply, /misma superficie interior.*120[.,]83/i); assert.doesNotMatch(reply, /109[.,]69/)
+    }],
+    ['entiendo, quiero la opcion de la 5ta planta', { reference_kind: 'relative', operation: 'search', filters: { floor_number: 5 } }, reply => {
+      assert.match(reply, /502/); assert.doesNotMatch(reply, /número de la unidad|504/)
+    }],
+    ['si prefiero esa opcion', { reference_kind: 'followup', operation: 'select' }, reply => {
+      assert.match(reply, /502.*120[.,]83/s); assert.doesNotMatch(reply, /número de la unidad|504/)
+    }],
+  ]
+  let summary = {}, lead = {}, history = []
+  for (const [current, property, check] of turns) {
+    const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog, historial: history },
+      realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, turnComplete: checkedBaseCoverage, history, summary, lead,
+      extracted: { preferred_category: property.category || null, declaration_evidence: { preferred_category: property.category },
+        turn_semantics: extractedProperty(current, property) } })
+    h.rows[0].payload.text = current
+    const result = await h.process([h.rows[0]], async () => {})
+    const outbound = h.calls.find(call => call.name === 'register_outbound_message')?.args
+    assert.equal(result.action, 'accepted', current)
+    assert.ok(outbound, current)
+    check(outbound.p_content)
+    const trace = h.calls.find(call => call.name === 'execution_trace').args
+    const keys = trace.map(step => step.step_key)
+    for (const key of ['semantic_extraction', 'catalog_resolution', 'dialogue_decision', 'response_validation', 'message_delivery', 'state_persisted']) assert.ok(keys.includes(key), current + ': ' + key)
+    assert.ok(keys.indexOf('semantic_extraction') < keys.indexOf('dialogue_decision'), current)
+    assert.equal(trace.find(step => step.step_key === 'message_delivery').output_summary.delivery_confirmed, false)
+    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos')).length, 1, current)
+    assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2'].includes(call.name)), false, current)
+    summary = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+    if (property.operation === 'rank') assert.deepEqual(summary._property_context.selected_ids, [], current)
+    history = [...history, { role: 'cliente', content: current }, { role: 'bot', content: outbound.p_content }].slice(-8)
+    lead = structuredClone(h.lead)
+  }
+  assert.deepEqual(summary._property_context.selected_ids, ['depto-502'])
+  assert.equal(summary._turn_contract, 'lavilet-dialogue-v2')
+})
+
+test('dialogue v2 accepts the focused 502 after mentioning 502 and 504, including legacy conversations', async t => {
+  live(t)
+  const previous = 'En la Quinta Planta Alta hay un departamento 502 de 3 dormitorios y un departamento 504 de 2 dormitorios. ¿Desea que le presente más detalles sobre el departamento 502, que es la opción más grande de la quinta planta?'
+  for (const summary of [{}, { _property_context: { version: 2, last_reply: previous, offered_ids: ['depto-502', 'depto-504'], focused_ids: ['depto-502'],
+    pending_question: { id: 'unit_choice', act: 'show_unit_details', question: previous.slice(previous.indexOf('¿')), target_ids: ['depto-502'], candidate_ids: ['depto-502', 'depto-504'] } } }]) {
+    const current = 'si prefiero esa opcion'
+    const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog }, realCommercial: true,
+      commercialAi: deterministicOnly, summary, history: [{ role: 'bot', content: previous }], extracted: { turn_semantics: extractedProperty(current, { reference_kind: 'followup', operation: 'select' }) } })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    const reply = h.calls.find(call => call.name === 'register_outbound_message').args.p_content
+    assert.match(reply, /502.*120[.,]83/s)
+    assert.doesNotMatch(reply, /número de la unidad|504/)
+    assert.equal(h.calls.find(call => call.name === 'save_lead_declarations').args.p_unit_id, 'depto-502')
+  }
+})
+
+test('dialogue v2 interprets brochure and mixed opt-out before any content route or scoring', async t => {
+  live(t)
+  for (const current of ['Envíeme el brochure y no me escriban más', 'Quiero vuelos y no me contacten otra vez']) {
+    const h = conversationHarness({ captureTrace: true, extracted: { opt_out: true } })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.find(call => call.name === 'set_tracking_preference').args.p_consent, false)
+    assert.match(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, /no recibir más mensajes/)
+    assert.equal(h.calls.some(call => ['handoff_lead', 'apply_lead_events', 'process_financing_message_v2', 'completeTurnReply'].includes(call.name)), false)
+    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos')).length, 1)
+  }
+})
+
+test('dialogue v2 rejects a rewritten size range borrowed from two-bedroom units', async t => {
+  live(t)
+  const current = 'todos los departamentos de 3 habitaciones tienen el mismo tamaño?'
+  const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog }, realCommercial: true,
+    commercialAi: deterministicOnly, extracted: { turn_semantics: extractedProperty(current, { category: 'departamento', operation: 'compare', filters: { bedrooms: 3 } }) },
+    turnComplete: input => ({ reply: input.baseReply + ' Sus superficies van desde 109,69 m² hasta 120,83 m² interiores.', changed: true, needsAdvisor: false, unresolved: [], audit: { status: 'checked' } }) })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const outbound = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.match(outbound.p_content, /misma superficie interior.*120[.,]83/i)
+  assert.doesNotMatch(outbound.p_content, /109[.,]69/)
+  assert.equal(outbound.p_tool_calls.turn_completeness.status, 'rejected_catalog_guard')
+})
+
+test('dialogue v2 limits actions to the property clause while honoring global opt-out', async t => {
+  live(t)
+  const property = 'dime el precio del departamento 502'
+  for (const external of ['Quiero hablar con un asesor de vuelos', 'Quiero agendar una cita médica']) {
+    const current = external + ' y ' + property
+    const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: priceInfo(),
+      businessScope: { kind: 'mixed', property_message: property, reply: 'Podemos orientarle sobre La Vilet.', uncertain: false },
+      extracted: { requested_advisor: true, action_evidence: { requested_advisor: external },
+        events: ['requested_visit'], visit_intent: { kind: 'request_visit', evidence: external, confidence: 'high' } } })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2'].includes(call.name)), false, current)
+    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos')).length, 1)
+  }
+  const h = conversationHarness({ businessScope: { kind: 'mixed', property_message: property, reply: 'No atendemos vuelos.', uncertain: false },
+    extracted: { opt_out: true, action_evidence: { opt_out: 'no me contacten más' } } })
+  h.rows[0].payload.text = 'Quiero vuelos, no me contacten más, y ' + property
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.find(call => call.name === 'set_tracking_preference').args.p_consent, false)
+})
+
+test('dialogue v2 traces literal greetings without depending on catalog or financing services', async t => {
+  live(t)
+  const h = conversationHarness({ captureTrace: true, catalogReadFails: true, financeReadFails: true })
+  await h.process([h.rows[0]], async () => {})
+  const steps = h.calls.find(call => call.name === 'execution_trace').args
+  assert.equal(steps.find(step => step.step_key === 'semantic_extraction').output_summary.method, 'literal_greeting')
+  assert.equal(steps.find(step => step.step_key === 'decision_context').status, 'skipped')
+  assert.equal(h.calls.filter(call => call.name === 'ai').length, 0)
+})
+
+test('dialogue v2 records contract and extractor revision even when inference fails', async t => {
+  live(t)
+  const h = conversationHarness({ captureTrace: true, extractionFails: true })
+  h.rows[0].payload.text = 'Quiero un departamento'
+  await assert.rejects(h.process([h.rows[0]], async () => {}), /OPENAI_INCOMPLETE/)
+  const steps = h.calls.find(call => call.name === 'execution_trace').args
+  const version = steps.find(step => step.step_key === 'execution_version').output_summary
+  assert.equal(version.contract_version, 'lavilet-dialogue-v2')
+  assert.match(version.prompt_versions.extractor_eventos, /^[a-f0-9]{16}$/)
+  assert.equal(steps.find(step => step.step_key === 'semantic_extraction').status, 'failed')
+  assert.equal(h.calls.some(call => ['launch', 'register_outbound_message'].includes(call.name)), false)
+})
+
+test('dialogue v2 visit classifier cannot revoke tracking without the common evidenced opt-out', async t => {
+  live(t)
+  const h = conversationHarness({ proposals: [offeredVisitOptions()], intent: 'opt_out', extracted: { opt_out: false } })
+  h.rows[0].payload.text = 'No entendí el horario propuesto'
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.some(call => call.name === 'set_tracking_preference'), false)
+  assert.doesNotMatch(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, /no recibir más mensajes/)
+})
+
+test('dialogue v2 answers the catalog question after confirming a visit and persists the action without replaying it', async t => {
+  live(t)
+  const current = 'La segunda me queda bien. ¿Cuántos dormitorios tiene el departamento 502?'
+  const question = '¿Cuántos dormitorios tiene el departamento 502?'
+  const h = conversationHarness({ captureTrace: true, proposals: [offeredVisitOptions()], intent: 'question', catalog: dialogueReplayCatalog,
+    realCommercial: true, commercialAi: deterministicOnly, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog },
+    extracted: { turn_semantics: extractedProperty(current, { category: 'departamento', operation: 'details', reference_kind: 'explicit', unit_numbers: ['502'] }),
+      requests: [{ request: 'aceptar segundo horario', domain: 'visit', evidence: 'La segunda me queda bien', confidence: 'high' },
+        { request: 'consultar dormitorios del 502', domain: 'property', evidence: question, confidence: 'high' }] } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.filter(call => call.name === 'lv_client_select_visit_option').length, 1)
+  assert.equal(h.calls.some(call => call.name === 'lv_collect_visit_intake'), false)
+  const reply = h.calls.find(call => call.name === 'register_outbound_message').args.p_content
+  assert.match(reply, /502.*3 dormitorios/s)
+  assert.doesNotMatch(reply, /cita.*confirmada/i)
+  const writes = h.calls.filter(call => call.name === 'update:conversations')
+  assert.equal(JSON.parse(writes[0].args.summary)._last_operational_step.kind, 'visit_confirmed')
+  assert.deepEqual(JSON.parse(writes.at(-1).args.summary)._pending_requests, [])
+})
+
+test('dialogue v2 cannot strip a condition from an extracted visit acceptance', async t => {
+  live(t)
+  for (const current of ['La segunda me queda bien, pero solo si me aprueban el crédito', 'La segunda me queda bien. Solo si me aprueban el crédito']) {
+    const h = conversationHarness({ proposals: [offeredVisitOptions()], intent: 'question',
+      extracted: { requests: [{ request: 'aceptar segunda opción', domain: 'visit', evidence: 'La segunda me queda bien', confidence: 'high' }] } })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.some(call => ['lv_client_select_visit_option', 'lv_apply_client_visit_intent'].includes(call.name)), false)
+  }
+})
+
+test('dialogue v2 retains a focused question when a requested map follows it', async t => {
+  live(t)
+  const question = '¿Le gustaría ver los detalles del departamento 502?'
+  const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), proyecto: { address: 'Puertas del Sol, Cuenca' }, ubicacion: 'https://maps.google.com/?q=Cuenca' },
+    commercialResult: { reply: 'El departamento 502 tiene 3 dormitorios. ' + question,
+      audit: { source: 'catalog_search', verified_catalog: true, catalog_results: { units: dialogueReplayCatalog.filter(unit => unit.unit_number === '502') },
+        offered_unit_ids: ['depto-502'], focused_unit_ids: ['depto-502'], pending_question: { id: 'unit_choice', act: 'show_unit_details', question, target_ids: ['depto-502'], candidate_ids: ['depto-502'] } } } })
+  h.rows[0].payload.text = 'Quiero la opción de la quinta planta y envíeme la ubicación'
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args.p_content
+  assert.ok(sent.indexOf(question) >= 0 && sent.indexOf(question) < sent.indexOf('https://maps.google.com'), sent)
+  const saved = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+  assert.deepEqual(saved._pending_question.target_ids, ['depto-502'])
+})
+
+test('dialogue v2 preserves the focused unit through unreadable audio and understands the repeated answer', async t => {
+  live(t)
+  const question = '¿Le gustaría ver los detalles del departamento 502?'
+  const pending = { id: 'unit_choice', act: 'show_unit_details', question, target_ids: ['depto-502'], candidate_ids: ['depto-502', 'depto-504'] }
+  const summary = { _unit_reference: { ids: ['depto-502'] }, _pending_question: pending,
+    _property_context: { version: 2, last_reply: question, offered_ids: ['depto-502', 'depto-504'], focused_ids: ['depto-502'], selected_ids: [], pending_question: pending } }
+  const first = conversationHarness({ catalogReadFails: true, financeReadFails: true, mediaFails: true, summary, history: [{ role: 'bot', content: question }] })
+  first.rows[0].payload.text = ''
+  first.rows[0].payload.media = { type: 'voice', url: 'https://test.kommo.com/voice.ogg' }
+  await first.process([first.rows[0]], async () => {})
+  const saved = JSON.parse(first.calls.find(call => call.name === 'update:conversations').args.summary)
+  assert.deepEqual(saved._unit_reference.ids, ['depto-502'])
+  assert.deepEqual(saved._property_context.focused_ids, ['depto-502'])
+  const apology = first.calls.find(call => call.name === 'register_outbound_message').args.p_content
+  const next = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog },
+    realCommercial: true, commercialAi: deterministicOnly, summary: saved, history: [{ role: 'bot', content: question }, { role: 'bot', content: apology }] })
+  next.rows[0].payload.text = 'si prefiero esa opcion'
+  await next.process([next.rows[0]], async () => {})
+  assert.match(next.calls.find(call => call.name === 'register_outbound_message').args.p_content, /502.*120[.,]83/s)
+})
+
+test('dialogue v2 executes an explicit advisor request after confirming the selected visit', async t => {
+  live(t)
+  const current = 'La segunda me queda bien. Quiero hablar con un asesor'
+  const h = conversationHarness({ proposals: [offeredVisitOptions()], intent: 'question', extracted: {
+    requested_advisor: true, action_evidence: { requested_advisor: 'Quiero hablar con un asesor' },
+    requests: [{ domain: 'visit', request: 'confirmar visita', evidence: 'La segunda me queda bien', confidence: 'high' },
+      { domain: 'advisor', request: 'hablar con asesor', evidence: 'Quiero hablar con un asesor', confidence: 'high' }] } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.filter(call => call.name === 'lv_client_select_visit_option').length, 1)
+  assert.equal(h.calls.filter(call => call.name === 'handoff_lead').length, 1)
+  assert.match(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, /bandeja del equipo/)
+})
+
+test('dialogue v2 reuses the financial action handler after the visit has already been confirmed', async t => {
+  live(t)
+  const financial = 'Quiero iniciar la revisión de financiamiento con JEP'
+  const h = conversationHarness({ proposals: [offeredVisitOptions()], intent: 'question',
+    financeContext: { partners: ['Cooperativa JEP'], current: { selected_partner_name: 'Cooperativa JEP', explicit_consent: false } },
+    financing: { active: true, state: 'cedula_pendiente' },
+    extracted: { financing_consent: true, financing_partner: 'JEP', events: ['asked_financing'],
+      requests: [{ domain: 'visit', request: 'confirmar segunda opción', evidence: 'La segunda me queda bien', confidence: 'high' },
+        { domain: 'financing', request: 'iniciar revisión financiera', evidence: financial, confidence: 'high' }] } })
+  h.rows[0].payload.text = 'La segunda me queda bien. ' + financial
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.filter(call => call.name === 'lv_client_select_visit_option').length, 1)
+  assert.equal(h.calls.filter(call => call.name === 'process_financing_message_v2').length, 1)
+  assert.equal(h.calls.find(call => call.name === 'process_financing_message_v2').args.p_financing_consent, true)
+  assert.equal(h.calls.some(call => call.name === 'lv_collect_visit_intake'), false)
+  assert.match(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, /cédula/i)
+})
+
 test('the delivered pipeline prioritizes evidenced apartment preference over a rejected penthouse extraction in every configured tone', async t => {
   live(t)
   t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_CONTINUITY_TEST') })
@@ -2450,7 +2722,7 @@ test('the delivered pipeline selects the largest actually displayed penthouse de
   assert.equal(declarations.p_unit_id, 'penthouse-602')
   assert.equal(declarations.p_preferred_category, 'penthouse')
   const sent = h.calls.find(call => call.name === 'register_outbound_message').args
-  assert.match(sent.p_content, /penthouse 602.*142[.,]09/s)
+  assert.match(sent.p_content, /penthouse 602.*142[.,]09/is)
   assert.match(sent.p_content, /https:\/\/www\.lavilett\.com\/tour\?unidad=602/)
   assert.doesNotMatch(sent.p_content, /departamento 202|departamento 302|120[.,]83/)
   const saved = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
@@ -2541,7 +2813,7 @@ test('a generic yes cannot accept one of several times, while an explicit second
   const selected = conversationHarness({ proposals: [proposal], intent: 'question' })
   selected.rows[0].payload.text = 'La segunda me queda bien'
   const result = await selected.process([selected.rows[0]], async () => {})
-  assert.deepEqual(result, { action: 'confirmed', selected_option: 2 })
+  assert.deepEqual(result, { action: 'confirmed', selected_option: 2, memory_saved: true })
   assert.equal(selected.calls.find(c => c.name === 'lv_client_select_visit_option').args.p_option_index, 2)
   assert.equal(selected.calls.find(c => c.name === 'lv_client_select_visit_option').args.p_request_id, 'three-option-request')
   assert.equal(selected.calls.some(c => c.name === 'lv_apply_client_visit_intent'), false)

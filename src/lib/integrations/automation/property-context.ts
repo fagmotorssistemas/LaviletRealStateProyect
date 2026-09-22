@@ -1,7 +1,7 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { resolveCatalogReference } from './catalog-reference'
-import { answersPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
+import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, pendingQuestionFromReply, propertyFiltersFromText } from './turn-semantics'
 
 const available = (units: Row[]) => units.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
 const ids = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : []
@@ -34,7 +34,8 @@ function lastBot(history: unknown) {
 export function propertyContext(catalog: Row[], previous: unknown, history: unknown): Row {
   const saved = object(previous)
   const reply = lastBot(history)
-  const current: Row = { ...saved, offered_ids: ids(saved.offered_ids), comparison_ids: ids(saved.comparison_ids), selected_ids: ids(saved.selected_ids) }
+  const current: Row = { ...saved, version: 2, offered_ids: ids(saved.offered_ids), comparison_ids: ids(saved.comparison_ids), selected_ids: ids(saved.selected_ids), focused_ids: ids(saved.focused_ids),
+    pending_question: normalizedPendingQuestion(saved.pending_question), query: object(saved.query) }
   // Legacy transcripts and an externally sent advisor message may differ from saved state.
   if (reply && reply !== saved.last_reply) {
     const mentioned = unitsInPropertyReply(catalog, reply)
@@ -46,6 +47,11 @@ export function propertyContext(catalog: Row[], previous: unknown, history: unkn
     } else if (/no (?:gestionamos|vendemos)|que tipo de espacio|departamentos.*penthouses|penthouses.*departamentos/.test(m)) {
       current.offered_ids = []; current.comparison_ids = []; current.selected_ids = []; current.phase = null
     }
+    const pending = pendingQuestionFromReply(reply)
+    const targets = unitsInPropertyReply(catalog, text(pending.question))
+    current.pending_question = normalizedPendingQuestion({ ...pending, target_ids: unitIds(targets), candidate_ids: unitIds(mentioned) }, catalog)
+    current.focused_ids = targets.length === 1 ? unitIds(targets) : []
+    current.context_source = 'legacy_reply'
     current.last_reply = reply
   }
   return current
@@ -67,21 +73,91 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const context = propertyContext(catalog, summary._property_context, history)
   const base = resolveCatalogReference(catalog, current, summary._unit_reference, history)
   const m = normalized(current)
+  const pending = normalizedPendingQuestion(Object.keys(object(summary._pending_question)).length ? summary._pending_question : context.pending_question)
   const semanticValid = semantic.confidence === 'high'
   const category = semanticValid ? text(semantic.category) : ''
   const excluded = semanticValid ? ids(semantic.excluded_categories) : []
   const eligible = (units: Row[]) => units.filter(unit => (!category || unit.category === category) && !excluded.includes(text(unit.category)))
   const fromIds = (value: unknown) => ids(value).flatMap(id => catalog.filter(unit => text(unit.id) === id))
-  const result = (matches: Row[], reason: string, explicit = false, needsClarification = false) => ({
-    ...base, matches, explicit, reason, needsClarification,
+  const previousQuery = object(context.query)
+  const lexicalFilters = propertyFiltersFromText(current, text(pending.id))
+  const currentFilters = normalizedPropertyFilters(semantic.filters)
+  const suppliedFilters = Object.fromEntries(Object.entries(lexicalFilters).map(([key, value]) => [key, value ?? currentFilters[key as keyof typeof currentFilters]]))
+  const hasCurrentFilters = Object.values(suppliedFilters).some(value => value !== null)
+  const group = text(semantic.group) || (category === 'local' ? 'commercial' : category ? 'residential' : '')
+  const broadResidential = group === 'residential' && !category && /\bviviendas?|residencial|(?:algo|opciones?|espacio) para vivir\b/.test(m)
+  const categoryChanged = !!category && category !== text(context.preference_category || previousQuery.category)
+  const filters = { ...(categoryChanged || broadResidential ? emptyPropertyFilters() : normalizedPropertyFilters(previousQuery.filters)),
+    ...Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null)) }
+  const asksRanking = /\b(?:cual|cuales|que|cuanto)\b.*\b(?:mas grande|mas amplio|mayor|mas pequen|mas barat|mas economic|menor)/.test(m)
+  const selector = semanticValid ? semantic.reference_kind === 'relative' || semantic.operation === 'rank' ? text(semantic.selector) || relativeSelector(current) : '' : relativeSelector(current)
+  const operation = asksRanking ? 'rank' : broadResidential || hasCurrentFilters && !['compare', 'details'].includes(text(semantic.operation)) ? 'search' : text(semantic.operation) || 'none'
+  const query: Row = { group: group || text(previousQuery.group) || null,
+    category: broadResidential ? null : category || text(previousQuery.category || context.preference_category) || null,
+    filters, operation, selector: selector || null,
+    scope: text(semantic.query_scope) || (operation === 'search' || operation === 'rank' ? 'catalog' : null) }
+  context.query = query
+  if (broadResidential) { context.preference_category = null; context.excluded_categories = []; context.selected_ids = []; context.comparison_ids = [] }
+  const result = (matches: Row[], reason: string, explicit = false, needsClarification = false) => {
+    if (matches.length && explicit && !needsClarification && ['select', 'details', 'compare'].includes(text(query.operation))) {
+      // Looking up the identified subject must not reapply constraints from an
+      // older search (e.g. apartment/floor 2 before the offered penthouse 602).
+      query.category = matches.every(unit => unit.category === matches[0].category) ? matches[0].category : null
+      query.group = matches.every(unit => unit.category === 'local') ? 'commercial'
+        : matches.every(unit => ['suite', 'departamento', 'penthouse'].includes(text(unit.category))) ? 'residential' : null
+      query.filters = emptyPropertyFilters(); query.scope = query.operation === 'compare' ? 'comparison' : 'selected'
+    }
+    return {
+    ...base, matches, explicit, reason, needsClarification, query,
     memory: memory(matches), context,
     clarification: needsClarification ? (matches.length > 1
       ? `Entre las opciones que revisamos hay varias que encajan: ${matches.map(unit => `${text(unit.category)} ${text(unit.unit_number)}`).join(', ')}. ¿Cuál de estas opciones le gustaría conocer?`
       : 'Para orientarle con la opción correcta, ¿puede indicarme el número de la unidad que le interesa?') : '',
-  })
+    }
+  }
   if (category) {
     context.preference_category = category
     context.excluded_categories = excluded
+  }
+  // A reply to a durable, focused question names its subject without requiring
+  // the customer to repeat a code. Accepting details never books a visit or purchase.
+  const positive = /^(?:si(?: por favor| esta bien)?|claro|de acuerdo|perfecto|si (?:prefiero|quiero|me interesa) (?:esa|esta) opcion|(?:prefiero|quiero|me interesa) (?:esa|esta) opcion)$/.test(m.replace(/[.!¡,]/g, '').trim())
+  const confirmsOption = answersPendingQuestion(semantics, 'unit_choice', 'affirmative') || positive && pending.id === 'unit_choice'
+  if (confirmsOption && ['choose_unit', 'confirm_unit', 'show_unit_details'].includes(text(pending.act))) {
+    const targetIds = ids(pending.target_ids).length ? ids(pending.target_ids) : ids(context.focused_ids).length ? ids(context.focused_ids) : ids(pending.candidate_ids).length ? ids(pending.candidate_ids) : ids(context.offered_ids)
+    const options = fromIds(targetIds)
+    if (targetIds.length === 1 && options.length === 1) {
+      const reason = ids(pending.target_ids).length || ids(context.focused_ids).length ? 'confirmed_question_target' : 'confirmed_single_option'
+      context.selected_ids = unitIds(options); context.focused_ids = unitIds(options); context.comparison_ids = []
+      query.operation = 'select'; query.scope = 'selected'
+      return result(options, reason, true)
+    }
+    if (targetIds.length) return { ...result(options, options.length !== targetIds.length ? 'question_target_unavailable' : 'question_requires_choice', false, true),
+      clarification: options.length !== targetIds.length ? 'La opción sobre la que conversábamos ya no aparece disponible. ¿Le gustaría revisar las alternativas actuales?'
+        : result(options, 'question_requires_choice', false, true).clarification }
+  }
+  // Search/ranking returns facts, not a selected unit. Ties are valid answers.
+  // Resolve filters before unit-code guards, so "5ta planta" never becomes unit 5.
+  if (['search', 'rank'].includes(operation) && (hasCurrentFilters || broadResidential || operation === 'rank')) {
+    const scopeIds = query.scope === 'offered' ? ids(context.offered_ids) : query.scope === 'comparison' ? ids(context.comparison_ids)
+      : query.scope === 'selected' ? ids(context.selected_ids) : []
+    const source = scopeIds.length ? fromIds(scopeIds) : catalog
+    const candidates = source.filter(unit => (!query.category || unit.category === query.category)
+      && (query.group !== 'residential' || ['suite', 'departamento', 'penthouse'].includes(text(unit.category)))
+      && (query.group !== 'commercial' || unit.category === 'local') && !excluded.includes(text(unit.category))
+      && (filters.floor_number === null || Number(unit.floor_number) === filters.floor_number)
+      && (filters.bedrooms === null || Number(unit.bedrooms) === filters.bedrooms)
+      && (filters.min_area_m2 === null || Number(unit.area_internal_m2) >= filters.min_area_m2)
+      && (filters.max_area_m2 === null || Number(unit.area_internal_m2) > 0 && Number(unit.area_internal_m2) <= filters.max_area_m2))
+    context.selected_ids = []; context.comparison_ids = []
+    if (operation === 'rank' && ['largest', 'smallest'].includes(selector)) {
+      if (!candidates.length) return result([], 'catalog_no_match')
+      if (candidates.some(unit => !(Number(unit.area_internal_m2) > 0))) return result(candidates, 'ranking_missing_area')
+      const target = (selector === 'largest' ? Math.max : Math.min)(...candidates.map(unit => Number(unit.area_internal_m2)))
+      const ranked = candidates.filter(unit => Number(unit.area_internal_m2) === target)
+      return result(ranked, ranked.length > 1 ? 'ranking_tie' : 'catalog_rank')
+    }
+    return result(candidates, candidates.length ? 'catalog_search' : 'catalog_no_match')
   }
   // Semantic explicit codes must actually occur in this message; history cannot fabricate them.
   const semanticNumbers = semanticValid ? ids(semantic.unit_numbers) : []
@@ -114,7 +190,6 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.offered_ids = matches.length && !incomplete ? unitIds(matches) : []
     return result(matches, incomplete ? 'ambiguous' : literalUnits.length ? 'semantic_explicit' : 'explicit', !incomplete, incomplete)
   }
-  const selector = semanticValid ? semantic.reference_kind === 'relative' ? text(semantic.selector) : '' : relativeSelector(current)
   const declinedSelector = /\b(?:no (?:quiero|prefiero|elijo|escojo|me interesa)|descarto)\b[^.!?]{0,35}\b(?:mas (?:grande|amplio|pequeno|barato|caro)|primero|ultimo)\b/.test(m)
   if (selector && declinedSelector) return result([], 'ambiguous', false, true)
   if (selector) {
@@ -142,16 +217,6 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []; context.phase = null
     return result([], 'category_change')
   }
-  const lastReply = lastBot(history)
-  const confirmsOption = answersPendingQuestion(semantics, 'unit_choice', 'affirmative')
-    || /^(?:si(?: por favor| esta bien)?|claro|de acuerdo|perfecto)$/.test(m.replace(/[.!¡,]/g, '').trim())
-      && (pendingQuestionFromReply(lastReply).id === 'unit_choice' || /le gustaria conocer esta opcion/.test(normalized(lastReply)))
-  if (confirmsOption && ids(context.offered_ids).length) {
-    const options = fromIds(context.offered_ids)
-    if (options.length !== 1 || ids(context.offered_ids).length !== 1) return result(options, 'ambiguous', false, true)
-    context.selected_ids = unitIds(options); context.comparison_ids = []
-    return result(options, 'confirmed_single_option', true)
-  }
   const followup = (semanticValid && ['comparison', 'followup'].includes(text(semantic.reference_kind)))
     || /^(?:y\s+)?(?:en\s+)?(?:el\s+)?(?:precio|valor)\b|\b(?:y (?:el|en) precio|que (?:precio|valor)|cuanto (?:cuesta|vale|cuestan|valen)|diferencia|ambos|ambas|entre ellos)\b/.test(m)
   if (followup && !/\b(?:edificio|proyecto|sector|alimentos|papas|vehiculos?|motos?)\b/.test(m)) {
@@ -163,19 +228,22 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     // Multiple offered options are not a comparison or an accepted selection.
     if (ids(context.offered_ids).length) return result(fromIds(context.offered_ids), 'ambiguous', false, true)
   }
-  return { ...base, reason: 'remembered', needsClarification: false, clarification: '', context }
+  return { ...base, reason: 'remembered', needsClarification: false, clarification: '', context, query }
 }
 
 /** Persist only after the reply was delivered. Offered, compared and chosen are different facts. */
 export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply: string, audit: Row): Row {
-  const context = { ...object(contextRaw) }
+  const context: Row = { ...object(contextRaw), version: 2 }
   if (['business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification'].includes(text(audit.source))) {
-    return { preference_category: context.preference_category || null, offered_ids: [], comparison_ids: [], selected_ids: [], phase: null, last_reply: reply }
+    return { version: 2, preference_category: context.preference_category || null, offered_ids: [], comparison_ids: [], selected_ids: [], focused_ids: [], pending_question: {}, query: {}, phase: null, last_reply: reply }
   }
-  const actual = unitIds(unitsInPropertyReply(catalog, reply))
   const explicitOffers = ids(audit.offered_unit_ids)
   const selected = ids(audit.selected_unit_ids)
   const compared = ids(audit.comparison_unit_ids)
+  const focused = ids(audit.focused_unit_ids)
+  const structured = Object.hasOwn(audit, 'pending_question') || [audit.offered_unit_ids, audit.selected_unit_ids, audit.comparison_unit_ids, audit.focused_unit_ids].some(Array.isArray)
+  const allowed = new Set(unitIds(available(catalog)))
+  const actual = structured ? [...new Set([...explicitOffers, ...selected, ...compared, ...focused])].filter(id => allowed.has(id)) : unitIds(unitsInPropertyReply(catalog, reply))
   if (actual.length) {
     // New suggestions supersede old references; a quote about the same chosen
     // unit/pair keeps it, while a different delivered set cannot retain stale IDs.
@@ -186,7 +254,15 @@ export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply
   if (explicitOffers.length) context.offered_ids = explicitOffers.filter(id => actual.includes(id))
   if (selected.length) { context.selected_ids = selected.filter(id => actual.includes(id)); context.comparison_ids = [] }
   if (compared.length) context.comparison_ids = compared.filter(id => actual.includes(id))
-  if (actual.length > 1 && /compar|diferencia|ambos|ambas/.test(normalized(reply))) context.comparison_ids = actual
+  if (!structured && actual.length > 1 && /compar|diferencia|ambos|ambas/.test(normalized(reply))) context.comparison_ids = actual
+  if (Object.hasOwn(audit, 'pending_question')) context.pending_question = normalizedPendingQuestion(audit.pending_question, catalog)
+  else if (!structured) {
+    const pending = pendingQuestionFromReply(reply)
+    context.pending_question = normalizedPendingQuestion({ ...pending, target_ids: unitIds(unitsInPropertyReply(catalog, text(pending.question))), candidate_ids: actual }, catalog)
+  } else context.pending_question = {}
+  context.focused_ids = focused.length ? focused.filter(id => allowed.has(id)) : ids(object(context.pending_question).target_ids)
+  if (audit.catalog_query) context.query = object(audit.catalog_query)
+  context.context_source = structured ? 'structured_reply' : 'legacy_reply'
   if (audit.alternative_phase) context.phase = audit.alternative_phase
   else if (audit.source === 'property_floor_options') context.phase = 'choose_unit'
   else if (selected.length) context.phase = 'review_unit'

@@ -176,3 +176,97 @@ test('switch to another subject clears active references and actual reply stores
   assert.equal(pendingQuestionFromReply(penthouses[0].content).id,'unit_choice')
   assert.equal(pendingQuestionFromReply('¿Desea revisar primero los departamentos o los penthouses?').id,'property_category')
 })
+
+test('catalog ranking without numbered offers returns verified maxima without selecting', () => {
+  const current = 'cual es la opcion mas grande?'
+  const semantic = semantics(current, { operation: 'rank', reference_kind: 'relative', selector: 'largest', query_scope: 'catalog' })
+  const reference = resolvePropertyTurn(catalog, current, {}, [{ role: 'bot', content: 'Tenemos opciones en varias plantas.' }], semantic)
+  assert.equal(reference.reason, 'catalog_rank')
+  assert.equal(reference.needsClarification, false)
+  assert.deepEqual(reference.matches.map(unit => unit.id), ['u602'])
+  assert.deepEqual(reference.context.selected_ids, [])
+  assert.equal(reference.explicit, false)
+})
+
+test('ties answer a ranking query while an ambiguous selection still needs a choice', () => {
+  const current = 'cual es el departamento mas grande?'
+  const reference = resolvePropertyTurn(catalog, current, {}, [], semantics(current, { category: 'departamento', operation: 'rank', reference_kind: 'relative', selector: 'largest' }))
+  assert.equal(reference.reason, 'ranking_tie')
+  assert.equal(reference.needsClarification, false)
+  assert.deepEqual(reference.matches.map(unit => unit.id), ['u202', 'u302'])
+  assert.deepEqual(reference.context.selected_ids, [])
+  assert.equal(resolvePropertyTurn(catalog, 'prefiero el mas grande', {}, apartments, {}).needsClarification, true)
+})
+
+test('normalized floor search outranks an incorrectly inferred historical unit number', () => {
+  const current = 'entiendo quiero la opcion de la 5ta planta'
+  const fifth = [...catalog, { ...catalog[0], id: 'u502', unit_number: '502', floor_number: 5 }]
+  const reference = resolvePropertyTurn(fifth, current, {}, [], semantics(current, { category: 'departamento', reference_kind: 'explicit', unit_numbers: ['502'] }))
+  assert.equal(reference.needsClarification, false)
+  assert.equal(reference.reason, 'catalog_search')
+  assert.equal(reference.query.filters.floor_number, 5)
+  assert.deepEqual(reference.matches.map(unit => unit.id), ['u502'])
+  assert.deepEqual(reference.context.selected_ids, [])
+})
+
+test('an affirmative follows the structured focus even after two alternatives were shown', () => {
+  const fifth = [{ ...catalog[0], id: 'u502', unit_number: '502', floor_number: 5 }, { ...catalog[0], id: 'u504', unit_number: '504', floor_number: 5, area_internal_m2: 87 }]
+  const reply = 'Dos alternativas, con una recomendación concreta. ¿Desea más detalles?'
+  const pending = { id: 'unit_choice', act: 'show_unit_details', question: '¿Desea más detalles?', target_ids: ['u502'], candidate_ids: ['u502', 'u504'] }
+  const stored = rememberPropertyReply(fifth, {}, reply, { offered_unit_ids: ['u502', 'u504'], focused_unit_ids: ['u502'], pending_question: pending })
+  assert.equal(stored.version, 2)
+  assert.deepEqual(stored.offered_ids, ['u502', 'u504'])
+  assert.deepEqual(stored.focused_ids, ['u502'])
+  const current = 'si prefiero esa opcion'
+  for (const property of [{ reference_kind: 'explicit', unit_numbers: ['502'], category: 'departamento' }, { reference_kind: 'followup', unit_numbers: ['502'] }, {}]) {
+    const reference = resolvePropertyTurn(fifth, current, { _property_context: stored }, [{ role: 'bot', content: reply }], semantics(current, property))
+    assert.equal(reference.reason, 'confirmed_question_target')
+    assert.equal(reference.needsClarification, false)
+    assert.deepEqual(reference.matches.map(unit => unit.id), ['u502'])
+    assert.deepEqual(reference.context.selected_ids, ['u502'])
+  }
+})
+
+test('new structured metadata is authoritative over paraphrased output and stale rankings are not replayed', () => {
+  const reply = 'Podemos empezar por la opción que acabamos de revisar.'
+  const stored = rememberPropertyReply(catalog, { query: { operation: 'rank', selector: 'largest', category: 'departamento', filters: { bedrooms: 3 } } }, reply,
+    { offered_unit_ids: ['u202'], focused_unit_ids: ['u202'], pending_question: { id: 'unit_choice', act: 'confirm_unit', question: '', target_ids: ['u202'], candidate_ids: ['u202'] } })
+  const result = resolvePropertyTurn(catalog, 'gracias', { _property_context: stored }, [{ role: 'bot', content: reply }], {})
+  assert.equal(result.query.operation, 'none')
+  assert.equal(result.query.selector, null)
+  assert.equal(result.query.filters.bedrooms, 3)
+  assert.deepEqual(result.context.focused_ids, ['u202'])
+  assert.deepEqual(result.context.selected_ids, [])
+})
+
+test('a retired focused option is never replaced by another available candidate', () => {
+  const pending = { id: 'unit_choice', act: 'show_unit_details', question: '¿Desea verla?', target_ids: ['u502'], candidate_ids: ['u502', 'u504'] }
+  const summary = { _property_context: { version: 2, last_reply: '¿Desea verla?', offered_ids: ['u502', 'u504'], focused_ids: ['u502'], pending_question: pending } }
+  const result = resolvePropertyTurn([{ id: 'u504', category: 'departamento', unit_number: '504' }], 'si prefiero esa opcion', summary, [{ role: 'bot', content: '¿Desea verla?' }], {})
+  assert.equal(result.reason, 'question_target_unavailable')
+  assert.equal(result.needsClarification, true)
+  assert.deepEqual(result.matches, [])
+})
+
+test('a selected target uses catalogue category rather than filters from an older search', () => {
+  const current = 'me interesa mas el mas grande'
+  const reference = resolvePropertyTurn(catalog, current, { _property_context: {
+    preference_category: 'departamento', query: { category: 'departamento', group: 'residential', filters: { floor_number: 2, bedrooms: 2 } },
+  } }, penthouses, semantics(current, { reference_kind: 'relative', selector: 'largest', operation: 'select' }))
+  assert.deepEqual(reference.matches.map(unit => unit.id), ['u602'])
+  assert.equal(reference.query.category, 'penthouse')
+  assert.equal(reference.query.filters.floor_number, null)
+  assert.equal(reference.query.filters.bedrooms, null)
+})
+
+test('an explicit comparison replaces an older search category without becoming a selection', () => {
+  const current = 'compara el 202 y el 302'
+  const reference = resolvePropertyTurn(catalog, current, { _property_context: {
+    preference_category: 'penthouse', query: { category: 'penthouse', filters: { floor_number: 6 } },
+  } }, [], semantics(current, { operation: 'compare', reference_kind: 'comparison', unit_numbers: ['202', '302'] }))
+  assert.equal(reference.query.category, 'departamento')
+  assert.equal(reference.query.filters.floor_number, null)
+  assert.equal(reference.query.scope, 'comparison')
+  assert.deepEqual(reference.context.selected_ids, [])
+  assert.deepEqual(reference.context.comparison_ids, ['u202', 'u302'])
+})

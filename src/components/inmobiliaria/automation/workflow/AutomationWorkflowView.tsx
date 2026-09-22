@@ -176,7 +176,7 @@ export function AutomationWorkflowView() {
         <h2>{liveDefinition ? 'Está viendo una ejecución real' : 'Mapas de arquitectura y ejecuciones reales'}</h2>
         <p>{liveDefinition
           ? 'Los nodos corresponden a los pasos registrados para el mensaje seleccionado. Puede inspeccionar entradas resumidas, resultados, duración y módulo responsable.'
-          : 'Los mapas explican la estructura actual. Seleccione una ejecución reciente para reconstruir el recorrido exacto de ese mensaje.'}</p>
+          : 'Los mapas explican la estructura actual. Seleccione una ejecución reciente para consultar los pasos registrados de ese mensaje.'}</p>
       </div>
     </section>
 
@@ -214,12 +214,16 @@ export function AutomationWorkflowView() {
               onClick={() => selectExecution(execution)}
             >
               <span className={styles.executionStatus} data-status={execution.status} />
-              <span className={styles.executionBody}><strong>{execution.leadName}</strong><small>{execution.message || execution.outcome}</small>{execution.traceAvailable && <em>{execution.steps.length} pasos registrados</em>}</span>
+              <span className={styles.executionBody}><strong>{execution.leadName}</strong><small>{execution.message || execution.outcome}</small><em>{execution.traceAvailable ? `${execution.steps.length} pasos registrados` : execution.traceWarning === 'AUDIT_READ_FAILED' ? 'Bitácora no disponible' : 'Sin pasos registrados · ruta inferida'}</em></span>
               <span className={styles.executionMeta}><strong>{execution.outcome}</strong><time>{formatExecutionDate(execution.occurredAt)}</time></span>
             </button>)}</div>}
       {selectedExecution && <div className={styles.executionNotice}>
-        <span><Check size={13} />{selectedExecution.traceAvailable ? 'Recorrido reconstruido desde pasos registrados' : 'Ruta aproximada desde el resultado anterior a la bitácora'}</span>
-        <strong>{selectedExecution.action || selectedExecution.status}</strong>
+        <span><Info size={13} />{selectedExecution.traceAvailable ? 'Recorrido desde pasos registrados' : selectedExecution.traceWarning === 'AUDIT_READ_FAILED' ? 'No se pudo leer la bitácora; la ruta es aproximada' : 'Ruta inferida: no demuestra qué etapas se ejecutaron'}</span>
+        <strong>{selectedExecution.stopReason || selectedExecution.action || selectedExecution.status}</strong>
+      </div>}
+      {selectedExecution && <div className={styles.executionNotice}>
+        <span>Código: {displayValue(selectedExecution.versions?.code_version)} · Contrato: {displayValue(selectedExecution.versions?.contract_version)} · Modelo: {displayValue(selectedExecution.versions?.model)}</span>
+        {selectedExecution.action === 'accepted' && <strong>Entrega al teléfono sin confirmar</strong>}
       </div>}
     </section>}
 
@@ -283,7 +287,7 @@ export function AutomationWorkflowView() {
           </dl>
           <div className={styles.inspectorNote}><Bot size={15} /><p>{liveDefinition
             ? 'Esta información es de auditoría y no interviene en la respuesta del bot.'
-            : 'Este nodo describe lo que el sistema hace hoy; no es una configuración editable.'}</p></div>
+            : 'Este mapa describe las etapas del motor; no demuestra que un mensaje haya pasado por ellas.'}</p></div>
         </aside>
       </div>
     </section>

@@ -7,7 +7,7 @@ import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
 import { OpenAIRequestError } from './openai-request'
 import { assertLive, automationSettings } from './config'
-import { normalizeEvents, normalizedVisitPreference, validateIntent, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
+import { normalizedVisitPreference, validateIntent, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
 import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { inboundFromRow, type Inbound } from './webhook'
@@ -55,11 +55,13 @@ import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
 import { asksForHouse, houseProductReply } from './product-fit'
 import { declinesAllVisitAlternatives } from './visit-escalation'
 import { completeTurnReply } from './turn-completeness'
+import { validateCatalogReply } from './catalog-dialogue'
 import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
 import { financingPrerequisiteReply } from './property-selection'
-import { answersPendingQuestion, normalizeTurnSemantics, pendingQuestionFromReply, TURN_SEMANTIC_EXTRACTION_RULES } from './turn-semantics'
+import { answersPendingQuestion, normalizedPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
 import { responsePlan } from './response-plan'
+import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out","visit_preference":null}.
@@ -130,7 +132,11 @@ async function register(events: Inbound[], guard: Guard) {
 export async function processConversation(rows: Row[], guard: Guard) {
   const trace = traceForEvents(rows)
   try {
-    return await withConversationTone(() => processConversationWithTone(rows, guard, trace))
+    const result = await withConversationTone(() => processConversationWithTone(rows, guard, trace))
+    trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
+      ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
+      { action: result.action, reason: object(result).reason || result.action })
+    return result
   } catch (error) {
     trace.failOpenSteps(error)
     throw error
@@ -313,7 +319,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   })
   const continuation = !inbound.mediaFailed ? nutritionContinuation(current, context.historial) : null
   if (continuation) current = continuation.message
+  const originalTurn = current
   let reply = '', finalNotice = false, handoffNotice = '', pendingCommercialHandoff = ''
+  let appliedVisitAction: Row | null = null
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
   let turnCatalog: Row[] = [], propertyTurn: Row = {}, currentSemantics: Row = {}
   let greeting = !inbound.mediaFailed && isGreetingOnly(current)
@@ -422,7 +430,226 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
   const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
-  if (!inbound.mediaFailed) {
+  // Common interpretation precedes every conversational response route.
+  await guard()
+  const minimalTurn = !meaningfulText || greeting
+  trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: process.env.OPENAI_MODEL })
+  const toolsContextStep = trace.start('decision_context', 'Cargar catálogo y contexto financiero', 'context', 'sdr.ts · financing.ts', { required: !minimalTurn })
+  const finance = minimalTurn ? { partners: [], current: {} } : await financingContext(lead)
+  turnCatalog = minimalTurn ? [] : await publishedUnitCatalog()
+  trace.finish(toolsContextStep, minimalTurn ? 'skipped' : 'succeeded', { catalog_units: turnCatalog.length, financing_partners: finance.partners.length })
+  const initialReference = resolveCatalogReference(turnCatalog, current, previousSummary._unit_reference, context.historial)
+  const previousPropertyContext = minimalTurn ? object(previousSummary._property_context) : propertyContext(turnCatalog, previousSummary._property_context, context.historial)
+  const semanticStep = trace.start('semantic_extraction', 'Interpretar intención y datos', 'ai', 'ai.ts · conversation-rules.ts · turn-semantics.ts', {
+    message: traceText(current), has_previous_summary: Object.keys(previousSummary).length > 0,
+    catalog_matches: initialReference.matches.length,
+  })
+  const lastResponse = text(state.ultima_respuesta)
+  const rememberedQuestion = normalizedPendingQuestion(previousSummary._pending_question || previousPropertyContext.pending_question, minimalTurn ? undefined : turnCatalog)
+  const pendingQuestion = text(rememberedQuestion.question) && (lastResponse.includes(text(rememberedQuestion.question)) || previousSummary._interpretation_pending === true)
+    ? rememberedQuestion
+    : pendingQuestionFromReply(lastResponse)
+  const interpretation = await interpretConversationTurn({
+    resumen: previousSummary, historial: context.historial,
+    historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-8) : [],
+    tema_actual: salesSubject(current, context.historial), alcance_negocio: businessScope.kind,
+    ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion,
+    contexto_propiedades: previousPropertyContext, catalogo_unidades: turnCatalog,
+    propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance,
+    unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
+    mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain ? '' : current,
+  }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
+  const { extracted, semantics: turnSemantics } = interpretation
+  trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: process.env.OPENAI_MODEL,
+    promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
+  const categoryPreference = preferredPropertyCategory(current, turnSemantics)
+  // Legacy extraction cannot overwrite the new, evidenced interpretation with a mentioned rejection.
+  extracted.preferred_category = categoryPreference
+  if (categoryPreference && object(turnSemantics.property).confidence !== 'high') {
+    turnSemantics.property = { ...object(turnSemantics.property), category: categoryPreference, confidence: 'high', evidence: current.slice(0, 240) }
+  }
+  const reference = resolvePropertyTurn(turnCatalog, current, previousSummary, context.historial, turnSemantics)
+  propertyTurn = reference
+  currentSemantics = turnSemantics
+  summary = { ...rememberInterpretedTurn(previousSummary, originalTurn, extracted),
+    _unit_reference: minimalTurn ? previousSummary._unit_reference || {} : reference.memory,
+    _property_context: minimalTurn ? previousPropertyContext : reference.context }
+  extracted.turn_semantics = turnSemantics
+  if(financeContinuation) Object.assign(extracted,financeContinuation)
+  const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
+  extracted.financing_consent = financeInput.consent
+  extracted.financing_partner = financeInput.partner
+  const collectingVisit = visitDraft?.status === 'collecting'
+  const semanticVisit = object(extracted.visit_intent)
+  const semanticVisitRequest = semanticVisit.kind === 'request_visit' && !hasUnrelatedAppointmentTarget(current)
+  // A semantic acceptance is actionable only while a durable visit draft is
+  // already collecting details. This prevents a bare "sí" from starting a
+  // visit while financing, pricing or another feature is active.
+  const semanticVisitAcceptance = (semanticVisit.kind === 'accept_visit_preference' && collectingVisit)
+    || answersPendingQuestion(turnSemantics, 'visit_invitation', 'affirmative')
+  const explicitVisitRequest = explicitlyRequestsVisit(current)
+  const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta))
+  const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
+  const canRequestVisit = !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
+    && (!isCourtesyOnly(current) || semanticVisitAcceptance || invitationAccepted)
+    && (visitSignal || collectingVisit)
+  if (canRequestVisit && visitSignal) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
+  if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
+  const priceTurn = asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
+  const financeTurn = financeInput.consent === true || (!priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
+  if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
+  if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
+  trace.finish(semanticStep, 'succeeded', {
+    ...interpretation.diagnostic,
+    events: extracted.events,
+    preferred_category: text(extracted.preferred_category) || null,
+    purchase_purpose: text(extracted.purchase_purpose) || null,
+    requested_visit: (extracted.events as string[]).includes('requested_visit'),
+    requested_advisor: extracted.requested_advisor === true,
+    opt_out: extracted.opt_out === true,
+    financing_partner: text(extracted.financing_partner) || null,
+    financing_turn: financeTurn,
+    visit_intent: text(semanticVisit.kind) || null,
+    primary_intent: text(turnSemantics.primary_intent),
+    answers_question: text(object(turnSemantics.answer_to_previous).question_id) || null,
+    answer_kind: text(object(turnSemantics.answer_to_previous).kind) || null,
+    budget_status: text(object(turnSemantics.budget).status) || null,
+    property_category: text(object(turnSemantics.property).category) || null,
+    property_excluded_categories: object(turnSemantics.property).excluded_categories,
+    reference_reason: reference.reason, reference_unit_ids: reference.matches.map(unit => unit.id),
+    reference_needs_clarification: reference.needsClarification,
+  })
+  trace.add('catalog_resolution', 'Resolver consulta y referencias del catálogo', 'decision', 'property-context.ts', 'succeeded',
+    { operation: object(turnSemantics.property).operation, filters: object(object(turnSemantics.property).filters) },
+    { reference_reason: reference.reason, needs_clarification: reference.needsClarification,
+      candidate_unit_ids: reference.matches.map(unit => unit.id), query: object(object(reference).query) })
+
+  // Consent withdrawal is a turn-wide decision, including brochure or mixed requests.
+  if (extracted.opt_out) {
+    await guard()
+    await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
+    reply = 'Hemos registrado su solicitud de no recibir más mensajes.'
+    finalNotice = true
+    audit = { source: 'opt_out' }
+  }
+  if (!reply && !inbound.mediaFailed && !['property', 'mixed'].includes(businessScope.kind)
+    && !extracted.requested_advisor) {
+    reply = vehicleScopeReply(current, context.historial)
+    if (reply) audit = { source: 'vehicle_out_of_scope' }
+  }
+  if (!reply && !inbound.mediaFailed && asksForHouse(current) && !extracted.requested_advisor
+    && financeInput.consent !== true && !(extracted.events as string[]).includes('requested_visit')) {
+    reply = houseProductReply(current, text(state.ultima_respuesta))
+    if (/financ|cr[eé]dito|hipoteca/i.test(current)) reply += ' ' + priceFinancingReply(current, finance)
+    audit = { source: 'product_clarification' }
+  }
+  // Facts and explicit consent apply to the interpreted turn, regardless of response route.
+  if (!finalNotice && interpretation.method === 'model' && businessScope.kind !== 'out_of_scope'
+    && audit.source !== 'vehicle_out_of_scope' && !businessScope.uncertain) {
+    await guard()
+    if (extracted.tracking_consent) await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: true, p_reason: 'aceptó recibir novedades' })
+    // Consentimiento ads/Meta: explícito (evidencia) y distinto de tracking_consent.
+    try {
+      lead = {
+        ...lead,
+        ...(await applyWhatsappAdsConsentFromClientMessage({
+          rpc,
+          leadId: String(lead.id),
+          currentMessage: current,
+          lead,
+        })),
+      }
+    } catch {
+      /* soft-fail */
+    }
+    if ((extracted.events as string[]).length) await rpc('apply_lead_events', { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
+    // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
+    const unitId = !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
+    if (unitId) extracted.preferred_category = reference.matches[0].category
+    const previousCategory = lead.preferred_category
+    const declarations = object(await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
+      p_purchase_purpose: extracted.purchase_purpose, p_unit_id: unitId }))
+    lead = { ...lead, ...declarations }
+    const facts = qualifiedFacts(object(extracted.qualification), current)
+    const categoryChanged = previousCategory && lead.preferred_category !== previousCategory
+    if (categoryChanged && !unitId && reference.reason === 'category_change') { reference.matches = []; summary._unit_reference = {} }
+    if (Object.keys(facts).length || categoryChanged) {
+      const previousFacts = object(object(lead.behavior_signals).sdr)
+      // A switch from housing to commercial property starts a different search.
+      const signals = { ...object(lead.behavior_signals), sdr: { ...(categoryChanged ? {} : previousFacts), ...facts } }
+      const crossUse = categoryChanged && (previousCategory === 'local' || lead.preferred_category === 'local')
+      const resetSearch = crossUse ? { preferred_bedrooms: null, ...(!extracted.purchase_purpose && lead.purchase_purpose !== 'invertir' ? { purchase_purpose: null } : {}) } : {}
+      const { error } = await db().from('leads').update({ behavior_signals: signals, ...resetSearch }).match(scope).eq('id', lead.id)
+      if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
+      lead = { ...lead, ...resetSearch, behavior_signals: signals }
+    }
+    // LeadSubmitted BM: interés del turno actual; fuera/dentro del bot. Soft-fail.
+    try {
+      await evaluateWaLeadSubmittedForCurrentTurn({
+        admin: db(),
+        rpc,
+        lead: { ...lead, id: String(lead.id) },
+        contactId: last.contactId,
+        currentMessage: current,
+        scoreEvents: extracted.events as string[],
+        recentOfferText: await resolveRecentUnitOfferText({
+          admin: db(),
+          conversationId: text(inbound.registration.conversation_id),
+          preferredText: text(state.ultima_respuesta) || null,
+        }),
+        tenantId: scope.tenant_id,
+        projectId: scope.project_id,
+      })
+    } catch {
+      /* soft-fail: nunca corta la atención */
+    }
+  }
+  const operationalTurn = extracted.requested_advisor === true || financeTurn
+    || (extracted.events as string[]).includes('requested_visit')
+  const catalogTurn = Boolean(object(turnSemantics.property).group)
+    || !['', 'none'].includes(text(object(turnSemantics.property).operation))
+
+  async function afterAppliedVisit(result: Row, proposal: Row): Promise<Row | null> {
+    const remaining = interpretation.requests.filter(request => !['visit', 'tracking', 'courtesy'].includes(text(request.domain)))
+    const updated = { ...summary, _pending_question: {},
+      _property_context: { ...object(summary._property_context), pending_question: {}, focused_ids: [] },
+      _last_operational_step: { kind: 'visit_confirmed', request_id: proposal.request_id || proposal.id },
+      _pending_requests: remaining }
+    const stateStep = trace.start('state_persisted', 'Guardar el resultado de la visita', 'action', 'conversation.ts', {})
+    const saved = await db().from('conversations').update({ summary: JSON.stringify(updated) }).match(scope).eq('id', text(inbound.registration.conversation_id))
+    trace.finish(stateStep, saved.error ? 'failed' : 'succeeded', { memory_saved: !saved.error, remaining_requests: remaining.length }, saved.error ? 'MEMORY_SAVE_FAILED' : undefined)
+    summary = updated
+    // The verified RPC owns the confirmation outbox. Do not send that confirmation twice.
+    if (!remaining.length || result.action === 'duplicate') return { ...result, memory_saved: !saved.error }
+    appliedVisitAction = result
+    current = remaining.map(request => text(request.evidence)).join('\n')
+    if (extracted.requested_advisor && remaining.some(request => request.domain === 'advisor')) {
+      reply = await transferToAdvisor('pidió hablar con un asesor después de confirmar su visita')
+      audit = { source: 'advisor_handoff', completed_visit_action: result, coverage_complete: false }
+      return null
+    }
+    // Reuse the financial action handler below; the already applied visit is excluded there.
+    if (financeTurn && remaining.some(request => request.domain === 'financing')) return null
+    const residualSemantics = { ...turnSemantics, primary_intent: 'other' }
+    const residualReference = resolvePropertyTurn(turnCatalog, current, summary, context.historial, residualSemantics)
+    propertyTurn = residualReference
+    currentSemantics = residualSemantics
+    const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind,
+      historial: context.historial, financiamiento: finance, referencia_unidad: residualReference,
+      property_context: residualReference.context, semantica_turno: residualSemantics,
+      resultado_visita: { action: 'confirmed', request_id: proposal.request_id || proposal.id } }
+    const generated = await commercialReply(info, current, summary, guard)
+    reply = generated.reply
+    audit = { ...generated.audit, completed_visit_action: result, coverage_complete: false }
+    if (audit.requires_advisor === true) {
+      pendingCommercialHandoff = text(audit.handoff_reason) || 'resolver las consultas adicionales a la confirmación de visita'
+      reply = completeTurnAnswer('', turnAnswerFacts(info, current, summary)).reply || 'Ese detalle necesita verificación del equipo.'
+    }
+    if (!reply.trim()) throw new Error('EMPTY_VISIT_FOLLOWUP_REPLY')
+    return null
+  }
+
+  if (!inbound.mediaFailed && !operationalTurn && !catalogTurn) {
     if (!reply && asksTeamAttendance(current)) {
       const appointments = await db().from('appointments').select('id,status,start_time,end_time').match(scope)
         .eq('lead_id', lead.id).in('status', ['aceptado', 'reprogramado']).gt('end_time', activeLast.sentAt)
@@ -433,15 +660,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         reply = teamAttendanceReply(appointments.data || [], proposals)
         audit = { source: 'team_attendance', verified_appointments: appointments.data || [] }
       }
-    }
-    if (!reply && asksForHouse(current)) {
-      reply = houseProductReply(current, text(state.ultima_respuesta))
-      if (/financ|cr[eé]dito|hipoteca/i.test(current)) reply += ' ' + priceFinancingReply(current, await financingContext(lead))
-      audit = { source: 'product_clarification' }
-    }
-    if (!reply && businessScope.kind !== 'property' && businessScope.kind !== 'mixed' && !/asesor|persona|humano|no me (?:escrib|contact)|dejen de/i.test(current)) {
-      reply = vehicleScopeReply(current, context.historial)
-      if (reply) audit = { source: 'vehicle_out_of_scope' }
     }
     if (!reply) {
       reply = projectInformationChoiceReply(current, context.historial)
@@ -543,10 +761,19 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       propuesta: proposal && visitDraft?.status === 'collecting' ? { ...proposal, status: 'awaiting_advisor' } : proposal,
       historial: context.historial })
     const options = Array.isArray(proposal?.proposed_options) ? proposal.proposed_options.map(object) : []
+    const visitRequests = interpretation.requests.filter(request => request.domain === 'visit' && request.confidence === 'high')
+    const sentences = current.split(/[.!]\s+|\n+/).map(value => value.trim().replace(/[.!]$/, ''))
+    const visitClause = visitRequests.length === 1 && sentences.includes(text(visitRequests[0].evidence).replace(/[.!]$/, ''))
+      && !/\b(?:no|pero|solo si|siempre que|a condici[oó]n|si (?:me|nos|el|la|es)|quiz[aá]s|tal vez)\b/i.test(current)
+      ? text(visitRequests[0].evidence) : ''
+    // A complete, unconditional acceptance sentence can coexist with a separate question.
+    // A model-proposed substring must never remove a condition or refusal from consent.
     const selected = selectedVisitOption(current, options, activeLast.sentAt)
+      ?? (visitClause ? selectedVisitOption(visitClause, options, activeLast.sentAt) : null)
     const interpretedVisit = normalizedVisitPreference(classification.visit_preference, current)
     const override = visitTurnIntent(current)
-    const intent = validateIntent(classification.intent === 'opt_out' ? classification : selected !== null ? { intent: 'accept' }
+    // Withdrawal is authorized only by the common, evidenced interpretation.
+    const intent = validateIntent(classification.intent === 'opt_out' ? { intent: extracted.opt_out ? 'opt_out' : 'question' } : selected !== null ? { intent: 'accept' }
       : override === 'counterproposal' ? { intent: override } : classification, proposal, activeLast.sentAt, text(context.mensaje_actual_at))
     trace.finish(visitIntentStep, 'succeeded', {
       intent, selected_option: selected, has_preference: Boolean(interpretedVisit), proposal_status: text(proposal?.status),
@@ -572,7 +799,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           p_option_index: selected, p_message_id: activeLast.externalId }))
         if (result.status !== 'confirmed') throw new Error('VISIT_OPTION_NOT_CONFIRMED')
         trace.add('visit_result', 'Confirmar cita', 'output', 'lv_client_select_visit_option', 'succeeded', {}, { action: 'confirmed', selected_option: selected })
-        return { action: 'confirmed', selected_option: selected }
+        const exit = await afterAppliedVisit({ action: 'confirmed', selected_option: selected }, proposal)
+        if (exit) return exit
       }
     } else if (proposal && (intent === 'counterproposal' || intent === 'reject' || (intent === 'unclear' && visitDraft?.status === 'collecting'))) {
       await guard()
@@ -599,10 +827,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (['confirmed', 'duplicate'].includes(text(applied.action))) {
         trace.add('visit_result', 'Aplicar decisión de visita', 'output', 'lv_apply_client_visit_intent',
           text(applied.action) === 'confirmed' ? 'succeeded' : 'skipped', {}, { action: text(applied.action) })
-        return { action: applied.action }
+        const exit = await afterAppliedVisit({ action: applied.action }, proposal)
+        if (exit) return exit
       }
-      if (!['reply', 'stale', 'conversation'].includes(text(applied.action))) throw new Error('VISIT_INTENT_RPC_CONTRACT_MISMATCH')
-      reply = text(applied.mensaje)
+      else {
+        if (!['reply', 'stale', 'conversation'].includes(text(applied.action))) throw new Error('VISIT_INTENT_RPC_CONTRACT_MISMATCH')
+        reply = text(applied.mensaje)
+      }
       if (intent === 'cancel' && applied.action === 'reply') {
         const { error } = await db().from('lv_visit_intakes').delete().eq('conversation_id', inbound.registration.conversation_id)
         if (error) throw new Error('VISIT_DRAFT_CANCEL_FAILED')
@@ -611,141 +842,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   if (!reply) {
     await guard()
-    const finance = await financingContext(lead)
-    turnCatalog = await publishedUnitCatalog()
-    const initialReference = resolveCatalogReference(turnCatalog, current, previousSummary._unit_reference, context.historial)
-    const previousPropertyContext = propertyContext(turnCatalog, previousSummary._property_context, context.historial)
-    const semanticStep = trace.start('semantic_extraction', 'Interpretar intención y datos', 'ai', 'ai.ts · conversation-rules.ts · turn-semantics.ts', {
-      message: traceText(current), has_previous_summary: Object.keys(previousSummary).length > 0,
-      catalog_matches: initialReference.matches.length,
-    })
-    const lastResponse = text(state.ultima_respuesta)
-    const rememberedQuestion = object(previousSummary._pending_question)
-    const pendingQuestion = text(rememberedQuestion.question) && lastResponse.includes(text(rememberedQuestion.question))
-      ? rememberedQuestion
-      : pendingQuestionFromReply(lastResponse)
-    const [summaryPrompt, extractorPrompt] = await Promise.all([activePrompt('resumen_conversacion'), activePrompt('extractor_eventos')])
-    const [newSummary, rawEvents] = await Promise.all([
-      aiJson(summaryPrompt, { historial: context.historial, resumen_anterior: previousSummary, mensaje_actual: current }),
-      aiJson(extractorPrompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES + '\n' + TURN_SEMANTIC_EXTRACTION_RULES + '\nUse la última pregunta REAL del bot, no una pregunta omitida del resumen. En coordinación de visita, expresar duda o pedir sugerencia activa requested_visit y visit_needs_help=true; jamás requested_advisor solo por pedir horario. Una fecha parcial responde a la coordinación y activa requested_visit. Extraiga financing_partner incluso si la entidad no está entre las disponibles; no convierta información comercial en consentimiento.',
-        { resumen: previousSummary, historial: context.historial, historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-8) : [], tema_actual: salesSubject(current, context.historial), ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion, contexto_propiedades: previousPropertyContext, catalogo_unidades: turnCatalog, propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance, unidades_identificadas:initialReference.matches, mensaje_actual: current })
-    ])
-    const extracted = normalizeEvents(rawEvents, current)
-    const turnSemantics = normalizeTurnSemantics(rawEvents, current, pendingQuestion)
-    const categoryPreference = preferredPropertyCategory(current, turnSemantics)
-    // Legacy extraction cannot overwrite the new, evidenced interpretation with a mentioned rejection.
-    extracted.preferred_category = categoryPreference
-    if (categoryPreference && object(turnSemantics.property).confidence !== 'high') {
-      turnSemantics.property = { ...object(turnSemantics.property), category: categoryPreference, confidence: 'high', evidence: current.slice(0, 240) }
-    }
-    const reference = resolvePropertyTurn(turnCatalog, current, previousSummary, context.historial, turnSemantics)
-    propertyTurn = reference
-    currentSemantics = turnSemantics
-    summary = {...newSummary, _unit_reference: reference.memory, _property_context: reference.context, _sales_memory: previousSummary._sales_memory}
-    extracted.turn_semantics = turnSemantics
-    if(financeContinuation) Object.assign(extracted,financeContinuation)
-    const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
-    extracted.financing_consent = financeInput.consent
-    extracted.financing_partner = financeInput.partner
-    const collectingVisit = visitDraft?.status === 'collecting'
-    const semanticVisit = object(extracted.visit_intent)
-    const semanticVisitRequest = semanticVisit.kind === 'request_visit' && !hasUnrelatedAppointmentTarget(current)
-    // A semantic acceptance is actionable only while a durable visit draft is
-    // already collecting details. This prevents a bare "sí" from starting a
-    // visit while financing, pricing or another feature is active.
-    const semanticVisitAcceptance = (semanticVisit.kind === 'accept_visit_preference' && collectingVisit)
-      || answersPendingQuestion(turnSemantics, 'visit_invitation', 'affirmative')
-    const explicitVisitRequest = explicitlyRequestsVisit(current)
-    const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta))
-    const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
-    const canRequestVisit = !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
-      && (!isCourtesyOnly(current) || semanticVisitAcceptance || invitationAccepted)
-      && (visitSignal || collectingVisit)
-    if (canRequestVisit && visitSignal) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
-    if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
-    const priceTurn = asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
-    const financeTurn = financeInput.consent === true || (!priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
-    if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
-    trace.finish(semanticStep, 'succeeded', {
-      events: extracted.events,
-      preferred_category: text(extracted.preferred_category) || null,
-      purchase_purpose: text(extracted.purchase_purpose) || null,
-      requested_visit: (extracted.events as string[]).includes('requested_visit'),
-      requested_advisor: extracted.requested_advisor === true,
-      opt_out: extracted.opt_out === true,
-      financing_partner: text(extracted.financing_partner) || null,
-      financing_turn: financeTurn,
-      visit_intent: text(semanticVisit.kind) || null,
-      primary_intent: text(turnSemantics.primary_intent),
-      answers_question: text(object(turnSemantics.answer_to_previous).question_id) || null,
-      answer_kind: text(object(turnSemantics.answer_to_previous).kind) || null,
-      budget_status: text(object(turnSemantics.budget).status) || null,
-      property_category: text(object(turnSemantics.property).category) || null,
-      property_excluded_categories: object(turnSemantics.property).excluded_categories,
-      reference_reason: reference.reason, reference_unit_ids: reference.matches.map(unit => unit.id),
-      reference_needs_clarification: reference.needsClarification,
-    })
-    await guard()
-    if (extracted.opt_out) {
-      await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
-      reply = 'Hemos registrado su solicitud de no recibir más mensajes.'; finalNotice = true
-    } else {
-      if (extracted.tracking_consent) await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: true, p_reason: 'aceptó recibir novedades' })
-      // Consentimiento ads/Meta: explícito (evidencia) y distinto de tracking_consent.
-      try {
-        lead = {
-          ...lead,
-          ...(await applyWhatsappAdsConsentFromClientMessage({
-            rpc,
-            leadId: String(lead.id),
-            currentMessage: current,
-            lead,
-          })),
-        }
-      } catch {
-        /* soft-fail */
-      }
-      await rpc('apply_lead_events', { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
-      // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
-      const unitId = !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
-      if (unitId) extracted.preferred_category = reference.matches[0].category
-      const previousCategory = lead.preferred_category
-      const declarations = object(await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
-        p_purchase_purpose: extracted.purchase_purpose, p_unit_id: unitId }))
-      lead = { ...lead, ...declarations }
-      const facts = qualifiedFacts(object(extracted.qualification), current)
-      const categoryChanged = previousCategory && lead.preferred_category !== previousCategory
-      if (categoryChanged && !unitId && reference.reason === 'category_change') { reference.matches = []; summary._unit_reference = {} }
-      if (Object.keys(facts).length || categoryChanged) {
-        const previousFacts = object(object(lead.behavior_signals).sdr)
-        // A switch from housing to commercial property starts a different search.
-        const signals = { ...object(lead.behavior_signals), sdr: { ...(categoryChanged ? {} : previousFacts), ...facts } }
-        const crossUse = categoryChanged && (previousCategory === 'local' || lead.preferred_category === 'local')
-        const resetSearch = crossUse ? { preferred_bedrooms: null, ...(!extracted.purchase_purpose && lead.purchase_purpose !== 'invertir' ? { purchase_purpose: null } : {}) } : {}
-        const { error } = await db().from('leads').update({ behavior_signals: signals, ...resetSearch }).match(scope).eq('id', lead.id)
-        if (error) throw new Error('QUALIFICATION_SAVE_FAILED')
-        lead = { ...lead, ...resetSearch, behavior_signals: signals }
-      }
-      // LeadSubmitted BM: interés del turno actual; fuera/dentro del bot. Soft-fail.
-      try {
-        await evaluateWaLeadSubmittedForCurrentTurn({
-          admin: db(),
-          rpc,
-          lead: { ...lead, id: String(lead.id) },
-          contactId: last.contactId,
-          currentMessage: current,
-          scoreEvents: extracted.events as string[],
-          recentOfferText: await resolveRecentUnitOfferText({
-            admin: db(),
-            conversationId: text(inbound.registration.conversation_id),
-            preferredText: text(state.ultima_respuesta) || null,
-          }),
-          tenantId: scope.tenant_id,
-          projectId: scope.project_id,
-        })
-      } catch {
-        /* soft-fail: nunca corta la atención */
-      }
+    {
       const financeAnswer = priceTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
       let financePrerequisite = ''
       if (financeTurn && !financeAnswer) {
@@ -767,9 +864,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           financeFailure = error instanceof Error && /^RPC_[a-z0-9_]+$/i.test(error.message) ? error.message.toUpperCase() : 'FINANCING_PROCESSING_FAILED'
         }
       }
-      const visitRequested = (extracted.events as string[]).includes('requested_visit')
+      const visitRequested = !appliedVisitAction && ((extracted.events as string[]).includes('requested_visit')
         || (canRequestVisit && visitDraft?.status === 'collecting' && !financeTurn
-          && (isVisitDetail(current) || needsVisitHelp(current) || visitTurnIntent(current)==='counterproposal'))
+          && (isVisitDetail(current) || needsVisitHelp(current) || visitTurnIntent(current)==='counterproposal')))
       if (financePrerequisite) {
         reply = financePrerequisite
         audit = { source: 'financing_selection_required' }
@@ -843,6 +940,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       }
     }
   }
+  if (appliedVisitAction) audit.completed_visit_action = appliedVisitAction
   if (inbound.mediaErrors.length) audit = {...audit, media_errors: inbound.mediaErrors}
   if (audit.source === 'visit_intake') {
     const info = await commercialContext(lead, context.historial)
@@ -860,8 +958,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     // checklist. Only an actual information gap should trigger human help.
     audit = { ...audit, answered_topics: prepared.topics.filter(topic => !completed.missing.includes(topic)) }
   }
+  // A specialist may protect its action, but must still account for other requests in the turn.
+  if (interpretation.requests.length > 1) audit.coverage_complete = false
   const plannedResponse = responsePlan(reply, audit)
-  audit = { ...audit, response_plan: plannedResponse }
+  const catalogBaseReply = audit.verified_catalog === true ? reply : ''
+  audit = { ...audit, response_plan: plannedResponse, turn_contract: CONVERSATION_CONTRACT_VERSION,
+    interpretation: interpretation.diagnostic }
+  trace.add('dialogue_decision', 'Decidir la respuesta y la siguiente pregunta', 'decision', 'conversation.ts · catalog-dialogue.ts', 'succeeded',
+    { primary_intent: turnSemantics.primary_intent, operation: object(turnSemantics.property).operation },
+    { source: text(audit.source) || 'commercial', action: text(audit.action) || null, catalog_query: audit.catalog_query,
+      result_unit_ids: object(audit.catalog_results).unit_ids, pending_question: audit.pending_question,
+      coverage_locked: plannedResponse.locked })
   if (!plannedResponse.locked && ['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model', 'product_clarification', 'team_attendance'].includes(text(audit.source))) {
     await guard()
     const engagement = commercialEngagement(current, context.historial, previousSummary._sales_memory)
@@ -871,11 +978,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (complete && respectsInterest) reply = composed.reply
     audit = { ...audit, ai_operational_copy: complete && respectsInterest && composed.generated, passive_sales: engagement.passive }
   }
-  if (!plannedResponse.locked && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification', 'commercial_location_budget'].includes(text(audit.source))) {
+  if (!finalNotice && !plannedResponse.locked && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
     const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
-      property_context: object(propertyTurn.context), semantica_turno: currentSemantics }
+      property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
+      solicitudes_interpretadas: interpretation.requests,
+      ...(audit.verified_catalog === true ? { catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)
@@ -883,19 +992,20 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
       preserveOperationalQuestion: ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
-    if (!invalidPrice) {
+    const catalogValidation = validateCatalogReply(reviewed.reply, audit)
+    if (!invalidPrice && catalogValidation.valid) {
       if(!financingCollectionIssues(reviewed.reply,audit,current)) reply = reviewed.reply
     }
     else {
       // Reject the rewrite, not the conversation. A valid catalogue quote does
       // not become an information gap because an AI draft changed its prices.
       // Keep genuine missing facts flagged by the review (e.g. an unknown fee).
-      reviewed.audit = { ...reviewed.audit, status: 'rejected_price_guard',
+      reviewed.audit = { ...reviewed.audit, status: invalidPrice ? 'rejected_price_guard' : 'rejected_catalog_guard',
         candidate_requests: reviewed.audit.requests, requests: [],
-        issues: ['unsupported_price_rewrite'], retained_verified_reply: true }
+        issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: true }
     }
     const requests = Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests.map(object) : []
-    const resolvedFromContext = !invalidPrice && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
+    const resolvedFromContext = !invalidPrice && catalogValidation.valid && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
     audit = { ...audit, turn_completeness: reviewed.audit, ...(pendingCommercialHandoff ? {
@@ -936,12 +1046,28 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const direct = directReply(currentTopicReply(sectorClaimsReply(reply),current),current)
   if(direct !== reply) audit.direct_reply_guard = true
   reply = naturalConversationReply(variedReplyOpening(direct, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
+  // The last prose transformation is checked too, before any external send.
+  const finalCatalogValidation = validateCatalogReply(reply, audit)
+  if (!finalCatalogValidation.valid && catalogBaseReply) {
+    reply = naturalConversationReply(catalogBaseReply, text(lead.name), turnGreeting, activeLast.sentAt)
+    if (locationRequestKind(current)) reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
+    if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
+    if (handoffNotice && !reply.includes(handoffNotice)) reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + handoffNotice
+    audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
+  }
+  const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
+  // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
+  const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
+    ? declaredPending : pendingQuestionFromReply(reply)
+  audit.pending_question = reply.includes('?') ? replyPending : {}
   if (!reply.trim() || reply.length > 3000) throw new Error('EMPTY_OR_LONG_REPLY')
   trace.finish(validationStep, 'succeeded', {
     response_length: reply.length,
     response_preview: traceText(reply, 280),
     direct_reply_adjusted: audit.direct_reply_guard === true,
     turn_completeness_checked: Boolean(audit.turn_completeness),
+    coverage_status: text(object(audit.turn_completeness).status) || (plannedResponse.locked ? 'protected_operational_reply' : 'deterministic_reply'),
+    catalog_guard: text(audit.final_catalog_guard) || (audit.verified_catalog === true ? 'passed' : 'not_applicable'),
   })
   const conversationId = text(inbound.registration.conversation_id)
   async function authorized() {
@@ -983,7 +1109,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
     p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
   trace.finish(deliveryStep, 'succeeded', {
-    action: 'accepted', provider: 'kommo_salesbot', response_registered: true,
+    action: 'accepted', provider: 'kommo_salesbot', response_registered: true, delivery_confirmed: false,
   })
   const stateStep = trace.start('state_persisted', 'Guardar estado y seguimientos', 'action', 'conversation.ts · nutrition.ts', {
     lead_id: text(lead.id),
@@ -991,11 +1117,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
   const sentModelId = text(object(audit.unit_model).unit_id)
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply),
+    _pending_requests: [],
     _last_operational_step: ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'financing_question' || audit.source === 'budget_financing_guidance') && /(?:iniciar|iniciemos|revisión|revisemos)/i.test(reply) && /\?/.test(reply)
       ? { kind: 'financing_consent', reply } : {},
     ...(audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),
-    _property_context: rememberPropertyReply(turnCatalog, summary._property_context || previousSummary._property_context, reply, audit),
-    _pending_question: pendingQuestionFromReply(reply),
+    _property_context: minimalTurn ? { ...previousPropertyContext, last_reply: reply,
+      ...(meaningfulText ? { pending_question: {}, focused_ids: [] } : {}) }
+      : rememberPropertyReply(turnCatalog, summary._property_context || previousSummary._property_context, reply, audit),
+    _pending_question: !meaningfulText ? previousSummary._pending_question || previousPropertyContext.pending_question || {} : audit.pending_question,
+    _interpretation_pending: !meaningfulText && Boolean(text(rememberedQuestion.id)),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),
     _brand_introduced: previousSummary._brand_introduced === true || /la\s*vilet/i.test(reply) || (Array.isArray(context.historial) ? context.historial.map(object) : []).some(row => ['bot', 'asesor'].includes(text(row.role)) && /la\s*vilet/i.test(text(row.content))),
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }

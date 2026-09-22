@@ -62,9 +62,11 @@ test('commercial and price paths use the same alternative without requiring a fi
   const {unitPriceQuote}=require('../src/lib/integrations/automation/price-reply.ts')
   const context={...info,alcance_negocio:'property',historial:[],politica_comercial:{precios_autorizados:true}}
   const commercial=await commercialReply(context,'Quiero un departamento de 5 dormitorios',{},async()=>{})
-  assert.equal(commercial.audit.source,'unit_alternative')
-  assert.match(commercial.reply,/no contamos con departamentos disponibles de 5 dormitorios/)
-  assert.match(commercial.reply,/comparemos ambas alternativas/)
+  assert.equal(commercial.audit.source,'catalog_search')
+  assert.match(commercial.reply,/no contamos con (?:departamentos|viviendas) disponibles de 5 dormitorios/)
+  assert.match(commercial.reply,/alternativas.*departamentos de 3 dormitorios.*penthouses/s)
+  assert.equal(commercial.audit.catalog_query.filters.bedrooms,5)
+  assert.deepEqual(commercial.audit.selected_unit_ids,[])
   assert.doesNotMatch(commercial.reply,/penthouse 602|presupuesto aproximado/)
   const price=unitPriceQuote(context,'Cuánto cuesta un departamento de 5 dormitorios?',{})
   assert.match(price.reply,/no contamos con departamentos disponibles de 5 dormitorios/)
@@ -86,8 +88,8 @@ test('a category declaration cannot suppress bedroom requirements or physical co
       assert.equal(continueUnitAlternative(context,current),null,current)
       if(current.includes('cuatro')) {
         const commercial=await commercialReply(context,current,{},async()=>({}))
-        assert.equal(commercial.audit.source,'unit_alternative')
-        assert.match(commercial.reply,/no contamos con departamentos disponibles de 4 dormitorios/)
+        assert.equal(commercial.audit.source,'catalog_search')
+        assert.match(commercial.reply,/no contamos con (?:departamentos|viviendas) disponibles de 4 dormitorios/)
       }
     }
   }
