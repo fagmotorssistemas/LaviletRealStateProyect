@@ -46,6 +46,7 @@ const labels: Record<string, string> = {
   property_excluded_categories: 'Categorías descartadas', unit_number: 'Número de unidad',
 }
 const values: Record<string, string> = {
+  invalid_coverage: 'Borrador descartado: ficha interna de redacción inválida',
   residential: 'Viviendas', commercial: 'Locales comerciales', property: 'Consulta inmobiliaria', mixed: 'Consulta inmobiliaria y otro tema', neutral: 'Sin intención comercial definida', out_of_scope: 'Consulta ajena al proyecto',
   search: 'Buscar opciones', rank: 'Ordenar opciones', compare: 'Comparar', select: 'Elegir una unidad', details: 'Mostrar detalles', none: 'Ninguno',
   catalog: 'Catálogo disponible', offered: 'Opciones ofrecidas', comparison: 'Opciones en comparación', selected: 'Unidades elegidas',
@@ -187,6 +188,8 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const summary = step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`
     : step.key === 'message_delivery' && output.action === 'accepted' ? 'Kommo aceptó iniciar Salesbot. Esto no confirma entrega ni lectura en WhatsApp.'
       : step.key === 'advisor_handoff' ? 'Este paso registra el intento de derivación y su resultado; el motivo debe estar respaldado por su propio registro.'
+        : step.key === 'response_coverage' && output.status === 'invalid_coverage'
+          ? `Se descartó el borrador antes de evaluar su contenido porque la ficha interna de la IA no pasó la validación. ${Array.isArray(output.issues) && output.issues.length ? 'Los controles muestran el campo, el valor recibido y lo esperado.' : 'Este registro antiguo no conserva el campo que falló.'} La decisión de derivar a un asesor se registra por separado.`
         : step.key === 'response_coverage' ? 'Se revisó si la respuesta atiende las solicitudes del mensaje. Los estados registrados permiten revisar esa decisión.'
           : 'Entradas y resultados conservados para este paso de la ejecución.'
   return {

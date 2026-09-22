@@ -186,15 +186,39 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   return [...new Set(issues)]
 }
 
-function coverageRows(value: unknown, current: string): Coverage[] | null {
-  if (!Array.isArray(value) || value.length > 12) return null
+function invalidField(issues: string[], field: string, value: unknown, expected: string) {
+  const received = value === undefined ? '(ausente)' : value === null ? 'null'
+    : typeof value === 'string' ? JSON.stringify(traceText(value, 220))
+    : typeof value === 'number' || typeof value === 'boolean' ? String(value)
+    : Array.isArray(value) ? `lista de ${value.length} elementos` : 'objeto'
+  issues.push(`${field}: recibido ${received}; se esperaba ${expected}.`)
+}
+
+function coverageRows(value: unknown, current: string, issues: string[]): Coverage[] | null {
+  if (!Array.isArray(value) || value.length > 12) {
+    invalidField(issues, 'requests', value, 'una lista de hasta 12 solicitudes')
+    return null
+  }
   const rows = value.map(object)
-  if (rows.some(row => !literal(text(row.fragment), current) || !text(row.intent).trim() || !requestTypes.includes(text(row.request_type)) || !states.includes(row.base_status as CoverageState) || !states.includes(row.status as CoverageState))) return null
+  const start = issues.length
+  rows.forEach((row, index) => {
+    const field = `requests[${index}]`
+    if (!literal(text(row.fragment), current)) invalidField(issues, `${field}.fragment`, row.fragment, 'un fragmento no vacío copiado literalmente del mensaje actual, conservando mayúsculas, tildes y puntuación')
+    if (!text(row.intent).trim()) invalidField(issues, `${field}.intent`, row.intent, 'una intención no vacía')
+    if (!requestTypes.includes(text(row.request_type))) invalidField(issues, `${field}.request_type`, row.request_type, requestTypes.join(', '))
+    for (const key of ['base_status', 'status']) if (!states.includes(row[key] as CoverageState)) invalidField(issues, `${field}.${key}`, row[key], states.join(', '))
+  })
+  if (issues.length > start) return null
   return rows as Coverage[]
 }
-function questionRow(value: unknown): Question | null {
+function questionRow(value: unknown, issues: string[]): Question | null {
   const row = object(value)
-  if (!['text', 'purpose', 'missing_datum', 'next_decision'].every(key => typeof row[key] === 'string') || !purposes.includes(text(row.purpose))) return null
+  const start = issues.length
+  for (const key of ['text', 'purpose', 'missing_datum', 'next_decision']) {
+    if (typeof row[key] !== 'string') invalidField(issues, `question.${key}`, row[key], 'un texto')
+  }
+  if (!purposes.includes(text(row.purpose))) invalidField(issues, 'question.purpose', row.purpose, purposes.join(', '))
+  if (issues.length > start) return null
   return row as Question
 }
 
@@ -249,8 +273,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (object(input.audit?.alternative_presentation).kind === 'category_overview') writingRules += '\nEsta respuesta presenta alternativas por categoría antes de elegir una. Conserve las superficies máximas verificadas de cada categoría y su cantidad de dormitorios. No la convierta en una lista de códigos de unidades, fichas, baños, superficies exteriores o plantas. Conserve el propósito de la pregunta pendiente: aceptar explorar alternativas o elegir la categoría que desea revisar primero. No añada categorías descartadas ni vuelva a opciones de menos dormitorios que las alternativas propuestas.'
     const candidate = await generate(COVERAGE_RULES + '\n' + FINAL_WRITER_RULES + RESIDENTIAL_CONTINUITY_RULES + writingRules + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
-    const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)
-    if (!rows || !declaredQuestion) return fallback('invalid_coverage')
+    const metadataIssues: string[] = []
+    const rows = coverageRows(candidate.requests, input.current, metadataIssues), declaredQuestion = questionRow(candidate.question, metadataIssues)
+    if (!rows || !declaredQuestion) return fallback('invalid_coverage', [], metadataIssues)
     requests = rows
     const reply = currentTopicReply(restoreProtectedBase(input.baseReply, text(candidate.reply).trim()),input.current)
     // A model may describe a proposed CTA in metadata without writing it. The

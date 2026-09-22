@@ -16,6 +16,33 @@ const { operationalCopyIssues } = require('../src/lib/integrations/automation/op
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [] }
+test('invalid coverage records exact field and expectation without accepting the draft', async () => {
+  const input = { current: 'Prefiero los departamentos', baseReply: 'Respuesta base.', verified: {} }
+  const cases = [
+    { requests: [covered('prefiero los departamentos')], question: noQuestion, field: 'requests[0].fragment' },
+    { requests: null, question: noQuestion, field: 'requests:' },
+    { requests: [covered(input.current)], question: { ...noQuestion, purpose: 'invented' }, field: 'question.purpose' },
+    { requests: [covered(input.current)], question: { ...noQuestion, next_decision: null }, field: 'question.next_decision' },
+    { requests: [{ ...covered(input.current), status: 'invented' }], question: noQuestion, field: 'requests[0].status' },
+  ]
+  for (const { field, ...metadata } of cases) {
+    const mock = model({ reply: 'Redacción propuesta.', ...metadata })
+    const result = await completeTurnReply(input, mock.generate)
+    assert.equal(result.audit.status, 'invalid_coverage')
+    assert.equal(result.reply, input.baseReply)
+    assert.equal(mock.calls.length, 1)
+    assert.ok(result.audit.issues.some(issue => issue.includes(field) && issue.includes('recibido') && issue.includes('se esperaba')))
+  }
+})
+
+test('invalid coverage diagnostics protect personal data in rejected values', async () => {
+  const result = await completeTurnReply({ current: 'Hola', baseReply: 'Hola.', verified: {} }, model({
+    reply: 'Hola.', requests: [covered('contacto: privado@example.com')], question: noQuestion,
+  }).generate)
+  assert.equal(result.audit.status, 'invalid_coverage')
+  assert.ok(result.audit.issues[0].includes('[correo protegido]'))
+  assert.ok(!JSON.stringify(result.audit.issues).includes('privado@example.com'))
+})
 function model(...answers) {
   const calls = []
   const generate = async (...args) => { calls.push(args); const next = answers[calls.length - 1]; if (next instanceof Error) throw next; return next }
