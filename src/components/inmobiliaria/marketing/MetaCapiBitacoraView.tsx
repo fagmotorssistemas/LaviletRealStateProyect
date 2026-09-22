@@ -7,13 +7,11 @@ import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
 import { Pagination } from '@/components/ui/Pagination'
-import { MetaCapiWhatsAppSection } from '@/components/inmobiliaria/marketing/MetaCapiWhatsAppSection'
 import { cn } from '@/lib/utils'
 import type {
   MetaCapiListFilters,
   MetaCapiOutboxResult,
   MetaCapiOutboxRow,
-  MetaCapiStatusBucket,
 } from '@/services/metaCapiOutbox.service'
 
 function formatWhen(iso: string | null | undefined, timeZone: string) {
@@ -171,17 +169,6 @@ function StatusBadge({ row }: { row: MetaCapiOutboxRow }) {
   )
 }
 
-const STATUS_OPTIONS: { value: MetaCapiStatusBucket; label: string }[] = [
-  { value: 'all', label: 'Todos los estados' },
-  { value: 'pending', label: 'Pendiente' },
-  { value: 'nest_received', label: 'Recibido por Nest' },
-  { value: 'meta_accepted', label: 'Aceptado por Meta' },
-  { value: 'blocked', label: 'Bloqueado' },
-  { value: 'failed_retrying', label: 'Fallido / reintentando' },
-  { value: 'unknown', label: 'Resultado desconocido' },
-  { value: 'retained', label: 'Actividad interna / backend pendiente' },
-]
-
 const emptyFilters = (): MetaCapiListFilters => ({
   statusBucket: 'all',
   lane: 'all',
@@ -257,7 +244,11 @@ export function MetaCapiBitacoraView() {
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-[#1f1a14]">Cola CAPI · Web / servidor</h2>
         <p className="text-[11px] text-[#6b645c]">
-          Indicadores de outbox Meta (no incluyen mensajes CRM WhatsApp). Separación por canal abajo.
+          Indicadores de outbox Meta.
+          {data
+            ? ` ${data.totalFiltered} registros · página ${data.page} · TZ ${tz}`
+            : null}
+          {data?.fetchedAt ? ` · actualizado ${formatWhen(data.fetchedAt, tz)}` : null}
         </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
           <KpiCard label="Total (alcance)" value={kpis?.total ?? '—'} />
@@ -287,141 +278,6 @@ export function MetaCapiBitacoraView() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-[#ece6dc] bg-white p-3 sm:p-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-            Desde
-            <input
-              type="date"
-              className="crm-field h-10 w-full min-w-0 rounded-xl border border-[#e5dfd4] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-              value={filters.dateFrom ?? ''}
-              onChange={(e) => apply({ dateFrom: e.target.value || null })}
-            />
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-            Hasta
-            <input
-              type="date"
-              className="crm-field h-10 w-full min-w-0 rounded-xl border border-[#e5dfd4] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-              value={filters.dateTo ?? ''}
-              onChange={(e) => apply({ dateTo: e.target.value || null })}
-            />
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-            Evento
-            <select
-              className="h-10 w-full min-w-0 rounded-xl border border-[#e5dfd4] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-              value={filters.eventName ?? 'all'}
-              onChange={(e) => apply({ eventName: e.target.value })}
-            >
-              <option value="all">Todos</option>
-              {(data?.eventNames ?? [
-                'ViewContent',
-                'Lead',
-                'Schedule',
-                'LeadSubmitted',
-                'AddToWishlist',
-                'Purchase',
-              ]).map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-            Estado
-            <select
-              className="h-10 w-full min-w-0 rounded-xl border border-[#e5dfd4] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-              value={filters.statusBucket ?? 'all'}
-              onChange={(e) => apply({ statusBucket: e.target.value as MetaCapiStatusBucket })}
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-            Lane
-            <select
-              className="h-10 w-full min-w-0 rounded-xl border border-[#e5dfd4] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-              value={filters.lane ?? 'all'}
-              onChange={(e) => apply({ lane: e.target.value as 'all' | 'test' | 'live' })}
-            >
-              <option value="all">Todas</option>
-              <option value="test">test</option>
-              <option value="live">live</option>
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-            Canal
-            <select
-              className="h-10 w-full min-w-0 rounded-xl border border-[#e5dfd4] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-              value={filters.channel ?? 'all'}
-              onChange={(e) =>
-                apply({ channel: e.target.value as 'all' | 'web' | 'whatsapp' | 'undetermined' })
-              }
-            >
-              <option value="all">Todos</option>
-              <option value="web">Web</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="undetermined">No determinado</option>
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-            Origen
-            <select
-              className="h-10 w-full min-w-0 rounded-xl border border-[#e5dfd4] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-              value={filters.origin ?? 'all'}
-              onChange={(e) => apply({ origin: e.target.value })}
-            >
-              <option value="all">Todos</option>
-              {(data?.origins ?? []).map((origin) => (
-                <option key={origin} value={origin}>
-                  {origin}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-            Dataset
-            <select
-              className="h-10 w-full min-w-0 rounded-xl border border-[#e5dfd4] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-              value={filters.dataset ?? 'all'}
-              onChange={(e) => apply({ dataset: e.target.value })}
-            >
-              <option value="all">Todos / sin dato</option>
-              {(data?.datasets ?? []).map((dataset) => (
-                <option key={dataset} value={dataset}>
-                  {dataset}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              const next = emptyFilters()
-              setFilters(next)
-              load(next)
-            }}
-            className="text-left text-[11px] font-semibold tracking-[0.12em] text-[#5b4a9a] uppercase"
-          >
-            Limpiar filtros
-          </button>
-          <p className="text-[11px] leading-relaxed tabular-nums text-[#8a8176]">
-            {data
-              ? `${data.totalFiltered} registros · página ${data.page} · TZ ${tz}`
-              : null}
-            {data?.fetchedAt ? ` · actualizado ${formatWhen(data.fetchedAt, tz)}` : null}
-          </p>
-        </div>
-      </section>
-
       <section className="overflow-hidden rounded-2xl border border-[#ece6dc] bg-white">
         {pending && rows.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#8a8176]">
@@ -444,7 +300,7 @@ export function MetaCapiBitacoraView() {
             <EmptyState
               icon={Megaphone}
               title="Sin eventos"
-              description="No hay filas en la cola CAPI para este alcance y filtros."
+              description="No hay filas en la cola CAPI para este alcance."
             />
           </div>
         ) : (
@@ -556,8 +412,6 @@ export function MetaCapiBitacoraView() {
           </>
         )}
       </section>
-
-      {data?.whatsapp ? <MetaCapiWhatsAppSection whatsapp={data.whatsapp} tz={tz} /> : null}
     </div>
   )
 }
