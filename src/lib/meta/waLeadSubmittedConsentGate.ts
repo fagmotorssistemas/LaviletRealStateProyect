@@ -1,14 +1,9 @@
 /**
- * Gate consentimiento LeadSubmitted (fuente autorizada: leads + evidencia).
- * meta_ads_consent === true no basta: hace falta mensaje, fecha y alcance whatsapp_ads.
- * Contacto / cookies / tracking_consent no autorizan.
+ * Gate consentimiento LeadSubmitted (fuente: leads.meta_ads_consent).
+ * Configuración operativa: solo rechazo/revocación explícita (`=== false`) cancela.
+ * Ausente/null no bloquea encolar ni enviar. No registra consentimiento ficticio.
+ * Contacto / cookies / tracking_consent no autorizan ni sustituyen este gate.
  */
-
-import {
-  hasVerifiableWaAdsConsentEvidence,
-  waAdsConsentEvidenceBlockReason,
-  type WaAdsConsentEvidenceFields,
-} from '@/lib/meta/waLeadSubmittedConsentEvidence'
 
 export type WaLeadSubmittedConsentAction =
   | 'allow_send'
@@ -40,6 +35,7 @@ export function decideWaLeadSubmittedConsentGate(input: {
   eventTenantId?: string | null
   eventProjectId?: string | null
   eventContactId?: string | null
+  /** Conservados por compatibilidad de llamadas; ya no condicionan el envío. */
   evidenceMessage?: string | null
   evidenceAt?: string | null
   evidenceScope?: string | null
@@ -64,17 +60,12 @@ export function decideWaLeadSubmittedConsentGate(input: {
     return { action: 'cancel_revoked', reason: 'ads_consent_false' }
   }
 
-  const evidence: WaAdsConsentEvidenceFields = {
-    meta_ads_consent: input.metaAdsConsent,
-    meta_ads_consent_evidence_message: input.evidenceMessage,
-    meta_ads_consent_evidence_at: input.evidenceAt,
-    meta_ads_consent_scope: input.evidenceScope,
+  // true, null o undefined: permitir (no convertir null→true en BD).
+  return {
+    action: 'allow_send',
+    reason:
+      input.metaAdsConsent === true
+        ? 'ads_consent_true'
+        : 'ads_consent_absent_allowed',
   }
-  if (!hasVerifiableWaAdsConsentEvidence(evidence)) {
-    return {
-      action: 'hold_pending',
-      reason: waAdsConsentEvidenceBlockReason(evidence) || 'ads_consent_not_true',
-    }
-  }
-  return { action: 'allow_send', reason: 'ads_consent_true_with_evidence' }
 }

@@ -14,7 +14,6 @@ import {
 } from '@/lib/meta/waLeadSubmittedContract'
 import { evaluateWaLeadSubmittedEligibility } from '@/lib/meta/waLeadSubmittedEligibility'
 import { decideWaLeadSubmittedConsentGate } from '@/lib/meta/waLeadSubmittedConsentGate'
-import { hasVerifiableWaAdsConsentEvidence } from '@/lib/meta/waLeadSubmittedConsentEvidence'
 import {
   isWaLeadSubmittedDeliveryEnabled,
   isWaLeadSubmittedEnabled,
@@ -335,18 +334,8 @@ export async function maybeRegisterWaLeadSubmitted(input: {
     }
   }
 
-  const adsConsentOk =
-    gate.action === 'allow_send' &&
-    hasVerifiableWaAdsConsentEvidence({
-      meta_ads_consent: consentRow?.meta_ads_consent as boolean | null,
-      meta_ads_consent_evidence_message: consentRow?.meta_ads_consent_evidence_message as
-        | string
-        | null,
-      meta_ads_consent_evidence_at: consentRow?.meta_ads_consent_evidence_at
-        ? String(consentRow.meta_ads_consent_evidence_at)
-        : null,
-      meta_ads_consent_scope: consentRow?.meta_ads_consent_scope as string | null,
-    })
+  // No inventar true en BD: gate allow incluye null/ausente; false ya canceló arriba.
+  const adsConsentOk = gate.action === 'allow_send'
 
   const deliveryEnabled = isWaLeadSubmittedDeliveryEnabled(env)
   const plan = planWaLeadSubmitted({

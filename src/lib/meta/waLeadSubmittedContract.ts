@@ -53,7 +53,10 @@ export type WaLeadSubmittedPlanInput = {
   deliveryEnabled: boolean
   greetingOnly: boolean
   commercialInterest: boolean
-  /** meta_ads_consent === true + evidencia whatsapp_ads (fecha/mensaje/alcance). */
+  /**
+   * false solo si rechazo/revocación explícita (`meta_ads_consent === false`).
+   * Ausente/null se trata como permitido en plan (no escribe consentimiento).
+   */
   adsConsent: boolean
   ctwaClid: string | null | undefined
   wabaId: string | null | undefined

@@ -12,38 +12,34 @@ Estados del trabajo (actualizar al ejecutar):
 | **Validación CTWA real pendiente** | Sin evidencia de que Kommo entregue `ctwa_clid`; 0 filas en atribución prod |
 | **Activación de conversiones pendiente** | Flags OFF; no envíos Meta BM reales autorizados aquí |
 
-### Consentimiento WhatsApp ads (operativo)
+### Consentimiento WhatsApp ads (operativo — configuración)
 
-**Cómo se ejecuta `lv_set_whatsapp_meta_ads_consent` hoy**
+**Registro de aceptación (opcional; no es gate de envío)**
 
 - **No hay pantalla CRM** que registre aceptación en nombre del cliente.
-- Se reconoce **automáticamente** cuando llega un mensaje **del cliente** por WhatsApp (webhook Kommo → `processConversation` / evaluación fuera del bot) y el texto coincide con aceptación **explícita** de medición/publicidad **Meta** (alcance `whatsapp_ads`).
-- Cadena: mensaje entrante → `applyWhatsappAdsConsentFromClientMessage` → RPC `lv_set_whatsapp_meta_ads_consent` (evidencia: mensaje + fecha + scope).
-- Frases genéricas («acepto publicidad»), **preguntas**, **negaciones** y **citas** **no** conceden.
-- `tracking_consent`, cookies y casilla de contacto del showroom **no** sustituyen este alcance.
-- Revocación (`detectsWhatsappAdsConsentRevoke` → RPC false) cancela outbox `pending` / `needs_review` / `review_hold` con `ads_consent_required` **antes** del envío (RPC + defensa FE).
+- Si el cliente escribe aceptación explícita de medición/publicidad Meta, se reconoce vía `applyWhatsappAdsConsentFromClientMessage` → RPC `lv_set_whatsapp_meta_ads_consent` (evidencia: mensaje + fecha + scope `whatsapp_ads`).
+- Frases genéricas, preguntas, negaciones y citas **no** conceden.
+- `tracking_consent`, cookies y casilla de contacto del showroom **no** sustituyen este alcance ni se modifican aquí.
 
-### Flujo utilizable para solicitar el consentimiento (sin bot auto)
+**Gate LeadSubmitted (config del producto)**
 
-No podemos depender de que el cliente mencione Meta espontáneamente.
+- Encolar/enviar **no** exige `meta_ads_consent=true` ni evidencia `whatsapp_ads`.
+- Ausente/`null` **permite** el flujo si hay interés, CTWA, contacto, tenant/proyecto y dataset.
+- Revocación (`detectsWhatsappAdsConsentRevoke` → `meta_ads_consent=false`) **sí** cancela outbox `pending` / `needs_review` / `review_hold` con `ads_consent_required` antes del envío.
+- Esto **no** es una validación legal; es la configuración operativa actual del pipeline.
 
-1. Bitácora `/inmobiliaria/marketing/capi` (sección WhatsApp) muestra bloqueos `ads_consent_*` tras **interés comercial** (sella `meta_wa_commercial_interest_at`).
-2. Asesor copia el **script** de la misma sección («Consentimiento Meta») o `WA_ADS_CONSENT_REQUEST_SCRIPT` en código.
-3. Lo envía **manual** por Kommo (canal `advisor_manual_kommo`). El bot **no** lo dispara.
-4. Cliente responde: *«Acepto que usen mis datos para medición publicitaria de Meta»*.
-5. **La aceptación reutiliza el sello de interés reciente (ventana 48h)** y puede encolar si hay CTWA + evidencia. **No** exige otro mensaje comercial. **La aceptación sola** (sin sello) **no** es interés. **No** hay backfill de mensajes antiguos.
+### Script de solicitud (asesor manual; opcional)
 
-Ofertas de **bot o asesor** cuentan como contexto para «el más grande» / «esa»; sin oferta de unidades, esa frase no convierte.
-
-Código: `src/lib/meta/waLeadSubmittedConsentRequest.ts`.
-
-El cliente debe escribir algo inequívoco; no se envían mensajes automáticos del bot para pedirlo.
+1. Bitácora `/inmobiliaria/marketing/capi` (sección WhatsApp) puede mostrar bloqueos no-consent (CTWA, interés, etc.).
+2. Asesor puede copiar el script «Consentimiento Meta» si se desea evidencia explícita.
+3. Lo envía **manual** por Kommo. El bot **no** lo dispara.
+4. La aceptación **sola** (sin interés sellado) **no** es interés comercial. **No** hay backfill de mensajes antiguos.
 
 ### Llegada tardía de consentimiento o CTWA
 
-- Un turno **nuevo** con interés comercial puede encolar si ya hay evidencia + CTWA scoped.
+- Un turno **nuevo** con interés comercial puede encolar si hay CTWA scoped (consent ausente OK; false bloquea).
 - No hay backfill de saludos ni de mensajes históricos.
-- Sin CTWA/consent no se sella `meta_wa_lead_submitted_event_id` (permite reintento real).
+- Sin CTWA no se sella `meta_wa_lead_submitted_event_id` (permite reintento real).
 
 ---
 

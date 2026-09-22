@@ -360,7 +360,7 @@ describe('planWaLeadSubmitted', () => {
     assert.equal(p.retainAttention, true)
   })
 
-  it('sin consentimiento ads: bloqueo', () => {
+  it('sin consentimiento ads (revocado): bloqueo', () => {
     const p = planWaLeadSubmitted({ ...base, adsConsent: false })
     assert.equal(p.canEnqueuePending, false)
     assert.ok(p.blockers.includes('ads_consent_required'))
@@ -424,25 +424,25 @@ describe('waLeadSubmittedConsentGate', () => {
     eventContactId: 'c1',
   }
 
-  it('true + evidencia permite envío', () => {
+  it('true permite envío', () => {
     assert.equal(decideWaLeadSubmittedConsentGate(scoped).action, 'allow_send')
   })
 
-  it('true sin evidencia no permite envío', () => {
+  it('true sin evidencia también permite (evidencia no es gate)', () => {
     assert.equal(
       decideWaLeadSubmittedConsentGate({ ...scoped, evidenceMessage: null }).action,
-      'hold_pending',
+      'allow_send',
     )
   })
 
-  it('false / null / error / ausente no permiten envío', () => {
+  it('null/ausente permiten; false cancela; error/lead ausente hold', () => {
+    assert.equal(
+      decideWaLeadSubmittedConsentGate({ ...scoped, metaAdsConsent: null }).action,
+      'allow_send',
+    )
     assert.equal(
       decideWaLeadSubmittedConsentGate({ ...scoped, metaAdsConsent: false }).action,
       'cancel_revoked',
-    )
-    assert.equal(
-      decideWaLeadSubmittedConsentGate({ ...scoped, metaAdsConsent: null }).action,
-      'hold_pending',
     )
     assert.equal(
       decideWaLeadSubmittedConsentGate({ ...scoped, queryOk: false }).action,

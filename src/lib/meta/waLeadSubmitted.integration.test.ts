@@ -88,14 +88,8 @@ function mockAdmin(state: {
         return { data: 'log-id', error: null }
       }
       if (name === 'lv_register_wa_lead_submitted_intent') {
-        if (state.lead.meta_ads_consent !== true) {
-          return { data: { ok: false, reason: 'ads_consent_required' }, error: null }
-        }
-        if (!state.lead.meta_ads_consent_evidence_message) {
-          return {
-            data: { ok: false, reason: 'ads_consent_evidence_message_required' },
-            error: null,
-          }
+        if (state.lead.meta_ads_consent === false) {
+          return { data: { ok: false, reason: 'ads_consent_revoked' }, error: null }
         }
         if (state.lead.meta_wa_lead_submitted_event_id) {
           return {
@@ -173,7 +167,7 @@ describe('waLeadSubmitted integration', () => {
     assert.equal(lead.meta_wa_lead_submitted_event_id, result.eventId)
   })
 
-  it('consentimiento ausente: bloquea con motivo, sin fingir éxito', async () => {
+  it('consentimiento ausente: encola (no exige true ni evidencia)', async () => {
     const lead = {
       id: LEAD_ID,
       meta_ads_consent: null,
@@ -202,10 +196,10 @@ describe('waLeadSubmitted integration', () => {
       currentMessage: 'Quiero comprar un departamento de 2 dormitorios',
       env: envOn,
     })
-    assert.equal(result.stage, 'blocked')
-    assert.match(String(result.reason), /ads_consent/)
-    assert.equal(result.eventId, null)
-    assert.equal(lead.meta_wa_lead_submitted_event_id, null)
+    assert.equal(result.stage, 'enqueued')
+    assert.ok(result.eventId)
+    assert.equal(lead.meta_ads_consent, null)
+    assert.equal(lead.meta_wa_lead_submitted_event_id, result.eventId)
   })
 
   it('CTWA ausente: bloquea whatsapp_ctwa_clid_required sin sellar event_id', async () => {
@@ -328,7 +322,7 @@ describe('waLeadSubmitted integration', () => {
     assert.ok(p.blockers.includes('wa_lead_submitted_delivery_inactive'))
   })
 
-  it('evidencia: meta_ads_consent true sin mensaje no basta', () => {
+  it('evidencia helper exige true+mensaje; gate de envío no (ausente OK)', () => {
     assert.equal(
       hasVerifiableWaAdsConsentEvidence({
         meta_ads_consent: true,
@@ -351,7 +345,18 @@ describe('waLeadSubmitted integration', () => {
       leadProjectId: PROJECT_A,
       eventProjectId: PROJECT_A,
     })
-    assert.equal(gate.action, 'hold_pending')
+    assert.equal(gate.action, 'allow_send')
+    const absent = decideWaLeadSubmittedConsentGate({
+      queryOk: true,
+      leadFound: true,
+      metaAdsConsent: null,
+      eventContactId: '55',
+      leadTenantId: TENANT_A,
+      eventTenantId: TENANT_A,
+      leadProjectId: PROJECT_A,
+      eventProjectId: PROJECT_A,
+    })
+    assert.equal(absent.action, 'allow_send')
   })
 
   it('llegada tardía: sin sellado previo, un turno nuevo con CTWA puede encolar', async () => {
@@ -477,13 +482,13 @@ describe('waLeadSubmitted integration', () => {
         'Estas son las opciones disponibles: el penthouse 602 y el 605.',
       env: envOn,
     })
-    // Interés sí; bloquea por consentimiento (no por commercial_interest_required)
-    assert.equal(result.stage, 'blocked')
-    assert.match(String(result.reason), /ads_consent/)
+    assert.equal(result.stage, 'enqueued')
+    assert.ok(result.eventId)
     assert.ok(lead.meta_wa_commercial_interest_at)
+    assert.equal(lead.meta_ads_consent, null)
   })
 
-  it('CTWA + «más información sobre esto»: interés sí; bloqueo ads_consent (no commercial_interest)', async () => {
+  it('CTWA + «más información sobre esto»: interés sí; consentimiento ausente no bloquea', async () => {
     const lead = {
       id: LEAD_ID,
       meta_ads_consent: null,
@@ -513,10 +518,10 @@ describe('waLeadSubmitted integration', () => {
       currentMessage: 'Hola. ¿Puedo obtener más información sobre esto?',
       env: envOn,
     })
-    assert.equal(result.stage, 'blocked')
-    assert.match(String(result.reason), /ads_consent/)
+    assert.equal(result.stage, 'enqueued')
     assert.notEqual(result.reason, 'commercial_interest_required')
     assert.ok(lead.meta_wa_commercial_interest_at)
+    assert.equal(lead.meta_ads_consent, null)
   })
 
   it('misma frase sin CTWA: bloquea commercial_interest_required', async () => {

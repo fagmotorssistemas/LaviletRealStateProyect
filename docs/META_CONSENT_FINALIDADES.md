@@ -8,7 +8,7 @@ Documento de auditoría (2026-09-22). **No cambia flags ni envíos** por sí sol
 | --- | --- | --- | --- |
 | **A. Atención solicitada** | Responder al inbound del cliente (ventana 24h / bot / asesor) | No | `bot_enabled`, reglas conversación — **independiente** de `meta_ads_consent` |
 | **B. Analítica interna** | Contar leads, temperatura, citas, ventas, embudo | No | Informe CRM / `fetchMarketingFunnelMetrics` — **sin** consentimiento ads |
-| **C. Medición publicitaria (CAPI)** | Enviar `LeadSubmitted` / `Lead` / `ViewContent` / `Schedule` a Meta | Política Meta + LOPDP Ecuador | `meta_ads_consent === true` (+ CTWA/IDs BM donde aplique) |
+| **C. Medición publicitaria (CAPI)** | Enviar `LeadSubmitted` / `Lead` / `ViewContent` / `Schedule` a Meta | Política Meta + LOPDP Ecuador | **LeadSubmitted WA (config):** bloquea solo `meta_ads_consent === false`; ausente OK + CTWA/IDs. **Web Lead/VC/Schedule:** siguen sus propios gates (incl. consentimiento showroom/cookies donde aplique). |
 | **D. Mensajes promocionales proactivos** | Templates marketing fuera de ventana de servicio | Opt-in WhatsApp business messaging | Distinto de CAPI; no confundir con (C) |
 
 Iniciar el chat **no** concede (C) ni (D). Eso es correcto.
@@ -29,8 +29,8 @@ Fuente: [Conversions API for Business Messaging](https://developers.facebook.com
 - Compartir identificadores/comportamiento con Meta para optimizar anuncios (C) es un tratamiento de **medición/publicidad** que conviene basar en aviso claro + aceptación o en otra base legítima documentada por asesoría legal (no inventada aquí).
 
 ### Restricciones **añadidas por nuestro código** (no dictadas literalmente por CAPI BM)
-- NLP estricto: solo concede si el cliente escribe formulaciones tipo «acepto publicidad / autorizo anuncios» (`waLeadSubmittedConsent.ts`).
-- Nest/FE: envío `LeadSubmitted` solo si `meta_ads_consent === true` + scope.
+- NLP estricto: solo **registra** aceptación si el cliente escribe formulaciones tipo «acepto publicidad / autorizo anuncios» (`waLeadSubmittedConsent.ts`). No auto-concede.
+- Nest/FE LeadSubmitted WA: envío permitido con `meta_ads_consent` ausente/`null`/`true`; **cancela** solo si `=== false` (+ scope contacto/tenant/proyecto).
 - Interés comercial gate aparte (`explicitPropertyInterest`) — calidad de conversión, no consentimiento.
 
 ## 3. Flujo menos intrusivo propuesto (sin auto-consent)

@@ -5,7 +5,7 @@
 | Vista ficha / tour unidad | `ViewContent` | `website` | Pixel/web `923439043758658` | `content_ids`, consent ads web | `MetaViewContentUnit` → `/api/meta/enqueue` | visit key / idempotency |
 | Lead web identificado | `Lead` | `website` | web | hashed PII, consent | identify + outbox | `lead:{lead_id}` |
 | Cita confirmada (web) | `Schedule` | `website` | web | appointment scope | post-confirm + flags Schedule | `schedule:{appointment_id}` |
-| Interés lead en hilo WA CTWA | `LeadSubmitted` | `business_messaging` | `4419657838288963` | `ctwa_clid`, WABA, consent WA | `maybeRegisterWaLeadSubmitted` | `wa_lead_submitted:{lead_id}` |
+| Interés lead en hilo WA CTWA | `LeadSubmitted` | `business_messaging` | `4419657838288963` | `ctwa_clid`, WABA; bloqueo solo `meta_ads_consent=false` | `maybeRegisterWaLeadSubmitted` | `wa_lead_submitted:{lead_id}` |
 | Cita por WhatsApp BM | `Schedule` BM | — | — | — | **Rechazado** Nest (`business_messaging_schedule_not_supported_by_meta`) | — |
 | Venta / cierre | `Purchase` BM o web | — | — | value/currency | **No implementado** en Nest tipado | Propuesta: `purchase:{sale_id}` |
 

@@ -50,13 +50,13 @@ Elegible solo si en **este turno** hay interés comercial verificable:
 
 Respuestas ambiguas (`ok`, `sí`, `gracias`) sin evidencia del turno → bloqueo `commercial_interest_required`.
 
-## Consentimiento publicidad
+## Consentimiento publicidad (configuración operativa LeadSubmitted)
 
-- **No** se concede al iniciar la conversación.
-- Distinto de `tracking_consent` (novedades / nutrición).
-- Exige `leads.meta_ads_consent === true` vía afirmación explícita; se guarda **evidencia** (mensaje del cliente, fecha, alcance `whatsapp_ads`).
-- Nunca concede: “no acepto publicidad”, citas (`>` / comillas), texto del bot / atribuciones a terceros.
-- Revocación cancela outbox `pending` / `needs_review` / `review_hold`; revalidación en DB antes de persistir.
+- **No** se escribe `meta_ads_consent=true` al iniciar la conversación ni al encolar.
+- Distinto de `tracking_consent` (novedades / nutrición) y del consentimiento showroom/cookies/Pixel web.
+- **Gate de envío WA LeadSubmitted:** solo `meta_ads_consent === false` (rechazo/revocación) cancela. Ausente/`null` **no** bloquea encolar ni enviar (decisión de configuración del producto).
+- Si el cliente acepta explícitamente, se puede guardar evidencia (mensaje, fecha, alcance `whatsapp_ads`); eso **no** es requisito de encolado.
+- Revocación cancela outbox `pending` / `needs_review` / `review_hold`; revalidación en DB antes de Graph.
 
 ## Controles (default OFF)
 
