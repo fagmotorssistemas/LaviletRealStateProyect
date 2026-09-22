@@ -1,0 +1,131 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import { ArrowRight, ChevronRight, RefreshCw, Search } from 'lucide-react'
+import type { WorkflowExecution } from './executionWorkflow'
+import { conversationGroups, explainStep, humanValue, statusLabel, stepTitle, type ExplanationFact } from './messageExplanation'
+import styles from './MessageTraceView.module.css'
+
+export function MessageTraceView() {
+  const [executions, setExecutions] = useState<WorkflowExecution[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+  const [groupId, setGroupId] = useState('')
+  const [batchId, setBatchId] = useState('')
+  const [stepOrder, setStepOrder] = useState<number | null>(null)
+  const pendingRequest = useRef<AbortController | null>(null)
+  const panel = useRef<HTMLElement>(null)
+  const load = useCallback(async (cursor?: string) => {
+    pendingRequest.current?.abort()
+    const controller = new AbortController()
+    pendingRequest.current = controller
+    setLoading(true); setError('')
+    try {
+      const response = await fetch(`/api/integrations/automation/workflow${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { cache: 'no-store', signal: controller.signal })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error || 'No se pudo leer la bitácora')
+      if (controller.signal.aborted) return
+      const incoming: WorkflowExecution[] = Array.isArray(body.executions) ? body.executions : []
+      setExecutions(previous => cursor ? [...new Map([...previous, ...incoming].map(item => [item.id, item])).values()] : incoming)
+      setNextCursor(typeof body.nextCursor === 'string' ? body.nextCursor : null)
+    } catch (error) {
+      if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'No se pudo leer la bitácora')
+    } finally { if (!controller.signal.aborted) setLoading(false) }
+  }, [])
+  useEffect(() => { void load(); return () => pendingRequest.current?.abort() }, [load])
+  const groups = useMemo(() => conversationGroups(executions.filter(item => !query.trim()
+    || `${item.leadName} ${item.message} ${item.outcome}`.toLocaleLowerCase('es').includes(query.trim().toLocaleLowerCase('es')))), [executions, query])
+  const group = groups.find(item => item.id === groupId) || groups[0]
+  const batch = group?.batches.find(item => item.id === batchId) || group?.batches[0]
+  const execution = batch?.execution
+  const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
+  const step = steps.find(item => item.order === stepOrder) || steps.find(item => item.key === 'dialogue_decision') || steps[0]
+  const explanation = execution && step ? explainStep(execution, step) : null
+  const handoffs = steps.filter(item => item.key === 'advisor_handoff')
+  const selectStep = (order: number) => { setStepOrder(order); panel.current?.focus() }
+
+  return <section className={styles.trace} aria-label="Mensajes y decisiones reales">
+    <header className={styles.toolbar}>
+      <div><h2>Mensajes y decisiones</h2><p>Registros de ejecución. Los resúmenes protegen datos personales y pueden estar abreviados.</p></div>
+      <button type="button" className={styles.button} onClick={() => void load()} disabled={loading}><RefreshCw size={14} />{loading ? 'Cargando…' : 'Actualizar'}</button>
+    </header>
+    <div className={styles.filters}>
+      <label><span>Buscar en los registros cargados</span><div className={styles.search}><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Nombre, mensaje o resultado" /></div></label>
+      <label><span>Conversación</span><select aria-label="Conversación" value={group?.id || ''} onChange={event => { setGroupId(event.target.value); setBatchId(''); setStepOrder(null) }} disabled={!groups.length}>
+        {!groups.length && <option value="">Sin registros</option>}
+        {groups.map((item, index) => <option value={item.id} key={item.id}>{item.label} · {item.known ? `Conversación ${index + 1}` : 'Conversación no identificada'} · {item.batches.length} mensajes o lotes</option>)}
+      </select></label>
+    </div>
+    {error && <p className={styles.error} role="alert">{error}</p>}
+    {!execution ? <div className={styles.empty}>{loading ? 'Cargando mensajes…' : query ? 'No hay coincidencias entre los registros cargados. Puede cargar mensajes anteriores.' : 'Todavía no hay ejecuciones disponibles para sus proyectos.'}</div>
+      : <div className={styles.layout}>
+        <nav className={styles.messages} aria-label="Mensajes de la conversación">
+          <h3>{group?.label}</h3>
+          {!group?.known && <p className={styles.muted}>No se guardó el identificador de conversación. Este evento se muestra por separado.</p>}
+          {group?.batches.map(item => <button type="button" key={item.id} className={styles.message} aria-pressed={item.id === batch?.id}
+            onClick={() => { setBatchId(item.id); setStepOrder(null) }}>
+            <time>{formatDate(item.execution.receivedAt || item.execution.occurredAt)}</time>
+            <strong>{item.execution.message || (item.execution.kind === 'maintenance' ? 'Tarea automática' : 'Mensaje sin vista previa')}</strong>
+            <span>{item.execution.outcome}</span>
+            <small>{item.total > 1 ? `Lote de ${item.total} mensajes` : 'Un mensaje'} · {item.execution.steps.length ? `${item.execution.steps.length} pasos registrados` : 'Sin pasos registrados'}</small>
+          </button>)}
+        </nav>
+        <div className={styles.main}>
+          <header className={styles.messageHeading}>
+            <div><span className={styles.eyebrow}>{batch && batch.total > 1 ? 'Mensajes procesados juntos' : 'Mensaje seleccionado'} · {formatDate(execution.receivedAt || execution.occurredAt)}</span>
+              <h3>{execution.leadName}</h3></div>
+            <span className={styles.badge} data-tone={execution.traceAvailable ? 'observed' : 'missing'}>{execution.traceAvailable ? 'Pasos registrados' : 'Evidencia incompleta'}</span>
+          </header>
+          <div className={styles.messageContent}>{batch?.members.map(member => <blockquote key={member.id}>{member.message || 'El contenido del mensaje no está disponible en esta bitácora.'}</blockquote>)}</div>
+          {batch && batch.total > batch.members.length && <p className={styles.notice}>El registro indica {batch.total} mensajes en este lote; hay {batch.members.length} vistas previas cargadas. Los pasos son compartidos, no una ejecución independiente por cada mensaje.</p>}
+          {batch && batch.total > 1 && batch.total === batch.members.length && <p className={styles.muted}>Estos mensajes pertenecen al mismo lote registrado y comparten el recorrido.</p>}
+          <p className={styles.outcome}>{execution.outcome}{execution.action === 'accepted' ? ' · Entrega y lectura en WhatsApp sin confirmar.' : ''}</p>
+          {!steps.length ? <div className={styles.empty}>
+            <h4>{execution.traceWarning === 'AUDIT_READ_FAILED' ? 'No se pudo leer la bitácora' : 'No hay pasos registrados para este evento'}</h4>
+            <p>El resultado disponible no permite reconstruir qué interpretó el bot, qué datos consultó ni por qué tomó una decisión. La ruta histórica sería inferida y no se presenta como observada.</p>
+          </div> : <>
+            <ol className={styles.steps} aria-label="Pasos observados de este mensaje">{steps.map(item => <li key={item.order}>
+              <button type="button" aria-pressed={item.order === step?.order} onClick={() => setStepOrder(item.order)} data-status={item.status}>
+                <span className={styles.stepNumber}>{item.order.toString().padStart(2, '0')}</span><span><strong>{stepTitle(item)}</strong><small>{statusLabel(item.status)} · {duration(item.durationMs)}</small></span><ChevronRight size={14} />
+              </button>
+            </li>)}</ol>
+            {explanation && step && <section className={styles.detail} ref={panel} tabIndex={-1} aria-label="Explicación del paso seleccionado" aria-live="polite">
+              <header><div><span className={styles.eyebrow}>Paso {step.order} · {statusLabel(step.status)}</span><h4>{explanation.title}</h4></div><span className={styles.badge} data-tone="observed">Observado en el registro</span></header>
+              <p className={styles.summary}>{explanation.summary}</p>
+              <FactSection title="Qué información utilizó" facts={explanation.used} empty="No se guardaron entradas legibles para este paso." />
+              <FactSection title="Qué encontró" facts={explanation.found} empty="No se guardaron resultados detallados para este paso." />
+              {explanation.units.length > 0 && <div className={styles.units}><table><caption>Unidades según la instantánea de esta ejecución</caption><thead><tr><th>Unidad</th><th>Dormitorios</th><th>Planta</th><th>Interior</th><th>Exterior</th></tr></thead><tbody>
+                {explanation.units.map(unit => <tr key={unit.id}><th scope="row">{unit.category || 'Unidad'} {unit.unit_number}</th><td>{measurement(unit.bedrooms)}</td><td>{measurement(unit.floor_number)}</td><td>{measurement(unit.area_internal_m2, ' m²')}</td><td>{measurement(unit.area_exterior_m2, ' m²')}</td></tr>)}
+              </tbody></table></div>}
+              <div className={styles.decision}><h5>Qué decidió y por qué</h5><dl>
+                <div><dt>Origen</dt><dd>{explanation.origin}</dd></div><div><dt>Motivo registrado</dt><dd>{explanation.reason}</dd></div>
+                <div><dt>Regla registrada</dt><dd>{explanation.rule}</dd></div><div><dt>Resultado</dt><dd>{explanation.outcome}</dd></div>
+              </dl></div>
+              {explanation.cause ? <button className={styles.cause} type="button" onClick={() => selectStep(explanation.cause!.order)}>Ver el paso causante registrado: {explanation.cause.order}. {stepTitle(explanation.cause)}<ArrowRight size={15} /></button>
+                : (explanation.missingCause || step.key === 'advisor_handoff') && <p className={styles.notice}>{explanation.missingCause ? 'El paso causante está referenciado, pero no está disponible en esta ejecución.' : 'No se registró un vínculo al paso causante. La causa no se deduce de la cercanía entre nodos.'}</p>}
+              {explanation.linkedActions.map(action => <button className={styles.cause} key={action.order} type="button" onClick={() => selectStep(action.order)}>Ver derivación vinculada a esta decisión: paso {action.order}<ArrowRight size={15} /></button>)}
+              <div className={styles.review}><strong>Qué revisar</strong><p>{explanation.review}</p>{explanation.setting ? <p>{explanation.setting.kind}: {explanation.setting.href
+                ? <Link href={explanation.setting.href}>{explanation.setting.label}<ArrowRight size={13} /></Link> : explanation.setting.label}</p> : <p>No se registró un ajuste editable responsable de este paso.</p>}{explanation.setting?.source && <p>Módulo responsable: <code>{explanation.setting.source}</code></p>}</div>
+              {step.key !== 'advisor_handoff' && <div className={styles.related}><strong>Derivaciones de esta ejecución</strong>{handoffs.length ? <><p>Estos enlaces muestran registros de acción; solo un vínculo causal explícito demuestra su relación con el paso seleccionado.</p>{handoffs.map(action => <button className={styles.button} key={action.order} type="button" onClick={() => selectStep(action.order)}>Paso {action.order}: {statusLabel(action.status)}<ArrowRight size={13} /></button>)}</> : <p>No hay un paso de derivación registrado. El texto de una respuesta no basta para confirmar que se ejecutó.</p>}</div>}
+              <details className={styles.technical}><summary>Ver detalles técnicos de este paso</summary><pre>{JSON.stringify({ order: step.order, key: step.key, source: step.source, status: step.status, durationMs: step.durationMs, input: step.input, output: step.output, errorCode: step.errorCode }, null, 2)}</pre></details>
+            </section>}
+          </>}
+          <details className={styles.technical}><summary>Identidad, versiones y alcance del registro</summary><p>Son resúmenes declarados por el sistema, no una captura completa de cada consulta o de todo lo recibido por el modelo.</p><pre>{JSON.stringify({ eventIds: batch?.members.map(item => item.id), conversationId: execution.conversationId || null, batchId: execution.batchId || null, batchEventIds: execution.batchEventIds || [], traceSource: execution.traceSource, traceWarning: execution.traceWarning, stopReason: execution.stopReason, versions: execution.versions }, null, 2)}</pre></details>
+        </div>
+      </div>}
+    <footer className={styles.footer}><span>{executions.length} eventos cargados · Solo se agrupan conversaciones y lotes con identificadores registrados.</span>{nextCursor && <button type="button" className={styles.button} disabled={loading} onClick={() => void load(nextCursor)}>Cargar mensajes anteriores</button>}</footer>
+  </section>
+}
+
+function FactSection({ title, facts, empty }: { title: string; facts: ExplanationFact[]; empty: string }) {
+  return <div className={styles.facts}><h5>{title}</h5>{facts.length ? <dl>{facts.map((item, index) => <div key={`${item.label}-${index}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl> : <p className={styles.muted}>{empty}</p>}</div>
+}
+function measurement(value: unknown, suffix = '') { return typeof value === 'number' && Number.isFinite(value) ? humanValue(value) + suffix : 'No registrado' }
+function duration(value: number) { return value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s` }
+function formatDate(value: string) {
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('es-EC', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Guayaquil' }).format(date) : 'Sin fecha registrada'
+}

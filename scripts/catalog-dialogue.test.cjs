@@ -109,9 +109,89 @@ test('an unavailable requested number of bedrooms is preserved and not silently 
   const answer = catalogDialogueReply(info(query('search', { category: 'departamento', filters: { bedrooms: 5 } })), 'no tienen opciones de5habiataciones')
   assert.match(answer.reply, /no contamos con departamentos disponibles de 5 dormitorios/)
   assert.equal(answer.audit.catalog_query.filters.bedrooms, 5)
+  assert.equal(answer.audit.original_query.filters.bedrooms, 5)
+  assert.equal(answer.audit.pending_question.act, 'explore_alternatives')
+  assert.equal(answer.audit.pending_question.proposed_query.filters.bedrooms, 3)
+  assert.equal(answer.audit.pending_question.proposed_query.category, 'departamento')
+  assert.deepEqual(answer.audit.pending_question.candidate_ids, ['unit-202', 'unit-302', 'unit-402', 'unit-502'])
   assert.deepEqual(answer.audit.selected_unit_ids, [])
   const required = catalogDialogueReply(info(query('search', { category: 'departamento', filters: { bedrooms: 5, bedrooms_required: true } })))
   assert.doesNotMatch(required.reply, /alternativas|penthouses|gustaría/)
+})
+
+test('seven mixed apartments are compared by shared characteristics with their floor differences', () => {
+  const answer = catalogDialogueReply(info(query('compare', { category: 'departamento' })), 'y cual es diferencia entre cada uno?')
+  assert.match(answer.reply, /Se diferencian en los dormitorios, la superficie interior y la superficie exterior/)
+  assert.match(answer.reply, /Departamentos 202, 302, 402 y 502: 3 dormitorios, 120,83 m² interiores, 27,03 m² exteriores/)
+  assert.match(answer.reply, /Departamentos 304, 404 y 504: 2 dormitorios, 109,69 m² interiores, 34,59 m² exteriores/)
+  assert.match(answer.reply, /La planta cambia:/)
+  assert.match(answer.reply, /departamento 202 en 2\.ª planta/)
+  assert.match(answer.reply, /departamentos 502 y 504 en 5\.ª planta/)
+  assert.equal((answer.reply.match(/120,83/g) || []).length, 1)
+  assert.equal((answer.reply.match(/109,69/g) || []).length, 1)
+  assert.equal(answer.audit.catalog_comparison.groups.length, 2)
+  assert.deepEqual(answer.audit.catalog_comparison.groups[0].unit_ids, ['unit-202', 'unit-302', 'unit-402', 'unit-502'])
+  assert.deepEqual(answer.audit.catalog_coverage.known_fields, ['bedrooms', 'area_internal_m2', 'area_exterior_m2', 'floor_number'])
+  assert.equal(answer.audit.catalog_coverage.status, 'answered')
+  assert.equal(answer.audit.coverage_complete, false) // Other requests, such as pet policy, still need review.
+  assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
+})
+
+test('equal interior and exterior areas do not hide the different floors', () => {
+  const answer = catalogDialogueReply(info(query('compare', { category: 'departamento', filters: { bedrooms: 3 } })), 'que diferencia hay entre los de tres dormitorios?')
+  assert.match(answer.reply, /misma superficie interior: 120,83 m²/)
+  assert.match(answer.reply, /La planta cambia:/)
+  for (const code of ['202', '302', '402', '502']) assert.match(answer.reply, new RegExp(`departamento ${code} en ${code[0]}\\.ª planta`))
+  assert.deepEqual(answer.audit.catalog_comparison.differences, [{ field: 'floor_number', values: [2, 3, 4, 5] }])
+  assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
+})
+
+test('category choices describe characteristics instead of giving only unit numbers', () => {
+  for (const operation of ['search', 'select']) {
+    const answer = catalogDialogueReply(info(query(operation, { category: 'departamento' })), 'departamentos')
+    assert.match(answer.reply, /3 dormitorios, 120,83 m² interiores/)
+    assert.match(answer.reply, /2 dormitorios, 109,69 m² interiores/)
+    assert.match(answer.reply, /La planta cambia:/)
+    assert.equal(answer.audit.offered_unit_ids.length, 7)
+    assert.deepEqual(answer.audit.selected_unit_ids, [])
+    assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
+  }
+})
+
+test('collective references bind every unit to its bedroom count and surface', () => {
+  const answer = catalogDialogueReply(info(query('compare', { category: 'departamento' })))
+  const correct = 'Los departamentos 202, 302, 402 y 502 tienen 3 dormitorios, 120,83 m² interiores y 27,03 m² exteriores; los departamentos 304, 404 y 504 tienen 2 dormitorios, 109,69 m² interiores y 34,59 m² exteriores.'
+  assert.equal(validateCatalogReply(correct, answer.audit).valid, true)
+  for (const wrong of [
+    'Los departamentos 202, 302, 402 y 502 tienen 2 dormitorios, 109,69 m² interiores y 34,59 m² exteriores; los departamentos 304, 404 y 504 tienen 3 dormitorios, 120,83 m² interiores y 27,03 m² exteriores.',
+    'Los departamentos 202, 302 y 304 tienen 3 dormitorios y 120,83 m² interiores.',
+    'Los departamentos 202 y 304 tienen 120,83 m² interiores.',
+    'Los 202, 302, 402 y 502 tienen 2 dormitorios y 109,69 m² interiores.',
+    'Las suites 202, 302 y 402 tienen 3 dormitorios.',
+    'Los departamentos 202 y 999 tienen 3 dormitorios.',
+    'Los departamentos 202 y 302 están en quinta planta alta.',
+  ]) assert.equal(validateCatalogReply(wrong, answer.audit).valid, false, wrong)
+  assert.equal(validateCatalogReply('Los departamentos 502 y 504 están en quinta planta alta.', answer.audit).valid, true)
+  const withBathrooms = catalogDialogueReply(info(query('compare', { category: 'departamento' }), {
+    catalogo: catalogue.map(value => ({ ...value, bathrooms_full: value.bedrooms === 3 ? 3 : 2 })),
+  }))
+  assert.equal(validateCatalogReply('Los departamentos 202 y 304 tienen 3 baños completos.', withBathrooms.audit).valid, false)
+})
+
+test('derived dimensions require explicit verified derivations, even if a number occurs elsewhere', () => {
+  const answer = catalogDialogueReply(info(query('compare', { category: 'departamento' })))
+  for (const wrong of [
+    'Los departamentos de 3 dormitorios tienen 11,14 m² interiores más.',
+    'Los departamentos de 3 dormitorios tienen 120,83 m² interiores más.',
+  ]) assert.equal(validateCatalogReply(wrong, answer.audit).valid, false, wrong)
+})
+
+test('comparison coverage marks only complete known fields and accepts a verified ground floor', () => {
+  const local = [unit('001', 'local', null, 80, null, 0), unit('002', 'local', null, 80, null, 0)]
+  const answer = catalogDialogueReply(info(query('compare', { group: 'commercial', category: 'local' }), { catalogo: local }))
+  assert.deepEqual(answer.audit.catalog_coverage.known_fields, ['area_internal_m2', 'floor_number'])
+  assert.equal(answer.audit.catalog_comparison.exterior.complete, false)
+  assert.match(answer.reply, /superficie exterior está pendiente de verificación/)
 })
 
 test('catalogue facts stay protected while additional requests remain eligible for coverage', () => {
@@ -195,4 +275,55 @@ test('a fresh conversation carries housing, catalogue ranking, three-bedroom com
   const accepted = run('sí, está bien', { operation: 'none' }, 'answer_previous', { question_id: 'unit_choice', kind: 'affirmative', evidence: 'sí, está bien', confidence: 'high' })
   assert.match(accepted.reply, /unidad=502/)
   assert.doesNotMatch(accepted.reply, /unidad=202|cuál de estas/i)
+})
+
+test('five bedrooms, accepting available alternatives and refining the category preserves the accepted three-bedroom search', () => {
+  let summary = {}, pending = {}, history = []
+  const run = (current, property, primary = 'project_information', answer = {}) => {
+    const semantics = normalizeTurnSemantics({ turn_semantics: {
+      primary_intent: primary, primary_evidence: current, confidence: 'high',
+      property: { ...property, evidence: current, confidence: 'high' }, answer_to_previous: answer,
+    } }, current, pending)
+    const reference = resolvePropertyTurn(catalogue, current, summary, history, semantics)
+    const result = catalogDialogueReply({ catalogo: catalogue, semantica_turno: semantics, referencia_unidad: reference, property_context: reference.context, historial: history }, current)
+    assert.ok(result, current)
+    assert.equal(validateCatalogReply(result.reply, result.audit).valid, true, result.reply)
+    summary = { _property_context: rememberPropertyReply(catalogue, reference.context, result.reply, result.audit), _unit_reference: reference.memory }
+    pending = result.audit.pending_question
+    history = [...history, { role: 'cliente', content: current }, { role: 'bot', content: result.reply }]
+    return result
+  }
+  const requested = run('busco vivienda de cinco habitaciones', { group: 'residential', operation: 'search', filters: { bedrooms: 5 } })
+  assert.equal(requested.audit.original_query.filters.bedrooms, 5)
+  assert.equal(pending.proposed_query.filters.bedrooms, 3)
+  const accepted = run('si esta bien', { operation: 'none' }, 'answer_previous', { question_id: 'property_category', kind: 'affirmative', evidence: 'si esta bien', confidence: 'high' })
+  assert.equal(accepted.audit.catalog_query.filters.bedrooms, 3)
+  assert.deepEqual(accepted.audit.selected_unit_ids, [])
+  assert.ok(accepted.audit.catalog_results.units.every(value => value.bedrooms === 3))
+  const narrowed = run('departamentos', { category: 'departamento', operation: 'select' }, 'select_property')
+  assert.equal(narrowed.audit.catalog_query.filters.bedrooms, 3)
+  assert.equal(narrowed.audit.catalog_results.units.length, 4)
+  assert.ok(narrowed.audit.catalog_results.units.every(value => value.category === 'departamento' && value.bedrooms === 3))
+  assert.deepEqual(narrowed.audit.selected_unit_ids, [])
+  assert.equal(summary._property_context.original_query.filters.bedrooms, 5)
+})
+
+test('a category selection followed by differences compares the seven offered apartments through real memory', () => {
+  const current = 'departamentos'
+  const semantics = normalizeTurnSemantics({ turn_semantics: { primary_intent: 'select_property', confidence: 'high', primary_evidence: current,
+    property: { category: 'departamento', operation: 'select', evidence: current, confidence: 'high' } } }, current)
+  const reference = resolvePropertyTurn(catalogue, current, {}, [], semantics)
+  const first = catalogDialogueReply({ catalogo: catalogue, semantica_turno: semantics, referencia_unidad: reference, property_context: reference.context }, current)
+  const summary = { _property_context: rememberPropertyReply(catalogue, reference.context, first.reply, first.audit), _unit_reference: reference.memory }
+  const next = 'y cual es diferencia entre cada uno?'
+  const nextSemantics = normalizeTurnSemantics({ turn_semantics: { primary_intent: 'project_information', confidence: 'high', primary_evidence: next,
+    property: { operation: 'compare', query_scope: 'offered', evidence: next, confidence: 'high' } } }, next, first.audit.pending_question)
+  const nextReference = resolvePropertyTurn(catalogue, next, summary, [{ role: 'cliente', content: current }, { role: 'bot', content: first.reply }], nextSemantics)
+  const compared = catalogDialogueReply({ catalogo: catalogue, semantica_turno: nextSemantics, referencia_unidad: nextReference, property_context: nextReference.context }, next)
+  assert.equal(compared.audit.catalog_results.units.length, 7)
+  assert.equal(compared.audit.catalog_comparison.groups.length, 2)
+  assert.equal(compared.audit.catalog_coverage.status, 'answered')
+  assert.match(compared.reply, /Se diferencian en los dormitorios/)
+  assert.match(compared.reply, /La planta cambia:/)
+  assert.equal(validateCatalogReply(compared.reply, compared.audit).valid, true)
 })

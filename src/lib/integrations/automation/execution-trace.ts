@@ -21,7 +21,7 @@ type PendingStep = {
 }
 
 const UUID = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i
-export const TRACE_SCHEMA_VERSION = 'lavilet-trace-v2'
+export const TRACE_SCHEMA_VERSION = 'lavilet-trace-v3'
 export type TraceVersions = { contractVersion?: string; model?: string; promptVersions?: Record<string, string | number> }
 type TraceDependencies = {
   persist: (rows: Row[]) => PromiseLike<{ error?: unknown }>
@@ -50,6 +50,8 @@ export class AutomationExecutionTrace {
       contract_version: null,
       model: versionValue(process.env.OPENAI_MODEL),
       prompt_versions: {},
+      batch_id: this.eventIds[0] || null,
+      batch_event_ids: this.eventIds,
     })
   }
 
@@ -83,6 +85,10 @@ export class AutomationExecutionTrace {
     }
     this.steps.push(step)
     return step.order
+  }
+
+  currentStep() {
+    return [...this.steps].reverse().find(step => !step.status)?.order
   }
 
   finish(order: number, status: TraceStatus, output: Row = {}, error?: unknown) {

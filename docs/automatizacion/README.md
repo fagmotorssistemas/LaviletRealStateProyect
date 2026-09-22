@@ -1,6 +1,6 @@
 # Automatización de La Vilet: referencia canónica
 
-**Revisión:** 22 de septiembre de 2026. Motor conversacional v2: cambios locales pendientes de despliegue.
+**Revisión:** 22 de septiembre de 2026. El motor conversacional v2 y el Workflow base están versionados en `c1149bb`. La vista **Por mensaje**, su nueva instrumentación y las correcciones de continuidad descritas en el documento 11 son cambios locales pendientes de despliegue; no se ha verificado su funcionamiento en producción.
 **Alcance:** mensajes de WhatsApp recibidos mediante Kommo, respuestas del bot, citas, financiamiento, nutrición y traspasos a asesores.
 **Propósito:** explicar el comportamiento real sin mezclar reglas activas, cambios locales y propuestas futuras.
 
@@ -28,7 +28,7 @@ La fuente de verdad se consulta en este orden:
 http://localhost:3000/inmobiliaria/automatizacion/workflow
 ```
 
-Esa ruta es privada. Se necesita una sesión válida y permiso para `/inmobiliaria/automatizacion`. La API de ejecuciones reales exige además rol `admin`. La página y su pestaña están en estado **local pendiente**; si se prueba en un despliegue remoto todavía no aparecerán hasta que se suban y desplieguen.
+Esa ruta es privada. Se necesita una sesión válida y permiso para `/inmobiliaria/automatizacion`. La API de ejecuciones reales exige además rol `admin` y acceso a la organización correspondiente. La página Workflow y sus mapas ya están versionados. La nueva vista **Por mensaje** permanece en estado **local pendiente**; su presencia en este espacio de trabajo no demuestra que esté disponible en un despliegue remoto.
 
 ## El modelo mental correcto
 
@@ -79,6 +79,9 @@ Un lead puede estar al mismo tiempo en **Oportunidad**, **Tibio** y con **nutric
 6. [Configuración y mapa del código](./06-configuracion-y-codigo.md): pantallas, tablas, Salesbots, campos y módulos responsables.
 7. [Motor conversacional y diagnóstico por turno](./07-motor-conversacional.md): contrato común, catálogo, memoria, trazas y pruebas.
 8. [Caso de continuidad del 22 de septiembre](./08-regresion-conversacional-2026-09-22.md): fallos observados, correcciones y límites de la validación local.
+9. [Propuesta de bitácora comprensible](./09-propuesta-bitacora-explicable.md): historial de la propuesta previa a su implementación; conserva el estado y los límites de aquella revisión.
+10. [Diagnóstico del chat de las 10:58–11:24](./10-diagnostico-conversacion-1058-1124.md): historial del análisis sobre pérdida de filtros, aceptación de alternativas, plantillas y posibles derivaciones innecesarias.
+11. [Cambios de trazabilidad y continuidad](./11-cambios-trazabilidad-y-continuidad.md): guía de la nueva vista **Por mensaje**, correcciones implementadas localmente, límites de la evidencia y comandos de validación.
 
 ## Qué permite ver el flujo visual
 
@@ -90,4 +93,8 @@ La pantalla de Workflow es de solo lectura. Contiene mapas para:
 - financiamiento;
 - nutrición.
 
-Cuando la instrumentación local sea desplegada, una ejecución podrá mostrar sus pasos reales, duración, resultado y módulo responsable. Si una ejecución ocurrió antes de esa instrumentación, la interfaz solo puede reconstruir una ruta aproximada a partir del resultado guardado.
+La instrumentación base permite registrar pasos, duración, resultado y módulo responsable. Su disponibilidad en una ejecución depende de la versión que la procesó y de que sus registros se hayan guardado correctamente.
+
+La ampliación local añade **Por mensaje**: conversaciones y lotes identificados, datos consultados, unidades con sus números, decisiones con su causa registrada, cambios de filtros y vistas previas de la respuesta base, propuesta y conservada. Los ajustes editables se enlazan cuando están identificados; las reglas de código se distinguen de esos ajustes. La pantalla no modifica ejecuciones pasadas.
+
+Los mapas explican la estructura general. La vista por mensaje muestra únicamente pasos registrados: no reconstruye retrospectivamente intenciones, datos ni causas ausentes. Consulte el [documento 11](./11-cambios-trazabilidad-y-continuidad.md) para saber qué puede comprobar y qué sigue pendiente de despliegue y verificación.

@@ -221,3 +221,108 @@ test('a rental purpose alone does not force handoff or suppress a valid conditio
   assert.equal(removed.removed, true)
   assert.deepEqual(removed.unresolved, [])
 })
+
+function comparisonTurn(current = 'y cual es la diferencia entre cada uno?') {
+  const { catalogDialogueReply } = require('../src/lib/integrations/automation/catalog-dialogue.ts')
+  const catalogo = [
+    { id: 'u202', unit_number: '202', category: 'departamento', bedrooms: 3, bathrooms_full: 2, area_internal_m2: 120.83, area_exterior_m2: 27.03, floor_number: 2 },
+    { id: 'u302', unit_number: '302', category: 'departamento', bedrooms: 3, bathrooms_full: 2, area_internal_m2: 120.83, area_exterior_m2: 27.03, floor_number: 3 },
+    { id: 'u304', unit_number: '304', category: 'departamento', bedrooms: 2, bathrooms_full: 2, area_internal_m2: 109.69, area_exterior_m2: 34.59, floor_number: 3 },
+  ]
+  const planned = catalogDialogueReply({ catalogo, referencia_unidad: { query: { group: 'residential', category: 'departamento', operation: 'compare' } } })
+  return { current, baseReply: planned.reply, verified: { catalogo }, audit: planned.audit }
+}
+
+test('a complete catalogue comparison contradicts an erroneous missing-fact claim without a handoff', async () => {
+  const input = comparisonTurn()
+  const mock = model({ reply: input.baseReply, requests: [{ ...covered(input.current, 'missing_fact', 'missing_fact'), fact_key: 'catalog_comparison' }], question: noQuestion })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.needsAdvisor, false)
+  assert.deepEqual(result.unresolved, [])
+  assert.equal(result.audit.handoff_assessments[0].outcome, 'answered_by_catalog')
+})
+
+test('catalogue coverage never hides an additional missing pet policy', async () => {
+  const comparison = 'cual es la diferencia entre cada uno?'
+  const missing = 'Aceptan mascotas?'
+  const input = comparisonTurn(comparison + ' ' + missing)
+  const mock = model({ reply: input.baseReply + ' La política de mascotas debe verificarse.', requests: [
+    { ...covered(comparison, 'missing_fact', 'missing_fact'), fact_key: 'catalog_comparison' },
+    { ...covered(missing, 'missing_fact', 'missing_fact'), fact_key: 'policy' },
+  ], question: noQuestion }, { ...approved, missing_fact_fragments: [missing] })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.needsAdvisor, true)
+  assert.deepEqual(result.unresolved, [missing])
+  assert.deepEqual(result.audit.missing_fact_fragments, [missing])
+})
+
+test('a rejected rewrite cannot turn an unanswered fact into a request for an advisor', async () => {
+  const input = comparisonTurn()
+  const mock = model({ reply: input.baseReply + ' Tiene 999 m² interiores.', requests: [covered(input.current, 'unanswered', 'missing_fact')], question: noQuestion })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.reply, input.baseReply)
+  assert.equal(result.audit.status, 'rejected_guard')
+  assert.equal(result.needsAdvisor, false)
+  assert.equal(result.audit.draft_rejected, true)
+})
+
+test('independent reviewer fragments are recorded and checked against catalogue evidence', async () => {
+  const input = comparisonTurn()
+  const mock = model({ reply: 'Estas son las diferencias. ' + input.baseReply, requests: [covered(input.current)], question: noQuestion },
+    { ...approved, missing_fact_fragments: [input.current] })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.needsAdvisor, false)
+  assert.deepEqual(result.audit.missing_fact_fragments, [input.current])
+  assert.equal(result.audit.handoff_assessments[0].outcome, 'answered_by_catalog')
+  assert.ok(result.audit.base_preview)
+  assert.ok(result.audit.proposed_preview)
+  assert.ok(result.audit.final_preview)
+})
+
+test('a vague comparison claim cannot erase a mixed policy question or fill a missing measurement', async () => {
+  const { catalogCoversFragment } = require('../src/lib/integrations/automation/coverage-evidence.ts')
+  const input = comparisonTurn()
+  assert.equal(catalogCoversFragment('cual es la diferencia entre cada uno y cuánto es la alícuota?', 'catalog_comparison', input.audit), false)
+  assert.equal(catalogCoversFragment('diferencias de aislamiento acústico?', 'catalog_comparison', input.audit), false)
+  const incomplete = structuredClone(input.audit)
+  incomplete.catalog_results.units[0].area_internal_m2 = null
+  incomplete.catalog_coverage.known_fields = incomplete.catalog_coverage.known_fields.filter(key => key !== 'area_internal_m2')
+  assert.equal(catalogCoversFragment(input.current, 'catalog_comparison', incomplete), false)
+  for (const field of ['bedrooms', 'area_exterior_m2']) {
+    const zero = structuredClone(input.audit)
+    zero.catalog_results.units[0][field] = 0
+    zero.catalog_coverage.known_fields = zero.catalog_coverage.known_fields.filter(key => key !== field)
+    assert.equal(catalogCoversFragment(input.current, 'catalog_comparison', zero), false)
+  }
+  const missingBaths = structuredClone(input.audit)
+  missingBaths.catalog_results.units.forEach(unit => { unit.bathrooms_full = null })
+  missingBaths.catalog_coverage.known_fields = missingBaths.catalog_coverage.known_fields.filter(key => key !== 'bathrooms_full')
+  assert.equal(catalogCoversFragment('qué diferencias hay entre los baños de cada uno?', 'catalog_comparison', missingBaths), false)
+})
+
+test('an unchanged answer with an omitted request still receives independent coverage review', async () => {
+  const comparison = 'cual es la diferencia entre cada uno?'
+  const missing = 'Aceptan mascotas?'
+  const input = comparisonTurn(comparison + ' ' + missing)
+  const mock = model({ reply: input.baseReply, requests: [covered(comparison)], question: noQuestion },
+    { ...approved, all_requests_considered: false, missing_fact_fragments: [missing] })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(mock.calls.length, 2)
+  assert.equal(result.audit.independent_review, true)
+  assert.equal(result.needsAdvisor, true)
+  assert.deepEqual(result.unresolved, [missing])
+  assert.equal(result.audit.status, 'rejected_review')
+})
+
+test('catalogue evidence cannot answer attributes or comparisons of an absent unit', () => {
+  const { catalogCoversFragment } = require('../src/lib/integrations/automation/coverage-evidence.ts')
+  const { audit } = comparisonTurn()
+  assert.equal(catalogCoversFragment('cuantos dormitorios tiene el departamento 202?', 'bedrooms', audit), true)
+  assert.equal(catalogCoversFragment('cuantos dormitorios tiene el departamento 999?', 'bedrooms', audit), false)
+  assert.equal(catalogCoversFragment('en que planta esta la unidad 999?', 'floor_number', audit), false)
+  assert.equal(catalogCoversFragment('diferencias entre departamentos 202 y 999?', 'catalog_comparison', audit), false)
+  assert.equal(catalogCoversFragment('cuantos dormitorios tiene la suite 202?', 'bedrooms', audit), false)
+  audit.catalog_results.units.push({ ...audit.catalog_results.units[0], id: 'u601', unit_number: '601', category: 'penthouse' })
+  assert.equal(catalogCoversFragment('cuantos dormitorios tiene el departamento 601?', 'bedrooms', audit), false)
+  assert.equal(catalogCoversFragment('cuantos dormitorios tiene el penthouse 601?', 'bedrooms', audit), true)
+})

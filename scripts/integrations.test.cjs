@@ -1451,7 +1451,9 @@ test('rejected price rewrites retain the verified answer without pausing; real m
     const h = conversationHarness({ commercialResult: { reply: quote.reply, audit: {source:'unit_price'} }, commercialInfo: priceInfo(),
       turnComplete: input => ({ reply: 'El precio es $1 USD.', changed: true,
         needsAdvisor: missing, unresolved: missing ? ['¿Cuánto cuesta la alícuota?'] : [],
-        audit: { status: 'checked', requests: [{ status: 'answered', evidence: 'El precio es $1 USD.' }] } }) })
+        audit: { status: 'checked', requests: missing
+          ? [{ fragment: '¿Cuánto cuesta la alícuota?', fact_key: 'policy', base_status: 'missing_fact', status: 'missing_fact', evidence: 'La cuota no consta en el contexto verificado.' }]
+          : [{ status: 'answered', evidence: 'El precio es $1 USD.' }] } }) })
     h.rows[0].payload.text = current
     const result = await h.process([h.rows[0]], async () => {})
     const sent = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
@@ -2501,6 +2503,118 @@ test('dialogue v2 accepts the focused 502 after mentioning 502 and 504, includin
   }
 })
 
+test('dialogue v2 replays five bedrooms, two affirmatives, apartment choice and differences without losing the accepted alternative', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_DIALOGUE_REPLAY') })
+  for (const [firstYes, secondYes] of [['none', 'select'], ['search', 'none'], ['select', 'search']]) {
+    let summary = {}, lead = {}, history = []
+    const turns = [
+      ['me interesa vivienda', { category: 'departamento', operation: 'select' }],
+      ['no tiene opciones de 5 cuartos', { operation: 'search', filters: { bedrooms: 5 } }],
+      ['si esta bien', { operation: firstYes, reference_kind: 'followup' }],
+      ['si esta bien', { operation: secondYes, reference_kind: 'followup' }],
+      ['bueno, me interesa mas los departametnos por que los penthouse deben ser muy caros.', { category: 'departamento', excluded_categories: ['penthouse'], operation: 'select' }],
+      ['y cuales son las diferencias entre esos departamentos?', { operation: 'compare', reference_kind: 'comparison' }],
+    ]
+    for (const [index, [current, property]] of turns.entries()) {
+      const turn = extractedProperty(current, property, index === 2 || index === 3 ? 'answer_previous' : 'select_property')
+      if (index === 2 || index === 3) turn.answer_to_previous = { question_id: summary._pending_question.id,
+        kind: 'affirmative', evidence: current, confidence: 'high' }
+      const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog, historial: history },
+        realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, turnComplete: checkedBaseCoverage, history, summary, lead,
+        extracted: { turn_semantics: turn } })
+      h.rows[0].payload.text = current
+      const result = await h.process([h.rows[0]], async () => {})
+      const sent = h.calls.find(call => call.name === 'register_outbound_message')?.args
+      assert.equal(result.action, 'accepted', current)
+      assert.ok(sent, current)
+      assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2'].includes(call.name)), false, current)
+      summary = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+      assert.deepEqual(summary._property_context.selected_ids || [], [], `${firstYes}/${secondYes}: ${current}`)
+      if (index === 1) {
+        assert.equal(summary._property_context.query.filters.bedrooms, 5)
+        assert.equal(summary._pending_question.act, 'explore_alternatives')
+        assert.equal(summary._pending_question.proposed_query.filters.bedrooms, 3)
+      }
+      if (index >= 2) {
+        assert.equal(summary._property_context.original_query.filters.bedrooms, 5, current)
+        assert.equal(summary._property_context.query.filters.bedrooms, 3, current)
+        assert.doesNotMatch(sent.p_content, /no contamos.*5 dormitorios|304|404|504|2 dormitorios/i, current)
+      }
+      if (index >= 4) {
+        const units = sent.p_tool_calls.catalog_results.units
+        assert.deepEqual(units.map(unit => unit.unit_number), ['202', '302', '402', '502'])
+        assert.ok(units.every(unit => unit.category === 'departamento' && unit.bedrooms === 3))
+        assert.doesNotMatch(sent.p_content, /penthouse/i)
+      }
+      if (index === 5) {
+        assert.match(sent.p_content, /120[.,]83/)
+        assert.match(sent.p_content, /27[.,]03/)
+        assert.match(sent.p_content, /planta/i)
+        const trace = h.calls.find(call => call.name === 'execution_trace').args
+        const coverage = trace.find(step => step.step_key === 'response_coverage')
+        const decision = trace.find(step => step.step_key === 'dialogue_decision')
+        assert.equal(coverage.output_summary.decision.caused_by_step, decision.step_order)
+        assert.equal(coverage.output_summary.decision.outcome, 'no_handoff')
+        assert.equal(trace.some(step => step.step_key === 'advisor_handoff'), false)
+      }
+      history = [...history, { role: 'cliente', content: current }, { role: 'bot', content: sent.p_content }].slice(-8)
+      lead = structuredClone(h.lead)
+    }
+  }
+})
+
+test('dialogue v2 rejects an invented catalog information gap but preserves a real pet-policy handoff with its exact cause', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_DIALOGUE_REPLAY') })
+  const comparison = '¿Qué diferencias hay entre esos departamentos?'
+  const petPolicy = '¿Aceptan mascotas?'
+  const units = dialogueReplayCatalog.filter(unit => unit.category === 'departamento' && unit.bedrooms === 3)
+  const previous = 'Los departamentos 202, 302, 402 y 502 tienen tres dormitorios. ¿Cuál le interesa?'
+  const summary = { _property_context: { version: 2, last_reply: previous, offered_ids: units.map(unit => unit.id), selected_ids: [],
+    query: { group: 'residential', category: 'departamento', filters: { bedrooms: 3 }, operation: 'search' } } }
+  for (const missingPetPolicy of [false, true]) {
+    const current = comparison + (missingPetPolicy ? ' ' + petPolicy : '')
+    const fragments = [comparison, ...(missingPetPolicy ? [petPolicy] : [])]
+    const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog },
+      realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, summary, history: [{ role: 'bot', content: previous }],
+      extracted: { turn_semantics: extractedProperty(current, { operation: 'compare', reference_kind: 'comparison' }) },
+      turnComplete: input => ({ reply: input.baseReply + (missingPetPolicy ? ' La política de mascotas está pendiente de verificar.' : ''), changed: missingPetPolicy,
+        needsAdvisor: true, unresolved: fragments, audit: { status: 'checked', requests: fragments.map(fragment => ({ fragment,
+          fact_key: fragment === comparison ? 'catalog_comparison' : 'policy', base_status: 'missing_fact', status: 'missing_fact',
+          request_type: 'specific_fact', evidence: 'El revisor pide verificar este dato' })) } }) })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.match(sent.p_content, /120[.,]83/)
+    assert.match(sent.p_content, /27[.,]03/)
+    assert.match(sent.p_content, /planta/i)
+    assert.doesNotMatch(sent.p_content, /304|404|504|2 dormitorios/)
+    const trace = h.calls.find(call => call.name === 'execution_trace').args
+    const decision = trace.find(step => step.step_key === 'dialogue_decision')
+    const coverage = trace.find(step => step.step_key === 'response_coverage')
+    assert.equal(coverage.output_summary.decision.rule_id, 'coverage.verify_information_gap')
+    assert.equal(coverage.output_summary.decision.caused_by_step, decision.step_order)
+    assert.ok(coverage.output_summary.handoff_assessments.some(row => row.fragment === comparison && row.outcome === 'answered_by_catalog'))
+    assert.deepEqual(coverage.output_summary.unresolved, missingPetPolicy ? [petPolicy] : [])
+    assert.equal(h.calls.filter(call => call.name === 'handoff_lead').length, missingPetPolicy ? 1 : 0)
+    const handoff = trace.find(step => step.step_key === 'advisor_handoff')
+    if (missingPetPolicy) {
+      assert.equal(coverage.output_summary.decision.outcome, 'handoff_required')
+      assert.equal(handoff.input_summary.decision.rule_id, 'advisor.verified_information_gap')
+      assert.equal(handoff.input_summary.decision.caused_by_step, coverage.step_order)
+      assert.equal(handoff.output_summary.decision.caused_by_step, coverage.step_order)
+      assert.deepEqual(handoff.input_summary.decision.facts.unresolved, [petPolicy])
+      assert.equal(handoff.output_summary.bot_remains_enabled, true)
+      assert.match(h.calls.find(call => call.name === 'handoff_lead').args.p_reason, /mascotas/)
+    } else {
+      assert.equal(coverage.output_summary.decision.outcome, 'no_handoff')
+      assert.equal(handoff, undefined)
+      assert.doesNotMatch(sent.p_content, /bandeja del equipo|pasado su consulta|asesor/i)
+    }
+  }
+})
+
 test('dialogue v2 interprets brochure and mixed opt-out before any content route or scoring', async t => {
   live(t)
   for (const current of ['Envíeme el brochure y no me escriban más', 'Quiero vuelos y no me contacten otra vez']) {
@@ -2697,7 +2811,7 @@ test('the delivered pipeline prioritizes evidenced apartment preference over a r
     assert.equal(extraction.args.input.catalogo_unidades.length, continuityCatalog.length)
     assert.equal(h.calls.find(call => call.name === 'save_lead_declarations').args.p_preferred_category, 'departamento')
     const sent = h.calls.find(call => call.name === 'register_outbound_message').args
-    assert.match(sent.p_content, /departamentos.*Segunda Planta Alta.*Tercera Planta Alta.*Qué planta prefiere/s)
+    assert.match(sent.p_content, /departamentos.*Segunda Planta Alta.*Tercera Planta Alta.*Qué planta prefiere/is)
     assert.doesNotMatch(sent.p_content, /penthouse 602|penthouse 605|360|\$|cuántos dormitorios/i)
     assert.equal(sent.p_tool_calls.conversation_tone.style, tone)
     const saved = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)

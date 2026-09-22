@@ -30,7 +30,7 @@ const referenceKinds = new Set(['none', 'explicit', 'relative', 'comparison', 'f
 const unitSelectors = new Set(['largest', 'smallest', 'cheapest', 'most_expensive', 'first', 'last'])
 const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'none'])
 const queryScopes = new Set(['catalog', 'offered', 'comparison', 'selected'])
-const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'choose_category', 'choose_floor', 'budget', 'visit', 'other'])
+const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'choose_category', 'choose_floor', 'explore_alternatives', 'budget', 'visit', 'other'])
 
 export type PropertyFilters = { floor_number: number | null; bedrooms: number | null; bedrooms_required: boolean | null; min_area_m2: number | null; max_area_m2: number | null }
 export const emptyPropertyFilters = (): PropertyFilters => ({ floor_number: null, bedrooms: null, bedrooms_required: null, min_area_m2: null, max_area_m2: null })
@@ -62,6 +62,21 @@ export function normalizedPropertyFilters(raw: unknown): PropertyFilters {
     min_area_m2: bounded('min_area_m2', 100000, false, 1), max_area_m2: bounded('max_area_m2', 100000, false, 1) }
 }
 
+/** Durable queries contain catalogue constraints, never a model-authored action. */
+export function normalizedPropertyQuery(raw: unknown): Row {
+  const row = object(raw)
+  if (!Object.keys(row).length) return {}
+  const category = propertyCategories.has(text(row.category)) ? text(row.category) : null
+  return {
+    group: category === 'local' ? 'commercial' : category ? 'residential'
+      : ['residential', 'commercial'].includes(text(row.group)) ? text(row.group) : null,
+    category, filters: normalizedPropertyFilters(row.filters),
+    operation: operations.has(text(row.operation)) ? text(row.operation) : 'search',
+    selector: unitSelectors.has(text(row.selector)) ? text(row.selector) : null,
+    scope: queryScopes.has(text(row.scope || row.query_scope)) ? text(row.scope || row.query_scope) : 'catalog',
+  }
+}
+
 const numberWords: Record<string, number> = { cero: 0, un: 1, una: 1, uno: 1, primera: 1, primer: 1, dos: 2, segunda: 2, segundo: 2, tres: 3, tercera: 3, tercer: 3, cuatro: 4, cuarta: 4, cuarto: 4, cinco: 5, quinta: 5, quinto: 5, seis: 6, sexta: 6, sexto: 6, siete: 7, septima: 7, septimo: 7, ocho: 8, octava: 8, octavo: 8, nueve: 9, novena: 9, noveno: 9, diez: 10, decima: 10, decimo: 10 }
 const numberToken = '(?:\\d{1,2}(?:ta|to|ra|ro|da|do|ma|mo|va|vo)?|' + Object.keys(numberWords).join('|') + ')'
 const tokenNumber = (value: string) => numberWords[value] ?? Number.parseInt(value, 10)
@@ -88,9 +103,11 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   if (!questionIds.includes(id as PendingQuestionId)) return {}
   const validIds = catalog ? new Set(catalog.map(unit => text(unit.id))) : null
   const ids = (value: unknown) => Array.isArray(value) ? [...new Set(value.map(text).filter(id => id && (!validIds || validIds.has(id))))] : []
+  const proposedQuery = row.act === 'explore_alternatives' ? normalizedPropertyQuery(row.proposed_query) : {}
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
     : id === 'property_category' ? 'choose_category' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
-  question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: ids(row.candidate_ids) }
+  question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: ids(row.candidate_ids),
+  ...(Object.keys(proposedQuery).length ? { proposed_query: { ...proposedQuery, operation: 'search', selector: null } } : {}) }
 }
 
 export const TURN_SEMANTIC_EXTRACTION_RULES = `
@@ -137,6 +154,7 @@ property.filters expresa restricciones actuales: «5ta planta», «quinta planta
 bedrooms_required=true solo si declara indispensable/exacta esa cantidad; false solo si acepta expresamente otra cantidad; null si no expresa esa decisión. No insista con menos dormitorios cuando el requisito es indispensable.
 query_scope=catalog para buscar o consultar máximos sin lista concreta, offered para «de esas opciones», comparison para la comparación activa, selected para la elegida. Preserve null si no aplica. La memoria conserva filtros previos; no los extraiga otra vez como declaraciones nuevas.
 pregunta_pendiente.act, target_ids y candidate_ids expresan el foco real. «Sí prefiero esa opción» tras ofrecer detalles del 502 acepta esa oferta sobre 502 aunque antes se mencionara 504; es referencia followup, no explicit. No convierta aceptar detalles o un recorrido en visita, compra o reserva.
+Si pregunta_pendiente.act=explore_alternatives, una aceptación permite explorar proposed_query, no elige una unidad ni reemplaza el requisito original. El sistema aplicará esa consulta; no vuelva a extraer dormitorios del historial ni transforme el sí en select. Elegir una categoría (por ejemplo, departamentos entre alternativas residenciales) refina la búsqueda sin borrar dormitorios, planta o superficie ya establecidos. Un sí a una elección entre varias categorías o unidades no identifica una de ellas.
 property.reference_kind: explicit si identifica una unidad; comparison si compara varias; relative para "el más grande", "la primera", "el más barato"; followup para continuar una consulta sobre unidades previas ("¿y en precio?"). En relative seleccione selector=largest|smallest|cheapest|most_expensive|first|last según corresponda. Use las opciones que el bot REALMENTE acaba de mostrar, no otra categoría guardada anteriormente. Un empate no permite elegir una unidad.
 unit_numbers contiene solo códigos del catálogo realmente referidos. En explicit deben aparecer en el mensaje actual; en comparison/followup pueden proceder de la comparación activa del contexto. Nunca convierta precios, áreas, horas o pisos en números de unidad. En relative no invente un código: el sistema resuelve selector contra las opciones mostradas. Una pregunta "¿y en precio?" tras comparar 202 y 302 se refiere a AMBAS unidades, no a todo el catálogo.
 Use confidence=high solo cuando la evidencia literal y el contexto produzcan una única interpretación. No invente intención, unidad, presupuesto ni aceptación.
@@ -232,6 +250,10 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     else if (asksDetails) operation = 'details'
     else if (category && property.reference_kind !== 'relative' && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) operation = 'search'
     else if (primaryIntent === 'select_property' || property.reference_kind === 'relative') operation = 'select'
+  }
+  if (operation === 'select' && category && !['relative', 'followup'].includes(text(property.reference_kind))
+    && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
+    operation = 'search'; normalizationIssues.push('category_choice_refines_search')
   }
   const queryScope = propertyConfident && queryScopes.has(text(property.query_scope)) ? text(property.query_scope)
     : operation === 'rank' && /\b(?:de es[at]as|entre es[at]as|de las (?:que|opciones))\b/.test(value) ? 'offered'

@@ -18,6 +18,12 @@ export interface WorkflowExecutionStep {
 
 export interface WorkflowExecution {
   id: string
+  conversationId?: string | null
+  batchId?: string | null
+  batchEventIds?: string[]
+  batchSize?: number
+  kind?: string
+  receivedAt?: string
   workflowId: 'overview' | 'pauses' | 'visits' | 'financing' | 'nutrition'
   path: string[]
   status: string

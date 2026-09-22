@@ -1,0 +1,125 @@
+<div id="lavilet-message-trace" aria-label="Propuesta de bitácora por mensaje">
+  <style>
+    #lavilet-message-trace { --lv-paper:light-dark(#fbfcf8,#191d18); --lv-panel:light-dark(#ffffff,#222720); --lv-ink:light-dark(#333d30,#e4ebdf); --lv-muted:light-dark(#626c5d,#b3bdaa); --lv-line:light-dark(#dce2d5,#424b3c); --lv-accent:light-dark(#47633c,#b5d3a5); --lv-soft:light-dark(#eef3e7,#303c29); --lv-warn:light-dark(#855216,#efd19c); --lv-wash:light-dark(#fff5e5,#3b3020); color:var(--lv-ink); font-family:Arial,sans-serif; background:var(--lv-paper); border:1px solid var(--lv-line); border-radius:12px; overflow-wrap:anywhere; }
+    #lavilet-message-trace * { box-sizing:border-box; }
+    #lavilet-message-trace button { font:inherit; color:inherit; cursor:pointer; }
+    #lavilet-message-trace h2,#lavilet-message-trace h3,#lavilet-message-trace p { margin:0; }
+    #lavilet-message-trace strong { font-weight:500; }
+    #lavilet-message-trace .lv-top { padding:18px 22px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--lv-line); }
+    #lavilet-message-trace .lv-brand { display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
+    #lavilet-message-trace .lv-label { color:var(--lv-muted); }
+    #lavilet-message-trace .lv-badge { display:inline-block; border-radius:5px; padding:4px 8px; color:var(--lv-warn); background:var(--lv-wash); }
+    #lavilet-message-trace .lv-layout { display:grid; grid-template-columns:220px minmax(0,1fr); }
+    #lavilet-message-trace .lv-messages { padding:20px 12px; border-right:1px solid var(--lv-line); }
+    #lavilet-message-trace .lv-messages h3 { padding:0 10px 14px; }
+    #lavilet-message-trace .lv-message { width:100%; text-align:left; border:1px solid transparent; background:transparent; border-radius:8px; padding:12px 10px; margin-bottom:8px; display:grid; gap:8px; }
+    #lavilet-message-trace .lv-message[aria-pressed="true"] { border-color:var(--lv-line); background:var(--lv-soft); }
+    #lavilet-message-trace .lv-message time { color:var(--lv-muted); }
+    #lavilet-message-trace .lv-message em { color:var(--lv-warn); font-style:normal; }
+    #lavilet-message-trace .lv-main { padding:22px; min-width:0; }
+    #lavilet-message-trace .lv-heading { display:grid; gap:10px; margin-bottom:20px; }
+    #lavilet-message-trace .lv-route { list-style:none; padding:0; margin:16px 0 20px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    #lavilet-message-trace .lv-step { padding:10px; width:100%; height:100%; text-align:left; display:flex; gap:8px; align-items:center; border:1px solid var(--lv-line); background:var(--lv-panel); border-radius:7px; }
+    #lavilet-message-trace .lv-step[aria-pressed="true"] { background:var(--lv-soft); border-color:var(--lv-accent); }
+    #lavilet-message-trace .lv-number { color:var(--lv-muted); }
+    #lavilet-message-trace .lv-detail { border:1px solid var(--lv-line); border-radius:9px; background:var(--lv-panel); padding:18px; }
+    #lavilet-message-trace .lv-detail-heading { display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    #lavilet-message-trace .lv-facts { display:grid; gap:0; margin:0; }
+    #lavilet-message-trace .lv-facts>div { padding:12px 0; border-top:1px solid var(--lv-line); display:grid; grid-template-columns:130px minmax(0,1fr); gap:14px; }
+    #lavilet-message-trace dt { color:var(--lv-muted); }
+    #lavilet-message-trace dd { margin:0; }
+    #lavilet-message-trace .lv-check { padding:12px 14px; margin-top:10px; background:var(--lv-wash); border-radius:6px; color:var(--lv-warn); display:grid; gap:7px; }
+    #lavilet-message-trace .lv-tech { margin-top:16px; color:var(--lv-muted); }
+    #lavilet-message-trace summary { cursor:pointer; padding:6px 0; }
+    #lavilet-message-trace pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0; color:var(--lv-ink); }
+    #lavilet-message-trace .lv-bottom { border-top:1px solid var(--lv-line); padding:13px 22px; color:var(--lv-muted); }
+    #lavilet-message-trace[data-route="vertical"] .lv-route { grid-template-columns:1fr; }
+    #lavilet-message-trace[data-density="compacta"] .lv-facts>div { padding:8px 0; }
+    @media(max-width:670px) { #lavilet-message-trace .lv-layout { grid-template-columns:1fr; } #lavilet-message-trace .lv-messages { border-right:0; border-bottom:1px solid var(--lv-line); } #lavilet-message-trace .lv-message { margin-bottom:4px; } #lavilet-message-trace .lv-main { padding:16px; } }
+    @media(max-width:420px) { #lavilet-message-trace .lv-route { grid-template-columns:repeat(2,minmax(0,1fr)); } #lavilet-message-trace .lv-facts>div { grid-template-columns:1fr; gap:6px; } #lavilet-message-trace .lv-top { padding:15px; } }
+    @media(pointer:coarse) { #lavilet-message-trace button,#lavilet-message-trace summary { min-height:44px; } }
+  </style>
+  <header class="lv-top">
+    <div class="lv-brand"><strong>LA VILET</strong><span class="lv-label">Automatización / Mensajes y decisiones</span></div>
+    <span class="lv-badge">Propuesta · ejemplo sin conexión</span>
+  </header>
+  <div class="lv-layout">
+    <nav class="lv-messages" aria-label="Mensajes del ejemplo">
+      <h3>Conversación · 22 sep.</h3>
+      <button type="button" class="lv-message" data-message="accept" aria-pressed="false"><time>11:18 · Cliente</time><strong>«Sí, está bien»</strong><em>Vuelve a ofrecer alternativas</em></button>
+      <button type="button" class="lv-message" data-message="category" aria-pressed="false"><time>11:22 · Cliente</time><strong>«Me interesan más los departamentos…»</strong><em>Aparecen opciones de 2 dormitorios</em></button>
+      <button type="button" class="lv-message" data-message="compare" aria-pressed="true"><time>11:23 · Cliente</time><strong>«¿Cuál es la diferencia entre cada uno?»</strong><em>Lista extensa + aviso de asesor</em></button>
+    </nav>
+    <section class="lv-main" aria-label="Recorrido del mensaje">
+      <div class="lv-heading"><span class="lv-label" id="lv-message-time">Mensaje seleccionado · 11:23</span><h2 id="lv-message-title">¿Cuál es la diferencia entre cada uno?</h2></div>
+      <ol class="lv-route" aria-label="Etapas para inspeccionar"></ol>
+      <section class="lv-detail" aria-live="polite" aria-atomic="true">
+        <div class="lv-detail-heading"><h3 id="lv-step-title">Comparó departamentos</h3><span class="lv-badge" id="lv-evidence">Visible en tu captura</span></div>
+        <dl class="lv-facts" id="lv-facts"></dl>
+        <div class="lv-check"><strong>Qué revisar</strong><span id="lv-check-text"></span></div>
+        <details class="lv-tech"><summary>Ver referencia técnica</summary><pre id="lv-tech-text"></pre></details>
+      </section>
+    </section>
+  </div>
+  <footer class="lv-bottom">Etapas de la vista propuesta · evidencia del chat, de la captura o de pruebas locales indicada en cada paso.</footer>
+  <script>
+    (() => {
+      const root = document.getElementById('lavilet-message-trace');
+      const detail = (label, title, evidence, facts, check, tech) => ({label,title,evidence,facts,check,tech});
+      const messages = {
+        accept: {time:'11:18',text:'Sí, está bien',selected:2,steps:[
+          detail('Mensaje','Aceptó conocer alternativas','Visible en el chat', [['Cliente','Sí, está bien'],['Oferta anterior','Información sobre opciones de 3 dormitorios.']], 'Debe avanzar sobre las alternativas ofrecidas.', 'Origen: conversación aportada por el usuario.'),
+          detail('Interpretación','Qué significaba ese «sí»','Por confirmar en la ejecución', [['Referencia esperada','La oferta de información sobre 3 dormitorios.'],['Interpretación real','No está incluida en la captura.']], 'Comprobar qué pregunta reconoció y qué operación propuso.', 'Paso: semantic_extraction\nCampos: answers_question, answer_kind, operation'),
+          detail('Continuidad','La búsqueda puede seguir en 5 dormitorios','Reproducción local', [['Antes','Consulta original de 5 dormitorios.'],['Alternativa ofrecida','Explorar viviendas de 3 dormitorios.'],['Problema reproducido','La aceptación no siempre actualiza el conjunto que se va a explorar.']], 'Separar el requisito original de las alternativas aceptadas; no volver a ofrecer lo ya aceptado.', 'property-context.ts:124–138\ncatalog-dialogue.ts:179–192\nNo prueba la ruta exacta del turno de producción.'),
+          detail('Respuesta','Volvió a ofrecer información','Visible en el chat', [['Respuesta','Repite que no hay 5 dormitorios y vuelve a ofrecer opciones de 3.'],['Avance','Vuelve a pedir una decisión después del sí.']], 'Comparar la respuesta con la oferta que el cliente acababa de aceptar.', 'Origen: respuesta de las 11:18.\nPlantilla/revisión concretas: por confirmar.')
+        ]},
+        category: {time:'11:22',text:'Me interesan más los departamentos porque los penthouses deben ser muy caros.',selected:2,steps:[
+          detail('Mensaje','Eligió revisar departamentos','Visible en el chat', [['Preferencia','Departamentos frente a penthouses.'],['Contexto previo','Venían revisando alternativas de 3 dormitorios.']], 'Mantener las restricciones compatibles con esa elección.', 'Origen: conversación aportada por el usuario.'),
+          detail('Interpretación','Categoría elegida: departamento','Por confirmar en la ejecución', [['Dato explícito','Prefiere departamentos.'],['Afirmación del cliente','Supone que los penthouses son más caros; no es un precio verificado.']], 'No convertir una elección de categoría en selección de una unidad ni en cotización.', 'Paso: semantic_extraction\nCampos: property_category, operation, filters'),
+          detail('Filtros','Elegir categoría puede borrar dormitorios','Reproducción local', [['Memoria de prueba','Viviendas · 3 dormitorios.'],['Cambio','Categoría: departamento.'],['Resultado reproducido','Sin filtro de dormitorios; entran opciones de 2 y de 3.']], 'Corregir la transición de filtros. Cambiar el prompt comercial no corrige este reinicio.', 'property-context.ts:89–91\ncategoryChanged → emptyPropertyFilters()\nMemoria productiva exacta: no consultada.'),
+          detail('Opciones','Presentó siete departamentos','Visible en el chat', [['3 dormitorios','202, 302, 402 y 502.'],['2 dormitorios','304, 404 y 504.'],['Respuesta','Lista de números y pregunta cuál desea conocer.']], 'Explicar qué distingue las opciones y comprobar si corresponde incluir las de 2 dormitorios.', 'Una ruta local capaz de producir esta lista: catalog_select.\nRuta productiva de las 11:22: por confirmar.')
+        ]},
+        compare: {time:'11:23',text:'¿Cuál es la diferencia entre cada uno?',selected:2,steps:[
+          detail('Mensaje','Pidió comparar las opciones','Visible en el chat', [['Cliente','¿Cuál es la diferencia entre cada uno?'],['Referente','Los siete departamentos de la respuesta anterior.']], 'Contestar las diferencias sin exigir de nuevo el número de unidad.', 'Origen: mensaje de las 11:23.'),
+          detail('Búsqueda','Buscó departamentos sin filtro de dormitorios','Visible en tu captura', [['Tipo de propiedad','Viviendas → departamentos.'],['Dormitorios','Sin restricción aplicada.'],['Planta','Sin restricción aplicada.'],['Resultado','7 identificadores de unidades.']], 'Revisar dónde se perdió el alcance de 3 dormitorios. «Sin restricción» no significa que el catálogo desconozca los dormitorios.', 'catalog_query.group = residential\ncategory = departamento\nfilters.bedrooms = null\nfilters.floor_number = null'),
+          detail('Comparación','Comparó departamentos','Visible en tu captura', [['Acción','Comparar las unidades encontradas.'],['Revisión posterior','Permitida: la respuesta no quedó bloqueada.'],['Pregunta pendiente','Ninguna en este paso.'],['Motivo de derivación','Este paso no lo muestra.']], 'La comparación y el traspaso son decisiones diferentes. Abrir «Asesor» para comprobar su motivo.', 'source = catalog_compare\ncoverage_locked = false\nresult_unit_ids = 7 IDs\npending_question.id = none'),
+          detail('Revisión','Qué consideró incompleto el revisor','Por confirmar en la ejecución', [['Dato que falta consultar','La solicitud que marcó como pendiente y su motivo.'],['Riesgo reproducido','Puede marcar un faltante aunque exista una comparación completa.']], 'Contrastar el supuesto dato faltante con los resultados del catálogo antes de derivar.', 'turn_completeness: status, requests, issues\nadvisor_handoff.input.reason\nNo hay una salida real del revisor en la captura.'),
+          detail('Asesor','El bot anunció un traspaso','Motivo por confirmar', [['Aviso al cliente','He pasado su consulta a un asesor de nuestro equipo para que le ayude con ese detalle.'],['Motivo concreto','No visible en la captura.'],['Registro y asignación','Se confirman en el paso real «Derivar al asesor».']], 'Mostrar quién solicitó el traspaso, qué dato faltaba y qué regla autorizó la acción. No deducir la causa solo por el orden de los nodos.', 'Paso real: advisor_handoff\nEntrada: reason\nSalida: handoff_status, assigned_advisor, bot_remains_enabled\nVincular por la misma ejecución y causa registrada.'),
+          detail('Respuesta','Contestó con fichas y aviso de asesor','Visible en el chat', [['Formato','Siete fichas concatenadas, con cifras repetidas.'],['Origen reproducido','La plantilla de comparación construye ese listado.'],['Mejora propuesta','Agrupar coincidencias y explicar las diferencias verificadas.']], 'Revisar plantilla y reglas de cobertura; el guion comercial no gobierna directamente esta ruta.', 'catalog-dialogue.ts:210–216\nsdr.ts:99–100\nRespuesta base / propuesta / texto final: distinguir en la futura bitácora.')
+        ]}
+      };
+      let selectedMessage = 'compare', selectedStep = 2;
+      const design = {route:'horizontal',density:'amplia'};
+      function render() {
+        root.dataset.route = design.route;
+        root.dataset.density = design.density;
+        const message = messages[selectedMessage], step = message.steps[selectedStep];
+        root.querySelectorAll('[data-message]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.message === selectedMessage)));
+        root.querySelector('#lv-message-time').textContent = 'Mensaje seleccionado · ' + message.time;
+        root.querySelector('#lv-message-title').textContent = message.text;
+        const route = root.querySelector('.lv-route');
+        route.replaceChildren();
+        message.steps.forEach((item, index) => {
+          const li = document.createElement('li'), button = document.createElement('button'), number = document.createElement('span'), label = document.createElement('span');
+          button.type = 'button'; button.className = 'lv-step'; button.setAttribute('aria-pressed', String(index === selectedStep));
+          number.className = 'lv-number'; number.textContent = String(index + 1).padStart(2, '0'); label.textContent = item.label;
+          button.append(number,label); button.addEventListener('click', () => { selectedStep = index; render(); root.querySelectorAll('.lv-step')[index].focus(); });
+          li.append(button); route.append(li);
+        });
+        root.querySelector('#lv-step-title').textContent = step.title;
+        root.querySelector('#lv-evidence').textContent = step.evidence;
+        const facts = root.querySelector('#lv-facts'); facts.replaceChildren();
+        step.facts.forEach(([label, value]) => { const row = document.createElement('div'), term = document.createElement('dt'), description = document.createElement('dd'); term.textContent = label; description.textContent = value; row.append(term,description); facts.append(row); });
+        root.querySelector('#lv-check-text').textContent = step.check;
+        root.querySelector('#lv-tech-text').textContent = step.tech;
+      }
+      root.querySelectorAll('[data-message]').forEach(button => button.addEventListener('click', () => { selectedMessage = button.dataset.message; selectedStep = messages[selectedMessage].selected; render(); }));
+      render();
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({container:root,onChange:render});
+        tweak.addSelect(design,'route',{label:'Disposición de etapas',options:[{label:'Horizontal',value:'horizontal'},{label:'Vertical',value:'vertical'}]});
+        tweak.addSelect(design,'density',{label:'Espaciado del detalle',options:[{label:'Amplio',value:'amplia'},{label:'Compacto',value:'compacta'}]});
+      }
+    })();
+  </script>
+</div>

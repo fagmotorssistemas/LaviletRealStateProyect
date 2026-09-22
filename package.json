@@ -28,7 +28,8 @@
     "test:conversation": "node --test scripts/property-context.test.cjs scripts/property-journey-regression.test.cjs scripts/comparison-price.test.cjs scripts/business-scope.test.cjs scripts/unit-alternatives.test.cjs scripts/residential-continuity.test.cjs scripts/turn-completeness.test.cjs scripts/visit-turn-routing.test.cjs scripts/visit-date-context.test.cjs scripts/catalog-dialogue.test.cjs scripts/turn-semantics.test.cjs scripts/turn-interpretation.test.cjs",
     "test:financing": "node --require ./scripts/test-typescript.cjs --test src/lib/financing/calculator.test.ts src/lib/financing/wealthProjection.test.ts src/lib/financing/scenarioPersist.test.ts src/lib/financing/migration.pglite.test.ts src/lib/financing/scenarioValidate.test.ts src/lib/financing/calculatorUnitPrice.test.ts",
     "test:tour-identity": "node --require ./scripts/test-typescript.cjs --test scripts/tour-identity-continuity.pglite.test.ts",
-    "test:dialogue-replay": "node --test --test-name-pattern=\"dialogue v2\" scripts/integrations.test.cjs"
+    "test:dialogue-replay": "node --test --test-name-pattern=\"dialogue v2\" scripts/integrations.test.cjs",
+    "test:message-trace": "node --require ./scripts/test-typescript.cjs --test src/components/inmobiliaria/automation/workflow/messageExplanation.test.ts src/components/inmobiliaria/automation/workflow/workflow-api.test.cjs"
   },
   "engines": {
     "node": "24.x"

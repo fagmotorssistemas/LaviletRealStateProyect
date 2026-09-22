@@ -74,3 +74,26 @@ test('the strict extraction schema requires every field and forbids unexpected k
   check(TURN_SEMANTICS_SCHEMA)
   assert.ok(TURN_SEMANTICS_SCHEMA.properties.property.properties.filters.properties.floor_number)
 })
+
+test('alternative proposals retain verified search constraints without carrying a selection action', () => {
+  const pending = normalizedPendingQuestion({ id: 'property_category', act: 'explore_alternatives', question: '¿Revisamos las alternativas de tres dormitorios?',
+    candidate_ids: ['u202', 'unknown'], proposed_query: { group: 'residential', category: null, operation: 'select', selector: 'first', scope: 'catalog',
+      filters: { bedrooms: 3, floor_number: -1, bedrooms_required: false }, requested_visit: true } }, [{ id: 'u202' }])
+  assert.equal(pending.act, 'explore_alternatives')
+  assert.deepEqual(pending.candidate_ids, ['u202'])
+  assert.equal(pending.proposed_query.operation, 'search')
+  assert.equal(pending.proposed_query.selector, null)
+  assert.equal(pending.proposed_query.filters.bedrooms, 3)
+  assert.equal(pending.proposed_query.filters.floor_number, null)
+  assert.equal(pending.proposed_query.requested_visit, undefined)
+  assert.equal(extract('sí está bien', { operation: 'none' }, pending, { question_id: 'property_category', kind: 'affirmative' }).answer_to_previous.kind, 'affirmative')
+  assert.equal(normalizedPendingQuestion({ ...pending, act: 'choose_category' }).proposed_query, undefined)
+})
+
+test('choosing a category searches within it while choosing a concrete unit still selects it', () => {
+  const category = extract('Prefiero departamentos porque los penthouses son caros', { category: 'departamento', excluded_categories: ['penthouse'], operation: 'select' })
+  assert.equal(category.property.operation, 'search')
+  assert.ok(category.normalization_issues.includes('category_choice_refines_search'))
+  assert.equal(extract('Prefiero el departamento 202', { category: 'departamento', operation: 'select', reference_kind: 'explicit', unit_numbers: ['202'] }).property.operation, 'select')
+  assert.equal(extract('Prefiero el departamento más grande de esos', { category: 'departamento', operation: 'select', reference_kind: 'relative', selector: 'largest' }).property.operation, 'select')
+})

@@ -62,6 +62,9 @@ import { financingPrerequisiteReply } from './property-selection'
 import { answersPendingQuestion, normalizedPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
 import { responsePlan } from './response-plan'
 import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
+import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
+import { withAIExecutionTrace } from './ai-execution-trace'
+import { assessMissingFacts } from './coverage-evidence'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out","visit_preference":null}.
@@ -132,7 +135,7 @@ async function register(events: Inbound[], guard: Guard) {
 export async function processConversation(rows: Row[], guard: Guard) {
   const trace = traceForEvents(rows)
   try {
-    const result = await withConversationTone(() => processConversationWithTone(rows, guard, trace))
+    const result = await withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace)))
     trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
       ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
       { action: result.action, reason: object(result).reason || result.action })
@@ -352,9 +355,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     courtesy: isCourtesyOnly(current),
   })
   const modelOnly = isOnlyUnitVisualRequest(current) && !explicitlyRequestsVisit(current)
-  async function transferToAdvisor(reason: string) {
+  async function transferToAdvisor(reason: string, cause: Pick<DecisionRecord, 'rule_id' | 'origin' | 'caused_by_step' | 'facts'>) {
+    const decision = decisionRecord({ ...cause, reason, outcome: 'requested',
+      setting: { kind: 'code', label: 'Condición de derivación al asesor', source: 'conversation.ts · turn-completeness.ts' } })
     const handoffStep = trace.start('advisor_handoff', 'Derivar al asesor', 'action', 'conversation.ts · handoff_lead', {
-      reason: traceText(reason, 300),
+      reason: traceText(reason, 300), decision,
     })
     await guard()
     const handoffReason = `${reason}. Consulta pendiente: ${current.slice(0, 650)}`
@@ -373,6 +378,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       handoff_status: text(lead.handoff_status),
       assigned_advisor: Boolean(lead.assigned_advisor_id),
       bot_remains_enabled: lead.bot_enabled === true,
+      decision: { ...decision, outcome: text(lead.handoff_status) },
     })
     return handoffNotice
   }
@@ -390,7 +396,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (!await visitParserReady()) {
       // Preserve the request in the actual advisor queue; do not ask for the
       // same date again or manufacture a booking using the old SQL parser.
-      const message = await transferToAdvisor('revisar la solicitud de visita y el horario indicado; coordinación automática en actualización')
+      const message = await transferToAdvisor('revisar la solicitud de visita y el horario indicado; coordinación automática en actualización', { rule_id: 'visit.parser_unavailable', origin: 'operational', caused_by_step: visitStep })
       trace.finish(visitStep, 'paused', { action: 'advisor_handoff', reason: 'VISIT_PARSER_NOT_READY' })
       return { action: 'advisor_handoff', message }
     }
@@ -417,7 +423,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     } catch (error) {
       // Do not replay a write of unknown outcome. Store a real handoff for the
       // team to check the existing request before creating another one.
-      const message = await transferToAdvisor('verificar el registro de la solicitud de visita y el horario indicado antes de crear otra solicitud; no se pudo comprobar la coordinación automática')
+      const message = await transferToAdvisor('verificar el registro de la solicitud de visita y el horario indicado antes de crear otra solicitud; no se pudo comprobar la coordinación automática', { rule_id: 'visit.registration_unverified', origin: 'operational', caused_by_step: visitStep })
       trace.finish(visitStep, 'failed', { action: 'advisor_handoff', registration_verified: false }, error)
       return { action: 'advisor_handoff', message, registration_verified: false }
     }
@@ -468,6 +474,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (categoryPreference && object(turnSemantics.property).confidence !== 'high') {
     turnSemantics.property = { ...object(turnSemantics.property), category: categoryPreference, confidence: 'high', evidence: current.slice(0, 240) }
   }
+  const catalogStep = trace.start('catalog_resolution', 'Resolver consulta y referencias del catálogo', 'decision', 'property-context.ts', {
+    operation: object(turnSemantics.property).operation, filters: object(object(turnSemantics.property).filters),
+    previous_query: object(previousPropertyContext.query), pending_question: pendingQuestion,
+  })
   const reference = resolvePropertyTurn(turnCatalog, current, previousSummary, context.historial, turnSemantics)
   propertyTurn = reference
   currentSemantics = turnSemantics
@@ -519,10 +529,16 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reference_reason: reference.reason, reference_unit_ids: reference.matches.map(unit => unit.id),
     reference_needs_clarification: reference.needsClarification,
   })
-  trace.add('catalog_resolution', 'Resolver consulta y referencias del catálogo', 'decision', 'property-context.ts', 'succeeded',
-    { operation: object(turnSemantics.property).operation, filters: object(object(turnSemantics.property).filters) },
-    { reference_reason: reference.reason, needs_clarification: reference.needsClarification,
-      candidate_unit_ids: reference.matches.map(unit => unit.id), query: object(object(reference).query) })
+  trace.finish(catalogStep, 'succeeded', {
+    reference_reason: reference.reason, needs_clarification: reference.needsClarification,
+    candidate_unit_ids: reference.matches.map(unit => unit.id), query: object(object(reference).query),
+    catalog_snapshot: catalogSnapshot(reference.matches),
+    decision: decisionRecord({ rule_id: 'property.resolve_query', origin: 'memory', caused_by_step: semanticStep,
+      reason: text(reference.reason), before: { query: object(previousPropertyContext.query) }, after: { query: object(object(reference).query) },
+      facts: { candidate_count: reference.matches.length, needs_clarification: reference.needsClarification },
+      outcome: reference.needsClarification ? 'clarification_required' : 'query_resolved',
+      setting: { kind: 'code', label: 'Continuidad y filtros de búsqueda', source: 'property-context.ts' } }),
+  })
 
   // Consent withdrawal is a turn-wide decision, including brochure or mixed requests.
   if (extracted.opt_out) {
@@ -624,7 +640,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     appliedVisitAction = result
     current = remaining.map(request => text(request.evidence)).join('\n')
     if (extracted.requested_advisor && remaining.some(request => request.domain === 'advisor')) {
-      reply = await transferToAdvisor('pidió hablar con un asesor después de confirmar su visita')
+      reply = await transferToAdvisor('pidió hablar con un asesor después de confirmar su visita', { rule_id: 'advisor.explicit_request', origin: 'client', caused_by_step: semanticStep })
       audit = { source: 'advisor_handoff', completed_visit_action: result, coverage_complete: false }
       return null
     }
@@ -654,7 +670,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       const appointments = await db().from('appointments').select('id,status,start_time,end_time').match(scope)
         .eq('lead_id', lead.id).in('status', ['aceptado', 'reprogramado']).gt('end_time', activeLast.sentAt)
       if (appointments.error) {
-        reply = await transferToAdvisor('verificar a qué cita se refiere el cliente y si espera una visita del equipo')
+        reply = await transferToAdvisor('verificar a qué cita se refiere el cliente y si espera una visita del equipo', { rule_id: 'visit.team_attendance_unverified', origin: 'operational', caused_by_step: semanticStep })
         audit = { source: 'advisor_handoff' }
       } else {
         reply = teamAttendanceReply(appointments.data || [], proposals)
@@ -701,7 +717,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (reply) {
         audit = { source: 'location' }
       } else {
-        reply = await transferToAdvisor('compartir la ubicación verificada del proyecto')
+        reply = await transferToAdvisor('compartir la ubicación verificada del proyecto', { rule_id: 'project.location_missing', origin: 'policy', caused_by_step: semanticStep })
         audit = { source: 'location_handoff' }
       }
     }
@@ -748,7 +764,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!reply && businessScope.kind === 'mixed' && (explicitlyRequestsVisit(current) || ((proposals.length || visitDraft?.status === 'collecting') && (isVisitDetail(current) || /cancel|reprogram/i.test(current))))) {
     // The existing SQL appointment parser reads the original message. Let a human
     // resolve mixed bookings so a flight's date cannot become the property's date.
-    reply = await transferToAdvisor('coordinación inmobiliaria mezclada con otra gestión; verificar únicamente la visita al proyecto')
+    reply = await transferToAdvisor('coordinación inmobiliaria mezclada con otra gestión; verificar únicamente la visita al proyecto', { rule_id: 'visit.mixed_scope', origin: 'operational', caused_by_step: semanticStep })
     audit = { source: 'mixed_visit_handoff' }
   }
   if (!reply && !greeting && !modelOnly && proposals.length) {
@@ -871,18 +887,18 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         reply = financePrerequisite
         audit = { source: 'financing_selection_required' }
       } else if (financeFailure) {
-        reply = await transferToAdvisor('continuar la revisión de financiamiento' + (financeInput.partner ? ' con ' + financeInput.partner : '') + '; comprobar el avance previo antes de volver a solicitar datos')
+        reply = await transferToAdvisor('continuar la revisión de financiamiento' + (financeInput.partner ? ' con ' + financeInput.partner : '') + '; comprobar el avance previo antes de volver a solicitar datos', { rule_id: 'financing.processing_failed', origin: 'operational', caused_by_step: semanticStep, facts: { failure_code: financeFailure } })
         if (financeInput.partner) reply = `Le ayudaremos a revisar la opción con ${financeInput.partner}. ` + reply
         audit = { source: 'financing_handoff', failure_code: financeFailure, selected_partner: financeInput.partner }
       } else if (!visitRequested && (extracted.requested_advisor || fin.ready_for_handoff === true)) {
-        reply = await transferToAdvisor(extracted.requested_advisor ? 'pidió hablar con un asesor' : 'información lista para revisión')
+        reply = await transferToAdvisor(extracted.requested_advisor ? 'pidió hablar con un asesor' : 'información lista para revisión', { rule_id: extracted.requested_advisor ? 'advisor.explicit_request' : 'financing.ready_for_handoff', origin: extracted.requested_advisor ? 'client' : 'operational', caused_by_step: semanticStep })
         audit = { source: 'advisor_handoff' }
       } else if (visitRequested) {
         await guard()
         const visitInfo = await commercialContext(lead, context.historial)
         const quote = priceTurn ? unitPriceQuote({ ...visitInfo, alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
         if (quote?.needsAdvisor) {
-          reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita')
+          reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita', { rule_id: 'price.unverified_for_visit', origin: 'catalog', caused_by_step: catalogStep })
           audit = { source: 'price_and_visit_handoff' }
         } else {
           const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
@@ -910,7 +926,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           audit = { source: 'financing', state: fin.state || fin.financing_state, selected_partner: selectedPartner }
         } catch (error) {
           if (!(error instanceof Error) || error.message !== 'UNKNOWN_FINANCING_STATE') throw error
-          reply = await transferToAdvisor('continuar la revisión de financiamiento y comprobar los datos que faltan' + (financeInput.partner ? ' con ' + financeInput.partner : ''))
+          reply = await transferToAdvisor('continuar la revisión de financiamiento y comprobar los datos que faltan' + (financeInput.partner ? ' con ' + financeInput.partner : ''), { rule_id: 'financing.unknown_state', origin: 'operational', caused_by_step: semanticStep })
           audit = { source: 'financing_handoff', failure_code: 'UNKNOWN_FINANCING_STATE', selected_partner: financeInput.partner }
         }
       }
@@ -964,11 +980,23 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const catalogBaseReply = audit.verified_catalog === true ? reply : ''
   audit = { ...audit, response_plan: plannedResponse, turn_contract: CONVERSATION_CONTRACT_VERSION,
     interpretation: interpretation.diagnostic }
-  trace.add('dialogue_decision', 'Decidir la respuesta y la siguiente pregunta', 'decision', 'conversation.ts · catalog-dialogue.ts', 'succeeded',
+  const commercialPromptRoute = !text(audit.source) || ['commercial', 'verified_information_gap'].includes(text(audit.source))
+  const dialogueStep = trace.add('dialogue_decision', 'Decidir la respuesta y la siguiente pregunta', 'decision', 'conversation.ts · catalog-dialogue.ts', 'succeeded',
     { primary_intent: turnSemantics.primary_intent, operation: object(turnSemantics.property).operation },
     { source: text(audit.source) || 'commercial', action: text(audit.action) || null, catalog_query: audit.catalog_query,
       result_unit_ids: object(audit.catalog_results).unit_ids, pending_question: audit.pending_question,
-      coverage_locked: plannedResponse.locked })
+      coverage_locked: plannedResponse.locked,
+      catalog_snapshot: catalogSnapshot(object(audit.catalog_results).units), catalog_comparison: audit.catalog_comparison,
+      base_preview: traceText(reply, 1000),
+      decision: decisionRecord({ rule_id: `response.${text(audit.source) || 'commercial'}`, origin: audit.verified_catalog === true ? 'catalog' : commercialPromptRoute ? 'model' : 'policy',
+        caused_by_step: audit.verified_catalog === true ? catalogStep : semanticStep,
+        reason: audit.verified_catalog === true ? 'La consulta al catálogo determina las opciones y los datos de esta respuesta.' : 'La intención y el estado de la conversación determinan esta ruta de respuesta.',
+        facts: { source: text(audit.source) || 'commercial', coverage_locked: plannedResponse.locked }, outcome: 'base_reply_prepared',
+        setting: audit.verified_catalog === true
+          ? { kind: 'code', label: 'Presentación del catálogo', source: 'catalog-dialogue.ts' }
+          : commercialPromptRoute
+            ? { kind: 'prompt', label: 'Conversación y orientación comercial', href: '/inmobiliaria/automatizacion/guion#respuestas', source: 'sdr.ts · respuesta_comercial · revisor_respuesta' }
+            : { kind: 'code', label: 'Ruta especializada de respuesta', source: `conversation.ts · ruta ${text(audit.source)}` } }) })
   if (!plannedResponse.locked && ['visit_intake', 'visit_status', 'financing', 'financing_question', 'financing_handoff', 'budget_financing_guidance', 'unit_price', 'budget_guidance', 'interest_after_model', 'product_clarification', 'team_attendance'].includes(text(audit.source))) {
     await guard()
     const engagement = commercialEngagement(current, context.historial, previousSummary._sales_memory)
@@ -988,6 +1016,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     // The map URL is not a suggestion the writer may add opportunistically.
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)
+    const coverageStep = trace.start('response_coverage', 'Revisar la respuesta y los datos pendientes', 'decision', 'turn-completeness.ts', {
+      base_preview: traceText(reply, 1000), source: text(audit.source) || 'commercial',
+      catalog_coverage: audit.catalog_coverage,
+    })
     const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
       preserveOperationalQuestion: ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
@@ -1003,11 +1035,37 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       reviewed.audit = { ...reviewed.audit, status: invalidPrice ? 'rejected_price_guard' : 'rejected_catalog_guard',
         candidate_requests: reviewed.audit.requests, requests: [],
         issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: true }
+      const originalGaps = (Array.isArray(reviewed.audit.candidate_requests) ? reviewed.audit.candidate_requests : []).map(object)
+        .filter(request => request.base_status === 'missing_fact').map(request => text(request.fragment)).filter(Boolean)
+      originalGaps.push(...(Array.isArray(reviewed.audit.missing_fact_fragments) ? reviewed.audit.missing_fact_fragments : [])
+        .filter((fragment): fragment is string => typeof fragment === 'string' && current.includes(fragment)))
+      reviewed.unresolved = assessMissingFacts(originalGaps, audit).unresolved
+      reviewed.needsAdvisor = reviewed.unresolved.length > 0
     }
+    const grounded = assessMissingFacts(reviewed.unresolved, audit, (Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests : []).map(object))
+    reviewed.unresolved = grounded.unresolved
+    reviewed.needsAdvisor = reviewed.needsAdvisor && grounded.unresolved.length > 0
+    reviewed.audit = { ...reviewed.audit, needs_advisor: reviewed.needsAdvisor, unresolved: reviewed.unresolved,
+      handoff_assessments: [...(Array.isArray(reviewed.audit.handoff_assessments) ? reviewed.audit.handoff_assessments : []), ...grounded.assessments] }
     const requests = Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests.map(object) : []
     const resolvedFromContext = !invalidPrice && catalogValidation.valid && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
+    trace.finish(coverageStep, 'succeeded', {
+      status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
+      missing_fact_fragments: reviewed.audit.missing_fact_fragments, handoff_assessments: reviewed.audit.handoff_assessments,
+      unresolved: reviewed.unresolved, needs_advisor: reviewed.needsAdvisor || needsCommercialHandoff,
+      base_preview: reviewed.audit.base_preview, proposed_preview: reviewed.audit.proposed_preview,
+      final_preview: traceText(reply, 1000),
+      decision: decisionRecord({ rule_id: 'coverage.verify_information_gap', origin: 'coverage_review', caused_by_step: dialogueStep,
+        reason: reviewed.needsAdvisor ? 'La revisión identificó una consulta concreta sin datos verificados.'
+          : needsCommercialHandoff ? 'La consulta pendiente de la ruta comercial no pudo resolverse con el contexto.'
+            : grounded.assessments.some(item => item.outcome === 'answered_by_catalog') ? 'El catálogo ya responde la consulta; se descartó una derivación innecesaria.'
+              : 'No se identificó un dato faltante que requiera derivación.',
+        facts: { unresolved: reviewed.unresolved, pending_commercial_handoff: pendingCommercialHandoff || null, review_status: reviewed.audit.status },
+        outcome: reviewed.needsAdvisor || needsCommercialHandoff ? 'handoff_required' : 'no_handoff',
+        setting: { kind: 'code', label: 'Revisión de cobertura y datos faltantes', source: 'turn-completeness.ts · coverage-evidence.ts' } }),
+    })
     audit = { ...audit, turn_completeness: reviewed.audit, ...(pendingCommercialHandoff ? {
       requires_advisor: needsCommercialHandoff, handoff_review: resolvedFromContext ? 'resolved_from_context' : 'needs_advisor',
       ...(resolvedFromContext ? { handoff_reason: null } : {}),
@@ -1020,7 +1078,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       && (!reviewed.unresolved.length || reviewed.unresolved.every(item => /\b(?:visitas?|citas?|fechas?|horas?|horarios?|agenda|agendar|reagendar|propuestas?)\b/i.test(item)))
     if (((reviewed.needsAdvisor && !visitCoordinationHandled) || needsCommercialHandoff) && !finalNotice) {
       const reason = reviewed.unresolved.length ? 'resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650) : pendingCommercialHandoff
-      const notice = await transferToAdvisor(reason)
+      const notice = await transferToAdvisor(reason, { rule_id: 'advisor.verified_information_gap', origin: 'coverage_review', caused_by_step: coverageStep,
+        facts: { unresolved: reviewed.unresolved, review_status: reviewed.audit.status, pending_commercial_handoff: pendingCommercialHandoff || null } })
       reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + notice
       audit = { ...audit, additional_questions_handoff: true }
     }
