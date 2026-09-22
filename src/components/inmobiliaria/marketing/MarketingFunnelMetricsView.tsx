@@ -11,16 +11,17 @@ import type {
 
 type ProjectOption = { id: string; name: string }
 
-function formatAmount(value: number | null | undefined, currency?: string) {
-  if (value == null) return 'n/d'
+function formatAmount(value: number | null | undefined, currency?: string | null) {
+  if (value == null) return 'No disponible'
+  const code = (currency || 'USD').trim().toUpperCase() || 'USD'
   try {
     return new Intl.NumberFormat('es-EC', {
       style: 'currency',
-      currency: currency === 'USD' ? 'USD' : 'USD',
+      currency: /^[A-Z]{3}$/.test(code) ? code : 'USD',
       maximumFractionDigits: 2,
     }).format(value)
   } catch {
-    return String(value)
+    return `${value} ${code}`
   }
 }
 
@@ -79,22 +80,25 @@ function resolutionStatusLabel(
   return 'Sin resolver'
 }
 
-function spendOrCplLabel(
-  row: AttributedAdFunnelRow,
-  value: number | null | undefined,
-): string {
+function spendLabel(row: AttributedAdFunnelRow): string {
   if (row.resolutionStatus === 'missing_ads_token') {
     return 'Datos publicitarios no disponibles'
   }
-  if (value == null) return 'n/d'
-  return formatAmount(value, 'USD')
+  if (row.adSpend == null) return 'No disponible'
+  const base = formatAmount(row.adSpend, row.currency)
+  return row.spendStale ? `${base} (stale)` : base
+}
+
+function cplLabel(row: { costPerLead: number | null; currency?: string | null }): string {
+  if (row.costPerLead == null) return 'No disponible'
+  return formatAmount(row.costPerLead, row.currency)
 }
 
 function metaResultsLabel(row: AttributedAdFunnelRow): string | number {
   if (row.resolutionStatus === 'missing_ads_token') {
     return 'Datos publicitarios no disponibles'
   }
-  return row.metaReportedResults == null ? 'n/d' : row.metaReportedResults
+  return row.metaReportedResults == null ? 'No disponible' : row.metaReportedResults
 }
 
 function SectionTitle({
@@ -149,12 +153,27 @@ export function MarketingFunnelMetricsView({
           <p className="mt-1 text-[12px] leading-relaxed text-[#8a8176]">
             {adsInsights.note}
           </p>
+          {adsInsights.missing?.length ? (
+            <p className="mt-2 text-[11px] text-[#8a8176]">
+              Faltan: {adsInsights.missing.join(' · ')}
+            </p>
+          ) : null}
         </div>
       ) : null}
       {adsInsights?.connected ? (
         <p className="text-[11px] text-[#8a8176]">
-          Ads: {adsInsights.message}. TZ informe {report?.timezone || 'America/Guayaquil'}.
-          Gasto ≠ leads CRM ≠ CAPI aceptado.
+          Ads: {adsInsights.message}. TZ informe CRM{' '}
+          {report?.timezone || 'America/Guayaquil'}
+          {report?.adsAccountTimezone
+            ? ` · TZ cuenta Ads ${report.adsAccountTimezone}`
+            : ''}
+          {report?.adsAccount?.adAccountId
+            ? ` · ${report.adsAccount.adAccountId}`
+            : ''}
+          {report?.adsAccount?.currency
+            ? ` · moneda ${report.adsAccount.currency}`
+            : ''}
+          . Gasto ≠ leads CRM ≠ CAPI aceptado. CTWA source_id = ad_id (no campaign_id).
         </p>
       ) : null}
       <form
@@ -206,8 +225,8 @@ export function MarketingFunnelMetricsView({
           Aplicar
         </button>
         <p className="w-full text-[11px] text-[#8a8176]">
-          Zona horaria del informe: America/Guayaquil. No mezclar universos en tasas de
-          conversión.
+          Zona horaria del informe CRM: America/Guayaquil. Insights Ads usa el
+          calendario de la cuenta Meta (puede diferir). No mezclar universos en tasas.
         </p>
       </form>
 
@@ -288,8 +307,73 @@ export function MarketingFunnelMetricsView({
 
           <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
             <SectionTitle
+              title="Por campaña (resuelta)"
+              hint="Solo filas con campaign_id vía Graph (ad→adset→campaign). CTWA source_id nunca se usa como campaign_id. Gasto preferente: Insights level=campaign; si falla, suma de anuncios CTWA solo si la moneda coincide. CPL = gasto ÷ leads CRM únicos first-touch del período."
+            />
+            {(report.byCampaign?.length ?? 0) === 0 ? (
+              <EmptyState
+                icon={Layers}
+                title="Sin campañas resueltas"
+                description="Faltan credenciales Ads, o los anuncios CTWA aún no resolvieron jerarquía Graph."
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-[11px]">
+                  <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase">
+                    <tr>
+                      <th className="px-2 py-2 font-semibold">Campaña</th>
+                      <th className="px-2 py-2 font-semibold">Anuncios</th>
+                      <th className="px-2 py-2 font-semibold">Leads CRM</th>
+                      <th className="px-2 py-2 font-semibold">F/T/C/SC</th>
+                      <th className="px-2 py-2 font-semibold">Gasto</th>
+                      <th className="px-2 py-2 font-semibold">CPL</th>
+                      <th className="px-2 py-2 font-semibold">Meta results</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.byCampaign.map((row) => (
+                      <tr
+                        key={row.campaignId}
+                        className="border-b border-[#f0ebe3] align-top"
+                      >
+                        <td className="max-w-[18rem] px-2 py-2 text-[#1f1a14]">
+                          <span className="font-medium">
+                            {row.campaignName || `Campaña ${row.campaignId}`}
+                          </span>
+                          <span className="mt-0.5 block text-[10px] text-[#8a8176]">
+                            camp {row.campaignId}
+                            {row.spendStale ? ' · datos stale' : ''}
+                            {row.currency ? ` · ${row.currency}` : ''}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">{row.adCount}</td>
+                        <td className="px-2 py-2 tabular-nums">{row.leadsUnique}</td>
+                        <td className="px-2 py-2">
+                          <TempInline temperature={row.temperature} />
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {row.adSpend == null
+                            ? 'No disponible'
+                            : `${formatAmount(row.adSpend, row.currency)}${row.spendStale ? ' (stale)' : ''}`}
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">{cplLabel(row)}</td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {row.metaReportedResults == null
+                            ? 'No disponible'
+                            : row.metaReportedResults}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
+            <SectionTitle
               title="Por anuncio atribuido"
-              hint="Etiqueta = Anuncio CTWA (source_id). Adset/campaign suelen ser nulos o graph_permission_denied. Citas = todas las de la cohorte (sin filtro temporal de cita). Ventas = sale_at ∈ período ∧ lead de la cohorte."
+              hint="Etiqueta = Anuncio CTWA (source_id = ad_id). Campaña/conjunto solo si Graph resuelve. Citas = todas las de la cohorte (sin filtro temporal de cita). Ventas = sale_at ∈ período ∧ lead de la cohorte. Meta results ≠ leads CRM."
             />
             {report.byAttributedAd.length === 0 ? (
               <EmptyState
@@ -328,18 +412,15 @@ export function MarketingFunnelMetricsView({
                             {row.campaignId ? ` · camp ${row.campaignId}` : ''}
                             {' · '}
                             {resolutionStatusLabel(row.resolutionStatus)}
+                            {row.spendStale ? ' · stale' : ''}
                           </span>
                         </td>
                         <td className="px-2 py-2 tabular-nums">{row.leadsUnique}</td>
                         <td className="px-2 py-2">
                           <TempInline temperature={row.temperature} />
                         </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {spendOrCplLabel(row, row.adSpend)}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {spendOrCplLabel(row, row.costPerLead)}
-                        </td>
+                        <td className="px-2 py-2 tabular-nums">{spendLabel(row)}</td>
+                        <td className="px-2 py-2 tabular-nums">{cplLabel(row)}</td>
                         <td className="px-2 py-2 tabular-nums">
                           {metaResultsLabel(row)}
                         </td>

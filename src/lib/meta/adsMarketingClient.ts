@@ -33,6 +33,19 @@ export type AdSpendSnapshot = {
   periodTo: string
   fetchedAt: string
   error: string | null
+  /** true si el valor viene de caché por fallo Graph. */
+  stale?: boolean
+  staleFetchedAt?: string | null
+}
+
+export type AdAccountSnapshot = {
+  adAccountId: string
+  name: string | null
+  currency: string | null
+  timezoneName: string | null
+  timezoneOffsetHours: number | null
+  fetchedAt: string
+  error: string | null
 }
 
 export type AdsMarketingCredentials = {
@@ -307,5 +320,167 @@ export async function fetchAdSpendForPeriod(
     periodTo: period.to,
     fetchedAt,
     error: null,
+    stale: false,
+    staleFetchedAt: null,
+  }
+}
+
+/**
+ * Metadatos de la cuenta publicitaria (nombre, moneda, TZ).
+ * Verifica que el token vea la cuenta configurada en META_AD_ACCOUNT_ID.
+ */
+export async function fetchAdAccountSnapshot(opts?: {
+  env?: NodeJS.ProcessEnv | Record<string, string | undefined>
+  fetchImpl?: typeof fetch
+  signal?: AbortSignal
+}): Promise<AdAccountSnapshot> {
+  const fetchedAt = new Date().toISOString()
+  const creds = readAdsMarketingCredentials(opts?.env)
+  const empty: AdAccountSnapshot = {
+    adAccountId: creds?.adAccountId || '',
+    name: null,
+    currency: null,
+    timezoneName: null,
+    timezoneOffsetHours: null,
+    fetchedAt,
+    error: null,
+  }
+  if (!creds) {
+    return {
+      ...empty,
+      error: adsMarketingMissingHints(opts?.env).join('; '),
+    }
+  }
+  const fetchImpl = opts?.fetchImpl ?? fetch
+  const url = new URL(
+    `https://graph.facebook.com/${creds.graphVersion}/${encodeURIComponent(creds.adAccountId)}`,
+  )
+  url.searchParams.set(
+    'fields',
+    'id,name,currency,timezone_name,timezone_offset_hours_utc',
+  )
+  url.searchParams.set('access_token', creds.token)
+  const res = await graphGet<Record<string, unknown>>(
+    url.toString(),
+    fetchImpl,
+    opts?.signal,
+  )
+  if (!res.ok) {
+    return { ...empty, adAccountId: creds.adAccountId, error: res.message.slice(0, 200) }
+  }
+  return {
+    adAccountId: creds.adAccountId,
+    name: typeof res.data.name === 'string' ? res.data.name : null,
+    currency: typeof res.data.currency === 'string' ? res.data.currency : null,
+    timezoneName:
+      typeof res.data.timezone_name === 'string' ? res.data.timezone_name : null,
+    timezoneOffsetHours:
+      res.data.timezone_offset_hours_utc == null
+        ? null
+        : Number(res.data.timezone_offset_hours_utc),
+    fetchedAt,
+    error: null,
+  }
+}
+
+/**
+ * Gasto a nivel campaña (Insights level=campaign). No usa source_id como campaign_id.
+ */
+export async function fetchCampaignSpendForPeriod(
+  campaignId: string,
+  period: { from: string; to: string },
+  opts?: {
+    env?: NodeJS.ProcessEnv | Record<string, string | undefined>
+    fetchImpl?: typeof fetch
+    signal?: AbortSignal
+  },
+): Promise<AdSpendSnapshot> {
+  const fetchedAt = new Date().toISOString()
+  const id = String(campaignId || '').trim()
+  const empty: AdSpendSnapshot = {
+    adId: id,
+    spend: null,
+    currency: null,
+    impressions: null,
+    clicks: null,
+    metaReportedResults: null,
+    periodFrom: period.from,
+    periodTo: period.to,
+    fetchedAt,
+    error: null,
+    stale: false,
+    staleFetchedAt: null,
+  }
+  const creds = readAdsMarketingCredentials(opts?.env)
+  if (!creds) {
+    return { ...empty, error: adsMarketingMissingHints(opts?.env).join('; ') }
+  }
+  if (!id) return { ...empty, error: 'campaign_id_empty' }
+
+  const fetchImpl = opts?.fetchImpl ?? fetch
+  const url = new URL(
+    `https://graph.facebook.com/${creds.graphVersion}/${encodeURIComponent(creds.adAccountId)}/insights`,
+  )
+  url.searchParams.set(
+    'fields',
+    'campaign_id,campaign_name,spend,impressions,clicks,actions,account_currency',
+  )
+  url.searchParams.set('level', 'campaign')
+  url.searchParams.set('time_range', JSON.stringify({ since: period.from, until: period.to }))
+  url.searchParams.set(
+    'filtering',
+    JSON.stringify([{ field: 'campaign.id', operator: 'IN', value: [id] }]),
+  )
+  url.searchParams.set('access_token', creds.token)
+
+  const res = await graphGet<{ data?: Array<Record<string, unknown>> }>(
+    url.toString(),
+    fetchImpl,
+    opts?.signal,
+  )
+  if (!res.ok) {
+    return { ...empty, error: res.message.slice(0, 200) }
+  }
+  const row = (res.data.data || [])[0]
+  if (!row) {
+    return { ...empty, spend: 0, error: null }
+  }
+  const spendRaw = row.spend
+  const spend =
+    spendRaw == null || spendRaw === ''
+      ? null
+      : Number.isFinite(Number(spendRaw))
+        ? Number(spendRaw)
+        : null
+  let metaReportedResults: number | null = null
+  const actions = row.actions
+  if (Array.isArray(actions)) {
+    let sum = 0
+    let any = false
+    for (const a of actions) {
+      if (!a || typeof a !== 'object') continue
+      const v = Number((a as Record<string, unknown>).value)
+      if (Number.isFinite(v)) {
+        sum += v
+        any = true
+      }
+    }
+    metaReportedResults = any ? sum : null
+  }
+  return {
+    adId: id,
+    spend,
+    currency:
+      typeof row.account_currency === 'string' ? row.account_currency : null,
+    impressions:
+      row.impressions == null ? null : Number(row.impressions) || null,
+    clicks: row.clicks == null ? null : Number(row.clicks) || null,
+    metaReportedResults,
+    periodFrom: period.from,
+    periodTo: period.to,
+    fetchedAt,
+    error: null,
+    stale: false,
+    staleFetchedAt: null,
   }
 }
