@@ -24,14 +24,15 @@ describe('metaMeasurementContract', () => {
       'Lead',
       'Schedule',
       'LeadSubmitted',
+      'AddToWishlist',
     ])
-    assert.deepEqual([...META_NEST_PENDING_EVENTS], ['AddToWishlist', 'Purchase'])
+    assert.deepEqual([...META_NEST_PENDING_EVENTS], ['Purchase'])
     assert.equal(isMetaNestOperationalEvent('Lead'), true)
-    assert.equal(isMetaNestPendingEvent('AddToWishlist'), true)
+    assert.equal(isMetaNestPendingEvent('AddToWishlist'), false)
     assert.equal(isMetaNestPendingEvent('Purchase'), true)
     assert.equal(isMetaNestPendingEvent('Lead'), false)
     assert.equal(nestSupportsEventSend('ViewContent'), true)
-    assert.equal(nestSupportsEventSend('AddToWishlist'), false)
+    assert.equal(nestSupportsEventSend('AddToWishlist'), true)
     assert.equal(nestSupportsEventSend('Purchase'), false)
   })
 

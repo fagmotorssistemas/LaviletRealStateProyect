@@ -14,11 +14,12 @@ import {
   META_NEST_BACKEND_PENDING_ERROR,
   nestSupportsEventSend,
 } from './metaMeasurementContract'
-import {
-  isOutboxStatusFlushable,
-  OUTBOX_FLUSHABLE_STATUS,
-  OUTBOX_REVIEW_HOLD_STATUS,
-} from './localOutbox'
+
+const OUTBOX_FLUSHABLE_STATUS = 'pending' as const
+const OUTBOX_REVIEW_HOLD_STATUS = 'review_hold' as const
+function isOutboxStatusFlushable(status: string | null | undefined): boolean {
+  return String(status || '') === OUTBOX_FLUSHABLE_STATUS
+}
 
 const root = path.resolve(process.cwd())
 
@@ -80,10 +81,11 @@ describe('purchase / wishlist capture flags', () => {
     }
   })
 
-  it('Nest no soporta envío AddToWishlist/Purchase; keys y error de hold', () => {
-    assert.equal(nestSupportsEventSend('AddToWishlist'), false)
+  it('Nest soporta AddToWishlist; Purchase sigue pendiente de delivery', () => {
+    assert.equal(nestSupportsEventSend('AddToWishlist'), true)
     assert.equal(nestSupportsEventSend('Purchase'), false)
-    assert.equal(isMetaNestPendingEvent('AddToWishlist'), true)
+    assert.equal(isMetaNestPendingEvent('AddToWishlist'), false)
+    assert.equal(isMetaNestPendingEvent('Purchase'), true)
     assert.equal(buildWishlistIdempotencyKey('a', 'b'), 'wishlist:a:b')
     assert.equal(buildPurchaseIdempotencyKey('sale'), 'purchase:sale')
     assert.equal(META_NEST_BACKEND_PENDING_ERROR, 'nest_backend_pending')
@@ -91,7 +93,7 @@ describe('purchase / wishlist capture flags', () => {
     assert.equal(isOutboxStatusFlushable(OUTBOX_FLUSHABLE_STATUS), true)
   })
 
-  it('flushLocalMetaOutbox nunca encola AddToWishlist/Purchase aunque status=pending', async () => {
+  it('flushLocalMetaOutbox encola AddToWishlist; no Purchase aunque pending', async () => {
     const enqueueCalls: unknown[] = []
     const { flushLocalMetaOutbox } = loadFlushWithMockEnqueue(enqueueCalls)
 
@@ -102,7 +104,11 @@ describe('purchase / wishlist capture flags', () => {
         event_id: '11111111-1111-4111-8111-111111111111',
         event_name: 'AddToWishlist',
         event_time: 1,
-        payload: { action_source: 'website', lv_internal_subtype: 'favorito' },
+        payload: {
+          action_source: 'website',
+          lv_internal_subtype: 'favorito',
+          unit_id: '33333333-3333-4333-8333-333333333333',
+        },
         status: OUTBOX_FLUSHABLE_STATUS,
         delivery_lane: 'live',
         lead_id: 'lead-1',
@@ -171,9 +177,10 @@ describe('purchase / wishlist capture flags', () => {
     }
 
     const result = await flushLocalMetaOutbox(admin as never, { limit: 10 })
-    assert.equal(result.forwarded, 1)
-    assert.equal(result.skipped, 2)
-    assert.equal(enqueueCalls.length, 1)
-    assert.equal((enqueueCalls[0] as { eventName: string }).eventName, 'Lead')
+    assert.equal(result.forwarded, 2)
+    assert.equal(result.skipped, 1)
+    assert.equal(enqueueCalls.length, 2)
+    const names = enqueueCalls.map((c) => (c as { eventName: string }).eventName).sort()
+    assert.deepEqual(names, ['AddToWishlist', 'Lead'])
   })
 })

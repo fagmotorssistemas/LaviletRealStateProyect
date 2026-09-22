@@ -1,10 +1,12 @@
 import { cookies, headers } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { after } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { LV_VID_COOKIE, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { rpcResolveLeadIdForVisitor } from '@/lib/tour/tourRpc'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { persistAddToWishlist } from '@/lib/meta/wishlistCapture'
+import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 import { clientIp } from '@/lib/tour/geo'
 import {
@@ -22,7 +24,7 @@ const rateBucket: RateBucket = new Map()
 
 /**
  * Captura AddToWishlist (favorito showroom).
- * Persistencia review_hold; no flush Nest.
+ * Persistencia pending + flush Nest. No mas-promueve review_hold históricos.
  */
 export async function POST(request: Request) {
   let body: Record<string, unknown>
@@ -120,6 +122,26 @@ export async function POST(request: Request) {
       fbclid: typeof body.fbclid === 'string' ? body.fbclid : undefined,
       clientIpAddress: ip !== 'unknown' ? ip : undefined,
       clientUserAgent: h.get('user-agent') || undefined,
+    })
+
+    try {
+      await flushLocalMetaOutbox(admin, { eventIds: [persisted.eventId], limit: 5 })
+    } catch (error) {
+      console.error('[meta-wishlist] sync flush', {
+        event_id: persisted.eventId,
+        error: error instanceof Error ? error.message.slice(0, 180) : 'error',
+      })
+    }
+
+    after(async () => {
+      try {
+        await flushLocalMetaOutbox(admin, { limit: 20 })
+      } catch (error) {
+        console.error('[meta-wishlist] after flush', {
+          event_id: persisted.eventId,
+          error: error instanceof Error ? error.message.slice(0, 180) : 'error',
+        })
+      }
     })
 
     return NextResponse.json(

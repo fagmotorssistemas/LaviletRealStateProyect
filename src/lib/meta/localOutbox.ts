@@ -281,7 +281,8 @@ export async function flushLocalMetaOutbox(
       continue
     }
 
-    // AddToWishlist / Purchase: captura preparada; Nest tipado aún no — no flush aunque pending.
+    // Purchase: captura preparada; Nest tipado pero delivery OFF — no flush aunque pending.
+    // AddToWishlist ya es operacional (Nest tipado); filas review_hold históricas no se tocan.
     if (isMetaNestPendingEvent(row.event_name)) {
       skipped += 1
       console.info('[meta-outbox] flush skip nest_pending_event', {
@@ -339,6 +340,19 @@ export async function flushLocalMetaOutbox(
         : undefined,
       contentName: typeof payload.content_name === 'string' ? payload.content_name : undefined,
       contentCategory: typeof payload.content_category === 'string' ? payload.content_category : undefined,
+      lvInternalSubtype:
+        typeof payload.lv_internal_subtype === 'string'
+          ? payload.lv_internal_subtype
+          : undefined,
+      unitId: typeof payload.unit_id === 'string' ? payload.unit_id : undefined,
+      saleId: typeof payload.sale_id === 'string' ? payload.sale_id : undefined,
+      value:
+        typeof payload.value === 'number'
+          ? payload.value
+          : typeof payload.value === 'string' && Number.isFinite(Number(payload.value))
+            ? Number(payload.value)
+            : undefined,
+      currency: typeof payload.currency === 'string' ? payload.currency : undefined,
       adsConsent: true,
       includeRequestContext: false,
       deliveryLane: row.delivery_lane,

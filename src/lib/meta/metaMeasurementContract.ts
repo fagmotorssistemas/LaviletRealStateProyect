@@ -9,12 +9,13 @@ export const META_NEST_OPERATIONAL_EVENTS = [
   'Lead',
   'Schedule',
   'LeadSubmitted',
+  'AddToWishlist',
 ] as const
 
 export type MetaNestOperationalEvent = (typeof META_NEST_OPERATIONAL_EVENTS)[number]
 
-/** Captura local permitida; Nest tipado aún no acepta → no flush. */
-export const META_NEST_PENDING_EVENTS = ['AddToWishlist', 'Purchase'] as const
+/** Captura local; Nest tipado pero envío Purchase deshabilitado → no flush. */
+export const META_NEST_PENDING_EVENTS = ['Purchase'] as const
 
 export type MetaNestPendingEvent = (typeof META_NEST_PENDING_EVENTS)[number]
 

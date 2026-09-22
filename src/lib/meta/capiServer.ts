@@ -6,7 +6,13 @@ import { parseAdsConsentFromCookieValue } from '@/lib/tour/consent'
 import { resolveEffectiveAdsConsent } from '@/lib/meta/effectiveAdsConsent'
 import { clientIp as resolveClientIp } from '@/lib/tour/geo'
 
-export type MetaServerEventName = 'ViewContent' | 'Lead' | 'Schedule' | 'LeadSubmitted'
+export type MetaServerEventName =
+  | 'ViewContent'
+  | 'Lead'
+  | 'Schedule'
+  | 'LeadSubmitted'
+  | 'AddToWishlist'
+  | 'Purchase'
 
 function backendBaseUrl() {
   return (
@@ -110,6 +116,11 @@ export type EnqueueMetaEventInput = {
   contentIds?: string[]
   contentName?: string | null
   contentCategory?: string | null
+  lvInternalSubtype?: string | null
+  unitId?: string | null
+  saleId?: string | null
+  value?: number | null
+  currency?: string | null
   clientIpAddress?: string | null
   clientUserAgent?: string | null
   deliveryLane?: 'test' | 'live'
@@ -181,6 +192,11 @@ export async function enqueueMetaEvent(
         content_ids: input.contentIds,
         content_name: input.contentName || undefined,
         content_category: input.contentCategory || undefined,
+        lv_internal_subtype: input.lvInternalSubtype || undefined,
+        unit_id: input.unitId || undefined,
+        sale_id: input.saleId || undefined,
+        value: input.value ?? undefined,
+        currency: input.currency || undefined,
         delivery_lane: input.deliveryLane,
         ads_consent: true,
         messaging_channel: input.messagingChannel || undefined,

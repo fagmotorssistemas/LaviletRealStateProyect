@@ -1,15 +1,12 @@
 /**
- * Captura interna AddToWishlist → outbox review_hold.
- * No enqueue / no flush Nest (event_name pendiente tipado).
+ * Captura AddToWishlist → outbox pending + flush Nest.
+ * Mismo event_id que Pixel browser. No libera filas históricas review_hold.
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { buildWishlistIdempotencyKey } from '@/lib/meta/metaMeasurementContract'
 import {
-  buildWishlistIdempotencyKey,
-  META_NEST_BACKEND_PENDING_ERROR,
-} from '@/lib/meta/metaMeasurementContract'
-import {
-  OUTBOX_REVIEW_HOLD_STATUS,
+  OUTBOX_FLUSHABLE_STATUS,
   persistMetaConversion,
 } from '@/lib/meta/localOutbox'
 
@@ -58,8 +55,8 @@ export async function persistAddToWishlist(
     leadId,
     visitorKey,
     adsConsentRequired: true,
-    status: OUTBOX_REVIEW_HOLD_STATUS,
-    lastError: META_NEST_BACKEND_PENDING_ERROR,
+    status: OUTBOX_FLUSHABLE_STATUS,
+    lastError: null,
     payload: {
       action_source: 'website',
       lv_internal_subtype: 'favorito',

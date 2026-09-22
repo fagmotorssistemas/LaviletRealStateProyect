@@ -39,13 +39,11 @@ Consulta: `GET /api/v1/events/:eventId`.
 
 | `event_name` | Idempotency | FE status | Nest debe |
 |---|---|---|---|
-| `AddToWishlist` | `wishlist:{lead_id}:{unit_id}` | `review_hold` + `last_error=nest_backend_pending` | Tipar DTO/allowlist; aceptar payload website; no exigir content_* si conservative |
-| `Purchase` | `purchase:{sale_id}` | igual | Tipar; `value`=`sale_price_final`; **no inventar** currency; anulación vía contrato `anulado` antes de activar |
+| `AddToWishlist` | `wishlist:{lead_id}:{unit_id}` | `pending` + flush | Tipado; website; mismo `event_id` Pixel |
+| `Purchase` | `purchase:{sale_id}` | `review_hold` | Tipado Nest; **`META_PURCHASE_DELIVERY_ENABLED=false`**; exige currency ISO-4217 |
 
-FE **nunca** hace flush de estos nombres aunque `status=pending`.  
-Pixel browser puede emitir `AddToWishlist` con el mismo `event_id` que la fila outbox.
-
-Activación futura: Nest tipado + flag FE explícito (`META_PURCHASE_DELIVERY_ENABLED` / equivalente wishlist). Default off.
+FE hace flush de **AddToWishlist** nuevos (`pending`). Filas históricas `review_hold` **no** se liberan en masa.  
+Purchase: captura OK; sin flush hasta flag + currency explícita.
 
 ---
 
