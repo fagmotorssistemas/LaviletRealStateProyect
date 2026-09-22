@@ -9,7 +9,7 @@ import type { NestEventLookupEvidence } from '@/lib/meta/metaCapiDeliveryOutcome
 
 const DEFAULT_LIMIT = 25
 const MAX_LIMIT = 40
-const LOOKUP_TIMEOUT_MS = 2500
+const LOOKUP_TIMEOUT_MS = 8000
 
 export type NestOutboxSyncResult = {
   examined: number
