@@ -52,6 +52,7 @@ export function CreateClosingModal({
     sale_price_final: '',
     published_price_snapshot: '',
     sale_at: todayLocal(),
+    currency: 'USD',
     contract_id: '',
     notes: '',
   })
@@ -104,6 +105,13 @@ export function CreateClosingModal({
       toast.error('El precio de cierre es obligatorio')
       return
     }
+    const currency = String(form.currency || '')
+      .trim()
+      .toUpperCase()
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      toast.error('Elige la moneda ISO de la operación (ej. USD)')
+      return
+    }
 
     setLoading(true)
     try {
@@ -116,6 +124,7 @@ export function CreateClosingModal({
         lead_id: form.lead_id || null,
         sold_by_id: form.sold_by_id,
         sale_price_final: salePrice,
+        currency,
         published_price_snapshot: form.published_price_snapshot ? Number(form.published_price_snapshot) : null,
         sale_at: saleAt,
         notes: form.notes || null,
@@ -132,6 +141,7 @@ export function CreateClosingModal({
         sale_price_final: '',
         published_price_snapshot: '',
         sale_at: todayLocal(),
+        currency: 'USD',
         contract_id: '',
         notes: '',
       })
@@ -230,14 +240,25 @@ export function CreateClosingModal({
             value={form.sale_price_final}
             onChange={(e) => update('sale_price_final', e.target.value)}
           />
-          <Input
-            id="closing-date"
-            label="Fecha de venta *"
-            type="date"
-            value={form.sale_at}
-            onChange={(e) => update('sale_at', e.target.value)}
+          <Select
+            id="closing-currency"
+            label="Moneda *"
+            options={[
+              { value: 'USD', label: 'USD' },
+              { value: 'EUR', label: 'EUR' },
+            ]}
+            value={form.currency}
+            onChange={(e) => update('currency', e.target.value)}
           />
         </div>
+
+        <Input
+          id="closing-date"
+          label="Fecha de venta *"
+          type="date"
+          value={form.sale_at}
+          onChange={(e) => update('sale_at', e.target.value)}
+        />
 
         <Select
           id="closing-contract"

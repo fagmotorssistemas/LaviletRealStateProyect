@@ -119,6 +119,9 @@ export type EnqueueMetaEventInput = {
   lvInternalSubtype?: string | null
   unitId?: string | null
   saleId?: string | null
+  tenantId?: string | null
+  projectId?: string | null
+  registeredAt?: string | null
   value?: number | null
   currency?: string | null
   clientIpAddress?: string | null
@@ -195,6 +198,9 @@ export async function enqueueMetaEvent(
         lv_internal_subtype: input.lvInternalSubtype || undefined,
         unit_id: input.unitId || undefined,
         sale_id: input.saleId || undefined,
+        tenant_id: input.tenantId || undefined,
+        project_id: input.projectId || undefined,
+        registered_at: input.registeredAt || undefined,
         value: input.value ?? undefined,
         currency: input.currency || undefined,
         delivery_lane: input.deliveryLane,

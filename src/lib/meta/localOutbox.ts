@@ -3,7 +3,11 @@ import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { enqueueMetaEvent, isMetaCapiConfigured, type EnqueueMetaEventInput } from '@/lib/meta/capiServer'
 import { resolveDeliveryLane } from '@/lib/meta/deliveryLane'
-import { isMetaNestPendingEvent, type MetaCaptureEventName } from '@/lib/meta/metaMeasurementContract'
+import {
+  isPurchaseMetaSendEnabled,
+  isPurchaseSaleEligibleForDelivery,
+  type MetaCaptureEventName,
+} from '@/lib/meta/metaMeasurementContract'
 
 export type LocalOutboxRow = {
   id: string
@@ -281,16 +285,29 @@ export async function flushLocalMetaOutbox(
       continue
     }
 
-    // Purchase: captura preparada; Nest tipado pero delivery OFF — no flush aunque pending.
-    // AddToWishlist ya es operacional (Nest tipado); filas review_hold históricas no se tocan.
-    if (isMetaNestPendingEvent(row.event_name)) {
+    // Purchase: solo flush con delivery ON; review_hold histórico nunca se toca aquí
+    // (solo status=pending llega a este loop).
+    if (row.event_name === 'Purchase' && !isPurchaseMetaSendEnabled()) {
       skipped += 1
-      console.info('[meta-outbox] flush skip nest_pending_event', {
+      console.info('[meta-outbox] flush skip purchase_delivery_inactive', {
         event_id: row.event_id,
-        event_name: row.event_name,
         status: row.status,
       })
       continue
+    }
+    if (row.event_name === 'Purchase') {
+      const reg =
+        typeof (row.payload as { registered_at?: string } | null)?.registered_at ===
+        'string'
+          ? String((row.payload as { registered_at: string }).registered_at)
+          : null
+      if (!reg || !isPurchaseSaleEligibleForDelivery(reg)) {
+        skipped += 1
+        console.info('[meta-outbox] flush skip purchase_before_cutover', {
+          event_id: row.event_id,
+        })
+        continue
+      }
     }
 
     if (row.ads_consent_required) {
@@ -346,6 +363,10 @@ export async function flushLocalMetaOutbox(
           : undefined,
       unitId: typeof payload.unit_id === 'string' ? payload.unit_id : undefined,
       saleId: typeof payload.sale_id === 'string' ? payload.sale_id : undefined,
+      tenantId: typeof payload.tenant_id === 'string' ? payload.tenant_id : undefined,
+      projectId: typeof payload.project_id === 'string' ? payload.project_id : undefined,
+      registeredAt:
+        typeof payload.registered_at === 'string' ? payload.registered_at : undefined,
       value:
         typeof payload.value === 'number'
           ? payload.value

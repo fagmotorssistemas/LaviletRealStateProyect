@@ -14,7 +14,7 @@ export const META_NEST_OPERATIONAL_EVENTS = [
 
 export type MetaNestOperationalEvent = (typeof META_NEST_OPERATIONAL_EVENTS)[number]
 
-/** Captura local; Nest tipado pero envío Purchase deshabilitado → no flush. */
+/** Captura local retenida cuando Purchase delivery está OFF. */
 export const META_NEST_PENDING_EVENTS = ['Purchase'] as const
 
 export type MetaNestPendingEvent = (typeof META_NEST_PENDING_EVENTS)[number]
@@ -32,7 +32,7 @@ export const META_INTERNAL_SUBTYPES = [
 
 export type MetaInternalSubtype = (typeof META_INTERNAL_SUBTYPES)[number]
 
-/** Motivo outbox: fila retenida hasta soporte Nest. */
+/** Motivo outbox: fila retenida hasta soporte Nest / corte. */
 export const META_NEST_BACKEND_PENDING_ERROR = 'nest_backend_pending' as const
 
 export function isMetaNestOperationalEvent(name: string): name is MetaNestOperationalEvent {
@@ -43,8 +43,49 @@ export function isMetaNestPendingEvent(name: string): name is MetaNestPendingEve
   return (META_NEST_PENDING_EVENTS as readonly string[]).includes(name)
 }
 
+/** Envío CAPI Purchase: requiere flag explícito. */
+export function isPurchaseMetaSendEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.META_PURCHASE_DELIVERY_ENABLED?.trim().toLowerCase() === 'true'
+}
+
+/**
+ * Corte verificable: ISO en META_PURCHASE_ACTIVATED_AT.
+ * Elegibilidad por registered_at (registro), no por sale_at backdateable.
+ */
+export function getPurchaseActivatedAtMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number | null {
+  const raw = env.META_PURCHASE_ACTIVATED_AT?.trim()
+  if (!raw) return null
+  const ms = Date.parse(raw)
+  return Number.isFinite(ms) ? ms : null
+}
+
+export function isPurchaseSaleEligibleForDelivery(
+  registeredAt: string | number | Date,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (!isPurchaseMetaSendEnabled(env)) return false
+  const cut = getPurchaseActivatedAtMs(env)
+  if (cut == null) return false
+  const regMs =
+    registeredAt instanceof Date
+      ? registeredAt.getTime()
+      : typeof registeredAt === 'number'
+        ? registeredAt > 1e12
+          ? registeredAt
+          : registeredAt * 1000
+        : Date.parse(String(registeredAt))
+  if (!Number.isFinite(regMs)) return false
+  return regMs >= cut
+}
+
 export function nestSupportsEventSend(name: string): boolean {
-  return isMetaNestOperationalEvent(name)
+  if (isMetaNestOperationalEvent(name)) return true
+  if (name === 'Purchase') return isPurchaseMetaSendEnabled()
+  return false
 }
 
 export function labelMetaInternalSubtype(subtype: string | null | undefined): string {
@@ -105,11 +146,4 @@ export function buildWishlistIdempotencyKey(leadId: string, unitId: string): str
 /** Idempotencia compra: cierre comercial. */
 export function buildPurchaseIdempotencyKey(saleId: string): string {
   return `purchase:${saleId}`
-}
-
-/** Envío CAPI Purchase: apagado hasta Nest tipado + activación explícita. */
-export function isPurchaseMetaSendEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return env.META_PURCHASE_DELIVERY_ENABLED?.trim().toLowerCase() === 'true'
 }

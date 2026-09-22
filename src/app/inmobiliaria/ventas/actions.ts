@@ -26,11 +26,19 @@ export async function recordUnitClosingAction(
   await assertCanWriteCrm()
   try {
     const closing = await recordUnitClosing(await getCrmDataClient(), payload)
-    // Meta Purchase preparado (review_hold). Soft-fail; no activa Nest.
+    // Meta Purchase: canal website. Soft-fail; moneda explícita requerida para envío.
     if (closing?.id && payload.lead_id) {
       try {
         const admin = tryCreateAdminClient()
         if (admin) {
+          const projectId =
+            closing.unit && typeof closing.unit === 'object'
+              ? String(
+                  (closing.unit as { project_id?: string }).project_id ||
+                    (closing.unit as { project?: { id?: string } }).project?.id ||
+                    '',
+                ).trim() || null
+              : null
           await persistPurchasePrepared(admin, {
             saleId: String(closing.id),
             leadId: payload.lead_id,
@@ -40,8 +48,10 @@ export async function recordUnitClosingAction(
             currency:
               (closing as { currency?: string | null }).currency ||
               payload.currency ||
-              process.env.META_SALES_CURRENCY?.trim().toUpperCase() ||
               null,
+            tenantId: payload.tenant_id,
+            projectId,
+            registeredAt: String(closing.created_at || new Date().toISOString()),
           })
         }
       } catch (error) {

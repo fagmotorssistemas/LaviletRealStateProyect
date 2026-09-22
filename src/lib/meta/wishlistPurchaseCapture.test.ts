@@ -81,16 +81,25 @@ describe('purchase / wishlist capture flags', () => {
     }
   })
 
-  it('Nest soporta AddToWishlist; Purchase sigue pendiente de delivery', () => {
-    assert.equal(nestSupportsEventSend('AddToWishlist'), true)
-    assert.equal(nestSupportsEventSend('Purchase'), false)
-    assert.equal(isMetaNestPendingEvent('AddToWishlist'), false)
-    assert.equal(isMetaNestPendingEvent('Purchase'), true)
-    assert.equal(buildWishlistIdempotencyKey('a', 'b'), 'wishlist:a:b')
-    assert.equal(buildPurchaseIdempotencyKey('sale'), 'purchase:sale')
-    assert.equal(META_NEST_BACKEND_PENDING_ERROR, 'nest_backend_pending')
-    assert.equal(isOutboxStatusFlushable(OUTBOX_REVIEW_HOLD_STATUS), false)
-    assert.equal(isOutboxStatusFlushable(OUTBOX_FLUSHABLE_STATUS), true)
+  it('Nest soporta AddToWishlist; Purchase solo con delivery ON', () => {
+    const prev = process.env.META_PURCHASE_DELIVERY_ENABLED
+    try {
+      delete process.env.META_PURCHASE_DELIVERY_ENABLED
+      assert.equal(nestSupportsEventSend('AddToWishlist'), true)
+      assert.equal(nestSupportsEventSend('Purchase'), false)
+      assert.equal(isMetaNestPendingEvent('AddToWishlist'), false)
+      assert.equal(isMetaNestPendingEvent('Purchase'), true)
+      process.env.META_PURCHASE_DELIVERY_ENABLED = 'true'
+      assert.equal(nestSupportsEventSend('Purchase'), true)
+      assert.equal(buildWishlistIdempotencyKey('a', 'b'), 'wishlist:a:b')
+      assert.equal(buildPurchaseIdempotencyKey('sale'), 'purchase:sale')
+      assert.equal(META_NEST_BACKEND_PENDING_ERROR, 'nest_backend_pending')
+      assert.equal(isOutboxStatusFlushable(OUTBOX_REVIEW_HOLD_STATUS), false)
+      assert.equal(isOutboxStatusFlushable(OUTBOX_FLUSHABLE_STATUS), true)
+    } finally {
+      if (prev === undefined) delete process.env.META_PURCHASE_DELIVERY_ENABLED
+      else process.env.META_PURCHASE_DELIVERY_ENABLED = prev
+    }
   })
 
   it('flushLocalMetaOutbox encola AddToWishlist; no Purchase aunque pending', async () => {

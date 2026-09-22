@@ -12,6 +12,7 @@ import {
   buildWishlistIdempotencyKey,
   isMetaNestOperationalEvent,
   isMetaNestPendingEvent,
+  isPurchaseSaleEligibleForDelivery,
   labelMetaInternalSubtype,
   nestSupportsEventSend,
   subtypeForEventName,
@@ -34,6 +35,36 @@ describe('metaMeasurementContract', () => {
     assert.equal(nestSupportsEventSend('ViewContent'), true)
     assert.equal(nestSupportsEventSend('AddToWishlist'), true)
     assert.equal(nestSupportsEventSend('Purchase'), false)
+    const prev = process.env.META_PURCHASE_DELIVERY_ENABLED
+    try {
+      process.env.META_PURCHASE_DELIVERY_ENABLED = 'true'
+      assert.equal(nestSupportsEventSend('Purchase'), true)
+    } finally {
+      if (prev === undefined) delete process.env.META_PURCHASE_DELIVERY_ENABLED
+      else process.env.META_PURCHASE_DELIVERY_ENABLED = prev
+    }
+  })
+
+  it('corte Purchase por registered_at', () => {
+    const prevD = process.env.META_PURCHASE_DELIVERY_ENABLED
+    const prevA = process.env.META_PURCHASE_ACTIVATED_AT
+    try {
+      process.env.META_PURCHASE_DELIVERY_ENABLED = 'true'
+      process.env.META_PURCHASE_ACTIVATED_AT = '2026-09-22T21:30:00.000Z'
+      assert.equal(
+        isPurchaseSaleEligibleForDelivery('2026-09-22T21:29:59.000Z'),
+        false,
+      )
+      assert.equal(
+        isPurchaseSaleEligibleForDelivery('2026-09-22T21:30:00.000Z'),
+        true,
+      )
+    } finally {
+      if (prevD === undefined) delete process.env.META_PURCHASE_DELIVERY_ENABLED
+      else process.env.META_PURCHASE_DELIVERY_ENABLED = prevD
+      if (prevA === undefined) delete process.env.META_PURCHASE_ACTIVATED_AT
+      else process.env.META_PURCHASE_ACTIVATED_AT = prevA
+    }
   })
 
   it('idempotency keys y subtipos internos', () => {
