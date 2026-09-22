@@ -14,7 +14,7 @@ export function responsePlan(baseReply: string, audit: Row) {
   const source = text(audit.source)
   const uncovered = Array.isArray(audit.uncovered_requests) ? audit.uncovered_requests : []
   const locked = audit.coverage_complete !== false && !uncovered.length
-    && (lockedSources.has(source) || source === 'unit_price' && audit.verified_price_only === true)
+    && (lockedSources.has(source) || source === 'unit_price' && audit.verified_price_only === true && audit.price_grounded !== true)
   return {
     source,
     locked,
@@ -39,6 +39,7 @@ export function finalWriterContract(baseReply: string, audit: Row = {}) {
     decisiones_protegidas: plan.locked,
     objetivo: 'Responder las solicitudes actuales conservando la decisión y el próximo paso de la respuesta base.',
     hechos_protegidos: plan.protected_facts,
+    price_evidence: audit.price_evidence || null,
     cifras_obligatorias: plan.required_numbers, enlaces_obligatorios: plan.required_links,
     pregunta_siguiente: plan.next_question,
     pregunta_pendiente: object(audit.pending_question),

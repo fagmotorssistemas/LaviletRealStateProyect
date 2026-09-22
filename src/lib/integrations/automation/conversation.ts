@@ -1044,6 +1044,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
+      price_evidence: reviewed.audit.price_evidence,
+      repair_attempts: reviewed.audit.repair_attempts,
       missing_fact_fragments: reviewed.audit.missing_fact_fragments, handoff_assessments: reviewed.audit.handoff_assessments,
       unresolved: reviewed.unresolved, needs_advisor: reviewed.needsAdvisor || needsCommercialHandoff,
       base_preview: reviewed.audit.base_preview, proposed_preview: reviewed.audit.proposed_preview,

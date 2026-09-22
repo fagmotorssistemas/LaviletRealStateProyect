@@ -43,9 +43,11 @@ const labels: Record<string, string> = {
   catalog_comparison: 'Comparación calculada', candidate_count: 'Cantidad de candidatas', reference_unit_ids: 'Unidades interpretadas', reference_needs_clarification: 'Referencia por aclarar',
   handoff_assessments: 'Contraste de los posibles faltantes', fact_key: 'Dato solicitado', review_status: 'Estado de la revisión', pending_commercial_handoff: 'Consulta comercial pendiente',
   source: 'Ruta registrada', result: 'Resultado', task: 'Tarea del modelo', model: 'Modelo utilizado', prompt_revision: 'Versión de las instrucciones utilizadas', instructions_version: 'Versión de las instrucciones utilizadas', issues: 'Controles que rechazaron el borrador',
+  price_evidence: 'Precios contrastados con el catálogo actual', price_usd: 'Precio verificado en USD', approximate: 'Precio aproximado', units: 'Unidades verificadas', repair_attempts: 'Intentos de corrección del borrador',
   property_excluded_categories: 'Categorías descartadas', unit_number: 'Número de unidad',
 }
 const values: Record<string, string> = {
+  price_unit_mismatch: 'El importe no corresponde a la unidad mencionada', price_unit_outside_query: 'Se menciona una unidad ajena a la consulta de precios', verified_price_omitted: 'Falta un precio verificado solicitado',
   invalid_coverage: 'Borrador descartado: ficha interna de redacción inválida',
   residential: 'Viviendas', commercial: 'Locales comerciales', property: 'Consulta inmobiliaria', mixed: 'Consulta inmobiliaria y otro tema', neutral: 'Sin intención comercial definida', out_of_scope: 'Consulta ajena al proyecto',
   search: 'Buscar opciones', rank: 'Ordenar opciones', compare: 'Comparar', select: 'Elegir una unidad', details: 'Mostrar detalles', none: 'Ninguno',

@@ -11,6 +11,15 @@ Module._load = function (id, parent, main) {
 }
 require('./test-typescript.cjs')
 const { unitPriceQuote, priceReplyIssues, acceptedPriceOption } = require('../src/lib/integrations/automation/price-reply.ts')
+const { verifiedPriceReplyIssues } = require('../src/lib/integrations/automation/price-reply.ts')
+
+test('price evidence rejects swapped unit prices and missing launch conditions', () => {
+  const quote = unitPriceQuote(info(), '¿Y en precio?', {})
+  const swapped = 'El departamento 202 cuesta $270.000 USD; el departamento 302 cuesta $250.000 USD. La diferencia es de $20.000 USD. Son valores referenciales de lanzamiento y pueden cambiar.'
+  assert.ok(verifiedPriceReplyIssues(swapped, info(), '¿Y en precio?', quote).includes('price_unit_mismatch'))
+  assert.ok(verifiedPriceReplyIssues('El departamento 202 cuesta $250.000 USD y el departamento 302 $270.000 USD.', info(), '¿Y en precio?', quote).includes('unsupported_fact'))
+  assert.deepEqual(verifiedPriceReplyIssues(quote.reply, info(), '¿Y en precio?', quote), [])
+})
 
 const catalog = [
   { id: 'u101', unit_number: '101', category: 'departamento', bedrooms: 2, published_commercial_price: 210000, is_published: true, status: 'disponible' },
@@ -102,7 +111,7 @@ test('comparison arithmetic is calculated in cents and equal prices do not inven
 })
 
 test('review accepts only the verified difference in a difference phrase, not as a unit price', () => {
-  const suffix = ' Son valores referenciales de lanzamiento.'
+  const suffix = ' Son valores referenciales de lanzamiento y pueden cambiar.'
   assert.deepEqual(priceReplyIssues('El 202 vale $250.000 USD; el 302, $270.000 USD. La diferencia es de $20.000 USD.' + suffix, info(), '¿Y en precio?', [250000, 270000]), [])
   for (const reply of [
     'El precio del 202 es $20.000 USD.',

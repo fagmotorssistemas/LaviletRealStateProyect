@@ -16,6 +16,30 @@ const { operationalCopyIssues } = require('../src/lib/integrations/automation/op
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [] }
+test('Carlos price category switch uses catalogue evidence and accepts natural wording', async () => {
+  const current = 'Y cuál es el precio del penthhphse?'
+  const units = [{ id: 'd502', category: 'departamento', unit_number: '502', published_commercial_price: 310000 },
+    { id: 'p602', category: 'penthouse', unit_number: '602', published_commercial_price: 550000 }]
+  const input = { current, baseReply: 'Las opciones van de $250.000 a $310.000 USD. ¿Le gustaría coordinar una visita?',
+    preserveOperationalQuestion: true, audit: { source: 'unit_price', verified_price_only: true },
+    verified: { catalogo: units, politica_comercial: { precios_autorizados: true, precios_aproximados: true },
+      semantica_turno: { property: { category: 'penthouse' } }, referencia_unidad: { reason: 'remembered', matches: [units[0]] } } }
+  const good = 'Los penthouses tienen un precio referencial de lanzamiento de $550.000 USD y pueden cambiar.'
+  const candidate = reply => ({ reply, requests: [covered(current)], question: noQuestion })
+  const mock = model(candidate(good), approved)
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, good)
+  assert.deepEqual(result.audit.price_evidence.units.map(unit => unit.price_usd), [550000])
+  assert.ok(!mock.calls[0][1].respuesta_base.includes('310.000'))
+  const repaired = await completeTurnReply(input, model(candidate(good.replace('550.000', '999.000')), candidate(good), approved).generate)
+  assert.equal(repaired.reply, good)
+  assert.equal(repaired.audit.repair_attempts.length, 1)
+  const rejected = await completeTurnReply(input, model(candidate(good.replace('550.000', '999.000')), candidate(good.replace('550.000', '999.000'))).generate)
+  assert.equal(rejected.audit.status, 'rejected_guard')
+  assert.match(rejected.reply, /550[.,]000/)
+  assert.doesNotMatch(rejected.reply, /310[.,]000|999[.,]000/)
+})
 test('invalid coverage records exact field and expectation without accepting the draft', async () => {
   const input = { current: 'Prefiero los departamentos', baseReply: 'Respuesta base.', verified: {} }
   const cases = [

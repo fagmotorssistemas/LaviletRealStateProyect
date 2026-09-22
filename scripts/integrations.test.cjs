@@ -504,7 +504,7 @@ test('price responses vary naturally without leaking registration vocabulary or 
   const responses = []
   for (let i = 0; i < 3; i++) { const r = unitPriceQuote(info, 'Y el precio?', {}); responses.push(r.reply); info.historial.push({ role: 'bot', content: r.reply }); assert.doesNotMatch(r.reply, /900[.,]000|registrad|autorizad/); assert.match(r.reply, /lanzamiento/) }
   assert.equal(new Set(responses).size, 3)
-  assert.deepEqual(priceReplyIssues('Las opciones con precio registrado van desde $310.000.', info), ['style'])
+  assert.deepEqual(priceReplyIssues('Las opciones con precio registrado van desde $310.000. Son valores referenciales de lanzamiento y pueden cambiar.', info), ['style'])
 })
 
 test('launch visit controls default off, preserve unrelated settings, and describe site or office accurately', () => {
@@ -1068,8 +1068,8 @@ test('price review rejects hidden, invented or incorrectly qualified prices from
   assert.ok(priceReplyIssues('El precio es $310.000 USD.', { politica_comercial: {} }).length)
   assert.ok(priceReplyIssues('El precio aproximado es $310.000 USD.', priceInfo(false)).length)
   assert.ok(priceReplyIssues('El precio es $550.000 USD.', priceInfo(false), '', [310000]).length)
-  assert.deepEqual(priceReplyIssues('El precio aproximado de lanzamiento es $310.000 USD.', priceInfo()), [])
-  assert.deepEqual(priceReplyIssues('El precio es $310.000 USD.', priceInfo(false)), [])
+  assert.deepEqual(priceReplyIssues('El precio aproximado de lanzamiento es $310.000 USD y puede cambiar.', priceInfo(), 'Precio del 502'), [])
+  assert.deepEqual(priceReplyIssues('El precio es $310.000 USD.', priceInfo(false), 'Precio del 502'), [])
 })
 
 test('fees, loan payments and unrelated products are not mistaken for a home sale price', () => {

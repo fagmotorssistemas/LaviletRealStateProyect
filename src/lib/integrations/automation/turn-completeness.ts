@@ -12,6 +12,7 @@ import { commercialMemory, experienceContext, residentialContinuationIssues, RES
 import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
 import { assessMissingFacts, coverageFactKeys } from './coverage-evidence'
 import { traceText } from './trace-summary'
+import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
 
 export type TurnCompletenessInput = {
   current: string
@@ -168,7 +169,7 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   const allowedUrls = new Set([...urls(source), ...urls(facts)])
   if (urls(source).some(url => !urls(reply).includes(url)) || urls(reply).some(url => !allowedUrls.has(url))) issues.push('links_changed')
   const allowedNumbers = new Set([...numbers(source), ...numbers(facts)].map(numericValue))
-  if (numbers(source).some(number => !numbers(reply).includes(number)) || numbers(reply).some(number => !allowedNumbers.has(numericValue(number)))) issues.push('numbers_changed')
+  if ((input.audit?.price_grounded !== true && numbers(source).some(number => !numbers(reply).includes(number))) || numbers(reply).some(number => !allowedNumbers.has(numericValue(number)))) issues.push('numbers_changed')
   const questions = withoutUrls(reply).match(/[^.!?\n]*\?+/g) || []
   if (questions.length > 1) issues.push('question_count')
   if (questions.length && (!question.text || !literal(question.text, reply) || question.purpose === 'none' || !question.missing_datum.trim() || !question.next_decision.trim())) issues.push('question_without_purpose')
@@ -236,9 +237,18 @@ function missingRequestInventory(current: string, requests: Coverage[], verified
 /** Bounded semantic review; reads no DB and performs no commercial action. */
 export async function completeTurnReply(input: TurnCompletenessInput, generate: typeof aiJson = aiJson): Promise<TurnCompletenessResult> {
   const originalBase = input.baseReply
+  // Re-read the current turn's catalogue snapshot before protecting a specialist
+  // price answer. A remembered category is not an authority for this turn.
+  const verifiedQuote = input.audit?.source === 'unit_price' && input.audit?.verified_price_only === true
+    ? unitPriceQuote(input.verified, input.current, {}) : null
+  const groundedPrice = verifiedQuote?.quoted === true && !!verifiedQuote.units?.length
+  const evidence = groundedPrice ? priceEvidence(verifiedQuote!, input.verified) : null
+  if (groundedPrice) input = { ...input, baseReply: [verifiedQuote!.reply, ...urls(originalBase).filter(url => !verifiedQuote!.reply.includes(url))].join(' '), preserveOperationalQuestion: false,
+    audit: { ...input.audit, price_evidence: evidence, price_grounded: true } }
   const safeBase = safeRentalCreditBase(input.baseReply, input.current, input.verified)
   input = { ...input, baseReply: currentTopicReply(safeBase.reply,input.current) }
   let proposedReply = '', reviewMissing: string[] = []
+  const repairAttempts: Row[] = []
   const fallback = (status: string, requests: Coverage[] = [], issues: string[] = []): TurnCompletenessResult => {
     // A rejected writer/reviewer cannot turn its own omissions into a real action.
     // Keep literal gaps independently identified by the reviewer, even when it
@@ -248,7 +258,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const unresolved = assessed.unresolved
     const reply = input.baseReply || (originalBase.trim() && input.current.trim() ? 'Para orientarle mejor, ¿qué opciones le gustaría revisar?' : '')
     return { reply, changed: reply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { writer_contract: finalWriterContract(originalBase, input.audit), status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
+      audit: { writer_contract: finalWriterContract(input.baseReply, input.audit), price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments,
         needs_advisor: unresolved.length > 0, unresolved, draft_rejected: true, independent_review: reviewMissing.length > 0 || status === 'rejected_review',
         base_preview: traceText(originalBase, 1000), proposed_preview: traceText(proposedReply, 1000), final_preview: traceText(reply, 1000) } }
@@ -271,19 +281,29 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ? '\nLa respuesta_base proviene de una consulta ejecutada sobre el catálogo. Puede reorganizarla y agrupar opciones equivalentes para explicar diferencias con claridad. Preserve relaciones entre unidades, categorías y medidas y la pregunta con su referente; no repita una ficha por unidad si basta explicar grupos y plantas. Las medidas ya incluidas son pertinentes aunque el turno sea «sí» o «esa opción». Añada respuestas a otras solicitudes actuales; no convierta máximos en selección ni mezcle otros dormitorios en los rangos. catalog_comparison y catalog_coverage indican qué dimensiones están respondidas; no derive por desconocer diferencias no solicitadas. No calcule cifras nuevas que no estén verificadas.'
       : turnWritingRules(input.current, memory)
     if (object(input.audit?.alternative_presentation).kind === 'category_overview') writingRules += '\nEsta respuesta presenta alternativas por categoría antes de elegir una. Conserve las superficies máximas verificadas de cada categoría y su cantidad de dormitorios. No la convierta en una lista de códigos de unidades, fichas, baños, superficies exteriores o plantas. Conserve el propósito de la pregunta pendiente: aceptar explorar alternativas o elegir la categoría que desea revisar primero. No añada categorías descartadas ni vuelva a opciones de menos dormitorios que las alternativas propuestas.'
-    const candidate = await generate(COVERAGE_RULES + '\n' + FINAL_WRITER_RULES + RESIDENTIAL_CONTINUITY_RULES + writingRules + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
+    if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use esta respuesta_base actualizada, no los precios antiguos del historial. Conserve moneda y condiciones de lanzamiento, incluyendo que pueden cambiar. La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.'
+    for (let attempt = 0; attempt < (groundedPrice ? 2 : 1); attempt++) {
+    const candidate = await generate(COVERAGE_RULES + '\n' + FINAL_WRITER_RULES + RESIDENTIAL_CONTINUITY_RULES + writingRules + '\n' + passiveSalesRules(engagement) + visitRules,
+      { ...context, ...(attempt ? { reparacion: { instruccion: 'Corrija los controles indicados usando únicamente la evidencia verificada; mantenga el resto de la respuesta pertinente.', borrador: proposedReply, controles: repairAttempts.at(-1)?.issues } } : {}) }, coverageSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
     const metadataIssues: string[] = []
     const rows = coverageRows(candidate.requests, input.current, metadataIssues), declaredQuestion = questionRow(candidate.question, metadataIssues)
-    if (!rows || !declaredQuestion) return fallback('invalid_coverage', [], metadataIssues)
+    if (!rows || !declaredQuestion) {
+      if (groundedPrice && attempt === 0) { repairAttempts.push({ status: 'invalid_coverage', issues: metadataIssues, proposed_preview: traceText(proposedReply, 1000) }); continue }
+      return fallback('invalid_coverage', [], metadataIssues)
+    }
     requests = rows
-    const reply = currentTopicReply(restoreProtectedBase(input.baseReply, text(candidate.reply).trim()),input.current)
+    const reply = currentTopicReply(groundedPrice ? text(candidate.reply).trim() : restoreProtectedBase(input.baseReply, text(candidate.reply).trim()),input.current)
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.
     const question = withoutUrls(reply).includes('?') ? declaredQuestion : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
     const issues = turnCompletenessIssues(input, reply, question)
+    if (groundedPrice) issues.push(...verifiedPriceReplyIssues(reply, input.verified, input.current, verifiedQuote!))
     if (reply !== input.baseReply.trim() && passiveSalesCopy(reply, input.current, engagement) !== reply) issues.push('unsolicited_sales_offer')
-    if (issues.length) return fallback('rejected_guard', requests, issues)
+    if (issues.length) {
+      if (groundedPrice && attempt === 0) { repairAttempts.push({ status: 'rejected_guard', issues, proposed_preview: traceText(proposedReply, 1000) }); continue }
+      return fallback('rejected_guard', requests, issues)
+    }
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact').map(row => row.fragment)])]
     const reviewRequired = reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
     if (reviewRequired) {
@@ -299,9 +319,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const assessed = assessMissingFacts(unresolved, input.audit || {}, requests)
     unresolved = assessed.unresolved
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { writer_contract: context.contrato_redaccion, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
+      audit: { writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
         independent_review: reviewRequired,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments, needs_advisor: unresolved.length > 0, unresolved,
         base_preview: traceText(originalBase, 1000), proposed_preview: traceText(proposedReply, 1000), final_preview: traceText(reply, 1000) } }
+    }
+    return fallback('unavailable', requests)
   } catch { return fallback('unavailable', requests) }
 }

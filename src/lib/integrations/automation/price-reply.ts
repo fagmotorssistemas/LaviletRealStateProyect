@@ -85,7 +85,9 @@ function priceSelection(info: Row, current: string, summary: Row) {
   const referenceUnits = hydrate(rows(reference.matches).map(unit => unit.id))
   const comparisonIds = ids(propertyContext.comparison_ids)
   const topic = salesSubject(current, info.historial)
-  const category = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite'
+  const semanticCategory = text(object(object(info.semantica_turno).property).category)
+  const category = ['local', 'suite', 'penthouse', 'departamento'].includes(semanticCategory) ? semanticCategory
+    : /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite'
     : /\bpenthouses?\b/.test(m) ? 'penthouse' : /\bdepart[ae]?mentos?\b/.test(m) ? 'departamento'
     : /\bviviendas?\b/.test(m) || topic.acceptedRedirect ? 'vivienda' : ''
   const matchesCategory = (unit: Row, value: string) => value === 'vivienda' ? ['suite', 'departamento', 'penthouse'].includes(text(unit.category)) : unit.category === value
@@ -94,8 +96,12 @@ function priceSelection(info: Row, current: string, summary: Row) {
   const bedrooms = bedroomMatch ? Number(bedroomWords[bedroomMatch[1]] || bedroomMatch[1]) : 0
   const explicit = reference.hasUnitMention === true || resolved.hasUnitMention
   let selected: Row[], contextual = false
-  if (reference.needsClarification === true) return { selected: [], category, bedrooms, explicit, contextual, needsClarification: true }
-  if (text(reference.reason) && (referenceUnits.length || explicit)) {
+  // A category explicitly requested in this turn supersedes remembered units.
+  // Literal unit codes still take precedence (including ambiguous codes).
+  if (category && !resolved.hasUnitMention) {
+    selected = catalog.filter(unit => matchesCategory(unit, category) && (!bedrooms || Number(unit.bedrooms) === bedrooms))
+  } else if (reference.needsClarification === true) return { selected: [], category, bedrooms, explicit, contextual, needsClarification: true }
+  else if (text(reference.reason) && (referenceUnits.length || explicit)) {
     selected = referenceUnits; contextual = true
   } else if (resolved.hasUnitMention) {
     selected = resolved.matches; contextual = true
@@ -225,6 +231,41 @@ export function acceptedPriceOption(info: Row, current: string, summary: Row) {
     unit_reference: { ids: [unit.id], numbers: [unit.unit_number] }, ...(model ? { unit_model: model } : {}) } }
 }
 
+/** Evidence is freshly hydrated from the authorized catalogue, never from a draft. */
+export function priceEvidence(quote: PriceQuote, info: Row) {
+  return {
+    source: 'catalogo.published_commercial_price',
+    approximate: object(info.politica_comercial).precios_aproximados === true,
+    units: (quote.units || []).map(unit => ({ id: unit.id, unit_number: unit.unit_number, category: unit.category, price_usd: moneyValue(unit) })),
+    comparison: quote.comparison || null,
+  }
+}
+
+export function verifiedPriceReplyIssues(reply: string, info: Row, current: string, quote: PriceQuote): string[] {
+  const issues = priceReplyIssues(reply, info, current, quote.prices).filter(issue => issue !== 'style')
+  const amounts = [...reply.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)].map(match => {
+    try { return parseCommercialPrice((match[1] || match[2]).replace(/[.,]$/, '')) } catch { return null }
+  })
+  const prices = quote.prices || []
+  if (amounts.some(amount => amount === null || !prices.includes(amount) && amount !== quote.comparison?.difference)) issues.push('unsupported_fact')
+  const required = (quote.units || []).length > 3 ? [Math.min(...prices), Math.max(...prices)] : prices
+  if (required.some(price => !amounts.includes(price))) issues.push('verified_price_omitted')
+  // A known amount attached to the wrong property is still an incorrect fact.
+  const mentions = [...reply.matchAll(/\b(suite|departamento|penthouse|local)\s+(?:n[úu]mero\s+)?(LC[- ]?\d+|\d{1,4})\b/gi)]
+  for (let index = 0; index < mentions.length; index++) {
+    const mention = mentions[index]
+    const unit = quote.units?.find(unit => normalized(text(unit.category)) === normalized(mention[1]) && normalized(text(unit.unit_number)) === normalized(mention[2]))
+    if (!unit) { issues.push('price_unit_outside_query'); continue }
+    const clause = reply.slice((mention.index || 0) + mention[0].length, mentions[index + 1]?.index).split(/[;\n]|(?<=[.!?])\s/)[0]
+    for (const amount of clause.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)) {
+      try {
+        if (parseCommercialPrice((amount[1] || amount[2]).replace(/[.,]$/, '')) !== moneyValue(unit)) issues.push('price_unit_mismatch')
+      } catch { issues.push('unsupported_fact') }
+    }
+  }
+  return [...new Set(issues)]
+}
+
 export const PRICE_REPLY_RULES = `La política comercial de este turno prevalece sobre el historial y cualquier guion anterior.
 Solo informe precios de catálogo autorizados: nunca reutilice un precio recordado si ahora está oculto.
 En Lanzamiento, si precios_aproximados es true, identifique el valor como aproximado y explique brevemente que es referencial de lanzamiento y puede cambiar.
@@ -238,19 +279,18 @@ Si le preguntan expresamente si el crédito está aprobado o garantizado, expliq
 
 export function priceReplyIssues(reply: string, info: Row, current = '', expectedPrices?: number[]) {
   const policy = object(info.politica_comercial), m = normalized(reply)
-  if (/precios?[^.!?\n]{0,35}(?:registrad|autorizad)|(?:registrad|autorizad)[^.!?\n]{0,25}precios?/.test(m)) return ['style']
-  if (!/aprob|garanti|asegur/.test(normalized(current)) && /aprobacion depende|entidad evalua cada solicitud/.test(m)) return ['style']
+  const styleIssues = /precios?[^.!?\n]{0,35}(?:registrad|autorizad)|(?:registrad|autorizad)[^.!?\n]{0,25}precios?/.test(m)
+    || !/aprob|garanti|asegur/.test(normalized(current)) && /aprobacion depende|entidad evalua cada solicitud/.test(m)
   const discloses = /(?:\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares))/i.test(reply) && /precio|valor|cuesta|costo|desde|opciones/.test(m)
-  if (!discloses) return []
+  if (!discloses) return styleIssues ? ['style'] : []
   const disclosureRequested = asksUnitPrice(current, true) || statedBudget(current) !== null || hasAffordabilityConcern(current)
     || /\bno (?:se|estoy segur[oa]|tengo claro|tengo idea)\b.*\b(?:presupuesto|dinero|invertir|gastar|pagar)\b/.test(normalized(current))
     || /\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)\b.*\b(?:suite|departamento|local|unidad)\s*(?:numero\s*)?\d{1,4}\b/.test(normalized(current))
-  if (current.trim() && !disclosureRequested) return ['style']
   if (policy.precios_autorizados !== true) return ['unsupported_fact']
   if (/€|£|\b(?:EUR|GBP|euros|libras esterlinas)\b/i.test(reply)) return ['unsupported_fact']
   const selection = priceSelection(info, current, {})
   const comparison = comparisonFacts(selection.selected, selection.contextual)
-  const allowed = expectedPrices || (selection.contextual ? selection.selected : rows(info.catalogo))
+  const allowed = expectedPrices || selection.selected
     .filter(availableUnit).map(moneyValue).filter((value): value is number => value !== null)
   for (const match of reply.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)) {
     try {
@@ -264,7 +304,7 @@ export function priceReplyIssues(reply: string, info: Row, current = '', expecte
     }
     catch { return ['unsupported_fact'] }
   }
-  if (policy.precios_aproximados === true && (!/aproximad|referencial/.test(m) || !/lanzamiento/.test(m))) return ['unsupported_fact']
+  if (policy.precios_aproximados === true && (!/aproximad|referencial/.test(m) || !/lanzamiento/.test(m) || !/pueden? (?:cambiar|variar)|sujet[oa]s? a cambios/.test(m))) return ['unsupported_fact']
   if (info.modo_comercial === 'preventa' && /(?:precio|valor)[^.]*aproximad|referencial de lanzamiento/.test(m)) return ['unsupported_fact']
-  return []
+  return styleIssues || current.trim() && !disclosureRequested ? ['style'] : []
 }
