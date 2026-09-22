@@ -112,8 +112,9 @@ test('an unavailable requested number of bedrooms is preserved and not silently 
   assert.equal(answer.audit.original_query.filters.bedrooms, 5)
   assert.equal(answer.audit.pending_question.act, 'explore_alternatives')
   assert.equal(answer.audit.pending_question.proposed_query.filters.bedrooms, 3)
-  assert.equal(answer.audit.pending_question.proposed_query.category, 'departamento')
-  assert.deepEqual(answer.audit.pending_question.candidate_ids, ['unit-202', 'unit-302', 'unit-402', 'unit-502'])
+  assert.equal(answer.audit.original_query.category, 'departamento')
+  assert.equal(answer.audit.pending_question.proposed_query.category, null)
+  assert.deepEqual(answer.audit.pending_question.candidate_ids, ['unit-202', 'unit-302', 'unit-402', 'unit-502', 'unit-602'])
   assert.deepEqual(answer.audit.selected_unit_ids, [])
   const required = catalogDialogueReply(info(query('search', { category: 'departamento', filters: { bedrooms: 5, bedrooms_required: true } })))
   assert.doesNotMatch(required.reply, /alternativas|penthouses|gustaría/)
@@ -294,18 +295,69 @@ test('five bedrooms, accepting available alternatives and refining the category 
     return result
   }
   const requested = run('busco vivienda de cinco habitaciones', { group: 'residential', operation: 'search', filters: { bedrooms: 5 } })
+  assert.match(requested.reply, /departamentos de 3 dormitorios, con hasta 120[.,]83 m² interiores/i)
+  assert.match(requested.reply, /penthouses de 3 dormitorios, con hasta 142[.,]09 m² interiores/i)
   assert.equal(requested.audit.original_query.filters.bedrooms, 5)
   assert.equal(pending.proposed_query.filters.bedrooms, 3)
   const accepted = run('si esta bien', { operation: 'none' }, 'answer_previous', { question_id: 'property_category', kind: 'affirmative', evidence: 'si esta bien', confidence: 'high' })
   assert.equal(accepted.audit.catalog_query.filters.bedrooms, 3)
   assert.deepEqual(accepted.audit.selected_unit_ids, [])
   assert.ok(accepted.audit.catalog_results.units.every(value => value.bedrooms === 3))
+  assert.match(accepted.reply, /120[.,]83 m² interiores/)
+  assert.match(accepted.reply, /142[.,]09 m² interiores/)
+  assert.match(accepted.reply, /primero departamentos o penthouses/)
+  assert.doesNotMatch(accepted.reply, /202|302|402|502|602|baños|exteriores|planta/i)
+  assert.equal(accepted.audit.pending_question.act, 'choose_category')
   const narrowed = run('departamentos', { category: 'departamento', operation: 'select' }, 'select_property')
   assert.equal(narrowed.audit.catalog_query.filters.bedrooms, 3)
   assert.equal(narrowed.audit.catalog_results.units.length, 4)
   assert.ok(narrowed.audit.catalog_results.units.every(value => value.category === 'departamento' && value.bedrooms === 3))
   assert.deepEqual(narrowed.audit.selected_unit_ids, [])
   assert.equal(summary._property_context.original_query.filters.bedrooms, 5)
+})
+
+test('approved bedroom alternatives preserve category maxima through validation and respect exclusions and exact requirements', () => {
+  const q = query('search', { category: 'departamento', filters: { bedrooms: 5 } })
+  const result = catalogDialogueReply(info(q))
+  assert.match(result.reply, /120[.,]83 m² interiores/)
+  assert.match(result.reply, /142[.,]09 m² interiores/)
+  assert.equal(validateCatalogReply(result.reply, result.audit).valid, true)
+  assert.equal(validateCatalogReply('No contamos con departamentos de 5 dormitorios. Hay alternativas de 3 dormitorios.', result.audit).reason, 'alternative_area_omitted')
+  assert.equal(validateCatalogReply(result.reply + ' Suites de 1 dormitorio.', result.audit).valid, false)
+  assert.equal(validateCatalogReply(result.reply + ' Departamentos 202, 302, 402 y 502.', result.audit).reason, 'alternative_unit_list_premature')
+  const excluded = catalogDialogueReply(info(q, { semantica_turno: { property: { excluded_categories: ['penthouse'] } } }))
+  assert.doesNotMatch(excluded.reply, /penthouses|142[.,]09/)
+  const exact = catalogDialogueReply(info(query('search', { category: 'departamento', filters: { bedrooms: 5, bedrooms_required: true } })))
+  assert.doesNotMatch(exact.reply, /alternativas|120[.,]83|142[.,]09/)
+  const incomplete = catalogue.map(unit => unit.unit_number === '602' ? { ...unit, area_internal_m2: null } : unit)
+  const partial = catalogDialogueReply({ ...info(q), catalogo: incomplete })
+  assert.doesNotMatch(partial.reply, /142[.,]09/)
+})
+
+test('accepting alternatives to a five-bedroom apartment does not silently restore the old category on another yes', () => {
+  let summary = {}, history = [], pending = {}
+  for (const [index, current] of ['No tiene departamentos de 5 habitaciones?', 'si esta bien', 'si esta bien'].entries()) {
+    const semantics = normalizeTurnSemantics({ turn_semantics: {
+      primary_intent: index ? 'answer_previous' : 'select_property', confidence: 'high', primary_evidence: current,
+      property: { group: 'residential', operation: index ? 'none' : 'search', category: index ? null : 'departamento',
+        filters: index ? {} : { bedrooms: 5 }, evidence: current, confidence: 'high' },
+      answer_to_previous: index ? { question_id: pending.id, kind: 'affirmative', evidence: current, confidence: 'high' } : {},
+    } }, current, pending)
+    const reference = resolvePropertyTurn(catalogue, current, summary, history, semantics)
+    const result = catalogDialogueReply({ catalogo: catalogue, referencia_unidad: reference, property_context: reference.context, semantica_turno: semantics }, current)
+    assert.equal(validateCatalogReply(result.reply, result.audit).valid, true)
+    assert.match(result.reply, /120[.,]83/)
+    assert.match(result.reply, /142[.,]09/)
+    if (index) {
+      assert.equal(result.audit.catalog_query.category, null)
+      assert.equal(result.audit.pending_question.act, 'choose_category')
+      assert.deepEqual(result.audit.selected_unit_ids, [])
+      assert.doesNotMatch(result.reply, /202|302|402|502|602|planta|exteriores/)
+    }
+    summary = { _property_context: rememberPropertyReply(catalogue, reference.context, result.reply, result.audit) }
+    history.push({ role: 'cliente', content: current }, { role: 'bot', content: result.reply })
+    pending = result.audit.pending_question
+  }
 })
 
 test('a category selection followed by differences compares the seven offered apartments through real memory', () => {

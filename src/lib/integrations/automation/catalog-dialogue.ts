@@ -97,9 +97,12 @@ export function compareCatalog(units: Row[]) {
  * to be completed by the normal coverage stage. */
 export function validateCatalogReply(reply: string, audit: Row): { valid: boolean; reason?: string } {
   if (audit.verified_catalog !== true) return { valid: true }
+  if (object(audit.alternative_presentation).kind === 'category_overview'
+    && /\b(?:departamentos?|penthouses?|suites?|unidades?)\s+\d{2,4}\b/i.test(reply)) return { valid: false, reason: 'alternative_unit_list_premature' }
   const pending = object(audit.pending_question)
   if (ids(pending.target_ids).length && text(pending.question) && !reply.includes(text(pending.question))) return { valid: false, reason: 'catalog_pending_question_changed' }
-  const verified = rows(object(audit.catalog_results).units)
+  const verified = rows(object(audit.catalog_results).units).length
+    ? rows(object(audit.catalog_results).units) : rows(object(audit.alternative_results).units)
   if (!verified.length) return { valid: true }
   const decimal = (value: string) => {
     const clean = value.replace(/[.,]$/, '')
@@ -107,11 +110,15 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
     return last >= 0 && clean.length - last <= 3
       ? Number(clean.slice(0, last).replace(/[.,]/g, '') + '.' + clean.slice(last + 1)) : Number(clean.replace(/[.,]/g, ''))
   }
+  const requiredAreas = rows(object(audit.alternative_presentation).groups)
+    .map(group => measurement(group.max_area_internal_m2)).filter(value => value !== null)
+  const writtenAreas = [...reply.matchAll(/(\d[\d.,]*)\s*m[²2]/g)].map(match => decimal(match[1]))
+  if (requiredAreas.some(area => !writtenAreas.some(value => Math.abs(value - area) < 0.005))) return { valid: false, reason: 'alternative_area_omitted' }
   const words: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 }
   const raw = reply.replace(/https?:\/\/\S+/g, '').replace(/¿[^?]*\?/g, '').replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const clauses = raw.split(/(?<!\d)\.\s+|(?<=\d)\.(?!\d)\s+|[;\n]+|\s+y\s+(?=(?:el |la |los |las )?(?:departamentos?|suites?|penthouses?|locales?|unidades?)\s+\d)/)
   for (const clause of clauses) {
-    if (!clause.trim() || /[¿?]/.test(clause) || /\bno (?:contamos|tenemos|aparecen|ofrecemos)|pendiente.*verificar|falta.*verific/.test(clause)) continue
+    if (!clause.trim() || /[¿?]/.test(clause) || /\bno (?:contamos|tenemos|aparecen|ofrecemos|disponemos|dispone|hay)|pendiente.*verificar|falta.*verific/.test(clause)) continue
     let relevant = verified
     // Bind every member of a collective reference before checking its attributes.
     // Merely finding these numbers elsewhere in the result permits swapped groups.
@@ -194,6 +201,20 @@ function categorySummary(units: Row[]) {
   })
 }
 
+/** Category-level alternatives precede individual specifications and floor selection. */
+function alternativeOverview(units: Row[]) {
+  const groups = [...categories].filter(category => units.some(unit => unit.category === category)).map(category => {
+    const members = units.filter(unit => unit.category === category)
+    const areas = members.map(unit => measurement(unit.area_internal_m2))
+    const max = areas.every(area => area !== null) ? Math.max(...areas as number[]) : null
+    const description = categorySummary(members)[0]
+    return { category, max_area_internal_m2: max,
+      description: `${description}${max !== null ? `, con hasta ${number(max)} m² interiores` : ''}` }
+  })
+  const reply = groups.map(group => `${group.description.charAt(0).toUpperCase()}${group.description.slice(1)}.`).join(' ')
+  return { reply, groups }
+}
+
 function groupedCharacteristics(units: Row[], comparison = compareCatalog(units)) {
   return comparison.groups.map(group => {
     const members = units.filter(unit => group.unit_ids.includes(text(unit.id)))
@@ -273,7 +294,9 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     let proposed = catalogQuery({ ...query, operation: 'search', scope: 'catalog', selector: null,
       filters: { ...query.filters, bedrooms: null, floor_number: null, min_area_m2: null, max_area_m2: null } })
     let wider = filterCatalog(catalog, proposed).filter(unit => !excluded.includes(text(unit.category)))
-    if (!wider.length && query.group === 'residential') {
+    const offerOtherHomes = query.category === 'departamento' && query.filters.bedrooms !== null
+      && query.filters.floor_number === null && query.filters.min_area_m2 === null && query.filters.max_area_m2 === null
+    if (query.group === 'residential' && (!wider.length || offerOtherHomes)) {
       proposed = { ...proposed, category: null }
       wider = filterCatalog(catalog, proposed).filter(unit => !excluded.includes(text(unit.category)))
     }
@@ -285,9 +308,11 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
       }
     }
     if (!wider.length) return respond(opening, { original_query: query })
+    const overview = alternativeOverview(wider)
     const next = '¿Le gustaría revisar las alternativas disponibles?'
-    return respond(`${opening} Como alternativas, contamos con ${join(categorySummary(wider))}. ${next}`,
+    return respond(`${opening} Podemos ofrecerle estas alternativas: ${overview.reply} ${next}`,
       { original_query: query, alternative_results: { query: proposed, unit_ids: unitIds(wider), units: wider.map(facts) },
+        alternative_presentation: { kind: 'category_overview', groups: overview.groups },
         pending_question: { ...question('property_category', 'explore_alternatives', next, [], wider), proposed_query: proposed } })
   }
   if (query.operation === 'rank') {
@@ -310,6 +335,16 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     const comparison = compareCatalog(units)
     return respond(comparisonReply(units, comparison), { comparison_unit_ids: unitIds(units), offered_unit_ids: unitIds(units), catalog_comparison: comparison,
       catalog_coverage: { ...object(baseAudit.catalog_coverage), required_dimensions: ['bedrooms', 'area_internal_m2', 'area_exterior_m2', 'floor_number'] } })
+  }
+  if (query.operation === 'search' && !query.category && Object.keys(object(context.original_query)).length
+    && new Set(units.map(unit => unit.category)).size > 1) {
+    const overview = alternativeOverview(units)
+    const names = [...new Set(units.map(unit => plural[text(unit.category)]))]
+    const next = `¿Prefiere que revisemos primero ${join(names, 'o')}?`
+    return respond(`${overview.reply} ${next}`, {
+      offered_unit_ids: unitIds(units), alternative_presentation: { kind: 'category_overview', groups: overview.groups },
+      pending_question: question('property_category', 'choose_category', next),
+    })
   }
   if (query.operation === 'details' || query.operation === 'select') {
     if (units.length !== 1 || reference.needsClarification === true) {

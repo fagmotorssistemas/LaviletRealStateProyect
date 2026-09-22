@@ -169,6 +169,9 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.pending_question = {}
   } else if (pending.act === 'choose_category' && acceptsPending && !category) {
     query.operation = operation = 'search'
+    // A bare yes cannot restore an older preference after several categories
+    // were explicitly offered as alternatives to an unavailable property.
+    query.category = text(previousQuery.category) || null
     context.selected_ids = []; context.focused_ids = []
   }
   const confirmsOption = answersPendingQuestion(semantics, 'unit_choice', 'affirmative') || positive && pending.id === 'unit_choice'

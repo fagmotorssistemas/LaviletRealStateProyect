@@ -236,9 +236,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   let requests: Coverage[] = []
   try {
     const visitRules = COMMERCIAL_ACCURACY_RULES + (isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + (input.verified.estado_proyecto ? '\n'+readinessRules(input.verified.estado_proyecto as ProjectReadiness) : '')
-    const writingRules = input.audit?.verified_catalog === true
+    let writingRules = input.audit?.verified_catalog === true
       ? '\nLa respuesta_base proviene de una consulta ejecutada sobre el catálogo. Puede reorganizarla y agrupar opciones equivalentes para explicar diferencias con claridad. Preserve relaciones entre unidades, categorías y medidas y la pregunta con su referente; no repita una ficha por unidad si basta explicar grupos y plantas. Las medidas ya incluidas son pertinentes aunque el turno sea «sí» o «esa opción». Añada respuestas a otras solicitudes actuales; no convierta máximos en selección ni mezcle otros dormitorios en los rangos. catalog_comparison y catalog_coverage indican qué dimensiones están respondidas; no derive por desconocer diferencias no solicitadas. No calcule cifras nuevas que no estén verificadas.'
       : turnWritingRules(input.current, memory)
+    if (object(input.audit?.alternative_presentation).kind === 'category_overview') writingRules += '\nEsta respuesta presenta alternativas por categoría antes de elegir una. Conserve las superficies máximas verificadas de cada categoría y su cantidad de dormitorios. No la convierta en una lista de códigos de unidades, fichas, baños, superficies exteriores o plantas. Conserve el propósito de la pregunta pendiente: aceptar explorar alternativas o elegir la categoría que desea revisar primero. No añada categorías descartadas ni vuelva a opciones de menos dormitorios que las alternativas propuestas.'
     const candidate = await generate(COVERAGE_RULES + RESIDENTIAL_CONTINUITY_RULES + writingRules + '\n' + passiveSalesRules(engagement) + visitRules, context, coverageSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
     const rows = coverageRows(candidate.requests, input.current), declaredQuestion = questionRow(candidate.question)

@@ -2576,6 +2576,15 @@ test('dialogue v2 replays five bedrooms, two affirmatives, apartment choice and 
         assert.equal(summary._property_context.query.filters.bedrooms, 5)
         assert.equal(summary._pending_question.act, 'explore_alternatives')
         assert.equal(summary._pending_question.proposed_query.filters.bedrooms, 3)
+        assert.match(sent.p_content, /120[.,]83 m² interiores/)
+        assert.match(sent.p_content, /142[.,]09 m² interiores/)
+      }
+      if (index === 2 || index === 3) {
+        assert.match(sent.p_content, /120[.,]83 m² interiores/)
+        assert.match(sent.p_content, /142[.,]09 m² interiores/)
+        assert.match(sent.p_content, /primero departamentos o penthouses/)
+        assert.doesNotMatch(sent.p_content, /202|302|402|502|602|605|baños|exteriores|planta/i)
+        assert.equal(summary._pending_question.act, 'choose_category')
       }
       if (index >= 2) {
         assert.equal(summary._property_context.original_query.filters.bedrooms, 5, current)
