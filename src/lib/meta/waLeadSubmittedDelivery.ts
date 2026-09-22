@@ -172,12 +172,29 @@ export async function maybeRegisterWaLeadSubmitted(input: {
     }
   }
 
+  const tenantIdForCtwa =
+    (consentRow?.tenant_id as string | null) || input.lead.tenant_id || null
+  const projectIdForCtwa =
+    (consentRow?.project_id as string | null) || input.lead.project_id || null
+
+  // CTWA scoped antes de elegibilidad: habilita «más info sobre esto» con anuncio verificado.
+  const ctwaClidEarly =
+    admin && tenantIdForCtwa && projectIdForCtwa
+      ? await resolveScopedCtwaClid(admin, {
+          tenantId: tenantIdForCtwa,
+          projectId: projectIdForCtwa,
+          contactId,
+        })
+      : null
+  const verifiedAdContext = Boolean(ctwaClidEarly)
+
   // Interés del turno, o aceptación + sello reciente (grant ≠ interés; sin backfill).
   const eligibility = evaluateWaLeadSubmittedEligibility({
     currentMessage: input.currentMessage,
     scoreEvents: input.scoreEvents,
     recentOfferText: input.recentOfferText,
     commercialInterestAt: input.lead.meta_wa_commercial_interest_at,
+    verifiedAdContext,
   })
 
   if (!eligibility.eligibleForConversion) {
@@ -194,6 +211,7 @@ export async function maybeRegisterWaLeadSubmitted(input: {
         turn_commercial_interest: eligibility.turnCommercialInterest,
         used_recent_interest_with_consent:
           eligibility.usedRecentInterestWithConsent,
+        verified_ad_context: verifiedAdContext,
       },
     })
     return {
@@ -293,11 +311,8 @@ export async function maybeRegisterWaLeadSubmitted(input: {
   const projectId =
     (consentRow?.project_id as string | null) || input.lead.project_id || null
 
-  const ctwaClid = await resolveScopedCtwaClid(admin, {
-    tenantId,
-    projectId,
-    contactId,
-  })
+  // Reutilizar CTWA ya resuelto (mismo aislamiento tenant+proyecto+contacto).
+  const ctwaClid = ctwaClidEarly
 
   const wabaId = String(env.META_WABA_ID || '').trim()
   const messagingDatasetId = String(env.META_MESSAGING_DATASET_ID || '').trim()

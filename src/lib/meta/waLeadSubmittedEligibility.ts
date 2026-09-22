@@ -99,6 +99,50 @@ export function isExplicitPropertyPriceInterest(message: string): boolean {
 }
 
 /**
+ * Solicitud de información sobre la propiedad/anuncio (p. ej. CTWA «más información sobre esto»).
+ * Solo cuenta como interés comercial si hay contexto de anuncio verificado (CTWA scoped).
+ * No exige precio, financiación ni visita. Saludo aislado / spam / autorespuesta → false.
+ */
+export function isAdPropertyInfoRequestInterest(message: string): boolean {
+  const raw = String(message || '').trim()
+  if (!raw) return false
+  const m = normalized(raw)
+  if (!m) return false
+  if (
+    /no (?:me interesa|quiero)|solo (?:por )?curiosidad|chat equivocado|me equivoque/.test(
+      m,
+    )
+  ) {
+    return false
+  }
+  if (
+    /mensaje automatico|respuesta automatica|fuera de oficina|out of office|do not reply|noreply|auto[- ]?reply|autoresponder|este es un mensaje automatico/.test(
+      m,
+    )
+  ) {
+    return false
+  }
+  // Pedido de información / datos / detalles (no basta un saludo).
+  const asksInfo =
+    /(?:mas|mas)\s+(?:informacion|info|datos|detalles)/.test(m) ||
+    /(?:puedo|pueden|podria|quisiera|quiero|deseo|gustaria)\s+(?:obtener|recibir|saber|conocer|tener|dar(?:me)?|enviar(?:me)?)?\s*(?:mas|mas)?\s*(?:informacion|info|datos|detalles)/.test(
+      m,
+    ) ||
+    /(?:informacion|info|datos|detalles)\s+(?:sobre|de|acerca(?: de)?)/.test(m) ||
+    /(?:obtener|recibir|conocer)\s+(?:mas|mas)?\s*(?:informacion|info|datos)/.test(
+      m,
+    )
+  if (!asksInfo) return false
+  // Referente: deíxis del anuncio/chat o tipología/proyecto.
+  return (
+    /\b(?:esto|esta|ese|esa|este)\b/.test(m) ||
+    /(?:anuncio|propiedad|inmueble|departamento|suite|penthouse|unidad|proyecto|la vilet|lavilet|tarquin)/.test(
+      m,
+    )
+  )
+}
+
+/**
  * Interés comercial del **turno actual** (texto / eventos / selección con oferta).
  * No incluye sello reciente ni consentimiento.
  */
@@ -107,10 +151,21 @@ export function isCommercialInterestEvidence(input: {
   scoreEvents?: string[] | null
   /** Última oferta bot/asesor con unidades (contexto; no historial antiguo indiscriminado). */
   recentOfferText?: string | null
+  /**
+   * CTWA first-touch verificado (tenant+proyecto+contacto).
+   * Habilita «más información sobre esto» desde anuncio; sin esto no convierte.
+   */
+  verifiedAdContext?: boolean
 }): boolean {
   if (explicitPropertyInterest(input.currentMessage)) return true
   // asked_price por texto: sin exigir oferta de unidades.
   if (isExplicitPropertyPriceInterest(input.currentMessage)) return true
+  if (
+    input.verifiedAdContext === true &&
+    isAdPropertyInfoRequestInterest(input.currentMessage)
+  ) {
+    return true
+  }
   if (
     isOfferedUnitSelectionInterest(
       input.currentMessage,
@@ -141,6 +196,8 @@ export function evaluateWaLeadSubmittedEligibility(input: {
   recentOfferText?: string | null
   /** Sello de interés comercial previo (ventana corta). */
   commercialInterestAt?: string | null
+  /** CTWA scoped presente (tenant/proyecto/contacto). */
+  verifiedAdContext?: boolean
   nowMs?: number
 }): {
   greetingOnly: boolean
@@ -169,6 +226,7 @@ export function evaluateWaLeadSubmittedEligibility(input: {
     currentMessage: input.currentMessage,
     scoreEvents: input.scoreEvents,
     recentOfferText: input.recentOfferText,
+    verifiedAdContext: input.verifiedAdContext === true,
   })
 
   const consentGrantedThisTurn = detectsWhatsappAdsConsentGrant(

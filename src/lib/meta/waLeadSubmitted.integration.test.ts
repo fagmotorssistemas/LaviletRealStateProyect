@@ -483,6 +483,67 @@ describe('waLeadSubmitted integration', () => {
     assert.ok(lead.meta_wa_commercial_interest_at)
   })
 
+  it('CTWA + «más información sobre esto»: interés sí; bloqueo ads_consent (no commercial_interest)', async () => {
+    const lead = {
+      id: LEAD_ID,
+      meta_ads_consent: null,
+      meta_ads_consent_evidence_message: null,
+      meta_ads_consent_evidence_at: null,
+      meta_ads_consent_scope: null,
+      tenant_id: TENANT_A,
+      project_id: PROJECT_A,
+      meta_wa_lead_submitted_event_id: null,
+      meta_wa_commercial_interest_at: null as string | null,
+    }
+    const admin = mockAdmin({
+      lead,
+      ctwaRows: [
+        {
+          ctwa_clid: 'Aff.INFO',
+          tenant_id: TENANT_A,
+          project_id: PROJECT_A,
+          contact_id: '55',
+        },
+      ],
+    })
+    const result = await maybeRegisterWaLeadSubmitted({
+      admin: admin as never,
+      lead: lead as never,
+      contactId: 55,
+      currentMessage: 'Hola. ¿Puedo obtener más información sobre esto?',
+      env: envOn,
+    })
+    assert.equal(result.stage, 'blocked')
+    assert.match(String(result.reason), /ads_consent/)
+    assert.notEqual(result.reason, 'commercial_interest_required')
+    assert.ok(lead.meta_wa_commercial_interest_at)
+  })
+
+  it('misma frase sin CTWA: bloquea commercial_interest_required', async () => {
+    const lead = {
+      id: LEAD_ID,
+      meta_ads_consent: null,
+      meta_ads_consent_evidence_message: null,
+      meta_ads_consent_evidence_at: null,
+      meta_ads_consent_scope: null,
+      tenant_id: TENANT_A,
+      project_id: PROJECT_A,
+      meta_wa_lead_submitted_event_id: null,
+      meta_wa_commercial_interest_at: null as string | null,
+    }
+    const admin = mockAdmin({ lead, ctwaRows: [] })
+    const result = await maybeRegisterWaLeadSubmitted({
+      admin: admin as never,
+      lead: lead as never,
+      contactId: 55,
+      currentMessage: 'Hola. ¿Puedo obtener más información sobre esto?',
+      env: envOn,
+    })
+    assert.equal(result.stage, 'blocked')
+    assert.equal(result.reason, 'commercial_interest_required')
+    assert.equal(lead.meta_wa_commercial_interest_at, null)
+  })
+
   it('secuencia interés → aceptación: encola con sello reciente, grant no es interés', async () => {
     const lead = {
       id: LEAD_ID,

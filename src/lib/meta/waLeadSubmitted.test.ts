@@ -138,11 +138,63 @@ describe('waLeadSubmittedEligibility', () => {
       }).eligibleForConversion,
       true,
     )
-    // Solo «más información» sin precio → no es asked_price
+    // Solo «más información» sin precio y SIN CTWA → no es interés
     assert.equal(
       evaluateWaLeadSubmittedEligibility({
         currentMessage: 'Hola. ¿Puedo obtener más información sobre esto?',
       }).eligibleForConversion,
+      false,
+    )
+    // Con anuncio CTWA verificado: sí es interés comercial (sin exigir precio/visita)
+    assert.equal(
+      evaluateWaLeadSubmittedEligibility({
+        currentMessage: 'Hola. ¿Puedo obtener más información sobre esto?',
+        verifiedAdContext: true,
+      }).eligibleForConversion,
+      true,
+    )
+    assert.equal(
+      evaluateWaLeadSubmittedEligibility({
+        currentMessage: 'Hola. ¿Puedo obtener más información sobre esto?',
+        verifiedAdContext: true,
+      }).turnCommercialInterest,
+      true,
+    )
+  })
+
+  it('saludo aislado con CTWA: sigue greeting_only', () => {
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage: 'Hola',
+      verifiedAdContext: true,
+    })
+    assert.equal(r.eligibleForConversion, false)
+    assert.equal(r.greetingOnly, true)
+    assert.equal(r.blocker, WA_BLOCK_GREETING)
+  })
+
+  it('autorespuesta / spam no es interés aunque haya CTWA', () => {
+    assert.equal(
+      evaluateWaLeadSubmittedEligibility({
+        currentMessage: 'Este es un mensaje automático. Fuera de oficina.',
+        verifiedAdContext: true,
+      }).eligibleForConversion,
+      false,
+    )
+  })
+
+  it('interés CTWA info ≠ consentimiento (elegible; consent se valida después)', () => {
+    const r = evaluateWaLeadSubmittedEligibility({
+      currentMessage: 'Quisiera más datos sobre esta propiedad',
+      verifiedAdContext: true,
+    })
+    assert.equal(r.eligibleForConversion, true)
+    assert.equal(r.commercialInterest, true)
+    // No inventa grant: el mensaje no es aceptación Meta
+    assert.equal(
+      detectsWhatsappAdsConsentGrant(
+        'Quisiera más datos sobre esta propiedad',
+        { fromBot: false },
+      ),
       false,
     )
   })
