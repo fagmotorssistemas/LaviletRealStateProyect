@@ -13,6 +13,7 @@ export function MessageTraceView() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
+  const [view, setView] = useState<'conversations' | 'maintenance'>('conversations')
   const [groupId, setGroupId] = useState('')
   const [batchId, setBatchId] = useState('')
   const [stepOrder, setStepOrder] = useState<number | null>(null)
@@ -24,7 +25,10 @@ export function MessageTraceView() {
     pendingRequest.current = controller
     setLoading(true); setError('')
     try {
-      const response = await fetch(`/api/integrations/automation/workflow${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { cache: 'no-store', signal: controller.signal })
+      const params = new URLSearchParams({ view })
+      if (view === 'conversations' && query.trim()) params.set('q', query.trim())
+      if (cursor) params.set('cursor', cursor)
+      const response = await fetch(`/api/integrations/automation/workflow?${params}`, { cache: 'no-store', signal: controller.signal })
       const body = await response.json()
       if (!response.ok) throw new Error(body.error || 'No se pudo leer la bitácora')
       if (controller.signal.aborted) return
@@ -34,10 +38,16 @@ export function MessageTraceView() {
     } catch (error) {
       if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'No se pudo leer la bitácora')
     } finally { if (!controller.signal.aborted) setLoading(false) }
-  }, [])
-  useEffect(() => { void load(); return () => pendingRequest.current?.abort() }, [load])
-  const groups = useMemo(() => conversationGroups(executions.filter(item => !query.trim()
-    || `${item.leadName} ${item.message} ${item.outcome}`.toLocaleLowerCase('es').includes(query.trim().toLocaleLowerCase('es')))), [executions, query])
+  }, [query, view])
+  useEffect(() => {
+    const timer = setTimeout(() => void load(), 300)
+    return () => { clearTimeout(timer); pendingRequest.current?.abort() }
+  }, [load])
+  const resetResults = () => {
+    pendingRequest.current?.abort()
+    setExecutions([]); setNextCursor(null); setGroupId(''); setBatchId(''); setStepOrder(null); setError(''); setLoading(true)
+  }
+  const groups = useMemo(() => conversationGroups(executions), [executions])
   const group = groups.find(item => item.id === groupId) || groups[0]
   const batch = group?.batches.find(item => item.id === batchId) || group?.batches[0]
   const execution = batch?.execution
@@ -52,15 +62,20 @@ export function MessageTraceView() {
       <div><h2>Mensajes y decisiones</h2><p>Registros de ejecución. Los resúmenes protegen datos personales y pueden estar abreviados.</p></div>
       <button type="button" className={styles.button} onClick={() => void load()} disabled={loading}><RefreshCw size={14} />{loading ? 'Cargando…' : 'Actualizar'}</button>
     </header>
+    <nav className={styles.views} aria-label="Tipo de ejecuciones">
+      <button type="button" className={styles.button} aria-pressed={view === 'conversations'} onClick={() => { if (view !== 'conversations') { resetResults(); setView('conversations'); setQuery('') } }}>Conversaciones</button>
+      <button type="button" className={styles.button} aria-pressed={view === 'maintenance'} onClick={() => { if (view !== 'maintenance') { resetResults(); setView('maintenance'); setQuery('') } }}>Mantenimiento</button>
+    </nav>
+    {view === 'maintenance' && <p className={styles.maintenanceNote}>Tareas programadas del sistema, como revisión de visitas y seguimientos. Una ejecución completada no significa que se haya enviado un mensaje.</p>}
     <div className={styles.filters}>
-      <label><span>Buscar en los registros cargados</span><div className={styles.search}><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Nombre, mensaje o resultado" /></div></label>
+      {view === 'conversations' && <label><span>Buscar lead en todo el historial</span><div className={styles.search}><Search size={15} /><input value={query} maxLength={100} onChange={event => { resetResults(); setQuery(event.target.value) }} placeholder="Nombre del lead o ID de Kommo" /></div></label>}
       <label><span>Conversación</span><select aria-label="Conversación" value={group?.id || ''} onChange={event => { setGroupId(event.target.value); setBatchId(''); setStepOrder(null) }} disabled={!groups.length}>
         {!groups.length && <option value="">Sin registros</option>}
         {groups.map((item, index) => <option value={item.id} key={item.id}>{item.label} · {item.known ? `Conversación ${index + 1}` : 'Conversación no identificada'} · {item.batches.length} mensajes o lotes</option>)}
       </select></label>
     </div>
     {error && <p className={styles.error} role="alert">{error}</p>}
-    {!execution ? <div className={styles.empty}>{loading ? 'Cargando mensajes…' : query ? 'No hay coincidencias entre los registros cargados. Puede cargar mensajes anteriores.' : 'Todavía no hay ejecuciones disponibles para sus proyectos.'}</div>
+    {!execution ? <div className={styles.empty} role="status">{loading ? 'Buscando ejecuciones…' : query ? 'No se encontraron conversaciones para ese lead. Pruebe con parte del nombre o su ID de Kommo.' : view === 'maintenance' ? 'No hay tareas de mantenimiento registradas.' : 'Todavía no hay conversaciones disponibles para sus proyectos.'}</div>
       : <div className={styles.layout}>
         <nav className={styles.messages} aria-label="Mensajes de la conversación">
           <h3>{group?.label}</h3>
@@ -116,7 +131,7 @@ export function MessageTraceView() {
           <details className={styles.technical}><summary>Identidad, versiones y alcance del registro</summary><p>Son resúmenes declarados por el sistema, no una captura completa de cada consulta o de todo lo recibido por el modelo.</p><pre>{JSON.stringify({ eventIds: batch?.members.map(item => item.id), conversationId: execution.conversationId || null, batchId: execution.batchId || null, batchEventIds: execution.batchEventIds || [], traceSource: execution.traceSource, traceWarning: execution.traceWarning, stopReason: execution.stopReason, versions: execution.versions }, null, 2)}</pre></details>
         </div>
       </div>}
-    <footer className={styles.footer}><span>{executions.length} eventos cargados · Solo se agrupan conversaciones y lotes con identificadores registrados.</span>{nextCursor && <button type="button" className={styles.button} disabled={loading} onClick={() => void load(nextCursor)}>Cargar mensajes anteriores</button>}</footer>
+    <footer className={styles.footer}><span>{executions.length} {view === 'maintenance' ? 'tareas cargadas' : 'registros de conversación cargados'}{query.trim() ? ` para «${query.trim()}»` : ''} · La búsqueda se aplica a todo el historial.</span>{nextCursor && <button type="button" className={styles.button} disabled={loading} onClick={() => void load(nextCursor)}>{view === 'maintenance' ? 'Cargar tareas anteriores' : 'Cargar mensajes anteriores'}</button>}</footer>
   </section>
 }
 

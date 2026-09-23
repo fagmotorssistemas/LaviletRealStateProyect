@@ -9,6 +9,9 @@
 .toolbar p { margin: 5px 0 0; color: #66745f; max-width: 680px; }
 .button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; min-height: 36px; padding: 7px 11px; border: 1px solid #d4ddcd; border-radius: 6px; background: white; color: #435c3c; }
 .button:hover { background: #f2f6ed; }
+.views { display: flex; gap: 8px; padding: 14px 22px; border-bottom: 1px solid #e2e7dc; }
+.views .button[aria-pressed='true'] { background: #43583a; color: white; border-color: #43583a; }
+.maintenanceNote { padding: 0 22px; color: #66745f; }
 .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 14px 22px; background: #f8faf5; border-bottom: 1px solid #e2e7dc; }
 .filters label { display: grid; min-width: 0; gap: 5px; color: #52634b; font-size: 12px; }
 .filters select, .search { width: 100%; min-width: 0; border: 1px solid #d5decf; background: white; border-radius: 5px; min-height: 39px; }

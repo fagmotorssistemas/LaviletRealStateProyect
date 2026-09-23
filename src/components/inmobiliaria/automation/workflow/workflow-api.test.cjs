@@ -10,6 +10,8 @@ class Query {
   constructor(table) { this.table = table; this.filters = []; state.queries.push(this) }
   select(fields) { this.fields = fields; return this }
   in(key, value) { this.filters.push([key, value]); return this }
+  eq(key, value) { this.filters.push([key, value]); return this }
+  ilike(key, value) { this.namePattern = [key, value]; return this }
   order(key, options) { (this.orders ||= []).push([key, options]); return this }
   limit(value) { this.pageLimit = value; return this }
   or(value) { this.cursorFilter = value; return this }
@@ -49,6 +51,7 @@ test('pagination is bounded, stable and rejects filter injection before querying
   assert.equal(body.executions.length, 30)
   assert.deepEqual(readWorkflowCursor(body.nextCursor), { at: event(11).received_at, id: id(11) })
   assert.equal(state.queries[0].pageLimit, 31)
+  assert.deepEqual(state.queries[0].filters.find(([key]) => key === 'kind')[1], ['inbound'])
   assert.deepEqual(state.queries[0].orders.map(item => item[0]), ['received_at', 'id'])
   assert.equal(response.headers.get('cache-control'), 'no-store')
   reset()
@@ -58,6 +61,41 @@ test('pagination is bounded, stable and rejects filter injection before querying
   reset(); const cursor = writeWorkflowCursor(event(1).received_at, id(1))
   await GET(request(cursor))
   assert.match(state.queries[0].cursorFilter, /id\.lt\.00000000/)
+})
+
+test('maintenance is separate and invalid views are rejected', async () => {
+  reset()
+  await GET(new Request('http://localhost/api/integrations/automation/workflow?view=maintenance'))
+  assert.deepEqual(state.queries[0].filters.find(([key]) => key === 'kind')[1], ['maintenance'])
+  reset()
+  assert.equal((await GET(new Request('http://localhost/api/integrations/automation/workflow?view=everything'))).status, 400)
+  assert.equal(state.queries.length, 0)
+})
+
+test('lead search filters events on the server before paging and preserves tenant and project identity', async () => {
+  reset(); state.tenants = [id(1)]
+  state.tables.leads = { data: [{ tenant_id: id(1), project_id: id(2), kommo_id: 123, name: 'Carlos' },
+    { tenant_id: id(99), project_id: id(3), kommo_id: 456, name: 'Carlos' }], error: null }
+  const cursor = writeWorkflowCursor(event(1).received_at, id(5))
+  await GET(new Request(`http://localhost/api/integrations/automation/workflow?q=Carlos&cursor=${encodeURIComponent(cursor)}`))
+  assert.equal(state.queries[0].table, 'leads')
+  assert.deepEqual(state.queries[0].namePattern, ['name', '%Carlos%'])
+  const events = state.queries.find(query => query.table === 'lv_integration_events')
+  assert.match(events.cursorFilter, /payload->>kommoId.eq.123/)
+  assert.ok(events.cursorFilter.includes(`tenant_id.eq.${id(1)},project_id.eq.${id(2)}`))
+  assert.ok(!events.cursorFilter.includes(id(99)))
+  assert.match(events.cursorFilter, /and\(or\(.+\),or\(received_at.lt/)
+})
+
+test('empty lead matches never fall back to unrelated events; search text stays outside logical filters', async () => {
+  reset()
+  const body = await (await GET(new Request('http://localhost/api/integrations/automation/workflow?q=Carlos%25_'))).json()
+  assert.deepEqual(body, { executions: [], nextCursor: null })
+  assert.equal(state.queries.length, 1)
+  assert.deepEqual(state.queries[0].namePattern, ['name', '%Carlos\\%\\_%'])
+  reset()
+  await GET(new Request('http://localhost/api/integrations/automation/workflow?q=123'))
+  assert.deepEqual(state.queries[0].filters.find(([key]) => key === 'kommo_id'), ['kommo_id', 123])
 })
 
 test('every table is tenant scoped, lead identity is project scoped and summaries are sanitized', async () => {

@@ -46,19 +46,42 @@ export async function GET(request: Request) {
     const tenantIds = await getAccessibleTenantIds(supabase)
     if (!tenantIds.length) return NextResponse.json({ executions: [] }, { headers })
 
+    const params = new URL(request.url).searchParams
+    const view = params.get('view') || 'conversations'
+    const query = (params.get('q') || '').trim()
+    if (!['conversations', 'maintenance'].includes(view) || query.length > 100) return NextResponse.json({ error: 'Filtro de búsqueda no válido' }, { status: 400, headers })
     let cursor
-    try { cursor = readWorkflowCursor(new URL(request.url).searchParams.get('cursor')) }
+    try { cursor = readWorkflowCursor(params.get('cursor')) }
     catch { return NextResponse.json({ error: 'La página solicitada no es válida' }, { status: 400, headers }) }
     const admin = createAdminClient()
+    let leadFilter = ''
+    if (query && view === 'conversations') {
+      // Search before pagination, scoped to accessible tenants. Do not interpolate
+      // user text into PostgREST's logical filter syntax.
+      let search = admin.from('leads').select('tenant_id,project_id,kommo_id')
+        .in('tenant_id', tenantIds)
+      if (/^\d+$/.test(query) && Number.isSafeInteger(Number(query))) search = search.eq('kommo_id', Number(query))
+      else search = search.ilike('name', `%${query.replace(/[\\%_]/g, char => '\\' + char)}%`)
+      const matches = await search.limit(201)
+      if (matches.error) throw matches.error
+      if ((matches.data || []).length > 200) return NextResponse.json({ error: 'Hay demasiados leads con ese nombre. Escriba un nombre más completo o el ID de Kommo.' }, { status: 400, headers })
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      const identities = (matches.data || []).filter(lead => tenantIds.includes(lead.tenant_id)
+        && uuid.test(lead.tenant_id) && uuid.test(lead.project_id) && Number.isSafeInteger(Number(lead.kommo_id)) && Number(lead.kommo_id) > 0)
+      if (!identities.length) return NextResponse.json({ executions: [], nextCursor: null }, { headers })
+      leadFilter = identities.map(lead => `and(tenant_id.eq.${lead.tenant_id},project_id.eq.${lead.project_id},payload->>kommoId.eq.${Number(lead.kommo_id)})`).join(',')
+    }
     let eventQuery = admin.from('lv_integration_events')
       .select('id,tenant_id,project_id,kind,status,payload,result,received_at,completed_at')
       .in('tenant_id', tenantIds)
-      .in('kind', ['inbound', 'maintenance'])
+      .in('kind', view === 'maintenance' ? ['maintenance'] : ['inbound'])
       .order('received_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(WORKFLOW_PAGE_SIZE + 1)
     // Cursor values are restricted to an ISO timestamp and UUID before interpolation.
-    if (cursor) eventQuery = eventQuery.or(`received_at.lt.${cursor.at},and(received_at.eq.${cursor.at},id.lt.${cursor.id})`)
+    const cursorFilter = cursor ? `received_at.lt.${cursor.at},and(received_at.eq.${cursor.at},id.lt.${cursor.id})` : ''
+    if (leadFilter && cursorFilter) eventQuery = eventQuery.or(`and(or(${leadFilter}),or(${cursorFilter}))`)
+    else if (leadFilter || cursorFilter) eventQuery = eventQuery.or(leadFilter || cursorFilter)
     const events = await eventQuery
     if (events.error) throw events.error
     const page = (events.data || []).slice(0, WORKFLOW_PAGE_SIZE)
