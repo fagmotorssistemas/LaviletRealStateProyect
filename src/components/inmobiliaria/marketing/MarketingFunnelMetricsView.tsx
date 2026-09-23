@@ -1,3 +1,4 @@
+import { MetricHelp } from './MetricHelp'
 import { BarChart3, Layers } from 'lucide-react'
 import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
@@ -52,16 +53,16 @@ function Kpi({
   title?: string
 }) {
   return (
-    <div
-      className="rounded-2xl border border-[#ece6dc] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(40,30,20,0.04)]"
-      title={title}
+    <MetricHelp
+      className="w-full text-left cursor-help rounded-2xl border border-[#ece6dc] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(40,30,20,0.04)]"
+      explanation={title || hint || label}
     >
-      <p className="text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
+      <span className="block text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
         {label}
-      </p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums text-[#1f1a14]">{value}</p>
-      {hint ? <p className="mt-1 text-[11px] leading-snug text-[#8a8176]">{hint}</p> : null}
-    </div>
+      </span>
+      <span className="block mt-1 text-2xl font-semibold tabular-nums text-[#1f1a14]">{value}</span>
+      {hint ? <span className="block mt-1 text-[11px] leading-snug text-[#8a8176]">{hint}</span> : null}
+    </MetricHelp>
   )
 }
 
@@ -107,16 +108,14 @@ export function MarketingFunnelMetricsView({
   const from = report?.period.from ?? ''
   const to = report?.period.to ?? ''
   const ap = report?.totals.appointmentsInPeriod
-  const undeterminedNote =
-    report?.undeterminedUnit.note ||
-    'undeterminedUnit = cohorte sin appointment_units (≠ citas del período por start_time).'
+
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Marketing"
-        title="Métricas embudo"
-        description="Informe interno CTWA / CRM · America/Guayaquil. No dispara CAPI ni Pixel."
+        title="Resultados de publicidad y ventas"
+        description="Consulta cuánto gastas en publicidad, cuántas personas se interesan y cuántas llegan a comprar. Horario de Ecuador."
       />
 
       {!report && adsInsights ? (
@@ -128,19 +127,19 @@ export function MarketingFunnelMetricsView({
               : 'border-[#e8d9c4] bg-[#fff8ef] text-[#5c5348]',
           )}
         >
-          <p className="font-semibold text-[#1f1a14]">{adsInsights.message}</p>
+          <p className="font-semibold text-[#1f1a14]">{adsInsights.liveVerified ? 'Datos de publicidad conectados con Meta' : 'Datos publicitarios pendientes de verificación'}</p>
           <p className="mt-1 text-[12px] leading-relaxed text-[#8a8176]">
-            {adsInsights.note}
+            No se pudo completar el informe. Revisa la conexión o inténtalo de nuevo.
             {adsProbe?.currency || adsInsights.currency
               ? ` · Moneda ${adsProbe?.currency || adsInsights.currency}`
               : ''}
             {adsProbe?.timezone || adsInsights.timezone
-              ? ` · TZ ${adsProbe?.timezone || adsInsights.timezone}`
+              ? ` · Zona horaria ${adsProbe?.timezone || adsInsights.timezone}`
               : ''}
           </p>
           {adsInsights.missing?.length ? (
             <p className="mt-2 text-[11px] text-[#8a8176]">
-              Faltan: {adsInsights.missing.join(' · ')}
+              La conexión con Meta necesita configuración. Contacta al administrador.
             </p>
           ) : null}
         </div>
@@ -165,25 +164,29 @@ export function MarketingFunnelMetricsView({
           <section>
             <SectionTitle
               title="Totales"
-              hint={`Cohorte leads · created_at ∈ ${from} → ${to}. Citas totales por start_time del período; ventas por sale_at.`}
+              hint={`Del ${from} al ${to}. Contactos según su fecha de registro; citas según la fecha de la visita; ventas según su fecha de confirmación.`}
             />
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Kpi
-                label="Leads adquiridos"
+                label="Contactos nuevos"
+                title="Personas registradas durante las fechas seleccionadas. Una persona interesada todavía no es una venta."
                 value={report.totals.leadsAcquiredInPeriod}
-                hint="Cohorte created_at ∈ período"
+                hint="Registrados en las fechas seleccionadas"
               />
               <Kpi
-                label="Con CTWA"
+                label="Desde anuncios de WhatsApp"
+                title="Contactos cuyo primer origen guardado es un anuncio que abre WhatsApp. Cada contacto se cuenta una vez."
                 value={report.totals.leadsWithAttribution}
-                hint="Atribución first-touch"
+                hint="Según el primer origen registrado"
               />
               <Kpi
-                label="Sin atribución"
+                label="Sin anuncio identificado"
+                title="Contactos sin un anuncio de origen registrado. Esto no significa que no hayan visto publicidad."
                 value={report.totals.leadsWithoutAttribution}
               />
               <Kpi
-                label="Temperatura"
+                label="Nivel de interés"
+                title="Clasificación guardada de los contactos: fríos, tibios, calientes o sin clasificar. Sirve para organizar el seguimiento; no confirma una compra."
                 value={`${report.totals.temperature.frio} fríos · ${report.totals.temperature.tibio} tibios`}
                 hint={`${report.totals.temperature.caliente} calientes · ${report.totals.temperature.sin_clasificar} sin clasificar`}
               />
@@ -192,35 +195,36 @@ export function MarketingFunnelMetricsView({
               <Kpi
                 label="Citas programadas"
                 value={ap?.scheduled ?? 0}
-                hint="start_time ∈ período · no = realizadas"
-                title={`${undeterminedNote} La fila “unidad no determinada” es cohorte sin appointment_units, no este KPI.`}
+                hint="Agendadas, todavía no realizadas"
+                title="Visitas agendadas para las fechas seleccionadas que aún figuran como programadas."
               />
               <Kpi
                 label="Citas realizadas"
                 value={ap?.completed ?? 0}
-                hint="Completadas (no cancel/futura)"
-                title={`${undeterminedNote} Distinto de undeterminedUnit (cohorte sin appointment_units).`}
+                hint="Visitas marcadas como completadas"
+                title="Visitas marcadas como realizadas cuya fecha está dentro del período seleccionado."
               />
               <Kpi
-                label="Cancel / no-show"
+                label="Canceladas / no asistieron"
                 value={`${ap?.cancelled ?? 0} / ${ap?.noShow ?? 0}`}
-                title={undeterminedNote}
+                title="El primer número corresponde a citas canceladas. El segundo, a citas en las que la persona no asistió. Se usa la fecha prevista de la visita."
               />
               <Kpi
-                label="Ventas del período"
+                label="Ventas confirmadas"
+                title="Ventas confirmadas durante las fechas seleccionadas. El importe suma los valores conocidos; si falta información, no se considera cero."
                 value={report.totals.salesOccurredInPeriod}
                 hint={`Importe: ${formatAmount(report.totals.salesAmountInPeriod, report.totals.salesCurrency)}`}
               />
             </div>
             <p className="mt-3 rounded-xl border border-[#ece6dc] bg-[#faf8f5] px-3 py-2 text-[12px] text-[#6b645c]">
-              Contratos anulados (snapshot actual):{' '}
+              Contratos que actualmente están anulados:{' '}
               <span className="font-semibold text-[#1f1a14]">
                 {report.totals.contractsCurrentlyAnulled}
               </span>
               . Fecha de anulación desconocida
               {report.totals.contractsAnulledAnnulmentDateKnown
                 ? ''
-                : ' (no se inventa con signed_at)'}
+                : ' (no se puede determinar en qué período se anularon)'}
               .
             </p>
           </section>
@@ -233,8 +237,8 @@ export function MarketingFunnelMetricsView({
 
           <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
             <SectionTitle
-              title="Por unidad (showroom / citas)"
-              hint="Solo unidades con showroom o citas en el alcance del project. Reserva = titular comprobado; sin titular único → “titular no determinado”. La fila separada de citas/reservas sin unidad usa la cohorte de leads, no el KPI de citas por start_time del período."
+              title="Visitas e interés por inmueble"
+              hint="Actividad de los inmuebles del proyecto. Las citas por inmueble pertenecen a los contactos del informe y pueden tener fechas fuera del período. Por eso pueden diferir del total de citas de arriba."
             />
             <UnitTable
               rows={report.byUnit}
@@ -265,7 +269,7 @@ function UnitTable({
       <EmptyState
         icon={Layers}
         title="Sin unidades"
-        description="No hay filas de unidad en el período / alcance."
+        description="No hay actividad de inmuebles para esta selección."
       />
     )
   }
@@ -276,14 +280,14 @@ function UnitTable({
           className={cn(
             'mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950',
           )}
-          title={undetermined.note}
+          title="Citas o reservas de los contactos del informe que no tienen un inmueble identificado."
         >
-          Unidad no determinada (citas de cohorte) — citas:{' '}
+          Contactos con citas o reservas sin inmueble identificado — citas:{' '}
           <strong>{undetermined.appointmentLeads}</strong> · reservas:{' '}
           <strong>{undetermined.reservedLeads}</strong>
           {undetermined.note ? (
             <span className="mt-1 block text-[11px] text-amber-900/80">
-              {undetermined.note}
+              Las citas pueden estar fuera de las fechas seleccionadas; aquí se agrupan por contacto.
             </span>
           ) : null}
         </p>
@@ -302,13 +306,13 @@ function UnitTable({
         <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase">
           <tr>
             <th className="px-2 py-2 font-semibold">Unidad</th>
-            <th className="px-2 py-2 font-semibold">Showroom</th>
-            <th className="px-2 py-2 font-semibold">Interés com.</th>
+            <th className="px-2 py-2 font-semibold">Visitas al recorrido virtual</th>
+            <th className="px-2 py-2 font-semibold">Contactos interesados</th>
             <th className="px-2 py-2 font-semibold">Citas</th>
             <th className="px-2 py-2 font-semibold">Reservas</th>
             <th className="px-2 py-2 font-semibold">Ventas</th>
             <th className="px-2 py-2 font-semibold">Importe</th>
-            <th className="px-2 py-2 font-semibold">Temperatura de leads</th>
+            <th className="px-2 py-2 font-semibold">Nivel de interés</th>
           </tr>
         </thead>
         <tbody>
@@ -326,7 +330,7 @@ function UnitTable({
                 {undetermined.reservedLeads}
               </td>
               <td className="px-2 py-2 tabular-nums">—</td>
-              <td className="px-2 py-2">n/d</td>
+              <td className="px-2 py-2">No disponible</td>
               <td className="px-2 py-2">—</td>
             </tr>
           ) : null}

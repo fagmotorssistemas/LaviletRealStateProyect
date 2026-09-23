@@ -33,22 +33,22 @@ export const META_RESULT_ACTION_PRIORITY: string[] = [
 
 const ACTION_LABELS: Record<string, string> = {
   'onsite_conversion.messaging_conversation_started_7d':
-    'Conversaciones messaging (7d)',
-  'onsite_conversion.total_messaging_connection': 'Conexiones messaging',
-  'onsite_conversion.messaging_first_reply': 'Primera respuesta messaging',
+    'Conversaciones iniciadas (atribución de 7 días)',
+  'onsite_conversion.total_messaging_connection': 'Conexiones por mensajes',
+  'onsite_conversion.messaging_first_reply': 'Primeras respuestas por mensajes',
   'onsite_conversion.messaging_conversation_started_7d_website':
-    'Conversaciones messaging web (7d)',
-  lead: 'Leads (Meta)',
-  'onsite_conversion.lead_grouped': 'Leads agrupados (Meta)',
-  'offline_conversion.lead': 'Leads offline (Meta)',
+    'Conversaciones desde la web (atribución de 7 días)',
+  lead: 'Contactos informados por Meta',
+  'onsite_conversion.lead_grouped': 'Contactos agrupados por Meta',
+  'offline_conversion.lead': 'Contactos fuera de internet informados por Meta',
   complete_registration: 'Registros completados',
-  omni_complete_registration: 'Registros omni',
+  omni_complete_registration: 'Registros en los distintos canales',
   link_click: 'Clics en enlace',
-  landing_page_view: 'Vistas de destino',
+  landing_page_view: 'Visitas a la página del anuncio',
 }
 
 export function labelMetaActionType(actionType: string): string {
-  return ACTION_LABELS[actionType] || `Meta · ${actionType}`
+  return ACTION_LABELS[actionType] || 'Otra acción informada por Meta'
 }
 
 export function parseMetaActions(raw: unknown): MetaActionRow[] {

@@ -1,5 +1,7 @@
 'use client'
 
+import { MetricHelp } from './MetricHelp'
+import { labelMetaActionType } from '@/lib/meta/metaAdsActions'
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -76,7 +78,7 @@ function adLabel(row: AttributedAdFunnelRow) {
   const adName = row.adName?.trim()
   const campaign = row.campaignName?.trim()
   const parts = [
-    adName ? `Anuncio ${adName}` : `Anuncio CTWA (${sourceId})`,
+    adName ? `Anuncio ${adName}` : `Anuncio ${sourceId}`,
     campaign ? `Campaña ${campaign}` : null,
     row.adsetName ? `Conjunto ${row.adsetName}` : null,
   ].filter(Boolean)
@@ -87,10 +89,10 @@ function resolutionStatusLabel(
   status: AttributedAdFunnelRow['resolutionStatus'],
 ): string {
   if (status === 'missing_ads_token') return 'Datos publicitarios no disponibles'
-  if (status === 'graph_permission_denied') return 'Sin permiso Graph (ads_read)'
+  if (status === 'graph_permission_denied') return 'Sin permiso para consultar los anuncios'
   if (status === 'not_found') return 'Anuncio no encontrado'
-  if (status === 'resolved') return 'Resuelto'
-  return 'Sin resolver'
+  if (status === 'resolved') return 'Identificado'
+  return 'Sin identificar'
 }
 
 function spendReportedLabel(row: AttributedAdFunnelRow): string {
@@ -99,7 +101,7 @@ function spendReportedLabel(row: AttributedAdFunnelRow): string {
   }
   if (row.adSpend == null) return 'No disponible'
   const base = formatAmount(row.adSpend, row.currency)
-  return row.spendStale ? `${base} (stale)` : base
+  return row.spendStale ? `${base} (último dato guardado)` : base
 }
 
 function cplLabel(row: {
@@ -115,7 +117,7 @@ function metaResultDisplay(row: AttributedAdFunnelRow): string {
     return 'Datos publicitarios no disponibles'
   }
   if (row.metaReportedResults == null) return 'No disponible'
-  const label = row.metaResultLabel?.trim() || row.metaResultActionType?.trim()
+  const label = row.metaResultActionType ? labelMetaActionType(row.metaResultActionType) : 'Resultado sin tipo identificado'
   if (label) return `${label}: ${row.metaReportedResults}`
   return String(row.metaReportedResults)
 }
@@ -252,7 +254,7 @@ export function MarketingCommercialBoard({
 
   async function openLeadsForAd(row: AttributedAdFunnelRow) {
     if (!row.leadIds.length) {
-      toast.message('Sin leads CRM en este anuncio')
+      toast.message('Sin contactos registrados en este anuncio')
       return
     }
     setLeadPanelTitle(adLabel(row))
@@ -389,43 +391,37 @@ export function MarketingCommercialBoard({
         )}
       >
         <p className="font-semibold text-[#1f1a14]">
-          {adsInsights?.message ||
-            (bannerConnected
-              ? 'Ads conectado'
-              : 'Datos publicitarios no disponibles')}
+          {bannerConnected ? 'Datos de publicidad conectados con Meta' : 'Datos publicitarios no disponibles'}
         </p>
         <p className="mt-1 text-[12px] leading-relaxed text-[#8a8176]">
-          {adsInsights?.note}
+          Los contactos registrados y los resultados que cuenta Meta son medidas diferentes.
           {bannerCurrency ? ` · Moneda ${bannerCurrency}` : ''}
-          {bannerTz ? ` · TZ ${bannerTz}` : ''}
+          {bannerTz ? ` · Zona horaria ${bannerTz}` : ''}
           {adsProbe?.adAccountId || adsInsights?.adAccountId
             ? ` · ${adsProbe?.adAccountId || adsInsights?.adAccountId}`
             : ''}
           {insightsFetchedLabel
-            ? ` · Insights actualizados ${insightsFetchedLabel}`
+            ? ` · Última consulta ${insightsFetchedLabel}`
             : ''}
         </p>
         {coverage.insightsIncomplete ? (
           <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-            Cobertura Insights incompleta
-            {coverage.insightsError ? `: ${coverage.insightsError}` : ''}. Gasto
-            o resultados pueden faltar en algunos anuncios.
+            No se pudieron consultar todos los anuncios. Puede faltar información de gasto o resultados.
           </p>
         ) : null}
         {coverage.currencyStatus === 'unknown' ? (
           <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-            Moneda Ads no confirmada en vivo; una fila stale puede conservar la
-            moneda histórica del período.
+            No se pudo actualizar la moneda de la cuenta. Los datos guardados conservan la moneda de la última consulta.
           </p>
         ) : null}
         {adsInsights?.missing?.length ? (
           <p className="mt-2 text-[11px] text-[#8a8176]">
-            Faltan: {adsInsights.missing.join(' · ')}
+            La conexión con Meta necesita configuración. Contacta al administrador.
           </p>
         ) : null}
         {!bannerConnected && adsProbe?.error ? (
           <p className="mt-2 text-[11px] text-amber-900">
-            Probe: {adsProbe.error}
+            No se pudo verificar la conexión con Meta. Inténtalo de nuevo más tarde.
           </p>
         ) : null}
       </div>
@@ -490,16 +486,16 @@ export function MarketingCommercialBoard({
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-[#1f1a14]">Por campaña</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[#8a8176]">
-            Expanda para ver anuncios CTWA de la campaña. Gasto ejecutado de
-            Meta; el presupuesto no se interpreta como gasto. CPL = gasto ÷
-            leads CRM únicos.
+            Abre una campaña para ver sus anuncios. Dinero gastado de
+            Meta; el presupuesto no se interpreta como gasto. Costo promedio por contacto = gasto ÷
+            contactos registrados únicos.
           </p>
         </div>
         {filteredCampaigns.length === 0 ? (
           <EmptyState
             icon={Layers}
-            title="Sin campañas resueltas"
-            description="Ajuste filtros o verifique resolución Graph ad→campaign."
+            title="Sin campañas identificadas"
+            description="Revisa los filtros y la conexión con Meta para consultar las campañas."
           />
         ) : (
           <ul className="space-y-2">
@@ -528,36 +524,36 @@ export function MarketingCommercialBoard({
                         {camp.campaignName || `Campaña ${camp.campaignId}`}
                       </p>
                       <p className="mt-0.5 text-[10px] text-[#8a8176]">
-                        camp {camp.campaignId} · {camp.adCount} anuncios ·{' '}
-                        {camp.leadsUnique} leads CRM
+                        Campaña {camp.campaignId} · {camp.adCount} anuncios ·{' '}
+                        {camp.leadsUnique} contactos registrados
                         {camp.currency ? ` · ${camp.currency}` : ''}
-                        {camp.spendStale ? ' · stale' : ''}
+                        {camp.spendStale ? ' · último dato guardado' : ''}
                       </p>
                     </div>
                     <div className="shrink-0 text-right text-[11px] tabular-nums text-[#6b645c]">
                       <div>
-                        Gasto ejecutado:{' '}
+                        Dinero gastado:{' '}
                         {camp.adSpend == null
                           ? 'No disponible'
                           : formatAmount(camp.adSpend, camp.currency)}
                       </div>
                       <div>
-                        Suma anuncios:{' '}
+                        Gasto de sus anuncios:{' '}
                         {camp.adSpendSum == null
                           ? 'No disponible'
                           : formatAmount(camp.adSpendSum, camp.currency)}
                       </div>
                       <div className={camp.spendCoherent === false ? 'text-amber-800' : ''}>
-                        Coherencia:{' '}
+                        Comparación de gastos:{' '}
                         {camp.spendCoherent == null
                           ? camp.campaignInsightsSpend != null && !camp.spendComparisonCurrency
                             ? 'No comparable: moneda distinta o faltante'
                             : 'Pendiente'
                           : camp.spendCoherent
-                            ? 'OK'
+                            ? 'Coinciden'
                             : `Diferencia ${formatAmount(camp.spendDelta, camp.currency)}`}
                       </div>
-                      <div>CPL: {cplLabel(camp)}</div>
+                      <div title="Gasto dividido entre contactos únicos de la campaña. Es un promedio, no un costo individual.">Costo promedio por contacto: {cplLabel(camp)}</div>
                     </div>
                   </button>
                   {open ? (
@@ -590,12 +586,10 @@ export function MarketingCommercialBoard({
       <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-[#1f1a14]">
-            Por anuncio atribuido
+            Por anuncio
           </h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[#8a8176]">
-            source_id CTWA = ad_id. Gasto ejecutado reportado por Meta. “Meta
-            results” es un único action type de Meta, no leads CRM; CPL «No
-            disponible» si no hay gasto o leads.
+            Consulta el gasto de cada anuncio y los contactos que tiene asociados. El costo por contacto es un promedio, no un cobro individual. Los resultados de Meta pueden ser conversaciones, clics u otras acciones; no equivalen necesariamente a personas nuevas.
           </p>
         </div>
         {filteredAds.length === 0 ? (
@@ -617,23 +611,21 @@ export function MarketingCommercialBoard({
         )}
       </section>
 
-      {/* Por unidad promocionada */}
+      {/* Por inmueble anunciado */}
       <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-[#1f1a14]">
-            Por unidad promocionada
+            Por inmueble anunciado
           </h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[#8a8176]">
-            Solo anuncios con vínculo inequívoco a una unidad. “Unidad no
-            asignada” y “Varias unidades” quedan fuera de este rollup. Asigne
-            unidades desde la fila del anuncio.
+            Se suma el gasto de los anuncios asignados a un solo inmueble. Si un anuncio muestra varios inmuebles, no se divide su gasto entre ellos. Puedes asignarlos desde cada anuncio.
           </p>
         </div>
         {filteredPromoted.length === 0 ? (
           <EmptyState
             icon={Layers}
             title="Sin unidades promocionadas"
-            description="Asigne una unidad a anuncios para ver el rollup de gasto."
+            description="Asigna un inmueble a cada anuncio para consultar su gasto acumulado."
           />
         ) : (
           <div className="overflow-x-auto">
@@ -642,13 +634,13 @@ export function MarketingCommercialBoard({
                 <tr>
                   <th className="px-2 py-2 font-semibold">Unidad</th>
                   <th className="px-2 py-2 font-semibold">Anuncios</th>
-                  <th className="px-2 py-2 font-semibold">Leads CRM</th>
-                  <th className="px-2 py-2 font-semibold">Temperatura de leads</th>
+                  <th className="px-2 py-2 font-semibold"><MetricHelp explanation="Personas asociadas al anuncio, contadas una vez dentro de la fila. Pulsa el número del anuncio para ver sus fichas.">Contactos registrados</MetricHelp></th>
+                  <th className="px-2 py-2 font-semibold"><MetricHelp explanation="Clasificación guardada de los contactos: fríos, tibios, calientes o sin clasificar. No representa ventas confirmadas.">Nivel de interés</MetricHelp></th>
                   <th className="px-2 py-2 font-semibold">
                     Gasto reportado por Meta
                   </th>
-                  <th className="px-2 py-2 font-semibold">CPL</th>
-                  <th className="px-2 py-2 font-semibold">Citas conf./realiz.</th>
+                  <th className="px-2 py-2 font-semibold"><MetricHelp explanation="Dinero gastado dividido entre los contactos únicos asociados. Por ejemplo: $20 entre 10 contactos son $2 por contacto. Es un promedio; no indica el costo exacto de una persona. Si faltan datos o no hay contactos, no se calcula.">Costo promedio por contacto</MetricHelp></th>
+                  <th className="px-2 py-2 font-semibold">Citas confirmadas / realizadas</th>
                   <th className="px-2 py-2 font-semibold">Ventas</th>
                 </tr>
               </thead>
@@ -723,7 +715,7 @@ export function MarketingCommercialBoard({
             />
             <div className="mt-3 border-t border-[#ece6dc] pt-3">
               <label className="flex flex-col gap-1 text-[11px] font-semibold tracking-[0.08em] text-[#8a8176] uppercase">
-                O etiqueta externa
+                O escribe un nombre para identificarlo
                 <input
                   value={externalLabel}
                   onChange={(e) => setExternalLabel(e.target.value)}
@@ -745,7 +737,7 @@ export function MarketingCommercialBoard({
                   onClick={() => handleClearUnits(assignAdId)}
                   className="rounded-xl border border-[#ece6dc] px-3 py-2 text-sm text-[#5c5348]"
                 >
-                  Limpiar vínculos
+                  Quitar asignaciones
                 </button>
               </div>
             </div>
@@ -760,7 +752,7 @@ export function MarketingCommercialBoard({
             <div className="flex items-start justify-between gap-2 border-b border-[#ece6dc] px-4 py-3">
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-[#1f1a14]">
-                  Leads del anuncio
+                  Contactos del anuncio
                 </h3>
                 <p className="mt-0.5 truncate text-[11px] text-[#8a8176]">
                   {leadPanelTitle}
@@ -785,7 +777,7 @@ export function MarketingCommercialBoard({
                 </p>
               ) : null}
               {!leadLoading && !leadError && leadRows.length === 0 ? (
-                <p className="text-[12px] text-[#8a8176]">Sin leads.</p>
+                <p className="text-[12px] text-[#8a8176]">Sin contactos.</p>
               ) : null}
               <ul className="space-y-2">
                 {leadRows.map((lead) => (
@@ -798,7 +790,7 @@ export function MarketingCommercialBoard({
                     </p>
                     <p className="mt-0.5 text-[11px] text-[#8a8176]">
                       {lead.phone || 'Sin teléfono'} · {lead.status || '—'} ·{' '}
-                      {lead.temperature || 'sin temp.'}
+                      {lead.temperature || 'Sin clasificar'}
                     </p>
                     <p className="mt-0.5 text-[10px] text-[#8a8176]">
                       {lead.advisorName
@@ -857,12 +849,12 @@ function AdRowsTable({
         <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase">
           <tr>
             <th className="px-2 py-2 font-semibold">Anuncio</th>
-            <th className="px-2 py-2 font-semibold">Unidad promocionada</th>
-            <th className="px-2 py-2 font-semibold">Leads CRM</th>
-            <th className="px-2 py-2 font-semibold">Temperatura de leads</th>
-            <th className="px-2 py-2 font-semibold">Gasto reportado por Meta</th>
-            <th className="px-2 py-2 font-semibold">CPL</th>
-            <th className="px-2 py-2 font-semibold">Resultado Meta</th>
+            <th className="px-2 py-2 font-semibold">Inmueble anunciado</th>
+            <th className="px-2 py-2 font-semibold"><MetricHelp explanation="Personas asociadas al anuncio, contadas una vez dentro de la fila. Pulsa el número del anuncio para ver sus fichas.">Contactos registrados</MetricHelp></th>
+            <th className="px-2 py-2 font-semibold"><MetricHelp explanation="Clasificación guardada de los contactos: fríos, tibios, calientes o sin clasificar. No representa ventas confirmadas.">Nivel de interés</MetricHelp></th>
+            <th className="px-2 py-2 font-semibold"><MetricHelp explanation="Dinero que Meta informa como gastado durante las fechas seleccionadas. No es el presupuesto que planificaste invertir.">Gasto reportado por Meta</MetricHelp></th>
+            <th className="px-2 py-2 font-semibold"><MetricHelp explanation="Dinero gastado dividido entre los contactos únicos asociados. Por ejemplo: $20 entre 10 contactos son $2 por contacto. Es un promedio; no indica el costo exacto de una persona. Si faltan datos o no hay contactos, no se calcula.">Costo promedio por contacto</MetricHelp></th>
+            <th className="px-2 py-2 font-semibold"><MetricHelp explanation="Cantidad de la acción indicada junto al número, según Meta. Una conversación o un clic no equivale necesariamente a un contacto nuevo.">Resultado Meta</MetricHelp></th>
             <th className="px-2 py-2 font-semibold">Citas</th>
             <th className="px-2 py-2 font-semibold">Ventas</th>
           </tr>
@@ -879,12 +871,12 @@ function AdRowsTable({
               <td className="max-w-[16rem] px-2 py-2 text-[#1f1a14]">
                 <span className="font-medium">{adLabel(row)}</span>
                 <span className="mt-0.5 block text-[10px] text-[#8a8176]">
-                  {row.adId ? `ad ${row.adId}` : 'sin source_id'}
-                  {row.campaignId ? ` · camp ${row.campaignId}` : ''}
+                  {row.adId ? `Anuncio ${row.adId}` : 'Sin anuncio de origen registrado'}
+                  {row.campaignId ? ` · Campaña ${row.campaignId}` : ''}
                   {' · '}
                   {resolutionStatusLabel(row.resolutionStatus)}
-                  {row.insightsOnly ? ' · solo Insights' : ''}
-                  {row.spendStale ? ' · stale' : ''}
+                  {row.insightsOnly ? ' · sin contactos asociados' : ''}
+                  {row.spendStale ? ' · último dato guardado' : ''}
                 </span>
               </td>
               <td className="px-2 py-2">
@@ -936,8 +928,8 @@ function AdRowsTable({
                 {metaResultDisplay(row)}
               </td>
               <td className="px-2 py-2 tabular-nums text-[#6b645c]">
-                sol.{row.leadsWithAppointmentRequested} · conf.
-                {row.leadsWithAppointmentConfirmed} · real.
+                Solicitadas: {row.leadsWithAppointmentRequested} · Confirmadas:
+                {row.leadsWithAppointmentConfirmed} · Realizadas:
                 {row.leadsWithAppointmentDone}
               </td>
               <td className="px-2 py-2 tabular-nums">{row.salesConfirmed}</td>
