@@ -125,6 +125,7 @@ export function MessageTraceView() {
             {explanation && step && <section className={styles.detail} ref={panel} tabIndex={-1} aria-label="Explicación del paso seleccionado" aria-live="polite">
               <header><div><span className={styles.eyebrow}>Paso {step.order} · {statusLabel(step.status)}</span><h4>{explanation.title}</h4></div><span className={styles.badge} data-tone="observed">Observado en el registro</span></header>
               <p className={styles.summary}>{explanation.summary}</p>
+              {step.key === 'draft_validation' && <DraftDecision data={((step.output.output_snapshot || {}) as Record<string, unknown>).data} />}
               {step.key === 'model_request' && <AIExchange step={step} onCause={explanation.cause ? () => selectStep(explanation.cause!.order) : undefined} />}
               <FactSection title="Qué información utilizó" facts={explanation.used} empty="No se guardaron entradas legibles para este paso." />
               {explanation.coverageSections ? explanation.coverageSections.map(section => <FactSection key={section.title} title={section.title} description={section.description} facts={section.facts} empty="No se guardaron datos para esta sección." />)
@@ -156,7 +157,9 @@ export function MessageTraceView() {
 function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: () => void }) {
   const snapshot = (step.input.prompt_snapshot || {}) as Record<string, unknown>
   const output = (step.output.output_snapshot || {}) as Record<string, unknown>
+  const input = (snapshot.data || {}) as Record<string, unknown>
   return <div className={styles.aiExchange}>
+    {typeof input.borrador_rechazado === 'string' && <DraftDecision data={{ borrador_evaluado: input.borrador_rechazado, decision: 'Rechazado antes de esta corrección', motivos_registrados: input.correcciones_requeridas, siguiente_accion: 'Esta llamada intenta corregir ese borrador' }} />}
     <h5>Entrada y salida de esta llamada a IA</h5>
     <p>Modelo: {String(step.input.model || 'No registrado')}. Copia protegida: puede ocultar datos sensibles.</p>
     {!!(snapshot.limited || output.limited) && <p className={styles.notice}>Parte del contenido supera el límite de captura y está abreviado.</p>}
@@ -174,6 +177,23 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
     <h5>3. Uso del resultado por el sistema</h5>
     <p>Una llamada completada no significa que su propuesta se haya enviado al lead. Consulte la aceptación, corrección o descarte en el paso que utiliza este resultado.</p>
     {onCause ? <button type="button" className={styles.cause} onClick={onCause}>Ver decisión del paso que solicitó esta llamada<ArrowRight size={15} /></button> : <p>No hay un paso responsable vinculado disponible; no se puede determinar su decisión desde este nodo.</p>}
+  </div>
+}
+
+function DraftDecision({ data }: { data: unknown }) {
+  const record = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+  const review = (record.revision_ia || {}) as Record<string, unknown>
+  const reasonLabels: Record<string, string> = { unsupported_fact: 'Dato sin respaldo', unsupported_action: 'Acción sin confirmar', ignored_question: 'La respuesta no atiende la consulta', repeated_greeting: 'Saludo repetido', repeated_question: 'Pregunta o respuesta repetida', style: 'Incumplimiento de estilo', missing_next_step: 'Falta el siguiente paso requerido', unsolicited_sales_offer: 'Oferta comercial no solicitada' }
+  const reasons = [record.motivos_registrados, record.controles_codigo, review.motivos].flatMap(value => Array.isArray(value) ? value.map(String) : [])
+  return <div className={styles.aiExchange}>
+    <h5>{String(record.decision || 'Decisión no conservada')}</h5>
+    {!!reasons.length && <ul>{[...new Set(reasons)].map(reason => <li key={reason}>{reasonLabels[reason] || 'Control registrado'}: <code>{reason}</code></li>)}</ul>}
+    <h5>Texto exacto evaluado (con protección de datos)</h5><p>{String(record.borrador_evaluado || 'No conservado')}</p>
+    {record.motivos_registrados !== undefined ? <><h5>Motivos registrados para la corrección</h5><pre>{JSON.stringify(record.motivos_registrados, null, 2)}</pre><p>Este registro antiguo combina motivos del código y del revisor; no permite atribuir cada uno por separado.</p></> : <>
+      <h5>Revisión de la IA</h5><p>{review.aprobada === true ? 'La IA aprobó el borrador.' : review.aprobada === false ? 'La IA no aprobó el borrador.' : 'Aprobación no registrada.'}</p><pre>{JSON.stringify(review, null, 2)}</pre>
+      <h5>Controles del código</h5><pre>{JSON.stringify(record.controles_codigo, null, 2)}</pre><p>Una lista vacía significa que no se registraron objeciones de esa fuente. La aprobación de la IA no anula los controles del código.</p>
+    </>}
+    <h5>Qué ocurrió después</h5><p>{String(record.siguiente_accion || 'No registrado')}</p>
   </div>
 }
 

@@ -2,10 +2,28 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AutomationExecutionTrace, TRACE_SCHEMA_VERSION } from './execution-trace'
 import { sanitizeTraceSummary, traceText } from './trace-summary'
-import { beginModelTrace, withAIExecutionTrace } from './ai-execution-trace'
+import { beginModelTrace, withAIExecutionTrace, recordDraftDecision } from './ai-execution-trace'
 import { decisionRecord, catalogSnapshot } from './decision-record'
 
 const event = { id: '00000000-0000-4000-8000-000000000001' }
+
+test('draft rejection preserves evaluated text and separates code objections from AI approval', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  await withAIExecutionTrace(trace, async () => {
+    recordDraftDecision('Borrador para private@example.com', 0, false, { aprobada: true, motivos: [] }, ['style'])
+    recordDraftDecision('Corregido', 1, true, { aprobada: true, motivos: [] }, [])
+  })
+  await trace.flush()
+  const decisions = stored.filter(item => item.step_key === 'draft_validation')
+  assert.equal(decisions.length, 2)
+  const snapshot = (decisions[0].output_summary as Record<string, unknown>).output_snapshot as Record<string, unknown>
+  const data = snapshot.data as Record<string, unknown>
+  assert.equal(data.decision, 'Rechazado')
+  assert.equal((data.revision_ia as Record<string, unknown>).aprobada, true)
+  assert.deepEqual(data.controles_codigo, ['style'])
+  assert.doesNotMatch(JSON.stringify(stored), /private@example.com/)
+})
 
 test('AI roles distinguish scope from writer and preserve protected structured outputs', async () => {
   let stored: Record<string, unknown>[] = []

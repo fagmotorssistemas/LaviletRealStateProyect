@@ -6,6 +6,17 @@ type Context = { trace: AutomationExecutionTrace; calls: number }
 type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
 const active = new AsyncLocalStorage<Context>()
 
+export function recordDraftDecision(reply: string, attempt: number, approved: boolean, review: unknown, codeIssues: string[]) {
+  const context = active.getStore()
+  if (!context) return
+  context.trace.add('draft_validation', 'Aceptar o rechazar el borrador comercial', 'decision', 'sdr.ts', 'succeeded', {}, {
+    output_snapshot: { data: { borrador_evaluado: reply, intento: attempt + 1,
+      decision: approved ? 'Aceptado para continuar' : 'Rechazado',
+      siguiente_accion: approved ? 'Continuar con la respuesta' : attempt === 0 ? 'Solicitar una corrección' : 'Usar respuesta de respaldo',
+      revision_ia: review, controles_codigo: codeIssues } },
+  })
+}
+
 export function withAIExecutionTrace<T>(trace: AutomationExecutionTrace, work: () => Promise<T>) {
   return active.run({ trace, calls: 0 }, work)
 }

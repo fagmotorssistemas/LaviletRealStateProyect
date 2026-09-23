@@ -102,6 +102,7 @@ const titles: Record<string, string> = {
 
 export function statusLabel(status: string) { return values[status] || status.replaceAll('_', ' ') }
 export function stepTitle(step: WorkflowExecutionStep) {
+  if (step.key === 'draft_validation') return 'Código · Aceptación o rechazo del borrador'
   if (step.key === 'model_request') {
     const roles: Record<string, string> = { scope: 'IA · Clasificador de alcance', extractor: 'IA · Extractor de intención y datos', writer: 'IA · Redactor de respuesta', reviewer: 'IA · Revisor de respuesta', draft: 'IA · Generador de borrador', interpretation: 'IA · Interpretación de datos', media: 'IA · Lectura de archivo o imagen' }
     return roles[String(step.input.ai_role)] || 'IA · Llamada histórica (función no registrada)'
