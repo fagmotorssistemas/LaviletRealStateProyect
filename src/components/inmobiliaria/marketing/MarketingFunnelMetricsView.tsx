@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { BarChart3, Layers } from 'lucide-react'
 import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
@@ -81,8 +80,6 @@ function SectionTitle({
 
 export function MarketingFunnelMetricsView({
   report,
-  projects,
-  selectedProjectId,
   error,
   adsInsights,
   adsProbe,
@@ -108,7 +105,6 @@ export function MarketingFunnelMetricsView({
   const from = report?.period.from ?? ''
   const to = report?.period.to ?? ''
   const ap = report?.totals.appointmentsInPeriod
-  const showProjectSelect = projects.length > 1
   const undeterminedNote =
     report?.undeterminedUnit.note ||
     'undeterminedUnit = cohorte sin appointment_units (≠ citas del período por start_time).'
@@ -120,60 +116,6 @@ export function MarketingFunnelMetricsView({
         title="Métricas embudo"
         description="Informe interno CTWA / CRM · America/Guayaquil. No dispara CAPI ni Pixel."
       />
-
-      <form
-        method="get"
-        className="flex flex-wrap items-end gap-3 rounded-2xl border border-[#ece6dc] bg-white p-4"
-      >
-        <label className="flex flex-col gap-1 text-[11px] font-semibold tracking-[0.08em] text-[#8a8176] uppercase">
-          Desde
-          <input
-            type="date"
-            name="from"
-            defaultValue={from}
-            required
-            className="rounded-xl border border-[#ece6dc] bg-[#faf8f5] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] font-semibold tracking-[0.08em] text-[#8a8176] uppercase">
-          Hasta
-          <input
-            type="date"
-            name="to"
-            defaultValue={to}
-            required
-            className="rounded-xl border border-[#ece6dc] bg-[#faf8f5] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-          />
-        </label>
-        {showProjectSelect ? (
-          <label className="flex min-w-[12rem] flex-col gap-1 text-[11px] font-semibold tracking-[0.08em] text-[#8a8176] uppercase">
-            Proyecto
-            <select
-              name="projectId"
-              defaultValue={selectedProjectId}
-              className="rounded-xl border border-[#ece6dc] bg-[#faf8f5] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#1f1a14]"
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <input type="hidden" name="projectId" value={selectedProjectId} />
-        )}
-        <button
-          type="submit"
-          className="rounded-xl bg-[#2B1A18] px-4 py-2 text-sm font-semibold text-[#f7f2ea]"
-        >
-          Aplicar
-        </button>
-        <p className="w-full text-[11px] text-[#8a8176]">
-          Zona horaria del informe CRM: America/Guayaquil. Insights Ads usa el
-          calendario de la cuenta Meta (puede diferir). No mezclar universos en tasas.
-        </p>
-      </form>
 
       {!report && adsInsights ? (
         <div
@@ -299,32 +241,6 @@ export function MarketingFunnelMetricsView({
             />
           </section>
 
-          <section className="rounded-2xl border border-dashed border-[#d9d0c3] bg-[#faf8f5] p-4">
-            <SectionTitle title="Universos (no mezclar en tasas)" />
-            <ul className="space-y-1.5 text-[12px] text-[#6b645c]">
-              {Object.entries(report.universes).map(([key, text]) => (
-                <li key={key}>
-                  <span className="font-semibold text-[#1f1a14]">{key}</span>
-                  <span className="text-[#8a8176]"> — {text}</span>
-                </li>
-              ))}
-            </ul>
-            <SectionTitle title="Limitaciones" />
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-[#6b645c]">
-              {report.limitations.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-            <p className="mt-3 text-[11px] text-[#8a8176]">
-              Gates Meta intactos ({String(report.metaSendGatesUntouched)}).{' '}
-              <Link
-                href="/inmobiliaria/marketing/capi"
-                className="font-semibold text-[#5b4a9a] underline-offset-2 hover:underline"
-              >
-                Ir a CAPI Meta
-              </Link>
-            </p>
-          </section>
         </>
       ) : null}
     </div>
