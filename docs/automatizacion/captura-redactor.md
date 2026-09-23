@@ -1,5 +1,13 @@
 # Entrada del redactor en la bitácora
 
+## Ampliación: distinguir llamadas de IA
+
+Las llamadas estructuradas de `aiJson` ahora guardan entrada y salida protegidas, no solo las de redacción. Los nodos se distinguen con prefijo IA y borde violeta. La función se registra según el contrato de salida: clasificador de alcance, extractor, redactor, revisor, generador de borrador, interpretación de datos o lectura de imagen/archivo. El tipo de tono `writing` ya no se interpreta como prueba de que se ejecutó el redactor final.
+
+Al abrir el nodo aparecen tres secciones: entrada (instrucciones, datos y esquema), salida JSON recibida y enlace al paso causante que usa el resultado. Ese enlace permite consultar la decisión registrada: no se deduce aceptación a partir del éxito técnico de la llamada. Cada reintento conserva su propia llamada. La salida es el JSON parseado, no el cuerpo HTTP del proveedor ni razonamiento interno. Las llamadas fallidas sin JSON válido muestran ausencia de salida. Los adjuntos binarios no se guardan.
+
+Los registros antiguos sin función explícita se identifican como llamadas históricas; no se les atribuye un rol por su nombre ambiguo. Esta ampliación no cambia las instrucciones comerciales ni añade llamadas a IA. Los límites y permisos descritos abajo siguen vigentes.
+
 Desde este cambio, las nuevas llamadas `writing` conservan una copia protegida de las instrucciones después de aplicar el estilo de conversación y las instrucciones JSON, los datos de entrada y el esquema de respuesta. La clasificación de alcance también usa este tipo de llamada: el paso causante permite distinguirla del redactor final.
 
 En **Flujo visual → conversación → mensaje → Redacción con IA → Ver instrucciones y contexto enviados a la IA**:

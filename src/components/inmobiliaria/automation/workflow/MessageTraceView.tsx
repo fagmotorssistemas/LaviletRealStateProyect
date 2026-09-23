@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight, ChevronRight, RefreshCw, Search } from 'lucide-react'
-import type { WorkflowExecution } from './executionWorkflow'
+import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 import { conversationGroups, explainStep, humanValue, statusLabel, stepTitle, type ExplanationFact } from './messageExplanation'
 import styles from './MessageTraceView.module.css'
 
@@ -103,13 +103,14 @@ export function MessageTraceView() {
             <p>El resultado disponible no permite reconstruir qué interpretó el bot, qué datos consultó ni por qué tomó una decisión. La ruta histórica sería inferida y no se presenta como observada.</p>
           </div> : <>
             <ol className={styles.steps} aria-label="Pasos observados de este mensaje">{steps.map(item => <li key={item.order}>
-              <button type="button" aria-pressed={item.order === step?.order} onClick={() => setStepOrder(item.order)} data-status={item.status}>
+              <button type="button" aria-pressed={item.order === step?.order} onClick={() => setStepOrder(item.order)} data-status={item.status} data-ai={item.key === 'model_request'}>
                 <span className={styles.stepNumber}>{item.order.toString().padStart(2, '0')}</span><span><strong>{stepTitle(item)}</strong><small>{statusLabel(item.status)} · {duration(item.durationMs)}</small></span><ChevronRight size={14} />
               </button>
             </li>)}</ol>
             {explanation && step && <section className={styles.detail} ref={panel} tabIndex={-1} aria-label="Explicación del paso seleccionado" aria-live="polite">
               <header><div><span className={styles.eyebrow}>Paso {step.order} · {statusLabel(step.status)}</span><h4>{explanation.title}</h4></div><span className={styles.badge} data-tone="observed">Observado en el registro</span></header>
               <p className={styles.summary}>{explanation.summary}</p>
+              {step.key === 'model_request' && <AIExchange step={step} onCause={explanation.cause ? () => selectStep(explanation.cause!.order) : undefined} />}
               <FactSection title="Qué información utilizó" facts={explanation.used} empty="No se guardaron entradas legibles para este paso." />
               {explanation.coverageSections ? explanation.coverageSections.map(section => <FactSection key={section.title} title={section.title} description={section.description} facts={section.facts} empty="No se guardaron datos para esta sección." />)
                 : <FactSection title="Qué encontró" facts={explanation.found} empty="No se guardaron resultados detallados para este paso." />}
@@ -127,11 +128,6 @@ export function MessageTraceView() {
               <div className={styles.review}><strong>Qué revisar</strong><p>{explanation.review}</p>{explanation.setting ? <p>{explanation.setting.kind}: {explanation.setting.href
                 ? <Link href={explanation.setting.href}>{explanation.setting.label}<ArrowRight size={13} /></Link> : explanation.setting.label}</p> : <p>No se registró un ajuste editable responsable de este paso.</p>}{explanation.setting?.source && <p>Módulo responsable: <code>{explanation.setting.source}</code></p>}</div>
               {step.key !== 'advisor_handoff' && <div className={styles.related}><strong>Derivaciones de esta ejecución</strong>{handoffs.length ? <><p>Estos enlaces muestran registros de acción; solo un vínculo causal explícito demuestra su relación con el paso seleccionado.</p>{handoffs.map(action => <button className={styles.button} key={action.order} type="button" onClick={() => selectStep(action.order)}>Paso {action.order}: {statusLabel(action.status)}<ArrowRight size={13} /></button>)}</> : <p>No hay un paso de derivación registrado. El texto de una respuesta no basta para confirmar que se ejecutó.</p>}</div>}
-              {step.key === 'model_request' && step.input?.task === 'writing' && <details className={styles.technical}>
-                <summary>Ver instrucciones y contexto enviados a la IA</summary>
-                <p>Incluye las instrucciones compuestas, los datos de entrada (con historial si se envió) y el formato de respuesta exigido. Es una copia protegida: oculta datos sensibles. El campo limited indica si excedió el límite de captura. No añade llamadas a la IA.</p>
-                {step.input.prompt_snapshot ? <pre>{JSON.stringify(step.input.prompt_snapshot, null, 2)}</pre> : <p>Esta ejecución no conservó la entrada completa. La versión del prompt no permite reconstruir el contexto histórico; consulte una nueva ejecución después de desplegar esta mejora.</p>}
-              </details>}
               <details className={styles.technical}><summary>Ver detalles técnicos de este paso</summary><pre>{JSON.stringify({ order: step.order, key: step.key, source: step.source, status: step.status, durationMs: step.durationMs, input: step.input, output: step.output, errorCode: step.errorCode }, null, 2)}</pre></details>
             </section>}
           </>}
@@ -140,6 +136,30 @@ export function MessageTraceView() {
       </div>}
     <footer className={styles.footer}><span>{executions.length} {view === 'maintenance' ? 'tareas cargadas' : 'registros de conversación cargados'}{query.trim() ? ` para «${query.trim()}»` : ''} · La búsqueda se aplica a todo el historial.</span>{nextCursor && <button type="button" className={styles.button} disabled={loading} onClick={() => void load(nextCursor)}>{view === 'maintenance' ? 'Cargar tareas anteriores' : 'Cargar mensajes anteriores'}</button>}</footer>
   </section>
+}
+
+function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: () => void }) {
+  const snapshot = (step.input.prompt_snapshot || {}) as Record<string, unknown>
+  const output = (step.output.output_snapshot || {}) as Record<string, unknown>
+  return <div className={styles.aiExchange}>
+    <h5>Entrada y salida de esta llamada a IA</h5>
+    <p>Modelo: {String(step.input.model || 'No registrado')}. Copia protegida: puede ocultar datos sensibles.</p>
+    {!!(snapshot.limited || output.limited) && <p className={styles.notice}>Parte del contenido supera el límite de captura y está abreviado.</p>}
+    {!!step.input.attachments_omitted && <p>Se envió un archivo o imagen. Su contenido binario no se conserva aquí.</p>}
+    <details className={styles.technical}><summary>1. Entrada · instrucciones, mensaje e historial</summary>
+      {step.input.prompt_snapshot ? <>
+        <h5>Instrucciones compuestas</h5><pre>{String(snapshot.instructions || '')}</pre>
+        <h5>Datos enviados</h5><p>{String(snapshot.user_prefix || '')}</p><pre>{JSON.stringify(snapshot.data, null, 2)}</pre>
+        <h5>Formato exigido</h5><pre>{JSON.stringify(snapshot.response_schema, null, 2)}</pre>
+      </> : <p>Esta ejecución no conservó la entrada. No se reconstruye a partir del hash del prompt.</p>}
+    </details>
+    <details className={styles.technical} open><summary>2. Salida · resultado devuelto por la IA</summary>
+      {step.output.output_snapshot ? <pre>{JSON.stringify(output.data, null, 2)}</pre> : <p>No se conservó una salida estructurada. Puede ser un registro antiguo o una llamada que falló antes de obtener un JSON válido.</p>}
+    </details>
+    <h5>3. Uso del resultado por el sistema</h5>
+    <p>Una llamada completada no significa que su propuesta se haya enviado al lead. Consulte la aceptación, corrección o descarte en el paso que utiliza este resultado.</p>
+    {onCause ? <button type="button" className={styles.cause} onClick={onCause}>Ver decisión del paso que solicitó esta llamada<ArrowRight size={15} /></button> : <p>No hay un paso responsable vinculado disponible; no se puede determinar su decisión desde este nodo.</p>}
+  </div>
 }
 
 function FactSection({ title, facts, empty, description }: { title: string; facts: ExplanationFact[]; empty: string; description?: string }) {

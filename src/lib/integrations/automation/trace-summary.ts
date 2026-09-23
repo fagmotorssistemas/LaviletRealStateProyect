@@ -27,7 +27,7 @@ export function traceText(value: unknown, max = 360) {
 export function sanitizeTraceSummary(value: unknown): Summary {
   const seen = new WeakSet<object>()
   function clean(input: unknown, depth: number, key = ''): unknown {
-    if (key === 'prompt_snapshot') return sanitizePromptSnapshot(input)
+    if (key === 'prompt_snapshot' || key === 'output_snapshot') return sanitizePromptSnapshot(input)
     if (privateKey.test(key) || /^(?:min_|max_)?(?:budget|presupuesto|initial_capital|capital_inicial)(?:_(?:amount|min|max|text|texto))?$/i.test(key)) return '[dato protegido]'
     if (input === null || typeof input === 'boolean') return input
     if (typeof input === 'number') return Number.isFinite(input) ? input : null

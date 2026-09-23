@@ -7,6 +7,31 @@ import { decisionRecord, catalogSnapshot } from './decision-record'
 
 const event = { id: '00000000-0000-4000-8000-000000000001' }
 
+test('AI roles distinguish scope from writer and preserve protected structured outputs', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  await withAIExecutionTrace(trace, async () => {
+    for (const [role, properties, task] of [
+      ['scope', { property_fragments: {} }, 'writing'], ['extractor', { turn_semantics: {} }, 'data'],
+      ['writer', { requests: {}, question: {} }, 'writing'], ['reviewer', {}, 'review'],
+    ] as const) {
+      beginModelTrace('Instrucciones', 'model', task, { mensaje: 'hola' }, { properties }).finish(undefined, undefined, { role, reply: 'Respuesta '.repeat(150), email: 'private@example.com' })
+    }
+  })
+  await trace.flush()
+  const calls = stored.filter(item => (item.input_summary as Record<string, unknown>)?.ai_role)
+  assert.equal(calls.length, 4)
+  for (const call of calls) {
+    const input = call.input_summary as Record<string, unknown>
+    const output = call.output_summary as Record<string, unknown>
+    const snapshot = output.output_snapshot as Record<string, unknown>
+    assert.equal((snapshot.data as Record<string, unknown>).role, input.ai_role)
+    assert.ok(String((snapshot.data as Record<string, unknown>).reply).length > 1000)
+    assert.doesNotMatch(JSON.stringify(output), /private@example.com/)
+    assert.deepEqual(sanitizeTraceSummary(output), output)
+  }
+})
+
 test('writer snapshot preserves long instructions and history with privacy and explicit limits', async () => {
   let stored: Record<string, unknown>[] = []
   const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
@@ -33,7 +58,7 @@ test('writer snapshot preserves long instructions and history with privacy and e
   assert.ok(String(large.instructions).length <= 120000)
 })
 
-test('model trace stores provider token counts without prompt or response bodies', async () => {
+test('model trace stores provider token counts and protected instructions', async () => {
   let stored: Record<string, unknown>[] = []
   const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
   await withAIExecutionTrace(trace, async () => {
@@ -44,7 +69,7 @@ test('model trace stores provider token counts without prompt or response bodies
   await trace.flush()
   const request = stored.find(item => item.step_key === 'model_request' || (item.output_summary as Record<string, unknown>)?.task === 'review')!
   assert.deepEqual((request.output_summary as Record<string, unknown>).token_usage, { input_tokens: 120, output_tokens: 30, total_tokens: 150, cached_input_tokens: 80 })
-  assert.ok(!JSON.stringify(stored).includes('private prompt content'))
+  assert.ok(JSON.stringify(stored).includes('private prompt content'))
 })
 
 test('trace captures actual versions and sanitized steps without modifying decisions', async () => {
@@ -149,7 +174,7 @@ test('a handoff records its actual triggering step, evidence and outcome with sa
   assert.doesNotMatch(JSON.stringify(stored), /private@example|private description/)
 })
 
-test('actual prompt hashes and failures retain writer instructions only', async () => {
+test('actual prompt hashes and failures retain composed instructions', async () => {
   let stored: Record<string, unknown>[] = []
   const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return {} }, report: () => {} })
   const parent = trace.start('response_coverage', 'Revisar', 'decision', 'turn-completeness.ts')
@@ -166,5 +191,5 @@ test('actual prompt hashes and failures retain writer instructions only', async 
   assert.equal(requests[1].status, 'failed')
   assert.equal(requests[1].error_code, 'OPENAI_INCOMPLETE')
   assert.match(JSON.stringify(stored), /private instructions one/)
-  assert.doesNotMatch(JSON.stringify(stored), /private instructions two/)
+  assert.match(JSON.stringify(stored), /private instructions two/)
 })

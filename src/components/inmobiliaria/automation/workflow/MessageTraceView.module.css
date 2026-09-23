@@ -75,6 +75,10 @@
 .related p { margin: 4px 0 9px; font-size: 12px; }
 .related button { margin: 3px 7px 3px 0; }
 .technical { margin-top: 18px; color: #66745d; }
+.steps button[data-ai="true"] { border-left: 4px solid #6c4bb1; background: #f5f1fc; }
+.steps button[data-ai="true"][aria-pressed="true"] { outline: 2px solid #6c4bb1; }
+.aiExchange { border: 1px solid #d6c7ee; border-radius: 8px; padding: 16px; margin: 16px 0; background: #faf8ff; }
+.aiExchange h5 { margin: 12px 0 6px; font-size: 14px; }
 .technical summary { cursor: pointer; padding: 8px 0; font-size: 12px; }
 .technical p { font-size: 12px; }
 .technical pre { max-height: 450px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; background: #f6f8f2; border: 1px solid #e0e7d8; border-radius: 5px; padding: 13px; color: #415439; }

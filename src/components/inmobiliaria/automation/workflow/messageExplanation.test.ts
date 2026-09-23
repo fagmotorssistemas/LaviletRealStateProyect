@@ -1,9 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { conversationGroups, explainStep, humanValue } from './messageExplanation'
+import { conversationGroups, explainStep, humanValue, stepTitle } from './messageExplanation'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 
 const step = (order: number, key: string, output: Record<string, unknown> = {}, input: Record<string, unknown> = {}): WorkflowExecutionStep => ({ order, key, label: key, category: 'decision', status: 'succeeded', source: 'test', startedAt: '', completedAt: '', durationMs: 2, errorCode: null, input, output })
+
+test('AI labels use recorded function and do not mislabel historical scope calls as writers', () => {
+  assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'scope', task: 'writing' })), /Clasificador/)
+  assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'writer', task: 'writing' })), /Redactor/)
+  assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'extractor' })), /Extractor/)
+  assert.match(stepTitle(step(1, 'model_request', {}, { task: 'writing' })), /histórica/)
+})
 
 test('invalid writer metadata separates rejection from advisor decision and never claims complete coverage', () => {
   const item = step(1, 'response_coverage', { status: 'invalid_coverage', requests: [], issues: ['requests[1].fragment: pregunta del bot'],
