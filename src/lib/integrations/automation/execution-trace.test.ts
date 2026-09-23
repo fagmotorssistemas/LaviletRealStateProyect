@@ -7,6 +7,20 @@ import { decisionRecord, catalogSnapshot } from './decision-record'
 
 const event = { id: '00000000-0000-4000-8000-000000000001' }
 
+test('model trace stores provider token counts without prompt or response bodies', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  await withAIExecutionTrace(trace, async () => {
+    beginModelTrace('private prompt content', 'configured-model', 'review').finish(undefined, {
+      input_tokens: 120, output_tokens: 30, total_tokens: 150, input_tokens_details: { cached_tokens: 80 },
+    })
+  })
+  await trace.flush()
+  const request = stored.find(item => item.step_key === 'model_request' || (item.output_summary as Record<string, unknown>)?.task === 'review')!
+  assert.deepEqual((request.output_summary as Record<string, unknown>).token_usage, { input_tokens: 120, output_tokens: 30, total_tokens: 150, cached_input_tokens: 80 })
+  assert.ok(!JSON.stringify(stored).includes('private prompt content'))
+})
+
 test('trace captures actual versions and sanitized steps without modifying decisions', async () => {
   let stored: Record<string, unknown>[] = []
   const trace = new AutomationExecutionTrace([event, event], {

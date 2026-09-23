@@ -123,7 +123,18 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     ...Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null)) }
   const asksRanking = /\b(?:cual|cuales|que|cuanto)\b.*\b(?:mas grande|mas amplio|mayor|mas pequen|mas barat|mas economic|menor)/.test(m)
   const selector = semanticValid ? semantic.reference_kind === 'relative' || semantic.operation === 'rank' ? text(semantic.selector) || relativeSelector(current) : '' : relativeSelector(current)
+  const inheritedBedrooms = normalizedPropertyFilters(previousQuery.filters)
+  const expandsUnavailableSearch = broadResidential && selector === 'largest'
+    && lexicalFilters.bedrooms === null && currentFilters.bedrooms === null
+    && inheritedBedrooms.bedrooms !== null && inheritedBedrooms.bedrooms_required !== true
+    && !catalog.some(unit => ['suite', 'departamento', 'penthouse'].includes(text(unit.category)) && Number(unit.bedrooms) === inheritedBedrooms.bedrooms)
+  if (expandsUnavailableSearch) {
+    context.original_query = previousQuery
+    filters.bedrooms = null; filters.bedrooms_required = null
+    context.query_transition = { reason: 'largest_available_after_unavailable_preference', before: inheritedBedrooms, after: { ...filters }, preference_retained: inheritedBedrooms.bedrooms }
+  } else context.query_transition = {}
   let operation = asksRanking ? 'rank' : broadResidential || hasCurrentFilters && !['compare', 'details'].includes(text(semantic.operation)) ? 'search' : text(semantic.operation) || 'none'
+  if (selector && ['search', 'rank'].includes(operation)) operation = 'rank'
   const query: Row = { group: group || text(previousQuery.group) || null,
     category: broadResidential ? null : category || text(previousQuery.category || context.preference_category) || null,
     filters, operation, selector: selector || null,

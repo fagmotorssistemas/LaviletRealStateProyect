@@ -16,6 +16,33 @@ const { operationalCopyIssues } = require('../src/lib/integrations/automation/op
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [] }
+
+test('opening decision preserves base courtesy and removes actual repetitions before writing', async () => {
+  const input = { current: 'Quiero información', baseReply: 'Claro que sí, con mucho gusto. Tenemos departamentos.', verified: {} }
+  const candidate = { reply: 'Tenemos departamentos.', requests: [covered(input.current)], question: noQuestion }
+  const result = await completeTurnReply(input, model(candidate, approved).generate)
+  assert.equal(result.reply, input.baseReply)
+  const repeated = await completeTurnReply({ ...input, history: [{ role: 'bot', content: 'Claro que sí, con mucho gusto. Le ayudo.' }] }, model(candidate, approved).generate)
+  assert.equal(repeated.reply, 'Tenemos departamentos.')
+  assert.equal(repeated.audit.opening_decision.removed_repetition, true)
+})
+
+test('semantic review records evidence and rejects neutral or unsupported claims without another model call', async () => {
+  const current = 'Quiero información', reply = 'Ofrecemos departamentos.'
+  const input = { current, baseReply: 'Tenemos departamentos.', verified: { categorias: ['departamento'] }, audit: { semantic_review_enabled: true } }
+  const candidate = { reply, requests: [covered(current)], question: noQuestion }
+  const claim = { fragment: reply, subject: 'departamentos', polarity: 'affirmation', verdict: 'supported', evidence: 'categorias: departamento', evidence_source: 'verified_context' }
+  const mock = model(candidate, { ...approved, claims: [claim] })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.audit.semantic_review.claims.length, 1)
+  assert.equal(mock.calls.length, 2)
+  for (const verdict of ['unsupported', 'contradicted', 'neutral']) {
+    const rejected = await completeTurnReply(input, model(candidate, { ...approved, claims: [{ ...claim, verdict }] }).generate)
+    assert.equal(rejected.audit.status, 'rejected_review')
+    assert.equal(rejected.reply, input.baseReply)
+  }
+})
 test('Carlos price category switch uses catalogue evidence and accepts natural wording', async () => {
   const current = 'Y cuál es el precio del penthhphse?'
   const units = [{ id: 'd502', category: 'departamento', unit_number: '502', published_commercial_price: 310000 },

@@ -3,7 +3,7 @@ import { object, text } from './data'
 
 // Only removable courtesy clauses. Never strip yes/no, a greeting, an apology,
 // a qualification, or a factual sentence just because it resembles an opener.
-const courtesy = /^(claro(?:\s*,?\s*con\s+(?:mucho\s+)?gusto)?|con\s+(?:mucho\s+)?gusto(?:\s+le\s+(?:cuento|explico|comento|ayudo))?|por supuesto|desde luego|perfecto|excelente|muy bien|de acuerdo|gracias por (?:comentar(?:lo)?|aclarar(?:lo)?|compartir(?:lo)?))\s*[,.!:;]\s+/iu
+const courtesy = /^(claro(?:\s+que\s+s[ií])?(?:\s*,?\s*con\s+(?:mucho\s+)?gusto)?|con\s+(?:mucho\s+)?gusto(?:\s+le\s+(?:cuento|explico|comento|ayudo))?|por supuesto|desde luego|perfecto|excelente|muy bien|de acuerdo|gracias por (?:comentar(?:lo)?|aclarar(?:lo)?|compartir(?:lo)?))\s*[,.!:;]\s+/iu
 const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
 export function replyOpening(reply: string) {
@@ -40,6 +40,21 @@ export function variedReplyOpening(reply: string, history: unknown) {
     body = remainder
   }
   return body.replace(/^([\p{L}])/u, letter => letter.toLocaleUpperCase('es'))
+}
+
+export function decidedOpening(base: string, history: unknown) {
+  const chosen = variedReplyOpening(base, history)
+  return { prefix: replyOpening(chosen)?.prefix || '', removed_repetition: chosen !== base }
+}
+
+export function applyDecidedOpening(reply: string, prefix: string) {
+  let body = reply.trim()
+  for (let i = 0; i < 4; i++) {
+    const opening = replyOpening(body)
+    if (!opening) break
+    body = body.slice(opening.prefix.length).trim()
+  }
+  return prefix + body
 }
 
 export function openingWritingRules(history: unknown) {

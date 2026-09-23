@@ -32,7 +32,7 @@ import { preferredPropertyCategory } from './property-selection'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { acceptsUnitOptions, acceptsVisitInvitation, ambiguousVisitAcceptance, rememberSalesReply } from './sales-policy'
 import { mediaFailureReply, unreadMediaMarker } from './media-format'
-import { variedReplyOpening } from './response-openings'
+import { variedReplyOpening, applyDecidedOpening } from './response-openings'
 import { acceptedPriceOption, asksUnitPrice, unitPriceQuote, priceReplyIssues } from './price-reply'
 import { scheduleNutrition24h } from './nutrition'
 import { scheduleNutritionWeekOne } from './nutrition-week-one'
@@ -1012,12 +1012,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       catalog_coverage: audit.catalog_coverage,
     })
     const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
-      verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit,
+      verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true },
       preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
-    const catalogValidation = validateCatalogReply(reviewed.reply, audit)
+    const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
+    const catalogValidation = validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence })
     if (!invalidPrice && catalogValidation.valid) {
       if(!financingCollectionIssues(reviewed.reply,audit,current)) reply = reviewed.reply
+      audit.semantic_review = semanticEvidence
     }
     else {
       // Reject the rewrite, not the conversation. A valid catalogue quote does
@@ -1046,6 +1048,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
       price_evidence: reviewed.audit.price_evidence,
       repair_attempts: reviewed.audit.repair_attempts,
+      semantic_review: reviewed.audit.semantic_review, opening_decision: reviewed.audit.opening_decision, query_transition: audit.query_transition,
       missing_fact_fragments: reviewed.audit.missing_fact_fragments, handoff_assessments: reviewed.audit.handoff_assessments,
       unresolved: reviewed.unresolved, needs_advisor: reviewed.needsAdvisor || needsCommercialHandoff,
       base_preview: reviewed.audit.base_preview, proposed_preview: reviewed.audit.proposed_preview,
@@ -1097,11 +1100,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   })
   const direct = directReply(currentTopicReply(sectorClaimsReply(reply),current),current)
   if(direct !== reply) audit.direct_reply_guard = true
-  reply = naturalConversationReply(variedReplyOpening(direct, context.historial), text(lead.name), turnGreeting, activeLast.sentAt)
+  const openingDecision = object(audit.turn_completeness).opening_decision
+  const withOpening = (body: string) => openingDecision ? applyDecidedOpening(body, text(object(openingDecision).prefix)) : variedReplyOpening(body, context.historial)
+  reply = naturalConversationReply(withOpening(direct), text(lead.name), turnGreeting, activeLast.sentAt)
   // The last prose transformation is checked too, before any external send.
   const finalCatalogValidation = validateCatalogReply(reply, audit)
   if (!finalCatalogValidation.valid && catalogBaseReply) {
-    reply = naturalConversationReply(catalogBaseReply, text(lead.name), turnGreeting, activeLast.sentAt)
+    reply = naturalConversationReply(withOpening(catalogBaseReply), text(lead.name), turnGreeting, activeLast.sentAt)
     if (locationRequestKind(current)) reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
     if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
     if (handoffNotice && !reply.includes(handoffNotice)) reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + handoffNotice

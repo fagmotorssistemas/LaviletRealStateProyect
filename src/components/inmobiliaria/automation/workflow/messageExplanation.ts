@@ -18,6 +18,8 @@ const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(row) : 
 const has = (value: Row, key: string) => Object.hasOwn(value, key)
 const UUID = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i
 const labels: Record<string, string> = {
+  token_usage: 'Consumo de tokens de esta llamada', input_tokens: 'Tokens de entrada', output_tokens: 'Tokens de salida', total_tokens: 'Tokens totales', cached_input_tokens: 'Tokens de entrada en caché',
+  semantic_review: 'Afirmaciones y evidencia revisadas', opening_decision: 'Apertura decidida por el sistema', query_transition: 'Cambio de filtros de la consulta',
   message: 'Mensaje utilizado', original_message: 'Mensaje original', property_message: 'Parte inmobiliaria',
   scope: 'Alcance', uncertain: 'Interpretación incierta', method: 'Método', confidence: 'Confianza', primary_intent: 'Intención principal',
   operation: 'Operación', property_category: 'Categoría', property_group: 'Grupo', filters: 'Filtros', selector: 'Criterio', query_scope: 'Conjunto consultado',
@@ -175,6 +177,11 @@ function coverageSections(output: Row): ExplanationSection[] {
     ] },
     { title: 'Error detectado', description: 'Estos controles explican el rechazo de la propuesta. Un error en requests significa que falló la lista interna de solicitudes; no demuestra que el texto comercial fuera incorrecto.', facts: [
       { label: 'Controles registrados', value: Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
+    ] },
+    { title: 'Decisiones y evidencia', description: 'La apertura y los filtros los decide el sistema. La revisión semántica contrasta lo que afirma la respuesta con los datos disponibles; no garantiza por sí sola la veracidad.', facts: [
+      { label: 'Apertura', value: output.opening_decision ? humanValue(output.opening_decision) : 'No registrada' },
+      { label: 'Cambio de filtros', value: output.query_transition && Object.keys(row(output.query_transition)).length ? humanValue(output.query_transition) : 'No se registró un cambio de alcance.' },
+      { label: 'Afirmaciones contrastadas', value: output.semantic_review ? humanValue(output.semantic_review) : 'Este registro no incluye revisión por afirmaciones.' },
     ] },
     { title: 'Intento de reparación', description: 'Indica si se pidió a la IA corregir un resultado inválido antes de conservar o descartar su propuesta.', facts: attempts.length ? attempts.map((attempt, index) => ({
       label: `Intento ${index + 1}`, value: `Error inicial: ${humanValue(attempt.status)}. Controles: ${humanValue(attempt.issues)}. Resultado final: ${attempt.final_status ? humanValue(attempt.final_status) : 'No registrado; consulte el resultado general de este paso.'}`,
