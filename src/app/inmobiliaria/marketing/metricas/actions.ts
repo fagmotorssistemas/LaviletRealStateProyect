@@ -242,6 +242,29 @@ export async function assignPromotedUnitAction(input: {
     }
 
     const creds = readAdsMarketingCredentials()
+    const { data: project, error: projectError } = await admin
+      .from('projects')
+      .select('id,tenant_id')
+      .eq('id', input.projectId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+    if (projectError) return { ok: false, error: projectError.message }
+    if (!project) return { ok: false, error: 'project_not_in_tenant' }
+    if (input.unitId) {
+      const { data: unit, error: unitError } = await admin
+        .from('units')
+        .select('id,tenant_id,project_id')
+        .eq('id', input.unitId)
+        .maybeSingle()
+      if (unitError) return { ok: false, error: unitError.message }
+      if (
+        !unit ||
+        String(unit.tenant_id) !== tenantId ||
+        String(unit.project_id) !== input.projectId
+      ) {
+        return { ok: false, error: 'unit_not_in_tenant_project' }
+      }
+    }
     return assignAdPromotedUnit(admin, {
       tenantId,
       projectId: input.projectId,

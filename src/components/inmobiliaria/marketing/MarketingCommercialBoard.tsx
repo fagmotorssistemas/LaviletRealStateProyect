@@ -410,6 +410,12 @@ export function MarketingCommercialBoard({
             o resultados pueden faltar en algunos anuncios.
           </p>
         ) : null}
+        {coverage.currencyStatus === 'unknown' ? (
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
+            Moneda Ads no confirmada en vivo; una fila stale puede conservar la
+            moneda histórica del período.
+          </p>
+        ) : null}
         {adsInsights?.missing?.length ? (
           <p className="mt-2 text-[11px] text-[#8a8176]">
             Faltan: {adsInsights.missing.join(' · ')}
@@ -482,9 +488,9 @@ export function MarketingCommercialBoard({
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-[#1f1a14]">Por campaña</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[#8a8176]">
-            Expanda para ver anuncios CTWA de la campaña. Gasto preferente a
-            nivel campaña; CPL = gasto ÷ leads CRM únicos. Resultado Meta ≠
-            leads CRM.
+            Expanda para ver anuncios CTWA de la campaña. Gasto ejecutado de
+            Meta; el presupuesto no se interpreta como gasto. CPL = gasto ÷
+            leads CRM únicos.
           </p>
         </div>
         {filteredCampaigns.length === 0 ? (
@@ -528,10 +534,26 @@ export function MarketingCommercialBoard({
                     </div>
                     <div className="shrink-0 text-right text-[11px] tabular-nums text-[#6b645c]">
                       <div>
-                        Gasto:{' '}
+                        Gasto ejecutado:{' '}
                         {camp.adSpend == null
                           ? 'No disponible'
                           : formatAmount(camp.adSpend, camp.currency)}
+                      </div>
+                      <div>
+                        Suma anuncios:{' '}
+                        {camp.adSpendSum == null
+                          ? 'No disponible'
+                          : formatAmount(camp.adSpendSum, camp.currency)}
+                      </div>
+                      <div className={camp.spendCoherent === false ? 'text-amber-800' : ''}>
+                        Coherencia:{' '}
+                        {camp.spendCoherent == null
+                          ? camp.campaignInsightsSpend != null && !camp.spendComparisonCurrency
+                            ? 'No comparable: moneda distinta o faltante'
+                            : 'Pendiente'
+                          : camp.spendCoherent
+                            ? 'OK'
+                            : `Diferencia ${formatAmount(camp.spendDelta, camp.currency)}`}
                       </div>
                       <div>CPL: {cplLabel(camp)}</div>
                     </div>
@@ -569,9 +591,9 @@ export function MarketingCommercialBoard({
             Por anuncio atribuido
           </h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[#8a8176]">
-            source_id CTWA = ad_id. Gasto = reportado por Meta. CPL «No
-            disponible» si no hay gasto o leads. Haga clic en leads CRM para el
-            detalle.
+            source_id CTWA = ad_id. Gasto ejecutado reportado por Meta. “Meta
+            results” es un único action type de Meta, no leads CRM; CPL «No
+            disponible» si no hay gasto o leads.
           </p>
         </div>
         {filteredAds.length === 0 ? (
@@ -600,8 +622,9 @@ export function MarketingCommercialBoard({
             Por unidad promocionada
           </h2>
           <p className="mt-1 text-[11px] leading-relaxed text-[#8a8176]">
-            Solo anuncios con vínculo inequívoco a una unidad. Asigne unidades
-            desde la fila del anuncio.
+            Solo anuncios con vínculo inequívoco a una unidad. “Unidad no
+            asignada” y “Varias unidades” quedan fuera de este rollup. Asigne
+            unidades desde la fila del anuncio.
           </p>
         </div>
         {filteredPromoted.length === 0 ? (

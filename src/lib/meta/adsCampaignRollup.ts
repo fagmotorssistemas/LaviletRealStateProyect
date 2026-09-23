@@ -28,6 +28,16 @@ export type CampaignFunnelRollupRow = {
   adCount: number
   leadsUnique: number
   temperature: Record<TemperatureBucket, number>
+  /** Suma de gasto de las filas level=ad; no se usa como gasto de campaña final. */
+  adSpendSum: number | null
+  /** Gasto directo de Insights level=campaign, cuando fue consultado. */
+  campaignInsightsSpend: number | null
+  /** Diferencia campaña - suma anuncios; null hasta tener ambos valores. */
+  spendDelta: number | null
+  spendCoherent: boolean | null
+  /** Alcance temporal y monetario de la comparación, para no mezclar niveles. */
+  spendComparisonPeriod: { from: string; to: string } | null
+  spendComparisonCurrency: string | null
   adSpend: number | null
   currency: string | null
   costPerLead: number | null
@@ -109,6 +119,7 @@ export function rollupAttributedAdsByCampaign(
       ),
     ]
     let adSpend: number | null = null
+    let adSpendSum: number | null = null
     let currency: string | null = null
     let note =
       'Gasto = suma Insights de anuncios CTWA resueltos a esta campaña (no es necesariamente el gasto total del planificador Meta). source_id ≠ campaign_id.'
@@ -120,7 +131,8 @@ export function rollupAttributedAdsByCampaign(
       currency = null
       note += ` Monedas distintas (${currencies.join(', ')}); no se suma el gasto.`
     } else {
-      adSpend = Math.round(acc.spends.reduce((s, x) => s + x.spend, 0) * 100) / 100
+      adSpendSum = Math.round(acc.spends.reduce((s, x) => s + x.spend, 0) * 100) / 100
+      adSpend = adSpendSum
       currency = currencies[0] || acc.spends[0]?.currency || null
     }
     const metaReportedResults =
@@ -133,6 +145,12 @@ export function rollupAttributedAdsByCampaign(
       adCount: acc.adIds.size,
       leadsUnique: acc.leadsUnique,
       temperature: acc.temperature,
+      adSpendSum,
+      campaignInsightsSpend: null,
+      spendDelta: null,
+      spendCoherent: null,
+      spendComparisonPeriod: null,
+      spendComparisonCurrency: null,
       adSpend,
       currency,
       costPerLead: computeCrmCostPerLead(adSpend, acc.leadsUnique),

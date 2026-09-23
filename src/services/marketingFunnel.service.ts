@@ -210,6 +210,7 @@ export type MarketingFunnelReport = {
     insightsIncomplete: boolean
     insightsFetchedAt: string | null
     insightsError: string | null
+    currencyStatus: 'live' | 'stale' | 'unknown'
   }
   byUnit: UnitFunnelRow[]
   undeterminedUnit: {
@@ -864,7 +865,7 @@ export async function buildMarketingFunnelReport(
   byAttributedAd.sort((a, b) => b.leadsUnique - a.leadsUnique)
 
   // Insights cuenta completa: anuncios con gasto aunque leads CRM = 0.
-  let accountInsights = await fetchAccountAdInsightsForPeriod(input.period)
+  const accountInsights = await fetchAccountAdInsightsForPeriod(input.period)
   const adsInsightsCoverage = {
     adsWithSpend: accountInsights.ads.length,
     adsWithCrmLeads: byAttributedAd.filter((r) => r.adId && r.leadsUnique > 0)
@@ -875,6 +876,9 @@ export async function buildMarketingFunnelReport(
     insightsIncomplete: accountInsights.incomplete || Boolean(accountInsights.error),
     insightsFetchedAt: accountInsights.fetchedAt,
     insightsError: accountInsights.error,
+    currencyStatus: accountInsights.error
+      ? 'unknown' as const
+      : 'live' as const,
   }
   if (adsCreds && !accountInsights.error) {
     const known = new Set(
@@ -1004,7 +1008,7 @@ export async function buildMarketingFunnelReport(
   })
 
   // Rollup por campaña + gasto campaign-level cuando hay campaignId resuelto.
-  let byCampaign = rollupAttributedAdsByCampaign(
+  const byCampaign = rollupAttributedAdsByCampaign(
     byAttributedAd.map((r) => ({
       adId: r.adId,
       campaignId: r.campaignId,
@@ -1059,8 +1063,23 @@ export async function buildMarketingFunnelReport(
       }
       // Preferir gasto campaign-level (completo) cuando Graph lo entrega.
       if (campSpend.spend != null && !campSpend.error?.includes('meta_error')) {
+        const adSpendSum = camp.adSpendSum
+        const campaignCurrency = (campSpend.currency || '').toUpperCase() || null
+        const adCurrency = (camp.currency || '').toUpperCase() || null
         camp.adSpend = campSpend.spend
         camp.currency = campSpend.currency
+        camp.campaignInsightsSpend = campSpend.spend
+        camp.spendDelta =
+          adSpendSum != null &&
+          campaignCurrency != null &&
+          adCurrency === campaignCurrency
+            ? Math.round((campSpend.spend - adSpendSum) * 100) / 100
+            : null
+        camp.spendCoherent =
+          camp.spendDelta == null ? null : Math.abs(camp.spendDelta) <= 0.01
+        camp.spendComparisonPeriod = { ...input.period }
+        camp.spendComparisonCurrency =
+          adCurrency === campaignCurrency ? campaignCurrency : null
         if (campSpend.metaReportedResults != null) {
           camp.metaReportedResults = campSpend.metaReportedResults
         }
@@ -1072,8 +1091,23 @@ export async function buildMarketingFunnelReport(
         camp.note =
           'Gasto Insights level=campaign (período). Leads CRM = únicos first-touch CTWA de anuncios resueltos a esta campaña. CPL = gasto campaña ÷ leads CRM. Resultados Meta ≠ leads CRM ≠ CAPI.'
       } else if (campSpend.stale && campSpend.spend != null) {
+        const adSpendSum = camp.adSpendSum
+        const campaignCurrency = (campSpend.currency || '').toUpperCase() || null
+        const adCurrency = (camp.currency || '').toUpperCase() || null
         camp.adSpend = campSpend.spend
         camp.currency = campSpend.currency
+        camp.campaignInsightsSpend = campSpend.spend
+        camp.spendDelta =
+          adSpendSum != null &&
+          campaignCurrency != null &&
+          adCurrency === campaignCurrency
+            ? Math.round((campSpend.spend - adSpendSum) * 100) / 100
+            : null
+        camp.spendCoherent =
+          camp.spendDelta == null ? null : Math.abs(camp.spendDelta) <= 0.01
+        camp.spendComparisonPeriod = { ...input.period }
+        camp.spendComparisonCurrency =
+          adCurrency === campaignCurrency ? campaignCurrency : null
         camp.costPerLead = computeCrmCostPerLead(camp.adSpend, camp.leadsUnique)
         camp.note = `${camp.note} Campaña: sirviendo caché stale (${campSpend.staleFetchedAt}). Error live: ${campSpend.error}`
       }
@@ -1105,6 +1139,11 @@ export async function buildMarketingFunnelReport(
     if (adsInsightsCoverage.insightsIncomplete) {
       limitations.push(
         'Insights de cuenta incompleto o con error; revisar paginación/caché.',
+      )
+    }
+    if (adsInsightsCoverage.currencyStatus === 'unknown') {
+      limitations.push(
+        'Moneda de filas Ads no confirmada en vivo: si se sirve caché, puede reflejar la moneda histórica del período; no se convierten ni suman monedas distintas.',
       )
     }
   }

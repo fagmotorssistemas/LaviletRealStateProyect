@@ -290,7 +290,7 @@ export function MarketingFunnelMetricsView({
           <section className="rounded-2xl border border-[#ece6dc] bg-white p-4">
             <SectionTitle
               title="Por unidad (showroom / citas)"
-              hint="Solo unidades con showroom o citas en el alcance del project. Reserva = titular comprobado; sin titular único → “titular no determinado”. La fila de unidad no determinada agrupa citas/reservas de la cohorte sin appointment_units (≠ KPI citas del período)."
+              hint="Solo unidades con showroom o citas en el alcance del project. Reserva = titular comprobado; sin titular único → “titular no determinado”. La fila separada de citas/reservas sin unidad usa la cohorte de leads, no el KPI de citas por start_time del período."
             />
             <UnitTable
               rows={report.byUnit}
@@ -360,7 +360,7 @@ function UnitTable({
           )}
           title={undetermined.note}
         >
-          Unidad no determinada — citas:{' '}
+          Unidad no determinada (citas de cohorte) — citas:{' '}
           <strong>{undetermined.appointmentLeads}</strong> · reservas:{' '}
           <strong>{undetermined.reservedLeads}</strong>
           {undetermined.note ? (
