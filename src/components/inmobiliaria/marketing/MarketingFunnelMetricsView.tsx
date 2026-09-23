@@ -31,9 +31,11 @@ function TempInline({
   temperature: MarketingFunnelReport['totals']['temperature']
 }) {
   return (
-    <span className="tabular-nums text-[#6b645c]">
-      F {temperature.frio} · T {temperature.tibio} · C {temperature.caliente} · SC{' '}
-      {temperature.sin_clasificar}
+    <span className="flex flex-wrap gap-x-2 gap-y-0.5 tabular-nums text-[#6b645c]">
+      <span>Fríos: {temperature.frio}</span>
+      <span>Tibios: {temperature.tibio}</span>
+      <span>Calientes: {temperature.caliente}</span>
+      <span>Sin clasificar: {temperature.sin_clasificar}</span>
     </span>
   )
 }
@@ -182,8 +184,8 @@ export function MarketingFunnelMetricsView({
               />
               <Kpi
                 label="Temperatura"
-                value={`${report.totals.temperature.frio}/${report.totals.temperature.tibio}/${report.totals.temperature.caliente}/${report.totals.temperature.sin_clasificar}`}
-                hint="F / T / C / sin clasificar"
+                value={`${report.totals.temperature.frio} fríos · ${report.totals.temperature.tibio} tibios`}
+                hint={`${report.totals.temperature.caliente} calientes · ${report.totals.temperature.sin_clasificar} sin clasificar`}
               />
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -306,7 +308,7 @@ function UnitTable({
             <th className="px-2 py-2 font-semibold">Reservas</th>
             <th className="px-2 py-2 font-semibold">Ventas</th>
             <th className="px-2 py-2 font-semibold">Importe</th>
-            <th className="px-2 py-2 font-semibold">F/T/C/SC</th>
+            <th className="px-2 py-2 font-semibold">Temperatura de leads</th>
           </tr>
         </thead>
         <tbody>

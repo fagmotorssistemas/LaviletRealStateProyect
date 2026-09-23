@@ -62,9 +62,11 @@ function TempInline({
   temperature: MarketingFunnelReport['totals']['temperature']
 }) {
   return (
-    <span className="tabular-nums text-[#6b645c]">
-      F {temperature.frio} · T {temperature.tibio} · C {temperature.caliente} · SC{' '}
-      {temperature.sin_clasificar}
+    <span className="flex flex-wrap gap-x-2 gap-y-0.5 tabular-nums text-[#6b645c]">
+      <span>Fríos: {temperature.frio}</span>
+      <span>Tibios: {temperature.tibio}</span>
+      <span>Calientes: {temperature.caliente}</span>
+      <span>Sin clasificar: {temperature.sin_clasificar}</span>
     </span>
   )
 }
@@ -641,7 +643,7 @@ export function MarketingCommercialBoard({
                   <th className="px-2 py-2 font-semibold">Unidad</th>
                   <th className="px-2 py-2 font-semibold">Anuncios</th>
                   <th className="px-2 py-2 font-semibold">Leads CRM</th>
-                  <th className="px-2 py-2 font-semibold">F/T/C/SC</th>
+                  <th className="px-2 py-2 font-semibold">Temperatura de leads</th>
                   <th className="px-2 py-2 font-semibold">
                     Gasto reportado por Meta
                   </th>
@@ -857,7 +859,7 @@ function AdRowsTable({
             <th className="px-2 py-2 font-semibold">Anuncio</th>
             <th className="px-2 py-2 font-semibold">Unidad promocionada</th>
             <th className="px-2 py-2 font-semibold">Leads CRM</th>
-            <th className="px-2 py-2 font-semibold">F/T/C/SC</th>
+            <th className="px-2 py-2 font-semibold">Temperatura de leads</th>
             <th className="px-2 py-2 font-semibold">Gasto reportado por Meta</th>
             <th className="px-2 py-2 font-semibold">CPL</th>
             <th className="px-2 py-2 font-semibold">Resultado Meta</th>
