@@ -127,6 +127,11 @@ export function MessageTraceView() {
               <div className={styles.review}><strong>Qué revisar</strong><p>{explanation.review}</p>{explanation.setting ? <p>{explanation.setting.kind}: {explanation.setting.href
                 ? <Link href={explanation.setting.href}>{explanation.setting.label}<ArrowRight size={13} /></Link> : explanation.setting.label}</p> : <p>No se registró un ajuste editable responsable de este paso.</p>}{explanation.setting?.source && <p>Módulo responsable: <code>{explanation.setting.source}</code></p>}</div>
               {step.key !== 'advisor_handoff' && <div className={styles.related}><strong>Derivaciones de esta ejecución</strong>{handoffs.length ? <><p>Estos enlaces muestran registros de acción; solo un vínculo causal explícito demuestra su relación con el paso seleccionado.</p>{handoffs.map(action => <button className={styles.button} key={action.order} type="button" onClick={() => selectStep(action.order)}>Paso {action.order}: {statusLabel(action.status)}<ArrowRight size={13} /></button>)}</> : <p>No hay un paso de derivación registrado. El texto de una respuesta no basta para confirmar que se ejecutó.</p>}</div>}
+              {step.key === 'model_request' && step.input?.task === 'writing' && <details className={styles.technical}>
+                <summary>Ver instrucciones y contexto enviados a la IA</summary>
+                <p>Incluye las instrucciones compuestas, los datos de entrada (con historial si se envió) y el formato de respuesta exigido. Es una copia protegida: oculta datos sensibles. El campo limited indica si excedió el límite de captura. No añade llamadas a la IA.</p>
+                {step.input.prompt_snapshot ? <pre>{JSON.stringify(step.input.prompt_snapshot, null, 2)}</pre> : <p>Esta ejecución no conservó la entrada completa. La versión del prompt no permite reconstruir el contexto histórico; consulte una nueva ejecución después de desplegar esta mejora.</p>}
+              </details>}
               <details className={styles.technical}><summary>Ver detalles técnicos de este paso</summary><pre>{JSON.stringify({ order: step.order, key: step.key, source: step.source, status: step.status, durationMs: step.durationMs, input: step.input, output: step.output, errorCode: step.errorCode }, null, 2)}</pre></details>
             </section>}
           </>}
