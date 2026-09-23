@@ -2,8 +2,10 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 
 type Row = Record<string, unknown>
 export type ExplanationFact = { label: string; value: string }
+export type ExplanationSection = { title: string; description: string; facts: ExplanationFact[] }
 export type CatalogSnapshot = { id: string; unit_number: string; category: string; bedrooms?: unknown; floor_number?: unknown; area_internal_m2?: unknown; area_exterior_m2?: unknown }
 export type StepExplanation = {
+  coverageSections: ExplanationSection[] | null,
   title: string; summary: string; used: ExplanationFact[]; found: ExplanationFact[]
   origin: string; reason: string; rule: string; outcome: string; review: string
   cause: WorkflowExecutionStep | null; missingCause: boolean
@@ -156,6 +158,41 @@ function queryDescription(value: unknown, snapshots: CatalogSnapshot[]) {
 }
 
 const fact = (label: string, value: string): ExplanationFact => ({ label, value })
+function coverageSections(output: Row): ExplanationSection[] {
+  const status = str(output.status)
+  const invalid = status === 'invalid_coverage'
+  const checked = status === 'checked'
+  const attempts = rows(output.repair_attempts)
+  const requests = rows(output.requests)
+  const present = (key: string, label: string): ExplanationFact => ({ label, value: str(output[key]) || 'No se conservó este texto en el registro.' })
+  const selection = invalid ? 'Se descartó la propuesta por información interna inválida; no se completó la revisión del contenido.'
+    : checked ? 'La propuesta superó la revisión de este paso. Los pasos posteriores aún pueden modificarla.'
+      : status ? `Resultado registrado: ${humanValue(status)}. Consulte la respuesta conservada y los controles.`
+        : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
+  return [
+    { title: 'Respuesta elegida en este paso', description: 'El borrador es el texto propuesto por la IA, todavía sujeto a validación. Descartarlo significa utilizar otra respuesta, no dejar al cliente sin contestación. El envío se comprueba en el paso de Kommo.', facts: [
+      { label: 'Qué ocurrió', value: selection }, present('final_preview', 'Respuesta conservada'), present('proposed_preview', 'Propuesta de la IA (borrador)'), present('base_preview', 'Respuesta base de respaldo'),
+    ] },
+    { title: 'Error detectado', description: 'Estos controles explican el rechazo de la propuesta. Un error en requests significa que falló la lista interna de solicitudes; no demuestra que el texto comercial fuera incorrecto.', facts: [
+      { label: 'Controles registrados', value: Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
+    ] },
+    { title: 'Intento de reparación', description: 'Indica si se pidió a la IA corregir un resultado inválido antes de conservar o descartar su propuesta.', facts: attempts.length ? attempts.map((attempt, index) => ({
+      label: `Intento ${index + 1}`, value: `Error inicial: ${humanValue(attempt.status)}. Controles: ${humanValue(attempt.issues)}. Resultado final: ${attempt.final_status ? humanValue(attempt.final_status) : 'No registrado; consulte el resultado general de este paso.'}`,
+    })) : [{ label: 'Reparaciones registradas', value: 'No se registró ningún intento de reparación en esta ejecución.' }] },
+    { title: 'Solicitudes del cliente atendidas', description: 'La revisión de cobertura comprueba qué pidió el cliente y si la respuesta atiende cada solicitud. Una lista vacía no certifica que todo esté resuelto.', facts: [
+      { label: 'Alcance de la revisión', value: invalid ? 'La lista interna no pudo validarse. La revisión de contenido no se completó.' : checked ? 'Revisión completada en este paso.' : 'No hay una revisión aprobada registrada. Las clasificaciones siguientes, si existen, no acreditan cobertura completa.' },
+      ...(invalid || !requests.length ? [{ label: 'Solicitudes', value: invalid ? 'Lista rechazada; no hay solicitudes validadas que mostrar.' : 'No se conservó una lista de solicitudes en este registro.' }] : requests.map((request, index) => ({ label: `Solicitud ${index + 1}`, value: `Cliente: ${str(request.fragment) || 'Fragmento no registrado'}. Estado propuesto: ${humanValue(request.status)}. Respaldo indicado: ${str(request.evidence) || 'No registrado'}` }))),
+      { label: 'Consultas pendientes registradas', value: Array.isArray(output.unresolved) && output.unresolved.length ? humanValue(output.unresolved) : 'No se registraron consultas pendientes. Esto no equivale a comprobar que se respondió todo.' },
+      ...(output.price_evidence ? [{ label: 'Evidencia de precios', value: humanValue(output.price_evidence) }] : []),
+    ] },
+    { title: 'Datos evaluados para solicitar un asesor', description: 'Esta evaluación es independiente de aceptar o descartar la redacción. Un error interno no implica por sí solo que haga falta un asesor.', facts: [
+      { label: '¿La revisión solicita un asesor?', value: output.needs_advisor === true ? 'Sí. Esto registra la necesidad; el envío al asesor debe comprobarse en el paso de derivación.' : output.needs_advisor === false ? 'No. Esta revisión no solicitó una derivación.' : 'No quedó registrado.' },
+      { label: 'Datos considerados faltantes', value: Array.isArray(output.missing_fact_fragments) && output.missing_fact_fragments.length ? humanValue(output.missing_fact_fragments) : 'No se registraron datos considerados faltantes.' },
+      { label: 'Comprobación de esos faltantes', value: Array.isArray(output.handoff_assessments) && output.handoff_assessments.length ? humanValue(output.handoff_assessments) : 'No se registró un contraste de posibles faltantes.' },
+    ] },
+  ]
+}
+
 export function explainStep(execution: WorkflowExecution, step: WorkflowExecutionStep): StepExplanation {
   const input = step.input, output = step.output, decision = decisionRecord(step), snapshots = catalogSnapshots(execution, step)
   const used = Object.entries(input).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query'].includes(key))
@@ -195,6 +232,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
         : step.key === 'response_coverage' ? 'Se revisó si la respuesta atiende las solicitudes del mensaje. Los estados registrados permiten revisar esa decisión.'
           : 'Entradas y resultados conservados para este paso de la ejecución.'
   return {
+    coverageSections: step.key === 'response_coverage' ? coverageSections(output) : null,
     title: stepTitle(step), summary, used, found, units, cause, missingCause: hasCause && !cause, linkedActions,
     origin: str(decision.origin) ? decision.origin === 'catalog' ? 'Consulta calculada del catálogo' : humanValue(decision.origin) : 'Origen no registrado en este paso.',
     reason: reason ? humanValue(reason) : 'No se guardó un motivo específico. No se deduce de los pasos cercanos.',

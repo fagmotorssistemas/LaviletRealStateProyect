@@ -50,19 +50,22 @@ test('invalid coverage records exact field and expectation without accepting the
     { requests: [{ ...covered(input.current), status: 'invented' }], question: noQuestion, field: 'requests[0].status' },
   ]
   for (const { field, ...metadata } of cases) {
-    const mock = model({ reply: 'Redacción propuesta.', ...metadata })
+    const candidate = { reply: 'Redacción propuesta.', ...metadata }
+    const mock = model(candidate, candidate)
     const result = await completeTurnReply(input, mock.generate)
     assert.equal(result.audit.status, 'invalid_coverage')
     assert.equal(result.reply, input.baseReply)
-    assert.equal(mock.calls.length, 1)
+    assert.equal(mock.calls.length, 2)
+    assert.equal(result.audit.repair_attempts[0].final_status, 'invalid_coverage')
     assert.ok(result.audit.issues.some(issue => issue.includes(field) && issue.includes('recibido') && issue.includes('se esperaba')))
   }
 })
 
 test('invalid coverage diagnostics protect personal data in rejected values', async () => {
-  const result = await completeTurnReply({ current: 'Hola', baseReply: 'Hola.', verified: {} }, model({
+  const candidate = {
     reply: 'Hola.', requests: [covered('contacto: privado@example.com')], question: noQuestion,
-  }).generate)
+  }
+  const result = await completeTurnReply({ current: 'Hola', baseReply: 'Hola.', verified: {} }, model(candidate, candidate).generate)
   assert.equal(result.audit.status, 'invalid_coverage')
   assert.ok(result.audit.issues[0].includes('[correo protegido]'))
   assert.ok(!JSON.stringify(result.audit.issues).includes('privado@example.com'))
@@ -72,6 +75,65 @@ function model(...answers) {
   const generate = async (...args) => { calls.push(args); const next = answers[calls.length - 1]; if (next instanceof Error) throw next; return next }
   return { generate, calls }
 }
+
+test('Carlos catalogue metadata is repaired without changing his final answer or question', async () => {
+  const current = 'Lo que yo quisiera es un departamento de 5 dormitorios.'
+  const question = { text: '¿Le gustaría revisar las alternativas disponibles?', purpose: 'permission_to_continue', missing_datum: 'Aceptación', next_decision: 'Mostrar alternativas' }
+  const baseReply = 'Actualmente no contamos con departamentos de 5 dormitorios. Tenemos departamentos de 3 dormitorios, hasta 120,83 m² interiores, y penthouses de 3 dormitorios, hasta 142,09 m² interiores. ' + question.text
+  const reply = baseReply.replace('Actualmente', 'En este momento')
+  const input = { current, baseReply, verified: {}, audit: { source: 'catalog_search', verified_catalog: true } }
+  const invalid = { reply, requests: [covered(current), covered(question.text)], question }
+  const valid = { reply, requests: [covered(current)], question }
+  const mock = model(invalid, valid, approved)
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.audit.requests.length, 1)
+  assert.equal(result.audit.repair_attempts[0].final_status, 'checked')
+  assert.match(result.audit.repair_attempts[0].issues[0], /requests\[1\].fragment/)
+  assert.equal(mock.calls.length, 3)
+  assert.equal(mock.calls[1][1].reparacion.borrador, reply)
+  assert.equal(mock.calls[1][1].reparacion.metadatos.requests.length, 2)
+  assert.equal(mock.calls[2][6], 'review')
+})
+
+test('metadata repair keeps factual guards and cannot rewrite the draft', async () => {
+  const input = { current: 'Quiero información', baseReply: 'Tenemos departamentos.', verified: {} }
+  for (const reply of ['Tenemos departamentos de 999 m².', 'Tenemos departamentos. https://inventado.example/ficha']) {
+    const invalid = { reply, requests: [covered('Pregunta del bot')], question: noQuestion }
+    const valid = { reply, requests: [covered(input.current)], question: noQuestion }
+    const mock = model(invalid, valid)
+    const result = await completeTurnReply(input, mock.generate)
+    assert.equal(result.audit.status, 'rejected_guard')
+    assert.equal(result.reply, input.baseReply)
+    assert.equal(mock.calls.length, 2)
+  }
+  const mock = model({ reply: input.baseReply, requests: [], question: {} },
+    { reply: 'Otra respuesta.', requests: [covered(input.current)], question: noQuestion })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.deepEqual(result.audit.issues, ['metadata_repair_changed_reply'])
+  assert.equal(result.reply, input.baseReply)
+})
+
+test('repair cannot hide omitted requests even when reply equals the base', async () => {
+  const input = { current: 'Quiero información. ¿Aceptan mascotas?', baseReply: 'Tenemos departamentos.', verified: {} }
+  const mock = model({ reply: input.baseReply, requests: [covered('Pregunta del bot')], question: noQuestion },
+    { reply: input.baseReply, requests: [covered('Quiero información.')], question: noQuestion },
+    { ...approved, all_requests_considered: false })
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'rejected_review')
+  assert.equal(result.audit.repair_attempts[0].final_status, 'rejected_review')
+  assert.equal(mock.calls.length, 3)
+})
+
+test('repair service failure falls back and records its final status', async () => {
+  const input = { current: 'Hola', baseReply: 'Hola.', verified: {} }
+  const mock = model({ reply: 'Hola.', requests: null, question: noQuestion }, new Error('unavailable'))
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.reply, input.baseReply)
+  assert.equal(result.audit.repair_attempts[0].final_status, 'unavailable')
+  assert.equal(mock.calls.length, 2)
+})
 
 test('final writer receives a route-specific contract for information, price and financing', async () => {
   for (const [source, baseReply, extra] of [
@@ -213,7 +275,8 @@ test('unknown concrete facts preserve answered information and return only missi
 
 test('invented historical fragments and fictitious URLs never pass source validation', async () => {
   const input = { current: 'Qué incluye el 202?', baseReply: 'El 202 tiene balcón.', verified: {} }
-  const invented = model({ reply: input.baseReply, requests: [covered('Quiero una cita mañana')], question: noQuestion })
+  const invalid = { reply: input.baseReply, requests: [covered('Quiero una cita mañana')], question: noQuestion }
+  const invented = model(invalid, invalid)
   assert.equal((await completeTurnReply(input, invented.generate)).audit.status, 'invalid_coverage')
   const badLink = model({ reply: input.baseReply + ' https://inventado.example/202', requests: [covered(input.current)], question: noQuestion })
   const result = await completeTurnReply(input, badLink.generate)

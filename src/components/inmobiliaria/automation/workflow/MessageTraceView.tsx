@@ -111,11 +111,13 @@ export function MessageTraceView() {
               <header><div><span className={styles.eyebrow}>Paso {step.order} · {statusLabel(step.status)}</span><h4>{explanation.title}</h4></div><span className={styles.badge} data-tone="observed">Observado en el registro</span></header>
               <p className={styles.summary}>{explanation.summary}</p>
               <FactSection title="Qué información utilizó" facts={explanation.used} empty="No se guardaron entradas legibles para este paso." />
-              <FactSection title="Qué encontró" facts={explanation.found} empty="No se guardaron resultados detallados para este paso." />
+              {explanation.coverageSections ? explanation.coverageSections.map(section => <FactSection key={section.title} title={section.title} description={section.description} facts={section.facts} empty="No se guardaron datos para esta sección." />)
+                : <FactSection title="Qué encontró" facts={explanation.found} empty="No se guardaron resultados detallados para este paso." />}
               {explanation.units.length > 0 && <div className={styles.units}><table><caption>Unidades según la instantánea de esta ejecución</caption><thead><tr><th>Unidad</th><th>Dormitorios</th><th>Planta</th><th>Interior</th><th>Exterior</th></tr></thead><tbody>
                 {explanation.units.map(unit => <tr key={unit.id}><th scope="row">{unit.category || 'Unidad'} {unit.unit_number}</th><td>{measurement(unit.bedrooms)}</td><td>{measurement(unit.floor_number)}</td><td>{measurement(unit.area_internal_m2, ' m²')}</td><td>{measurement(unit.area_exterior_m2, ' m²')}</td></tr>)}
               </tbody></table></div>}
-              <div className={styles.decision}><h5>Qué decidió y por qué</h5><dl>
+              <div className={styles.decision}><h5>{explanation.coverageSections ? '¿Necesita un asesor? Motivo de la decisión' : 'Qué decidió y por qué'}</h5>
+                {explanation.coverageSections && <p>El motivo siguiente explica la derivación a un asesor, no el descarte del borrador. El motivo del descarte se muestra en «Error detectado».</p>}<dl>
                 <div><dt>Origen</dt><dd>{explanation.origin}</dd></div><div><dt>Motivo registrado</dt><dd>{explanation.reason}</dd></div>
                 <div><dt>Regla registrada</dt><dd>{explanation.rule}</dd></div><div><dt>Resultado</dt><dd>{explanation.outcome}</dd></div>
               </dl></div>
@@ -135,8 +137,8 @@ export function MessageTraceView() {
   </section>
 }
 
-function FactSection({ title, facts, empty }: { title: string; facts: ExplanationFact[]; empty: string }) {
-  return <div className={styles.facts}><h5>{title}</h5>{facts.length ? <dl>{facts.map((item, index) => <div key={`${item.label}-${index}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl> : <p className={styles.muted}>{empty}</p>}</div>
+function FactSection({ title, facts, empty, description }: { title: string; facts: ExplanationFact[]; empty: string; description?: string }) {
+  return <div className={styles.facts}><h5>{title}</h5>{description && <p>{description}</p>}{facts.length ? <dl>{facts.map((item, index) => <div key={`${item.label}-${index}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl> : <p className={styles.muted}>{empty}</p>}</div>
 }
 function measurement(value: unknown, suffix = '') { return typeof value === 'number' && Number.isFinite(value) ? humanValue(value) + suffix : 'No registrado' }
 function duration(value: number) { return value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s` }

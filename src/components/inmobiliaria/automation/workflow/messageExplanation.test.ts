@@ -4,6 +4,35 @@ import { conversationGroups, explainStep, humanValue } from './messageExplanatio
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 
 const step = (order: number, key: string, output: Record<string, unknown> = {}, input: Record<string, unknown> = {}): WorkflowExecutionStep => ({ order, key, label: key, category: 'decision', status: 'succeeded', source: 'test', startedAt: '', completedAt: '', durationMs: 2, errorCode: null, input, output })
+
+test('invalid writer metadata separates rejection from advisor decision and never claims complete coverage', () => {
+  const item = step(1, 'response_coverage', { status: 'invalid_coverage', requests: [], issues: ['requests[1].fragment: pregunta del bot'],
+    needs_advisor: false, base_preview: 'Base', proposed_preview: 'Propuesta', final_preview: 'Base',
+    decision: { reason: 'No se identificó un dato faltante que requiera derivación.' } })
+  const result = explainStep(execution([item]), item)
+  const sections = result.coverageSections!
+  assert.equal(sections.length, 5)
+  assert.match(sections[0].facts[0].value, /no se completó/)
+  assert.match(sections[1].facts[0].value, /requests\[1\]/)
+  assert.match(sections[2].facts[0].value, /No se registró/)
+  assert.match(sections[3].facts[1].value, /Lista rechazada/)
+  assert.match(sections[4].facts[0].value, /no solicitó/)
+  assert.equal(result.reason, 'No se identificó un dato faltante que requiera derivación.')
+})
+
+test('repair outcome and incomplete historical evidence remain distinct', () => {
+  const item = step(1, 'response_coverage', { status: 'checked', repair_attempts: [{ status: 'invalid_coverage', issues: ['fragment'], final_status: 'checked' }],
+    requests: [{ fragment: 'Quiero información', status: 'answered', evidence: 'Descripción del proyecto' }] })
+  const sections = explainStep(execution([item]), item).coverageSections!
+  assert.match(sections[2].facts[0].value, /Resultado final: Revisión completada/)
+  assert.match(sections[3].facts[1].value, /Descripción del proyecto/)
+  const old = step(2, 'response_coverage')
+  const historical = explainStep(execution([old]), old).coverageSections!
+  assert.match(historical[0].facts[0].value, /no se puede determinar/)
+  assert.match(historical[4].facts[0].value, /No quedó registrado/)
+  const other = step(3, 'message_delivery')
+  assert.equal(explainStep(execution([other]), other).coverageSections, null)
+})
 const execution = (steps: WorkflowExecutionStep[], extra: Partial<WorkflowExecution> = {}): WorkflowExecution => ({ id: 'event-a', workflowId: 'overview', path: [], status: 'completed', action: 'accepted', outcome: 'Kommo aceptó el envío', occurredAt: '', leadName: 'Consulta', message: 'Compare estas opciones', traceAvailable: true, steps, ...extra })
 
 test('a comparison explains unlocked coverage without inventing a handoff reason', () => {
