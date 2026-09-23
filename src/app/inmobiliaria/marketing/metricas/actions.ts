@@ -11,6 +11,8 @@ import {
   adsMarketingMissingHints,
   fetchAdAccountSnapshot,
   readAdsMarketingCredentials,
+  resolveAdHierarchy,
+  isAdAccountMatch,
 } from '@/lib/meta/adsMarketingClient'
 import { maskPhoneDisplay } from '@/lib/meta/waCrmVisibility'
 import { createClient } from '@/lib/supabase/server'
@@ -242,6 +244,19 @@ export async function assignPromotedUnitAction(input: {
     }
 
     const creds = readAdsMarketingCredentials()
+    if (!creds) return { ok: false, error: 'ads_credentials_required' }
+    const adId = String(input.adId || '').trim()
+    if (!adId) return { ok: false, error: 'ad_id_required' }
+    const hierarchy = await resolveAdHierarchy(adId)
+    if (hierarchy.resolutionStatus !== 'resolved') {
+      return {
+        ok: false,
+        error: hierarchy.error || 'ad_not_resolved_in_graph',
+      }
+    }
+    if (!isAdAccountMatch(hierarchy.adAccountId, creds.adAccountId)) {
+      return { ok: false, error: 'ad_not_in_configured_account' }
+    }
     const { data: project, error: projectError } = await admin
       .from('projects')
       .select('id,tenant_id')
@@ -268,8 +283,8 @@ export async function assignPromotedUnitAction(input: {
     return assignAdPromotedUnit(admin, {
       tenantId,
       projectId: input.projectId,
-      adId: input.adId,
-      adAccountId: creds?.adAccountId ?? null,
+      adId,
+      adAccountId: creds.adAccountId,
       unitId: input.unitId,
       externalLabel: input.externalLabel,
       userId: user.id,

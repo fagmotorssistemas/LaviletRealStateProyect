@@ -136,6 +136,7 @@ export function hierarchyFromCache(
   if (!h || typeof h !== 'object') return null
   return {
     adId,
+    adAccountId: typeof h.adAccountId === 'string' ? h.adAccountId : null,
     adName: typeof h.adName === 'string' ? h.adName : null,
     adsetId: typeof h.adsetId === 'string' ? h.adsetId : null,
     adsetName: typeof h.adsetName === 'string' ? h.adsetName : null,

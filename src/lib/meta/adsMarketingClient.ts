@@ -9,6 +9,7 @@ import { selectPrimaryMetaResult } from '@/lib/meta/metaAdsActions'
 
 export type AdHierarchyResolution = {
   adId: string
+  adAccountId: string | null
   adName: string | null
   adsetId: string | null
   adsetName: string | null
@@ -110,6 +111,17 @@ export function adsMarketingMissingHints(
     )
   }
   return missing
+}
+
+export function isAdAccountMatch(
+  adAccountId: string | null | undefined,
+  configuredAccountId: string | null | undefined,
+): boolean {
+  const normalize = (value: string | null | undefined) =>
+    String(value || '').trim().replace(/^act_/i, '')
+  const actual = normalize(adAccountId)
+  const configured = normalize(configuredAccountId)
+  return Boolean(actual && configured && actual === configured)
 }
 
 /**
@@ -275,6 +287,7 @@ export async function resolveAdHierarchy(
   const id = String(adId || '').trim()
   const base: AdHierarchyResolution = {
     adId: id,
+    adAccountId: null,
     adName: null,
     adsetId: null,
     adsetName: null,
@@ -294,7 +307,7 @@ export async function resolveAdHierarchy(
   }
   const fetchImpl = opts?.fetchImpl ?? fetch
   const fields =
-    'id,name,adset_id,campaign_id,adset{id,name},campaign{id,name}'
+    'id,name,account_id,adset_id,campaign_id,adset{id,name},campaign{id,name}'
   const url = new URL(
     `https://graph.facebook.com/${creds.graphVersion}/${encodeURIComponent(id)}`,
   )
@@ -326,6 +339,8 @@ export async function resolveAdHierarchy(
       : null
   return {
     adId: id,
+    adAccountId:
+      typeof res.data.account_id === 'string' ? res.data.account_id : null,
     adName: typeof res.data.name === 'string' ? res.data.name : null,
     adsetId:
       (typeof res.data.adset_id === 'string' && res.data.adset_id) ||
