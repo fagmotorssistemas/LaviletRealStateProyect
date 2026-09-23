@@ -131,6 +131,7 @@ export async function GET(request: Request) {
       const trace = executionRoute(steps, row.kind, payload, result, lead)
       return {
         id: row.id,
+        leadGroupId: payload.kommoId ? `${row.tenant_id}:${row.project_id}:${payload.kommoId}` : null,
         conversationId: conversationByEvent.get(row.id) || null,
         batchId: text(trace.versions.batch_id) || null,
         batchEventIds: Array.isArray(trace.versions.batch_event_ids) ? trace.versions.batch_event_ids.filter(id => typeof id === 'string') : [],

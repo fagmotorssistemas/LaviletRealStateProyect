@@ -18,6 +18,7 @@ export interface WorkflowExecutionStep {
 
 export interface WorkflowExecution {
   id: string
+  leadGroupId?: string | null
   conversationId?: string | null
   batchId?: string | null
   batchEventIds?: string[]

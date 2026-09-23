@@ -5,6 +5,17 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 
 const step = (order: number, key: string, output: Record<string, unknown> = {}, input: Record<string, unknown> = {}): WorkflowExecutionStep => ({ order, key, label: key, category: 'decision', status: 'succeeded', source: 'test', startedAt: '', completedAt: '', durationMs: 2, errorCode: null, input, output })
 
+test('pending messages remain alongside lead history before a conversation is assigned', () => {
+  const old = { ...execution([]), id: 'old', leadGroupId: 'tenant:project:42', conversationId: 'conversation-1' }
+  const pending = { ...old, id: 'new', conversationId: null, status: 'processing' }
+  const unrelated = { ...pending, id: 'other', leadGroupId: 'tenant:other-project:42' }
+  const groups = conversationGroups([pending, old, unrelated])
+  assert.equal(groups.length, 2)
+  assert.equal(groups[0].batches.length, 2)
+  assert.equal(groups[0].batches[0].execution.status, 'processing')
+  assert.equal(conversationGroups([{ ...pending, conversationId: 'conversation-1', status: 'completed' }, old])[0].id, groups[0].id)
+})
+
 test('AI labels use recorded function and do not mislabel historical scope calls as writers', () => {
   assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'scope', task: 'writing' })), /Clasificador/)
   assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'writer', task: 'writing' })), /Redactor/)

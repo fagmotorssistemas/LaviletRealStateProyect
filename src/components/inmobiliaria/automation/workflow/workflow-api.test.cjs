@@ -30,6 +30,15 @@ Module._load = originalLoad
 const id = number => `00000000-0000-0000-0000-${number.toString().padStart(12, '0')}`
 const event = number => ({ id: id(number), tenant_id: 'tenant-a', project_id: 'project-a', kind: 'inbound', status: 'completed', payload: { kommoId: 1, text: 'Mi correo es prueba@example.com' }, result: { action: 'accepted' }, received_at: '2026-09-22T12:00:00.123456+00:00', completed_at: '2026-09-22T12:01:00Z' })
 function reset() { state = { session: { profile: { role: 'admin' } }, tenants: ['tenant-a'], queries: [], tables: {} } }
+test('in-progress inbound is returned with stable lead identity before trace steps exist', async () => {
+  reset()
+  state.tables.lv_integration_events = { data: [{ ...event(1), status: 'processing', result: {}, completed_at: null }], error: null }
+  const body = await (await GET(new Request('http://localhost/api/integrations/automation/workflow'))).json()
+  assert.equal(body.executions[0].outcome, 'Procesando')
+  assert.equal(body.executions[0].leadGroupId, 'tenant-a:project-a:1')
+  assert.equal(body.executions[0].conversationId, null)
+  assert.deepEqual(body.executions[0].steps, [])
+})
 const request = cursor => new Request(`http://localhost/api/integrations/automation/workflow${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
 
 test('unauthenticated, non-admin and inaccessible tenants do not read privileged tables', async () => {

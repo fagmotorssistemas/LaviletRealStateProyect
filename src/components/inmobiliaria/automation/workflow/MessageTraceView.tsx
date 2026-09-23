@@ -19,11 +19,13 @@ export function MessageTraceView() {
   const [stepOrder, setStepOrder] = useState<number | null>(null)
   const pendingRequest = useRef<AbortController | null>(null)
   const panel = useRef<HTMLElement>(null)
-  const load = useCallback(async (cursor?: string) => {
+  const load = useCallback(async (cursor?: string, background = false) => {
+    if (background && pendingRequest.current) return
     pendingRequest.current?.abort()
     const controller = new AbortController()
     pendingRequest.current = controller
-    setLoading(true); setError('')
+    if (!background) setLoading(true)
+    setError('')
     try {
       const params = new URLSearchParams({ view })
       if (view === 'conversations' && query.trim()) params.set('q', query.trim())
@@ -33,15 +35,22 @@ export function MessageTraceView() {
       if (!response.ok) throw new Error(body.error || 'No se pudo leer la bitácora')
       if (controller.signal.aborted) return
       const incoming: WorkflowExecution[] = Array.isArray(body.executions) ? body.executions : []
-      setExecutions(previous => cursor ? [...new Map([...previous, ...incoming].map(item => [item.id, item])).values()] : incoming)
-      setNextCursor(typeof body.nextCursor === 'string' ? body.nextCursor : null)
+      setExecutions(previous => {
+        const merged = [...new Map([...previous, ...incoming].map(item => [item.id, item])).values()]
+        return merged.sort((a, b) => (b.receivedAt || b.occurredAt).localeCompare(a.receivedAt || a.occurredAt) || b.id.localeCompare(a.id))
+      })
+      if (!background) setNextCursor(typeof body.nextCursor === 'string' ? body.nextCursor : null)
     } catch (error) {
       if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'No se pudo leer la bitácora')
-    } finally { if (!controller.signal.aborted) setLoading(false) }
+    } finally { if (pendingRequest.current === controller) { pendingRequest.current = null; setLoading(false) } }
   }, [query, view])
   useEffect(() => {
     const timer = setTimeout(() => void load(), 300)
     return () => { clearTimeout(timer); pendingRequest.current?.abort() }
+  }, [load])
+  useEffect(() => {
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') void load(undefined, true) }, 5000)
+    return () => clearInterval(timer)
   }, [load])
   const resetResults = () => {
     pendingRequest.current?.abort()
@@ -49,11 +58,16 @@ export function MessageTraceView() {
   }
   const groups = useMemo(() => conversationGroups(executions), [executions])
   const group = groups.find(item => item.id === groupId) || groups[0]
-  const batch = group?.batches.find(item => item.id === batchId) || group?.batches[0]
+  const batch = group?.batches.find(item => item.id === batchId || item.members.some(member => member.id === batchId)) || group?.batches[0]
   const execution = batch?.execution
   const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
   const step = steps.find(item => item.order === stepOrder) || steps.find(item => item.key === 'dialogue_decision') || steps[0]
   const explanation = execution && step ? explainStep(execution, step) : null
+  const processing = execution && ['pending', 'processing'].includes(execution.status)
+  useEffect(() => {
+    if (group && !groupId) setGroupId(group.id)
+    if (batch && !batchId) setBatchId(batch.members[0].id)
+  }, [group, batch, groupId, batchId])
   const handoffs = steps.filter(item => item.key === 'advisor_handoff')
   const selectStep = (order: number) => { setStepOrder(order); panel.current?.focus() }
 
@@ -71,7 +85,7 @@ export function MessageTraceView() {
       {view === 'conversations' && <label><span>Buscar lead en todo el historial</span><div className={styles.search}><Search size={15} /><input value={query} maxLength={100} onChange={event => { resetResults(); setQuery(event.target.value) }} placeholder="Nombre del lead o ID de Kommo" /></div></label>}
       <label><span>Conversación</span><select aria-label="Conversación" value={group?.id || ''} onChange={event => { setGroupId(event.target.value); setBatchId(''); setStepOrder(null) }} disabled={!groups.length}>
         {!groups.length && <option value="">Sin registros</option>}
-        {groups.map((item, index) => <option value={item.id} key={item.id}>{item.label} · {item.known ? `Conversación ${index + 1}` : 'Conversación no identificada'} · {item.batches.length} mensajes o lotes</option>)}
+        {groups.map((item, index) => <option value={item.id} key={item.id}>{item.label} · {item.id.startsWith('lead:') ? 'Historial del lead' : item.known ? `Conversación ${index + 1}` : 'Conversación no identificada'} · {item.batches.length} mensajes o lotes</option>)}
       </select></label>
     </div>
     {error && <p className={styles.error} role="alert">{error}</p>}
@@ -81,7 +95,7 @@ export function MessageTraceView() {
           <h3>{group?.label}</h3>
           {!group?.known && <p className={styles.muted}>No se guardó el identificador de conversación. Este evento se muestra por separado.</p>}
           {group?.batches.map(item => <button type="button" key={item.id} className={styles.message} aria-pressed={item.id === batch?.id}
-            onClick={() => { setBatchId(item.id); setStepOrder(null) }}>
+            onClick={() => { setBatchId(item.members[0].id); setStepOrder(null) }}>
             <time>{formatDate(item.execution.receivedAt || item.execution.occurredAt)}</time>
             <strong>{item.execution.message || (item.execution.kind === 'maintenance' ? 'Tarea automática' : 'Mensaje sin vista previa')}</strong>
             <span>{item.execution.outcome}</span>
@@ -92,13 +106,14 @@ export function MessageTraceView() {
           <header className={styles.messageHeading}>
             <div><span className={styles.eyebrow}>{batch && batch.total > 1 ? 'Mensajes procesados juntos' : 'Mensaje seleccionado'} · {formatDate(execution.receivedAt || execution.occurredAt)}</span>
               <h3>{execution.leadName}</h3></div>
-            <span className={styles.badge} data-tone={execution.traceAvailable ? 'observed' : 'missing'}>{execution.traceAvailable ? 'Pasos registrados' : 'Evidencia incompleta'}</span>
+            <span className={styles.badge} data-tone={execution.traceAvailable ? 'observed' : 'missing'}>{processing ? execution.outcome : execution.traceAvailable ? 'Pasos registrados' : 'Evidencia incompleta'}</span>
           </header>
           <div className={styles.messageContent}>{batch?.members.map(member => <blockquote key={member.id}>{member.message || 'El contenido del mensaje no está disponible en esta bitácora.'}</blockquote>)}</div>
           {batch && batch.total > batch.members.length && <p className={styles.notice}>El registro indica {batch.total} mensajes en este lote; hay {batch.members.length} vistas previas cargadas. Los pasos son compartidos, no una ejecución independiente por cada mensaje.</p>}
           {batch && batch.total > 1 && batch.total === batch.members.length && <p className={styles.muted}>Estos mensajes pertenecen al mismo lote registrado y comparten el recorrido.</p>}
           <p className={styles.outcome}>{execution.outcome}{execution.action === 'accepted' ? ' · Entrega y lectura en WhatsApp sin confirmar.' : ''}</p>
-          {!steps.length ? <div className={styles.empty}>
+          {processing && <p className={styles.notice} role="status">{execution.status === 'pending' ? 'Mensaje recibido: esperando procesamiento.' : 'Procesando la respuesta.'} La vista se actualiza cada 5 segundos. Puede revisar los mensajes anteriores mientras espera.</p>}
+          {!steps.length && processing ? <p className={styles.muted}>Los pasos aparecerán cuando se guarde la ejecución.</p> : !steps.length ? <div className={styles.empty}>
             <h4>{execution.traceWarning === 'AUDIT_READ_FAILED' ? 'No se pudo leer la bitácora' : 'No hay pasos registrados para este evento'}</h4>
             <p>El resultado disponible no permite reconstruir qué interpretó el bot, qué datos consultó ni por qué tomó una decisión. La ruta histórica sería inferida y no se presenta como observada.</p>
           </div> : <>

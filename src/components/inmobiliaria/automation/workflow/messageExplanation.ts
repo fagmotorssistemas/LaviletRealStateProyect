@@ -264,9 +264,9 @@ export type ConversationGroup = { id: string; label: string; known: boolean; bat
 export function conversationGroups(executions: WorkflowExecution[]): ConversationGroup[] {
   const groups = new Map<string, ConversationGroup>()
   for (const execution of executions) {
-    const key = execution.conversationId || `event:${execution.id}`
+    const key = execution.leadGroupId ? `lead:${execution.leadGroupId}` : execution.conversationId || `event:${execution.id}`
     let group = groups.get(key)
-    if (!group) { group = { id: key, label: execution.leadName, known: Boolean(execution.conversationId), batches: [] }; groups.set(key, group) }
+    if (!group) { group = { id: key, label: execution.leadName, known: Boolean(execution.leadGroupId || execution.conversationId), batches: [] }; groups.set(key, group) }
     const batchId = execution.batchId || execution.id
     const existing = group.batches.find(batch => batch.id === batchId)
     if (existing) {

@@ -1,5 +1,11 @@
 # Entrada del redactor en la bitácora
 
+## Mensajes pendientes y actualización de la vista
+
+El flujo incluye los eventos entrantes pendientes o en procesamiento aunque todavía no tengan pasos de auditoría. El historial se agrupa por identidad de lead (organización, proyecto e ID de Kommo), sin confundir nombres iguales ni inventar un identificador de conversación. La pantalla consulta novedades cada cinco segundos mientras está visible y conserva los mensajes ya cargados y el mensaje seleccionado. No ejecuta de nuevo el bot.
+
+Un mensaje pendiente indica que espera procesamiento; uno en procesamiento indica que el servidor lo está gestionando. Los pasos aparecen cuando se persiste la ejecución; esta vista no transmite en vivo cada token ni cada nodo intermedio. Una llamada de actualización fallida conserva el historial visible y muestra el error.
+
 ## Ampliación: distinguir llamadas de IA
 
 Las llamadas estructuradas de `aiJson` ahora guardan entrada y salida protegidas, no solo las de redacción. Los nodos se distinguen con prefijo IA y borde violeta. La función se registra según el contrato de salida: clasificador de alcance, extractor, redactor, revisor, generador de borrador, interpretación de datos o lectura de imagen/archivo. El tipo de tono `writing` ya no se interpreta como prueba de que se ejecutó el redactor final.
