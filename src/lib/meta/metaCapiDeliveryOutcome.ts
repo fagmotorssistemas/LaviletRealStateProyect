@@ -41,6 +41,9 @@ export type ConversionLogEvidence = {
   eventsReceived: number | null
   httpStatus: number | null
   datasetId: string | null
+  attributionVerified?: boolean
+  metaAttributed?: boolean
+  attributedAdSetId?: string | null
 }
 
 export type NestEventLookupEvidence = {

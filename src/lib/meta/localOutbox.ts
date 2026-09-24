@@ -1,7 +1,11 @@
 import 'server-only'
 import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { enqueueMetaEvent, isMetaCapiConfigured, type EnqueueMetaEventInput } from '@/lib/meta/capiServer'
+import {
+  enqueueMetaEvent,
+  isMetaCapiConfigured,
+  type EnqueueMetaEventInput,
+} from '@/lib/meta/capiServer'
 import { resolveDeliveryLane } from '@/lib/meta/deliveryLane'
 import {
   isPurchaseMetaSendEnabled,
@@ -10,6 +14,7 @@ import {
 } from '@/lib/meta/metaMeasurementContract'
 import { isScheduleFlushEnabled } from '@/lib/meta/scheduleFlags'
 import { isWaLeadSubmittedDeliveryEnabled } from '@/lib/meta/waLeadSubmittedFlags'
+import { isCrmQualificationDeliveryEnabled } from '@/lib/meta/hotLeadSignal'
 
 export type LocalOutboxRow = {
   id: string
@@ -44,6 +49,7 @@ export function isMetaEventDeliveryEnabled(
 ): boolean {
   if (eventName === 'Schedule') return isScheduleFlushEnabled(env)
   if (eventName === 'LeadSubmitted') return isWaLeadSubmittedDeliveryEnabled(env)
+  if (eventName === 'QualifiedLead') return isCrmQualificationDeliveryEnabled(env)
   if (eventName === 'Purchase') return isPurchaseMetaSendEnabled(env)
   return true
 }
@@ -76,8 +82,15 @@ export async function persistMetaConversion(
       | typeof OUTBOX_NEEDS_REVIEW_STATUS
     lastError?: string | null
   },
-): Promise<{ inserted: boolean; eventId: string; rowId: string | null; status: string; conflict?: boolean }> {
-  const eventId = input.eventId && /^[0-9a-f-]{36}$/i.test(input.eventId) ? input.eventId : randomUUID()
+): Promise<{
+  inserted: boolean
+  eventId: string
+  rowId: string | null
+  status: string
+  conflict?: boolean
+}> {
+  const eventId =
+    input.eventId && /^[0-9a-f-]{36}$/i.test(input.eventId) ? input.eventId : randomUUID()
   const eventTime = input.eventTime != null ? input.eventTime : Math.floor(Date.now() / 1000)
   const status = input.status || OUTBOX_FLUSHABLE_STATUS
 
@@ -88,12 +101,18 @@ export async function persistMetaConversion(
     .maybeSingle()
 
   if (existing?.event_id) {
-    const existingPayload = existing.payload && typeof existing.payload === 'object'
-      ? existing.payload as Record<string, unknown> : {}
-    const requestedDataset = typeof input.payload.messaging_dataset_id === 'string'
-      ? input.payload.messaging_dataset_id : null
-    const existingDataset = typeof existingPayload.messaging_dataset_id === 'string'
-      ? existingPayload.messaging_dataset_id : null
+    const existingPayload =
+      existing.payload && typeof existing.payload === 'object'
+        ? (existing.payload as Record<string, unknown>)
+        : {}
+    const requestedDataset =
+      typeof input.payload.messaging_dataset_id === 'string'
+        ? input.payload.messaging_dataset_id
+        : null
+    const existingDataset =
+      typeof existingPayload.messaging_dataset_id === 'string'
+        ? existingPayload.messaging_dataset_id
+        : null
     const conflict =
       existing.event_name !== input.eventName ||
       (Boolean(input.eventId) && existing.event_id !== eventId) ||
@@ -101,11 +120,20 @@ export async function persistMetaConversion(
       existing.delivery_lane !== intendedLane() ||
       existingDataset !== requestedDataset
     if (conflict && existing.id) {
-      await admin.from('meta_capi_outbox').update({
-        last_error: 'idempotency_key_conflict',
-        updated_at: new Date().toISOString(),
-      }).eq('id', existing.id)
-      return { inserted: false, eventId: existing.event_id, rowId: existing.id, status: existing.status || status, conflict: true }
+      await admin
+        .from('meta_capi_outbox')
+        .update({
+          last_error: 'idempotency_key_conflict',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+      return {
+        inserted: false,
+        eventId: existing.event_id,
+        rowId: existing.id,
+        status: existing.status || status,
+        conflict: true,
+      }
     }
     // Si el visitante se identificó después, enlazar lead_id sin reescribir payload.
     if (input.leadId && existing.id) {
@@ -162,7 +190,12 @@ export async function persistMetaConversion(
     throw error
   }
 
-  return { inserted: true, eventId: data.event_id, rowId: data.id, status: data.status || status }
+  return {
+    inserted: true,
+    eventId: data.event_id,
+    rowId: data.id,
+    status: data.status || status,
+  }
 }
 
 export async function cancelPendingMetaOutbox(
@@ -202,11 +235,7 @@ export async function cancelPendingMetaOutbox(
   return cancelled
 }
 
-export async function setLeadAdsConsent(
-  admin: SupabaseClient,
-  leadId: string,
-  consent: boolean,
-) {
+export async function setLeadAdsConsent(admin: SupabaseClient, leadId: string, consent: boolean) {
   await admin
     .from('leads')
     .update({
@@ -241,8 +270,7 @@ export async function flushLocalMetaOutbox(
   admin: SupabaseClient,
   limitOrOpts: number | { limit?: number; eventIds?: string[] } = 20,
 ): Promise<{ forwarded: number; failed: number; skipped: number }> {
-  const opts =
-    typeof limitOrOpts === 'number' ? { limit: limitOrOpts } : limitOrOpts || {}
+  const opts = typeof limitOrOpts === 'number' ? { limit: limitOrOpts } : limitOrOpts || {}
   const limit = opts.limit ?? 20
   const eventIds = opts.eventIds?.filter((id) => /^[0-9a-f-]{36}$/i.test(id)) || []
 
@@ -265,7 +293,11 @@ export async function flushLocalMetaOutbox(
         .eq('delivery_lane', lane)
         .in('event_id', eventIds)
     }
-    return { forwarded: 0, failed: eventIds.length ? eventIds.length : 0, skipped: 0 }
+    return {
+      forwarded: 0,
+      failed: eventIds.length ? eventIds.length : 0,
+      skipped: 0,
+    }
   }
 
   let q = admin
@@ -298,7 +330,10 @@ export async function flushLocalMetaOutbox(
   }
 
   if (!rows?.length) {
-    console.info('[meta-outbox] flush empty', { lane, event_ids: eventIds.slice(0, 5) })
+    console.info('[meta-outbox] flush empty', {
+      lane,
+      event_ids: eventIds.slice(0, 5),
+    })
     return { forwarded: 0, failed: 0, skipped: 0 }
   }
 
@@ -333,8 +368,7 @@ export async function flushLocalMetaOutbox(
         registered_at?: string
         sale_at?: string
       } | null
-      const reg =
-        typeof p?.registered_at === 'string' ? String(p.registered_at) : null
+      const reg = typeof p?.registered_at === 'string' ? String(p.registered_at) : null
       const saleAt = typeof p?.sale_at === 'string' ? String(p.sale_at) : null
       if (
         !isPurchaseSaleEligibleForDelivery({
@@ -379,16 +413,15 @@ export async function flushLocalMetaOutbox(
       eventId: row.event_id,
       eventTime: row.event_time,
       actionSource: (payload.action_source as EnqueueMetaEventInput['actionSource']) || 'website',
-      eventSourceUrl: typeof payload.event_source_url === 'string' ? payload.event_source_url : undefined,
+      eventSourceUrl:
+        typeof payload.event_source_url === 'string' ? payload.event_source_url : undefined,
       phone: typeof payload.phone === 'string' ? payload.phone : undefined,
       email: typeof payload.email === 'string' ? payload.email : undefined,
       fullName: typeof payload.full_name === 'string' ? payload.full_name : undefined,
       city: typeof payload.city === 'string' ? payload.city : undefined,
       country: typeof payload.country === 'string' ? payload.country : undefined,
       externalId:
-        typeof payload.external_id === 'string'
-          ? payload.external_id
-          : row.lead_id || undefined,
+        typeof payload.external_id === 'string' ? payload.external_id : row.lead_id || undefined,
       fbp: typeof payload.fbp === 'string' ? payload.fbp : undefined,
       fbc: typeof payload.fbc === 'string' ? payload.fbc : undefined,
       fbclid: typeof payload.fbclid === 'string' ? payload.fbclid : undefined,
@@ -396,17 +429,15 @@ export async function flushLocalMetaOutbox(
         ? payload.content_ids.filter((v): v is string => typeof v === 'string')
         : undefined,
       contentName: typeof payload.content_name === 'string' ? payload.content_name : undefined,
-      contentCategory: typeof payload.content_category === 'string' ? payload.content_category : undefined,
+      contentCategory:
+        typeof payload.content_category === 'string' ? payload.content_category : undefined,
       lvInternalSubtype:
-        typeof payload.lv_internal_subtype === 'string'
-          ? payload.lv_internal_subtype
-          : undefined,
+        typeof payload.lv_internal_subtype === 'string' ? payload.lv_internal_subtype : undefined,
       unitId: typeof payload.unit_id === 'string' ? payload.unit_id : undefined,
       saleId: typeof payload.sale_id === 'string' ? payload.sale_id : undefined,
       tenantId: typeof payload.tenant_id === 'string' ? payload.tenant_id : undefined,
       projectId: typeof payload.project_id === 'string' ? payload.project_id : undefined,
-      registeredAt:
-        typeof payload.registered_at === 'string' ? payload.registered_at : undefined,
+      registeredAt: typeof payload.registered_at === 'string' ? payload.registered_at : undefined,
       saleAt: typeof payload.sale_at === 'string' ? payload.sale_at : undefined,
       value:
         typeof payload.value === 'number'
@@ -421,6 +452,21 @@ export async function flushLocalMetaOutbox(
       visitorKey: row.visitor_key,
       leadId: row.lead_id,
       contactId: typeof payload.contact_id === 'string' ? payload.contact_id : undefined,
+      qualificationSource:
+        payload.qualification_source === 'crm_persisted_evaluation'
+          ? 'crm_persisted_evaluation'
+          : undefined,
+      temperature:
+        payload.temperature === 'tibio' || payload.temperature === 'caliente'
+          ? payload.temperature
+          : undefined,
+      evidenceLabels: Array.isArray(payload.evidence_labels)
+        ? payload.evidence_labels.filter((v): v is string => typeof v === 'string')
+        : undefined,
+      initialLeadSubmittedEventId:
+        typeof payload.initial_lead_submitted_event_id === 'string'
+          ? payload.initial_lead_submitted_event_id
+          : undefined,
     }
 
     if (typeof payload.messaging_channel === 'string' && payload.messaging_channel === 'whatsapp') {

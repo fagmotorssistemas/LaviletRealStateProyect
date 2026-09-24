@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "work/capi-20260924": false
+    }
+  },
   "crons": [
     {
       "path": "/api/meta/sync-nest-results",

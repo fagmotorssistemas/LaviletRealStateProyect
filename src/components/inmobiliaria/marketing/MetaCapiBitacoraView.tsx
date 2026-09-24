@@ -109,18 +109,14 @@ function EventRowCard({ row, tz }: { row: MetaCapiOutboxRow; tz: string }) {
       {row.graphFbtraceId || row.graphEventsReceived != null ? (
         <p className="text-[10px] text-emerald-800">
           Graph
-          {row.graphEventsReceived != null
-            ? ` · events_received=${row.graphEventsReceived}`
-            : ''}
+          {row.graphEventsReceived != null ? ` · events_received=${row.graphEventsReceived}` : ''}
           {row.graphFbtraceId ? ` · fbtrace=${row.graphFbtraceId.slice(0, 12)}…` : ''}
         </p>
       ) : null}
       {row.detail ? (
         <p className="break-all font-mono text-[10px] leading-snug text-[#8a8176]">{row.detail}</p>
       ) : null}
-      {row.ctwaNote ? (
-        <p className="text-[10px] text-amber-800">{row.ctwaNote}</p>
-      ) : null}
+      {row.ctwaNote ? <p className="text-[10px] text-amber-800">{row.ctwaNote}</p> : null}
     </article>
   )
 }
@@ -136,16 +132,16 @@ function StatusBadge({ row }: { row: MetaCapiOutboxRow }) {
           ? 'bg-rose-100 text-rose-800'
           : outcome === 'blocked' || outcome === 'blocked_config'
             ? 'bg-orange-100 text-orange-900'
-            : outcome === 'pending_backend_support' || outcome === 'internal_activity' || outcome === 'retained'
+            : outcome === 'pending_backend_support' ||
+                outcome === 'internal_activity' ||
+                outcome === 'retained'
               ? 'bg-violet-100 text-violet-900'
               : outcome === 'unknown'
                 ? 'bg-stone-200 text-stone-800'
                 : 'bg-amber-100 text-amber-900'
 
   const Icon =
-    outcome === 'meta_accepted' ||
-    outcome === 'nest_received' ||
-    outcome === 'delivered_backend'
+    outcome === 'meta_accepted' || outcome === 'nest_received' || outcome === 'delivered_backend'
       ? Check
       : outcome === 'failed_retrying' || outcome === 'failed'
         ? X
@@ -245,9 +241,7 @@ export function MetaCapiBitacoraView() {
         <h2 className="text-sm font-semibold text-[#1f1a14]">Cola CAPI · Web / servidor</h2>
         <p className="text-[11px] text-[#6b645c]">
           Indicadores de outbox Meta.
-          {data
-            ? ` ${data.totalFiltered} registros · página ${data.page} · TZ ${tz}`
-            : null}
+          {data ? ` ${data.totalFiltered} registros · página ${data.page} · TZ ${tz}` : null}
           {data?.fetchedAt ? ` · actualizado ${formatWhen(data.fetchedAt, tz)}` : null}
         </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
@@ -273,9 +267,92 @@ export function MetaCapiBitacoraView() {
         </div>
         <div className="grid grid-cols-3 gap-2">
           <KpiCard label="Outbox web" value={data?.kpisByChannel.web ?? '—'} tone="muted" />
-          <KpiCard label="Outbox WhatsApp" value={data?.kpisByChannel.whatsapp ?? '—'} tone="muted" />
-          <KpiCard label="Outbox n/d" value={data?.kpisByChannel.undetermined ?? '—'} tone="muted" />
+          <KpiCard
+            label="Outbox WhatsApp"
+            value={data?.kpisByChannel.whatsapp ?? '—'}
+            tone="muted"
+          />
+          <KpiCard
+            label="Outbox n/d"
+            value={data?.kpisByChannel.undetermined ?? '—'}
+            tone="muted"
+          />
         </div>
+      </section>
+
+      <section className="space-y-2 rounded-2xl border border-[#ece6dc] bg-white p-3 sm:p-4">
+        <div>
+          <h2 className="text-sm font-semibold text-[#1f1a14]">
+            Volumen para optimización · últimos 7 días
+          </h2>
+          <p className="mt-1 text-[11px] text-[#6b645c]">
+            Meta de referencia: 50 por tipo de evento. Captura local, aceptación de Meta y
+            atribución son evidencias distintas.
+          </p>
+        </div>
+        {data?.optimizationVolume?.length ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-[11px]">
+              <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase">
+                <tr>
+                  <th className="px-2 py-2">Evento / destino</th>
+                  <th className="px-2 py-2">Elegibles / capturados</th>
+                  <th className="px-2 py-2">Meta aceptó</th>
+                  <th className="px-2 py-2">Meta atribuyó</th>
+                  <th className="px-2 py-2">Brechas</th>
+                  <th className="px-2 py-2">Cobertura incompleta</th>
+                  <th className="px-2 py-2">Conjunto de anuncios verificado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.optimizationVolume.map((row) => (
+                  <tr
+                    key={`${row.eventType}:${row.channel}:${row.dataset}:${row.deliveryLane}`}
+                    className="border-b border-[#f0ebe3] align-top"
+                  >
+                    <td className="px-2 py-2 font-medium text-[#1f1a14]">
+                      {row.eventType}
+                      <div className="font-normal text-[#8a8176]">
+                        {row.channel} · {row.dataset} · {row.deliveryLane}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 tabular-nums">
+                      {row.eligibleDetected} / {row.captured}
+                      <div className="text-[#8a8176]">
+                        pending {row.pending} · retenidos {row.retained}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 tabular-nums">{row.metaAccepted}</td>
+                    <td className="px-2 py-2 tabular-nums">{row.metaAttributed}</td>
+                    <td className="px-2 py-2 text-[#6b645c]">
+                      Captura {row.capturedGap} · aceptación {row.acceptedGap} · atribución{' '}
+                      {row.attributedGap}
+                    </td>
+                    <td className="px-2 py-2 text-[#6b645c]">
+                      Entrega {row.incompleteDeliveryEvidence} · atribución{' '}
+                      {row.incompleteAttributionCoverage}
+                      <div>
+                        backend {row.backendAccepted} · rechazo {row.metaRejected} · transporte{' '}
+                        {row.transportFailed}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 text-[#6b645c]">
+                      {row.byVerifiedAdSet.length
+                        ? row.byVerifiedAdSet
+                            .map((set) => `${set.adSetId}: ${set.metaAttributed} atribuidos`)
+                            .join(' · ')
+                        : 'Sin atribución verificable'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-[11px] text-[#8a8176]">
+            No hay eventos capturados en la ventana o la fuente todavía no está disponible.
+          </p>
+        )}
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-[#ece6dc] bg-white">
@@ -380,7 +457,10 @@ export function MetaCapiBitacoraView() {
                       <td className="px-4 py-3">
                         <StatusBadge row={row} />
                       </td>
-                      <td className="max-w-[180px] px-4 py-3 text-[11px] leading-snug break-words text-[#6b645c]" title={row.receptionLabel}>
+                      <td
+                        className="max-w-[180px] px-4 py-3 text-[11px] leading-snug break-words text-[#6b645c]"
+                        title={row.receptionLabel}
+                      >
                         {row.receptionLabel}
                       </td>
                       <td

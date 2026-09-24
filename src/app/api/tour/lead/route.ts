@@ -17,7 +17,8 @@ import {
 import { resolveVisitorGeo, clientIp } from '@/lib/tour/geo'
 import { applyGeoCookies } from '@/lib/tour/visitorCookie'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
-import { flushLocalMetaOutbox, persistMetaConversion } from '@/lib/meta/localOutbox'
+import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
+import { persistInfoRequestLeadEvent } from '@/lib/meta/infoRequestLeadProducer'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 
 export const runtime = 'nodejs'
@@ -299,19 +300,16 @@ export async function POST(request: Request) {
         if (savedRequestError || !savedRequest) {
           throw new Error('TOUR_INFO_REQUEST_NOT_PERSISTED')
         }
-        const originalTime = Math.floor(new Date(savedRequest.created_at).getTime() / 1000)
-        const persistedLead = await persistMetaConversion(admin, {
-          eventName: 'Lead',
-          idempotencyKey: `lead:${leadId}`,
-          eventTime: Number.isFinite(originalTime) ? originalTime : undefined,
+        const persistedLead = await persistInfoRequestLeadEvent(admin, {
           leadId,
           visitorKey,
-          adsConsentRequired: true,
-          payload: { ...metaLeadPayload, lv_internal_subtype: 'solicitud', request_id: registered.id },
+          requestId: registered.id,
+          createdAt: savedRequest.created_at,
+          payload: metaLeadPayload,
         })
         metaLead = {
           eventId: persistedLead.eventId,
-          eventTime: Number.isFinite(originalTime) ? originalTime : Math.floor(Date.now() / 1000),
+          eventTime: persistedLead.eventTime,
         }
       } catch (error) {
         console.error('register_tour_info_request', error)
