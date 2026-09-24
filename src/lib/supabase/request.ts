@@ -1,5 +1,8 @@
+import { assertProductionRequestAllowed } from '../integrations/automation/reset-protection'
+
 /** Preserve caller cancellation while limiting requests that stop responding. */
 export async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 15_000) {
+  assertProductionRequestAllowed(input)
   const controller = new AbortController()
   const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
   if (callerSignal?.aborted) throw callerSignal.reason

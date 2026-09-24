@@ -1,5 +1,7 @@
 // After the SQL test reset, also release Kommo's independent DETENER IA switch.
 // Preview by default. Never sends a message or replays a received webhook.
+// Retired: a test reset must never re-enable automation on a real contact.
+if (process.argv.includes('--apply')) throw Error('DESTRUCTIVE_TEST_RESET_DISABLED')
 require('@next/env').loadEnvConfig(process.cwd())
 const fs = require('node:fs')
 const path = require('node:path')

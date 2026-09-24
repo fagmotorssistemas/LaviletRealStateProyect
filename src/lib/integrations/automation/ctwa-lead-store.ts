@@ -1,6 +1,6 @@
 import 'server-only'
 import { object, rpc, scope, text } from './data'
-import type { CtwaCapture } from './ctwa-from-kommo'
+import type { AdReferral, CtwaCapture } from './ctwa-from-kommo'
 
 /** Códigos estables; no incluyen clid, teléfono ni IDs de contacto. */
 export type CtwaPersistCode =
@@ -129,11 +129,29 @@ function contractFailureReason(ok: unknown, action: string): string {
  * No dispara Pixel ni CAPI.
  */
 export async function preserveCtwaForContact(input: {
+  leadId?: string
+  occurredAt?: string
+  adReferral?: AdReferral | null
   contactId: number
   kommoId: number
   externalMessageId: string
   ctwa: CtwaCapture | null | undefined
 }): Promise<CtwaPersistResult> {
+  // Marketing history is independent of the original CTWA capture used by delivery.
+  // Failure remains visible in logs without interrupting contact registration.
+  const referral = input.adReferral || input.ctwa
+  if (input.leadId && input.occurredAt && referral?.referralSourceType === 'ad' && /^\d+$/.test(referral.sourceId || '')) {
+    try {
+      await rpc('record_marketing_ad_interaction', {
+        p_tenant_id: scope.tenant_id, p_project_id: scope.project_id,
+        p_lead_id: input.leadId, p_contact_id: String(input.contactId),
+        p_external_message_id: input.externalMessageId, p_ad_id: referral.sourceId,
+        p_source_url: referral.sourceUrl, p_occurred_at: input.occurredAt,
+      })
+    } catch {
+      console.error(JSON.stringify({ scope: 'marketing_ad_interaction', code: 'PERSIST_FAILED' }))
+    }
+  }
   if (!input.ctwa?.clid) {
     return { ok: true, code: 'CTWA_NOOP', action: 'noop_no_clid' }
   }

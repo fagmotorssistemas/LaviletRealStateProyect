@@ -90,8 +90,9 @@ export async function runAutomation(testContact?: string) {
           result = { enqueued }
         } else if (first.kind === 'decay') {
           await guard()
-          if (settings.globalMaintenance && !settings.testLeadId && config.test_only === false) await rpc('apply_temperature_decay')
-          result = { action: 'daily_decay' }
+          const canApplyDecay=settings.globalMaintenance && !settings.testLeadId && config.test_only === false
+          if (canApplyDecay) await rpc('apply_temperature_decay')
+          result = { action: canApplyDecay ? 'daily_decay' : 'daily_decay_skipped', reason: canApplyDecay ? 'canonical_decay' : 'maintenance_or_test_gate' }
         } else throw new Error('UNSUPPORTED_TASK')
         if (first.kind === 'inbound' && result.action === 'expired') {
           result = { ...result, reason: 'REPLY_WINDOW_EXPIRED', requires_review: true, delivery_status: 'not_sent' }

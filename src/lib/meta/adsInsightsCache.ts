@@ -20,6 +20,14 @@ export type AdsInsightsCacheRow = {
   last_error: string | null
 }
 
+/** Metadata may outlive a date filter; never reuse its spend for another period. */
+export async function readLatestAdsCache(admin:SupabaseClient, account:string, level:AdsCacheEntityLevel, entityId:string):Promise<AdsInsightsCacheRow|null> {
+  const {data,error}=await admin.from('meta_ads_insights_cache').select('*').eq('ad_account_id',account)
+    .eq('entity_level',level).eq('entity_id',entityId).is('last_error',null).order('fetched_at',{ascending:false}).limit(1).maybeSingle()
+  if (error) return null
+  return data as AdsInsightsCacheRow|null
+}
+
 export async function upsertAdsInsightsCache(
   admin: SupabaseClient,
   input: {
@@ -119,7 +127,7 @@ export function spendSnapshotFromCache(
       : [],
     periodFrom: cache.period_from,
     periodTo: cache.period_to,
-    fetchedAt: new Date().toISOString(),
+    fetchedAt: cache.fetched_at,
     error: liveError
       ? `meta_error:${liveError}; serving_stale_cache`
       : 'serving_stale_cache',

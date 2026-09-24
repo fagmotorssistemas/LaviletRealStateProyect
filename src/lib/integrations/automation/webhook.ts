@@ -1,5 +1,6 @@
 import { object, text } from './data'
-import { extractCtwaFromKommoFlat, type CtwaCapture } from './ctwa-from-kommo'
+import { messageEvidence, type KommoMessageEvidence } from './message-evidence'
+import { extractAdReferral, extractCtwaFromKommoFlat, type AdReferral, type CtwaCapture } from './ctwa-from-kommo'
 
 export type Inbound = {
   externalId: string
@@ -13,6 +14,7 @@ export type Inbound = {
   media: { type: string; url: string; name?: string } | null
   /** Solo si Kommo reenvió ctwa_clid; no implica atribución ads/orgánico. */
   ctwa: CtwaCapture | null
+  adReferral?: AdReferral | null
   /**
    * Resumen seguro del probe pre-normalización (sin valores/PII).
    * Se persiste en lv_integration_events.payload para correlacionar sin Vercel.
@@ -148,6 +150,7 @@ export type AdvisorOutbound = {
 type NormalizedWebhook = {
   inbound: Inbound[]
   advisorOutbound: AdvisorOutbound[]
+  evidence: KommoMessageEvidence[]
 }
 
 function flattenWebhook(raw: string, contentType: string) {
@@ -176,13 +179,13 @@ export function normalizeKommoWebhook(raw: string, contentType: string, now = Da
   const flat = flattenWebhook(raw, contentType)
   const inboundIndexes = eventIndexes(flat, 'message[add]')
   const outgoingRoots = ['outgoing_message[add]', 'message[add]'] as const
-  const total = inboundIndexes.length + outgoingRoots.reduce((count, root) => count + eventIndexes(flat, root).length, 0)
+  const total = outgoingRoots.reduce((count, root) => count + eventIndexes(flat, root).length, 0)
   if (total > 200) throw new Error('TOO_MANY_EVENTS')
 
   const inbound: Inbound[] = []
   for (const index of inboundIndexes) {
     const get = (key: string) => flat[`message[add][${index}][${key}]`] || ''
-    if (get('type') === 'outgoing' || get('author][type') !== 'external') continue
+    if (get('type') === 'outgoing' || (get('author][type') !== 'external' && !(get('type')==='incoming' && !get('author][type')))) continue
     if (!['waba', 'whatsapp'].includes(get('origin').toLowerCase())) continue
     if (get('entity_type') && !['lead', 'leads'].includes(get('entity_type'))) continue
     const kommoId = Number(get('entity_id') || get('element_id')), contactId = Number(get('contact_id'))
@@ -201,10 +204,11 @@ export function normalizeKommoWebhook(raw: string, contentType: string, now = Da
       chatId: get('chat_id'),
       text: body,
       name: get('author][name').slice(0, 200),
-      sentAt: validEventDate(get('created_at'), now),
+      sentAt: validEventDate(get('created_at') || String(Number(get('sec_created_at'))/1000), now),
       origin: get('origin'),
       media: mediaUrl || mediaType || mediaName ? { type: mediaType, url: mediaUrl, name: mediaName } : null,
       ctwa,
+      adReferral: extractAdReferral(flat,index),
     })
   }
 
@@ -215,6 +219,10 @@ export function normalizeKommoWebhook(raw: string, contentType: string, now = Da
       const type = get('type').toLowerCase()
       const authorType = get('author][type').toLowerCase()
       if (root === 'message[add]' && type !== 'outgoing') continue
+      // Failed/generated/pending observations belong in the evidence journal,
+      // but must not trigger human takeover or become sent advisor messages.
+      const deliveryStatus=get('delivery_status') || get('status')
+      if (['failed','rejected','not_sent','queued','pending','generation_failed','error','draft','generated','accepted'].includes(deliveryStatus)) continue
       // Salesbot deliveries are not a manual takeover. Kommo identifies a
       // human reply as an internal author with a concrete user_id.
       if (authorType !== 'internal') continue
@@ -240,14 +248,14 @@ export function normalizeKommoWebhook(raw: string, contentType: string, now = Da
         chatId: get('chat_id'),
         text: body,
         name: get('author][name').slice(0, 200),
-        sentAt: validEventDate(get('created_at'), now),
+        sentAt: validEventDate(get('created_at') || String(Number(get('sec_created_at'))/1000), now),
         origin: get('origin'),
         userId,
         authorType,
       })
     }
   }
-  return { inbound, advisorOutbound: [...outgoing.values()] }
+  return { inbound, advisorOutbound: [...outgoing.values()], evidence: messageEvidence(flat,now) }
 }
 
 export function normalizeWebhook(raw: string, contentType: string, now = Date.now()): Inbound[] {

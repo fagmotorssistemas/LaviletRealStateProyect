@@ -1,6 +1,7 @@
 import 'server-only'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '../lavilet'
+import { assertProductionRpcAllowed } from './reset-protection'
 
 export type Row = Record<string, unknown>
 export function object(value: unknown): Row {
@@ -12,6 +13,7 @@ export const text = (value: unknown) => typeof value === 'string' ? value : ''
 export const scope = { tenant_id: LAVILET_TENANT_ID, project_id: LAVILET_PROJECT_ID }
 export const db = () => createAdminClient()
 export async function rpc<T = unknown>(name: string, args: Row = {}): Promise<T> {
+  assertProductionRpcAllowed(name)
   const { data, error } = await db().rpc(name, args).abortSignal(AbortSignal.timeout(15_000))
   if (error) throw new Error(`RPC_${name}_${error.code || 'FAILED'}`.toUpperCase())
   return data as T

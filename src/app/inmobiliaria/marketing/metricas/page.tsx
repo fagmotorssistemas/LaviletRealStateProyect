@@ -10,7 +10,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
-  title: 'Métricas embudo · Marketing',
+  title: 'Métricas embudo',
 }
 
 function defaultFrom() {
@@ -25,7 +25,7 @@ function defaultFrom() {
 export default async function MarketingMetricasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; projectId?: string }>
+  searchParams: Promise<{ from?: string; to?: string; projectId?: string; campaign?:string; ad?:string; q?:string }>
 }) {
   const sp = await searchParams
   const from = sp.from || defaultFrom()
@@ -73,6 +73,7 @@ export default async function MarketingMetricasPage({
       error={result.ok ? null : result.error}
       adsInsights={adsInsights}
       adsProbe={probe}
+      initialFilters={{campaign:sp.campaign || '',ad:sp.ad || '',search:sp.q || ''}}
     />
   )
 }

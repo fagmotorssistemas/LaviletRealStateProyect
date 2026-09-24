@@ -1,3 +1,5 @@
+import { currentInterest, type InterestEvidence } from './marketingInterest.logic'
+import { internalContactIds } from './marketingEvidence.service'
 /**
  * Métricas internas de embudo inmobiliario (anuncios atribuidos CTWA first-touch + unidad).
  * No dispara CAPI ni cambia gates de envío Meta.
@@ -12,19 +14,26 @@
  * - Contratos anulados: snapshot de estado actual; fecha de anulación desconocida
  */
 import 'server-only'
+import { loadMarketingAttention } from './marketingAttention.service'
+import type { AttentionData } from './marketingAttention.logic'
+import { fetchAdsCatalog, configuredAdsAccountId, type AdsCatalog } from '@/lib/meta/adsCatalog'
+import { firstAdOrigins, type SavedAdOrigin } from '@/lib/meta/firstAdAcquisition'
+import { identifyPropertyFromUrls, summarizePropertyLinks } from '@/lib/meta/adPropertyIdentification'
+import { isAdAccountMatch } from '@/lib/meta/adsMarketingClient'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   computeCrmCostPerLead,
   fetchAdAccountSnapshot,
   fetchAdSpendForPeriod,
   fetchAccountAdInsightsForPeriod,
-  fetchCampaignSpendForPeriod,
+  fetchAdDestinationEvidence,
   readAdsMarketingCredentials,
   resolveAdHierarchy,
   type AdAccountSnapshot,
 } from '@/lib/meta/adsMarketingClient'
 import {
   hierarchyFromCache,
+  readLatestAdsCache,
   readAdsInsightsCache,
   spendSnapshotFromCache,
   upsertAdsInsightsCache,
@@ -33,12 +42,12 @@ import { rollupAttributedAdsByCampaign } from '@/lib/meta/adsCampaignRollup'
 import type { CampaignFunnelRollupRow } from '@/lib/meta/adsCampaignRollup'
 import {
   listActiveAdPromotedUnits,
+  savedPropertyAccount,
   summarizePromotedUnit,
   type AdPromotedUnitSummary,
 } from '@/lib/meta/adPromotedUnits'
 import {
   FUNNEL_UNIVERSES,
-  bucketTemp,
   classifyAppointmentInPeriod,
   ecuadorDayBoundsUtc,
   emptyTemp,
@@ -174,6 +183,10 @@ export type MarketingFunnelReport = {
   projectId: string
   universes: typeof FUNNEL_UNIVERSES
   adsAccount: AdAccountSnapshot | null
+  interestByLead?: Record<string,InterestEvidence>
+  attention?: AttentionData
+  adsCatalog?: AdsCatalog
+  adsLastSavedAt?: string|null
   totals: {
     leadsAcquiredInPeriod: number
     leadsWithAttribution: number
@@ -197,7 +210,7 @@ export type MarketingFunnelReport = {
     contractsAnulledInPeriod: number
   }
   byAttributedAd: AttributedAdFunnelRow[]
-  /** Rollup por campaign_id resuelto (nunca source_id como campaign). */
+  /** Campaigns for all ads in the connected account, independently of property classification. */
   byCampaign: CampaignFunnelRollupRow[]
   /** Gasto por unidad promocionada (solo anuncios con vínculo inequívoco). */
   byPromotedUnit: PromotedUnitFunnelRow[]
@@ -266,6 +279,8 @@ async function fetchAllInChunks<T, Id>(
 type LeadRow = {
   id: string
   temperature: string | null
+  temperature_updated_at: string | null
+  temperature_score: number | null
   status: string | null
   contact_id: string | null
   kommo_id: number | null
@@ -273,6 +288,7 @@ type LeadRow = {
 }
 
 type AttrRow = {
+  external_message_id?: string | null
   contact_id: string
   kommo_id: number | null
   source_id: string | null
@@ -360,11 +376,13 @@ export async function buildMarketingFunnelReport(
     projectUnits.map((u) => [u.id, u.status as string | null]),
   )
 
+  const internal=await internalContactIds(admin,input.tenantId)
+  if(!internal.available) limitations.push('La clasificación persistente de contactos internos está pendiente de aplicar; todavía no se excluyeron personas.')
   // Cohorte leads
-  const leads = await fetchAllPages<LeadRow>((from, to) =>
+  const allProjectLeads = await fetchAllPages<LeadRow>((from, to) =>
     admin
       .from('leads')
-      .select('id,temperature,status,contact_id,kommo_id,created_at')
+      .select('id,temperature,temperature_updated_at,temperature_score,status,contact_id,kommo_id,created_at')
       .eq('tenant_id', input.tenantId)
       .eq('project_id', input.projectId)
       .gte('created_at', fromIso)
@@ -372,6 +390,7 @@ export async function buildMarketingFunnelReport(
       .order('created_at', { ascending: true })
       .range(from, to),
   )
+  const leads=allProjectLeads.filter(l=>!internal.ids.has(l.id))
   const leadIds = leads.map((l) => l.id)
   const leadById = new Map(leads.map((l) => [l.id, l]))
   const contactIds = [
@@ -394,10 +413,44 @@ export async function buildMarketingFunnelReport(
         .range(from, to),
     ),
   )
-  const attrByContact = new Map<string, AttrRow>()
-  for (const a of attrs) {
-    if (!attrByContact.has(a.contact_id)) attrByContact.set(a.contact_id, a)
+
+  // Advertising spans the authorized business, independently of the selected property project.
+  // Existing inbound registration reuses lead.id by (tenant_id, phone_normalized).
+  const allAdvertisingLeads = await fetchAllPages<LeadRow>((from,to) => admin.from('leads')
+    .select('id,temperature,temperature_updated_at,temperature_score,status,contact_id,kommo_id,created_at').eq('tenant_id',input.tenantId)
+    .gte('created_at',fromIso).lt('created_at',toExclusiveIso).order('created_at').range(from,to))
+  const advertisingLeads=allAdvertisingLeads.filter(l=>!internal.ids.has(l.id))
+  const advertisingIds = advertisingLeads.map(l=>l.id)
+  const scoreEvidence = await fetchAllInChunks(advertisingIds,chunk=>fetchAllPages<{lead_id:string;reason:string|null}>((from,to)=>admin.from('lead_score_events').select('lead_id,reason').in('lead_id',chunk).order('created_at').range(from,to)))
+  const interestByLead:Record<string,InterestEvidence>=Object.fromEntries(advertisingLeads.map(lead=>[lead.id,currentInterest(lead,scoreEvidence.filter(e=>e.lead_id===lead.id).map(e=>e.reason).filter((r):r is string=>Boolean(r)))]))
+  const threads = await fetchAllInChunks(advertisingIds,chunk=>fetchAllPages<{lead_id:string;external_thread_id:string|null}>((from,to)=>admin.from('conversations')
+    .select('lead_id,external_thread_id').eq('tenant_id',input.tenantId).eq('channel','whatsapp').in('lead_id',chunk).range(from,to)))
+  const owners = new Map<string,Set<string>>()
+  for (const pair of [...advertisingLeads.map(l=>({lead_id:l.id,external_thread_id:l.contact_id})),...threads]) {
+    if (!pair.external_thread_id) continue
+    const ids = owners.get(pair.external_thread_id) || new Set<string>()
+    ids.add(pair.lead_id); owners.set(pair.external_thread_id,ids)
   }
+  const savedOrigins: SavedAdOrigin[] = []
+  const advertisingAttrs = await fetchAllInChunks([...owners.keys()],chunk=>fetchAllPages<AttrRow>((from,to)=>admin.from('lv_whatsapp_ctwa_attribution')
+    .select('contact_id,kommo_id,source_id,source_url,referral_source_type,captured_at,external_message_id').eq('tenant_id',input.tenantId)
+    .in('contact_id',chunk).order('captured_at').range(from,to)))
+  for (const attr of advertisingAttrs) {
+    const ids = owners.get(attr.contact_id)
+    if (ids?.size !== 1 || !attr.source_id || (attr.referral_source_type && attr.referral_source_type !== 'ad')) continue
+    savedOrigins.push({leadId:[...ids][0],adId:attr.source_id,recordedAt:attr.captured_at,sourceUrl:attr.source_url,key:'legacy:'+attr.contact_id,externalMessageId:attr.external_message_id})
+  }
+  try {
+    const interactions = await fetchAllInChunks(advertisingIds,chunk=>fetchAllPages<{id:string;lead_id:string;ad_id:string;recorded_at:string;source_url:string|null;external_message_id:string|null}>((from,to)=>admin.from('marketing_ad_interactions')
+      .select('id,lead_id,ad_id,recorded_at,source_url,external_message_id').eq('tenant_id',input.tenantId).in('lead_id',chunk).order('recorded_at').order('id').range(from,to)))
+    for (const row of interactions) savedOrigins.push({leadId:row.lead_id,adId:row.ad_id,recordedAt:row.recorded_at,sourceUrl:row.source_url,key:row.id,externalMessageId:row.external_message_id})
+  } catch (error) {
+    const code = (error as {code?:string})?.code
+    if (code !== '42P01' && code !== 'PGRST205') throw error
+    limitations.push('El historial adicional de interacciones aún no está disponible. Se usa el primer origen guardado disponible; no se reconstruyen interacciones ausentes.')
+  }
+  const acquisitionByLead = firstAdOrigins(savedOrigins)
+  const attention = await loadMarketingAttention(admin,{tenantId:input.tenantId,leadIds:advertisingIds.filter(id=>acquisitionByLead.has(id)),origins:acquisitionByLead,asOf:nowIso})
 
   // Citas de la cohorte (sin filtro temporal) — universo byAttributedAd
   const cohortAppts = await fetchAllInChunks(leadIds, (chunk) =>
@@ -413,15 +466,18 @@ export async function buildMarketingFunnelReport(
         .range(from, to),
     ),
   )
+  const advertisingAppts = await fetchAllInChunks(advertisingIds,chunk=>fetchAllPages<ApptRow>((from,to)=>admin.from('appointments')
+    .select('id,lead_id,status,no_show,requested_at,confirmed_at,start_time,created_at')
+    .eq('tenant_id',input.tenantId).in('lead_id',chunk).range(from,to)))
   const apptsByLead = new Map<string, ApptRow[]>()
-  for (const a of cohortAppts) {
+  for (const a of advertisingAppts) {
     const list = apptsByLead.get(a.lead_id) || []
     list.push(a)
     apptsByLead.set(a.lead_id, list)
   }
 
   // Citas del período por start_time (totales) — clasificadas
-  const periodAppts = await fetchAllPages<{
+  const allPeriodAppts = await fetchAllPages<{
     id: string
     lead_id: string
     status: string | null
@@ -438,6 +494,7 @@ export async function buildMarketingFunnelReport(
       .range(from, to),
   )
 
+  const periodAppts=allPeriodAppts.filter(a=>!internal.ids.has(a.lead_id))
   const apptBreakdown: AppointmentPeriodBreakdown = {
     scheduled: 0,
     completed: 0,
@@ -469,7 +526,7 @@ export async function buildMarketingFunnelReport(
       .lt('sale_at', toExclusiveIso)
       .range(from, to),
   )
-  const sales = salesRaw.filter((s) => projectUnitIds.has(s.unit_id))
+  const sales = salesRaw.filter((s) => projectUnitIds.has(s.unit_id) && (!s.lead_id || !internal.ids.has(s.lead_id)))
   const saleCurrencies = [
     ...new Set(
       sales
@@ -481,8 +538,8 @@ export async function buildMarketingFunnelReport(
     saleCurrencies.length === 1 ? saleCurrencies[0]! : 'no_disponible'
 
   const salesByLead = new Map<string, SaleRow[]>()
-  for (const s of sales) {
-    if (!s.lead_id) continue
+  for (const s of salesRaw) {
+    if (!s.lead_id || internal.ids.has(s.lead_id)) continue
     const list = salesByLead.get(s.lead_id) || []
     list.push(s)
     salesByLead.set(s.lead_id, list)
@@ -533,16 +590,17 @@ export async function buildMarketingFunnelReport(
   )
 
   // Showroom del proyecto + fechas en consulta
-  const showroomVisits = await fetchAllPages<{ id: string }>((from, to) =>
+  const allShowroomVisits = await fetchAllPages<{ id: string; lead_id: string|null }>((from, to) =>
     admin
       .from('showroom_visits')
-      .select('id')
+      .select('id,lead_id')
       .eq('tenant_id', input.tenantId)
       .eq('project_id', input.projectId)
       .gte('visit_start', fromIso)
       .lt('visit_start', toExclusiveIso)
       .range(from, to),
   )
+  const showroomVisits=allShowroomVisits.filter(v=>!v.lead_id || !internal.ids.has(v.lead_id))
   const showroomIds = showroomVisits.map((v) => v.id)
   const showroomUnitCounts = new Map<string, number>()
   const svu = await fetchAllInChunks(showroomIds, (chunk) =>
@@ -571,7 +629,7 @@ export async function buildMarketingFunnelReport(
       .eq('project_id', input.projectId)
       .range(from, to),
   )
-  const allProjectLeadIds = projectLeadIdsAll.map((l) => l.id)
+  const allProjectLeadIds = projectLeadIdsAll.filter(l=>!internal.ids.has(l.id)).map((l) => l.id)
   let anulledContracts: Array<{
     id: string
     status: string | null
@@ -624,7 +682,7 @@ export async function buildMarketingFunnelReport(
       ),
     )
     for (const r of extra) {
-      if (!known.has(r.id)) {
+      if (!known.has(r.id) && (!r.lead_id || !internal.ids.has(r.lead_id))) {
         known.add(r.id)
         anulledContracts.push(r)
       }
@@ -634,17 +692,17 @@ export async function buildMarketingFunnelReport(
 
   // ——— Agregación por anuncio ———
   const totalsTemp = emptyTemp()
-  for (const l of leads) totalsTemp[bucketTemp(l.temperature)] += 1
+  for (const l of leads) totalsTemp[currentInterest(l).bucket] += 1
   const withAttr = leads.filter(
-    (l) => l.contact_id && attrByContact.has(l.contact_id),
+    (l) => acquisitionByLead.has(l.id),
   ).length
 
   type Agg = { leads: LeadRow[]; attr: AttrRow | null }
   const byKey = new Map<string, Agg>()
-  for (const lead of leads) {
-    const attr = lead.contact_id
-      ? attrByContact.get(lead.contact_id) || null
-      : null
+  for (const lead of advertisingLeads) {
+    const origin = acquisitionByLead.get(lead.id)
+    const attr: AttrRow | null = origin ? {contact_id:lead.contact_id || '',kommo_id:lead.kommo_id,
+      source_id:origin.adId,source_url:origin.sourceUrl,referral_source_type:'ad',captured_at:origin.recordedAt} : null
     const key = attr?.source_id ? `ad:${attr.source_id}` : 'sin_atribucion'
     const bucket = byKey.get(key) || { leads: [], attr }
     bucket.leads.push(lead)
@@ -663,8 +721,9 @@ export async function buildMarketingFunnelReport(
     let reserved = 0
     let salesN = 0
     const saleAmounts: Array<number | null> = []
+    const adSaleCurrencies = new Set<string>()
     for (const lead of agg.leads) {
-      temp[bucketTemp(lead.temperature)] += 1
+      temp[currentInterest(lead).bucket] += 1
       if (String(lead.status || '').toLowerCase() === 'reservado') reserved += 1
       const list = apptsByLead.get(lead.id) || []
       if (list.some((a) => a.status === 'solicitada' || a.status === 'pendiente'))
@@ -676,7 +735,10 @@ export async function buildMarketingFunnelReport(
       reprog += list.filter((a) => a.status === 'reprogramado').length
       const ls = salesByLead.get(lead.id) || []
       salesN += ls.length
-      for (const s of ls) saleAmounts.push(s.sale_price_final)
+      for (const s of ls) {
+        saleAmounts.push(s.sale_price_final)
+        adSaleCurrencies.add(s.currency || 'unknown')
+      }
     }
     const adId = agg.attr?.source_id || null
     return {
@@ -702,8 +764,8 @@ export async function buildMarketingFunnelReport(
       appointmentReprogrammedCount: reprog,
       leadsReserved: reserved,
       salesConfirmed: salesN,
-      salesAmount: sumKnownAmounts(saleAmounts),
-      salesCurrency: salesCurrencyResolved,
+      salesAmount: adSaleCurrencies.size === 1 && !adSaleCurrencies.has('unknown') ? sumKnownAmounts(saleAmounts) : null,
+      salesCurrency: adSaleCurrencies.size === 1 && !adSaleCurrencies.has('unknown') ? [...adSaleCurrencies][0] : 'no_disponible',
       adSpend: null as number | null,
       currency: null as string | null,
       costPerLead: null as number | null,
@@ -716,13 +778,7 @@ export async function buildMarketingFunnelReport(
       spendStaleFetchedAt: null as string | null,
       leadIds: agg.leads.map((l) => l.id),
       insightsOnly: false,
-      promotedUnit: {
-        adId: adId || '',
-        kind: 'none' as const,
-        label: 'Unidad no asignada',
-        links: [],
-        unambiguousUnitId: null,
-      },
+      promotedUnit: summarizePropertyLinks(adId || key, []),
       costPerLeadDefinition: 'ad_spend_div_crm_leads_unique' as const,
       note:
         key === 'sin_atribucion'
@@ -732,6 +788,22 @@ export async function buildMarketingFunnelReport(
   }
 
   const adsCreds = readAdsMarketingCredentials()
+  const accountId = configuredAdsAccountId() || await savedPropertyAccount(admin,{tenantId:input.tenantId,projectId:input.projectId,adIds:[...byKey.values()].map(v=>v.attr?.source_id).filter((id):id is string=>Boolean(id))})
+  const adsCatalog = await fetchAdsCatalog()
+  let adsLastSavedAt: string|null = null
+  if (accountId) {
+    const savedCatalog = await readLatestAdsCache(admin,accountId,'account',accountId+':catalog')
+    if (adsCatalog.status==='success') {
+      await upsertAdsInsightsCache(admin,{adAccountId:accountId,entityLevel:'account',entityId:accountId+':catalog',periodFrom:input.period.from,periodTo:input.period.to,spend:null,currency:null,hierarchy:{catalog:adsCatalog},fetchedAt:adsCatalog.successfulAt!})
+    } else if (savedCatalog) {
+      const previous=savedCatalog.hierarchy.catalog as AdsCatalog|undefined
+      if (previous?.campaigns && previous.ads) {
+        adsCatalog.campaigns=[...new Map([...previous.campaigns,...adsCatalog.campaigns].map(c=>[c.id,c])).values()]
+        adsCatalog.ads=[...new Map([...previous.ads,...adsCatalog.ads].map(a=>[a.id,a])).values()]
+        adsCatalog.successfulAt=savedCatalog.fetched_at
+      }
+    }
+  }
   let adsAccount: AdAccountSnapshot | null = null
   if (adsCreds) {
     adsAccount = await fetchAdAccountSnapshot()
@@ -747,6 +819,14 @@ export async function buildMarketingFunnelReport(
     if (!row.adId || !adsCreds) {
       if (row.adId && !adsCreds) {
         row.resolutionStatus = 'missing_ads_token'
+        if (accountId) {
+          const latest=await readLatestAdsCache(admin,accountId,'ad',row.adId)
+          const cached=await readAdsInsightsCache(admin,{adAccountId:accountId,entityLevel:'ad',entityId:row.adId,periodFrom:input.period.from,periodTo:input.period.to})
+          const hierarchy=latest?hierarchyFromCache(latest,row.adId):null
+          if (hierarchy) Object.assign(row,{adName:hierarchy.adName,adsetId:hierarchy.adsetId,adsetName:hierarchy.adsetName,campaignId:hierarchy.campaignId,campaignName:hierarchy.campaignName,resolutionStatus:'resolved',spendStale:true})
+          if (latest && (!adsLastSavedAt || latest.fetched_at>adsLastSavedAt)) adsLastSavedAt=latest.fetched_at
+          if (cached && !cached.last_error) Object.assign(row,{adSpend:cached.spend==null?null:Number(cached.spend),currency:cached.currency,spendStale:true,spendStaleFetchedAt:cached.fetched_at,spendFetchedAt:cached.fetched_at,costPerLead:computeCrmCostPerLead(cached.spend==null?null:Number(cached.spend),row.leadsUnique)})
+        }
         row.note =
           'CTWA source_id presente (ad_id). Falta META_AD_ACCOUNT_ID + META_ADS_ACCESS_TOKEN (ads_read). No se usan tokens CAPI/WA. No se trata source_id como campaign_id.'
       }
@@ -778,6 +858,11 @@ export async function buildMarketingFunnelReport(
       }
     }
 
+    if (hierarchy.resolutionStatus === 'resolved' && hierarchy.adAccountId && !isAdAccountMatch(hierarchy.adAccountId, adsCreds.adAccountId)) {
+      row.resolutionStatus = 'unresolved'
+      row.note = 'El anuncio no pertenece a la cuenta configurada.'
+      continue
+    }
     row.adName = hierarchy.adName
     row.adsetId = hierarchy.adsetId
     row.adsetName = hierarchy.adsetName
@@ -865,22 +950,22 @@ export async function buildMarketingFunnelReport(
   byAttributedAd.sort((a, b) => b.leadsUnique - a.leadsUnique)
 
   // Insights cuenta completa: anuncios con gasto aunque leads CRM = 0.
-  const accountInsights = await fetchAccountAdInsightsForPeriod(input.period)
+  const accountInsights = await fetchAccountAdInsightsForPeriod(input.period, { onlyWithSpend: false })
   const adsInsightsCoverage = {
-    adsWithSpend: accountInsights.ads.length,
+    adsWithSpend: accountInsights.ads.filter(ad => (ad.spend ?? 0) > 0).length,
     adsWithCrmLeads: byAttributedAd.filter((r) => r.adId && r.leadsUnique > 0)
       .length,
     adsSpendWithoutLeads: 0,
     accountAdSpendSum: accountInsights.spendSumSameCurrency,
     accountAdSpendCurrency: accountInsights.currency,
     insightsIncomplete: accountInsights.incomplete || Boolean(accountInsights.error),
-    insightsFetchedAt: accountInsights.fetchedAt,
+    insightsFetchedAt: accountInsights.error || accountInsights.incomplete ? null : accountInsights.fetchedAt,
     insightsError: accountInsights.error,
     currencyStatus: accountInsights.error
       ? 'unknown' as const
       : 'live' as const,
   }
-  if (adsCreds && !accountInsights.error) {
+  if (adsCreds && accountInsights.ads.length > 0) {
     const known = new Set(
       byAttributedAd.map((r) => r.adId).filter(Boolean) as string[],
     )
@@ -888,7 +973,8 @@ export async function buildMarketingFunnelReport(
       if (!snap.adId || known.has(snap.adId)) {
         // Actualizar gasto/nombres si la fila CTWA ya existe y aún no tiene spend.
         const existing = byAttributedAd.find((r) => r.adId === snap.adId)
-        if (existing && existing.adSpend == null && snap.spend != null) {
+        if (existing) {
+          existing.spendStale = false
           existing.adSpend = snap.spend
           existing.currency = snap.currency
           existing.metaReportedResults = snap.metaReportedResults
@@ -944,13 +1030,7 @@ export async function buildMarketingFunnelReport(
         spendStaleFetchedAt: null,
         leadIds: [],
         insightsOnly: true,
-        promotedUnit: {
-          adId: snap.adId,
-          kind: 'none',
-          label: 'Unidad no asignada',
-          links: [],
-          unambiguousUnitId: null,
-        },
+        promotedUnit: summarizePropertyLinks(snap.adId, []),
         costPerLeadDefinition: 'ad_spend_div_crm_leads_unique',
         note:
           'Anuncio con gasto reportado por Meta (Insights) sin leads CRM first-touch CTWA en la cohorte del período. CPL No disponible.',
@@ -989,15 +1069,36 @@ export async function buildMarketingFunnelReport(
     limitations.push(`Insights cuenta: ${accountInsights.error}`)
   }
 
-  // Vínculos anuncio → unidad promocionada
-  const promotedMap = await listActiveAdPromotedUnits(admin, {
-    tenantId: input.tenantId,
-    projectId: input.projectId,
-    adIds: byAttributedAd.map((r) => r.adId).filter(Boolean) as string[],
-  })
+  // Catalog ads appear even without CRM contacts or a spend row for the period.
+  for (const ad of adsCatalog.ads) {
+    let row=byAttributedAd.find(r=>r.adId===ad.id)
+    if (!row) {
+      row=summarizeAttributedAdBase('ad:'+ad.id,{leads:[],attr:{contact_id:'',kommo_id:null,source_id:ad.id,source_url:null,referral_source_type:'ad',captured_at:nowIso}})
+      row.insightsOnly=true
+      byAttributedAd.push(row)
+    }
+    row.adName=ad.name;row.adsetId=ad.adsetId;row.campaignId=ad.campaignId
+    row.campaignName=adsCatalog.campaigns.find(c=>c.id===ad.campaignId)?.name || row.campaignName
+    row.resolutionStatus='resolved'
+    if (adsCatalog.status!=='success') row.spendStale=true
+  }
+
+  // Saved corrections take precedence; destination evidence never uses lead_units.
+  const promotedMap = accountId ? await listActiveAdPromotedUnits(admin, {
+    tenantId: input.tenantId, projectId: input.projectId, adAccountId: accountId!,
+    adIds: byAttributedAd.map(r=>r.adId).filter((id):id is string=>Boolean(id)),
+  }) : new Map<string, AdPromotedUnitSummary>()
+  const pendingEvidence = byAttributedAd.filter(row=>row.adId && !promotedMap.has(row.adId))
+  for (let i=0; adsCreds && i<pendingEvidence.length; i+=5) {
+    await Promise.all(pendingEvidence.slice(i,i+5).map(async row=>{
+      const evidence = await fetchAdDestinationEvidence(row.adId!)
+      if (!evidence.verifiedAccount) return
+      const urls = evidence.urls.length ? evidence.urls : [...new Set(attrs.filter(a=>a.source_id===row.adId).map(a=>a.source_url).filter((u):u is string=>Boolean(u)))]
+      promotedMap.set(row.adId!,identifyPropertyFromUrls(row.adId!,urls,projectUnits))
+    }))
+  }
   for (const row of byAttributedAd) {
-    if (!row.adId) continue
-    row.promotedUnit = summarizePromotedUnit(row.adId, promotedMap)
+    row.promotedUnit = summarizePromotedUnit(row.adId || row.attributionKey,promotedMap)
   }
 
   byAttributedAd.sort((a, b) => {
@@ -1007,7 +1108,7 @@ export async function buildMarketingFunnelReport(
     return b.leadsUnique - a.leadsUnique
   })
 
-  // Rollup por campaña + gasto campaign-level cuando hay campaignId resuelto.
+  // Campaign totals include every property classification, counting each ad once.
   const byCampaign = rollupAttributedAdsByCampaign(
     byAttributedAd.map((r) => ({
       adId: r.adId,
@@ -1015,6 +1116,7 @@ export async function buildMarketingFunnelReport(
       campaignName: r.campaignName,
       resolutionStatus: r.resolutionStatus,
       leadsUnique: r.leadsUnique,
+      leadIds: r.leadIds,
       temperature: r.temperature,
       adSpend: r.adSpend,
       currency: r.currency,
@@ -1025,95 +1127,7 @@ export async function buildMarketingFunnelReport(
     })),
   )
 
-  if (adsCreds) {
-    for (let i = 0; i < byCampaign.length; i += 1) {
-      const camp = byCampaign[i]!
-      let campSpend = await fetchCampaignSpendForPeriod(camp.campaignId, {
-        from: input.period.from,
-        to: input.period.to,
-      })
-      if (!campSpend.error && campSpend.spend != null) {
-        await upsertAdsInsightsCache(admin, {
-          adAccountId: adsCreds.adAccountId,
-          entityLevel: 'campaign',
-          entityId: camp.campaignId,
-          periodFrom: input.period.from,
-          periodTo: input.period.to,
-          spend: campSpend.spend,
-          currency: campSpend.currency,
-          impressions: campSpend.impressions,
-          clicks: campSpend.clicks,
-          metaReportedResults: campSpend.metaReportedResults,
-          hierarchy: { campaignName: camp.campaignName },
-          fetchedAt: campSpend.fetchedAt,
-        })
-      } else if (campSpend.error) {
-        const cached = await readAdsInsightsCache(admin, {
-          adAccountId: adsCreds.adAccountId,
-          entityLevel: 'campaign',
-          entityId: camp.campaignId,
-          periodFrom: input.period.from,
-          periodTo: input.period.to,
-        })
-        if (cached && cached.spend != null) {
-          campSpend = spendSnapshotFromCache(cached, campSpend.error)
-          camp.spendStale = true
-          camp.spendFetchedAt = cached.fetched_at
-        }
-      }
-      // Preferir gasto campaign-level (completo) cuando Graph lo entrega.
-      if (campSpend.spend != null && !campSpend.error?.includes('meta_error')) {
-        const adSpendSum = camp.adSpendSum
-        const campaignCurrency = (campSpend.currency || '').toUpperCase() || null
-        const adCurrency = (camp.currency || '').toUpperCase() || null
-        camp.adSpend = campSpend.spend
-        camp.currency = campSpend.currency
-        camp.campaignInsightsSpend = campSpend.spend
-        camp.spendDelta =
-          adSpendSum != null &&
-          campaignCurrency != null &&
-          adCurrency === campaignCurrency
-            ? Math.round((campSpend.spend - adSpendSum) * 100) / 100
-            : null
-        camp.spendCoherent =
-          camp.spendDelta == null ? null : Math.abs(camp.spendDelta) <= 0.01
-        camp.spendComparisonPeriod = { ...input.period }
-        camp.spendComparisonCurrency =
-          adCurrency === campaignCurrency ? campaignCurrency : null
-        if (campSpend.metaReportedResults != null) {
-          camp.metaReportedResults = campSpend.metaReportedResults
-        }
-        camp.costPerLead = computeCrmCostPerLead(camp.adSpend, camp.leadsUnique)
-        camp.spendFetchedAt = campSpend.stale
-          ? campSpend.staleFetchedAt || campSpend.fetchedAt
-          : campSpend.fetchedAt
-        if (campSpend.stale) camp.spendStale = true
-        camp.note =
-          'Gasto Insights level=campaign (período). Leads CRM = únicos first-touch CTWA de anuncios resueltos a esta campaña. CPL = gasto campaña ÷ leads CRM. Resultados Meta ≠ leads CRM ≠ CAPI.'
-      } else if (campSpend.stale && campSpend.spend != null) {
-        const adSpendSum = camp.adSpendSum
-        const campaignCurrency = (campSpend.currency || '').toUpperCase() || null
-        const adCurrency = (camp.currency || '').toUpperCase() || null
-        camp.adSpend = campSpend.spend
-        camp.currency = campSpend.currency
-        camp.campaignInsightsSpend = campSpend.spend
-        camp.spendDelta =
-          adSpendSum != null &&
-          campaignCurrency != null &&
-          adCurrency === campaignCurrency
-            ? Math.round((campSpend.spend - adSpendSum) * 100) / 100
-            : null
-        camp.spendCoherent =
-          camp.spendDelta == null ? null : Math.abs(camp.spendDelta) <= 0.01
-        camp.spendComparisonPeriod = { ...input.period }
-        camp.spendComparisonCurrency =
-          adCurrency === campaignCurrency ? campaignCurrency : null
-        camp.costPerLead = computeCrmCostPerLead(camp.adSpend, camp.leadsUnique)
-        camp.note = `${camp.note} Campaña: sirviendo caché stale (${campSpend.staleFetchedAt}). Error live: ${campSpend.error}`
-      }
-    }
-  }
-
+  // Classified subsets must never inherit the spend of an entire mixed campaign.
   if (!adsCreds) {
     limitations.push(
       'Datos publicitarios no disponibles: faltan META_AD_ACCOUNT_ID y META_ADS_ACCESS_TOKEN (System User ads_read) en Vercel Production. No reutilizar META_CAPI_* ni META_WA_CAPI_*.',
@@ -1123,7 +1137,7 @@ export async function buildMarketingFunnelReport(
       'CPL = gasto Insights (YYYY-MM-DD, TZ cuenta Ads) ÷ leadsUnique CRM first-touch CTWA (cohorte Guayaquil). Sin leads>0 o sin gasto → “No disponible”. Resultado Meta = un action_type preferente (no suma de actions).',
     )
     limitations.push(
-      'Gasto = reportado por Meta (Insights), no presupuesto. Totales de anuncios vs Insights level=campaign cuando hay campaign_id.',
+      'Gasto = reportado por Meta, no presupuesto. Cada grupo suma solo sus anuncios; no se incorpora el gasto completo de una campaña mixta.',
     )
     if (adsAccount?.timezoneName) {
       const aligned =
@@ -1154,6 +1168,7 @@ export async function buildMarketingFunnelReport(
     unitLabel: string
     adIds: Set<string>
     spends: Array<{ spend: number; currency: string | null }>
+    missingSpend: boolean
     leads: Set<string>
     temperature: Record<TemperatureBucket, number>
     conf: number
@@ -1171,6 +1186,7 @@ export async function buildMarketingFunnelReport(
         unitLabel: row.promotedUnit.label,
         adIds: new Set(),
         spends: [],
+        missingSpend: false,
         leads: new Set(),
         temperature: emptyTemp(),
         conf: 0,
@@ -1179,9 +1195,11 @@ export async function buildMarketingFunnelReport(
       }
       promotedAgg.set(uid, acc)
     }
-    acc.adIds.add(row.adId)
-    if (row.adSpend != null) acc.spends.push({ spend: row.adSpend, currency: row.currency })
     for (const lid of row.leadIds) acc.leads.add(lid)
+    if (acc.adIds.has(row.adId)) continue
+    acc.adIds.add(row.adId)
+    if (row.adSpend == null || !row.currency) acc.missingSpend = true
+    if (row.adSpend != null) acc.spends.push({ spend: row.adSpend, currency: row.currency })
     for (const k of Object.keys(acc.temperature) as TemperatureBucket[]) {
       acc.temperature[k] += row.temperature[k] || 0
     }
@@ -1202,7 +1220,7 @@ export async function buildMarketingFunnelReport(
       let currency: string | null = null
       let note =
         'Suma de gasto de anuncios con vínculo inequívoco a esta unidad. Distinto de lead_units (interés del lead).'
-      if (!acc.spends.length) note += ' Sin gasto verificable.'
+      if (!acc.spends.length || acc.missingSpend) note += ' Falta gasto o moneda en alguno de los anuncios; no se calcula el total.'
       else if (currencies.length > 1) {
         note += ' Monedas distintas; gasto no sumado.'
       } else {
@@ -1266,7 +1284,7 @@ export async function buildMarketingFunnelReport(
     if (!lead) continue
     const row = ensureUnit(lu.unit_id)
     row.interest.add(lu.lead_id)
-    row.temp[bucketTemp(lead.temperature)] += 1
+    row.temp[currentInterest(lead).bucket] += 1
   }
 
   // Citas → solo unidades de appointment_units
@@ -1314,7 +1332,7 @@ export async function buildMarketingFunnelReport(
           .range(from, to),
     ),
   )
-  const activeReservedLinks = reservedUnitLinks.filter((l) => !l.rejected)
+  const activeReservedLinks = reservedUnitLinks.filter((l) => !l.rejected && !internal.ids.has(l.lead_id))
   const titularCandidateLeadIds = [
     ...new Set(activeReservedLinks.map((l) => l.lead_id)),
   ]
@@ -1412,6 +1430,10 @@ export async function buildMarketingFunnelReport(
     projectId: input.projectId,
     universes: FUNNEL_UNIVERSES,
     adsAccount,
+    adsCatalog,
+    attention,
+    interestByLead,
+    adsLastSavedAt,
     totals: {
       leadsAcquiredInPeriod: leads.length,
       leadsWithAttribution: withAttr,

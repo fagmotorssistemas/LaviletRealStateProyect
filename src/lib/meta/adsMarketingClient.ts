@@ -6,6 +6,8 @@
  */
 
 import { selectPrimaryMetaResult } from '@/lib/meta/metaAdsActions'
+import { collectAdDestinationUrls } from './adPropertyIdentification'
+export { computeCrmCostPerLead } from './adsMetricMath'
 
 export type AdHierarchyResolution = {
   adId: string
@@ -124,22 +126,6 @@ export function isAdAccountMatch(
   return Boolean(actual && configured && actual === configured)
 }
 
-/**
- * CPL = gasto Insights del anuncio ÷ leads únicos CRM atribuidos (CTWA source_id) en el mismo período.
- * Sin denominador válido (>0) → null (“No disponible”).
- * No usa conversiones CAPI aceptadas ni resultados Meta como denominador.
- */
-export function computeCrmCostPerLead(
-  spend: number | null | undefined,
-  crmLeadsUnique: number | null | undefined,
-): number | null {
-  if (spend == null || !Number.isFinite(spend) || spend < 0) return null
-  if (crmLeadsUnique == null || !Number.isFinite(crmLeadsUnique) || crmLeadsUnique <= 0) {
-    return null
-  }
-  return Math.round((spend / crmLeadsUnique) * 100) / 100
-}
-
 async function graphGet<T>(
   url: string,
   fetchImpl: typeof fetch,
@@ -172,11 +158,11 @@ async function graphGet<T>(
 }
 
 /** Sigue paging.next hasta agotar (máx. páginas de seguridad). */
-async function graphGetAllDataRows(
+export async function graphGetAllDataRows(
   firstUrl: string,
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
-  maxPages = 40,
+  maxPages = Number.POSITIVE_INFINITY,
 ): Promise<
   | { ok: true; rows: Array<Record<string, unknown>>; pages: number; incomplete: boolean }
   | { ok: false; status: number; message: string; rows: Array<Record<string, unknown>>; pages: number }
@@ -184,7 +170,13 @@ async function graphGetAllDataRows(
   const rows: Array<Record<string, unknown>> = []
   let url: string | null = firstUrl
   let pages = 0
+  const visited = new Set<string>()
   while (url && pages < maxPages) {
+    const next = new URL(url)
+    if (next.protocol !== 'https:' || next.hostname !== 'graph.facebook.com' || visited.has(url)) {
+      return {ok:false,status:0,message:'invalid_or_repeated_pagination',rows,pages}
+    }
+    visited.add(url)
     pages += 1
     const res: Awaited<ReturnType<typeof graphGet<{
       data?: Array<Record<string, unknown>>
@@ -353,6 +345,20 @@ export async function resolveAdHierarchy(
     resolutionStatus: 'resolved',
     error: null,
   }
+}
+
+/** Read-only evidence, independent of delivery/Pixel/CAPI. No redirect crawling. */
+export async function fetchAdDestinationEvidence(adId: string, opts?: {
+  env?: NodeJS.ProcessEnv | Record<string,string|undefined>; fetchImpl?: typeof fetch
+}): Promise<{urls: string[]; verifiedAccount: boolean}> {
+  const creds = readAdsMarketingCredentials(opts?.env)
+  if (!creds || !/^\d+$/.test(adId)) return {urls:[],verifiedAccount:false}
+  const url = new URL(`https://graph.facebook.com/${creds.graphVersion}/${adId}`)
+  url.searchParams.set('fields','id,account_id,creative{object_url,link_url,object_story_spec,asset_feed_spec}')
+  url.searchParams.set('access_token',creds.token)
+  const result = await graphGet<Record<string,unknown>>(url.toString(),opts?.fetchImpl ?? fetch)
+  if (!result.ok || result.data.id !== adId || !isAdAccountMatch(String(result.data.account_id || ''),creds.adAccountId)) return {urls:[],verifiedAccount:false}
+  return {urls:collectAdDestinationUrls(result.data.creative),verifiedAccount:true}
 }
 
 /**
@@ -568,12 +574,14 @@ export async function fetchAccountAdInsightsForPeriod(
   url.searchParams.set('limit', '500')
   url.searchParams.set('access_token', creds.token)
 
-  const paged = await graphGetAllDataRows(url.toString(), fetchImpl, opts?.signal, 40)
+  const paged = await graphGetAllDataRows(url.toString(), fetchImpl, opts?.signal)
   const onlyWithSpend = opts?.onlyWithSpend !== false
   const ads: AdSpendSnapshot[] = []
+  const seenAdIds = new Set<string>()
   for (const row of paged.rows) {
     const snap = insightRowToSnapshot(row, period, fetchedAt)
-    if (!snap.adId) continue
+    if (!snap.adId || seenAdIds.has(snap.adId)) continue
+    seenAdIds.add(snap.adId)
     if (onlyWithSpend && !(snap.spend != null && snap.spend > 0)) continue
     ads.push(snap)
   }
@@ -584,8 +592,9 @@ export async function fetchAccountAdInsightsForPeriod(
   let currency: string | null = null
   if (currencies.length === 1) {
     currency = currencies[0]!
-    spendSumSameCurrency =
-      Math.round(ads.reduce((s, a) => s + (a.spend || 0), 0) * 100) / 100
+    spendSumSameCurrency = ads.every(a => a.spend != null)
+      ? Math.round(ads.reduce((s, a) => s + a.spend!, 0) * 100) / 100
+      : null
   } else if (currencies.length === 0 && ads.every((a) => a.spend == null || a.spend === 0)) {
     spendSumSameCurrency = 0
   }
@@ -600,4 +609,3 @@ export async function fetchAccountAdInsightsForPeriod(
     currency,
   }
 }
-

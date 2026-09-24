@@ -5,7 +5,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
-const { PGlite } = require('../tmp/integration-sql-tests/node_modules/@electric-sql/pglite')
+const { PGlite } = require('@electric-sql/pglite')
 const schema = { ...require('./fixtures/integration-schema.json'), ...require('./fixtures/manual-reset-schema.json') }
 const tenant = 'a1b2c3d4-0001-4000-8000-000000000001'
 const project = 'b1b2c3d4-0001-4000-8000-000000000001'
@@ -143,13 +143,11 @@ test('manual resets preserve other leads, back up context and prevent old follow
       assert.equal((await query('SELECT lv_reset_lavilet_nataly_lead() AS r'))[0].r.lead_id, nataly)
       assert.equal(await count('leads'), 2)
     })
-    await t.test('the complete SQL file installs the missing function and resets Nataly in one operation', async () => {
-      await db.exec('DROP FUNCTION lv_reset_lavilet_nataly_lead();')
-      const conversation = (await query('INSERT INTO conversations(lead_id,tenant_id,project_id) VALUES($1,$2,$3) RETURNING id', [nataly, tenant, project]))[0].id
-      await db.query("INSERT INTO messages(conversation_id,role,content) VALUES($1,'cliente','A new test')", [conversation])
+    await t.test('retired production operation refuses execution; historical fixtures stay isolated', async () => {
+      const before = await count('messages')
       const operation = fs.readFileSync(path.join(__dirname, '../supabase/operations/reset_nataly_test_lead.sql'), 'utf8')
-      await db.exec(operation)
-      assert.equal(await count('messages'), 0)
+      await assert.rejects(db.exec(operation), /DESTRUCTIVE_TEST_RESET_DISABLED/)
+      assert.equal(await count('messages'), before)
       assert.equal(await count('leads'), 2)
       assert.equal((await query("SELECT to_regprocedure('public.lv_reset_lavilet_nataly_lead()')::text AS fn"))[0].fn, 'lv_reset_lavilet_nataly_lead()')
     })
@@ -159,7 +157,7 @@ test('manual resets preserve other leads, back up context and prevent old follow
       const backupsBefore = await count('lv_manual_test_reset_backups')
       const otherBefore = await query('SELECT to_jsonb(l) AS lead FROM leads l WHERE id<>$1 ORDER BY id', [pablo])
       const installer = read('20260915120000_manual_pablo_test_reset.sql')
-      assert.equal(fs.readFileSync(path.join(__dirname, '../operations/activar_reinicio_pablo_y_nataly.sql'), 'utf8'), installer)
+      await assert.rejects(db.exec(fs.readFileSync(path.join(__dirname, '../operations/activar_reinicio_pablo_y_nataly.sql'), 'utf8')), /DESTRUCTIVE_TEST_RESET_DISABLED/)
       await db.exec(installer)
       await db.exec(installer)
       assert.equal(await count('messages'), 1)

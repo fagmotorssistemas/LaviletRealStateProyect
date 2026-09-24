@@ -224,7 +224,7 @@ test('unrelated business requests bypass pending property appointments, financin
     const result = await h.process(h.rows, async () => {})
     assert.equal(result.source, 'business_out_of_scope')
     assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
-    assert.equal(h.calls.some(c => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2', 'apply_lead_events'].includes(c.name)), false)
+    assert.equal(h.calls.some(c => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2', 'lv_evaluate_message_interest'].includes(c.name)), false)
   }
 })
 
@@ -593,7 +593,7 @@ test('vehicle requests and recommendation followups stay out of real estate work
     assert.match(reply, /no (?:los )?vendemos ni alquilamos/i)
     assert.match(reply, /suites, departamentos y locales comerciales/)
     assert.doesNotMatch(reply, /imprecisa|visita|financiamiento/)
-    assert.equal(h.calls.some(c => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2', 'apply_lead_events'].includes(c.name)), false)
+    assert.equal(h.calls.some(c => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2', 'lv_evaluate_message_interest'].includes(c.name)), false)
   }
 })
 
@@ -991,7 +991,7 @@ test('Saludos uses the minimal greeting through the real conversation flow, even
     const sent = h.calls.find(c => c.name === 'patch').args[2]
     assert.match(sent, /ayudarle/)
     assert.doesNotMatch(sent, /proyecto|Puertas del Sol|vivienda|La Vilet/i)
-    assert.equal(h.calls.filter(c => ['apply_lead_events', 'process_financing_message_v2', 'commercialReply'].includes(c.name)).length, 0)
+    assert.equal(h.calls.filter(c => ['lv_evaluate_message_interest', 'process_financing_message_v2', 'commercialReply'].includes(c.name)).length, 0)
   }
 })
 
@@ -1677,7 +1677,7 @@ test('test-only pauses every non-target lead and mirrors DETENER IA in Kommo', a
   assert.equal(h.calls.some(c => c.name === 'launch'), false)
   assert.equal(h.calls.filter(c => c.name === 'register_inbound_message').length, h.rows.length)
   assert.equal(result.message_persisted, true)
-  assert.equal(h.calls.some(c => ['apply_lead_events', 'commercialReply', 'process_financing_message_v2'].includes(c.name)), false)
+  assert.equal(h.calls.some(c => ['lv_evaluate_message_interest', 'commercialReply', 'process_financing_message_v2'].includes(c.name)), false)
 })
 test('duplicate inbound messages never produce another reply', async t => {
   live(t); const h = conversationHarness({ duplicate: true })
@@ -1691,7 +1691,7 @@ test('opt-out is persisted before its final notice and avoids scoring or financi
   await h.process(h.rows, async () => {})
   const preference = h.calls.find(c => c.name === 'set_tracking_preference')
   assert.equal(preference.args.p_consent, false)
-  assert.equal(h.calls.filter(c => c.name === 'apply_lead_events').length, 0)
+  assert.equal(h.calls.filter(c => c.name === 'lv_evaluate_message_interest').length, 0)
   assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length, 0)
 })
 test('a failed conversation send is not recorded as accepted', async t => {
@@ -1704,7 +1704,7 @@ test('a failed conversation send is not recorded as accepted', async t => {
 test('isolated greeting offers help without inventing commercial interest', async t => {
   live(t); const h = conversationHarness();
   await h.process([h.rows[0]], async () => {});
-  assert.equal(h.calls.filter(c => c.name === 'apply_lead_events').length, 0);
+  assert.equal(h.calls.filter(c => c.name === 'lv_evaluate_message_interest').length, 0);
   assert.equal(h.calls.filter(c => c.name === 'process_financing_message_v2').length, 0);
   assert.ok(JSON.stringify(h.calls.find(c => c.name === 'patch')).includes('En qué podemos ayudarle'));
 });
@@ -1716,7 +1716,7 @@ test('a second greeting stays generic without scoring or assuming a category', a
   await h.process([h.rows[0]], async () => {})
   const sent = h.calls.find(c => c.name === 'patch').args[2]
   assert.doesNotMatch(sent, /La Vilet|vivienda|local comercial/i)
-  assert.equal(h.calls.filter(c => c.name === 'apply_lead_events').length, 0)
+  assert.equal(h.calls.filter(c => c.name === 'lv_evaluate_message_interest').length, 0)
 })
 
 test('commercial reply receives the category and qualification declared in this same turn', async t => {
@@ -1879,7 +1879,7 @@ test('thanks after a recorded preference closes briefly without scoring, repeati
   await h.process([h.rows[0]], async () => {})
   assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Con mucho gusto.')
   assert.equal(h.calls.filter(c => c.name === 'ai' && c.args.prompt.startsWith('extractor_eventos')).length, 1)
-  assert.equal(h.calls.filter(c => ['lv_intake_visit_once', 'apply_lead_events'].includes(c.name)).length, 0)
+  assert.equal(h.calls.filter(c => c.name === 'lv_intake_visit_once' || (c.name === 'lv_evaluate_message_interest' && c.args.p_events.length > 0)).length, 0)
 })
 test('a second courtesy cannot generate an endless acknowledgement loop', async t => {
   live(t)
@@ -2705,7 +2705,7 @@ test('dialogue v2 interprets brochure and mixed opt-out before any content route
     await h.process([h.rows[0]], async () => {})
     assert.equal(h.calls.find(call => call.name === 'set_tracking_preference').args.p_consent, false)
     assert.match(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, /no recibir más mensajes/)
-    assert.equal(h.calls.some(call => ['handoff_lead', 'apply_lead_events', 'process_financing_message_v2', 'completeTurnReply'].includes(call.name)), false)
+    assert.equal(h.calls.some(call => ['handoff_lead', 'lv_evaluate_message_interest', 'process_financing_message_v2', 'completeTurnReply'].includes(call.name)), false)
     assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos')).length, 1)
   }
 })
@@ -3004,7 +3004,7 @@ test('silent or unclear audio never triggers the stale price, financing or appoi
   assert.match(h.calls.find(c => c.name === 'patch').args[2], /no alcancé a entender este audio.*enviarlo de nuevo o escribirme/s)
   assert.doesNotMatch(h.calls.find(c => c.name === 'patch').args[2], /precio|Pichincha|JEP|visita|claro, con gusto/i)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
-  assert.equal(h.calls.some(c => ['lv_collect_visit_intake', 'lv_client_select_visit_option', 'lv_apply_client_visit_intent', 'process_financing_message_v2', 'handoff_lead', 'apply_lead_events'].includes(c.name)), false)
+  assert.equal(h.calls.some(c => ['lv_collect_visit_intake', 'lv_client_select_visit_option', 'lv_apply_client_visit_intent', 'process_financing_message_v2', 'handoff_lead', 'lv_evaluate_message_interest'].includes(c.name)), false)
 })
 
 test('asking for other times overrides an erroneous AI acceptance and notifies the advisor for alternatives', async t => {

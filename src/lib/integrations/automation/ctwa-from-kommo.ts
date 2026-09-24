@@ -31,6 +31,16 @@ export type CtwaStored = CtwaCapture & {
 const CLID_MAX = 512
 const PATH_MAX = 300
 
+export type AdReferral = { sourceId: string; sourceUrl: string | null; referralSourceType: 'ad' }
+
+/** A referral can identify an ad even when no conversion click identifier is sent. */
+export function extractAdReferral(flat: Record<string, string>, index: string): AdReferral | null {
+  const sourceId = (getFlat(flat,index,'referral][source_id') || getFlat(flat,index,'referral][sourceId')).trim()
+  const type = (getFlat(flat,index,'referral][source_type') || getFlat(flat,index,'referral][sourceType')).trim()
+  if (type !== 'ad' || !/^\d+$/.test(sourceId)) return null
+  return {sourceId,referralSourceType:'ad',sourceUrl:(getFlat(flat,index,'referral][source_url') || getFlat(flat,index,'referral][sourceUrl')).trim().slice(0,2000) || null}
+}
+
 /** Claves conocidas bajo message[add][i]… (form/JSON aplanado). */
 const KNOWN_CLID_SUFFIXES = [
   'referral][ctwa_clid',

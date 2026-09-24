@@ -1,11 +1,11 @@
 'use server'
 
-import { assertCanAccessCrmPath } from '@/lib/auth/session'
+import { assertCanAccessCrmPath, assertCanWriteCrm } from '@/lib/auth/session'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 import { LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '@/lib/integrations/lavilet'
 import {
-  assignAdPromotedUnit,
-  clearAdPromotedUnits,
+  replaceAdPromotedProperties,
+  listAdPropertyHistory,
 } from '@/lib/meta/adPromotedUnits'
 import {
   adsMarketingMissingHints,
@@ -22,6 +22,8 @@ import {
   type MarketingFunnelPeriod,
   type MarketingFunnelReport,
 } from '@/services/marketingFunnel.service'
+
+import { normalizePropertyTargets, type PropertyTarget } from '@/lib/meta/adPropertyIdentification'
 
 const PATH = '/inmobiliaria/marketing/metricas'
 
@@ -159,6 +161,9 @@ export async function listFunnelLeadDetails(input: {
     const admin = tryCreateAdminClient()
     const db = admin || userClient
 
+    const project = await db.from('projects').select('id').eq('id',projectId).eq('tenant_id',tenantId).maybeSingle()
+    if (project.error || !project.data) return {ok:false,error:'project_not_in_authorized_tenant'}
+
     type LeadQueryRow = {
       id: string
       name: string | null
@@ -178,7 +183,6 @@ export async function listFunnelLeadDetails(input: {
         'id, name, phone, created_at, temperature, status, assigned_profile:profiles!leads_assigned_to_fkey(full_name)',
       )
       .eq('tenant_id', tenantId)
-      .eq('project_id', projectId)
       .in('id', ids)
 
     if (error) return { ok: false, error: error.message }
@@ -217,128 +221,56 @@ export async function listFunnelLeadDetails(input: {
   }
 }
 
-export async function assignPromotedUnitAction(input: {
-  adId: string
-  unitId?: string | null
-  externalLabel?: string | null
-  projectId: string
-  tenantId?: string
-}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  try {
-    await assertCanAccessCrmPath(PATH)
-    const userClient = await createClient()
-    const {
-      data: { user },
-    } = await userClient.auth.getUser()
-    if (!user) return { ok: false, error: 'no_autenticado' }
+type PropertyActionScope = {adId: string; projectId: string; tenantId?: string}
 
-    const tenantIds = await getAccessibleTenantIds(userClient)
-    const tenantId = input.tenantId || LAVILET_TENANT_ID
-    if (!tenantIds.includes(tenantId)) {
-      return { ok: false, error: 'tenant_fuera_de_alcance' }
-    }
-
-    const admin = tryCreateAdminClient()
-    if (!admin) {
-      return { ok: false, error: 'Falta cliente admin (service_role)' }
-    }
-
-    const creds = readAdsMarketingCredentials()
-    if (!creds) return { ok: false, error: 'ads_credentials_required' }
-    const adId = String(input.adId || '').trim()
-    if (!adId) return { ok: false, error: 'ad_id_required' }
-    const hierarchy = await resolveAdHierarchy(adId)
-    if (hierarchy.resolutionStatus !== 'resolved') {
-      return {
-        ok: false,
-        error: hierarchy.error || 'ad_not_resolved_in_graph',
-      }
-    }
-    if (!isAdAccountMatch(hierarchy.adAccountId, creds.adAccountId)) {
-      return { ok: false, error: 'ad_not_in_configured_account' }
-    }
-    const { data: project, error: projectError } = await admin
-      .from('projects')
-      .select('id,tenant_id')
-      .eq('id', input.projectId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle()
-    if (projectError) return { ok: false, error: projectError.message }
-    if (!project) return { ok: false, error: 'project_not_in_tenant' }
-    if (input.unitId) {
-      const { data: unit, error: unitError } = await admin
-        .from('units')
-        .select('id,tenant_id,project_id')
-        .eq('id', input.unitId)
-        .maybeSingle()
-      if (unitError) return { ok: false, error: unitError.message }
-      if (
-        !unit ||
-        String(unit.tenant_id) !== tenantId ||
-        String(unit.project_id) !== input.projectId
-      ) {
-        return { ok: false, error: 'unit_not_in_tenant_project' }
-      }
-    }
-    return assignAdPromotedUnit(admin, {
-      tenantId,
-      projectId: input.projectId,
-      adId,
-      adAccountId: creds.adAccountId,
-      unitId: input.unitId,
-      externalLabel: input.externalLabel,
-      userId: user.id,
-    })
-  } catch (error) {
-    return {
-      ok: false,
-      error:
-        error instanceof Error ? error.message : 'No se pudo asignar la unidad',
-    }
-  }
+async function authorizePropertyScope(input: PropertyActionScope, write: boolean) {
+  await assertCanAccessCrmPath(PATH)
+  if (write) await assertCanWriteCrm()
+  const userClient = await createClient()
+  const {data:{user}} = await userClient.auth.getUser()
+  if (!user) throw new Error('No autenticado')
+  const tenantId = input.tenantId || LAVILET_TENANT_ID
+  const tenantIds = await getAccessibleTenantIds(userClient)
+  if (!tenantIds.includes(tenantId)) throw new Error('Proyecto fuera de su acceso')
+  const admin = tryCreateAdminClient()
+  if (!admin) throw new Error('Servicio de identificación no disponible')
+  const {data: project,error} = await admin.from('projects').select('id,tenant_id')
+    .eq('id',input.projectId).eq('tenant_id',tenantId).maybeSingle()
+  if (error || !project) throw new Error('Proyecto fuera de su acceso')
+  const adId = String(input.adId || '').trim()
+  if (!/^\d{5,30}$/.test(adId)) throw new Error('Anuncio no válido')
+  const creds = readAdsMarketingCredentials()
+  if (!creds) throw new Error('No se pudo verificar la cuenta publicitaria')
+  const hierarchy = await resolveAdHierarchy(adId)
+  if (hierarchy.resolutionStatus !== 'resolved' || !isAdAccountMatch(hierarchy.adAccountId,creds.adAccountId)) throw new Error('El anuncio no pertenece a la cuenta publicitaria configurada o no pudo verificarse')
+  return {admin,userId:user.id,tenantId,projectId:input.projectId,adAccountId:creds.adAccountId,adId}
 }
 
-export async function clearPromotedUnitsAction(input: {
-  adId: string
-  projectId: string
-  tenantId?: string
-}): Promise<
-  { ok: true; superseded: number } | { ok: false; error: string }
-> {
+export async function assignPromotedUnitAction(input: PropertyActionScope & {
+  targets: PropertyTarget[]; expectedIds: string[]; note: string
+}): Promise<{ok:true;id:string}|{ok:false;error:string}> {
   try {
-    await assertCanAccessCrmPath(PATH)
-    const userClient = await createClient()
-    const {
-      data: { user },
-    } = await userClient.auth.getUser()
-    if (!user) return { ok: false, error: 'no_autenticado' }
-
-    const tenantIds = await getAccessibleTenantIds(userClient)
-    const tenantId = input.tenantId || LAVILET_TENANT_ID
-    if (!tenantIds.includes(tenantId)) {
-      return { ok: false, error: 'tenant_fuera_de_alcance' }
+    const scope = await authorizePropertyScope(input,true)
+    const targets = normalizePropertyTargets(input.targets)
+    if (!targets.length) throw new Error('Añada al menos una propiedad')
+    if (!Array.isArray(input.expectedIds) || input.expectedIds.length > 100 || input.expectedIds.some(id => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id))) throw new Error('Recargue el informe antes de guardar')
+    const note = String(input.note || '').trim()
+    if (!note || note.length > 1000) throw new Error('Indique cómo confirmó la propiedad (máximo 1000 caracteres)')
+    const unitIds = targets.map(t=>t.unitId).filter((id):id is string=>Boolean(id))
+    if (unitIds.length) {
+      const {data,error} = await scope.admin.from('units').select('id')
+        .eq('tenant_id',scope.tenantId).eq('project_id',scope.projectId).in('id',unitIds)
+      if (error || data?.length !== unitIds.length) throw new Error('Alguna unidad no pertenece a este proyecto')
     }
+    return await replaceAdPromotedProperties(scope.admin,{...scope,targets,expectedIds:input.expectedIds,note})
+  } catch(error) {return {ok:false,error:error instanceof Error ? error.message : 'No se pudo guardar la propiedad'}}
+}
 
-    const admin = tryCreateAdminClient()
-    if (!admin) {
-      return { ok: false, error: 'Falta cliente admin (service_role)' }
-    }
-
-    return clearAdPromotedUnits(admin, {
-      tenantId,
-      projectId: input.projectId,
-      adId: input.adId,
-      userId: user.id,
-    })
-  } catch (error) {
-    return {
-      ok: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : 'No se pudieron limpiar las unidades promocionadas',
-    }
-  }
+export async function listPromotedPropertyHistoryAction(input: PropertyActionScope) {
+  try {
+    const scope = await authorizePropertyScope(input,false)
+    return {ok:true as const,rows:await listAdPropertyHistory(scope.admin,scope)}
+  } catch {return {ok:false as const,error:'No se pudo consultar el historial o verificar su acceso'}}
 }
 
 /**

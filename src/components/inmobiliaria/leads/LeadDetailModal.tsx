@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { listLeadMessageEvidence } from '@/app/inmobiliaria/leads/evidence-actions'
+import { mergeMessageEvidence } from '@/lib/inmobiliaria/mergeMessageEvidence'
 import { createPortal } from 'react-dom'
 import {
   X, Phone, DollarSign, CreditCard, MessageSquare,
@@ -83,7 +85,8 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
         setResume(leadData.resume || '')
         setBudget(leadData.budget?.toString() || '')
         setWantsFinancing(leadData.financing || false)
-        return listLeadTimeline(supabase, leadId, tenantId)
+        return Promise.all([listLeadTimeline(supabase, leadId, tenantId),listLeadMessageEvidence(leadId,tenantId)])
+          .then(([existing,evidence])=>mergeMessageEvidence(existing,evidence.rows))
       })
       .then((timelineData) => {
         setTimeline(timelineData)
@@ -195,7 +198,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
   }
 
   const handleTemperatureChange = async (temperature: LeadTemperature) => {
-    if (!lead || temperature === (lead.temperature || 'frio')) return
+    if (!lead || (temperature === lead.temperature && lead.temperature_updated_at)) return
     setTemperatureDropdownOpen(false)
     try {
       await updateLeadTemperature(supabase, lead.id, temperature)
@@ -241,7 +244,8 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
         content: interactionContent,
       })
       setInteractionContent('')
-      const updated = await listLeadTimeline(supabase, lead.id, tenantId)
+      const [existing,evidence] = await Promise.all([listLeadTimeline(supabase, lead.id, tenantId),listLeadMessageEvidence(lead.id,tenantId)])
+      const updated = mergeMessageEvidence(existing,evidence.rows)
       setTimeline(updated)
       toast.success('Interacción registrada')
     } catch {
@@ -687,7 +691,9 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                                       <span className="text-xs text-slate-400">• Asesor</span>
                                     )}
                                   </div>
-                                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{item.message.content || '—'}</p>
+                                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{item.message.content || `Mensaje ${item.message.media_type || 'multimedia'} registrado`}</p>
+                                  <p className="text-xs text-slate-500">{item.message.role==='desconocido'?'Autor sin identificar · ':''}{item.message.delivery_status==='sent'?'Enviado':item.message.delivery_status==='delivered'?'Entregado':item.message.delivery_status==='read'?'Leído':['error','failed'].includes(item.message.delivery_status || '')?'Envío fallido':'Envío sin comprobar'}{item.message.external_message_id?' · ID original: '+item.message.external_message_id:''}</p>
+                                  {item.message.media_url ? <a href={item.message.media_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-[#5b4a9a] underline">Abrir archivo adjunto</a> : null}
                                 </div>
                               </div>
                             )

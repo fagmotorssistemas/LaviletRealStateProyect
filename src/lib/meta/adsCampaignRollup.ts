@@ -3,7 +3,7 @@
  * No trata CTWA source_id como campaign_id.
  * No suma monedas distintas; sin gasto verificable o leads≤0 → CPL null.
  */
-import { computeCrmCostPerLead } from '@/lib/meta/adsMarketingClient'
+import { computeCrmCostPerLead } from '@/lib/meta/adsMetricMath'
 import type { TemperatureBucket } from '@/services/marketingFunnel.logic'
 import { emptyTemp } from '@/services/marketingFunnel.logic'
 
@@ -13,6 +13,7 @@ export type AdRowForCampaignRollup = {
   campaignName: string | null
   resolutionStatus: string
   leadsUnique: number
+  leadIds?: string[]
   temperature: Record<TemperatureBucket, number>
   adSpend: number | null
   currency: string | null
@@ -59,6 +60,8 @@ export function rollupAttributedAdsByCampaign(
     campaignName: string | null
     adIds: Set<string>
     leadsUnique: number
+    leadIds: Set<string>
+    missingSpend: boolean
     temperature: Record<TemperatureBucket, number>
     spends: Array<{ spend: number; currency: string | null }>
     metaResults: number[]
@@ -78,6 +81,8 @@ export function rollupAttributedAdsByCampaign(
         campaignName: row.campaignName,
         adIds: new Set(),
         leadsUnique: 0,
+        leadIds: new Set(),
+        missingSpend: false,
         temperature: emptyTemp(),
         spends: [],
         metaResults: [],
@@ -87,8 +92,11 @@ export function rollupAttributedAdsByCampaign(
       map.set(campaignId, acc)
     }
     if (row.campaignName && !acc.campaignName) acc.campaignName = row.campaignName
+    if (row.leadIds) for (const id of row.leadIds) acc.leadIds.add(id)
+    if (row.adId && acc.adIds.has(row.adId)) continue
     if (row.adId) acc.adIds.add(row.adId)
-    acc.leadsUnique += row.leadsUnique
+    if (!row.leadIds) acc.leadsUnique += row.leadsUnique
+    if (row.adSpend == null || !row.currency) acc.missingSpend = true
     for (const k of Object.keys(acc.temperature) as TemperatureBucket[]) {
       acc.temperature[k] += row.temperature[k] || 0
     }
@@ -123,7 +131,7 @@ export function rollupAttributedAdsByCampaign(
     let currency: string | null = null
     let note =
       'Gasto = suma Insights de anuncios CTWA resueltos a esta campaña (no es necesariamente el gasto total del planificador Meta). source_id ≠ campaign_id.'
-    if (acc.spends.length === 0) {
+    if (acc.spends.length === 0 || acc.missingSpend) {
       adSpend = null
       note += ' Sin gasto verificable → CPL No disponible.'
     } else if (currencies.length > 1) {
@@ -143,7 +151,7 @@ export function rollupAttributedAdsByCampaign(
       campaignId: acc.campaignId,
       campaignName: acc.campaignName,
       adCount: acc.adIds.size,
-      leadsUnique: acc.leadsUnique,
+      leadsUnique: acc.leadsUnique + acc.leadIds.size,
       temperature: acc.temperature,
       adSpendSum,
       campaignInsightsSpend: null,
@@ -153,7 +161,7 @@ export function rollupAttributedAdsByCampaign(
       spendComparisonCurrency: null,
       adSpend,
       currency,
-      costPerLead: computeCrmCostPerLead(adSpend, acc.leadsUnique),
+      costPerLead: computeCrmCostPerLead(adSpend, acc.leadsUnique + acc.leadIds.size),
       metaReportedResults,
       spendStale: acc.spendStale,
       spendFetchedAt: acc.spendFetchedAt,

@@ -112,6 +112,9 @@ async function register(events: Inbound[], guard: Guard) {
     registration = result
     // First-touch ctwa_clid si Kommo lo trajo; mensajes sin clid no borran captura previa.
     await preserveCtwaForContact({
+      leadId: text(result.lead_id),
+      occurredAt: event.sentAt,
+      adReferral: event.adReferral,
       contactId: event.contactId,
       kommoId: event.kommoId,
       externalMessageId: event.externalId,
@@ -576,7 +579,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     } catch {
       /* soft-fail */
     }
-    if ((extracted.events as string[]).length) await rpc('apply_lead_events', { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
+    if (!inbound.mediaFailed && current.trim()) await rpc('lv_evaluate_message_interest', { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
     // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
     const unitId = !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
     if (unitId) extracted.preferred_category = reference.matches[0].category

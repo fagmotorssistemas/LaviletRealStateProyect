@@ -1251,13 +1251,22 @@ export async function listLeadTimeline(
 
   const conversationIds = (conversations || []).map((row) => row.id)
   const messagesPromise = conversationIds.length
-    ? supabase
-        .from('messages')
-        .select('id, role, content, sent_at')
-        .in('conversation_id', conversationIds)
-        .order('sent_at', { ascending: false })
-        .limit(200)
-    : Promise.resolve({ data: [] as Array<{ id: string; role: string; content: string | null; sent_at: string }>, error: null })
+    ? (async () => {
+        const rows: Array<{ id: string; role: string; content: string | null; media_type: string | null; media_url: string | null; sent_at: string }> = []
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabase
+            .from('messages')
+            .select('id, role, content, media_type, media_url, external_message_id, sent_at')
+            .in('conversation_id', conversationIds)
+            .order('sent_at', { ascending: false })
+            .range(from, from + 999)
+          if (error) return { data: null, error }
+          rows.push(...(data || []))
+          if (!data || data.length < 1000) break
+        }
+        return { data: rows, error: null }
+      })()
+    : Promise.resolve({ data: [] as Array<{ id: string; role: string; content: string | null; media_type: string | null; media_url: string | null; sent_at: string }>, error: null })
 
   const [interactions, messagesResult] = await Promise.all([interactionsPromise, messagesPromise])
   if (messagesResult.error) throw messagesResult.error

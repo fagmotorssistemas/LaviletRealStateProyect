@@ -1,5 +1,6 @@
 import 'server-only'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { fetchWithTimeout } from './request'
 
 function readEnv(name: string) {
   const raw = String(process.env[name] ?? '')
@@ -43,6 +44,7 @@ export function tryCreateAdminClient(): SupabaseClient | null {
   if (!serviceKeyMatchesProject(url, key)) return null
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: fetchWithTimeout },
   })
 }
 

@@ -41,6 +41,9 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
         p_external_message_id: event.externalId, p_content: event.text || '[Archivo recibido; interpretación pendiente]', p_tracking_consent: false }))
       if (!text(registration.lead_id) || !text(registration.conversation_id)) throw Error('INBOUND_RPC_CONTRACT_MISMATCH')
       await preserveCtwaForContact({
+        leadId: text(registration.lead_id),
+        occurredAt: event.sentAt,
+        adReferral: event.adReferral,
         contactId: event.contactId,
         kommoId: event.kommoId,
         externalMessageId: event.externalId,

@@ -14,6 +14,7 @@ import {
 } from '@/lib/integrations/automation/webhook'
 import { accelerateTestMessages, testResponseMode } from '@/lib/integrations/automation/test-response-mode'
 import { TEST_RESPONSE_SECONDS } from '@/lib/inmobiliaria/testResponseMode'
+import type { KommoMessageEvidence } from '@/lib/integrations/automation/message-evidence'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,10 +25,10 @@ export async function POST(request: Request) {
   const provided = request.headers.get('x-kommo-webhook-secret') || new URL(request.url).searchParams.get('key')
   if (!secretMatches(provided, process.env.KOMMO_WEBHOOK_SECRET)) return NextResponse.json({ error: 'No autorizado' }, { status: 401, headers })
   const settings = automationSettings()
-  if (!settings.live) return NextResponse.json({ error: 'Recepción no activada' }, { status: 503, headers })
   const correlationId = request.headers.get('x-request-id')?.trim() || randomUUID()
   let events: Inbound[] = []
   let advisorOutbound: AdvisorOutbound[] = []
+  let evidence: KommoMessageEvidence[] = []
   let probe: KommoCtwaFieldProbe | null = null
   try {
     const raw = await limitedBody(request)
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       }))
     }
     const normalized = normalizeKommoWebhook(raw, contentType)
+    evidence = normalized.evidence
     events = normalized.inbound.filter(event => Date.parse(event.sentAt) >= Date.parse(settings.activatedAt))
     advisorOutbound = normalized.advisorOutbound
       .filter(event => Date.parse(event.sentAt) >= Date.parse(settings.activatedAt))
@@ -53,9 +55,18 @@ export async function POST(request: Request) {
   }
   try {
     // Persist before acknowledging. An optional post-response task wakes the same worker.
-    const inserted = events.length ? await rpc<number>('lv_app_receive', { p_events: events }) : 0
-    const advisorInserted = advisorOutbound.length
-      ? await rpc<number>('lv_app_receive_advisor_outbound', { p_events: advisorOutbound }) : 0
+    // Independent, idempotent journal: captures bot/unknown authors and media
+    // before the existing activation/manual-takeover filters. No business effects.
+    const persisted = await rpc<{evidence_inserted:number;inbound_inserted:number;advisor_inserted:number}>('lv_receive_kommo_observation', {
+      p_evidence: evidence,
+      p_inbound: settings.live ? events : [],
+      p_advisor: settings.live ? advisorOutbound : [],
+    })
+    // Synchronization does not depend on permission to launch commercial bots.
+    // Preserve the existing automation gate after the observation is durable.
+    if (!settings.live) return NextResponse.json({ accepted: true, evidence_observed: evidence.length, automation: 'disabled' }, { status: 200, headers })
+    const inserted = persisted.inbound_inserted
+    const advisorInserted = persisted.advisor_inserted
     if(inserted) after(async()=>{
       try {
         const mode=await testResponseMode()
@@ -78,6 +89,7 @@ export async function POST(request: Request) {
       inserted: inserted + advisorInserted,
       inbound_inserted: inserted,
       advisor_outbound_inserted: advisorInserted,
+      evidence_observed: evidence.length,
       correlationId,
       ctwaProbe: probe
         ? {
@@ -88,6 +100,8 @@ export async function POST(request: Request) {
         : null,
     }, { status: 200, headers })
   } catch {
+    // No payload, secret or URL in logs. 503 is not proof of a provider retry.
+    console.error(JSON.stringify({event:'kommo_observation_persist_failed',correlationId,evidenceCount:evidence.length,inboundCount:events.length,advisorCount:advisorOutbound.length}))
     return NextResponse.json({ error: 'No se pudo persistir el evento' }, { status: 503, headers })
   }
 }

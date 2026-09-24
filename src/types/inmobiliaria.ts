@@ -343,6 +343,10 @@ export interface LeadWhatsappMessage {
   id: string
   role: string
   content: string | null
+  media_type?: string | null
+  media_url?: string | null
+  external_message_id?: string | null
+  delivery_status?: string | null
   sent_at: string
   direction: 'inbound' | 'outbound'
 }
