@@ -4,13 +4,14 @@ export const UNIT_QUERY_KEY = 'unidad'
 export const UNIT_SHARE_PATH = '/inicio'
 
 /** Solo origen + /inicio?unidad=208 — sin tracking ni otros params. */
-export function buildUnitShareUrl(unitNumber: string, opts?: { origin?: string }) {
+export function buildUnitShareUrl(unitNumber: string, opts?: { origin?: string; locale?: 'es' | 'en' }) {
   const raw = (unitNumber || '').trim()
   const origin =
     opts?.origin ||
     (typeof window !== 'undefined' ? window.location.origin : 'https://lavilet.com')
   const url = new URL(UNIT_SHARE_PATH, origin)
   if (raw) url.searchParams.set(UNIT_QUERY_KEY, raw)
+  if (opts?.locale === 'en') url.searchParams.set('lang', 'en')
   return url.toString()
 }
 
@@ -29,7 +30,10 @@ export function writeUnitQueryParam(unitNumber: string | null) {
   // Mantener path actual (inicio / tour / showroom) pero dejar solo `unidad` limpio.
   const next = new URL(url.pathname, url.origin)
   if (raw) next.searchParams.set(UNIT_QUERY_KEY, raw)
-  window.history.replaceState(null, '', `${next.pathname}${next.search}`)
+  const language = url.searchParams.get('lang')
+  if (language === 'es' || language === 'en') next.searchParams.set('lang', language)
+  next.hash = url.hash
+  window.history.replaceState(window.history.state, '', `${next.pathname}${next.search}${next.hash}`)
 }
 
 export function findUnitByNumber<T extends { unit_number: string }>(

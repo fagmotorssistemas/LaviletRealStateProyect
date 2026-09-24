@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
@@ -25,6 +27,8 @@ export function TourLeadGate({
   onClose: () => void
   onIdentified: () => void
 }) {
+  const { t, locale } = useTourLanguage()
+
   const [pending, setPending] = useState(false)
   const [consented, setConsented] = useState(false)
   const shown = Boolean(typology)
@@ -55,7 +59,7 @@ export function TourLeadGate({
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     if (data.get('consent') !== 'on') {
-      toast.error('Marque la casilla para enviarle planos y disponibilidad')
+      toast.error(t('Marque la casilla para enviarle planos y disponibilidad'))
       return
     }
     setPending(true)
@@ -72,14 +76,14 @@ export function TourLeadGate({
         finish: finish || null,
         light: light || null,
       })
-      toast.success('Listo. Le escribiremos con planos y disponibilidad.')
+      toast.success(t('Listo. Le escribiremos con planos y disponibilidad.'))
       onIdentified()
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       toast.error(
-        message && !/<!DOCTYPE|<html|__next_error__/i.test(message)
+        t(message && !/<!DOCTYPE|<html|__next_error__/i.test(message)
           ? message
-          : 'No se pudo enviar. Intenta de nuevo.',
+          : 'No se pudo enviar. Intenta de nuevo.'),
       )
     } finally {
       setPending(false)
@@ -98,10 +102,9 @@ export function TourLeadGate({
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[9px] font-medium tracking-[0.26em] text-[#BDA27E] uppercase">
-              Showroom Lavilet
-            </p>
+              {t(" Showroom Lavilet ")}</p>
             <p className="mt-1.5 text-[13px] leading-relaxed text-[#2B1A18]/88">
-              {tourGateCopy(shown ? typology : '', roomLabel)}
+              {t(tourGateCopy(shown ? typology : '', roomLabel, locale))}
             </p>
           </div>
           <button
@@ -118,43 +121,42 @@ export function TourLeadGate({
             }}
             className="shrink-0 pt-0.5 text-[10px] font-medium tracking-[0.14em] text-[#2B1A18]/70 uppercase underline decoration-[#2B1A18]/25 underline-offset-4 hover:text-[#2B1A18]"
           >
-            Seguir viendo
-          </button>
+            {t(" Seguir viendo ")}</button>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <label className="min-w-0">
-            <span className="sr-only">Nombre</span>
+            <span className="sr-only">{t("Nombre")}</span>
             <input
               id="gate-name"
               name="name"
               required
               autoComplete="name"
-              placeholder="Nombre"
+              placeholder={t("Nombre")}
               className={field}
             />
           </label>
           <label className="min-w-0">
-            <span className="sr-only">WhatsApp</span>
+            <span className="sr-only">{t("WhatsApp")}</span>
             <input
               id="gate-phone"
               name="phone"
               type="tel"
               required
               autoComplete="tel"
-              placeholder="WhatsApp"
+              placeholder={t("WhatsApp")}
               className={field}
             />
           </label>
           <label className="col-span-2 min-w-0">
-            <span className="sr-only">Correo</span>
+            <span className="sr-only">{t("Correo")}</span>
             <input
               id="gate-email"
               name="email"
               type="email"
               required
               autoComplete="email"
-              placeholder="Correo"
+              placeholder={t("Correo")}
               className={field}
             />
           </label>
@@ -170,10 +172,9 @@ export function TourLeadGate({
             className="mt-0.5 h-3 w-3 shrink-0 accent-[#BDA27E]"
           />
           <span>
-            Autorizo que La Vilet me contacte.{' '}
+            {t(" Autorizo que La Vilet me contacte.")}{t(' ')}
             <a href="/privacidad" className="underline decoration-[#2B1A18]/25 underline-offset-2 hover:text-[#2B1A18]">
-              Privacidad
-            </a>
+              {t(" Privacidad ")}</a>
           </span>
         </label>
 
@@ -182,7 +183,7 @@ export function TourLeadGate({
           disabled={pending || !consented}
           className="mt-3 h-10 w-full cursor-pointer bg-[#2B1A18] text-[11px] font-medium tracking-[0.22em] text-[#f7f3ee] uppercase transition-colors hover:bg-[#3d2a24] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {pending ? 'Enviando…' : 'Enviar WhatsApp'}
+          {t(pending ? 'Enviando…' : 'Enviar WhatsApp')}
         </button>
       </form>
     </div>

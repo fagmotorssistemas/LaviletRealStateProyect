@@ -1,14 +1,18 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+import type { TourLocale } from '@/lib/tour/tourMessages'
+
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { useVoiceInterruption } from '@/hooks/useVoiceInterruption'
+import { sanitizeVoiceConversation, type VoiceConversationTurn } from '@/lib/tour/voiceConversation'
+import { isVoiceQuestion } from '@/lib/tour/voiceTurnIntent'
 import { Loader2, Mic, MicOff, X } from 'lucide-react'
 import {
   EMPTY_VOICE_FILTERS,
   TOUR_VOICE_ASSISTANT_NAME,
   VOICE_FAREWELL,
-  hasAskedVoicePhone,
   isConversationEnd,
   isShortAffirmative,
   isShortDecline,
@@ -18,7 +22,6 @@ import {
   splitSpeakChunks,
   toVoiceCatalog,
   voiceAssistantGreeting,
-  voiceCloseHintLine,
   wantsLeavePhone,
   withSoftPhoneAsk,
   type VoiceAssistFilters,
@@ -180,10 +183,10 @@ function pickMime(): { mime: string; ext: string } {
   return { mime: '', ext: 'webm' }
 }
 
-function pickWarmVoice(): SpeechSynthesisVoice | null {
+function pickWarmVoice(locale: TourLocale): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !window.speechSynthesis) return null
   const voices = window.speechSynthesis.getVoices()
-  const spanish = voices.filter((v) => v.lang.toLowerCase().startsWith('es'))
+  const spanish = voices.filter((v) => v.lang.toLowerCase().startsWith(locale))
   const prefer =
     /sabina|paulina|lucia|lucía|monica|mónica|dalia|elena|soledad|female|mujer|zira|google español|microsoft sabina|es-mx|es-ec|es-us/i
   return spanish.find((v) => prefer.test(v.name) || prefer.test(v.lang)) || spanish[0] || null
@@ -211,20 +214,20 @@ type TourSpeechRecognitionEvent = {
   }>
 }
 
-function speakWithBrowser(text: string): Promise<void> {
+function speakWithBrowser(text: string, locale: TourLocale): Promise<void> {
   if (typeof window === 'undefined' || !window.speechSynthesis) return Promise.resolve()
   return new Promise((resolve) => {
     try {
       window.speechSynthesis.cancel()
       const utter = new SpeechSynthesisUtterance(text)
-      utter.lang = 'es-EC'
+      utter.lang = locale === 'en' ? 'en-US' : 'es-EC'
       utter.rate = 0.94
       utter.pitch = 1.02
       utter.volume = 1
-      const voice = pickWarmVoice()
+      const voice = pickWarmVoice(locale)
       if (voice) {
         utter.voice = voice
-        utter.lang = voice.lang || 'es-EC'
+        utter.lang = voice.lang || utter.lang
       }
       let settled = false
       const finish = () => {
@@ -342,14 +345,14 @@ function base64ToAudioBlob(base64: string): Blob {
   return new Blob([bytes], { type: 'audio/mpeg' })
 }
 
-async function fetchOpenAiSpeakBlob(text: string): Promise<Blob | null> {
+async function fetchOpenAiSpeakBlob(text: string, locale: TourLocale = 'es'): Promise<Blob | null> {
   const controller=new AbortController();speechRequests.add(controller)
   try {
     const res = await fetch('/api/tour/voice-assist/speak', {
       signal:controller.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text.slice(0, 600) }),
+      body: JSON.stringify({ text: text.slice(0, 600), locale }),
     })
     if (!res.ok) return null
     const blob = await res.blob()
@@ -373,9 +376,11 @@ async function speakText(
   opts?: {
     firstAudioBase64?: string | null
     onChunk?: (chunk: string, index: number) => void
+    locale?: TourLocale
   },
 ): Promise<void> {
   const line = text.replace(/\s+/g, ' ').trim()
+  const locale = opts?.locale ?? 'es'
   if (!line || typeof window === 'undefined') return
 
   stopSpokenAudio()
@@ -392,28 +397,28 @@ async function speakText(
   if (opts?.firstAudioBase64) {
     const first = base64ToAudioBlob(opts.firstAudioBase64)
     notify(0)
-    if (chunks.length > 1) nextFetch = fetchOpenAiSpeakBlob(chunks[1]!)
+    if (chunks.length > 1) nextFetch = fetchOpenAiSpeakBlob(chunks[1]!, locale)
     await playAudioBlob(first, seq)
     if (seq !== speakSeq) return
     index = 1
   } else {
-    nextFetch = fetchOpenAiSpeakBlob(chunks[0]!)
+    nextFetch = fetchOpenAiSpeakBlob(chunks[0]!, locale)
   }
 
   for (; index < chunks.length; index++) {
     if (seq !== speakSeq) return
     notify(index)
-    const blob = await (nextFetch ?? fetchOpenAiSpeakBlob(chunks[index]!))
+    const blob = await (nextFetch ?? fetchOpenAiSpeakBlob(chunks[index]!, locale))
     nextFetch = null
     if (seq !== speakSeq) return
 
     if (!blob) {
-      await speakWithBrowser(chunks.slice(index).join(' '))
+      await speakWithBrowser(chunks.slice(index).join(' '), locale)
       return
     }
 
     if (index + 1 < chunks.length) {
-      nextFetch = fetchOpenAiSpeakBlob(chunks[index + 1]!)
+      nextFetch = fetchOpenAiSpeakBlob(chunks[index + 1]!, locale)
     }
     await playAudioBlob(blob, seq)
   }
@@ -437,6 +442,8 @@ export function TourVoiceAssist({
   onOpenChange,
   className,
 }: TourVoiceAssistProps) {
+  const { t, locale } = useTourLanguage()
+
   const [openUncontrolled, setOpenUncontrolled] = useState(false)
   const open = openProp ?? openUncontrolled
   const setOpen = (next: boolean) => {
@@ -464,6 +471,9 @@ export function TourVoiceAssist({
   onPreviewUnitRef.current = onPreviewUnit
   const memoryFiltersRef = useRef<VoiceAssistFilters | null>(null)
   const memoryMatchesRef = useRef<VoiceAssistUnitCard[]>([])
+  const seenUnitIdsRef = useRef(new Set<string>())
+  const historyRef = useRef<VoiceConversationTurn[]>([])
+  const phoneInvitationPendingRef = useRef(false)
   /** Conversación continua: un Hablar basta; VAD corta y reescucha tras la respuesta. */
   const conversationRef = useRef(false)
   const openRef = useRef(open)
@@ -485,6 +495,7 @@ export function TourVoiceAssist({
     // Al elegir “opción N” no borramos la lista para poder pedir otra después.
     if (data.matches.length > 0 && !opts?.preserveMatches) {
       memoryMatchesRef.current = data.matches
+      data.matches.forEach(unit => seenUnitIdsRef.current.add(unit.id))
     }
   }
 
@@ -686,6 +697,7 @@ export function TourVoiceAssist({
     pickedOption?: number | null,
     opts?: { endAfterSpeak?: boolean },
   ) => {
+    data = { ...data, speak: t(data.speak), follow_up: t(data.follow_up) }
     // Abrir ficha solo cuando el visitante eligió (opción N / toque / “sí”).
     // El adelanto visual usa onPreviewUnit y no pide WhatsApp.
     const turn=turnRef.current
@@ -694,7 +706,16 @@ export function TourVoiceAssist({
     // WhatsApp solo cuando el visitante eligió una unidad.
     const enriched = withSoftPhoneAsk(data, isShowroomIdentified(), {
       afterOptionPick: isUnitReveal,
+      locale,
     })
+    phoneInvitationPendingRef.current = enriched !== data
+    if (data.transcript && !parsePhoneFromTranscript(data.transcript)) {
+      historyRef.current = sanitizeVoiceConversation([
+        ...historyRef.current,
+        { role: 'user', content: data.transcript },
+        { role: 'assistant', content: data.speak },
+      ])
+    }
     rememberResult(enriched, { preserveMatches: isUnitReveal })
     conversationRef.current = true
     setPhase('speaking')
@@ -723,6 +744,7 @@ export function TourVoiceAssist({
       }
     }
     await speakText(enriched.speak, {
+      locale,
       firstAudioBase64: firstAudio,
       onChunk: previewDuringSpeak && enriched.matches.length > 1
         ? (chunk) => {
@@ -776,6 +798,9 @@ export function TourVoiceAssist({
   }
 
   const tryHandlePhoneTurn = async (text: string): Promise<boolean> => {
+    const invitationPending = phoneInvitationPendingRef.current
+    phoneInvitationPendingRef.current = false
+    if (isVoiceQuestion(text)) return false
     const phone = parsePhoneFromTranscript(text)
     if (phone) {
       setPhase('thinking')
@@ -788,8 +813,7 @@ export function TourVoiceAssist({
           {
             transcript: text,
             speak:
-              'Perfecto, muchas gracias. Ya quedó registrado su WhatsApp. ¿Quiere ver otra opción o prefiere probar otro filtro?' +
-              voiceCloseHintLine(),
+              'Gracias, su contacto quedó registrado. Podemos seguir revisando los departamentos.',
             filters: memoryFiltersRef.current ?? { ...EMPTY_VOICE_FILTERS },
             matches: memoryMatchesRef.current.slice(0, 3),
             follow_up:
@@ -851,7 +875,7 @@ export function TourVoiceAssist({
     }
 
     // Tras “¿desea dejar su WhatsApp?”, un “sí” pide el número (no reabre la opción).
-    if (!isShowroomIdentified() && hasAskedVoicePhone() && isShortAffirmative(text)) {
+    if (!isShowroomIdentified() && invitationPending && isShortAffirmative(text)) {
       setPhase('thinking')
       setError(null)
       await finishAssistantTurn(
@@ -867,19 +891,17 @@ export function TourVoiceAssist({
       return true
     }
 
-    if (!isShowroomIdentified() && hasAskedVoicePhone() && isShortDecline(text)) {
+    if (!isShowroomIdentified() && invitationPending && isShortDecline(text)) {
       setPhase('thinking')
       setError(null)
       await finishAssistantTurn(
         {
           transcript: text,
           speak:
-            'Sin problema.' +
-            voiceCloseHintLine() +
-            ' También puede pedir otra opción u otro filtro.',
+            'Sin problema. Podemos seguir revisando las opciones sin dejar ningún contacto.',
           filters: memoryFiltersRef.current ?? { ...EMPTY_VOICE_FILTERS },
           matches: memoryMatchesRef.current.slice(0, 3),
-          follow_up: 'Otra opción, otro filtro, o gracias para cerrar.',
+          follow_up: null,
         },
         null,
       )
@@ -896,7 +918,7 @@ export function TourVoiceAssist({
       filters: memoryFiltersRef.current ?? { ...EMPTY_VOICE_FILTERS },
       matches: [picked],
       follow_up:
-        'Si desea, deje su WhatsApp. Si no desea más información, diga gracias y cierro.',
+        'Puede preguntarme por esta unidad o compararla con las otras opciones.',
     }
   }
 
@@ -959,6 +981,9 @@ export function TourVoiceAssist({
           units: toVoiceCatalog(unitsRef.current),
           previous_filters: memoryFiltersRef.current,
           previous_matches: memoryMatchesRef.current,
+          seen_unit_ids: [...seenUnitIdsRef.current],
+          history: historyRef.current,
+          locale,
         }),
       })
       const data = (await res.json().catch(() => ({}))) as VoiceAssistResult & {
@@ -994,6 +1019,8 @@ export function TourVoiceAssist({
     setError(null)
     try {
       const form = new FormData()
+      form.set('history', JSON.stringify(historyRef.current))
+      form.set('locale', locale)
       form.set('audio', blob, `voice.${ext}`)
       form.set('units', JSON.stringify(toVoiceCatalog(unitsRef.current)))
       if (memoryFiltersRef.current) {
@@ -1001,6 +1028,7 @@ export function TourVoiceAssist({
       }
       if (memoryMatchesRef.current.length > 0) {
         form.set('previous_matches', JSON.stringify(memoryMatchesRef.current))
+        form.set('seen_unit_ids', JSON.stringify([...seenUnitIdsRef.current]))
       }
       const res = await fetch('/api/tour/voice-assist', { method: 'POST', body: form, signal:controller.signal })
       const data = (await res.json().catch(() => ({}))) as VoiceAssistResult & {
@@ -1083,7 +1111,7 @@ export function TourVoiceAssist({
       ignoreSpeechErrorRef.current = false
 
       const recognition = new Ctor()
-      recognition.lang = 'es-EC'
+      recognition.lang = locale === 'en' ? 'en-US' : 'es-EC'
       recognition.continuous = false
       recognition.interimResults = true
       recognition.maxAlternatives = 1
@@ -1337,6 +1365,16 @@ export function TourVoiceAssist({
 
   // Al abrir: tip off + saludo (Hablar bloqueado hasta terminar de hablar / escuchar).
   useEffect(() => {
+    cancelTurn()
+    releaseMic()
+    setResult(null)
+    setError(null)
+    phoneInvitationPendingRef.current = false
+    // Cancel old-language audio and requests; keep the selected units and filters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale])
+
+  useEffect(() => {
     if (!open) return
     dismissTip()
     setError(null)
@@ -1351,7 +1389,7 @@ export function TourVoiceAssist({
     const greetingTurn=turnRef.current
     const timer = window.setTimeout(() => {
       void (async () => {
-        await speakText(voiceAssistantGreeting())
+        await speakText(t(voiceAssistantGreeting()), { locale })
         if(greetingTurn!==turnRef.current)return
         if (!openRef.current) return
         conversationRef.current = true
@@ -1365,7 +1403,7 @@ export function TourVoiceAssist({
     return () => window.clearTimeout(timer)
     // Solo al pasar a abierto; no re-saludar si cambia el resultado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, locale])
 
   // Al escribir: no escuchar. Al vaciar el campo: volver a escuchar.
   useEffect(() => {
@@ -1432,26 +1470,25 @@ export function TourVoiceAssist({
           >
             <div className="mb-1 flex items-start justify-between gap-2">
               <p className="text-[11px] font-semibold leading-snug tracking-wide text-[#E8D9C0]">
-                {tip.title}
+                {t(tip.title)}
               </p>
               <button
                 type="button"
                 onClick={dismissTip}
                 className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white/45 transition hover:bg-white/10 hover:text-white/80"
-                aria-label="Cerrar tip"
+                aria-label={t("Cerrar tip")}
               >
                 <X size={12} strokeWidth={2} />
               </button>
             </div>
-            <p className="text-[11px] leading-snug text-white/65">{tip.body}</p>
+            <p className="text-[11px] leading-snug text-white/65">{t(tip.body)}</p>
             <button
               type="button"
               onClick={openPanel}
               className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#BDA27E]/22 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-[#E8D9C0] uppercase transition hover:bg-[#BDA27E]/32"
             >
               <Mic size={12} strokeWidth={2} />
-              Probar
-            </button>
+              {t(" Probar ")}</button>
           </div>
         </div>
       ) : null}
@@ -1478,8 +1515,8 @@ export function TourVoiceAssist({
             type="button"
             onClick={openPanel}
             className="pointer-events-auto tour-glass group inline-flex h-10 w-10 items-center justify-center border border-[#BDA27E]/40 text-[#f7f3ee] shadow-[0_8px_22px_rgba(0,0,0,0.35)] transition hover:border-[#BDA27E]/65 hover:bg-white/10 sm:h-11 sm:w-11"
-            aria-label="Abrir asistente de voz"
-            title="Asistente de voz"
+            aria-label={t("Abrir asistente de voz")}
+            title={t("Asistente de voz")}
           >
             <Mic
               size={17}
@@ -1497,16 +1534,16 @@ export function TourVoiceAssist({
                 </span>
                 <div className="min-w-0">
                   <p className="text-[10px] font-semibold tracking-[0.16em] text-[#BDA27E] uppercase">
-                    {TOUR_VOICE_ASSISTANT_NAME}
+                    {t(TOUR_VOICE_ASSISTANT_NAME)}
                   </p>
-                  <p className="truncate text-[12px] text-white/75">Asistente de La Vilet</p>
+                  <p className="truncate text-[12px] text-white/75">{t("Asistente de La Vilet")}</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={closePanel}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/80 hover:bg-white/15"
-                aria-label="Cerrar asistente"
+                aria-label={t("Cerrar asistente")}
               >
                 <X size={15} />
               </button>
@@ -1515,36 +1552,32 @@ export function TourVoiceAssist({
           <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain px-3 py-3">
             {phase === 'recording' ? (
               <p className="text-center text-[13px] text-[#BDA27E]">
-                Le escucho… al callarse respondo y sigo atento. Si no desea más información, diga{' '}
-                <span className="font-semibold">gracias</span> y cierro.
-              </p>
+                {t(" Le escucho… al callarse respondo y sigo atento. Si no desea más información, diga")}{t(' ')}
+                <span className="font-semibold">{t("gracias")}</span> {t(" y cierro. ")}</p>
             ) : null}
             {phase === 'ready' && textDraft.trim() ? (
               <p className="text-center text-[12px] text-white/55">
-                Micrófono en pausa mientras escribe. Borre el texto para volver a hablar.
-              </p>
+                {t(" Micrófono en pausa mientras escribe. Borre el texto para volver a hablar. ")}</p>
             ) : null}
             {phase === 'thinking' ? (
               <p className="flex items-center justify-center gap-2 text-[13px] text-white/70">
-                <Loader2 size={14} className="animate-spin" /> Un momento, busco opciones…
-              </p>
+                <Loader2 size={14} className="animate-spin" /> {t(" Un momento, busco opciones… ")}</p>
             ) : null}
-            {(phase==='speaking'||phase==='thinking')?<div className="flex gap-3 text-xs"><button type="button" onClick={()=>void startRecording()} className="rounded border border-white/30 p-2">Interrumpir y hablar</button><button type="button" onClick={pauseConversation} className="rounded border border-white/30 p-2">Silenciar</button></div>:null}
+            {(phase==='speaking'||phase==='thinking')?<div className="flex gap-3 text-xs"><button type="button" onClick={()=>void startRecording()} className="rounded border border-white/30 p-2">{t("Interrumpir y hablar")}</button><button type="button" onClick={pauseConversation} className="rounded border border-white/30 p-2">{t("Silenciar")}</button></div>:null}
             {phase === 'speaking' ? (
               <p className="flex items-center justify-center gap-2 text-[13px] text-white/70">
-                <Loader2 size={14} className="animate-spin" /> Respondiendo…
-              </p>
+                <Loader2 size={14} className="animate-spin" /> {t(" Respondiendo… ")}</p>
             ) : null}
-            {error ? <p className="text-[12px] text-[#f0d5c8]">{error}</p> : null}
+            {error ? <p className="text-[12px] text-[#f0d5c8]">{t(error)}</p> : null}
 
             {result ? (
               <div className="space-y-2">
                 {result.transcript ? (
                   <p className="text-[11px] text-white/45">
-                    Tú: <span className="text-white/70">{result.transcript}</span>
+                    {t(" Tú: ")}<span className="text-white/70">{t(result.transcript)}</span>
                   </p>
                 ) : null}
-                <p className="text-[13px] leading-snug text-white/90">{result.speak}</p>
+                <p className="text-[13px] leading-snug text-white/90">{t(result.speak)}</p>
                 {result.matches.length > 0 ? (
                   <ul className="space-y-2">
                     {result.matches.map((m, index) => {
@@ -1573,7 +1606,7 @@ export function TourVoiceAssist({
                               {thumb ? (
                                 <Image
                                   src={thumb}
-                                  alt=""
+                                  alt={t("")}
                                   fill
                                   className="object-cover"
                                   sizes="72px"
@@ -1583,17 +1616,16 @@ export function TourVoiceAssist({
                                 <div className="absolute inset-0 bg-gradient-to-br from-[#d8d2c6] to-[#b8b0a2]" />
                               )}
                               <span className="absolute left-1 top-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                                {index + 1}
+                                {t(index + 1)}
                               </span>
                             </div>
                             <span className="flex min-w-0 flex-1 flex-col justify-center py-2 pr-3">
-                              <span className="text-[13px] font-semibold leading-tight">{title}</span>
+                              <span className="text-[13px] font-semibold leading-tight">{t(title)}</span>
                               <span className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-[#3a4050]">
-                                {m.blurb}
+                                {t(m.blurb)}
                               </span>
                               <span className="mt-1 text-[10px] font-medium text-[#8a7355]">
-                                Tocar para elegir
-                              </span>
+                                {t(" Tocar para elegir ")}</span>
                             </span>
                           </button>
                         </li>
@@ -1602,13 +1634,12 @@ export function TourVoiceAssist({
                   </ul>
                 ) : null}
                 {result.follow_up ? (
-                  <p className="text-[11px] text-white/50">{result.follow_up}</p>
+                  <p className="text-[11px] text-white/50">{t(result.follow_up)}</p>
                 ) : null}
               </div>
             ) : phase === 'idle' ? (
               <p className="text-[13px] leading-snug text-white/75">
-                Cuénteme qué busca, por ejemplo: “2 dormitorios, piso alto” o “hasta 180 mil”.
-              </p>
+                {t(" Cuénteme qué busca, por ejemplo: “2 dormitorios, piso alto” o “hasta 180 mil”. ")}</p>
             ) : null}
 
             <div className="flex items-center gap-2">
@@ -1619,15 +1650,13 @@ export function TourVoiceAssist({
                     onClick={() => stopRecording()}
                     className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#8a5c58] text-[11px] font-semibold tracking-[0.12em] text-white uppercase transition"
                   >
-                    <MicOff size={15} /> Listo
-                  </button>
+                    <MicOff size={15} /> {t(" Listo ")}</button>
                   <button
                     type="button"
                     onClick={() => pauseConversation()}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-white/12 px-3 text-[11px] font-semibold tracking-wide text-white/85 uppercase"
                   >
-                    Pausar
-                  </button>
+                    {t(" Pausar ")}</button>
                 </>
               ) : (
                 <button
@@ -1648,8 +1677,7 @@ export function TourVoiceAssist({
                       'opacity-60',
                   )}
                 >
-                  <Mic size={15} /> Hablar
-                </button>
+                  <Mic size={15} /> {t(" Hablar ")}</button>
               )}
             </div>
 
@@ -1663,7 +1691,7 @@ export function TourVoiceAssist({
               <input
                 value={textDraft}
                 onChange={(event) => setTextDraft(event.target.value)}
-                placeholder="O escribe aquí…"
+                placeholder={t("O escribe aquí…")}
                 disabled={phase === 'thinking' || phase === 'speaking'}
                 className="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/25 px-2.5 py-2 text-[12px] text-white placeholder:text-white/35 outline-none focus:border-[#BDA27E]/50"
               />
@@ -1672,8 +1700,7 @@ export function TourVoiceAssist({
                 disabled={phase === 'thinking' || phase === 'speaking' || !textDraft.trim()}
                 className="rounded-lg bg-white/12 px-2.5 text-[11px] font-semibold tracking-wide text-white/85 uppercase disabled:opacity-40"
               >
-                Ir
-              </button>
+                {t(" Ir ")}</button>
             </form>
           </div>
         </div>

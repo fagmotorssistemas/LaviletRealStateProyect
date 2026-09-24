@@ -11,6 +11,8 @@ import {
   type VoiceAssistUnitCard,
 } from '@/lib/tour/voiceAssist'
 import { runTourVoiceAssist, synthesizeTourVoice, transcribeTourVoice } from '@/lib/tour/voiceAssistServer'
+import { sanitizeVoiceConversation, type VoiceConversationTurn } from '@/lib/tour/voiceConversation'
+import { translateTourText, type TourLocale } from '@/lib/tour/tourMessages'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -105,9 +107,17 @@ export async function POST(request: Request) {
     let catalog: VoiceAssistCatalogUnit[] = []
     let previousFilters: VoiceAssistFilters | null = null
     let previousMatches: VoiceAssistUnitCard[] = []
+    let history: VoiceConversationTurn[] = []
+    let seenUnitIds: unknown = []
+    let locale: TourLocale = 'es'
 
     if (contentType.includes('multipart/form-data')) {
       const form = await request.formData()
+      locale = form.get('locale') === 'en' ? 'en' : 'es'
+      const historyRaw = form.get('history')
+      if (typeof historyRaw === 'string') {
+        try { history = sanitizeVoiceConversation(JSON.parse(historyRaw)) } catch { /* Sin contexto válido. */ }
+      }
       const unitsRaw = form.get('units')
       if (typeof unitsRaw === 'string') {
         try {
@@ -125,6 +135,7 @@ export async function POST(request: Request) {
         }
       }
       const matchesRaw = form.get('previous_matches')
+      try { seenUnitIds = JSON.parse(String(form.get('seen_unit_ids') ?? '[]')) } catch { seenUnitIds = [] }
       if (typeof matchesRaw === 'string' && matchesRaw.trim()) {
         try {
           previousMatches = asPreviousMatches(JSON.parse(matchesRaw))
@@ -148,7 +159,7 @@ export async function POST(request: Request) {
             : (blob.type || '').includes('mp4')
               ? 'audio.mp4'
               : 'audio.webm'
-        transcript = await transcribeTourVoice(blob, name)
+        transcript = await transcribeTourVoice(blob, name, locale)
       }
     } else {
       let body: {
@@ -156,6 +167,9 @@ export async function POST(request: Request) {
         units?: unknown
         previous_filters?: unknown
         previous_matches?: unknown
+        seen_unit_ids?: unknown
+        history?: unknown
+        locale?: unknown
       }
       try {
         body = (await request.json()) as typeof body
@@ -168,6 +182,9 @@ export async function POST(request: Request) {
       catalog = asCatalog(body.units)
       previousFilters = asPreviousFilters(body.previous_filters)
       previousMatches = asPreviousMatches(body.previous_matches)
+      seenUnitIds = body.seen_unit_ids
+      history = sanitizeVoiceConversation(body.history)
+      locale = body.locale === 'en' ? 'en' : 'es'
     }
 
     if (!transcript) {
@@ -175,10 +192,10 @@ export async function POST(request: Request) {
       const soft = speakUnclearSpeechClarification()
       return NextResponse.json({
         transcript: '',
-        speak: soft.speak,
+        speak: translateTourText(soft.speak, locale),
         filters: previousFilters ?? normalizeFilters({ only_available: true }),
         matches: previousMatches.slice(0, 3),
-        follow_up: soft.follow_up,
+        follow_up: soft.follow_up ? translateTourText(soft.follow_up, locale) : null,
       })
     }
 
@@ -196,14 +213,21 @@ export async function POST(request: Request) {
       catalog,
       previousFilters,
       previousMatches,
+      seenUnitIds: Array.isArray(seenUnitIds) ? seenUnitIds.slice(0, MAX_UNITS).filter((id): id is string => typeof id === 'string' && catalog.some(unit => unit.id === id)) : [],
+      history,
+      signal: request.signal,
+      locale,
     })
+    result.speak = translateTourText(result.speak, locale)
+    result.follow_up = result.follow_up ? translateTourText(result.follow_up, locale) : null
+    result.matches = result.matches.map(unit => ({ ...unit, blurb: translateTourText(unit.blurb, locale) }))
 
     // Primer trozo de audio OpenAI junto a la respuesta → el cliente habla antes.
     let audio_base64: string | null = null
     try {
       const firstChunk = splitSpeakChunks(result.speak)[0]
       if (firstChunk) {
-        const audio = await synthesizeTourVoice(firstChunk)
+        const audio = await synthesizeTourVoice(firstChunk, locale)
         if (audio && audio.byteLength > 0) {
           audio_base64 = Buffer.from(audio).toString('base64')
         }

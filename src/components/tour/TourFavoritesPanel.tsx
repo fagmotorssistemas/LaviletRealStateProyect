@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useState } from 'react'
 import { Heart, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -54,6 +56,8 @@ export function TourFavoritesPanel({
   onIdentified,
   context,
 }: TourFavoritesPanelProps) {
+  const { t } = useTourLanguage()
+
   const [items, setItems] = useState<TourFavorite[]>([])
   const [loading, setLoading] = useState(false)
   const [pending, setPending] = useState(false)
@@ -123,12 +127,12 @@ export function TourFavoritesPanel({
   const handleIdentify = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!consent) {
-      toast.error('Marque la casilla para continuar')
+      toast.error(t('Marque la casilla para continuar'))
       return
     }
     const normalized = normalizeShowroomPhone(phone)
     if (normalized.replace(/\D/g, '').length < 8) {
-      toast.error('Ingrese un celular válido')
+      toast.error(t('Ingrese un celular válido'))
       return
     }
 
@@ -180,15 +184,15 @@ export function TourFavoritesPanel({
           typologyCode: context.typologyCode,
           leadId,
         })
-        toast.success(`Guardamos el departamento ${context.unitNumber}`)
+        toast.success(t(`Guardamos el departamento ${context.unitNumber}`))
       } else {
-        toast.success('Listo. Ya puede simular su inversión')
+        toast.success(t('Listo. Ya puede simular su inversión'))
       }
 
       setIdentified(true)
       refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo verificar el celular')
+      toast.error(t(error instanceof Error ? error.message : 'No se pudo verificar el celular'))
     } finally {
       setPending(false)
     }
@@ -224,7 +228,7 @@ export function TourFavoritesPanel({
       leadId: getShowroomLeadId() || null,
     })
     refresh()
-    toast.success(`Agregamos el departamento ${context.unitNumber}`)
+    toast.success(t(`Agregamos el departamento ${context.unitNumber}`))
   }
 
   return (
@@ -236,7 +240,7 @@ export function TourFavoritesPanel({
     >
       <button
         type="button"
-        aria-label="Cerrar favoritos"
+        aria-label={t("Cerrar favoritos")}
         className="absolute inset-0 bg-[#2B1A18]/45 backdrop-blur-[2px]"
         onClick={onClose}
       />
@@ -244,16 +248,15 @@ export function TourFavoritesPanel({
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#2B1A18]/8 px-5 py-4">
           <div>
             <p className="text-[11px] font-medium tracking-[0.28em] text-[#BDA27E] uppercase">
-              Showroom
-            </p>
-            <h2 className="mt-1 font-display text-xl font-semibold text-[#2B1A18]">Favoritos</h2>
-            <p className="mt-0.5 text-[11px] text-[#2B1A18]/50">Y acceso a financiamiento</p>
+              {t(" Showroom ")}</p>
+            <h2 className="mt-1 font-display text-xl font-semibold text-[#2B1A18]">{t("Favoritos")}</h2>
+            <p className="mt-0.5 text-[11px] text-[#2B1A18]/50">{t("Y acceso a financiamiento")}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-9 w-9 items-center justify-center text-[#2B1A18]/55 hover:text-[#2B1A18]"
-            aria-label="Cerrar"
+            aria-label={t("Cerrar")}
           >
             <X size={18} strokeWidth={1.75} />
           </button>
@@ -262,19 +265,15 @@ export function TourFavoritesPanel({
         {!identified ? (
           <form onSubmit={(event) => void handleIdentify(event)} className="px-5 py-5">
             <p className="text-[13px] leading-relaxed text-[#2B1A18]/80">
-              Deje su celular para guardar favoritos y acceder al{' '}
-              <span className="font-medium text-[#2B1A18]">simulador de inversión</span> y a
-              opciones de financiamiento.
-            </p>
+              {t(" Deje su celular para guardar favoritos y acceder al")}{t(' ')}
+              <span className="font-medium text-[#2B1A18]">{t("simulador de inversión")}</span> {t(" y a opciones de financiamiento. ")}</p>
             {hasCurrentUnit && context?.unitNumber ? (
               <p className="mt-2 text-[12px] text-[#2B1A18]/55">
-                También podemos agregar el departamento {context.unitNumber} a su lista.
-              </p>
+                {t(" También podemos agregar el departamento ")}{t(context.unitNumber)} {t(" a su lista. ")}</p>
             ) : null}
 
             <label className="mt-4 block text-[12px] font-medium text-[#2B1A18]">
-              Celular / WhatsApp
-              <input
+              {t(" Celular / WhatsApp ")}<input
                 name="phone"
                 type="tel"
                 inputMode="tel"
@@ -282,7 +281,7 @@ export function TourFavoritesPanel({
                 required
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                placeholder="Ej. 0981 234 567"
+                placeholder={t("Ej. 0981 234 567")}
                 className="mt-1.5 h-11 w-full rounded-xl border border-[#2B1A18]/12 bg-white px-3 text-sm text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 focus:border-[#BDA27E]"
               />
             </label>
@@ -295,8 +294,7 @@ export function TourFavoritesPanel({
                 className="mt-0.5 accent-[#BDA27E]"
               />
               <span>
-                Acepto el uso de mi celular para favoritos, financiamiento y contacto por WhatsApp.
-              </span>
+                {t(" Acepto el uso de mi celular para favoritos, financiamiento y contacto por WhatsApp. ")}</span>
             </label>
 
             <button
@@ -305,20 +303,19 @@ export function TourFavoritesPanel({
               className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#14110e] text-[12px] font-semibold tracking-[0.1em] text-white uppercase disabled:opacity-60"
             >
               <Heart size={15} strokeWidth={2} />
-              {pending
+              {t(pending
                 ? 'Guardando…'
                 : hasCurrentUnit
                   ? 'Continuar y guardar'
-                  : 'Continuar con mi celular'}
+                  : 'Continuar con mi celular')}
             </button>
           </form>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <div className="mb-4 rounded-2xl border border-[#BDA27E]/35 bg-[#BDA27E]/12 px-3.5 py-3">
-              <p className="text-[12px] font-medium text-[#2B1A18]">Financiamiento listo</p>
+              <p className="text-[12px] font-medium text-[#2B1A18]">{t("Financiamiento listo")}</p>
               <p className="mt-1 text-[12px] leading-snug text-[#2B1A18]/70">
-                Calcule su cuota y el retorno de su inversión cuando lo desee.
-              </p>
+                {t(" Calcule su cuota y el retorno de su inversión cuando lo desee. ")}</p>
               <a
                 href={
                   items[0]?.unitNumber
@@ -329,12 +326,11 @@ export function TourFavoritesPanel({
                 }
                 className="mt-2.5 inline-flex h-9 items-center rounded-full bg-[#1a2744] px-3.5 text-[11px] font-semibold tracking-[0.12em] text-white uppercase no-underline"
               >
-                Simular inversión
-              </a>
+                {t(" Simular inversión ")}</a>
             </div>
 
             <p className="mb-3 text-[12px] leading-relaxed text-[#2B1A18]/55">
-              Celular ····{getShowroomPhone().replace(/\D/g, '').slice(-4)}
+              {t(" Celular ····")}{t(getShowroomPhone().replace(/\D/g, '').slice(-4))}
             </p>
 
             {hasCurrentUnit ? (
@@ -344,18 +340,17 @@ export function TourFavoritesPanel({
                 className="mb-4 flex h-10 w-full items-center justify-center gap-2 rounded-full bg-[#BDA27E] text-[11px] font-semibold tracking-[0.14em] text-[#2B1A18] uppercase"
               >
                 <Heart size={14} strokeWidth={2} />
-                Agregar departamento {context?.unitNumber}
+                {t(" Agregar departamento ")}{t(context?.unitNumber)}
               </button>
             ) : null}
 
             {loading && items.length === 0 ? (
-              <p className="text-sm text-[#2B1A18]/50">Cargando…</p>
+              <p className="text-sm text-[#2B1A18]/50">{t("Cargando…")}</p>
             ) : null}
 
             {items.length === 0 && !loading ? (
               <p className="text-sm text-[#2B1A18]/55">
-                Aún no tiene favoritos. Elija un departamento y guárdelo aquí.
-              </p>
+                {t(" Aún no tiene favoritos. Elija un departamento y guárdelo aquí. ")}</p>
             ) : (
               <ul className="space-y-2">
                 {items.map((item) => (
@@ -372,25 +367,24 @@ export function TourFavoritesPanel({
                       className="min-w-0 flex-1 text-left"
                     >
                       <span className="block text-[13px] font-semibold text-[#2B1A18]">
-                        Departamento {item.unitNumber}
+                        {t(" Departamento ")}{t(item.unitNumber)}
                       </span>
                       <span className="mt-0.5 block text-[11px] text-[#2B1A18]/55">
-                        {[item.typologyCode, item.floor].filter(Boolean).join(' · ') || 'Favorito'}
+                        {t([item.typologyCode, item.floor].filter(Boolean).join(' · ') || 'Favorito')}
                       </span>
                     </button>
                     <a
                       href={`/simulador?unidad=${encodeURIComponent(item.unitNumber)}`}
                       className="shrink-0 rounded-full px-2.5 py-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase no-underline ring-1 ring-[#1a2744]/20"
-                      title="Simular inversión"
+                      title={t("Simular inversión")}
                     >
-                      Simular
-                    </a>
+                      {t(" Simular ")}</a>
                     <button
                       type="button"
                       onClick={() => remove(item)}
                       className="flex h-9 w-9 shrink-0 items-center justify-center text-[#8a5c58] hover:bg-[#8a5c58]/10"
-                      aria-label={`Eliminar departamento ${item.unitNumber}`}
-                      title="Eliminar"
+                      aria-label={t(`Eliminar departamento ${item.unitNumber}`)}
+                      title={t("Eliminar")}
                     >
                       <Trash2 size={15} strokeWidth={1.75} />
                     </button>

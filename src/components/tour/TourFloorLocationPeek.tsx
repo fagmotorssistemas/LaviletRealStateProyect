@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import { floorPlanLevelLabel, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
@@ -81,6 +83,8 @@ function useCoarsePointer() {
 }
 
 export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
+  const { t } = useTourLanguage()
+
   const coarsePointer = useCoarsePointer()
   const [hoverOpen, setHoverOpen] = useState(false)
   const [tapOpen, setTapOpen] = useState(false)
@@ -186,14 +190,14 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
             : 'w-28 shadow-[0_8px_24px_rgba(0,0,0,0.35)] sm:w-32',
         )}
         style={{ aspectRatio: `${planW} / ${planH}` }}
-        aria-label={`Ubicación en ${floor != null ? floorPlanLevelLabel(floor) : 'piso'} · Unidad ${unit.unit_number}`}
+        aria-label={t(`Ubicación en ${floor != null ? floorPlanLevelLabel(floor) : 'piso'} · Unidad ${unit.unit_number}`)}
         aria-expanded={grown}
       >
         <div className="relative h-full w-full">
           <Image
             key={planImageUrl}
             src={planImageUrl}
-            alt=""
+            alt={t("")}
             fill
             unoptimized={planImageUrl.startsWith('http')}
             className="object-fill"
@@ -235,9 +239,9 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
                 grown ? 'text-[12px]' : 'text-[9px]',
               )}
             >
-              {grown
+              {t(grown
                 ? `Unidad ${unit.unit_number}${floor != null ? ` · ${floorPlanLevelLabel(floor)}` : ''}`
-                : 'Ubicación en piso'}
+                : 'Ubicación en piso')}
             </p>
           </div>
         </div>

@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import {
@@ -19,7 +21,7 @@ import {
   refetchFloorPlanDoc,
   type ReadyFloorView,
 } from '@/lib/tour/floorPlanClientCache'
-import { FLOOR_PLAN_WHATSAPP_MESSAGE, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
+import { floorPlanWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import {
   applyOverlayAlign,
   floorPlanVariantHasMedia,
@@ -307,6 +309,8 @@ export function TourFloorPlan({
   preferredVariant,
   onPreferredVariantChange,
 }: TourFloorPlanProps) {
+  const { t, locale } = useTourLanguage()
+
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
   const [htmlHoverUnit, setHtmlHoverUnit] = useState<TourUnitSummary | null>(null)
   const [htmlHoverLabel, setHtmlHoverLabel] = useState<string | null>(null)
@@ -331,7 +335,7 @@ export function TourFloorPlan({
   const displaySlotsRef = useRef<DisplaySlot[]>([])
   const htmlHoverUnitRef = useRef<TourUnitSummary | null>(null)
   const lastHtmlOpenAtRef = useRef(0)
-  const whatsappHref = tourWhatsAppHref(FLOOR_PLAN_WHATSAPP_MESSAGE)
+  const whatsappHref = tourWhatsAppHref(floorPlanWhatsAppMessage(locale))
 
   useEffect(() => {
     const mq = window.matchMedia('(orientation: landscape) and (max-height: 560px)')
@@ -895,12 +899,12 @@ export function TourFloorPlan({
                     )}
                     aria-pressed={active}
                     title={
-                      available
+                      t(available
                         ? `Ver plano ${item.toUpperCase()}`
-                        : `Todavía no hay plano ${item.toUpperCase()}`
+                        : `Todavía no hay plano ${item.toUpperCase()}`)
                     }
                   >
-                    {item}
+                    {t(item)}
                   </button>
                 )
               })}
@@ -909,7 +913,7 @@ export function TourFloorPlan({
 
           {railLeading ? (
             <div className="pointer-events-auto absolute top-3 right-3 z-30 sm:top-4 sm:right-4">
-              {railLeading}
+              {t(railLeading)}
             </div>
           ) : null}
 
@@ -948,7 +952,7 @@ export function TourFloorPlan({
                     htmlIframeRefs.current[layer.floor] = node
                   }}
                   src={layer.url}
-                  title={`Plano interactivo piso ${layer.floor}`}
+                  title={t(`Plano interactivo piso ${layer.floor}`)}
                   loading="eager"
                   allow="fullscreen"
                   className={cn(
@@ -980,8 +984,7 @@ export function TourFloorPlan({
             })}
             {waitingHtmlBoot ? (
               <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center bg-[#14110e] text-sm text-white/70">
-                Cargando plano 3D…
-              </div>
+                {t(" Cargando plano 3D… ")}</div>
             ) : null}
 
             <div
@@ -1000,7 +1003,7 @@ export function TourFloorPlan({
                   <img
                     key={`floor-${layer.floor}-${layer.variant}`}
                     src={layer.url}
-                    alt=""
+                    alt={t("")}
                     draggable={false}
                     decoding="async"
                     fetchPriority={active ? 'high' : 'low'}
@@ -1033,7 +1036,7 @@ export function TourFloorPlan({
                 preserveAspectRatio="none"
                 className="absolute inset-0 z-[1] h-full w-full touch-manipulation"
                 role="img"
-                aria-label="Departamentos del piso"
+                aria-label={t("Departamentos del piso")}
                 onMouseLeave={() => setHoverSlot(null)}
               >
               {displaySlots.map((slot) => {
@@ -1114,7 +1117,7 @@ export function TourFloorPlan({
                       (selected || hovered) && slot.unit && 'ring-2 ring-[#3d9b4a]/45',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
-                    aria-label={slot.unit ? `Departamento ${label}` : `Zona ${label}`}
+                    aria-label={t(slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
                   >
                     <span
                       className={cn(
@@ -1123,7 +1126,7 @@ export function TourFloorPlan({
                       )}
                     />
                     <span className="text-[10px] font-semibold tracking-wide text-[#2b2f36] sm:text-[11px]">
-                      {label}
+                      {t(label)}
                     </span>
                   </button>
                 )
@@ -1134,13 +1137,11 @@ export function TourFloorPlan({
 
           {waiting ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/40 text-xs text-white/70">
-              Cargando plano…
-            </div>
+              {t(" Cargando plano… ")}</div>
           ) : null}
           {missing ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/55 text-xs text-white/80">
-              No hay plano para este piso
-            </div>
+              {t(" No hay plano para este piso ")}</div>
           ) : null}
 
           {/* Hit SVG sobre el HTML 3D: hover eleva, clic abre ficha (pisos 2–6). */}
@@ -1150,7 +1151,7 @@ export function TourFloorPlan({
               preserveAspectRatio="none"
               className="absolute inset-0 z-[3] h-full w-full touch-manipulation"
               role="img"
-              aria-label="Departamentos del piso"
+              aria-label={t("Departamentos del piso")}
               style={{ pointerEvents: 'none' }}
               onMouseLeave={() => handleHoverSlot(null)}
             >
@@ -1207,7 +1208,7 @@ export function TourFloorPlan({
                         : 'cursor-not-allowed opacity-70',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
-                    aria-label={slot.unit ? `Departamento ${label}` : `Zona ${label}`}
+                    aria-label={t(slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
                   >
                     <span
                       className={cn(
@@ -1216,7 +1217,7 @@ export function TourFloorPlan({
                       )}
                     />
                     <span className="text-[10px] font-bold tracking-wide text-[#1a2744] sm:text-[11px]">
-                      {label}
+                      {t(label)}
                     </span>
                   </button>
                 )
@@ -1246,7 +1247,7 @@ export function TourFloorPlan({
                   aria-hidden
                 />
                 <span className="text-[11px] font-bold tracking-wide text-[#1a2744]">
-                  {htmlHoverLabel}
+                  {t(htmlHoverLabel)}
                 </span>
               </button>
             </div>
@@ -1264,8 +1265,8 @@ export function TourFloorPlan({
             onClick={zoomIn}
             disabled={scale >= ZOOM_MAX}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40"
-            aria-label="Acercar plano"
-            title="Acercar"
+            aria-label={t("Acercar plano")}
+            title={t("Acercar")}
           >
             <Plus size={18} strokeWidth={2.25} />
           </button>
@@ -1274,8 +1275,8 @@ export function TourFloorPlan({
             onClick={zoomOut}
             disabled={scale <= ZOOM_MIN}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40"
-            aria-label="Alejar plano"
-            title="Alejar"
+            aria-label={t("Alejar plano")}
+            title={t("Alejar")}
           >
             <Minus size={18} strokeWidth={2.25} />
           </button>
@@ -1317,17 +1318,17 @@ export function TourFloorPlan({
                       : 'bg-white text-[#3a4050] hover:bg-[#eef1f6]',
                   )}
                   aria-pressed={active}
-                  aria-label={floorPlanLevelLabel(item)}
-                  title={floorPlanLevelLabel(item)}
+                  aria-label={t(floorPlanLevelLabel(item))}
+                  title={t(floorPlanLevelLabel(item))}
                 >
-                  {short}
+                  {t(short)}
                 </button>
               )
             })}
           </div>
         </div>
         {railTrailing ? (
-          <div className="flex shrink-0 flex-col items-center gap-1.5">{railTrailing}</div>
+          <div className="flex shrink-0 flex-col items-center gap-1.5">{t(railTrailing)}</div>
         ) : null}
         {SITE.whatsapp && whatsappHref ? (
           <a
@@ -1336,8 +1337,8 @@ export function TourFloorPlan({
             rel="noopener noreferrer"
             onClick={() => onWhatsAppClick?.()}
             className="tour-whatsapp-btn tour-glass mx-auto shrink-0"
-            aria-label="Consultar por WhatsApp"
-            title="Consultar por WhatsApp"
+            aria-label={t("Consultar por WhatsApp")}
+            title={t("Consultar por WhatsApp")}
           >
             <WhatsAppIcon size={16} />
           </a>

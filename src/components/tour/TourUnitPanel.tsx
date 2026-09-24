@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { UNIT_STATUS_OPTIONS, type UnitStatus } from '@/types/inmobiliaria'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
@@ -32,27 +34,29 @@ function statusClass(status: UnitStatus): string {
 }
 
 export function TourUnitPanel({ unitTypeName, unit, unitCount }: TourUnitPanelProps) {
+  const { t } = useTourLanguage()
+
   if (!unit) return null
 
   return (
     <div className="max-w-[16.5rem] rounded-[4px] bg-black/55 px-3 py-2.5 text-white shadow-lg ring-1 ring-white/15 backdrop-blur-sm">
       <p className="text-[10px] font-semibold tracking-[0.16em] text-white/50 uppercase">
-        {unitTypeName}
-        {unitCount > 1 ? ` · ${unitCount} uds.` : ''}
+        {t(unitTypeName)}
+        {t(unitCount > 1 ? ` · ${unitCount} uds.` : '')}
       </p>
       <div className="mt-1 flex items-baseline justify-between gap-3">
-        <p className="text-[17px] leading-none font-semibold tracking-wide">{unit.unit_number}</p>
-        <p className="text-[15px] leading-none font-semibold tabular-nums">{compactPrice(unit.published_commercial_price)}</p>
+        <p className="text-[17px] leading-none font-semibold tracking-wide">{t(unit.unit_number)}</p>
+        <p className="text-[15px] leading-none font-semibold tabular-nums">{t(compactPrice(unit.published_commercial_price))}</p>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <span className={cn('rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase', statusClass(unit.status))}>
-          {statusLabel(unit.status)}
+          {t(statusLabel(unit.status))}
         </span>
         {unit.area_total_m2 != null && (
-          <span className="text-[11px] text-white/65">{unit.area_total_m2} m²</span>
+          <span className="text-[11px] text-white/65">{t(unit.area_total_m2)} {t(" m²")}</span>
         )}
         {unit.bedrooms != null && (
-          <span className="text-[11px] text-white/65">{unit.bedrooms} hab.</span>
+          <span className="text-[11px] text-white/65">{t(unit.bedrooms)} {t(" hab.")}</span>
         )}
       </div>
     </div>

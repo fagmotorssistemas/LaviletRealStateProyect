@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Viewer } from '@photo-sphere-viewer/core'
 import '@photo-sphere-viewer/core/index.css'
@@ -109,6 +111,8 @@ export function CompareSidePano({
   onPoseChange,
   remapTouch = false,
 }: CompareSidePanoProps) {
+  const { t } = useTourLanguage()
+
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
   const urlRef = useRef<string | null>(null)
@@ -374,7 +378,7 @@ export function CompareSidePano({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
-          alt=""
+          alt={t("")}
           className="pointer-events-none absolute inset-0 z-[1] h-full w-full object-cover opacity-80"
           draggable={false}
         />
@@ -383,8 +387,7 @@ export function CompareSidePano({
       {mode === 'pano' && loading ? (
         <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center bg-black/25">
           <p className="rounded-md bg-black/50 px-3 py-1.5 text-[11px] tracking-wide text-white/80 uppercase">
-            Cargando 360…
-          </p>
+            {t(" Cargando 360… ")}</p>
         </div>
       ) : null}
 
@@ -392,7 +395,7 @@ export function CompareSidePano({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
-          alt=""
+          alt={t("")}
           className="absolute inset-0 h-full w-full object-cover"
           draggable={false}
           onError={() => setMode('error')}
@@ -401,14 +404,12 @@ export function CompareSidePano({
 
       {mode === 'empty' ? (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white/50">
-          Sin tour 360 para comparar
-        </div>
+          {t(" Sin tour 360 para comparar ")}</div>
       ) : null}
 
       {mode === 'error' ? (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white/50">
-          No se pudo cargar el 360
-        </div>
+          {t(" No se pudo cargar el 360 ")}</div>
       ) : null}
     </div>
   )

@@ -2,6 +2,7 @@
  * Formato de specs de unidad para ficha / PDF (showroom).
  */
 import type { TourUnitSummary } from '@/types/tour'
+import type { TourLocale } from './tourMessages'
 
 function plural(n: number, one: string, many: string) {
   return n === 1 ? one : many
@@ -32,9 +33,9 @@ export function formatBathroomsEs(
   return `${parts[0]} y ${parts[1]}`
 }
 
-export function formatAreaM2(value: number | null | undefined): string {
+export function formatAreaM2(value: number | null | undefined, locale: TourLocale = 'es'): string {
   if (value == null) return '—'
-  return `${Number(value).toLocaleString('es-AR', { maximumFractionDigits: 2 })} m²`
+  return `${Number(value).toLocaleString(locale === 'en' ? 'en-US' : 'es-AR', { maximumFractionDigits: 2 })} m²`
 }
 
 export type FichaSpecRow = { label: string; value: string }
@@ -52,23 +53,24 @@ function computeTotalM2(unit: TourUnitSummary): number | null {
 }
 
 /** Filas de ficha: superficies + tipología + baños en texto claro. */
-export function buildFichaSpecRows(unit: TourUnitSummary): FichaSpecRow[] {
+export function buildFichaSpecRows(unit: TourUnitSummary, locale: TourLocale = 'es'): FichaSpecRow[] {
+  const area = (value: number | null) => formatAreaM2(value, locale)
   const internal = unit.area_internal_m2 ?? null
   const total = computeTotalM2(unit)
   const rows: FichaSpecRow[] = [
-    { label: 'Superficie total', value: formatAreaM2(total) },
+    { label: 'Superficie total', value: area(total) },
   ]
   if (internal != null) {
-    rows.push({ label: 'Superficie cubierta', value: formatAreaM2(internal) })
+    rows.push({ label: 'Superficie cubierta', value: area(internal) })
   }
   if (unit.area_exterior_m2 != null) {
-    rows.push({ label: 'Superficie exterior', value: formatAreaM2(unit.area_exterior_m2) })
+    rows.push({ label: 'Superficie exterior', value: area(unit.area_exterior_m2) })
   }
   if (unit.area_terrace_covered_m2 != null) {
-    rows.push({ label: 'Superficie semi cub.', value: formatAreaM2(unit.area_terrace_covered_m2) })
+    rows.push({ label: 'Superficie semi cub.', value: area(unit.area_terrace_covered_m2) })
   }
   if (unit.area_terrace_open_m2 != null) {
-    rows.push({ label: 'Terraza descubierta', value: formatAreaM2(unit.area_terrace_open_m2) })
+    rows.push({ label: 'Terraza descubierta', value: area(unit.area_terrace_open_m2) })
   }
   rows.push(
     {

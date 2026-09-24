@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import type { InvestmentPreview } from '@/types/financingSimulator'
 import { formatMoneyExact, formatPercent } from '@/lib/financing/calculator'
 import { cn } from '@/lib/utils'
@@ -12,32 +14,33 @@ function monthlyFlowLabel(monthlyCashFlow: number) {
 
 /** Resumen compacto; el detalle de aporte/patrimonio vive en Análisis de tu inversión. */
 export function ResultCards({ preview }: { preview: InvestmentPreview }) {
+  const { t } = useTourLanguage()
+
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-3">
         <p className="text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-          Resultado anual (caja)
-        </p>
+          {t(" Resultado anual (caja) ")}</p>
         <p
           className={cn(
             'mt-1 text-xl font-semibold tabular-nums',
             preview.annualNetCashFlow >= 0 ? 'text-emerald-700' : 'text-amber-800',
           )}
         >
-          {formatMoneyExact(preview.annualNetCashFlow)}
+          {t(formatMoneyExact(preview.annualNetCashFlow))}
         </p>
         <p className="mt-0.5 text-[10px] text-[#8a8176]">
-          Rendimiento anual de flujo sobre entrada:{' '}
-          {formatPercent(
+          {t(" Rendimiento anual de flujo sobre entrada:")}{t(' ')}
+          {t(formatPercent(
             preview.initialCashOutlay > 0
               ? (preview.annualNetCashFlow / preview.initialCashOutlay) * 100
               : null,
-          )}
+          ))}
         </p>
       </div>
       <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-3">
         <p className="text-[10px] font-semibold tracking-[0.16em] text-[#8a8176] uppercase">
-          {monthlyFlowLabel(preview.monthlyCashFlow)}
+          {t(monthlyFlowLabel(preview.monthlyCashFlow))}
         </p>
         <p
           className={cn(
@@ -45,12 +48,10 @@ export function ResultCards({ preview }: { preview: InvestmentPreview }) {
             preview.monthlyCashFlow >= 0 ? 'text-emerald-700' : 'text-amber-800',
           )}
         >
-          {formatMoneyExact(Math.abs(preview.monthlyCashFlow))}
+          {t(formatMoneyExact(Math.abs(preview.monthlyCashFlow)))}
         </p>
         <p className="text-[10px] text-[#8a8176]">
-          Cifra mensual del primer año (el signo se interpreta con el título). Distinto del
-          acumulado del horizonte.
-        </p>
+          {t(" Cifra mensual del primer año (el signo se interpreta con el título). Distinto del acumulado del horizonte. ")}</p>
       </div>
     </div>
   )

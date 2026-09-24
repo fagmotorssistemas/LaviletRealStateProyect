@@ -1,5 +1,9 @@
 import 'server-only'
 import { compareVoiceUnits } from './compareVoiceUnits'
+import { isVoiceQuestion } from './voiceTurnIntent'
+import { answerVoiceQuestion } from './voiceConversationServer'
+import type { VoiceConversationTurn } from './voiceConversation'
+import { translateTourText, type TourLocale } from './tourMessages'
 import {
   buildSpeakLine,
   filtersHaveSignal,
@@ -86,17 +90,17 @@ const FILTER_SCHEMA = {
   },
 } as const
 
-export async function transcribeTourVoice(audio: Blob, fileName: string): Promise<string> {
+export async function transcribeTourVoice(audio: Blob, fileName: string, locale: TourLocale = 'es'): Promise<string> {
   const key = process.env.OPENAI_API_KEY?.trim()
   if (!key) throw new Error('OPENAI_NOT_CONFIGURED')
 
   const form = new FormData()
   form.set('model', process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || 'whisper-1')
   form.set('file', audio, fileName || 'audio.webm')
-  form.set('language', 'es')
+  form.set('language', locale)
   form.set(
     'prompt',
-    'Visitante en showroom inmobiliario en Ecuador. Habla de dormitorios, pisos, presupuesto, tipologías, locales comerciales o puede dictar un WhatsApp/celular. Transcribe solo lo audible; números de teléfono con dígitos.',
+    locale === 'en' ? 'Visitor in the La Vilet real estate showroom in Ecuador. Apartments, bedrooms, floors, budgets, commercial units. Transcribe only audible speech in English; use digits for phone numbers.' : 'Visitante en showroom inmobiliario en Ecuador. Habla de dormitorios, pisos, presupuesto, tipologías, locales comerciales o puede dictar un WhatsApp/celular. Transcribe solo lo audible; números de teléfono con dígitos.',
   )
 
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -190,13 +194,17 @@ export async function runTourVoiceAssist(params: {
   catalog: VoiceAssistCatalogUnit[]
   previousFilters?: VoiceAssistFilters | null
   previousMatches?: VoiceAssistUnitCard[] | null
+  history?: VoiceConversationTurn[]
+  signal?: AbortSignal
+  locale?: TourLocale
+  seenUnitIds?: string[]
 }): Promise<VoiceAssistResult> {
   const transcript = params.transcript.trim()
   if (!transcript || isUnclearOrSilentSpeech(transcript)) {
     const { speak, follow_up } = speakUnclearSpeechClarification()
     return {
       transcript,
-      speak,
+      speak: translateTourText(speak, params.locale ?? 'es'),
       filters: params.previousFilters ?? normalizeFilters({ only_available: true }),
       matches: (params.previousMatches ?? []).slice(0, 3),
       follow_up,
@@ -205,7 +213,7 @@ export async function runTourVoiceAssist(params: {
   if (params.catalog.length === 0) {
     return {
       transcript,
-      speak: 'Un momento, todavía estoy cargando el inventario. En unos segundos con gusto le ayudo.',
+      speak: params.locale === 'en' ? 'The inventory is still loading. I can help you in a moment.' : 'Un momento, todavía estoy cargando el inventario. En unos segundos con gusto le ayudo.',
       filters: normalizeFilters({ only_available: true }),
       matches: [],
       follow_up: null,
@@ -214,8 +222,33 @@ export async function runTourVoiceAssist(params: {
 
   const previous = wantsFreshSearch(transcript) ? null : (params.previousFilters ?? null)
   const previousMatches = wantsFreshSearch(transcript) ? [] : (params.previousMatches ?? [])
-  const comparison=compareVoiceUnits(transcript,params.catalog,previousMatches.map(u=>u.id))
-  if(comparison)return comparison
+  const comparison=compareVoiceUnits(transcript,params.catalog,previousMatches.map(u=>u.id),params.locale)
+  if(comparison)return { ...comparison, filters: previous ?? comparison.filters }
+  const localFilters = parseVoiceFiltersLocal(transcript)
+  const more = /\b(otras? opciones|otros? departamentos|mas opciones|ver mas|muestra(?:me)? (?:mas|otras)|otras|more options|other apartments|show more|other options|next options)\b/i.test(transcript.normalize('NFD').replace(/\p{M}/gu, ''))
+  const inventorySearch = more || (filtersHaveSignal(localFilters) && /\b(busco|buscar|busca|quiero|necesito|muestra\w*|tienes|hay|departamentos?|apartments?|show|find|looking)\b/i.test(transcript))
+
+  // Las preguntas sobre una opción se contestan; no son órdenes de abrirla.
+  if (!inventorySearch && (isVoiceQuestion(transcript) || params.locale === 'en')) {
+    const questionFilters = mergeVoiceFilters(previous, parseVoiceFiltersLocal(transcript))
+    let answer: Awaited<ReturnType<typeof answerVoiceQuestion>> = null
+    try {
+      answer = await answerVoiceQuestion({ ...params, transcript, previousMatches, previousFilters: questionFilters })
+    } catch {
+      if (params.signal?.aborted) throw new Error('VOICE_TURN_CANCELLED')
+      // No convertir un fallo del servicio en una respuesta inventada o una búsqueda distinta.
+    }
+    return {
+      transcript,
+      speak: answer?.speak ?? (params.locale === 'en' ? 'I could not look up that answer right now. Please try again or check the unit details.' : 'No pude consultar esa respuesta ahora. Puede intentar de nuevo o revisar los datos de la ficha de la unidad.'),
+      filters: questionFilters,
+      matches: answer?.unitIds.length ? answer.unitIds.flatMap(id => {
+        const unit = params.catalog.find(unit => unit.id === id)
+        return unit ? [toVoiceUnitCard(unit)] : []
+      }) : previousMatches,
+      follow_up: null,
+    }
+  }
 
   // “Opción 1 / la primera” → elegir de la lista anterior (no repetir búsqueda).
   const option = parseOptionChoice(transcript)
@@ -272,11 +305,11 @@ export async function runTourVoiceAssist(params: {
   }
 
   // 1) Parser local (gratis). Cubre “2 dormitorios”, “2 baños”, “piso alto”, etc.
-  let extracted = parseVoiceFiltersLocal(transcript)
+  let extracted = localFilters
   let aiOffTopic = false
 
   // 2) Si no hay señal clara, intentar OpenAI; si falla, seguimos con local/memoria.
-  if (!filtersHaveSignal(extracted)) {
+  if (!filtersHaveSignal(extracted) && !more) {
     try {
       const fromAi = await extractFilters(transcript)
       const { assistant_note: _note, off_topic, ...rest } = fromAi
@@ -317,7 +350,16 @@ export async function runTourVoiceAssist(params: {
     }
   }
 
-  const exactMatches = matchVoiceUnits(params.catalog, filters, 3)
+  const allMatches = matchVoiceUnits(params.catalog, filters, params.catalog.length)
+  const repeated = previous && JSON.stringify(previous) === JSON.stringify(filters)
+  const excludeSeen = more || (repeated && !/barat|cheap|econom|menor precio|lowest|caro|expensive|highest/i.test(transcript))
+  const seen = new Set([...(params.seenUnitIds ?? []), ...previousMatches.map(unit => unit.id)])
+  const remaining = excludeSeen ? allMatches.filter(unit => !seen.has(unit.id)) : allMatches
+  if (allMatches.length && !remaining.length) return {
+    transcript, filters, matches: [], follow_up: null,
+    speak: params.locale === 'en' ? `We have reviewed all ${allMatches.length} matching units. Would you like to change a filter?` : `Ya revisamos las ${allMatches.length} unidades que cumplen esos filtros. ¿Quiere cambiar alguno para ver más opciones?`,
+  }
+  const exactMatches = remaining.slice(0, 3)
   let matches = exactMatches
   let suggested = false
   let replyFilters = filters
@@ -333,6 +375,8 @@ export async function runTourVoiceAssist(params: {
   }
 
   const { speak, follow_up } = buildSpeakLine(matches, filters, { suggested })
+  if (params.locale === 'en') return { transcript, filters: replyFilters, matches, follow_up: null,
+    speak: matches.length ? `${suggested ? 'These are nearby alternatives, with different features.' : `${allMatches.length} units match your filters.`} ${matches.map((unit, index) => `Option ${index + 1}, unit ${unit.unit_number}: ${[unit.bedrooms != null ? `${unit.bedrooms} bedrooms` : null, unit.area_total_m2 != null ? `${unit.area_total_m2} square meters` : null, unit.price != null ? `${unit.price} dollars` : null].filter(Boolean).join(', ')}.`).join(' ')}` : 'No units match these filters. Would you like to change the budget or bedroom count?' }
   return { transcript, speak, filters: replyFilters, matches, follow_up }
 }
 
@@ -378,7 +422,7 @@ function prepareSpeechText(raw: string): string {
   return t.replace(/\s+/g, ' ').trim().slice(0, 600)
 }
 
-async function synthesizeWithOpenAI(input: string): Promise<ArrayBuffer | null> {
+async function synthesizeWithOpenAI(input: string, locale: TourLocale): Promise<ArrayBuffer | null> {
   const key = process.env.OPENAI_API_KEY?.trim()
   const model = process.env.OPENAI_TTS_MODEL?.trim()
   if (!key || !model) return null
@@ -406,6 +450,7 @@ async function synthesizeWithOpenAI(input: string): Promise<ArrayBuffer | null> 
       'Varía un poco la entonación, como alguien que atiende con gusto.',
       'Pronuncia precios y números con naturalidad (por ejemplo: doscientos diez mil dólares).',
     ].join(' ')
+    if (locale === 'en') body.instructions = 'You are Lia, the La Vilet showroom assistant in Ecuador. Speak natural, warm, professional English at a conversational pace. Read prices and numbers naturally. Do not add any content.'
   }
 
   const response = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -423,10 +468,10 @@ async function synthesizeWithOpenAI(input: string): Promise<ArrayBuffer | null> 
 }
 
 /** Voces neurales de Edge (gratis): suenan naturales en español EC. */
-async function synthesizeWithEdge(input: string): Promise<ArrayBuffer> {
+async function synthesizeWithEdge(input: string, locale: TourLocale): Promise<ArrayBuffer> {
   const { EdgeTTS } = await import('@andresaya/edge-tts')
   const tts = new EdgeTTS()
-  const voice = process.env.EDGE_TTS_VOICE?.trim() || 'es-EC-AndreaNeural'
+  const voice = locale === 'en' ? 'en-US-JennyNeural' : process.env.EDGE_TTS_VOICE?.trim() || 'es-EC-AndreaNeural'
 
   await tts.synthesize(input, voice, {
     rate: process.env.EDGE_TTS_RATE?.trim() || '+0%',
@@ -444,12 +489,12 @@ async function synthesizeWithEdge(input: string): Promise<ArrayBuffer> {
 /**
  * TTS natural para el showroom: OpenAI primero; Edge como respaldo.
  */
-export async function synthesizeTourVoice(rawText: string): Promise<ArrayBuffer | null> {
+export async function synthesizeTourVoice(rawText: string, locale: TourLocale = 'es'): Promise<ArrayBuffer | null> {
   const input = prepareSpeechText(rawText)
   if (!input) return null
 
   try {
-    const openai = await synthesizeWithOpenAI(input)
+    const openai = await synthesizeWithOpenAI(input, locale)
     if (openai && openai.byteLength > 0) return openai
   } catch (error) {
     const message = error instanceof Error ? error.message : 'TTS_OPENAI_FAILED'
@@ -457,7 +502,7 @@ export async function synthesizeTourVoice(rawText: string): Promise<ArrayBuffer 
   }
 
   try {
-    return await synthesizeWithEdge(input)
+    return await synthesizeWithEdge(input, locale)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'TTS_EDGE_FAILED'
     console.error('tour voice-assist edge tts', message)

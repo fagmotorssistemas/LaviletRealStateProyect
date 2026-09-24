@@ -1,4 +1,5 @@
 import { firstRoomAlias, TOUR_PANO_SLUG, VISTA_PREFIX } from '@/lib/tour/tourRooms'
+import { translateTourText, type TourLocale } from './tourMessages'
 
 const GENERIC_SECTIONS = new Set(['360', 'tour 360', 'vistas', 'showroom', TOUR_PANO_SLUG])
 
@@ -33,7 +34,11 @@ function sectionWithArticle(label: string) {
   return `la sección de ${lower}`
 }
 
-export function tourGateCopy(typology: string | null | undefined, roomLabel: string | null | undefined) {
+export function tourGateCopy(typology: string | null | undefined, roomLabel: string | null | undefined, locale: TourLocale = 'es') {
+  if (locale === 'en') {
+    const focus = typology ? ` in layout ${typology}${roomLabel ? `, especially ${translateTourText(roomLabel, locale)}` : ''}` : ''
+    return `Would you like more information${focus}? Leave your WhatsApp number and we can send you floor plans and prices for available units.`
+  }
   const code = (typology ?? '').trim()
   const room = (roomLabel ?? '').trim()
   const hasRoom = Boolean(room) && !isGenericTourSection(room)

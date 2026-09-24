@@ -1,0 +1,36 @@
+{
+  "status": "prepared_not_authorized",
+  "project": "xhjnyntywqhczdtecgim",
+  "account": 36919007,
+  "deployedCommit": "65546d5f62ab9bd460bdb91f7b9a94db69c9867b",
+  "migrations": [
+    {
+      "order": 1,
+      "path": "supabase/migrations/20260923205830_disable_destructive_contact_resets.sql",
+      "sha256": "c3e1ea17959bf3801a9a21c3f3c7b373e64752757714acc4253cc34c52c706ad"
+    },
+    {
+      "order": 2,
+      "path": "supabase/migrations/20260923211512_interest_evaluation_evidence.sql",
+      "sha256": "75a9f3a9223d5ef42069bce33a755be1185c918fd80ab1eea3c34723a9b580fc"
+    },
+    {
+      "order": 3,
+      "path": "supabase/migrations/20260923174920_kommo_message_evidence.sql",
+      "sha256": "8631cb315d554ad8e846b951444ceb8297c77f2d64b55e265b7e07970d9f9ff0"
+    }
+  ],
+  "verification": "operations/verify_kommo_activation_readonly.sql",
+  "runbook": "docs/kommo-activation-package-20260924.md",
+  "existingWebhooks": [
+    47472151,
+    47464183
+  ],
+  "proposedObserverPath": "/api/integrations/kommo/observe",
+  "events": [
+    "add_message",
+    "add_outgoing_message"
+  ],
+  "backupCount": 116,
+  "backupFingerprint": "11903d4f433afecc120a4deaaa8fef23"
+}

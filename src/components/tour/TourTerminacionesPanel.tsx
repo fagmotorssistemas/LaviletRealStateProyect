@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
@@ -42,6 +44,8 @@ function SwatchThumb({
   option: TerminacionOption
   size?: 'sm' | 'md'
 }) {
+  const { t } = useTourLanguage()
+
   const dim = size === 'sm' ? 'h-7 w-7' : 'h-8 w-8'
   return (
     <span
@@ -52,7 +56,7 @@ function SwatchThumb({
     >
       {option.swatchUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={option.swatchUrl} alt="" className="h-full w-full object-cover" />
+        <img src={option.swatchUrl} alt={t("")} className="h-full w-full object-cover" />
       ) : null}
     </span>
   )
@@ -73,6 +77,8 @@ function FinishSidePicker({
   finishes: TerminacionOption[]
   onChange: (slug: string) => void
 }) {
+  const { t } = useTourLanguage()
+
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const currentIndex = Math.max(
@@ -94,7 +100,7 @@ function FinishSidePicker({
 
   return (
     <div ref={rootRef} className="relative">
-      <p className="mb-1.5 text-[11px] font-medium text-[#6b7280]">{label}</p>
+      <p className="mb-1.5 text-[11px] font-medium text-[#6b7280]">{t(label)}</p>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -103,7 +109,7 @@ function FinishSidePicker({
       >
         <SwatchThumb option={current} />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#1a2744]">
-          {finishDisplayLabel(currentIndex)}
+          {t(finishDisplayLabel(currentIndex))}
         </span>
         <ChevronDown
           size={16}
@@ -130,7 +136,7 @@ function FinishSidePicker({
                   )}
                 >
                   <SwatchThumb option={item} size="sm" />
-                  <span className="min-w-0 flex-1 truncate">{finishDisplayLabel(index)}</span>
+                  <span className="min-w-0 flex-1 truncate">{t(finishDisplayLabel(index))}</span>
                 </button>
               </li>
             )
@@ -158,6 +164,8 @@ export function TourTerminacionesPanel({
   onFinishRightChange,
   contained = false,
 }: TourTerminacionesPanelProps) {
+  const { t } = useTourLanguage()
+
   const [roomOpen, setRoomOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -199,11 +207,11 @@ export function TourTerminacionesPanel({
           : 'fixed top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] bottom-auto max-h-[min(78dvh,32rem)] sm:top-5 sm:right-5 sm:max-h-[min(82dvh,34rem)]',
       )}
       role="dialog"
-      aria-label="Elección de terminación"
+      aria-label={t("Elección de terminación")}
     >
       <div className="flex items-start justify-between gap-3 px-4 pt-3 pb-1">
         <div className="min-w-0 flex-1">
-          <p className="mb-2 text-[12px] font-semibold text-[#1a2744]">Ambiente</p>
+          <p className="mb-2 text-[12px] font-semibold text-[#1a2744]">{t("Ambiente")}</p>
           <div className="relative">
             <button
               type="button"
@@ -211,7 +219,7 @@ export function TourTerminacionesPanel({
               className="flex h-11 w-full items-center justify-between rounded-xl border border-[#e5e7eb] bg-white px-3.5 text-left text-sm font-medium text-[#1a2744] transition-colors hover:bg-[#f7f8fa]"
               aria-expanded={roomOpen}
             >
-              <span className="truncate">{currentRoom?.label ?? 'Elegir'}</span>
+              <span className="truncate">{t(currentRoom?.label ?? 'Elegir')}</span>
               <ChevronDown
                 size={16}
                 className={cn('shrink-0 text-[#6b7280] transition-transform', roomOpen && 'rotate-180')}
@@ -236,7 +244,7 @@ export function TourTerminacionesPanel({
                             : 'text-[#4b5563] hover:bg-[#f7f8fa]',
                         )}
                       >
-                        {item.label}
+                        {t(item.label)}
                       </button>
                     </li>
                   )
@@ -249,7 +257,7 @@ export function TourTerminacionesPanel({
           type="button"
           onClick={onClose}
           className="mt-6 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#6b7280] transition-colors hover:bg-[#f3f4f6]"
-          aria-label="Cerrar"
+          aria-label={t("Cerrar")}
         >
           <X size={16} strokeWidth={2} />
         </button>
@@ -257,9 +265,9 @@ export function TourTerminacionesPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-4">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-[12px] font-semibold text-[#1a2744]">Elección de terminación</p>
+          <p className="text-[12px] font-semibold text-[#1a2744]">{t("Elección de terminación")}</p>
           <label className="inline-flex cursor-pointer items-center gap-2">
-            <span className="text-[11px] font-medium text-[#6b7280]">Comparar</span>
+            <span className="text-[11px] font-medium text-[#6b7280]">{t("Comparar")}</span>
             <button
               type="button"
               role="switch"
@@ -282,18 +290,17 @@ export function TourTerminacionesPanel({
 
         {finishes.length === 0 ? (
           <p className="rounded-xl bg-[#f7f8fa] px-3 py-6 text-center text-sm text-[#9ca3af]">
-            Todavía no hay terminaciones cargadas.
-          </p>
+            {t(" Todavía no hay terminaciones cargadas. ")}</p>
         ) : compare ? (
           <div className="space-y-3">
             <FinishSidePicker
-              label="Izquierda"
+              label={t("Izquierda")}
               value={finishLeft}
               finishes={finishes}
               onChange={onFinishLeftChange}
             />
             <FinishSidePicker
-              label="Derecha"
+              label={t("Derecha")}
               value={finishRight}
               finishes={finishes}
               onChange={onFinishRightChange}
@@ -316,7 +323,7 @@ export function TourTerminacionesPanel({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={item.swatchUrl}
-                        alt=""
+                        alt={t("")}
                         className="absolute inset-0 h-full w-full object-cover"
                       />
                     ) : (
@@ -337,7 +344,7 @@ export function TourTerminacionesPanel({
                       active ? 'text-[#1a2744]' : 'text-[#6b7280]',
                     )}
                   >
-                    {label}
+                    {t(label)}
                   </span>
                 </button>
               )

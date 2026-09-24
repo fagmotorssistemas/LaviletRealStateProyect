@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { X } from 'lucide-react'
@@ -48,6 +50,8 @@ export function TourInfoRequestModal({
   finish,
   light,
 }: TourInfoRequestModalProps) {
+  const { t } = useTourLanguage()
+
   const [pending, setPending] = useState(false)
   const submitLockRef = useRef(false)
   const requestIdRef = useRef<string | null>(null)
@@ -82,7 +86,7 @@ export function TourInfoRequestModal({
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     if (data.get('consent') !== 'on') {
-      toast.error('Marca la casilla de política de privacidad')
+      toast.error(t('Marca la casilla de política de privacidad'))
       return
     }
     const motivo =
@@ -111,16 +115,16 @@ export function TourInfoRequestModal({
         finish: finish || null,
         light: light || null,
       })
-      toast.success('Listo. Te contactaremos a la brevedad.')
+      toast.success(t('Listo. Te contactaremos a la brevedad.'))
       onIdentified?.()
       onClose()
     } catch (error) {
       submitLockRef.current = false
       const message = error instanceof Error ? error.message : ''
       toast.error(
-        message && !/<!DOCTYPE|<html/i.test(message)
+        t(message && !/<!DOCTYPE|<html/i.test(message)
           ? message
-          : 'No se pudo enviar. Intenta de nuevo.',
+          : 'No se pudo enviar. Intenta de nuevo.'),
       )
     } finally {
       setPending(false)
@@ -136,7 +140,7 @@ export function TourInfoRequestModal({
     >
       <button
         type="button"
-        aria-label="Cerrar"
+        aria-label={t("Cerrar")}
         className="absolute inset-0 bg-[#2B1A18]/45 backdrop-blur-[2px]"
         onClick={onClose}
       />
@@ -147,7 +151,7 @@ export function TourInfoRequestModal({
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#2B1A18]/8 px-5 py-4">
           <Image
             src="/LogoHorizontal.png"
-            alt="Lavilet"
+            alt={t("Lavilet")}
             width={120}
             height={28}
             className="h-7 w-auto object-contain"
@@ -157,7 +161,7 @@ export function TourInfoRequestModal({
             type="button"
             onClick={onClose}
             className="flex h-9 w-9 items-center justify-center text-[#2B1A18]/55 transition-colors hover:bg-[#2B1A18]/6 hover:text-[#2B1A18]"
-            aria-label="Cerrar formulario"
+            aria-label={t("Cerrar formulario")}
           >
             <X size={18} strokeWidth={1.75} />
           </button>
@@ -165,50 +169,48 @@ export function TourInfoRequestModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           <p className="text-[11px] font-medium tracking-[0.28em] text-[#BDA27E] uppercase">
-            Showroom
-          </p>
+            {t(" Showroom ")}</p>
           <h2 className="mt-2 font-display text-[1.65rem] leading-tight font-semibold tracking-tight text-[#2B1A18]">
-            Solicitar información
-          </h2>
+            {t(" Solicitar información ")}</h2>
           {subtitle ? (
-            <p className="mt-2 text-sm leading-relaxed text-[#2B1A18]/55">{subtitle}</p>
+            <p className="mt-2 text-sm leading-relaxed text-[#2B1A18]/55">{t(subtitle)}</p>
           ) : null}
 
           <div className="mt-6 space-y-3.5">
             <label className="block">
-              <span className={labelClass}>Nombre</span>
+              <span className={labelClass}>{t("Nombre")}</span>
               <input
                 name="name"
                 required
                 autoComplete="name"
-                placeholder="Tu nombre"
+                placeholder={t("Tu nombre")}
                 className={fieldClass}
               />
             </label>
             <label className="block">
-              <span className={labelClass}>Email</span>
+              <span className={labelClass}>{t("Email")}</span>
               <input
                 name="email"
                 type="email"
                 required
                 autoComplete="email"
-                placeholder="tu@email.com"
+                placeholder={t("tu@email.com")}
                 className={fieldClass}
               />
             </label>
             <label className="block">
-              <span className={labelClass}>Teléfono</span>
+              <span className={labelClass}>{t("Teléfono")}</span>
               <input
                 name="phone"
                 type="tel"
                 required
                 autoComplete="tel"
-                placeholder="099 000 0000"
+                placeholder={t("099 000 0000")}
                 className={fieldClass}
               />
             </label>
             <label className="block">
-              <span className={labelClass}>Motivo de contacto</span>
+              <span className={labelClass}>{t("Motivo de contacto")}</span>
               <select
                 name="motivo"
                 required
@@ -217,17 +219,17 @@ export function TourInfoRequestModal({
               >
                 {MOTIVOS.map((item) => (
                   <option key={item.value} value={item.value}>
-                    {item.label}
+                    {t(item.label)}
                   </option>
                 ))}
               </select>
             </label>
             <label className="block">
-              <span className={labelClass}>Mensaje</span>
+              <span className={labelClass}>{t("Mensaje")}</span>
               <textarea
                 name="mensaje"
                 rows={4}
-                placeholder="Cuéntanos qué necesitas o cuándo te gustaría visitar"
+                placeholder={t("Cuéntanos qué necesitas o cuándo te gustaría visitar")}
                 className="mt-1.5 w-full resize-none border border-[#2B1A18]/12 bg-white px-3.5 py-3 text-[13px] text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 transition-colors focus:border-[#BDA27E] focus:bg-[#f7f3ee]/50"
               />
             </label>
@@ -240,15 +242,14 @@ export function TourInfoRequestModal({
               className="mt-0.5 h-4 w-4 shrink-0 border-[#2B1A18]/25 accent-[#BDA27E]"
             />
             <span>
-              Leí y acepto la{' '}
+              {t(" Leí y acepto la")}{t(' ')}
               <a
                 href="/privacidad"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline decoration-[#BDA27E]/60 underline-offset-2 hover:text-[#2B1A18]"
               >
-                Política de privacidad
-              </a>
+                {t(" Política de privacidad ")}</a>
             </span>
           </label>
         </div>
@@ -259,7 +260,7 @@ export function TourInfoRequestModal({
             disabled={pending}
             className="flex h-11 w-full items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
           >
-            {pending ? 'Enviando…' : 'Enviar'}
+            {t(pending ? 'Enviando…' : 'Enviar')}
           </button>
         </div>
       </form>

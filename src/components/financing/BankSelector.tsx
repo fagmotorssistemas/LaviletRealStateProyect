@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import type { FinancingPartner } from '@/types/financingSimulator'
 import { formatPercent } from '@/lib/financing/calculator'
 
@@ -12,9 +14,11 @@ export function BankSelector({
   value: string
   onChange: (id: string) => void
 }) {
+  const { t } = useTourLanguage()
+
   return (
     <label className="block space-y-1.5">
-      <span className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">Banco</span>
+      <span className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">{t("Banco")}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -22,8 +26,8 @@ export function BankSelector({
       >
         {partners.map((partner) => (
           <option key={partner.id} value={partner.id}>
-            {partner.partner_name}
-            {partner.is_recommended ? ' · recomendado' : ''} — {formatPercent(partner.annual_interest_rate)}
+            {t(partner.partner_name)}
+            {t(partner.is_recommended ? ' · recomendado' : '')} — {t(formatPercent(partner.annual_interest_rate))}
           </option>
         ))}
       </select>

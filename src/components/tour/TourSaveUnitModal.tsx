@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useState } from 'react'
 import { Bookmark, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -105,6 +107,8 @@ export function TourSaveUnitModal({
   contained = false,
   onIdentified,
 }: TourSaveUnitModalProps) {
+  const { t } = useTourLanguage()
+
   const [pending, setPending] = useState(false)
   const [phone, setPhone] = useState('')
   const [consent, setConsent] = useState(false)
@@ -125,7 +129,7 @@ export function TourSaveUnitModal({
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     if (!alreadyIn && !consent) {
-      toast.error('Marque la casilla para guardar su departamento')
+      toast.error(t('Marque la casilla para guardar su departamento'))
       return
     }
     setPending(true)
@@ -133,13 +137,13 @@ export function TourSaveUnitModal({
       await saveTourUnit(context, alreadyIn ? getShowroomPhone() : phone)
       if (!alreadyIn) onIdentified?.()
       toast.success(
-        context.unitNumber
+        t(context.unitNumber
           ? `Guardamos el departamento ${context.unitNumber}`
-          : 'Guardamos su selección',
+          : 'Guardamos su selección'),
       )
       onClose()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo guardar')
+      toast.error(t(error instanceof Error ? error.message : 'No se pudo guardar'))
     } finally {
       setPending(false)
     }
@@ -154,7 +158,7 @@ export function TourSaveUnitModal({
     >
       <button
         type="button"
-        aria-label="Cerrar"
+        aria-label={t("Cerrar")}
         className="absolute inset-0 bg-black/45"
         onClick={onClose}
       />
@@ -165,19 +169,18 @@ export function TourSaveUnitModal({
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.16em] text-[#BDA27E] uppercase">
-              Guardar favorito
-            </p>
+              {t(" Guardar favorito ")}</p>
             <p className="mt-1 text-sm leading-snug text-[#1a2744]">
-              {alreadyIn
+              {t(alreadyIn
                 ? `¿Guardamos ${unitLabel} en su lista?`
-                : `Deje su celular y guarde ${unitLabel}. Así accede al simulador de inversión y a opciones de financiamiento.`}
+                : `Deje su celular y guarde ${unitLabel}. Así accede al simulador de inversión y a opciones de financiamiento.`)}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#6b7280] hover:bg-[#f3f4f6]"
-            aria-label="Cerrar"
+            aria-label={t("Cerrar")}
           >
             <X size={16} />
           </button>
@@ -186,8 +189,7 @@ export function TourSaveUnitModal({
         {!alreadyIn ? (
           <>
             <label className="block text-[12px] font-medium text-[#1a2744]">
-              Celular / WhatsApp
-              <input
+              {t(" Celular / WhatsApp ")}<input
                 name="phone"
                 type="tel"
                 inputMode="tel"
@@ -195,13 +197,12 @@ export function TourSaveUnitModal({
                 required
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                placeholder="Ej. 0981 234 567"
+                placeholder={t("Ej. 0981 234 567")}
                 className="mt-1.5 h-11 w-full rounded-xl border border-[#e5e7eb] bg-[#f7f8fa] px-3 text-sm text-[#1a2744] outline-none placeholder:text-[#9ca3af] focus:border-[#BDA27E]"
               />
             </label>
             <p className="mt-2 text-[11px] leading-snug text-[#6b645c]">
-              Con su número guarda favoritos y abre el simulador cuando lo necesite.
-            </p>
+              {t(" Con su número guarda favoritos y abre el simulador cuando lo necesite. ")}</p>
             <label className="mt-3 flex items-start gap-2 text-[11px] leading-snug text-[#4b5563]">
               <input
                 type="checkbox"
@@ -210,22 +211,19 @@ export function TourSaveUnitModal({
                 className="mt-0.5"
               />
               <span>
-                Acepto el uso de mi celular para guardar mi selección y contactarme por este
-                departamento.
-              </span>
+                {t(" Acepto el uso de mi celular para guardar mi selección y contactarme por este departamento. ")}</span>
             </label>
           </>
         ) : (
           <div className="space-y-2 rounded-xl bg-[#f7f8fa] px-3 py-2.5">
             <p className="text-[12px] text-[#4b5563]">
-              Celular ····{getShowroomPhone().replace(/\D/g, '').slice(-4)}
+              {t(" Celular ····")}{t(getShowroomPhone().replace(/\D/g, '').slice(-4))}
             </p>
             <a
               href="/simulador"
               className="inline-flex text-[12px] font-semibold text-[#1a2744] underline-offset-2 hover:underline"
             >
-              Abrir simulador de inversión →
-            </a>
+              {t(" Abrir simulador de inversión → ")}</a>
           </div>
         )}
 
@@ -235,7 +233,7 @@ export function TourSaveUnitModal({
           className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#14110e] text-[12px] font-semibold tracking-[0.1em] text-white uppercase disabled:opacity-60"
         >
           <Bookmark size={15} strokeWidth={2} />
-          {pending ? 'Guardando…' : alreadyIn ? 'Guardar' : 'Guardar con mi celular'}
+          {t(pending ? 'Guardando…' : alreadyIn ? 'Guardar' : 'Guardar con mi celular')}
         </button>
       </form>
     </div>

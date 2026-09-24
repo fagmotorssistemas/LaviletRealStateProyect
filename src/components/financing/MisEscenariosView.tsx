@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { FinancingScenario } from '@/types/financingSimulator'
@@ -20,6 +22,8 @@ export function MisEscenariosView({
   embedded?: boolean
   onReopen?: (scenario: FinancingScenario) => void
 }) {
+  const { t } = useTourLanguage()
+
   const [loading, setLoading] = useState(true)
   const [scenarios, setScenarios] = useState<FinancingScenario[]>([])
   const [identified, setIdentified] = useState(false)
@@ -76,19 +80,17 @@ export function MisEscenariosView({
     return (
       <div className="mx-auto max-w-xl space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-6 text-center">
         {!embedded ? (
-          <h1 className="font-serif text-3xl text-[#1f1a14]">Cálculos guardados</h1>
+          <h1 className="font-serif text-3xl text-[#1f1a14]">{t("Cálculos guardados")}</h1>
         ) : (
-          <h2 className="font-serif text-2xl text-[#1f1a14]">Cálculos guardados</h2>
+          <h2 className="font-serif text-2xl text-[#1f1a14]">{t("Cálculos guardados")}</h2>
         )}
         <p className="text-sm text-[#6b645c]">
-          Deje su celular en el showroom para guardar y recuperar sus simulaciones.
-        </p>
+          {t(" Deje su celular en el showroom para guardar y recuperar sus simulaciones. ")}</p>
         <Link
           href="/tour"
           className="inline-flex h-11 items-center justify-center rounded-full bg-[#1a2744] px-5 text-[11px] font-semibold tracking-[0.14em] text-white uppercase no-underline"
         >
-          Ir al showroom
-        </Link>
+          {t(" Ir al showroom ")}</Link>
       </div>
     )
   }
@@ -97,26 +99,25 @@ export function MisEscenariosView({
     <div className={cn('space-y-4', !embedded && 'mx-auto max-w-5xl')}>
       {!embedded ? (
         <header className="space-y-1">
-          <h1 className="font-serif text-3xl text-[#1f1a14]">Cálculos guardados</h1>
-          <p className="text-sm text-[#6b645c]">Simulaciones asociadas a su celular.</p>
+          <h1 className="font-serif text-3xl text-[#1f1a14]">{t("Cálculos guardados")}</h1>
+          <p className="text-sm text-[#6b645c]">{t("Simulaciones asociadas a su celular.")}</p>
         </header>
       ) : null}
 
-      {error ? <p className="text-sm text-rose-700">{error}</p> : null}
+      {error ? <p className="text-sm text-rose-700">{t(error)}</p> : null}
 
       {scenarios.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[#d9d0c3] px-4 py-8 text-center text-sm text-[#6b645c]">
-          Aún no tiene cálculos guardados. Elija un departamento y guarde la simulación.
-        </div>
+          {t(" Aún no tiene cálculos guardados. Elija un departamento y guarde la simulación. ")}</div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-[#ece6dc] bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-[#f7f3ee] text-left text-[10px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
               <tr>
-                <th className="px-3 py-2.5">Depto.</th>
-                <th className="px-3 py-2.5">Alquiler</th>
-                <th className="px-3 py-2.5">Flujo / año</th>
-                <th className="px-3 py-2.5">Retorno de caja</th>
+                <th className="px-3 py-2.5">{t("Depto.")}</th>
+                <th className="px-3 py-2.5">{t("Alquiler")}</th>
+                <th className="px-3 py-2.5">{t("Flujo / año")}</th>
+                <th className="px-3 py-2.5">{t("Retorno de caja")}</th>
                 <th className="px-3 py-2.5" />
               </tr>
             </thead>
@@ -126,20 +127,20 @@ export function MisEscenariosView({
                 return (
                 <tr key={row.id} className="border-t border-[#f0ebe3]">
                   <td className="px-3 py-2.5">
-                    <span>{row.units?.unit_number ?? '—'}</span>
+                    <span>{t(row.units?.unit_number ?? '—')}</span>
                     {fidelity.kind !== 'exact' ? (
                       <span className="mt-0.5 block text-[10px] text-amber-800">
-                        {fidelity.kind === 'legacy' ? 'Histórico' : 'Versión desconocida'}
+                        {t(fidelity.kind === 'legacy' ? 'Histórico' : 'Versión desconocida')}
                       </span>
                     ) : null}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">
-                    {formatMoney(row.estimated_monthly_rent)}
+                    {t(formatMoney(row.estimated_monthly_rent))}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">
-                    {formatMoney(row.annual_net_cash_flow)}
+                    {t(formatMoney(row.annual_net_cash_flow))}
                   </td>
-                  <td className="px-3 py-2.5 tabular-nums">{formatPercent(row.roi_percent)}</td>
+                  <td className="px-3 py-2.5 tabular-nums">{t(formatPercent(row.roi_percent))}</td>
                   <td className="px-3 py-2.5 text-right">
                     <div className="flex justify-end gap-3">
                       {onReopen ? (
@@ -148,16 +149,14 @@ export function MisEscenariosView({
                           onClick={() => onReopen(row)}
                           className="text-[11px] font-semibold tracking-wide text-[#1a2744] uppercase"
                         >
-                          Reabrir
-                        </button>
+                          {t(" Reabrir ")}</button>
                       ) : null}
                       <button
                         type="button"
                         onClick={() => void removeScenario(row.id)}
                         className="text-[11px] font-semibold tracking-wide text-rose-700 uppercase"
                       >
-                        Eliminar
-                      </button>
+                        {t(" Eliminar ")}</button>
                     </div>
                   </td>
                 </tr>

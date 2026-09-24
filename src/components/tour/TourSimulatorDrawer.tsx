@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Calculator, ChevronLeft, X } from 'lucide-react'
@@ -36,6 +38,8 @@ export function TourSimulatorDrawer({
   initialSection,
   onRequestInfo,
 }: TourSimulatorDrawerProps) {
+  const { t } = useTourLanguage()
+
   const reduceMotion = useReducedMotion()
   const [showSaved, setShowSaved] = useState(false)
   const [identified, setIdentified] = useState(false)
@@ -94,7 +98,7 @@ export function TourSimulatorDrawer({
         <>
           <motion.button
             type="button"
-            aria-label="Cerrar simulador"
+            aria-label={t("Cerrar simulador")}
             className={cn(
               'z-[60] bg-black/25',
               contained ? 'absolute inset-0' : 'fixed inset-0',
@@ -108,7 +112,7 @@ export function TourSimulatorDrawer({
           <motion.aside
             role="dialog"
             aria-modal="true"
-            aria-label="Simulador de inversión"
+            aria-label={t("Simulador de inversión")}
             className={cn(
               'z-[70] flex flex-col overflow-hidden rounded-2xl bg-[#f7f3ee] shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
               /* Más estrecho que antes; en móvil casi a pantalla con márgenes seguros */
@@ -143,10 +147,9 @@ export function TourSimulatorDrawer({
                 <Calculator size={15} strokeWidth={1.75} className="shrink-0 text-[#1a2744]" />
                 <div className="min-w-0">
                   <p className="truncate text-[11px] font-semibold tracking-[0.14em] text-[#1a2744] uppercase">
-                    Simulador
-                  </p>
+                    {t(" Simulador ")}</p>
                   <p className="truncate text-[11px] text-[#8a8176]">
-                    {unitParam ? `Unidad ${unitParam}` : 'Elija una unidad'}
+                    {t(unitParam ? `Unidad ${unitParam}` : 'Elija una unidad')}
                   </p>
                 </div>
               </div>
@@ -160,8 +163,7 @@ export function TourSimulatorDrawer({
                     }}
                     className="rounded-lg px-2 py-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase hover:bg-[#f4f4ef]"
                   >
-                    Cambiar
-                  </button>
+                    {t(" Cambiar ")}</button>
                 ) : null}
                 {identified && unitParam && !picking ? (
                   <button
@@ -169,14 +171,14 @@ export function TourSimulatorDrawer({
                     onClick={() => setShowSaved((value) => !value)}
                     className="rounded-lg px-2 py-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase hover:bg-[#f4f4ef]"
                   >
-                    {showSaved ? 'Calcular' : 'Guardados'}
+                    {t(showSaved ? 'Calcular' : 'Guardados')}
                   </button>
                 ) : null}
                 <button
                   type="button"
                   onClick={onClose}
                   className="rounded-lg p-1.5 text-[#6b645c] hover:bg-[#f4f4ef] hover:text-[#1a2744]"
-                  aria-label="Cerrar"
+                  aria-label={t("Cerrar")}
                 >
                   <X size={16} strokeWidth={1.75} />
                 </button>
@@ -193,13 +195,12 @@ export function TourSimulatorDrawer({
                       className="inline-flex items-center gap-1 text-[11px] font-medium tracking-[0.1em] text-[#6b645c] uppercase hover:text-[#1a2744]"
                     >
                       <ChevronLeft size={14} />
-                      Volver al cálculo
-                    </button>
+                      {t(" Volver al cálculo ")}</button>
                   ) : null}
                   <p className="text-sm text-[#6b645c]">
-                    {sortedUnits.length > 0
+                    {t(sortedUnits.length > 0
                       ? 'Elija el departamento a simular:'
-                      : 'No hay unidades disponibles para simular en esta tipología.'}
+                      : 'No hay unidades disponibles para simular en esta tipología.')}
                   </p>
                   <ul className="grid grid-cols-2 gap-2">
                     {sortedUnits.map((unit) => (
@@ -215,10 +216,10 @@ export function TourSimulatorDrawer({
                           )}
                         >
                           <span className="text-base font-semibold text-[#1f1a14]">
-                            {unit.unit_number}
+                            {t(unit.unit_number)}
                           </span>
                           <span className="text-[11px] text-[#8a8176]">
-                            {unit.floor ? `Piso ${unit.floor}` : 'Ver simulación'}
+                            {t(unit.floor ? `Piso ${unit.floor}` : 'Ver simulación')}
                           </span>
                         </button>
                       </li>
@@ -227,7 +228,7 @@ export function TourSimulatorDrawer({
                 </div>
               ) : showSaved && identified ? (
                 <div className="space-y-3">
-                  <h2 className="font-serif text-xl text-[#1f1a14]">Cálculos guardados</h2>
+                  <h2 className="font-serif text-xl text-[#1f1a14]">{t("Cálculos guardados")}</h2>
                   <MisEscenariosView
                     embedded
                     onReopen={(scenario) => {

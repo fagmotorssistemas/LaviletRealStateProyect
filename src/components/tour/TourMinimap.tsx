@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { cn } from '@/lib/utils'
 
 export type TourMinimapRoom = {
@@ -18,17 +20,18 @@ type TourMinimapProps = {
 }
 
 export function TourMinimap({ rooms, currentRoom, yaw, onSelectRoom }: TourMinimapProps) {
+  const { t } = useTourLanguage()
+
   const current = rooms.find((r) => r.id === currentRoom)
   const rotation = (current?.heading ?? 0) + (yaw * 180) / Math.PI
 
   return (
     <div
       className="relative h-[7.25rem] w-[7.25rem] overflow-hidden rounded-[4px] bg-black/55 shadow-lg ring-1 ring-white/15 backdrop-blur-sm sm:h-[8.5rem] sm:w-[8.5rem]"
-      aria-label="Minimapa"
+      aria-label={t("Minimapa")}
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 px-1.5 pt-1 text-[9px] font-semibold tracking-[0.16em] text-white/45 uppercase">
-        Planta
-      </div>
+        {t(" Planta ")}</div>
 
       {rooms.map((room) => {
         const active = room.id === currentRoom
@@ -36,7 +39,7 @@ export function TourMinimap({ rooms, currentRoom, yaw, onSelectRoom }: TourMinim
           <button
             key={room.id}
             type="button"
-            title={room.name}
+            title={t(room.name)}
             onClick={() => onSelectRoom(room.id)}
             className={cn(
               'absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full transition-transform',
@@ -44,7 +47,7 @@ export function TourMinimap({ rooms, currentRoom, yaw, onSelectRoom }: TourMinim
             )}
             style={{ left: `${room.x}%`, top: `${room.y}%` }}
           >
-            <span className="sr-only">{room.name}</span>
+            <span className="sr-only">{t(room.name)}</span>
           </button>
         )
       })}
@@ -63,7 +66,7 @@ export function TourMinimap({ rooms, currentRoom, yaw, onSelectRoom }: TourMinim
       )}
 
       <p className="pointer-events-none absolute inset-x-0 bottom-1 text-center text-[10px] font-medium text-white/70">
-        {current?.name ?? ''}
+        {t(current?.name ?? '')}
       </p>
     </div>
   )

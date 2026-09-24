@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request) {
   try {
-    let body: { text?: string }
+    let body: { text?: string; locale?: unknown }
     try {
       body = (await request.json()) as typeof body
     } catch {
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Falta el texto' }, { status: 400 })
     }
 
-    const audio = await synthesizeTourVoice(text)
+    const audio = await synthesizeTourVoice(text, body.locale === 'en' ? 'en' : 'es')
     if (!audio) {
       return NextResponse.json({ error: 'TTS_UNAVAILABLE' }, { status: 503 })
     }

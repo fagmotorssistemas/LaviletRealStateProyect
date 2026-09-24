@@ -10,6 +10,7 @@ import type { TourUnitSummary } from '@/types/tour'
 import { UNIT_STATUS_OPTIONS, type UnitStatus } from '@/types/inmobiliaria'
 import { buildFichaSpecRows } from '@/lib/tour/fichaSpecs'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
+import { translateTourText, type TourLocale } from './tourMessages'
 
 export type FichaPdfImage = {
   label: string
@@ -151,7 +152,9 @@ export async function downloadFichaTecnicaPdf(params: {
   unit: TourUnitSummary
   images?: FichaPdfImage[]
   projectName?: string
+  locale?: TourLocale
 }) {
+  const t = (value: string) => translateTourText(value, params.locale ?? 'es')
   const { jsPDF } = await import('jspdf')
   const {
     typologyCode,
@@ -178,18 +181,18 @@ export async function downloadFichaTecnicaPdf(params: {
 
   doc.setTextColor(189, 162, 126)
   setPdfFont(doc, 'normal', 8)
-  doc.text('FICHA TÉCNICA', margin, 12)
+  doc.text(t('FICHA TÉCNICA'), margin, 12)
   doc.setTextColor(247, 243, 238)
   setPdfFont(doc, 'bold', 18)
-  doc.text(projectName, margin, 23)
+  doc.text(t(projectName), margin, 23)
 
   setPdfFont(doc, 'normal', 9)
   doc.setTextColor(189, 162, 126)
   const rightMeta = `${typologyCode}${typologyName ? ` · ${typologyName}` : ''}`
-  doc.text(rightMeta, pageW - margin, 14, { align: 'right' })
+  doc.text(t(rightMeta), pageW - margin, 14, { align: 'right' })
   doc.setTextColor(247, 243, 238)
   setPdfFont(doc, 'bold', 11)
-  doc.text(`Unidad ${unit.unit_number}`, pageW - margin, 23, { align: 'right' })
+  doc.text(t(`Unidad ${unit.unit_number}`), pageW - margin, 23, { align: 'right' })
 
   let y = 42
 
@@ -222,11 +225,11 @@ export async function downloadFichaTecnicaPdf(params: {
   // Title + status + price
   doc.setTextColor(43, 26, 24)
   setPdfFont(doc, 'bold', 20)
-  const unitTitle = `Unidad ${unit.unit_number}`
-  doc.text(unitTitle, margin, y)
+  const unitTitle = t(`Unidad ${unit.unit_number}`)
+  doc.text(t(unitTitle), margin, y)
   const unitTitleW = doc.getTextWidth(unitTitle)
 
-  const status = statusLabel(unit.status)
+  const status = t(statusLabel(unit.status))
   setPdfFont(doc, 'bold', 8)
   const statusW = doc.getTextWidth(status) + 6
   doc.setFillColor(61, 155, 74)
@@ -239,19 +242,19 @@ export async function downloadFichaTecnicaPdf(params: {
   }
   doc.roundedRect(margin + unitTitleW + 4, y - 5, statusW, 6, 1.5, 1.5, 'F')
   doc.setTextColor(255, 255, 255)
-  doc.text(status, margin + unitTitleW + 7, y - 1)
+  doc.text(t(status), margin + unitTitleW + 7, y - 1)
 
   y += 9
   doc.setTextColor(43, 26, 24)
   setPdfFont(doc, 'bold', 18)
-  doc.text(formatPrice(unit.published_commercial_price), margin, y)
+  doc.text(t(formatPrice(unit.published_commercial_price)), margin, y)
   y += 10
 
   // Specs — Superficies / tipología
-  const specs = buildFichaSpecRows(unit)
+  const specs = buildFichaSpecRows(unit, params.locale)
   setPdfFont(doc, 'bold', 9)
   doc.setTextColor(189, 162, 126)
-  doc.text('ESPECIFICACIONES', margin, y)
+  doc.text(t('ESPECIFICACIONES'), margin, y)
   y += 4
 
   doc.setDrawColor(43, 26, 24)
@@ -264,10 +267,10 @@ export async function downloadFichaTecnicaPdf(params: {
   for (const { label, value } of specs) {
     setPdfFont(doc, 'normal', 8)
     doc.setTextColor(120, 110, 100)
-    doc.text(label.toUpperCase(), margin + 4, rowY)
+    doc.text(t(label.toUpperCase()), margin + 4, rowY)
     setPdfFont(doc, 'bold', 9)
     doc.setTextColor(43, 26, 24)
-    doc.text(value, margin + contentW - 4, rowY, { align: 'right' })
+    doc.text(t(value), margin + contentW - 4, rowY, { align: 'right' })
     rowY += 8
   }
   y += cardH + 8
@@ -276,7 +279,7 @@ export async function downloadFichaTecnicaPdf(params: {
   if (spaces.length > 0) {
     setPdfFont(doc, 'bold', 8)
     doc.setTextColor(189, 162, 126)
-    doc.text('ESPACIOS', margin, y)
+    doc.text(t('ESPACIOS'), margin, y)
     y += 5
     setPdfFont(doc, 'normal', 9)
     doc.setTextColor(43, 26, 24)
@@ -295,7 +298,7 @@ export async function downloadFichaTecnicaPdf(params: {
     }
     setPdfFont(doc, 'bold', 8)
     doc.setTextColor(189, 162, 126)
-    doc.text('GALERÍA', margin, y)
+    doc.text(t('GALERÍA'), margin, y)
     y += 4
 
     const gap = 3
@@ -335,7 +338,7 @@ export async function downloadFichaTecnicaPdf(params: {
       }
       setPdfFont(doc, 'normal', 6)
       doc.setTextColor(100, 90, 80)
-      doc.text(gallery[i].label.slice(0, 28), x + 1.5, rowTop + cellH - 1.5)
+      doc.text(t(gallery[i].label.slice(0, 28)), x + 1.5, rowTop + cellH - 1.5)
       col = (col + 1) % cols
     }
   }
@@ -350,8 +353,8 @@ export async function downloadFichaTecnicaPdf(params: {
     doc.line(margin, pageH - 10, pageW - margin, pageH - 10)
     setPdfFont(doc, 'normal', 7)
     doc.setTextColor(140, 130, 120)
-    doc.text(`${projectName} · ${typologyCode} · Unidad ${unit.unit_number}`, margin, pageH - 5)
-    doc.text(`${p} / ${pageCount}`, pageW - margin, pageH - 5, { align: 'right' })
+    doc.text(t(`${projectName} · ${typologyCode} · Unidad ${unit.unit_number}`), margin, pageH - 5)
+    doc.text(t(`${p} / ${pageCount}`), pageW - margin, pageH - 5, { align: 'right' })
   }
 
   const safeCode = unit.unit_number.replace(/[^\w.-]+/g, '_')

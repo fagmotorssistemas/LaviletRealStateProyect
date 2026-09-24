@@ -1,4 +1,6 @@
 import type { TourUnitSummary } from '@/types/tour'
+import { isVoiceQuestion } from './voiceTurnIntent'
+import type { TourLocale } from './tourMessages'
 import { unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 
 /** Nombre público del asistente de voz del showroom. */
@@ -8,8 +10,9 @@ export function voiceAssistantGreeting(): string {
   return `Hola, qué gusto saludarle. Soy ${TOUR_VOICE_ASSISTANT_NAME}, de La Vilet. Puedo ayudarle con departamentos, suites o locales comerciales. Pregúnteme con confianza: dormitorios, piso, presupuesto o un local… ¿En qué le gustaría que le ayude?`
 }
 
-export function voiceSoftPhoneAskLine(): string {
-  return ' ¿Desea dejarme su WhatsApp para tenerle presente? Si quiere, dígamelo ahora y con gusto lo anoto.'
+export function voiceSoftPhoneAskLine(locale: TourLocale = 'es'): string {
+  if (locale === 'en') return ' If you would like an advisor to contact you later, you can leave your WhatsApp number.'
+  return ' Si más adelante quiere que un asesor le contacte, puede dejar su WhatsApp.'
 }
 
 /** Cómo cerrar la conversación con Lia. */
@@ -226,7 +229,7 @@ function scoreUnitAgainstBranch(
   let score = 0
 
   if (branch.category) {
-    if (unitCat !== branch.category) return null
+    if (unitCat !== branch.category && !(branch.category === 'departamento' && unitCat === 'suite')) return null
     score += 10
   } else if (branch.bedrooms != null || branch.bathrooms != null) {
     // Pedidos residenciales sin categoría: no mezclar locales.
@@ -677,9 +680,8 @@ export function buildSpeakLine(
   const optionLines = (list: VoiceAssistUnitCard[]) =>
     list.map((m, index) => `Opción ${index + 1}: ${describeUnitSpoken(m)}.`).join(' ')
   const seed = `${filters.category ?? ''}|${filters.sort_pref ?? ''}|${matches.map((m) => m.id).join(',')}|${opts?.suggested ? 's' : 'e'}`
-  const closeHint = voiceCloseHintLine()
   const chooseFollowUp =
-    'Toque una opción o diga “opción 1”. Si no desea más información, diga gracias y cierro.'
+    'Puede abrir una opción o preguntarme por sus diferencias.'
   const chooseAsk =
     matches.length === 1
       ? '¿Quiere que la abramos, o prefiere otra búsqueda?'
@@ -714,7 +716,7 @@ export function buildSpeakLine(
       `Eso no lo tengo con esas características. Le propongo estas alternativas.`,
     ])
     return {
-      speak: `${intro} ${optionLines(matches)} ${chooseAsk}${closeHint}`,
+      speak: `${intro} ${optionLines(matches)} ${chooseAsk}`,
       follow_up: chooseFollowUp,
     }
   }
@@ -729,7 +731,7 @@ export function buildSpeakLine(
       speak: `${pickDynamicIntro(seed, [
         `Con gusto, estas son las ${label}. Le muestro un adelanto de cada una.`,
         `Claro, le presento las ${label}, una por una.`,
-      ])} ${optionLines(matches)} ${chooseAsk}${closeHint}`,
+      ])} ${optionLines(matches)} ${chooseAsk}`,
       follow_up: chooseFollowUp,
     }
   }
@@ -739,7 +741,7 @@ export function buildSpeakLine(
       speak: `${pickDynamicIntro(seed, [
         'Con gusto, estas son las de mayor valor. Le muestro un adelanto de cada una.',
         'Perfecto, le presento las de mayor valor, una por una.',
-      ])} ${optionLines(matches)} ${chooseAsk}${closeHint}`,
+      ])} ${optionLines(matches)} ${chooseAsk}`,
       follow_up: chooseFollowUp,
     }
   }
@@ -751,7 +753,7 @@ export function buildSpeakLine(
       speak: `${pickDynamicIntro(seed, [
         `Encontré ${one} que puede servirle: ${desc}.`,
         `Tengo ${one} para usted: ${desc}.`,
-      ])}${needHint} ${chooseAsk}${closeHint}`,
+      ])}${needHint} ${chooseAsk}`,
       follow_up: chooseFollowUp,
     }
   }
@@ -767,7 +769,7 @@ export function buildSpeakLine(
       ])
 
   return {
-    speak: `${intro} ${optionLines(matches)} ${chooseAsk}${closeHint}`,
+    speak: `${intro} ${optionLines(matches)} ${chooseAsk}`,
     follow_up: chooseFollowUp,
   }
 }
@@ -779,7 +781,7 @@ export function mergeVoiceFilters(
 ): VoiceAssistFilters {
   if (!previous) return next
   // Pedido mixto nuevo reemplaza el simple anterior (y viceversa si viene plano).
-  const or_groups = next.or_groups ?? previous.or_groups
+  const or_groups = next.or_groups ?? (next.category != null || next.bedrooms != null ? null : previous.or_groups)
   return normalizeFilters({
     bedrooms: next.bedrooms ?? previous.bedrooms,
     bathrooms: next.bathrooms ?? previous.bathrooms,
@@ -807,6 +809,10 @@ export function wantsFreshSearch(transcript: string) {
 
 /** “opción 1”, “la primera”, “quiero la segunda”. Índice 1-based. */
 export function parseOptionChoice(transcript: string): number | null {
+  if (isVoiceQuestion(transcript)) return null
+  // A bedroom count is a search criterion, never a numbered option selection.
+  if (/\b(?:\d+|un|uno|una|dos|tres|one|two|three)[ -]+(?:habitaci[oó]n|habitaciones|dormitorios?|cuartos?|bedrooms?|baños?|bathrooms?)\b/i.test(transcript)) return null
+  transcript = transcript.replace(/\bfirst\b/gi, 'primera').replace(/\bsecond\b/gi, 'segunda').replace(/\bthird\b/gi, 'tercera').replace(/\boption\b/gi, 'opcion')
   const t = transcript
     .toLowerCase()
     .normalize('NFD')
@@ -864,6 +870,9 @@ export function parseOptionChoice(transcript: string): number | null {
  * Confirma la opción listada: “opción 2”, o con una sola coincidencia “sí” / “ábrela”.
  */
 export function parseListedOptionChoice(transcript: string, matchCount: number): number | null {
+  if (isVoiceQuestion(transcript)) return null
+  if (/\b(?:habitaci[oó]n|habitaciones|dormitorios?|cuartos?|bedrooms?|baños?|bathrooms?)\b/i.test(transcript)) return null
+  if (matchCount === 1 && /^(yes|sure|open it|show it|this one)[.!]?$/i.test(transcript.trim())) return 1
   if (matchCount < 1) return null
   const explicit = parseOptionChoice(transcript)
   if (explicit != null && explicit <= matchCount) return explicit
@@ -889,6 +898,8 @@ export function parseListedOptionChoice(transcript: string, matchCount: number):
 
 /** Cierre de conversación: “gracias”, “eso es todo”, “chao”, etc. */
 export function isConversationEnd(transcript: string): boolean {
+  if (isVoiceQuestion(transcript)) return false
+  if (/^(thank you|thanks|goodbye|bye|that'?s all|close the assistant)[.!]?$/i.test(transcript.trim())) return true
   const t = transcript
     .toLowerCase()
     .normalize('NFD')
@@ -978,7 +989,7 @@ export function speakUnclearSpeechClarification(): { speak: string; follow_up: s
 
 /** Normaliza un celular de Ecuador a dígitos (09… o +593…). */
 function normalizeEcuadorMobileDigits(digits: string): string | null {
-  let d = String(digits ?? '').replace(/\D/g, '')
+  const d = String(digits ?? '').replace(/\D/g, '')
   if (!d) return null
   // +593 9 XXXXXXXX
   if (d.startsWith('593') && d.length >= 11 && d.length <= 13 && d[3] === '9') {
@@ -995,6 +1006,7 @@ function normalizeEcuadorMobileDigits(digits: string): string | null {
 
 /** Extrae un celular/WhatsApp dicho o escrito en el mensaje. */
 export function parsePhoneFromTranscript(transcript: string): string | null {
+  if (isVoiceQuestion(transcript)) return null
   const raw = String(transcript ?? '')
     .toLowerCase()
     .normalize('NFD')
@@ -1034,6 +1046,7 @@ export function parsePhoneFromTranscript(transcript: string): string | null {
 
 /** El visitante ofrece dejar contacto sin dictar aún el número. */
 export function wantsLeavePhone(transcript: string): boolean {
+  if (/\b(my (phone|mobile|whatsapp|number)|leave my (number|contact)|save my (number|contact))\b/i.test(transcript)) return !parsePhoneFromTranscript(transcript)
   const t = transcript
     .toLowerCase()
     .normalize('NFD')
@@ -1048,6 +1061,7 @@ export function wantsLeavePhone(transcript: string): boolean {
 
 /** Respuesta corta afirmativa (p. ej. tras “¿desea dejar WhatsApp?”). */
 export function isShortAffirmative(transcript: string): boolean {
+  if (/^(yes|sure|okay|ok|of course)[.!]?$/i.test(transcript.trim())) return true
   const t = transcript
     .toLowerCase()
     .normalize('NFD')
@@ -1061,6 +1075,7 @@ export function isShortAffirmative(transcript: string): boolean {
 
 /** Rechazo corto a dejar WhatsApp. */
 export function isShortDecline(transcript: string): boolean {
+  if (/^(no|no thanks|no thank you|not now)[.!]?$/i.test(transcript.trim())) return true
   const t = transcript
     .toLowerCase()
     .normalize('NFD')
@@ -1071,8 +1086,10 @@ export function isShortDecline(transcript: string): boolean {
 }
 
 const PHONE_ASK_SESSION_KEY = 'lv_voice_phone_asked_v5'
+let phoneInvitationShown = false
 
 export function hasAskedVoicePhone(): boolean {
+  if (phoneInvitationShown) return true
   if (typeof window === 'undefined') return false
   try {
     return window.sessionStorage.getItem(PHONE_ASK_SESSION_KEY) === '1'
@@ -1083,6 +1100,7 @@ export function hasAskedVoicePhone(): boolean {
 
 export function markAskedVoicePhone() {
   if (typeof window === 'undefined') return
+  phoneInvitationShown = true
   try {
     window.sessionStorage.setItem(PHONE_ASK_SESSION_KEY, '1')
   } catch {
@@ -1090,38 +1108,20 @@ export function markAskedVoicePhone() {
   }
 }
 
-/** Al elegir una unidad: preguntar WhatsApp si aún no está identificado. */
+/** Invitación opcional de contacto una vez por sesión, al elegir una unidad. */
 export function withSoftPhoneAsk(
   data: VoiceAssistResult,
   identified: boolean,
-  opts?: { afterOptionPick?: boolean },
+  opts?: { afterOptionPick?: boolean; locale?: TourLocale },
 ): VoiceAssistResult {
-  if (!opts?.afterOptionPick) return data
+  if (!opts?.afterOptionPick || identified || hasAskedVoicePhone()) return data
   if (data.matches.length === 0) return data
 
-  const close = voiceCloseHintLine()
-  let speak = data.speak.replace(/\s+$/, '')
-  if (speak.endsWith(close.trim())) {
-    speak = speak.slice(0, -close.trim().length).replace(/\s+$/, '')
-  }
-
-  // Ya tiene WhatsApp: solo recuerda cómo cerrar.
-  if (identified) {
-    return {
-      ...data,
-      speak: `${speak}${close}`,
-      follow_up:
-        'Si no desea más información, diga gracias y cierro. También puede pedir otra opción u otro filtro.',
-    }
-  }
-
-  // Cada vez que elige una opción (si aún no dejó número), preguntar WhatsApp.
+  // Invitación opcional, una sola vez; cambiar de unidad no vuelve a solicitarlo.
   markAskedVoicePhone()
   return {
     ...data,
-    speak: `${speak}${voiceSoftPhoneAskLine()}${close}`,
-    follow_up:
-      'Si desea, dígame su WhatsApp. Si no desea más información, diga gracias y cierro.',
+    speak: `${data.speak.trim()}${voiceSoftPhoneAskLine(opts.locale)}`,
   }
 }
 
@@ -1359,6 +1359,10 @@ export function parseVoiceFiltersLocal(transcript: string): VoiceAssistFilters {
     .replace(/\p{M}/gu, '')
     .replace(/\s+/g, ' ')
     .trim()
+    .replace(/\b(one|two|three|four|five|six)\b/g, word => ({one:'uno',two:'dos',three:'tres',four:'cuatro',five:'cinco',six:'seis'} as Record<string, string>)[word])
+    .replace(/\bbedrooms?\b/g, 'dormitorios').replace(/\bbathrooms?\b/g, 'banos')
+    .replace(/\bapartments?\b/g, 'departamentos').replace(/\bup to\b/g, 'hasta').replace(/\bthousand\b/g, 'mil')
+    .replace(/\b(uno|dos|tres|cuatro|cinco|seis|\d+)-+(?=dormitorios)/g, '$1 ')
 
   const filters = { ...EMPTY_VOICE_FILTERS }
 

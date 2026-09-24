@@ -1,5 +1,8 @@
 'use client'
 
+import { TourLocaleProvider, useTourLanguage } from '@/lib/tour/tourLocale'
+import { translateTourText, type TourLocale } from '@/lib/tour/tourMessages'
+
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Cache, CONSTANTS, Viewer, events } from '@photo-sphere-viewer/core'
 import { GyroscopePlugin } from '@photo-sphere-viewer/gyroscope-plugin'
@@ -24,9 +27,7 @@ import {
   Mic,
   Rotate3d,
   SwatchBook,
-  X,
 } from 'lucide-react'
-import Link from 'next/link'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
 import { TourFichaDrawer } from '@/components/tour/TourFichaDrawer'
 import { TourSimulatorDrawer } from '@/components/tour/TourSimulatorDrawer'
@@ -114,15 +115,15 @@ function lookAtSpot(viewer: Viewer, yaw: number, pitch: number) {
   })
 }
 
-function roomMarkerPin(item: TourPlacedHotspot) {
+function roomMarkerPin(item: TourPlacedHotspot, locale: TourLocale) {
   const kind = item.kind === 'look' ? 'look' : 'go'
   return {
     id: `pin-${item.id}`,
     position: { yaw: item.yaw, pitch: item.pitch },
-    html: roomHotspotHtml(item.label, kind),
+    html: roomHotspotHtml(translateTourText(item.label, locale), kind),
     anchor: 'center center' as const,
     size: { width: 92, height: 78 },
-    tooltip: item.label,
+    tooltip: translateTourText(item.label, locale),
     data: { room: item.slug, kind, yaw: item.yaw, pitch: item.pitch },
   }
 }
@@ -133,9 +134,10 @@ function buildTourMarkers(
   _tourRooms: { slug: string; label: string }[],
   placed: TourPlacedHotspot[],
   _homeSlug: string,
+  locale: TourLocale = 'es',
 ) {
   if (viewMode !== 'tour') return []
-  return placed.filter((item) => item.from === room).map((item) => roomMarkerPin(item))
+  return placed.filter((item) => item.from === room).map((item) => roomMarkerPin(item, locale))
 }
 
 function CrossfadeStill({
@@ -149,6 +151,8 @@ function CrossfadeStill({
   contain?: boolean
   fit?: 'vistas' | 'planos'
 }) {
+  const { t } = useTourLanguage()
+
   const [current, setCurrent] = useState<string | null>(url)
   const [previous, setPrevious] = useState<string | null>(null)
 
@@ -178,10 +182,10 @@ function CrossfadeStill({
   return (
     <div className="absolute inset-0 overflow-hidden bg-[#111]">
       {previous ? (
-        <StillFrame key={`out-${previous}`} src={previous} alt="" contain={contain} fit={fit} motion="out" />
+        <StillFrame key={`out-${previous}`} src={previous} alt={t("")} contain={contain} fit={fit} motion="out" />
       ) : null}
       {current ? (
-        <StillFrame key={`in-${current}`} src={current} alt={alt} contain={contain} fit={fit} motion="in" />
+        <StillFrame key={`in-${current}`} src={current} alt={t(alt)} contain={contain} fit={fit} motion="in" />
       ) : null}
     </div>
   )
@@ -200,13 +204,15 @@ function StillFrame({
   fit: 'vistas' | 'planos'
   motion: 'in' | 'out'
 }) {
+  const { t } = useTourLanguage()
+
   return (
     <div className={cn('pointer-events-none absolute inset-0', motion === 'in' ? 'tour-walk-in' : 'tour-walk-out')}>
       {contain ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
-          alt=""
+          alt={t("")}
           aria-hidden
           draggable={false}
           className="absolute inset-0 h-full w-full scale-[1.25] object-cover blur-[22px] brightness-[0.92] saturate-150"
@@ -222,7 +228,7 @@ function StillFrame({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
-        alt={alt}
+        alt={t(alt)}
         draggable={false}
         className={cn(
             contain
@@ -273,10 +279,12 @@ function ModeButton({
   disabled?: boolean
   title?: string
 }) {
+  const { t } = useTourLanguage()
+
   return (
     <button
       type="button"
-      title={title ?? children}
+      title={t(title ?? children)}
       disabled={disabled}
       onClick={onClick}
       data-active={active ? 'true' : undefined}
@@ -287,9 +295,9 @@ function ModeButton({
       )}
     >
       <span className="tour-mode-btn__icon" aria-hidden>
-        {icon}
+        {t(icon)}
       </span>
-      <span className="tour-mode-btn__label">{children}</span>
+      <span className="tour-mode-btn__label">{t(children)}</span>
     </button>
   )
 }
@@ -301,6 +309,8 @@ function PlanosModePicker({
   viewMode: TourViewMode
   onSelect: (mode: 'planos-2d' | 'planos-3d') => void
 }) {
+  const { t } = useTourLanguage()
+
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const active = isPlanosMode(viewMode)
@@ -345,7 +355,7 @@ function PlanosModePicker({
         <span className="tour-mode-btn__icon" aria-hidden>
           <Layers size={14} strokeWidth={1.75} />
         </span>
-        <span className="tour-mode-btn__label">{label}</span>
+        <span className="tour-mode-btn__label">{t(label)}</span>
       </button>
       {open ? (
         <ul
@@ -374,7 +384,7 @@ function PlanosModePicker({
                     selected ? 'bg-white/12 text-white' : 'text-white/75 hover:bg-white/8 hover:text-white',
                   )}
                 >
-                  {opt.label}
+                  {t(opt.label)}
                 </button>
               </li>
             )
@@ -415,18 +425,18 @@ function DesktopModesList({
   onTerminaciones: () => void
   onComparador: () => void
 }) {
+  const { t } = useTourLanguage()
+
   return (
     <>
       {show.galeria ? (
         <ModeButton active={active.galeria} icon={<Images size={14} strokeWidth={1.75} />} onClick={onGaleria}>
-          Galería
-        </ModeButton>
+          {t(" Galería ")}</ModeButton>
       ) : null}
       {show.planos ? <PlanosModePicker viewMode={viewMode} onSelect={onPlanos} /> : null}
       {show.tour ? (
         <ModeButton active={active.tour} icon={<Rotate3d size={14} strokeWidth={1.75} />} onClick={onTour}>
-          Tour 360°
-        </ModeButton>
+          {t(" Tour 360° ")}</ModeButton>
       ) : null}
       {show.terminaciones ? (
         <ModeButton
@@ -434,13 +444,11 @@ function DesktopModesList({
           icon={<SwatchBook size={14} strokeWidth={1.75} />}
           onClick={onTerminaciones}
         >
-          Terminaciones
-        </ModeButton>
+          {t(" Terminaciones ")}</ModeButton>
       ) : null}
       {show.comparador ? (
         <ModeButton active={active.comparador} icon={<Columns2 size={14} strokeWidth={1.75} />} onClick={onComparador}>
-          Comparador
-        </ModeButton>
+          {t(" Comparador ")}</ModeButton>
       ) : null}
     </>
   )
@@ -790,6 +798,14 @@ function nodesFromPublicCatalog(
 }
 
 export function TourViewer({ embedded = false }: { embedded?: boolean }) {
+  return <TourLocaleProvider><TourViewerContent embedded={embedded}/></TourLocaleProvider>
+}
+
+function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
+  const { t, locale } = useTourLanguage()
+  const localeRef = useRef(locale)
+  useEffect(() => { localeRef.current = locale }, [locale])
+
   const slotRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1127,6 +1143,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             startNodeId: scene.startNodeId,
             preload: false,
             showLinkTooltip: true,
+            getLinkTooltip: (_content, _link, node) => translateTourText(node.name ?? '', localeRef.current),
             linksOnCompass: false,
             arrowStyle: {
               element: createTourArrow,
@@ -1878,7 +1895,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     if (!markers) return
 
     if (!walkingRef.current) {
-      markers.setMarkers(buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug))
+      viewer.setOption('loadingTxt', locale === 'en' ? 'Loading…' : 'Cargando…')
+      markers.setMarkers(buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug, locale))
     }
 
     const onMarker = (event: markerEvents.SelectMarkerEvent) => {
@@ -1896,7 +1914,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     return () => {
       markers.removeEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
     }
-  }, [booting, isPanoRoom, viewMode, tourRooms, onSelectRoom, currentTypology?.hotspots, room, homeSlug])
+  }, [booting, isPanoRoom, viewMode, tourRooms, onSelectRoom, currentTypology?.hotspots, room, homeSlug, locale])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -2245,7 +2263,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       preloadedRef.current.add(url)
       viewer.needsUpdate()
       walkingRef.current = false
-      markers?.setMarkers(buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug))
+      markers?.setMarkers(buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug, localeRef.current))
       setPanoLeaving(false)
       if (changing) {
         if (!ghost) setPanoEntering(true)
@@ -2401,6 +2419,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     <div ref={slotRef} className={embedded ? 'relative h-full min-h-[320px] w-full' : 'h-full w-full'}>
     <div
       ref={rootRef}
+      lang={locale}
       className={cn(
         'tour-root overflow-hidden bg-black overscroll-none',
         immersive && 'is-immersive',
@@ -2410,7 +2429,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           : 'relative h-full w-full',
       )}
     >
-      {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">La unidad {selectedUnit.unit_number} aún no tiene un recurso disponible para esta vista.</div>:null}
+      {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
         onHome={()=>{setShellMode('plan');setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false)}}
@@ -2447,15 +2466,14 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           <img
             key={panoGhostKey}
             src={panoGhost}
-            alt=""
+            alt={t("")}
             className="tour-walk-out pointer-events-none absolute inset-0 z-[8] h-full w-full object-cover"
           />
         ) : null}
 
         {isComparador && compareContentMode === 'tour' ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-16 z-[9] mx-auto hidden max-w-[90%] text-center text-[10px] font-medium tracking-[0.14em] text-white/80 uppercase sm:bottom-20 sm:block sm:text-[11px]">
-            Haz clic y arrastra para mirar alrededor
-          </p>
+            {t(" Haz clic y arrastra para mirar alrededor ")}</p>
         ) : null}
       </div>
 
@@ -2606,11 +2624,11 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       >
         <CrossfadeStill
           url={overlayUrl}
-          alt={viewMode === 'tour' ? roomName : (stillItems[stillIndex]?.label ?? (isPlanosMode(viewMode) ? 'Plano' : 'Vista'))}
+          alt={t(viewMode === 'tour' ? roomName : (stillItems[stillIndex]?.label ?? (isPlanosMode(viewMode) ? 'Plano' : 'Vista')))}
           contain={isPlanosMode(viewMode)}
           fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
         />
-        {selectedUnit && showStill?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{overlayUrl?'Recurso de tipología. No acredita la vista exterior de esta unidad.':'Esta unidad no tiene un recurso disponible para esta vista.'}</p>:null}
+        {selectedUnit && showStill?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{t(overlayUrl?'Recurso de tipología. No acredita la vista exterior de esta unidad.':'Esta unidad no tiene un recurso disponible para esta vista.')}</p>:null}
         {viewMode !== 'tour' && stillItems.length > 1 ? (
           <>
             <button
@@ -2621,7 +2639,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               }}
               onPointerDown={(event) => event.stopPropagation()}
               className="pointer-events-auto absolute top-1/2 left-[max(0.4rem,env(safe-area-inset-left))] z-[2] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:left-[max(0.5rem,env(safe-area-inset-left))] sm:h-11 sm:w-11"
-              aria-label="Imagen anterior"
+              aria-label={t("Imagen anterior")}
             >
               <ChevronLeft size={20} strokeWidth={2} className="sm:hidden" />
               <ChevronLeft size={22} strokeWidth={2} className="hidden sm:block" />
@@ -2634,7 +2652,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               }}
               onPointerDown={(event) => event.stopPropagation()}
               className="pointer-events-auto absolute top-1/2 right-[max(0.4rem,env(safe-area-inset-right))] z-[2] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:right-[max(0.5rem,env(safe-area-inset-right))] sm:h-11 sm:w-11"
-              aria-label="Imagen siguiente"
+              aria-label={t("Imagen siguiente")}
             >
               <ChevronRight size={20} strokeWidth={2} className="sm:hidden" />
               <ChevronRight size={22} strokeWidth={2} className="hidden sm:block" />
@@ -2657,7 +2675,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             }
           >
             <div className="max-w-[min(100%,18rem)] truncate rounded-full bg-black/45 px-3.5 py-1.5 text-center text-[11px] font-semibold tracking-[0.12em] text-white uppercase shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[12px]">
-              {stillItems[stillIndex]?.label}
+              {t(stillItems[stillIndex]?.label)}
             </div>
           </div>
         ) : null}
@@ -2665,47 +2683,46 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
       {!booting && viewMode === 'tour' && !activePanoUrl && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
-          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Falta el 360</p>
+          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">{t("Falta el 360")}</p>
           <p className="mt-2 text-sm text-white/45">
-            {roomName}
+            {t(roomName)}
           </p>
         </div>
       )}
 
       {!booting && viewMode === 'galeria' && galeriaImages.length === 0 && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
-          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">Galería</p>
-          <p className="mt-2 text-sm text-white/45">Aún no hay imágenes de galería en esta tipología.</p>
+          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">{t("Galería")}</p>
+          <p className="mt-2 text-sm text-white/45">{t("Aún no hay imágenes de galería en esta tipología.")}</p>
         </div>
       )}
 
       {!booting && isPlanosMode(viewMode) && planoImages.length === 0 && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">
-            {viewMode === 'planos-3d' ? 'Planos 3D' : 'Planos 2D'}
+            {t(viewMode === 'planos-3d' ? 'Planos 3D' : 'Planos 2D')}
           </p>
-          <p className="mt-2 text-sm text-white/45">Aún no hay planos en esta tipología.</p>
+          <p className="mt-2 text-sm text-white/45">{t("Aún no hay planos en esta tipología.")}</p>
         </div>
       )}
 
       {booting && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#111] text-center">
-          <p className="text-[11px] tracking-[0.28em] text-[#BDA27E] uppercase">Showroom</p>
-          <p className="mt-2 text-[13px] tracking-[0.16em] text-white/55 uppercase">Cargando…</p>
+          <p className="text-[11px] tracking-[0.28em] text-[#BDA27E] uppercase">{t("Showroom")}</p>
+          <p className="mt-2 text-[13px] tracking-[0.16em] text-white/55 uppercase">{t("Cargando…")}</p>
         </div>
       )}
 
       {bootError ? (
         <div className="absolute inset-0 z-[140] flex flex-col items-center justify-center bg-[#111] px-6 text-center">
-          <p className="text-[11px] tracking-[0.28em] text-[#BDA27E] uppercase">Showroom</p>
-          <p className="mt-3 max-w-sm text-sm text-white/70">{bootError}</p>
+          <p className="text-[11px] tracking-[0.28em] text-[#BDA27E] uppercase">{t("Showroom")}</p>
+          <p className="mt-3 max-w-sm text-sm text-white/70">{t(bootError)}</p>
           <button
             type="button"
             className="tour-glass mt-5 px-4 py-2 text-[11px] font-semibold tracking-[0.16em] text-[#f7f3ee] uppercase"
             onClick={() => window.location.reload()}
           >
-            Reintentar
-          </button>
+            {t(" Reintentar ")}</button>
         </div>
       ) : null}
 
@@ -2750,8 +2767,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                 type="button"
                 onClick={() => setVoiceAssistOpen(true)}
                 className="tour-glass group inline-flex h-[2.35rem] w-[2.35rem] shrink-0 items-center justify-center border border-[#BDA27E]/40 text-[#f7f3ee] transition hover:border-[#BDA27E]/65 hover:bg-white/10 sm:h-[2.6rem] sm:w-[2.6rem]"
-                aria-label="Abrir asistente de voz"
-                title="Asistente de voz"
+                aria-label={t("Abrir asistente de voz")}
+                title={t("Asistente de voz")}
               >
                 <Mic
                   size={15}
@@ -2862,7 +2879,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               className="tour-glass inline-flex h-11 min-w-[7.5rem] items-center justify-center gap-1.5 border border-[#BDA27E]/50 px-3.5 text-[10px] font-semibold tracking-[0.16em] text-[#f7f3ee] uppercase shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
               aria-expanded={mobilePanel === 'modes'}
               aria-haspopup="menu"
-              aria-label="Abrir modos de vista"
+              aria-label={t("Abrir modos de vista")}
             >
               {terminacionesFocus || isFinishCompare ? (
                 <SwatchBook size={14} strokeWidth={1.75} className="shrink-0" />
@@ -2876,7 +2893,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                 <Images size={14} strokeWidth={1.75} className="shrink-0" />
               )}
               <span className="min-w-0 truncate">
-                {terminacionesFocus || isFinishCompare
+                {t(terminacionesFocus || isFinishCompare
                   ? 'Terminaciones'
                   : isComparador
                     ? 'Comparador'
@@ -2888,7 +2905,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                           ? 'Plano 2D'
                           : viewMode === 'galeria'
                             ? 'Galería'
-                            : 'Modos'}
+                            : 'Modos')}
               </span>
               <ChevronLeft
                 size={12}
@@ -2922,8 +2939,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                     setMobilePanel(null)
                   }}
                 >
-                  Galería
-                </ModeButton>
+                  {t(" Galería ")}</ModeButton>
                 ) : null}
                 {modeButtons.planos ? (
                 <>
@@ -2943,8 +2959,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                     setMobilePanel(null)
                   }}
                 >
-                  Plano 3D
-                </ModeButton>
+                  {t(" Plano 3D ")}</ModeButton>
                 <ModeButton
                   active={viewMode === 'planos-2d' && showUnitChrome && !terminacionesFocus && !isComparador}
                   icon={<Layers size={14} strokeWidth={1.75} />}
@@ -2961,8 +2976,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                     setMobilePanel(null)
                   }}
                 >
-                  Plano 2D
-                </ModeButton>
+                  {t(" Plano 2D ")}</ModeButton>
                 </>
                 ) : null}
                 {modeButtons.tour ? (
@@ -2985,8 +2999,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                     setNavChooserOpen(true)
                   }}
                 >
-                  Tour 360°
-                </ModeButton>
+                  {t(" Tour 360° ")}</ModeButton>
                 ) : null}
                 {modeButtons.terminaciones ? (
                 <ModeButton
@@ -3005,8 +3018,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                     setMobilePanel(null)
                   }}
                 >
-                  Terminaciones
-                </ModeButton>
+                  {t(" Terminaciones ")}</ModeButton>
                 ) : null}
                 {modeButtons.comparador ? (
                 <ModeButton
@@ -3029,8 +3041,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                     setMobilePanel(null)
                   }}
                 >
-                  Comparador
-                </ModeButton>
+                  {t(" Comparador ")}</ModeButton>
                 ) : null}
               </div>
             ) : null}
@@ -3054,16 +3065,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         >
           {/* Desktop: botones sueltos */}
           <div className="tour-desktop-nav pointer-events-auto">
-            {!embedded ? (
-              <Link
-                href="/inicio"
-                className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
-                aria-label="Volver a la página web"
-              >
-                <X size={13} strokeWidth={1.75} className="shrink-0" />
-                Volver a la página web
-              </Link>
-            ) : null}
             {showUnitChrome ? (
               <button
                 type="button"
@@ -3078,8 +3079,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                 className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
               >
                 <Layers size={13} strokeWidth={1.75} className="shrink-0" />
-                Volver a los pisos
-              </button>
+                {t(" Volver a los pisos ")}</button>
             ) : null}
             {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology ? (
               <button
@@ -3093,8 +3093,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               >
                 <FileText size={13} strokeWidth={1.75} className="shrink-0" />
                 <span className="min-w-0 truncate">
-                  Ficha técnica
-                  {selectedUnit ? ` · ${selectedUnit.unit_number}` : ''}
+                  {t(" Ficha técnica ")}{t(selectedUnit ? ` · ${selectedUnit.unit_number}` : '')}
                 </span>
               </button>
             ) : null}
@@ -3106,8 +3105,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               >
                 <Calculator size={13} strokeWidth={1.75} className="shrink-0" />
                 <span className="min-w-0 truncate">
-                  Simular inversión
-                  {selectedUnit ? ` · ${selectedUnit.unit_number}` : ''}
+                  {t(" Simular inversión ")}{t(selectedUnit ? ` · ${selectedUnit.unit_number}` : '')}
                 </span>
               </button>
             ) : null}
@@ -3122,8 +3120,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               >
                 <Landmark size={13} strokeWidth={1.75} className="shrink-0" />
                 <span className="min-w-0 truncate">
-                  Financiamiento
-                  {selectedUnit ? ` · ${selectedUnit.unit_number}` : ''}
+                  {t(" Financiamiento ")}{t(selectedUnit ? ` · ${selectedUnit.unit_number}` : '')}
                 </span>
               </button>
             ) : null}
@@ -3131,16 +3128,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
           {/* Mobile / landscape: Menú agrupado */}
           <div className="tour-mobile-nav pointer-events-auto">
-            {!embedded ? (
-              <Link
-                href="/inicio"
-                className="tour-glass mb-2 inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase"
-                aria-label="Volver a la página web"
-              >
-                <X size={13} strokeWidth={1.75} className="shrink-0" />
-                Volver a la web
-              </Link>
-            ) : null}
             {showUnitChrome ? (
               <>
                 <button
@@ -3152,8 +3139,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                   aria-expanded={mobilePanel === 'nav'}
                 >
                   <Menu size={13} strokeWidth={1.75} className="shrink-0" />
-                  Menú
-                </button>
+                  {t(" Menú ")}</button>
                 {mobilePanel === 'nav' ? (
                   <div className="tour-glass absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
                     <button
@@ -3170,8 +3156,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                       className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
                     >
                       <Layers size={13} strokeWidth={1.75} />
-                      Pisos
-                    </button>
+                      {t(" Pisos ")}</button>
                     {selectedTypology ? (
                       <>
                         <button
@@ -3185,8 +3170,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                           className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
                         >
                           <FileText size={13} strokeWidth={1.75} />
-                          Ficha
-                        </button>
+                          {t(" Ficha ")}</button>
                         <button
                           type="button"
                           onClick={() => {
@@ -3196,8 +3180,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                           className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
                         >
                           <Calculator size={13} strokeWidth={1.75} />
-                          Simular
-                        </button>
+                          {t(" Simular ")}</button>
                         <button
                           type="button"
                           onClick={() => {
@@ -3210,8 +3193,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                           )}
                         >
                           <Landmark size={13} strokeWidth={1.75} />
-                          Financiar
-                        </button>
+                          {t(" Financiar ")}</button>
                       </>
                     ) : null}
                   </div>
@@ -3284,7 +3266,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               'pointer-events-none absolute inset-x-0 bottom-0 flex w-full min-w-0 flex-col items-center gap-1.5 p-2 pb-[max(0.45rem,env(safe-area-inset-bottom))] pr-[max(3.75rem,calc(env(safe-area-inset-right)+3.25rem))] sm:gap-2.5 sm:p-3.5 sm:pr-[max(4.25rem,calc(env(safe-area-inset-right)+3.75rem))]',
             )}
           >
-            {loading && <div className="tour-glass tour-caption self-center px-3 py-1.5">Cargando</div>}
+            {loading && <div className="tour-glass tour-caption self-center px-3 py-1.5">{t("Cargando")}</div>}
           </div>
         ) : null}
       </div>
@@ -3296,8 +3278,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               type="button"
               onClick={() => setVoiceAssistOpen(true)}
               className="tour-glass group inline-flex h-10 w-10 shrink-0 items-center justify-center border border-[#BDA27E]/40 text-[#f7f3ee] transition hover:border-[#BDA27E]/65 hover:bg-white/10 sm:h-11 sm:w-11"
-              aria-label="Abrir asistente de voz"
-              title="Asistente de voz"
+              aria-label={t("Abrir asistente de voz")}
+              title={t("Asistente de voz")}
             >
               <Mic
                 size={16}
@@ -3310,8 +3292,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             type="button"
             onClick={() => setFavoritesOpen(true)}
             className="tour-glass inline-flex h-10 w-10 shrink-0 items-center justify-center text-[#f7f3ee] sm:h-11 sm:w-11"
-            aria-label="Ver favoritos"
-            title="Favoritos"
+            aria-label={t("Ver favoritos")}
+            title={t("Favoritos")}
           >
             <Heart size={15} strokeWidth={2} className="sm:hidden" />
             <Heart size={16} strokeWidth={2} className="hidden sm:block" />
@@ -3322,8 +3304,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               setSaveUnitOpen(true)
             }}
             className="tour-glass inline-flex h-10 w-10 shrink-0 items-center justify-center text-[#f7f3ee] sm:h-11 sm:w-11"
-            aria-label="Guardar favorito"
-            title="Guardar favorito"
+            aria-label={t("Guardar favorito")}
+            title={t("Guardar favorito")}
           >
             <Bookmark size={15} strokeWidth={2} className="sm:hidden" />
             <Bookmark size={16} strokeWidth={2} className="hidden sm:block" />
@@ -3332,6 +3314,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             <a
               href={tourWhatsAppHref(
                 buildTourWhatsAppMessage({
+                  locale,
+                  unitNumber: selectedUnit?.unit_number,
                   typologyCode: selectedTypology,
                   roomLabel:
                     viewMode === 'tour'
@@ -3344,8 +3328,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               target="_blank"
               rel="noopener noreferrer"
               className="tour-glass inline-flex h-10 w-10 shrink-0 items-center justify-center text-[#f7f3ee] sm:h-11 sm:w-11"
-              aria-label="Consultar por WhatsApp"
-              title="Consultar por WhatsApp"
+              aria-label={t("Consultar por WhatsApp")}
+              title={t("Consultar por WhatsApp")}
               onClick={() => {
                 logTourEvent({
                   event_type: 'whatsapp_interest',
@@ -3367,8 +3351,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
               type="button"
               onClick={() => setNavChooserOpen(true)}
               className="tour-glass pointer-events-auto inline-flex h-10 items-center gap-1.5 px-2.5 text-[#f7f3ee] sm:h-11 sm:gap-2 sm:px-3"
-              aria-label="Cambiar control del tour"
-              title="Cambiar entre giroscopio y dedo"
+              aria-label={t("Cambiar control del tour")}
+              title={t("Cambiar entre giroscopio y dedo")}
             >
               {tourNavMode === 'gyro' ? (
                 <Compass size={15} strokeWidth={1.75} />
@@ -3376,7 +3360,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
                 <Hand size={15} strokeWidth={1.75} />
               )}
               <span className="text-[10px] font-semibold tracking-[0.12em] uppercase">
-                {tourNavMode === 'gyro' ? 'Giroscopio' : 'Dedo'}
+                {t(tourNavMode === 'gyro' ? 'Giroscopio' : 'Dedo')}
               </span>
             </button>
           ) : null}

@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useState } from 'react'
 import { Landmark, Calculator, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -60,6 +62,8 @@ export function TourPhoneUnlockModal({
   finish,
   light,
 }: TourPhoneUnlockModalProps) {
+  const { t } = useTourLanguage()
+
   const [pending, setPending] = useState(false)
   const [phone, setPhone] = useState('')
   const copy = COPY[intent]
@@ -77,7 +81,7 @@ export function TourPhoneUnlockModal({
     event.preventDefault()
     const normalized = normalizeShowroomPhone(phone)
     if (normalized.replace(/\D/g, '').length < 8) {
-      toast.error('Ingrese un celular válido')
+      toast.error(t('Ingrese un celular válido'))
       return
     }
     setPending(true)
@@ -98,7 +102,7 @@ export function TourPhoneUnlockModal({
       onUnlocked(intent)
       onClose()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo guardar el contacto')
+      toast.error(t(error instanceof Error ? error.message : 'No se pudo guardar el contacto'))
     } finally {
       setPending(false)
     }
@@ -113,7 +117,7 @@ export function TourPhoneUnlockModal({
     >
       <button
         type="button"
-        aria-label="Cerrar"
+        aria-label={t("Cerrar")}
         className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
@@ -127,23 +131,22 @@ export function TourPhoneUnlockModal({
               <Icon size={15} strokeWidth={1.75} />
             </div>
             <p className="text-[10px] font-semibold tracking-[0.18em] text-[#BDA27E] uppercase">
-              {copy.title}
+              {t(copy.title)}
             </p>
-            <p className="mt-1.5 text-sm leading-snug text-[#f7f3ee]/90">{copy.line}</p>
+            <p className="mt-1.5 text-sm leading-snug text-[#f7f3ee]/90">{t(copy.line)}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#f7f3ee]/70 hover:bg-white/10 hover:text-white"
-            aria-label="Cerrar"
+            aria-label={t("Cerrar")}
           >
             <X size={16} />
           </button>
         </div>
 
         <label className="block text-[11px] font-medium tracking-[0.08em] text-[#f7f3ee]/75 uppercase">
-          WhatsApp
-          <input
+          {t(" WhatsApp ")}<input
             name="phone"
             type="tel"
             inputMode="tel"
@@ -152,20 +155,19 @@ export function TourPhoneUnlockModal({
             required
             value={phone}
             onChange={(event) => setPhone(event.target.value)}
-            placeholder="09…"
+            placeholder={t("09…")}
             className="mt-1.5 h-11 w-full rounded-xl border border-white/15 bg-white/8 px-3 text-sm font-medium tracking-normal text-[#f7f3ee] outline-none placeholder:text-[#f7f3ee]/35 focus:border-[#BDA27E]/70"
           />
         </label>
         <p className="mt-2 text-[11px] leading-snug text-[#f7f3ee]/55">
-          Solo para enviarle esta cotización y seguir su visita en el showroom.
-        </p>
+          {t(" Solo para enviarle esta cotización y seguir su visita en el showroom. ")}</p>
 
         <button
           type="submit"
           disabled={pending}
           className="mt-4 flex h-11 w-full items-center justify-center rounded-full bg-[#f7f3ee] text-[11px] font-semibold tracking-[0.12em] text-[#14110e] uppercase disabled:opacity-60"
         >
-          {pending ? 'Un momento…' : copy.cta}
+          {t(pending ? 'Un momento…' : copy.cta)}
         </button>
       </form>
     </div>

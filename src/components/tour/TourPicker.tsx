@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +22,8 @@ function shortLabel(label: string) {
 }
 
 export function TourPicker({ typologies, typology, onTypologyChange, meta }: TourPickerProps) {
+  const { t } = useTourLanguage()
+
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const current = typologies.find((item) => item.value === typology) ?? typologies[0]
@@ -51,12 +55,12 @@ export function TourPicker({ typologies, typology, onTypologyChange, meta }: Tou
         className="tour-glass flex h-10 w-full items-center gap-1.5 px-3 text-left"
         aria-expanded={open}
         aria-haspopup="listbox"
-        title={[shown.name, meta].filter(Boolean).join(' · ') || undefined}
+        title={t([shown.name, meta].filter(Boolean).join(' · ') || undefined)}
       >
         <span className="min-w-0 flex-1 truncate text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]">
-          Tipología {shown.code}
+          {t(" Tipología ")}{t(shown.code)}
         </span>
-        <span className="shrink-0 text-[9px] text-white/45">{open ? '▴' : '▾'}</span>
+        <span className="shrink-0 text-[9px] text-white/45">{t(open ? '▴' : '▾')}</span>
       </button>
       {open ? (
         <ul
@@ -81,8 +85,8 @@ export function TourPicker({ typologies, typology, onTypologyChange, meta }: Tou
                     active ? 'bg-white/12 text-[#f7f3ee]' : 'text-white/75 hover:bg-white/8 hover:text-white',
                   )}
                 >
-                  <span className="text-[12px] font-medium">{parts.code}</span>
-                  {parts.name ? <span className="text-[10px] text-white/45">{parts.name}</span> : null}
+                  <span className="text-[12px] font-medium">{t(parts.code)}</span>
+                  {parts.name ? <span className="text-[10px] text-white/45">{t(parts.name)}</span> : null}
                 </button>
               </li>
             )

@@ -26,7 +26,8 @@ test('comparison uses both real rows, distinguishes missing information and unkn
  const result=compareVoiceUnits('compara 201 y 302',catalog)!
  assert.deepEqual(result.matches.map(u=>u.id),['a','b'])
  assert.match(result.speak,/30 metros cuadrados/);assert.match(result.speak,/30000 dólares/)
- assert.match(result.speak,/requieren los planos/)
+ assert.doesNotMatch(result.speak,/requieren los planos/)
+ assert.match(compareVoiceUnits('compara las vistas de 201 y 302',catalog)!.speak,/No puedo confirmar diferencias/)
  assert.match(compareVoiceUnits('compara 201 y 999',catalog)!.speak,/no está publicada/)
  assert.deepEqual(compareVoiceUnits('compara las dos',catalog,['a','b'])!.matches.map(u=>u.id),['a','b'])
 })

@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import type { TourRoomDef } from '@/lib/tour/tourRooms'
 
 function slot(index: number, total: number) {
@@ -17,6 +19,8 @@ export function TourHotspotLayer({
   targets: TourRoomDef[]
   onSelect: (slug: string) => void
 }) {
+  const { t } = useTourLanguage()
+
   if (targets.length === 0) return null
   return (
     <div className="pointer-events-none absolute inset-0 z-[15]">
@@ -31,7 +35,7 @@ export function TourHotspotLayer({
             onClick={() => onSelect(item.slug)}
           >
             <span className="tour-hotspot-disc" aria-hidden="true" />
-            <span className="tour-hotspot-label">{item.label}</span>
+            <span className="tour-hotspot-label">{t(item.label)}</span>
           </button>
         )
       })}

@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import { Reply } from 'lucide-react'
 import { CompareSidePano, type ComparePanoPose } from '@/components/tour/CompareSidePano'
@@ -35,6 +37,8 @@ function FinishChip({
   label?: string
   className?: string
 }) {
+  const { t } = useTourLanguage()
+
   return (
     <div
       className={cn(
@@ -52,10 +56,10 @@ function FinishChip({
       >
         {item.swatchUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.swatchUrl} alt="" className="h-full w-full object-cover" />
+          <img src={item.swatchUrl} alt={t("")} className="h-full w-full object-cover" />
         ) : null}
       </span>
-      {label || item.name}
+      {t(label || item.name)}
     </div>
   )
 }
@@ -73,6 +77,8 @@ export function TourFinishCompareOverlay({
   onPoseChange,
   remapTouch = false,
 }: TourFinishCompareOverlayProps) {
+  const { t } = useTourLanguage()
+
   const dragRef = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const splitClamped = Math.min(88, Math.max(12, split))
@@ -124,29 +130,28 @@ export function TourFinishCompareOverlay({
       </div>
 
       <div className="pointer-events-none absolute top-[max(0.5rem,env(safe-area-inset-top))] left-[max(0.5rem,env(safe-area-inset-left))] z-[32] sm:top-4 sm:left-4">
-        <FinishChip item={left} label={left.label} />
+        <FinishChip item={left} label={t(left.label)} />
       </div>
       <div className="pointer-events-none absolute top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] z-[32] sm:top-4 sm:right-[min(100%,21rem)] sm:mr-3">
-        <FinishChip item={right} label={right.label} />
+        <FinishChip item={right} label={t(right.label)} />
       </div>
 
       <button
         type="button"
         onClick={onClose}
         className="pointer-events-auto absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.5rem,env(safe-area-inset-left))] z-[34] flex h-10 items-center gap-1.5 rounded-full bg-[#14110e] px-3.5 text-[10px] font-semibold tracking-[0.1em] text-white uppercase shadow-[0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/15 transition-transform hover:scale-[1.03] sm:bottom-[max(1rem,env(safe-area-inset-bottom))] sm:left-[max(0.75rem,env(safe-area-inset-left))] sm:h-11 sm:gap-2 sm:px-4 sm:text-[11px]"
-        aria-label="Salir de comparación"
-        title="Salir de comparación"
+        aria-label={t("Salir de comparación")}
+        title={t("Salir de comparación")}
       >
         <Reply size={16} strokeWidth={2} className="-scale-x-100" />
-        Volver
-      </button>
+        {t(" Volver ")}</button>
 
       <div
         role="slider"
         aria-valuemin={12}
         aria-valuemax={88}
         aria-valuenow={Math.round(splitClamped)}
-        aria-label="Comparar terminaciones"
+        aria-label={t("Comparar terminaciones")}
         tabIndex={0}
         className="pointer-events-auto absolute top-0 bottom-0 z-[30] w-8 -translate-x-1/2 cursor-ew-resize touch-none"
         style={{ left: `${splitClamped}%` }}

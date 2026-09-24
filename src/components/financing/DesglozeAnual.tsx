@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useState } from 'react'
 import type { InvestmentPreview } from '@/types/financingSimulator'
 import {
@@ -10,6 +12,8 @@ import {
 } from '@/lib/financing/calculator'
 
 export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
+  const { t } = useTourLanguage()
+
   const [period, setPeriod] = useState<'monthly' | 'annual'>('monthly')
   const factor = period === 'monthly' ? 1 / 12 : 1
   const label = period === 'monthly' ? '/mes' : '/año'
@@ -103,8 +107,7 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
     <div className="overflow-hidden rounded-2xl border border-[#ece6dc]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ece6dc] bg-[#f7f3ee] px-4 py-2.5">
         <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-          Cómo se distribuyen ingresos y pagos
-        </p>
+          {t(" Cómo se distribuyen ingresos y pagos ")}</p>
         <div className="flex gap-1">
           {(
             [
@@ -122,7 +125,7 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
                   : 'border border-[#d9d0c3] bg-white text-[#6b645c]'
               }`}
             >
-              {text}
+              {t(text)}
             </button>
           ))}
         </div>
@@ -132,10 +135,10 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
           {rows.map((row) => (
             <tr key={row.label} className="border-t border-[#f0ebe3]">
               <td className={`px-4 py-2.5 text-[#4a433c] ${row.strong ? 'font-semibold' : ''}`}>
-                {row.label}
+                {t(row.label)}
                 {row.note ? (
                   <span className="mt-0.5 block text-[10px] font-normal text-[#8a8176]">
-                    {row.note}
+                    {t(row.note)}
                   </span>
                 ) : null}
               </td>
@@ -144,18 +147,16 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
                   row.strong ? 'font-semibold text-[#1f1a14]' : 'text-[#6b645c]'
                 }`}
               >
-                {row.strong ? formatMoneyExact(row.value) : formatMoney(row.value)}
-                <span className="ml-1 text-[10px] text-[#8a8176]">{label}</span>
+                {t(row.strong ? formatMoneyExact(row.value) : formatMoney(row.value))}
+                <span className="ml-1 text-[10px] text-[#8a8176]">{t(label)}</span>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="border-t border-[#ece6dc] bg-[#fcfbf9] px-4 py-2.5 text-[11px] text-[#8a8176]">
-        Vacancia una sola vez. IR {(preview.incomeTaxRate * 100).toFixed(0)}% y gestor{' '}
-        {(preview.managementFeeRate * 100).toFixed(0)}% son supuestos configurados (no una tasa legal
-        universal). Las cifras del horizonte patrimonial están en el análisis principal.
-      </div>
+        {t(" Vacancia una sola vez. IR ")}{t((preview.incomeTaxRate * 100).toFixed(0))}{t("% y gestor")}{t(' ')}
+        {t((preview.managementFeeRate * 100).toFixed(0))}{t("% son supuestos configurados (no una tasa legal universal). Las cifras del horizonte patrimonial están en el análisis principal. ")}</div>
     </div>
   )
 }

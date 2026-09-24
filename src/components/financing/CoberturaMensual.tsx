@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import {
   buildRentCoverageAnalysis,
   formatMoneyExact,
@@ -39,6 +41,8 @@ export function CoberturaMensual({
   preview: InvestmentPreview
   showPayment?: boolean
 }) {
+  const { t } = useTourLanguage()
+
   const coverage = buildRentCoverageAnalysis(preview)
   const needsTopUp = coverage.monthlyTopUpOrSurplus < 0
   const hasSurplus = coverage.monthlyTopUpOrSurplus > 0
@@ -58,76 +62,70 @@ export function CoberturaMensual({
   return (
     <div className="overflow-hidden rounded-2xl border border-[#ece6dc] bg-[#fcfbf9]">
       <div className="border-b border-[#ece6dc] bg-[#f7f3ee] px-4 py-2.5 text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-        Cómo el alquiler ayuda con la cuota
-      </div>
+        {t(" Cómo el alquiler ayuda con la cuota ")}</div>
       <div className="space-y-3 px-4 py-3 text-sm">
         <ol className="space-y-2 text-[#4a433c]">
           <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2">
-            <span>Alquiler bruto estimado</span>
-            <span className="tabular-nums font-medium">{formatMoneyExact(gross)}</span>
+            <span>{t("Alquiler bruto estimado")}</span>
+            <span className="tabular-nums font-medium">{t(formatMoneyExact(gross))}</span>
           </li>
           <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2">
-            <span>Tiempo estimado sin inquilino</span>
-            <span className="tabular-nums font-medium">−{formatMoneyExact(vacancy)}</span>
+            <span>{t("Tiempo estimado sin inquilino")}</span>
+            <span className="tabular-nums font-medium">−{t(formatMoneyExact(vacancy))}</span>
           </li>
           <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2">
-            <span>Gastos de la propiedad</span>
-            <span className="tabular-nums font-medium">−{formatMoneyExact(ops)}</span>
+            <span>{t("Gastos de la propiedad")}</span>
+            <span className="tabular-nums font-medium">−{t(formatMoneyExact(ops))}</span>
           </li>
           {mgmt > 0 ? (
             <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2">
               <span>
-                Administración del alquiler
-                {preview.managementFeeRate > 0
+                {t(" Administración del alquiler ")}{t(preview.managementFeeRate > 0
                   ? ` (${formatPercent(preview.managementFeeRate * 100, 0)} del efectivo)`
-                  : ''}
+                  : '')}
               </span>
-              <span className="tabular-nums font-medium">−{formatMoneyExact(mgmt)}</span>
+              <span className="tabular-nums font-medium">−{t(formatMoneyExact(mgmt))}</span>
             </li>
           ) : null}
           {tax > 0 ? (
             <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2">
               <span>
-                Impuesto estimado
-                {preview.incomeTaxRate > 0
+                {t(" Impuesto estimado ")}{t(preview.incomeTaxRate > 0
                   ? ` (${formatPercent(preview.incomeTaxRate * 100, 0)} del efectivo)`
-                  : ''}
+                  : '')}
               </span>
-              <span className="tabular-nums font-medium">−{formatMoneyExact(tax)}</span>
+              <span className="tabular-nums font-medium">−{t(formatMoneyExact(tax))}</span>
             </li>
           ) : null}
           <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2 font-semibold text-[#1f1a14]">
-            <span>Alquiler neto disponible</span>
-            <span className="tabular-nums">{formatMoneyExact(net)}</span>
+            <span>{t("Alquiler neto disponible")}</span>
+            <span className="tabular-nums">{t(formatMoneyExact(net))}</span>
           </li>
           {showCuota ? (
             <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2">
-              <span>Cuota bancaria estimada</span>
-              <span className="tabular-nums font-medium">−{formatMoneyExact(payment)}</span>
+              <span>{t("Cuota bancaria estimada")}</span>
+              <span className="tabular-nums font-medium">−{t(formatMoneyExact(payment))}</span>
             </li>
           ) : showPayment !== false && payment === 0 ? (
             <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2 text-[#6b645c]">
-              <span>Cuota bancaria</span>
-              <span>Sin cuota</span>
+              <span>{t("Cuota bancaria")}</span>
+              <span>{t("Sin cuota")}</span>
             </li>
           ) : null}
         </ol>
 
         {mgmt > 0 || tax > 0 ? (
           <p className="text-[10px] leading-snug text-[#8a8176]">
-            Administración e impuesto son supuestos del escenario configurado; no son tasas legales
-            universales.
-          </p>
+            {t(" Administración e impuesto son supuestos del escenario configurado; no son tasas legales universales. ")}</p>
         ) : null}
 
         {showCuota ? (
           <div className="space-y-2">
             <p className="text-[13px] leading-relaxed text-[#4a433c]">
-              El alquiler neto cubre{' '}
-              <strong className="tabular-nums">{formatMoneyExact(bar.rentApplied)}</strong> de una
-              cuota estimada de{' '}
-              <strong className="tabular-nums">{formatMoneyExact(payment)}</strong>. Tú completas{' '}
-              <strong className="tabular-nums">{formatMoneyExact(buyerTopUp)}</strong>.
+              {t(" El alquiler neto cubre")}{t(' ')}
+              <strong className="tabular-nums">{t(formatMoneyExact(bar.rentApplied))}</strong> {t(" de una cuota estimada de")}{t(' ')}
+              <strong className="tabular-nums">{t(formatMoneyExact(payment))}</strong>{t(". Tú completas")}{t(' ')}
+              <strong className="tabular-nums">{t(formatMoneyExact(buyerTopUp))}</strong>.
             </p>
             <div className="space-y-1.5">
               <div className="flex h-2.5 overflow-hidden rounded-full bg-[#e8e2d8]">
@@ -135,47 +133,44 @@ export function CoberturaMensual({
                   <div
                     className="h-full bg-[#1a2744] transition-[width]"
                     style={{ width: `${Math.min(100, bar.rentPct)}%` }}
-                    title={`Alquiler neto aplicado: ${formatPercent(bar.rentPct)}`}
+                    title={t(`Alquiler neto aplicado: ${formatPercent(bar.rentPct)}`)}
                   />
                 ) : null}
                 {bar.buyerPct != null && bar.buyerPct > 0 ? (
                   <div
                     className="h-full bg-[#9aa4b8] transition-[width]"
                     style={{ width: `${Math.min(100, bar.buyerPct)}%` }}
-                    title={`Aporte del comprador: ${formatPercent(bar.buyerPct)}`}
+                    title={t(`Aporte del comprador: ${formatPercent(bar.buyerPct)}`)}
                   />
                 ) : null}
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-[#6b645c]">
                 <span>
-                  Alquiler neto aplicado:{' '}
+                  {t(" Alquiler neto aplicado:")}{t(' ')}
                   <span className="tabular-nums font-medium text-[#1f1a14]">
-                    {formatMoneyExact(bar.rentApplied)}
+                    {t(formatMoneyExact(bar.rentApplied))}
                   </span>
-                  {bar.rentPct != null ? ` · ${formatPercent(bar.rentPct)}` : null}
+                  {t(bar.rentPct != null ? ` · ${formatPercent(bar.rentPct)}` : null)}
                 </span>
                 <span>
-                  Aporte a la cuota:{' '}
+                  {t(" Aporte a la cuota:")}{t(' ')}
                   <span className="tabular-nums font-medium text-[#1f1a14]">
-                    {formatMoneyExact(bar.buyerOnPayment)}
+                    {t(formatMoneyExact(bar.buyerOnPayment))}
                   </span>
-                  {bar.buyerPct != null ? ` · ${formatPercent(bar.buyerPct)}` : null}
+                  {t(bar.buyerPct != null ? ` · ${formatPercent(bar.buyerPct)}` : null)}
                 </span>
               </div>
               {bar.surplusOverPayment > 0 ? (
                 <p className="text-[11px] text-emerald-800">
-                  Excedente tras cubrir la cuota:{' '}
+                  {t(" Excedente tras cubrir la cuota:")}{t(' ')}
                   <span className="tabular-nums font-semibold">
-                    {formatMoneyExact(bar.surplusOverPayment)}
+                    {t(formatMoneyExact(bar.surplusOverPayment))}
                   </span>
-                  /mes (cobertura limitada al 100% de la cuota).
-                </p>
+                  {t(" /mes (cobertura limitada al 100% de la cuota). ")}</p>
               ) : null}
               {bar.negativeNet < 0 ? (
                 <p className="text-[11px] text-[#6b645c]">
-                  Alquiler neto negativo ({formatMoneyExact(bar.negativeNet)}): no aporta a la cuota;
-                  el aporte de bolsillo incluye ese déficit además de la cuota.
-                </p>
+                  {t(" Alquiler neto negativo (")}{t(formatMoneyExact(bar.negativeNet))}{t("): no aporta a la cuota; el aporte de bolsillo incluye ese déficit además de la cuota. ")}</p>
               ) : null}
             </div>
           </div>
@@ -184,11 +179,11 @@ export function CoberturaMensual({
         <div className="rounded-xl border border-[#dce3ef] bg-[#f4f6fa] px-3 py-2.5">
           <div className="flex justify-between gap-3">
             <span className="text-[11px] font-semibold tracking-[0.08em] text-[#6b645c] uppercase">
-              {needsTopUp
+              {t(needsTopUp
                 ? 'Tu aporte mensual estimado'
                 : hasSurplus
                   ? 'Dinero que te queda cada mes'
-                  : 'Los ingresos cubren gastos y cuota'}
+                  : 'Los ingresos cubren gastos y cuota')}
             </span>
             <span
               className={cn(
@@ -196,14 +191,12 @@ export function CoberturaMensual({
                 needsTopUp ? 'text-[#1a2744]' : hasSurplus ? 'text-emerald-700' : 'text-[#1f1a14]',
               )}
             >
-              {formatMoneyExact(Math.abs(coverage.monthlyTopUpOrSurplus))}
+              {t(formatMoneyExact(Math.abs(coverage.monthlyTopUpOrSurplus)))}
             </span>
           </div>
           {needsTopUp ? (
             <p className="mt-1.5 text-[11px] leading-snug text-[#6b645c]">
-              Dinero que aportarías de tu bolsillo después de aplicar el alquiler neto al pago de la
-              cuota. No es ingreso ni capital íntegramente amortizado.
-            </p>
+              {t(" Dinero que aportarías de tu bolsillo después de aplicar el alquiler neto al pago de la cuota. No es ingreso ni capital íntegramente amortizado. ")}</p>
           ) : null}
         </div>
       </div>

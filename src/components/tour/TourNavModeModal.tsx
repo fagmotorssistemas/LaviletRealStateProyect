@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { Compass, Hand, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +22,8 @@ export function TourNavModeModal({
   onChoose,
   onClose,
 }: TourNavModeModalProps) {
+  const { t } = useTourLanguage()
+
   if (!open) return null
 
   return (
@@ -31,7 +35,7 @@ export function TourNavModeModal({
     >
       <button
         type="button"
-        aria-label="Cerrar"
+        aria-label={t("Cerrar")}
         className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
@@ -39,19 +43,18 @@ export function TourNavModeModal({
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.18em] text-[#BDA27E] uppercase">
-              Tour 360°
-            </p>
+              {t(" Tour 360° ")}</p>
             <p className="mt-1.5 text-sm leading-snug text-[#f7f3ee]/90">
-              {currentMode
+              {t(currentMode
                 ? 'Puede cambiar cómo se mueve por el departamento.'
-                : '¿Cómo quiere moverse por el departamento?'}
+                : '¿Cómo quiere moverse por el departamento?')}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#f7f3ee]/70 hover:bg-white/10 hover:text-white"
-            aria-label="Cerrar"
+            aria-label={t("Cerrar")}
           >
             <X size={16} />
           </button>
@@ -73,12 +76,10 @@ export function TourNavModeModal({
             </span>
             <span className="min-w-0">
               <span className="block text-[12px] font-semibold tracking-[0.08em] uppercase">
-                Giroscopio
-                {currentMode === 'gyro' ? ' · activo' : ''}
+                {t(" Giroscopio ")}{t(currentMode === 'gyro' ? ' · activo' : '')}
               </span>
               <span className="mt-0.5 block text-[12px] leading-snug text-[#f7f3ee]/65">
-                Mueva el teléfono para mirar alrededor
-              </span>
+                {t(" Mueva el teléfono para mirar alrededor ")}</span>
             </span>
           </button>
 
@@ -97,12 +98,10 @@ export function TourNavModeModal({
             </span>
             <span className="min-w-0">
               <span className="block text-[12px] font-semibold tracking-[0.08em] uppercase">
-                Con el dedo
-                {currentMode === 'finger' ? ' · activo' : ''}
+                {t(" Con el dedo ")}{t(currentMode === 'finger' ? ' · activo' : '')}
               </span>
               <span className="mt-0.5 block text-[12px] leading-snug text-[#f7f3ee]/65">
-                Arrastre la vista con el dedo o el mouse
-              </span>
+                {t(" Arrastre la vista con el dedo o el mouse ")}</span>
             </span>
           </button>
         </div>

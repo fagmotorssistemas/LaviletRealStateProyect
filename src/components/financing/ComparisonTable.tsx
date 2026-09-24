@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import type { FinancingPartner, InvestmentPreview } from '@/types/financingSimulator'
 import { formatMoney, formatPercent } from '@/lib/financing/calculator'
 import { cn } from '@/lib/utils'
@@ -9,6 +11,8 @@ export function ComparisonTable({
 }: {
   rows: { partner: FinancingPartner; preview: InvestmentPreview }[]
 }) {
+  const { t } = useTourLanguage()
+
   const bestRoi = rows.reduce((best, row) => {
     const roi = row.preview.roiPercent ?? -Infinity
     return roi > best ? roi : best
@@ -19,11 +23,11 @@ export function ComparisonTable({
       <table className="min-w-full text-sm">
         <thead className="bg-[#f7f3ee] text-left text-[10px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
           <tr>
-            <th className="px-3 py-2.5">Banco</th>
-            <th className="px-3 py-2.5">Tasa</th>
-            <th className="px-3 py-2.5">Cuota</th>
-            <th className="px-3 py-2.5">Saldo al año</th>
-            <th className="px-3 py-2.5">Retorno de caja</th>
+            <th className="px-3 py-2.5">{t("Banco")}</th>
+            <th className="px-3 py-2.5">{t("Tasa")}</th>
+            <th className="px-3 py-2.5">{t("Cuota")}</th>
+            <th className="px-3 py-2.5">{t("Saldo al año")}</th>
+            <th className="px-3 py-2.5">{t("Retorno de caja")}</th>
           </tr>
         </thead>
         <tbody>
@@ -35,17 +39,16 @@ export function ComparisonTable({
                 className={cn('border-t border-[#f0ebe3]', highlight && 'bg-emerald-50/70')}
               >
                 <td className="px-3 py-2.5 font-medium text-[#1f1a14]">
-                  {partner.partner_name}
+                  {t(partner.partner_name)}
                   {highlight ? (
                     <span className="ml-2 text-[10px] font-semibold tracking-wide text-emerald-700 uppercase">
-                      Mejor opción
-                    </span>
+                      {t(" Mejor opción ")}</span>
                   ) : null}
                 </td>
-                <td className="px-3 py-2.5 tabular-nums">{formatPercent(partner.annual_interest_rate)}</td>
-                <td className="px-3 py-2.5 tabular-nums">{formatMoney(preview.monthlyPayment)}</td>
-                <td className="px-3 py-2.5 tabular-nums">{formatMoney(preview.annualNetCashFlow)}</td>
-                <td className="px-3 py-2.5 tabular-nums">{formatPercent(preview.roiPercent)}</td>
+                <td className="px-3 py-2.5 tabular-nums">{t(formatPercent(partner.annual_interest_rate))}</td>
+                <td className="px-3 py-2.5 tabular-nums">{t(formatMoney(preview.monthlyPayment))}</td>
+                <td className="px-3 py-2.5 tabular-nums">{t(formatMoney(preview.annualNetCashFlow))}</td>
+                <td className="px-3 py-2.5 tabular-nums">{t(formatPercent(preview.roiPercent))}</td>
               </tr>
             )
           })}

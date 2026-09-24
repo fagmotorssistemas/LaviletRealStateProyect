@@ -1,5 +1,7 @@
 'use client'
 
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useFinancingCalculator } from '@/hooks/useFinancingCalculator'
 import { ParameterSliders } from '@/components/financing/ParameterSliders'
@@ -31,6 +33,8 @@ export function InvestmentConfigurator({
   onConsumedInitialScenario?: () => void
   onRequestInfo?: () => void
 }) {
+  const { t } = useTourLanguage()
+
   const calc = useFinancingCalculator(unitParam, { initialMode, initialSection })
   const financingRef = useRef<HTMLDivElement>(null)
 
@@ -58,7 +62,7 @@ export function InvestmentConfigurator({
   if (calc.error || !calc.config) {
     return (
       <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-6 text-sm text-rose-800">
-        {calc.error || 'No pudimos cargar el simulador'}
+        {t(calc.error || 'No pudimos cargar el simulador')}
       </div>
     )
   }
@@ -74,90 +78,82 @@ export function InvestmentConfigurator({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="font-serif text-2xl text-[#1f1a14] sm:text-3xl">
-            Unidad {calc.unit?.unit_number ?? unitParam} ·{' '}
-            {modality === 'cash' ? 'Compra sin crédito' : 'Compra con financiamiento'}
+            {t(" Unidad ")}{t(calc.unit?.unit_number ?? unitParam)} ·{t(' ')}
+            {t(modality === 'cash' ? 'Compra sin crédito' : 'Compra con financiamiento')}
           </h2>
           <p className="mt-1 text-sm text-[#6b645c]">
-            {modality === 'cash'
+            {t(modality === 'cash'
               ? 'Sin cuota bancaria, con ingresos estimados por alquiler'
-              : 'Menor desembolso inicial, con una parte de la cuota cubierta por el alquiler'}
+              : 'Menor desembolso inicial, con una parte de la cuota cubierta por el alquiler')}
           </p>
         </div>
         <span className="inline-flex shrink-0 rounded-full border border-[#1a2744]/25 bg-[#1a2744]/5 px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase">
-          {modality === 'cash' ? 'Contado' : 'Financiamiento'}
+          {t(modality === 'cash' ? 'Contado' : 'Financiamiento')}
         </span>
       </div>
       {!calc.priceMissing && calc.unitPrice > 0 ? (
         <div className="grid grid-cols-2 gap-2 rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-3 py-3 sm:grid-cols-4">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.12em] text-[#8a8176] uppercase">
-              Precio
-            </p>
+              {t(" Precio ")}</p>
             <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-[#1f1a14]">
-              {formatMoney(calc.unitPrice)}
+              {t(formatMoney(calc.unitPrice))}
             </p>
           </div>
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.12em] text-[#8a8176] uppercase">
-              Entrada
-            </p>
+              {t(" Entrada ")}</p>
             <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-[#1f1a14]">
-              {modality === 'cash'
+              {t(modality === 'cash'
                 ? formatMoney(calc.unitPrice)
-                : `${formatMoney(downPaymentAmount)} · ${formatPercent(calc.downPaymentPercent)}`}
+                : `${formatMoney(downPaymentAmount)} · ${formatPercent(calc.downPaymentPercent)}`)}
             </p>
           </div>
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.12em] text-[#8a8176] uppercase">
-              Monto financiado
-            </p>
+              {t(" Monto financiado ")}</p>
             <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-[#1f1a14]">
-              {modality === 'cash' ? 'Sin crédito' : formatMoney(financedAmount)}
+              {t(modality === 'cash' ? 'Sin crédito' : formatMoney(financedAmount))}
             </p>
           </div>
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.12em] text-[#8a8176] uppercase">
-              Cuota estimada
-            </p>
+              {t(" Cuota estimada ")}</p>
             <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-[#1f1a14]">
-              {modality === 'cash'
+              {t(modality === 'cash'
                 ? 'Sin cuota'
                 : calc.preview && calc.preview.mode !== 'cash'
                   ? `${formatMoneyExact(calc.preview.monthlyPayment)}/mes`
-                  : '—'}
+                  : '—')}
             </p>
           </div>
         </div>
       ) : null}
       {calc.fidelityMessage ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-          <p>{calc.fidelityMessage}</p>
+          <p>{t(calc.fidelityMessage)}</p>
           <button
             type="button"
             onClick={() => calc.applyCurrentFormulas()}
             className="mt-2 text-[11px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase"
           >
-            Recalcular con gastos y fórmulas actuales
-          </button>
+            {t(" Recalcular con gastos y fórmulas actuales ")}</button>
           <p className="mt-1 text-[11px] text-amber-900/80">
-            Se usarán predial y alícuota vigentes; seguro y otros gastos del bloque de propiedad
-            quedarán fuera del cálculo.
-          </p>
+            {t(" Se usarán predial y alícuota vigentes; seguro y otros gastos del bloque de propiedad quedarán fuera del cálculo. ")}</p>
         </div>
       ) : null}
       {calc.priceDiffersFromPublished ? (
         <div className="rounded-xl border border-[#BDA27E]/40 bg-[#BDA27E]/10 px-3 py-2.5 text-sm text-[#4a433c]">
           <p>
-            Escenario histórico con precio {formatMoney(calc.scenarioUnitPrice)}. Publicado ahora:{' '}
-            {formatMoney(calc.unit?.published_commercial_price)}.
+            {t(" Escenario histórico con precio ")}{t(formatMoney(calc.scenarioUnitPrice))}{t(". Publicado ahora:")}{t(' ')}
+            {t(formatMoney(calc.unit?.published_commercial_price))}.
           </p>
           <button
             type="button"
             onClick={() => calc.applyCurrentPublishedPrice()}
             className="mt-2 text-[11px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase"
           >
-            Actualizar al precio publicado
-          </button>
+            {t(" Actualizar al precio publicado ")}</button>
         </div>
       ) : null}
     </header>
@@ -166,23 +162,20 @@ export function InvestmentConfigurator({
   const modalityCard = (
     <div className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-4 shadow-[0_12px_40px_rgba(40,30,20,0.06)] sm:p-5">
       <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-        Modalidad
-      </p>
+        {t(" Modalidad ")}</p>
       {calc.priceMissing ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-          Sin precio publicado. Indique un valor hipotético para simular (no modifica el precio
-          comercial en la base de datos).
-        </div>
+          {t(" Sin precio publicado. Indique un valor hipotético para simular (no modifica el precio comercial en la base de datos). ")}</div>
       ) : null}
       {calc.priceMissing || !calc.hasPublishedPrice ? (
         <label className="block space-y-1.5">
-          <span className="text-[11px] text-[#6b645c]">Precio hipotético</span>
+          <span className="text-[11px] text-[#6b645c]">{t("Precio hipotético")}</span>
           <input
             type="number"
             min={0}
             step={1000}
             value={calc.unitPrice > 0 ? calc.unitPrice : ''}
-            placeholder="Sin precio"
+            placeholder={t("Sin precio")}
             onChange={(event) => calc.setUnitPrice(Number(event.target.value) || 0)}
             className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
           />
@@ -207,7 +200,7 @@ export function InvestmentConfigurator({
                 : 'border-[#e4ddd3] bg-white text-[#1f1a14] hover:border-[#BDA27E]/60',
             )}
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
@@ -220,15 +213,14 @@ export function InvestmentConfigurator({
       className="space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-4 shadow-[0_12px_40px_rgba(40,30,20,0.06)] sm:p-5"
     >
       <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-        Financiamiento
-      </p>
+        {t(" Financiamiento ")}</p>
 
       {modality === 'cash' ? (
-        <p className="text-sm text-[#6b645c]">Compra al contado: no hay cuota de crédito.</p>
+        <p className="text-sm text-[#6b645c]">{t("Compra al contado: no hay cuota de crédito.")}</p>
       ) : (
         <div className="space-y-4">
           <label className="block space-y-1.5">
-            <span className="text-[11px] text-[#6b645c]">Institución</span>
+            <span className="text-[11px] text-[#6b645c]">{t("Institución")}</span>
             <select
               value={calc.state.partnerId ?? ''}
               onChange={(event) => {
@@ -239,22 +231,20 @@ export function InvestmentConfigurator({
               className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
             >
               <option value="" disabled>
-                Elija una institución
-              </option>
+                {t(" Elija una institución ")}</option>
               {calc.partners.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.partner_name} · {Number(p.annual_interest_rate).toFixed(2)}%
+                  {t(p.partner_name)} · {t(Number(p.annual_interest_rate).toFixed(2))}%
                 </option>
               ))}
             </select>
             <p className="text-[11px] text-[#8a8176]">
-              La tasa proviene de la configuración administrada; no es editable aquí.
-            </p>
+              {t(" La tasa proviene de la configuración administrada; no es editable aquí. ")}</p>
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1">
               <span className="text-[11px] text-[#6b645c]">
-                Entrada % ({calc.limits.downPaymentMin}–{calc.limits.downPaymentMax})
+                {t(" Entrada % (")}{t(calc.limits.downPaymentMin)}–{t(calc.limits.downPaymentMax)})
               </span>
               <input
                 type="number"
@@ -267,7 +257,7 @@ export function InvestmentConfigurator({
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-[11px] text-[#6b645c]">Plazo (años)</span>
+              <span className="text-[11px] text-[#6b645c]">{t("Plazo (años)")}</span>
               <input
                 type="number"
                 min={calc.limits.yearsMin}
@@ -281,28 +271,26 @@ export function InvestmentConfigurator({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl bg-[#f7f3ee] px-3 py-2">
-              <p className="text-[10px] text-[#8a8176] uppercase">Tasa anual</p>
+              <p className="text-[10px] text-[#8a8176] uppercase">{t("Tasa anual")}</p>
               <p className="text-sm font-semibold tabular-nums text-[#1f1a14]">
-                {Number(calc.interestRate).toFixed(2)}%
+                {t(Number(calc.interestRate).toFixed(2))}%
               </p>
             </div>
             <div className="rounded-xl bg-[#f7f3ee] px-3 py-2">
-              <p className="text-[10px] text-[#8a8176] uppercase">Tipo de tasa</p>
+              <p className="text-[10px] text-[#8a8176] uppercase">{t("Tipo de tasa")}</p>
               <p className="text-sm font-semibold text-[#1f1a14]">
-                {calc.rateType === 'effective_annual' ? 'Efectiva anual' : 'Nominal anual'}
+                {t(calc.rateType === 'effective_annual' ? 'Efectiva anual' : 'Nominal anual')}
               </p>
             </div>
           </div>
           {calc.preview && calc.preview.mode !== 'cash' ? (
             <div className="rounded-xl bg-[#f7f3ee] px-3 py-2.5 text-sm text-[#4a433c]">
-              Crédito {formatMoney(calc.preview.financedAmount)} · Cuota capital/intereses{' '}
-              {formatMoneyExact(calc.preview.monthlyPayment)} / mes
-              {calc.preview.monthlyExtraCharges > 0 ? (
+              {t(" Crédito ")}{t(formatMoney(calc.preview.financedAmount))} {t(" · Cuota capital/intereses")}{t(' ')}
+              {t(formatMoneyExact(calc.preview.monthlyPayment))} {t(" / mes ")}{calc.preview.monthlyExtraCharges > 0 ? (
                 <>
-                  {' '}
-                  · Cargos adicionales del financiamiento{' '}
-                  {formatMoneyExact(calc.preview.monthlyExtraCharges)}/mes (separados de la cuota)
-                </>
+                  {t(' ')}
+                  {t(" · Cargos adicionales del financiamiento")}{t(' ')}
+                  {t(formatMoneyExact(calc.preview.monthlyExtraCharges))}{t("/mes (separados de la cuota) ")}</>
               ) : null}
             </div>
           ) : null}
@@ -314,8 +302,7 @@ export function InvestmentConfigurator({
   const rentCard = (
     <div className="space-y-4 rounded-2xl border border-[#ece6dc] bg-[#faf7f2] p-4 sm:p-5">
       <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-        Alquiler, tiempo sin inquilino y gastos
-      </p>
+        {t(" Alquiler, tiempo sin inquilino y gastos ")}</p>
       <ParameterSliders
         monthlyRent={calc.monthlyRent}
         onRentChange={calc.setMonthlyRent}
@@ -350,8 +337,7 @@ export function InvestmentConfigurator({
   const resultsBody = (
     <>
       <p className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-        Resultado
-      </p>
+        {t(" Resultado ")}</p>
       {calc.preview ? (
         <>
           <CompraComparisonView
@@ -386,8 +372,7 @@ export function InvestmentConfigurator({
           />
           <details className="rounded-2xl border border-[#ece6dc] bg-white open:shadow-sm">
             <summary className="cursor-pointer list-none px-4 py-3 text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-              Ver desglose de ingresos y pagos
-            </summary>
+              {t(" Ver desglose de ingresos y pagos ")}</summary>
             <div className="border-t border-[#ece6dc] px-1 pb-1">
               <DesglozeAnual preview={calc.preview} />
             </div>
@@ -395,9 +380,9 @@ export function InvestmentConfigurator({
         </>
       ) : (
         <div className="rounded-2xl border border-[#ece6dc] bg-[#fcfbf9] px-4 py-6 text-sm text-[#6b645c]">
-          {calc.priceMissing
+          {t(calc.priceMissing
             ? 'Sin precio. Ingrese un valor hipotético para ver resultados.'
-            : 'Complete los parámetros para ver el resultado.'}
+            : 'Complete los parámetros para ver el resultado.')}
         </div>
       )}
 
@@ -409,7 +394,7 @@ export function InvestmentConfigurator({
             onClick={() => void calc.saveScenario()}
             className="inline-flex h-11 items-center justify-center rounded-full bg-[#1a2744] px-5 text-[11px] font-semibold tracking-[0.14em] text-white uppercase disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {calc.saving ? 'Guardando…' : 'Guardar escenario'}
+            {t(calc.saving ? 'Guardando…' : 'Guardar escenario')}
           </button>
         ) : null}
         {onOpenSaved ? (
@@ -418,17 +403,16 @@ export function InvestmentConfigurator({
             onClick={onOpenSaved}
             className="inline-flex h-11 items-center justify-center rounded-full border border-[#d9d0c3] bg-white px-5 text-[11px] font-semibold tracking-[0.14em] text-[#1f1a14] uppercase"
           >
-            Ver guardados
-          </button>
+            {t(" Ver guardados ")}</button>
         ) : null}
       </div>
-      {calc.saveMessage ? <p className="text-sm text-[#4a433c]">{calc.saveMessage}</p> : null}
+      {calc.saveMessage ? <p className="text-sm text-[#4a433c]">{t(calc.saveMessage)}</p> : null}
     </>
   )
 
   const results = (
     <section className="flex h-full min-h-0 flex-col gap-5">
-      {resultsBody}
+      {t(resultsBody)}
       <div className="mt-auto">
         <Disclaimer text={calc.config.disclaimer_text} />
       </div>
@@ -442,49 +426,45 @@ export function InvestmentConfigurator({
           <div className="space-y-2">
             {calc.fidelityMessage ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-                <p>{calc.fidelityMessage}</p>
+                <p>{t(calc.fidelityMessage)}</p>
                 <button
                   type="button"
                   onClick={() => calc.applyCurrentFormulas()}
                   className="mt-2 text-[11px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase"
                 >
-                  Recalcular con gastos y fórmulas actuales
-                </button>
+                  {t(" Recalcular con gastos y fórmulas actuales ")}</button>
               </div>
             ) : null}
             {calc.priceDiffersFromPublished ? (
               <div className="rounded-xl border border-[#BDA27E]/40 bg-[#BDA27E]/10 px-3 py-2.5 text-sm text-[#4a433c]">
                 <p>
-                  Escenario histórico con precio {formatMoney(calc.scenarioUnitPrice)}. Publicado
-                  ahora: {formatMoney(calc.unit?.published_commercial_price)}.
+                  {t(" Escenario histórico con precio ")}{t(formatMoney(calc.scenarioUnitPrice))}{t(". Publicado ahora: ")}{t(formatMoney(calc.unit?.published_commercial_price))}.
                 </p>
                 <button
                   type="button"
                   onClick={() => calc.applyCurrentPublishedPrice()}
                   className="mt-2 text-[11px] font-semibold tracking-[0.12em] text-[#1a2744] uppercase"
                 >
-                  Actualizar al precio publicado
-                </button>
+                  {t(" Actualizar al precio publicado ")}</button>
               </div>
             ) : null}
           </div>
         ) : null}
-        {modalityCard}
-        {results}
+        {t(modalityCard)}
+        {t(results)}
         <details
           className="rounded-3xl border border-[#ece6dc] bg-white open:shadow-sm"
           open={calc.focusSection === 'financing' || undefined}
         >
           <summary className="cursor-pointer list-none px-4 py-3 text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            Ajustar financiamiento
-          </summary>
+            {t(" Ajustar financiamiento ")}</summary>
           <div className="space-y-4 border-t border-[#ece6dc] px-4 py-3" ref={financingRef}>
             {modality === 'cash' ? (
-              <p className="text-sm text-[#6b645c]">Compra al contado: no hay cuota de crédito.</p>
+              <p className="text-sm text-[#6b645c]">{t("Compra al contado: no hay cuota de crédito.")}</p>
             ) : (
               <div className="space-y-4">
                 <label className="block space-y-1.5">
-                  <span className="text-[11px] text-[#6b645c]">Institución</span>
+                  <span className="text-[11px] text-[#6b645c]">{t("Institución")}</span>
                   <select
                     value={calc.state.partnerId ?? ''}
                     onChange={(event) => {
@@ -495,11 +475,10 @@ export function InvestmentConfigurator({
                     className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#BDA27E]"
                   >
                     <option value="" disabled>
-                      Elija una institución
-                    </option>
+                      {t(" Elija una institución ")}</option>
                     {calc.partners.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.partner_name} · {Number(p.annual_interest_rate).toFixed(2)}%
+                        {t(p.partner_name)} · {t(Number(p.annual_interest_rate).toFixed(2))}%
                       </option>
                     ))}
                   </select>
@@ -507,7 +486,7 @@ export function InvestmentConfigurator({
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block space-y-1">
                     <span className="text-[11px] text-[#6b645c]">
-                      Entrada % ({calc.limits.downPaymentMin}–{calc.limits.downPaymentMax})
+                      {t(" Entrada % (")}{t(calc.limits.downPaymentMin)}–{t(calc.limits.downPaymentMax)})
                     </span>
                     <input
                       type="number"
@@ -520,7 +499,7 @@ export function InvestmentConfigurator({
                     />
                   </label>
                   <label className="block space-y-1">
-                    <span className="text-[11px] text-[#6b645c]">Plazo (años)</span>
+                    <span className="text-[11px] text-[#6b645c]">{t("Plazo (años)")}</span>
                     <input
                       type="number"
                       min={calc.limits.yearsMin}
@@ -534,9 +513,8 @@ export function InvestmentConfigurator({
                 </div>
                 {calc.preview && calc.preview.mode !== 'cash' ? (
                   <p className="text-sm text-[#4a433c]">
-                    Crédito {formatMoney(calc.preview.financedAmount)} · Cuota{' '}
-                    {formatMoneyExact(calc.preview.monthlyPayment)}/mes
-                  </p>
+                    {t(" Crédito ")}{t(formatMoney(calc.preview.financedAmount))} {t(" · Cuota")}{t(' ')}
+                    {t(formatMoneyExact(calc.preview.monthlyPayment))}{t("/mes ")}</p>
                 ) : null}
               </div>
             )}
@@ -544,8 +522,7 @@ export function InvestmentConfigurator({
         </details>
         <details className="rounded-3xl border border-[#ece6dc] bg-white open:shadow-sm">
           <summary className="cursor-pointer list-none px-4 py-3 text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
-            Ver alquiler y gastos administrados
-          </summary>
+            {t(" Ver alquiler y gastos administrados ")}</summary>
           <div className="border-t border-[#ece6dc] px-4 py-3">
             <ParameterSliders
               monthlyRent={calc.monthlyRent}
@@ -588,12 +565,12 @@ export function InvestmentConfigurator({
   return (
     <div className="grid items-stretch gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
       <section className="flex min-h-0 flex-col gap-5">
-        {header}
-        {modalityCard}
-        {financingCard}
-        <div className="mt-auto">{rentCard}</div>
+        {t(header)}
+        {t(modalityCard)}
+        {t(financingCard)}
+        <div className="mt-auto">{t(rentCard)}</div>
       </section>
-      {results}
+      {t(results)}
     </div>
   )
 }
