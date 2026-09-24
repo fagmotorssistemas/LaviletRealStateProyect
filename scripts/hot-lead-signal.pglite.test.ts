@@ -19,7 +19,7 @@ async function fixture() {
       contact_id text, meta_ads_consent boolean, meta_wa_lead_submitted_event_id uuid);
     create table lead_interest_evaluations(id uuid primary key, lead_id uuid not null,
       source_message_id text not null, source_sent_at timestamptz not null,
-      evaluated_at timestamptz not null, temperature text);
+      evaluated_at timestamptz not null, recognized_events jsonb not null, temperature text);
     create table lead_temperature_history(id uuid primary key default gen_random_uuid(), lead_id uuid,
       from_temperature text, to_temperature text, created_at timestamptz not null);
     create table crm_contact_classifications(id uuid primary key default gen_random_uuid(), tenant_id uuid,
@@ -41,50 +41,52 @@ async function fixture() {
   return db
 }
 
-test('transición persistida crea una intención retenida con fecha y atribución originales', async () => {
+test('transiciÃ³n persistida crea una intenciÃ³n retenida con fecha y atribuciÃ³n originales', async () => {
   const db = await fixture()
   await db.exec(`
-    insert into lead_interest_evaluations values('${EVALUATION}','${LEAD}','source-message','2026-09-24T11:00:00Z','2026-09-24T11:00:01Z',null);
+    insert into lead_interest_evaluations values('${EVALUATION}','${LEAD}','source-message','2026-09-24T11:00:00Z','2026-09-24T11:00:01Z','["asked_financing"]',null);
     insert into lead_temperature_history(lead_id,from_temperature,to_temperature,created_at)
       values('${LEAD}','tibio','caliente','2026-09-24T11:00:02Z');
     update lead_interest_evaluations set temperature='caliente' where id='${EVALUATION}';
   `)
-  const result = await db.query<Record<string, unknown>>('select * from meta_hot_lead_signal_intents')
+  const result = await db.query<Record<string, unknown>>('select * from meta_crm_qualification_intents')
   assert.equal(result.rows.length, 1)
   assert.equal(result.rows[0].status, 'held')
   assert.equal(result.rows[0].event_time, 1790247601)
   assert.equal(result.rows[0].ctwa_clid, 'ctwa-first')
   assert.equal(result.rows[0].ad_source_id, 'ad-first')
-  assert.equal(result.rows[0].idempotency_key, `wa_hot_qualified:${LEAD}`)
+  assert.equal(result.rows[0].idempotency_key, `wa_crm_qualified:${LEAD}`)
+  assert.deepEqual(result.rows[0].evidence_labels, ['financiamiento'])
   assert.equal(result.rows[0].initial_lead_submitted_event_id, '50000000-0000-4000-8000-000000000001')
   await db.close()
 })
 
-test('sin transición o con evaluación tibia no crea intención; repetición no duplica', async () => {
+test('tibio evaluado crea intenciÃ³n una vez; cambio posterior a caliente no duplica', async () => {
   const db = await fixture()
-  await db.exec(`insert into lead_interest_evaluations values('${EVALUATION}','${LEAD}','m1',now(),now(),'tibio')`)
-  assert.equal((await db.query('select id from meta_hot_lead_signal_intents')).rows.length, 0)
-  await db.exec(`update lead_interest_evaluations set temperature='caliente' where id='${EVALUATION}'`)
-  assert.equal((await db.query('select id from meta_hot_lead_signal_intents')).rows.length, 0)
+  await db.exec(`insert into lead_interest_evaluations values('${EVALUATION}','${LEAD}','m1',now(),now(),'["declared_unit_type"]',null)`)
+  assert.equal((await db.query('select id from meta_crm_qualification_intents')).rows.length, 0)
   await db.exec(`
+    insert into lead_temperature_history(lead_id,from_temperature,to_temperature,created_at)
+      values('${LEAD}','frio','tibio',clock_timestamp());
+    update lead_interest_evaluations set temperature='tibio' where id='${EVALUATION}';
     insert into lead_temperature_history(lead_id,from_temperature,to_temperature,created_at)
       values('${LEAD}','tibio','caliente',clock_timestamp());
     update lead_interest_evaluations set temperature='caliente' where id='${EVALUATION}';
     update lead_interest_evaluations set temperature='caliente' where id='${EVALUATION}';
   `)
-  assert.equal((await db.query('select id from meta_hot_lead_signal_intents')).rows.length, 1)
+  assert.equal((await db.query('select id from meta_crm_qualification_intents')).rows.length, 1)
   await db.close()
 })
 
-test('interno queda excluido y la falta de atribución se registra', async () => {
+test('interno queda excluido y la falta de atribuciÃ³n se registra', async () => {
   const db = await fixture()
   await db.exec(`
-    insert into lead_interest_evaluations values('40000000-0000-4000-8000-000000000002','${INTERNAL}','m2',now(),now(),null);
+    insert into lead_interest_evaluations values('40000000-0000-4000-8000-000000000002','${INTERNAL}','m2',now(),now(),'["requested_visit"]',null);
     insert into lead_temperature_history(lead_id,from_temperature,to_temperature,created_at)
       values('${INTERNAL}','frio','caliente',clock_timestamp());
     update lead_interest_evaluations set temperature='caliente' where lead_id='${INTERNAL}';
   `)
-  const result = await db.query<{ status: string; hold_reasons: string[] }>('select status,hold_reasons from meta_hot_lead_signal_intents')
+  const result = await db.query<{ status: string; hold_reasons: string[] }>('select status,hold_reasons from meta_crm_qualification_intents')
   assert.equal(result.rows[0].status, 'excluded')
   assert.ok(result.rows[0].hold_reasons.includes('internal_contact'))
   assert.ok(result.rows[0].hold_reasons.includes('original_ctwa_attribution_required'))

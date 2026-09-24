@@ -9,6 +9,7 @@ export const META_NEST_OPERATIONAL_EVENTS = [
   'Lead',
   'Schedule',
   'LeadSubmitted',
+  'QualifiedLead',
   'AddToWishlist',
 ] as const
 
@@ -44,9 +45,7 @@ export function isMetaNestPendingEvent(name: string): name is MetaNestPendingEve
 }
 
 /** Envío CAPI Purchase: requiere flag explícito. */
-export function isPurchaseMetaSendEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+export function isPurchaseMetaSendEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.META_PURCHASE_DELIVERY_ENABLED?.trim().toLowerCase() === 'true'
 }
 
@@ -57,18 +56,14 @@ export function isPurchaseMetaSendEnabled(
  * - sale_at: confirmación comercial ya registrada en el cierre
  * Un histórico cargado después (registered_at reciente + sale_at antiguo) queda fuera.
  */
-export function getPurchaseActivatedAtMs(
-  env: NodeJS.ProcessEnv = process.env,
-): number | null {
+export function getPurchaseActivatedAtMs(env: NodeJS.ProcessEnv = process.env): number | null {
   const raw = env.META_PURCHASE_ACTIVATED_AT?.trim()
   if (!raw) return null
   const ms = Date.parse(raw)
   return Number.isFinite(ms) ? ms : null
 }
 
-function parseExistingTimestampMs(
-  raw: string | number | Date | null | undefined,
-): number | null {
+function parseExistingTimestampMs(raw: string | number | Date | null | undefined): number | null {
   if (raw == null) return null
   if (raw instanceof Date) {
     const ms = raw.getTime()

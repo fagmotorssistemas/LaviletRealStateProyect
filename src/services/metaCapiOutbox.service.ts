@@ -32,6 +32,11 @@ import {
 } from '@/lib/meta/metaOfficialMetrics'
 import { getAdsInsightsStatus, type AdsInsightsStatus } from '@/lib/meta/adsInsightsStatus'
 import {
+  summarizeOptimizationVolume,
+  type OptimizationEventVolume,
+  type OptimizationEventEvidence,
+} from '@/lib/meta/optimizationVolume'
+import {
   isWaLeadSubmittedDeliveryEnabled,
   isWaLeadSubmittedEnabled,
 } from '@/lib/meta/waLeadSubmittedFlags'
@@ -40,10 +45,7 @@ import {
   labelMetaCapiStage,
   isMetaCapiProbeRow,
 } from '@/lib/meta/capiConversionLogLabels'
-import {
-  labelMetaInternalSubtype,
-  subtypeForEventName,
-} from '@/lib/meta/metaMeasurementContract'
+import { labelMetaInternalSubtype, subtypeForEventName } from '@/lib/meta/metaMeasurementContract'
 import {
   buildContactDetails,
   dedupeInboundMessages,
@@ -241,7 +243,8 @@ export type MetaWaConversionLogItem = {
   deliveryLane: string | null
   isTechnicalProbe: boolean
   /** Distinción: recibido CRM / entregado Nest / aceptado Meta — según stage. */
-  pipelineStep: 'evaluated_or_blocked' | 'enqueued' | 'backend_accepted' | 'meta_accepted' | 'meta_rejected'
+  pipelineStep:
+    'evaluated_or_blocked' | 'enqueued' | 'backend_accepted' | 'meta_accepted' | 'meta_rejected'
 }
 
 export type MetaWaConversionTracking = {
@@ -311,6 +314,7 @@ export type MetaCapiOutboxResult = {
   absence: MetaCapiAbsenceReport
   notConfigured: MetaCapiNotConfiguredDiag[]
   whatsapp: MetaWhatsAppVisibility
+  optimizationVolume: OptimizationEventVolume[]
   fetchedAt: string
   scope: { tenantIds: string[]; includeOrphanShowroom: boolean }
 }
@@ -385,11 +389,7 @@ function unixToIso(unix: number | null | undefined): string | null {
   return new Date(Number(unix) * 1000).toISOString()
 }
 
-function inScope(
-  row: OutboxDbRow,
-  tenantIds: string[],
-  includeOrphanShowroom: boolean,
-): boolean {
+function inScope(row: OutboxDbRow, tenantIds: string[], includeOrphanShowroom: boolean): boolean {
   const leadTenant = row.leads?.tenant_id
   if (leadTenant) return tenantIds.includes(leadTenant)
   if (row.lead_id) {
@@ -457,8 +457,7 @@ function mapRow(
     subtypeForEventName(
       row.event_name,
       typeof payload.lv_internal_subtype === 'string' ? payload.lv_internal_subtype : null,
-    ) ||
-    (typeof payload.lv_internal_subtype === 'string' ? payload.lv_internal_subtype : null)
+    ) || (typeof payload.lv_internal_subtype === 'string' ? payload.lv_internal_subtype : null)
   const unitId =
     typeof payload.unit_id === 'string'
       ? payload.unit_id
@@ -479,10 +478,7 @@ function mapRow(
     phoneEvent: phone.eventPhone,
     phoneCrm: phone.crmPhone,
     phoneSource: phone.source,
-    phoneSourceLabel:
-      phone.source === 'crm_lead'
-        ? 'CRM (lead 360 / CAPI)'
-        : phone.sourceLabel,
+    phoneSourceLabel: phone.source === 'crm_lead' ? 'CRM (lead 360 / CAPI)' : phone.sourceLabel,
     eventAt: unixToIso(row.event_time),
     registeredAt: row.created_at,
     forwardedAt: row.forwarded_at,
@@ -591,16 +587,15 @@ async function loadConversionEvidence(
       stage: String(raw.stage || ''),
       reason: raw.reason ? String(raw.reason) : null,
       createdAt: String(raw.created_at),
-      fbtraceId:
-        typeof details.fbtrace_id === 'string' ? details.fbtrace_id : null,
+      fbtraceId: typeof details.fbtrace_id === 'string' ? details.fbtrace_id : null,
       eventsReceived:
-        eventsReceived != null && Number.isFinite(eventsReceived)
-          ? eventsReceived
-          : null,
-      httpStatus:
-        typeof details.http_status === 'number' ? details.http_status : null,
-      datasetId:
-        typeof details.dataset_id === 'string' ? details.dataset_id : null,
+        eventsReceived != null && Number.isFinite(eventsReceived) ? eventsReceived : null,
+      httpStatus: typeof details.http_status === 'number' ? details.http_status : null,
+      datasetId: typeof details.dataset_id === 'string' ? details.dataset_id : null,
+      attributionVerified: details.attribution_verified === true,
+      metaAttributed: details.meta_attributed === true,
+      attributedAdSetId:
+        typeof details.attributed_adset_id === 'string' ? details.attributed_adset_id : null,
     })
   }
   return out
@@ -657,22 +652,15 @@ async function probeNestReception(
       out.set(id, {
         found: body.found === true || body.ok === true,
         status: typeof body.status === 'string' ? body.status : null,
-        attemptCount:
-          typeof body.attempt_count === 'number' ? body.attempt_count : null,
+        attemptCount: typeof body.attempt_count === 'number' ? body.attempt_count : null,
         lastError: typeof body.last_error === 'string' ? body.last_error : null,
-        deliveryLane:
-          typeof body.delivery_lane === 'string' ? body.delivery_lane : null,
+        deliveryLane: typeof body.delivery_lane === 'string' ? body.delivery_lane : null,
         datasetId: typeof body.dataset_id === 'string' ? body.dataset_id : null,
         sentAt: typeof body.sent_at === 'string' ? body.sent_at : null,
         apiAccepted: body.api_accepted === true,
-        deliveryOutcome:
-          typeof body.delivery_outcome === 'string' ? body.delivery_outcome : null,
-        acceptanceTier:
-          typeof body.acceptance_tier === 'string' ? body.acceptance_tier : null,
-        eventsReceived:
-          typeof meta?.events_received === 'number'
-            ? meta.events_received
-            : null,
+        deliveryOutcome: typeof body.delivery_outcome === 'string' ? body.delivery_outcome : null,
+        acceptanceTier: typeof body.acceptance_tier === 'string' ? body.acceptance_tier : null,
+        eventsReceived: typeof meta?.events_received === 'number' ? meta.events_received : null,
         fbtraceId: typeof meta?.fbtrace_id === 'string' ? meta.fbtrace_id : null,
         httpStatus: typeof meta?.http_status === 'number' ? meta.http_status : null,
         lookupOk: true,
@@ -776,9 +764,7 @@ async function buildWaConversionTracking(
   const featureEnabled = isWaLeadSubmittedEnabled()
   const deliveryEnabled = isWaLeadSubmittedDeliveryEnabled()
   const banner =
-    !featureEnabled || !deliveryEnabled
-      ? 'Envío de conversiones WhatsApp desactivado'
-      : null
+    !featureEnabled || !deliveryEnabled ? 'Envío de conversiones WhatsApp desactivado' : null
   const empty: MetaWaConversionTracking = {
     featureEnabled,
     deliveryEnabled,
@@ -873,9 +859,7 @@ async function buildWaConversionTracking(
       leadId,
       contactId: raw.contact_id ? String(raw.contact_id) : null,
       phoneMasked: leadId ? maskPhoneDisplay(phoneByLead.get(leadId) ?? null) : null,
-      leadHref: leadId
-        ? `/inmobiliaria/leads?lead=${encodeURIComponent(leadId)}`
-        : null,
+      leadHref: leadId ? `/inmobiliaria/leads?lead=${encodeURIComponent(leadId)}` : null,
       eventName: String(raw.event_name || ''),
       stage,
       stageLabel: labelMetaCapiStage(stage),
@@ -930,7 +914,12 @@ async function buildWhatsAppVisibility(
     contacts: [],
     contactDetails: [],
     recentMessages: [],
-    totals: { contacts: 0, messages: 0, ctwaCaptures: 0, capiWhatsappOutbox: 0 },
+    totals: {
+      contacts: 0,
+      messages: 0,
+      ctwaCaptures: 0,
+      capiWhatsappOutbox: 0,
+    },
     ctwa: {
       captures: 0,
       note: 'Sin capturas ctwa_clid en lv_whatsapp_ctwa_attribution para el alcance.',
@@ -1033,8 +1022,7 @@ async function buildWhatsAppVisibility(
           leadId,
           role: 'cliente',
           sentAt,
-          externalMessageId:
-            m.external_message_id == null ? null : String(m.external_message_id),
+          externalMessageId: m.external_message_id == null ? null : String(m.external_message_id),
           contentPreview: content.slice(0, 120),
         })
       }
@@ -1076,9 +1064,7 @@ async function buildWhatsAppVisibility(
     if (!ctwaByKey.has(key)) {
       ctwaByKey.set(key, {
         sourceId: r.source_id ? String(r.source_id) : null,
-        referralSourceType: r.referral_source_type
-          ? String(r.referral_source_type)
-          : null,
+        referralSourceType: r.referral_source_type ? String(r.referral_source_type) : null,
         capturedAt: r.captured_at ? String(r.captured_at) : null,
       })
     }
@@ -1265,7 +1251,8 @@ export async function listMetaCapiOutbox(
   }
   if (filters.channel && filters.channel !== 'all') {
     working = working.filter(
-      (r) => resolveMetaCapiChannel(asRecord(r.payload), r.delivery_lane).channel === filters.channel,
+      (r) =>
+        resolveMetaCapiChannel(asRecord(r.payload), r.delivery_lane).channel === filters.channel,
     )
   }
   if (filters.dataset && filters.dataset !== 'all') {
@@ -1333,19 +1320,14 @@ export async function listMetaCapiOutbox(
 
   if (filters.statusBucket && filters.statusBucket !== 'all') {
     working = working.filter((r) =>
-      deliveryOutcomeMatchesFilter(
-        outcomeById.get(r.id) || 'pending',
-        filters.statusBucket,
-      ),
+      deliveryOutcomeMatchesFilter(outcomeById.get(r.id) || 'pending', filters.statusBucket),
     )
   }
 
   const totalFiltered = working.length
   const slice = working.slice((page - 1) * pageSize, page * pageSize)
   const nestMap = await probeNestReception(slice.map((r) => r.event_id))
-  const rows = slice.map((r) =>
-    mapRow(r, nestMap, conversionMap, tenantIds),
-  )
+  const rows = slice.map((r) => mapRow(r, nestMap, conversionMap, tenantIds))
 
   const notConfiguredRows = scoped
     .filter(
@@ -1397,10 +1379,80 @@ export async function listMetaCapiOutbox(
   )
   const metaOfficialMetrics = await fetchMetaOfficialAggregates()
 
-  const kpisByChannel: MetaCapiChannelKpis = { web: 0, whatsapp: 0, undetermined: 0 }
+  const optimizationEvidence: OptimizationEventEvidence[] = scoped.map((row) => {
+    const conversion = conversionMap.get(row.event_id) || null
+    const payload = asRecord(row.payload)
+    const payloadAdSet =
+      payload?.attribution_verified === true && typeof payload?.adset_id === 'string'
+        ? payload.adset_id
+        : null
+    return {
+      eventType: row.event_name,
+      eventId: row.event_id,
+      capturedAt: unixToIso(row.event_time) || row.created_at,
+      metaAccepted: Boolean(
+        conversion?.stage === 'meta_accepted' &&
+        ((conversion.eventsReceived ?? 0) >= 1 || conversion.fbtraceId),
+      ),
+      metaAttributionVerified: conversion?.attributionVerified === true,
+      metaAttributed: conversion?.metaAttributed === true,
+      verifiedAdSetId: conversion?.attributedAdSetId || payloadAdSet,
+      deliveryEvidenceComplete: Boolean(conversion),
+      channel: resolveMetaCapiChannel(payload, row.delivery_lane).channel,
+      dataset: resolveMetaCapiChannel(payload, row.delivery_lane).destinationIdHint || 'unknown',
+      deliveryLane: row.delivery_lane === 'test' ? 'test' : 'live',
+      status: row.status,
+      deliveryOutcome: conversion?.stage || 'backend_accepted',
+      eligible: true,
+    }
+  })
+
+  // La tabla nueva puede no existir hasta aplicar la migración. En ese caso el
+  // panel conserva el resto de familias y no convierte ausencia en cero global.
+  const qualificationRead = await admin
+    .from('meta_crm_qualification_intents')
+    .select('event_id,qualified_at,status,hold_reasons,tenant_id')
+    .in('tenant_id', tenantIds)
+  if (!qualificationRead.error) {
+    const outboxEventIds = new Set(scoped.map((row) => row.event_id))
+    for (const row of qualificationRead.data || []) {
+      if (outboxEventIds.has(String(row.event_id))) continue
+      optimizationEvidence.push({
+        eventType: 'QualifiedLead',
+        eventId: String(row.event_id),
+        capturedAt: String(row.qualified_at),
+        metaAccepted: false,
+        metaAttributionVerified: false,
+        metaAttributed: false,
+        verifiedAdSetId: null,
+        deliveryEvidenceComplete: false,
+        channel: 'whatsapp',
+        dataset: 'messaging_pending',
+        deliveryLane: 'live',
+        status: String(row.status),
+        deliveryOutcome: row.status === 'enqueued' ? 'backend_accepted' : 'not_accepted',
+        eligible: row.status !== 'excluded',
+        exclusionReasons: Array.isArray(row.hold_reasons)
+          ? row.hold_reasons.filter((value): value is string => typeof value === 'string')
+          : [],
+      })
+    }
+  }
+  const optimizationVolume = summarizeOptimizationVolume(
+    optimizationEvidence,
+    new Date().toISOString(),
+  )
+
+  const kpisByChannel: MetaCapiChannelKpis = {
+    web: 0,
+    whatsapp: 0,
+    undetermined: 0,
+  }
   let channelBase = scoped
   if (filters.origin && filters.origin !== 'all') {
-    channelBase = channelBase.filter((r) => originFromPayload(asRecord(r.payload)) === filters.origin)
+    channelBase = channelBase.filter(
+      (r) => originFromPayload(asRecord(r.payload)) === filters.origin,
+    )
   }
   if (filters.dataset && filters.dataset !== 'all') {
     channelBase = channelBase.filter((r) => {
@@ -1446,6 +1498,7 @@ export async function listMetaCapiOutbox(
     absence,
     notConfigured: notConfiguredRows,
     whatsapp,
+    optimizationVolume,
     fetchedAt: new Date().toISOString(),
     scope: { tenantIds, includeOrphanShowroom },
   }
