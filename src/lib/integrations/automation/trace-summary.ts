@@ -18,7 +18,7 @@ export function traceText(value: unknown, max = 360) {
       } catch { return '[enlace protegido]' }
     })
     .replace(/\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]+/gi, '[credencial protegida]')
-    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[correo protegido]')
+    .replace(/[\w.+-]{1,64}@[\w.-]{1,253}\.[A-Za-z]{2,63}/g, '[correo protegido]')
     .replace(/(?:\+?\d[\s().-]*){10,16}/g, '[dato protegido]')
     .replace(/\s+/g, ' ').trim().slice(0, max)
 }
@@ -27,6 +27,7 @@ export function traceText(value: unknown, max = 360) {
 export function sanitizeTraceSummary(value: unknown): Summary {
   const seen = new WeakSet<object>()
   function clean(input: unknown, depth: number, key = ''): unknown {
+    if (key === 'prompt_snapshot' || key === 'output_snapshot') return sanitizePromptSnapshot(input)
     if (privateKey.test(key) || /^(?:min_|max_)?(?:budget|presupuesto|initial_capital|capital_inicial)(?:_(?:amount|min|max|text|texto))?$/i.test(key)) return '[dato protegido]'
     if (input === null || typeof input === 'boolean') return input
     if (typeof input === 'number') return Number.isFinite(input) ? input : null
@@ -41,6 +42,37 @@ export function sanitizeTraceSummary(value: unknown): Summary {
       .map(([name, item]) => [name.slice(0, 80), clean(item, depth + 1, name)]))
   }
   return value && typeof value === 'object' && !Array.isArray(value) ? clean(value, 0) as Summary : {}
+}
+
+/** Bounded, privacy-filtered writer input; kept separately from abbreviated previews. */
+export function sanitizePromptSnapshot(value: unknown): Summary {
+  let remaining = 120000
+  let limited = false
+  const seen = new WeakSet<object>()
+  function clean(input: unknown, depth = 0, key = ''): unknown {
+    if (privateKey.test(key) || /budget|presupuesto|initial_capital|capital_inicial/i.test(key)) return '[dato protegido]'
+    if (remaining <= 0 || depth > 20) { limited = true; return '[resumen limitado]' }
+    if (typeof input === 'string') {
+      if (input.length > 120000) limited = true
+      const protectedText = input.split('\n').map(line => traceText(line, 120000)).join('\n')
+      const result = protectedText.slice(0, remaining)
+      limited ||= result.length < protectedText.length
+      remaining -= result.length
+      return result
+    }
+    if (input === null || typeof input === 'boolean') return input
+    if (typeof input === 'number') return Number.isFinite(input) ? input : null
+    if (!input || typeof input !== 'object') return null
+    if (seen.has(input)) { limited = true; return '[resumen limitado]' }
+    seen.add(input)
+    const entries = Object.entries(input)
+    if (entries.length > 300) limited = true
+    if (Array.isArray(input)) return input.slice(0, 300).map(item => clean(item, depth + 1, key))
+    return Object.fromEntries(entries.slice(0, 300).map(([name, item]) => [name.slice(0, 80), clean(item, depth + 1, name)]))
+  }
+  const row = value && typeof value === 'object' ? value as Summary : {}
+  const result = clean({ instructions: row.instructions, user_prefix: row.user_prefix, data: row.data, response_schema: row.response_schema }) as Summary
+  return { ...result, privacy_filtered: true, limited: limited || row.limited === true }
 }
 
 export function traceErrorCode(error: unknown) {

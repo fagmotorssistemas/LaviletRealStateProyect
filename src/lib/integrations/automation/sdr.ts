@@ -1,5 +1,6 @@
 import 'server-only'
 import { activePrompt, aiJson, draftReply } from './ai'
+import { recordDraftDecision } from './ai-execution-trace'
 import { db, object, scope, text, type Row } from './data'
 import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
 import type { Guard } from './visits'
@@ -238,7 +239,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     const onlyStyle = attempt > 0 && reply.length <= 900 && reviewIssues.length > 0 && reviewIssues.every(reason => ['style', 'missing_next_step'].includes(reason)) && issues.every(reason => reason === 'style')
     const unsolicitedOffer = passiveSalesCopy(reply, current, plan.engagement) !== reply
     if (unsolicitedOffer) issues.push('unsolicited_sales_offer')
-    if ((review.aprobada === true && !issues.length) || (onlyStyle && !unsolicitedOffer)) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ...(onlyStyle ? { style_review_only: true } : {}) })
+    const approved = (review.aprobada === true && !issues.length) || (onlyStyle && !unsolicitedOffer)
+    recordDraftDecision(reply, attempt, approved, review, issues)
+    if (approved) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ...(onlyStyle ? { style_review_only: true } : {}) })
     reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number])) as string[] : []))
     if (!attempt) {
       await guard()

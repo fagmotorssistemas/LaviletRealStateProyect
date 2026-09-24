@@ -25,6 +25,42 @@ const info = (query, extra = {}) => ({
   referencia_unidad: { reason: 'catalog_query', query, matches: [], needsClarification: false }, ...extra,
 })
 
+test('Carlos broad largest query relaxes unavailable preference but preserves hard and explicit filters', () => {
+  const current = 'entonces cuál es la vivienda más espaciosa que tiene?'
+  const semantics = { property: { confidence: 'high', group: 'residential', category: null, operation: 'search', reference_kind: 'relative', selector: 'largest', query_scope: 'catalog', filters: {} } }
+  const summary = { _property_context: { query: query('search', { category: 'departamento', filters: { bedrooms: 5, bedrooms_required: false } }) } }
+  const ref = resolvePropertyTurn(catalogue, current, summary, [], semantics)
+  assert.equal(ref.query.filters.bedrooms, null)
+  assert.equal(ref.query.operation, 'rank')
+  const answer = catalogDialogueReply({ catalogo: catalogue, referencia_unidad: ref, property_context: ref.context }, current)
+  assert.match(answer.reply, /142,09/)
+  assert.match(answer.reply, /120,83/)
+  assert.doesNotMatch(answer.reply, /no contamos|5 dormitorios/)
+  assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
+  assert.equal(ref.context.original_query.filters.bedrooms, 5)
+  summary._property_context.query.filters.bedrooms_required = true
+  assert.equal(resolvePropertyTurn(catalogue, current, summary, [], semantics).query.filters.bedrooms, 5)
+  summary._property_context.query.filters.bedrooms_required = false
+  assert.equal(resolvePropertyTurn(catalogue, 'cuál es la vivienda más espaciosa de 5 dormitorios?', summary, [], semantics).query.filters.bedrooms, 5)
+  summary._property_context.query.filters.bedrooms = 3
+  assert.equal(resolvePropertyTurn(catalogue, current, summary, [], semantics).query.filters.bedrooms, 3)
+})
+
+test('semantic empty-query denial accepts synonyms without bypassing other catalogue facts', () => {
+  const answer = catalogDialogueReply(info(query('search', { category: 'departamento', filters: { bedrooms: 5 } })), 'Quiero 5 dormitorios')
+  for (const denial of ['La Vilet no cuenta con departamentos disponibles de 5 dormitorios.', 'Ningún departamento disponible tiene 5 dormitorios.', 'La Vilet no cuenta con departamentos de cinco dormitorios.']) {
+    const reply = answer.reply.replace(/^.*?\. /, denial + ' ')
+    const claims = [{ fragment: denial, subject: 'departamentos de 5 dormitorios', polarity: 'negation', verdict: 'supported', evidence_source: 'catalog_no_results', evidence: 'Consulta completa sin coincidencias' }]
+    const audit = { ...answer.audit, semantic_review: { status: 'checked', query: answer.audit.catalog_query, claims } }
+    assert.equal(validateCatalogReply(reply, audit).valid, true)
+    assert.equal(validateCatalogReply(reply.replace('120,83', '999,99'), audit).valid, false)
+    assert.equal(validateCatalogReply(reply, { ...audit, semantic_review: { ...audit.semantic_review, status: 'rejected' } }).valid, false)
+    assert.equal(validateCatalogReply(reply, { ...audit, catalog_results: { ...audit.catalog_results, complete: false } }).valid, false)
+    const affirmative = reply.replace(denial, 'Tenemos departamentos de 5 dormitorios.')
+    assert.equal(validateCatalogReply(affirmative, audit).valid, false)
+  }
+})
+
 test('recorded 502 search inconsistency resolves the offered choice and protects its showroom', () => {
   const pending = { id: 'unit_choice', act: 'choose_unit', question: '¿Cuál de estas opciones le gustaría conocer?', candidate_ids: ['unit-202', 'unit-302', 'unit-402', 'unit-502'], target_ids: [] }
   const summary = { _pending_question: pending, _property_context: { offered_ids: pending.candidate_ids, pending_question: pending } }

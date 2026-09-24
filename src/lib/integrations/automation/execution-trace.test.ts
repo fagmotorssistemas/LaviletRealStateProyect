@@ -2,10 +2,93 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AutomationExecutionTrace, TRACE_SCHEMA_VERSION } from './execution-trace'
 import { sanitizeTraceSummary, traceText } from './trace-summary'
-import { beginModelTrace, withAIExecutionTrace } from './ai-execution-trace'
+import { beginModelTrace, withAIExecutionTrace, recordDraftDecision } from './ai-execution-trace'
 import { decisionRecord, catalogSnapshot } from './decision-record'
 
 const event = { id: '00000000-0000-4000-8000-000000000001' }
+
+test('draft rejection preserves evaluated text and separates code objections from AI approval', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  await withAIExecutionTrace(trace, async () => {
+    recordDraftDecision('Borrador para private@example.com', 0, false, { aprobada: true, motivos: [] }, ['style'])
+    recordDraftDecision('Corregido', 1, true, { aprobada: true, motivos: [] }, [])
+  })
+  await trace.flush()
+  const decisions = stored.filter(item => item.step_key === 'draft_validation')
+  assert.equal(decisions.length, 2)
+  const snapshot = (decisions[0].output_summary as Record<string, unknown>).output_snapshot as Record<string, unknown>
+  const data = snapshot.data as Record<string, unknown>
+  assert.equal(data.decision, 'Rechazado')
+  assert.equal((data.revision_ia as Record<string, unknown>).aprobada, true)
+  assert.deepEqual(data.controles_codigo, ['style'])
+  assert.doesNotMatch(JSON.stringify(stored), /private@example.com/)
+})
+
+test('AI roles distinguish scope from writer and preserve protected structured outputs', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  await withAIExecutionTrace(trace, async () => {
+    for (const [role, properties, task] of [
+      ['scope', { property_fragments: {} }, 'writing'], ['extractor', { turn_semantics: {} }, 'data'],
+      ['writer', { requests: {}, question: {} }, 'writing'], ['reviewer', {}, 'review'],
+    ] as const) {
+      beginModelTrace('Instrucciones', 'model', task, { mensaje: 'hola' }, { properties }).finish(undefined, undefined, { role, reply: 'Respuesta '.repeat(150), email: 'private@example.com' })
+    }
+  })
+  await trace.flush()
+  const calls = stored.filter(item => (item.input_summary as Record<string, unknown>)?.ai_role)
+  assert.equal(calls.length, 4)
+  for (const call of calls) {
+    const input = call.input_summary as Record<string, unknown>
+    const output = call.output_summary as Record<string, unknown>
+    const snapshot = output.output_snapshot as Record<string, unknown>
+    assert.equal((snapshot.data as Record<string, unknown>).role, input.ai_role)
+    assert.ok(String((snapshot.data as Record<string, unknown>).reply).length > 1000)
+    assert.doesNotMatch(JSON.stringify(output), /private@example.com/)
+    assert.deepEqual(sanitizeTraceSummary(output), output)
+  }
+})
+
+test('writer snapshot preserves long instructions and history with privacy and explicit limits', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  const instructions = 'Regla de redacción.\n'.repeat(150)
+  await withAIExecutionTrace(trace, async () => {
+    beginModelTrace(instructions, 'configured-model', 'writing', {
+      historial_reciente: [{ role: 'user', content: 'quiero información de autos' }],
+      email: 'person@example.com', secret: 'never-store-this',
+      nested: { message: 'Contacto person@example.com' },
+    }, { type: 'object' }).finish()
+  })
+  await trace.flush()
+  const request = stored.find(item => (item.input_summary as Record<string, unknown>)?.task === 'writing')!
+  const input = request.input_summary as Record<string, unknown>
+  const snapshot = input.prompt_snapshot as Record<string, unknown>
+  assert.equal(snapshot.instructions, instructions)
+  assert.equal(snapshot.limited, false)
+  assert.ok(JSON.stringify(snapshot).includes('quiero información de autos'))
+  assert.ok(!JSON.stringify(snapshot).includes('person@example.com'))
+  assert.ok(!JSON.stringify(snapshot).includes('never-store-this'))
+  assert.deepEqual(sanitizeTraceSummary(input), input)
+  const large = sanitizeTraceSummary({ prompt_snapshot: { instructions: 'x'.repeat(130000) } }).prompt_snapshot as Record<string, unknown>
+  assert.equal(large.limited, true)
+  assert.ok(String(large.instructions).length <= 120000)
+})
+
+test('model trace stores provider token counts and protected instructions', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  await withAIExecutionTrace(trace, async () => {
+    beginModelTrace('private prompt content', 'configured-model', 'review').finish(undefined, {
+      input_tokens: 120, output_tokens: 30, total_tokens: 150, input_tokens_details: { cached_tokens: 80 },
+    })
+  })
+  await trace.flush()
+  const request = stored.find(item => item.step_key === 'model_request' || (item.output_summary as Record<string, unknown>)?.task === 'review')!
+  assert.deepEqual((request.output_summary as Record<string, unknown>).token_usage, { input_tokens: 120, output_tokens: 30, total_tokens: 150, cached_input_tokens: 80 })
+  assert.ok(JSON.stringify(stored).includes('private prompt content'))
+})
 
 test('trace captures actual versions and sanitized steps without modifying decisions', async () => {
   let stored: Record<string, unknown>[] = []
@@ -109,7 +192,7 @@ test('a handoff records its actual triggering step, evidence and outcome with sa
   assert.doesNotMatch(JSON.stringify(stored), /private@example|private description/)
 })
 
-test('actual composed prompt hashes and AI failures are recorded per execution without storing instructions', async () => {
+test('actual prompt hashes and failures retain composed instructions', async () => {
   let stored: Record<string, unknown>[] = []
   const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return {} }, report: () => {} })
   const parent = trace.start('response_coverage', 'Revisar', 'decision', 'turn-completeness.ts')
@@ -125,5 +208,6 @@ test('actual composed prompt hashes and AI failures are recorded per execution w
   assert.notEqual((requests[0].input_summary as Record<string, unknown>).prompt_revision, (requests[1].input_summary as Record<string, unknown>).prompt_revision)
   assert.equal(requests[1].status, 'failed')
   assert.equal(requests[1].error_code, 'OPENAI_INCOMPLETE')
-  assert.doesNotMatch(JSON.stringify(stored), /private instructions/)
+  assert.match(JSON.stringify(stored), /private instructions one/)
+  assert.match(JSON.stringify(stored), /private instructions two/)
 })

@@ -1,9 +1,56 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { conversationGroups, explainStep, humanValue } from './messageExplanation'
+import { conversationGroups, explainStep, humanValue, stepTitle } from './messageExplanation'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 
 const step = (order: number, key: string, output: Record<string, unknown> = {}, input: Record<string, unknown> = {}): WorkflowExecutionStep => ({ order, key, label: key, category: 'decision', status: 'succeeded', source: 'test', startedAt: '', completedAt: '', durationMs: 2, errorCode: null, input, output })
+
+test('pending messages remain alongside lead history before a conversation is assigned', () => {
+  const old = { ...execution([]), id: 'old', leadGroupId: 'tenant:project:42', conversationId: 'conversation-1' }
+  const pending = { ...old, id: 'new', conversationId: null, status: 'processing' }
+  const unrelated = { ...pending, id: 'other', leadGroupId: 'tenant:other-project:42' }
+  const groups = conversationGroups([pending, old, unrelated])
+  assert.equal(groups.length, 2)
+  assert.equal(groups[0].batches.length, 2)
+  assert.equal(groups[0].batches[0].execution.status, 'processing')
+  assert.equal(conversationGroups([{ ...pending, conversationId: 'conversation-1', status: 'completed' }, old])[0].id, groups[0].id)
+})
+
+test('AI labels use recorded function and do not mislabel historical scope calls as writers', () => {
+  assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'scope', task: 'writing' })), /Clasificador/)
+  assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'writer', task: 'writing' })), /Redactor/)
+  assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'extractor' })), /Extractor/)
+  assert.match(stepTitle(step(1, 'model_request', {}, { task: 'writing' })), /histórica/)
+})
+
+test('invalid writer metadata separates rejection from advisor decision and never claims complete coverage', () => {
+  const item = step(1, 'response_coverage', { status: 'invalid_coverage', requests: [], issues: ['requests[1].fragment: pregunta del bot'],
+    needs_advisor: false, base_preview: 'Base', proposed_preview: 'Propuesta', final_preview: 'Base',
+    decision: { reason: 'No se identificó un dato faltante que requiera derivación.' } })
+  const result = explainStep(execution([item]), item)
+  const sections = result.coverageSections!
+  assert.equal(sections.length, 6)
+  assert.match(sections[0].facts[0].value, /no se completó/)
+  assert.match(sections[1].facts[0].value, /requests\[1\]/)
+  assert.match(sections[3].facts[0].value, /No se registró/)
+  assert.match(sections[4].facts[1].value, /Lista rechazada/)
+  assert.match(sections[5].facts[0].value, /no solicitó/)
+  assert.equal(result.reason, 'No se identificó un dato faltante que requiera derivación.')
+})
+
+test('repair outcome and incomplete historical evidence remain distinct', () => {
+  const item = step(1, 'response_coverage', { status: 'checked', repair_attempts: [{ status: 'invalid_coverage', issues: ['fragment'], final_status: 'checked' }],
+    requests: [{ fragment: 'Quiero información', status: 'answered', evidence: 'Descripción del proyecto' }] })
+  const sections = explainStep(execution([item]), item).coverageSections!
+  assert.match(sections[3].facts[0].value, /Resultado final: Revisión completada/)
+  assert.match(sections[4].facts[1].value, /Descripción del proyecto/)
+  const old = step(2, 'response_coverage')
+  const historical = explainStep(execution([old]), old).coverageSections!
+  assert.match(historical[0].facts[0].value, /no se puede determinar/)
+  assert.match(historical[5].facts[0].value, /No quedó registrado/)
+  const other = step(3, 'message_delivery')
+  assert.equal(explainStep(execution([other]), other).coverageSections, null)
+})
 const execution = (steps: WorkflowExecutionStep[], extra: Partial<WorkflowExecution> = {}): WorkflowExecution => ({ id: 'event-a', workflowId: 'overview', path: [], status: 'completed', action: 'accepted', outcome: 'Kommo aceptó el envío', occurredAt: '', leadName: 'Consulta', message: 'Compare estas opciones', traceAvailable: true, steps, ...extra })
 
 test('a comparison explains unlocked coverage without inventing a handoff reason', () => {

@@ -53,3 +53,4 @@ supabase/.branches/
 backups/*.bak
 backups/**/*.bak
 
+.recovery/

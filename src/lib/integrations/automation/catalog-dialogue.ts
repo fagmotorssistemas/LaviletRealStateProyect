@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
+import { reviewedCatalogDenials } from './semantic-review'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
 export type CatalogQuery = {
@@ -117,7 +118,8 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
   const writtenAreas = [...reply.matchAll(/(\d[\d.,]*)\s*m[²2]/g)].map(match => decimal(match[1]))
   if (requiredAreas.some(area => !writtenAreas.some(value => Math.abs(value - area) < 0.005))) return { valid: false, reason: 'alternative_area_omitted' }
   const words: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 }
-  const raw = reply.replace(/https?:\/\/\S+/g, '').replace(/¿[^?]*\?/g, '').replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const factualReply = reviewedCatalogDenials(reply, audit).reduce((body, fragment) => body.replace(fragment, ''), reply)
+  const raw = factualReply.replace(/https?:\/\/\S+/g, '').replace(/¿[^?]*\?/g, '').replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const clauses = raw.split(/(?<!\d)\.\s+|(?<=\d)\.(?!\d)\s+|[;\n]+|\s+y\s+(?=(?:el |la |los |las )?(?:departamentos?|suites?|penthouses?|locales?|unidades?)\s+\d)/)
   for (const clause of clauses) {
     if (!clause.trim() || /[¿?]/.test(clause) || /\bno (?:contamos|tenemos|aparecen|ofrecemos|disponemos|dispone|hay)|pendiente.*verificar|falta.*verific/.test(clause)) continue
@@ -279,7 +281,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const candidates = filterCatalog(catalog, query, scopedIds)
   const excluded = ids(semantic.excluded_categories)
   const units = candidates.filter(unit => !excluded.includes(text(unit.category)))
-  const baseAudit: Row = { source: `catalog_${query.operation}`, verified_catalog: true, catalog_query: query,
+  const baseAudit: Row = { query_transition: object(context.query_transition), source: `catalog_${query.operation}`, verified_catalog: true, catalog_query: query,
     catalog_results: { unit_ids: unitIds(units), units: units.map(facts), complete: true, unknown_unit_ids: [] },
     covered_requests: [`catalog_${query.operation}`], coverage_complete: false,
     offered_unit_ids: [], focused_unit_ids: [], selected_unit_ids: [],
@@ -325,9 +327,16 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     const dimension = ['cheapest', 'most_expensive'].includes(query.selector || '') ? 'precio publicado' : 'superficie interior'
     const value = dimension === 'precio publicado' ? `USD ${number(Number(ranking[0].published_commercial_price))}` : `${number(Number(ranking[0].area_internal_m2))} m²`
     const characteristic = ['smallest', 'cheapest'].includes(query.selector || '') ? 'menor' : 'mayor'
-    const response = ranking.length === 1
+    let response = ranking.length === 1
       ? `La opción de ${characteristic} ${dimension} es ${label(ranking[0])}, con ${value}.`
       : `${join(ranking.map(label))} comparten la ${characteristic} ${dimension}: ${value}.`
+    if (object(context.query_transition).reason === 'largest_available_after_unavailable_preference' && query.selector === 'largest') {
+      const rooms = measurement(ranking[0].bedrooms)
+      if (ranking.length === 1 && rooms !== null) response = `La mayor superficie interior disponible corresponde a ${label(ranking[0])}, de ${rooms} dormitorios, con ${value}.`
+      const apartments = units.filter(unit => unit.category === 'departamento')
+      const apartmentRank = rankCatalog(apartments, 'largest', false)
+      if (ranking.every(unit => unit.category !== 'departamento') && apartments.length && apartmentRank.complete) response += ` Los departamentos más amplios alcanzan ${number(Number(apartmentRank.units[0].area_internal_m2))} m² interiores.`
+    }
     const next = ranking.length === 1 ? `¿Le gustaría ver los detalles de ${label(ranking[0])}?` : '¿Cuál de estas opciones le gustaría conocer?'
     return respond(`${response} ${next}`, { offered_unit_ids: unitIds(ranking), focused_unit_ids: ranking.length === 1 ? unitIds(ranking) : [],
       catalog_ranking: { selector: query.selector, unit_ids: unitIds(ranking), value },
