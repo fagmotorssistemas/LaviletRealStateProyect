@@ -2,7 +2,7 @@ import { cookies, headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { after } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
-import { LV_VID_COOKIE, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
+import { LV_VID_COOKIE, TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { rpcResolveLeadIdForVisitor } from '@/lib/tour/tourRpc'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { persistAddToWishlist } from '@/lib/meta/wishlistCapture'
@@ -55,6 +55,10 @@ export async function POST(request: Request) {
   if (!unitId || !isUuid(unitId)) {
     return NextResponse.json({ ok: false, error: 'unit_id inválido' }, { status: 400 })
   }
+  const suppliedEventTime = Number(body.event_time)
+  const eventTime = Number.isFinite(suppliedEventTime) && suppliedEventTime > 0
+    ? Math.floor(suppliedEventTime)
+    : undefined
   if (!eventId || !isUuid(eventId)) {
     return NextResponse.json({ ok: false, error: 'event_id inválido' }, { status: 400 })
   }
@@ -89,11 +93,47 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'lead no resuelto' }, { status: 400 })
   }
 
+  const { data: lead, error: leadError } = await admin
+    .from('leads')
+    .select('id, tenant_id')
+    .eq('id', resolvedLeadId)
+    .eq('tenant_id', TOUR_TENANT_ID)
+    .maybeSingle()
+  if (leadError || !lead) {
+    return NextResponse.json({ ok: false, error: 'contacto no pertenece al proyecto' }, { status: 403 })
+  }
+
+  const { data: visitor } = await admin
+    .from('tour_visitors')
+    .select('id, lead_id')
+    .eq('tenant_id', TOUR_TENANT_ID)
+    .eq('visitor_key', visitorKey)
+    .eq('lead_id', resolvedLeadId)
+    .maybeSingle()
+  if (!visitor) {
+    return NextResponse.json({ ok: false, error: 'visitante no pertenece al contacto' }, { status: 403 })
+  }
+
+  const { data: savedFavorite, error: savedFavoriteError } = await admin
+    .from('tour_events')
+    .select('id')
+    .eq('visitor_id', visitor.id)
+    .eq('lead_id', resolvedLeadId)
+    .eq('event_type', 'guardar_unidad')
+    .contains('metadata', { action: 'save', unit_id: unitId })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (savedFavoriteError || !savedFavorite) {
+    return NextResponse.json({ ok: false, error: 'favorito no guardado' }, { status: 409 })
+  }
+
   const { data: unit, error: unitError } = await admin
     .from('units')
-    .select('id, unit_number, category, tenant_id')
+    .select('id, unit_number, category, tenant_id, project_id')
     .eq('id', unitId)
     .eq('tenant_id', TOUR_TENANT_ID)
+    .eq('project_id', TOUR_PROJECT_ID)
     .maybeSingle()
 
   if (unitError || !unit) {
@@ -113,6 +153,7 @@ export async function POST(request: Request) {
       unitNumber,
       typologyCode,
       eventId,
+      eventTime,
       eventSourceUrl:
         sanitizeMetaEventSourceUrl(
           typeof body.event_source_url === 'string' ? body.event_source_url : undefined,

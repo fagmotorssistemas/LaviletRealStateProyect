@@ -546,16 +546,22 @@ async function loadConversionEvidence(
     .in('stage', [
       'meta_accepted',
       'meta_rejected',
+      'transport_failed',
+      'meta_unverified',
+      'cancelled',
       'backend_accepted',
       'nest_lookup_unverified',
     ])
     .order('created_at', { ascending: false })
     .limit(Math.min(ids.length * 4, 400))
   if (error || !data) return out
-  // Prioridad: meta_accepted > meta_rejected > nest_lookup_unverified > backend_accepted
+  // Prioridad: respuesta Meta > fallo de transporte > recepciÃ³n interna.
   const rank = (stage: string) => {
-    if (stage === 'meta_accepted') return 4
-    if (stage === 'meta_rejected') return 3
+    if (stage === 'meta_accepted') return 6
+    if (stage === 'meta_rejected') return 5
+    if (stage === 'cancelled') return 5
+    if (stage === 'transport_failed') return 4
+    if (stage === 'meta_unverified') return 3
     if (stage === 'nest_lookup_unverified') return 2
     if (stage === 'backend_accepted') return 1
     return 0
@@ -659,6 +665,8 @@ async function probeNestReception(
         datasetId: typeof body.dataset_id === 'string' ? body.dataset_id : null,
         sentAt: typeof body.sent_at === 'string' ? body.sent_at : null,
         apiAccepted: body.api_accepted === true,
+        deliveryOutcome:
+          typeof body.delivery_outcome === 'string' ? body.delivery_outcome : null,
         acceptanceTier:
           typeof body.acceptance_tier === 'string' ? body.acceptance_tier : null,
         eventsReceived:

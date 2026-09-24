@@ -50,7 +50,7 @@ describe('classifyDeliveryOutcome', () => {
     assert.equal(r.reason, 'not_configured')
   })
 
-  it('meta_rejected = failed_retrying', () => {
+  it('meta_rejected conserva el estado final del backend', () => {
     const r = classifyDeliveryOutcome({
       outboxStatus: 'forwarded',
       lastError: null,
@@ -65,7 +65,7 @@ describe('classifyDeliveryOutcome', () => {
       },
       nest: null,
     })
-    assert.equal(r.outcome, 'failed_retrying')
+    assert.equal(r.outcome, 'meta_rejected')
   })
 
   it('filtro legacy delivered_backend coincide con nest_received', () => {

@@ -6,6 +6,7 @@ import {
   LV_CONTACT_CONSENT_COOKIE,
   LV_VID_COOKIE,
   LV_VID_MAX_AGE,
+  TOUR_TENANT_ID,
 } from '@/lib/tour/trackingIds'
 import { enrichTourLeadAfterIdentify } from '@/lib/tour/enrichTourLead'
 import {
@@ -16,7 +17,7 @@ import {
 import { resolveVisitorGeo, clientIp } from '@/lib/tour/geo'
 import { applyGeoCookies } from '@/lib/tour/visitorCookie'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
-import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
+import { flushLocalMetaOutbox, persistMetaConversion } from '@/lib/meta/localOutbox'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 
 export const runtime = 'nodejs'
@@ -163,6 +164,30 @@ export async function POST(request: Request) {
         .trim()
         .toLowerCase() !== 'false'
 
+    const metaLeadPayload = {
+      action_source: 'website',
+      event_source_url:
+        sanitizeMetaEventSourceUrl(body.event_source_url) || 'https://www.lavilett.com',
+      phone,
+      email: realEmail,
+      full_name: realName,
+      city: geo.city || undefined,
+      country: geo.country || 'ec',
+      fbp: body.fbp,
+      fbc: body.fbc,
+      fbclid: body.fbclid,
+      client_ip_address: clientIpAddress,
+      client_user_agent: clientUa,
+      ...(conservative
+        ? {}
+        : {
+            content_ids: body.unit_id ? [body.unit_id] : undefined,
+            content_name: body.unit_number ? `Unidad ${body.unit_number}` : undefined,
+            content_category: body.typology_code || undefined,
+          }),
+      visitor_key: visitorKey,
+    }
+
     let identified
     try {
       identified = await rpcIdentifyTourLeadWithMetaOutbox(admin, {
@@ -172,31 +197,9 @@ export async function POST(request: Request) {
         phone,
         adsConsent,
         deliveryLane: intendedLane(),
-        emitLead: requestKind === 'info_request',
-        payload: {
-          action_source: 'website',
-          event_source_url:
-            sanitizeMetaEventSourceUrl(body.event_source_url) ||
-            'https://www.lavilett.com',
-          phone,
-          email: realEmail,
-          full_name: realName,
-          city: geo.city || undefined,
-          country: geo.country || 'ec',
-          fbp: body.fbp,
-          fbc: body.fbc,
-          fbclid: body.fbclid,
-          client_ip_address: clientIpAddress,
-          client_user_agent: clientUa,
-          ...(conservative
-            ? {}
-            : {
-                content_ids: body.unit_id ? [body.unit_id] : undefined,
-                content_name: body.unit_number ? `Unidad ${body.unit_number}` : undefined,
-                content_category: body.typology_code || undefined,
-              }),
-          visitor_key: visitorKey,
-        },
+        // La identidad nunca crea Lead. Lead nace solo tras guardar tour_info_requests.
+        emitLead: false,
+        payload: metaLeadPayload,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo guardar el contacto'
@@ -263,6 +266,7 @@ export async function POST(request: Request) {
     }
 
     let infoRequest: { id: string; created: boolean; duplicate: boolean } | null = null
+    let metaLead: { eventId: string; eventTime: number } | null = null
     if (requestKind === 'info_request') {
       const motivo =
         String(body.motivo ?? '').trim() ||
@@ -284,6 +288,30 @@ export async function POST(request: Request) {
           id: registered.id,
           created: registered.created,
           duplicate: registered.duplicate,
+        }
+        const { data: savedRequest, error: savedRequestError } = await admin
+          .from('tour_info_requests')
+          .select('id, tenant_id, lead_id, created_at')
+          .eq('id', registered.id)
+          .eq('tenant_id', TOUR_TENANT_ID)
+          .eq('lead_id', leadId)
+          .maybeSingle()
+        if (savedRequestError || !savedRequest) {
+          throw new Error('TOUR_INFO_REQUEST_NOT_PERSISTED')
+        }
+        const originalTime = Math.floor(new Date(savedRequest.created_at).getTime() / 1000)
+        const persistedLead = await persistMetaConversion(admin, {
+          eventName: 'Lead',
+          idempotencyKey: `lead:${leadId}`,
+          eventTime: Number.isFinite(originalTime) ? originalTime : undefined,
+          leadId,
+          visitorKey,
+          adsConsentRequired: true,
+          payload: { ...metaLeadPayload, lv_internal_subtype: 'solicitud', request_id: registered.id },
+        })
+        metaLead = {
+          eventId: persistedLead.eventId,
+          eventTime: Number.isFinite(originalTime) ? originalTime : Math.floor(Date.now() / 1000),
         }
       } catch (error) {
         console.error('register_tour_info_request', error)
@@ -309,13 +337,12 @@ export async function POST(request: Request) {
       }
     })
 
-    const emitMetaLead =
-      requestKind === 'info_request' &&
-      Boolean(identified.emit_meta_lead && identified.meta_event_id)
+    const emitMetaLead = requestKind === 'info_request' && Boolean(metaLead?.eventId)
     const response = NextResponse.json({
       lead_id: leadId,
       emit_meta_lead: emitMetaLead,
-      meta_event_id: emitMetaLead ? identified.meta_event_id : null,
+      meta_event_id: emitMetaLead ? metaLead?.eventId : null,
+      meta_event_time: emitMetaLead ? metaLead?.eventTime : null,
       request_kind: requestKind,
       info_request: infoRequest,
       unit_id: enrichResult.unitId,

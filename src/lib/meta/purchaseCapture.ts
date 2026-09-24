@@ -1,151 +1,67 @@
-/**
- * Captura Purchase (cierre comercial CRM) → outbox.
- * Con delivery ON + corte dual + currency ISO → pending (flush Nest).
- * Históricos / sin moneda / antes del corte → review_hold (no liberar en masa).
- * action_source=system_generated (Meta CAPI CRM/offline). No website por registrar
- * en CRM ni business_messaging por procedencia WA del lead.
- */
+/** Purchase nace únicamente de un cierre persistido y verificable. */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import {
-  buildPurchaseIdempotencyKey,
-  isPurchaseMetaSendEnabled,
-  isPurchaseSaleEligibleForDelivery,
-  META_NEST_BACKEND_PENDING_ERROR,
-} from '@/lib/meta/metaMeasurementContract'
-import {
-  flushLocalMetaOutbox,
-  OUTBOX_FLUSHABLE_STATUS,
-  OUTBOX_REVIEW_HOLD_STATUS,
-  persistMetaConversion,
-} from '@/lib/meta/localOutbox'
+import { buildPurchaseIdempotencyKey, isPurchaseMetaSendEnabled, isPurchaseSaleEligibleForDelivery, META_NEST_BACKEND_PENDING_ERROR } from '@/lib/meta/metaMeasurementContract'
+import { flushLocalMetaOutbox, OUTBOX_FLUSHABLE_STATUS, OUTBOX_REVIEW_HOLD_STATUS, persistMetaConversion } from '@/lib/meta/localOutbox'
 
 export { isPurchaseMetaSendEnabled }
 
-function isCoreSetupConservative(): boolean {
-  return (
-    (process.env.META_CORE_SETUP_CONSERVATIVE ||
-      process.env.NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE ||
-      'true')
-      .trim()
-      .toLowerCase() !== 'false'
-  )
-}
-
 function normalizeCurrency(raw: string | null | undefined): string | null {
-  const c = String(raw || '')
-    .trim()
-    .toUpperCase()
-  if (!c || !/^[A-Z]{3}$/.test(c)) return null
-  return c
+  const value = String(raw || '').trim().toUpperCase()
+  return /^[A-Z]{3}$/.test(value) ? value : null
 }
 
 export async function persistPurchasePrepared(
   admin: SupabaseClient,
-  input: {
-    saleId: string
-    leadId: string
-    unitId: string
-    saleAt: string
-    value: number
-    currency?: string | null
-    tenantId?: string | null
-    projectId?: string | null
-    /** Momento de registro del cierre (corte). Default: ahora. */
-    registeredAt?: string | null
-  },
-): Promise<{
-  inserted: boolean
-  eventId: string
-  rowId: string | null
-  status: string
-  deliveryEligible: boolean
-  blockReason: string | null
-}> {
+  input: { saleId: string; leadId: string; unitId: string; tenantId?: string | null; projectId?: string | null },
+): Promise<{ inserted: boolean; eventId: string; rowId: string | null; status: string; deliveryEligible: boolean; blockReason: string | null }> {
   const saleId = String(input.saleId || '').trim()
   const leadId = String(input.leadId || '').trim()
   const unitId = String(input.unitId || '').trim()
-  if (!saleId || !leadId || !unitId) {
-    throw new Error('persistPurchasePrepared: saleId, leadId y unitId son obligatorios')
-  }
-  if (!Number.isFinite(input.value) || input.value <= 0) {
-    throw new Error('persistPurchasePrepared: value inválido')
-  }
+  if (!saleId || !leadId || !unitId) throw new Error('persistPurchasePrepared: identificadores obligatorios')
 
-  const currency = normalizeCurrency(input.currency)
-  const registeredAt = String(input.registeredAt || new Date().toISOString())
-  const saleAt = String(input.saleAt || '').trim()
+  const { data: sale, error } = await admin
+    .from('unit_sales_closings')
+    .select('id, tenant_id, unit_id, lead_id, sale_price_final, currency, sale_at, created_at')
+    .eq('id', saleId).eq('lead_id', leadId).eq('unit_id', unitId).maybeSingle()
+  if (error || !sale) throw new Error('persistPurchasePrepared: cierre persistido no verificable')
+
+  const value = Number(sale.sale_price_final)
+  const currency = normalizeCurrency(sale.currency)
+  const registeredAt = String(sale.created_at || '').trim() || null
+  const saleAt = String(sale.sale_at || '').trim() || null
+  const saleMs = Date.parse(saleAt || '')
+  const eventTime = Number.isFinite(saleMs) && saleMs > 0 ? Math.floor(saleMs / 1000) : 0
   const deliveryOn = isPurchaseMetaSendEnabled()
-  const afterCutover = isPurchaseSaleEligibleForDelivery({
-    registeredAt,
-    commercialConfirmedAt: saleAt || null,
-  })
-  const deliveryEligible = Boolean(deliveryOn && afterCutover && currency)
+  const afterCutover = isPurchaseSaleEligibleForDelivery({ registeredAt, commercialConfirmedAt: saleAt })
+  const evidenceEligible = Boolean(afterCutover && currency && registeredAt && saleAt && value > 0)
+  const deliveryEligible = Boolean(deliveryOn && evidenceEligible)
 
   let blockReason: string | null = null
-  if (!deliveryOn) blockReason = META_NEST_BACKEND_PENDING_ERROR
-  else if (!afterCutover) blockReason = 'purchase_before_activation_cutover'
+  if (!registeredAt) blockReason = 'purchase_registered_at_required'
+  else if (!saleAt) blockReason = 'purchase_sale_at_required'
+  else if (!Number.isFinite(value) || value <= 0) blockReason = 'purchase_value_required'
   else if (!currency) blockReason = 'purchase_currency_required_iso4217'
-
-  const conservative = isCoreSetupConservative()
-  const saleUnix = (() => {
-    const ms = Date.parse(input.saleAt)
-    if (Number.isFinite(ms) && ms > 0) return Math.floor(ms / 1000)
-    return Math.floor(Date.now() / 1000)
-  })()
-
-  const status = deliveryEligible
-    ? OUTBOX_FLUSHABLE_STATUS
-    : OUTBOX_REVIEW_HOLD_STATUS
+  else if (!deliveryOn) blockReason = META_NEST_BACKEND_PENDING_ERROR
+  else if (!afterCutover) blockReason = 'purchase_before_activation_cutover'
 
   const result = await persistMetaConversion(admin, {
-    eventName: 'Purchase',
-    idempotencyKey: buildPurchaseIdempotencyKey(saleId),
-    eventTime: saleUnix,
-    leadId,
-    adsConsentRequired: true,
-    status,
+    eventName: 'Purchase', idempotencyKey: buildPurchaseIdempotencyKey(saleId),
+    // 0 es un sentinel local retenido; no suplanta la fecha real y nunca se entrega.
+    eventTime, leadId, adsConsentRequired: true,
+    // Flag OFF conserva pending; evidencia incompleta o fuera del corte queda retenida.
+    status: evidenceEligible ? OUTBOX_FLUSHABLE_STATUS : OUTBOX_REVIEW_HOLD_STATUS,
     lastError: blockReason,
     payload: {
-      action_source: 'system_generated',
-      lv_internal_subtype: 'compra',
-      value: input.value,
-      ...(currency ? { currency } : {}),
-      ...(conservative
-        ? {}
-        : {
-            content_ids: [unitId],
-            content_type: 'product',
-          }),
-      sale_id: saleId,
-      unit_id: unitId,
-      sale_at: saleAt || input.saleAt,
-      registered_at: registeredAt,
-      tenant_id: input.tenantId || undefined,
+      action_source: 'system_generated', lv_internal_subtype: 'compra',
+      sale_id: saleId, lead_id: leadId, unit_id: unitId, value,
+      currency: currency || undefined, sale_at: saleAt || undefined,
+      registered_at: registeredAt || undefined,
+      tenant_id: String(sale.tenant_id || input.tenantId || '') || undefined,
       project_id: input.projectId || undefined,
-      details: {
-        currency_omitted: !currency,
-        currency_note: currency
-          ? null
-          : 'currency ISO-4217 requerida; no inventar. Bloqueado hasta moneda explícita.',
-        delivery_enabled: deliveryOn,
-        delivery_eligible: deliveryEligible,
-        block_reason: blockReason,
-        activation_cutover: process.env.META_PURCHASE_ACTIVATED_AT || null,
-        annulment_gate: 'cancel_on_contract_anulado',
-        action_source_reason: 'crm_closing_system_generated',
-        channel: 'crm',
-      },
+      details: { delivery_enabled: deliveryOn, delivery_eligible: deliveryEligible, block_reason: blockReason, activation_cutover: process.env.META_PURCHASE_ACTIVATED_AT || null, source: 'unit_sales_closings' },
     },
   })
-
-  if (deliveryEligible && result.inserted && result.eventId) {
-    void flushLocalMetaOutbox(admin, { limit: 3, eventIds: [result.eventId] })
-  }
-
-  return {
-    ...result,
-    deliveryEligible,
-    blockReason,
-  }
+  if (deliveryEligible && result.inserted) void flushLocalMetaOutbox(admin, { limit: 3, eventIds: [result.eventId] })
+  return { ...result, deliveryEligible, blockReason }
 }

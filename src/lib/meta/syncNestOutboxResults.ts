@@ -16,6 +16,7 @@ export type NestOutboxSyncResult = {
   writtenAccepted: number
   writtenRejected: number
   writtenUnverified: number
+  writtenTransportFailed: number
   notFound: number
   skipped: number
   errors: number
@@ -52,6 +53,7 @@ async function lookupNestEvent(
     fbtraceId: null,
     httpStatus: null,
     lookupOk,
+    deliveryOutcome: null,
   })
   try {
     const res = await fetch(`${base}/api/v1/events/${encodeURIComponent(eventId)}`, {
@@ -60,7 +62,8 @@ async function lookupNestEvent(
       cache: 'no-store',
       signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
     })
-    if (!res.ok) return { ...empty(true), found: false }
+    if (res.status === 404) return { ...empty(true), found: false }
+    if (!res.ok) return { ...empty(false), lastError: `lookup_http_${res.status}` }
     const body = (await res.json()) as Record<string, unknown>
     const meta =
       body.meta_response &&
@@ -86,6 +89,7 @@ async function lookupNestEvent(
       fbtraceId: typeof meta?.fbtrace_id === 'string' ? meta.fbtrace_id : null,
       httpStatus: typeof meta?.http_status === 'number' ? meta.http_status : null,
       lookupOk: true,
+      deliveryOutcome: typeof body.delivery_outcome === 'string' ? body.delivery_outcome : null,
     }
   } catch {
     return empty(false)
@@ -144,6 +148,7 @@ export async function syncNestOutboxResults(
     writtenAccepted: 0,
     writtenRejected: 0,
     writtenUnverified: 0,
+    writtenTransportFailed: 0,
     notFound: 0,
     skipped: 0,
     errors: 0,
@@ -194,16 +199,16 @@ export async function syncNestOutboxResults(
     .from('meta_capi_conversion_log')
     .select('event_id,stage')
     .in('event_id', eventIds)
-    .in('stage', ['meta_accepted', 'meta_rejected', 'nest_lookup_unverified'])
+    .in('stage', ['meta_accepted', 'meta_rejected', 'meta_unverified', 'backend_accepted', 'transport_failed', 'cancelled'])
 
   const done = new Set(
     (logs || [])
-      .filter((l) => l.stage === 'meta_accepted' || l.stage === 'meta_rejected')
+      .filter((l) => ['meta_accepted', 'meta_rejected', 'transport_failed', 'cancelled'].includes(l.stage))
       .map((l) => String(l.event_id)),
   )
   const alreadyUnverified = new Set(
     (logs || [])
-      .filter((l) => l.stage === 'nest_lookup_unverified')
+      .filter((l) => l.stage === 'meta_unverified' || l.stage === 'backend_accepted')
       .map((l) => String(l.event_id)),
   )
 
@@ -229,7 +234,12 @@ export async function syncNestOutboxResults(
       continue
     }
 
-    if (nest.apiAccepted) {
+    if (nest.deliveryOutcome === 'cancelled') {
+      await logConversion(admin, { stage: 'cancelled', eventName: row.event_name, reason: nest.lastError || 'cancelled', leadId: row.lead_id, tenantId, projectId, eventId: row.event_id, idempotencyKey: row.idempotency_key, deliveryLane: nest.deliveryLane || row.delivery_lane })
+      continue
+    }
+
+    if (nest.deliveryOutcome === 'meta_accepted' || nest.apiAccepted) {
       if (done.has(row.event_id)) {
         result.skipped += 1
         continue
@@ -261,11 +271,7 @@ export async function syncNestOutboxResults(
       continue
     }
 
-    if (
-      nest.status === 'dead' ||
-      nest.status === 'failed' ||
-      nest.acceptanceTier === 'api_rejected'
-    ) {
+    if (nest.deliveryOutcome === 'meta_rejected' || nest.acceptanceTier === 'api_rejected') {
       if (done.has(row.event_id)) {
         result.skipped += 1
         continue
@@ -296,15 +302,34 @@ export async function syncNestOutboxResults(
       continue
     }
 
+    if (nest.deliveryOutcome === 'transport_failed' || nest.status === 'dead' || nest.status === 'failed') {
+      const ok = await logConversion(admin, {
+        stage: 'transport_failed',
+        eventName: row.event_name,
+        reason: nest.lastError || 'backend_transport_failed',
+        leadId: row.lead_id,
+        tenantId,
+        projectId,
+        eventId: row.event_id,
+        idempotencyKey: row.idempotency_key,
+        deliveryLane: nest.deliveryLane || row.delivery_lane,
+        details: { source: 'fe_nest_lookup_sync', nest_status: nest.status, http_status: nest.httpStatus },
+      })
+      if (ok) result.writtenTransportFailed += 1
+      else result.errors += 1
+      continue
+    }
+
     // Nest recibió pero sin evidencia Graph suficiente: una sola marca unverified.
     if (alreadyUnverified.has(row.event_id) || done.has(row.event_id)) {
       result.skipped += 1
       continue
     }
+    const unverified = nest.deliveryOutcome === 'meta_unverified'
     const ok = await logConversion(admin, {
-      stage: 'nest_lookup_unverified',
+      stage: unverified ? 'meta_unverified' : 'backend_accepted',
       eventName: row.event_name,
-      reason: nest.acceptanceTier || 'insufficient_evidence',
+      reason: nest.acceptanceTier || (unverified ? 'insufficient_evidence' : 'backend_pending'),
       leadId: row.lead_id,
       tenantId,
       projectId,

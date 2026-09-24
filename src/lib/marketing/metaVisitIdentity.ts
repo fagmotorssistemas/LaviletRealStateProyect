@@ -13,23 +13,34 @@ export { buildUnitVisitKey } from '@/lib/meta/enqueueGuards'
 export function getOrCreateUnitVisitIdentity(unitId: string): {
   visitKey: string
   eventId: string
+  eventTime: number
 } {
   const visitor = (typeof window !== 'undefined' ? getVisitorKey() : '') || 'anon'
   const visitKey = buildUnitVisitKey(visitor, unitId)
   if (typeof window === 'undefined') {
-    return { visitKey, eventId: newMetaEventId() }
+    return { visitKey, eventId: newMetaEventId(), eventTime: Math.floor(Date.now() / 1000) }
   }
   const storageKey = `lv_meta_visit:${visitKey}`
   try {
     const existing = sessionStorage.getItem(storageKey)?.trim()
-    if (existing && /^[0-9a-f-]{36}$/i.test(existing)) {
-      return { visitKey, eventId: existing }
+    if (existing) {
+      try {
+        const saved = JSON.parse(existing) as { eventId?: string; eventTime?: number }
+        if (saved.eventId && /^[0-9a-f-]{36}$/i.test(saved.eventId)) {
+          return { visitKey, eventId: saved.eventId, eventTime: saved.eventTime || Math.floor(Date.now() / 1000) }
+        }
+      } catch {
+        if (/^[0-9a-f-]{36}$/i.test(existing)) {
+          return { visitKey, eventId: existing, eventTime: Math.floor(Date.now() / 1000) }
+        }
+      }
     }
     const eventId = newMetaEventId()
-    sessionStorage.setItem(storageKey, eventId)
-    return { visitKey, eventId }
+    const eventTime = Math.floor(Date.now() / 1000)
+    sessionStorage.setItem(storageKey, JSON.stringify({ eventId, eventTime }))
+    return { visitKey, eventId, eventTime }
   } catch {
-    return { visitKey, eventId: newMetaEventId() }
+    return { visitKey, eventId: newMetaEventId(), eventTime: Math.floor(Date.now() / 1000) }
   }
 }
 
@@ -40,7 +51,13 @@ export function rememberUnitVisitEventId(unitId: string, eventId: string) {
   const visitor = getVisitorKey() || 'anon'
   const visitKey = buildUnitVisitKey(visitor, unitId)
   try {
-    sessionStorage.setItem(`lv_meta_visit:${visitKey}`, eventId)
+    const key = `lv_meta_visit:${visitKey}`
+    let eventTime = Math.floor(Date.now() / 1000)
+    try {
+      const previous = JSON.parse(sessionStorage.getItem(key) || '{}') as { eventTime?: number }
+      if (previous.eventTime) eventTime = previous.eventTime
+    } catch { /* legacy UUID */ }
+    sessionStorage.setItem(key, JSON.stringify({ eventId, eventTime }))
   } catch {
     // ignore
   }

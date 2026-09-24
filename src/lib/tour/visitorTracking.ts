@@ -83,9 +83,9 @@ export async function openTourSession(): Promise<TourTrackIds | null> {
   return opening
 }
 
-function postTourEvent(payload: TourEventPayload, opts?: { beacon?: boolean }) {
+function postTourEvent(payload: TourEventPayload, opts?: { beacon?: boolean }): Promise<boolean> {
   const current = ids
-  if (!current) return
+  if (!current) return Promise.resolve(false)
   const body = JSON.stringify({
     session_id: current.session_id,
     visitor_id: current.visitor_id,
@@ -93,9 +93,9 @@ function postTourEvent(payload: TourEventPayload, opts?: { beacon?: boolean }) {
   })
   if (opts?.beacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
     const blob = new Blob([body], { type: 'application/json' })
-    if (navigator.sendBeacon('/api/tour/event', blob)) return
+    if (navigator.sendBeacon('/api/tour/event', blob)) return Promise.resolve(true)
   }
-  void fetch('/api/tour/event', {
+  return fetch('/api/tour/event', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body,
@@ -104,10 +104,13 @@ function postTourEvent(payload: TourEventPayload, opts?: { beacon?: boolean }) {
     .then(async (response) => {
       if (!response.ok) {
         console.error('log_tour_event', payload.event_type, await response.text())
+        return false
       }
+      return true
     })
     .catch((error) => {
       console.error('log_tour_event', payload.event_type, error)
+      return false
     })
 }
 
@@ -137,12 +140,12 @@ export function pingTourSession(seconds: number, extra?: Pick<TourEventPayload, 
   })
 }
 
-export function logTourEvent(payload: TourEventPayload, opts?: { beacon?: boolean }) {
+export function logTourEvent(payload: TourEventPayload, opts?: { beacon?: boolean }): Promise<boolean> {
   if (!ids) {
     queued.push(payload)
-    return
+    return Promise.resolve(false)
   }
-  postTourEvent(payload, opts)
+  return postTourEvent(payload, opts)
 }
 
 function humanApiError(value: unknown, fallback: string) {
@@ -228,7 +231,17 @@ export async function identifyTourLead(input: {
 
   // Pixel Lead solo tras guardado OK y conversión nueva confirmada por el servidor.
   if (json.emit_meta_lead && json.meta_event_id && hasAdsConsent()) {
-    trackMetaPixelEvent('Lead', {}, json.meta_event_id)
+    const pixelKey = `lv_meta_pixel:Lead:${json.meta_event_id}`
+    let alreadySent = false
+    try {
+      alreadySent = sessionStorage.getItem(pixelKey) === '1'
+    } catch {
+      // Meta deduplica por event_name + event_id si sessionStorage no estÃ¡ disponible.
+    }
+    if (!alreadySent) {
+      trackMetaPixelEvent('Lead', {}, json.meta_event_id)
+      try { sessionStorage.setItem(pixelKey, '1') } catch { /* ignore */ }
+    }
   }
 
   mergeGuestFavoritesIntoPhone(normalizeShowroomPhone(input.phone))

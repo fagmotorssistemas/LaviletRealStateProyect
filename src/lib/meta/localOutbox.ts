@@ -8,6 +8,8 @@ import {
   isPurchaseSaleEligibleForDelivery,
   type MetaCaptureEventName,
 } from '@/lib/meta/metaMeasurementContract'
+import { isScheduleFlushEnabled } from '@/lib/meta/scheduleFlags'
+import { isWaLeadSubmittedDeliveryEnabled } from '@/lib/meta/waLeadSubmittedFlags'
 
 export type LocalOutboxRow = {
   id: string
@@ -34,6 +36,16 @@ export const OUTBOX_NEEDS_REVIEW_STATUS = 'needs_review' as const
 
 export function isOutboxStatusFlushable(status: string | null | undefined): boolean {
   return String(status || '') === OUTBOX_FLUSHABLE_STATUS
+}
+
+export function isMetaEventDeliveryEnabled(
+  eventName: MetaCaptureEventName,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (eventName === 'Schedule') return isScheduleFlushEnabled(env)
+  if (eventName === 'LeadSubmitted') return isWaLeadSubmittedDeliveryEnabled(env)
+  if (eventName === 'Purchase') return isPurchaseMetaSendEnabled(env)
+  return true
 }
 
 /** @deprecated Usar resolveDeliveryLane — exportado para tests existentes. */
@@ -64,18 +76,37 @@ export async function persistMetaConversion(
       | typeof OUTBOX_NEEDS_REVIEW_STATUS
     lastError?: string | null
   },
-): Promise<{ inserted: boolean; eventId: string; rowId: string | null; status: string }> {
+): Promise<{ inserted: boolean; eventId: string; rowId: string | null; status: string; conflict?: boolean }> {
   const eventId = input.eventId && /^[0-9a-f-]{36}$/i.test(input.eventId) ? input.eventId : randomUUID()
-  const eventTime = input.eventTime || Math.floor(Date.now() / 1000)
+  const eventTime = input.eventTime != null ? input.eventTime : Math.floor(Date.now() / 1000)
   const status = input.status || OUTBOX_FLUSHABLE_STATUS
 
   const { data: existing } = await admin
     .from('meta_capi_outbox')
-    .select('id, event_id, status')
+    .select('id, event_id, event_name, event_time, delivery_lane, payload, status')
     .eq('idempotency_key', input.idempotencyKey)
     .maybeSingle()
 
   if (existing?.event_id) {
+    const existingPayload = existing.payload && typeof existing.payload === 'object'
+      ? existing.payload as Record<string, unknown> : {}
+    const requestedDataset = typeof input.payload.messaging_dataset_id === 'string'
+      ? input.payload.messaging_dataset_id : null
+    const existingDataset = typeof existingPayload.messaging_dataset_id === 'string'
+      ? existingPayload.messaging_dataset_id : null
+    const conflict =
+      existing.event_name !== input.eventName ||
+      (Boolean(input.eventId) && existing.event_id !== eventId) ||
+      (input.eventTime != null && Number(existing.event_time) !== Number(input.eventTime)) ||
+      existing.delivery_lane !== intendedLane() ||
+      existingDataset !== requestedDataset
+    if (conflict && existing.id) {
+      await admin.from('meta_capi_outbox').update({
+        last_error: 'idempotency_key_conflict',
+        updated_at: new Date().toISOString(),
+      }).eq('id', existing.id)
+      return { inserted: false, eventId: existing.event_id, rowId: existing.id, status: existing.status || status, conflict: true }
+    }
     // Si el visitante se identificó después, enlazar lead_id sin reescribir payload.
     if (input.leadId && existing.id) {
       await admin
@@ -89,6 +120,7 @@ export async function persistMetaConversion(
       eventId: existing.event_id,
       rowId: existing.id,
       status: existing.status || status,
+      conflict: false,
     }
   }
 
@@ -287,10 +319,11 @@ export async function flushLocalMetaOutbox(
 
     // Purchase: solo flush con delivery ON; review_hold histórico nunca se toca aquí
     // (solo status=pending llega a este loop).
-    if (row.event_name === 'Purchase' && !isPurchaseMetaSendEnabled()) {
+    if (!isMetaEventDeliveryEnabled(row.event_name)) {
       skipped += 1
-      console.info('[meta-outbox] flush skip purchase_delivery_inactive', {
+      console.info('[meta-outbox] flush skip event_delivery_inactive', {
         event_id: row.event_id,
+        event_name: row.event_name,
         status: row.status,
       })
       continue
@@ -387,6 +420,7 @@ export async function flushLocalMetaOutbox(
       deliveryLane: row.delivery_lane,
       visitorKey: row.visitor_key,
       leadId: row.lead_id,
+      contactId: typeof payload.contact_id === 'string' ? payload.contact_id : undefined,
     }
 
     if (typeof payload.messaging_channel === 'string' && payload.messaging_channel === 'whatsapp') {

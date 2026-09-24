@@ -80,6 +80,7 @@ export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
   lead: Record<string, unknown> & { id: string }
   contactId: number | string
   currentMessage: string
+  sourceMessageSentAt?: string | null
   scoreEvents?: string[] | null
   recentOfferText?: string | null
   tenantId?: string | null
@@ -135,6 +136,7 @@ export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
     },
     contactId: input.contactId,
     currentMessage: input.currentMessage,
+    sourceMessageSentAt: input.sourceMessageSentAt,
     scoreEvents: input.scoreEvents,
     recentOfferText: input.recentOfferText,
     env: input.env,

@@ -6,11 +6,16 @@
 
 export type MetaCapiDeliveryOutcome =
   | 'pending'
+  | 'backend_accepted'
+  | 'transport_failed'
+  | 'meta_rejected'
+  | 'meta_unverified'
   | 'nest_received'
   | 'meta_accepted'
   | 'blocked'
   | 'failed_retrying'
   | 'unknown'
+  | 'cancelled'
   /** Captura local / CRM sin envío CAPI. */
   | 'internal_activity'
   /** Outbox retenido: Nest tipado aún no acepta el event_name. */
@@ -52,6 +57,7 @@ export type NestEventLookupEvidence = {
   fbtraceId: string | null
   httpStatus: number | null
   lookupOk: boolean
+  deliveryOutcome?: string | null
 }
 
 export type DeliveryOutcomeResult = {
@@ -94,6 +100,16 @@ export function classifyDeliveryOutcome(input: {
   const conv = input.conversion
   const nest = input.nest
   const eventName = String(input.eventName || '')
+
+  if (status === 'pending' && err === 'idempotency_key_conflict') {
+    return {
+      outcome: 'blocked',
+      label: 'Conflicto de idempotencia',
+      reason: err,
+      graphEvidence: null,
+      receptionLabel: 'La clave ya existe con otro ID, fecha, carril, evento o dataset; se conserva sin regenerarla',
+    }
+  }
 
   // Captura preparada Purchase / wishlist histórico retenido: no es conversión enviada.
   if (
@@ -160,11 +176,57 @@ export function classifyDeliveryOutcome(input: {
 
   if (conv?.stage === 'meta_rejected') {
     return {
-      outcome: 'failed_retrying',
-      label: 'Fallido / reintentando',
+      outcome: 'meta_rejected',
+      label: 'Rechazado por Meta',
       reason: conv.reason || 'meta_rejected',
       graphEvidence: null,
-      receptionLabel: `Meta rechazó o evidencia insuficiente (${conv.reason || 'meta_rejected'})`,
+      receptionLabel: `Meta respondió con rechazo (${conv.reason || 'meta_rejected'})`,
+    }
+  }
+
+  if (nest?.lookupOk && nest.found && nest.deliveryOutcome === 'cancelled') {
+    return { outcome: 'cancelled', label: 'Cancelado', reason: nest.lastError || 'cancelled', graphEvidence: null, receptionLabel: 'Cancelado antes de Meta' }
+  }
+  if (nest?.lookupOk && nest.found && nest.deliveryOutcome === 'meta_rejected') {
+    return { outcome: 'meta_rejected', label: 'Rechazado por Meta', reason: nest.lastError || 'meta_rejected', graphEvidence: null, receptionLabel: 'Meta respondió con rechazo' }
+  }
+  if (nest?.lookupOk && nest.found && nest.deliveryOutcome === 'transport_failed') {
+    return { outcome: 'transport_failed', label: 'Fallo de transporte', reason: nest.lastError || 'transport_failed', graphEvidence: null, receptionLabel: 'No hubo respuesta Graph verificable' }
+  }
+  if (nest?.lookupOk && nest.found && nest.deliveryOutcome === 'meta_unverified') {
+    return { outcome: 'meta_unverified', label: 'Respuesta de Meta sin verificar', reason: 'insufficient_evidence', graphEvidence: null, receptionLabel: 'HTTP OK sin events_received verificable' }
+  }
+  if (nest?.lookupOk && nest.found && nest.deliveryOutcome === 'backend_accepted') {
+    return { outcome: 'backend_accepted', label: 'Guardado por el backend', reason: null, graphEvidence: null, receptionLabel: 'Persistido por el backend; todavía no acredita aceptación de Meta' }
+  }
+
+  if (conv?.stage === 'transport_failed') {
+    return {
+      outcome: 'transport_failed',
+      label: 'Fallo de transporte',
+      reason: conv.reason || 'transport_failed',
+      graphEvidence: null,
+      receptionLabel: 'El transporte falló; no existe una respuesta comprobada de Meta',
+    }
+  }
+
+  if (conv?.stage === 'meta_unverified') {
+    return {
+      outcome: 'meta_unverified',
+      label: 'Respuesta de Meta sin verificar',
+      reason: conv.reason || 'insufficient_evidence',
+      graphEvidence: null,
+      receptionLabel: 'Meta respondió HTTP OK sin events_received verificable',
+    }
+  }
+
+  if (conv?.stage === 'backend_accepted') {
+    return {
+      outcome: 'backend_accepted',
+      label: 'Guardado por el backend',
+      reason: conv.reason,
+      graphEvidence: null,
+      receptionLabel: 'Persistido por el backend; todavía no acredita aceptación de Meta',
     }
   }
 
@@ -191,10 +253,13 @@ export function classifyDeliveryOutcome(input: {
   }
 
   if (status === 'cancelled' || status === 'needs_review' || status === 'review_hold') {
+    if (status === 'cancelled') {
+      return { outcome: 'cancelled', label: 'Cancelado', reason: err || 'cancelled', graphEvidence: null, receptionLabel: 'Cancelado antes de Meta' }
+    }
     return {
       outcome: 'blocked',
       label: 'Bloqueado',
-      reason: status === 'cancelled' ? 'cancelledado' : status,
+      reason: status,
       graphEvidence: null,
       receptionLabel: '—',
     }

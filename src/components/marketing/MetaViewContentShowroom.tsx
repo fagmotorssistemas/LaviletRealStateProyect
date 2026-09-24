@@ -40,15 +40,19 @@ export function MetaViewContentShowroom({ ready }: Props) {
       if (shouldSkipViewContent(firedVisitKey.current, visitKey)) return
 
       let eventId = newMetaEventId()
+      let eventTime = Math.floor(Date.now() / 1000)
       if (typeof window !== 'undefined') {
         try {
           const storageKey = `lv_meta_visit:${visitKey}`
           const existing = sessionStorage.getItem(storageKey)?.trim()
-          if (existing && /^[0-9a-f-]{36}$/i.test(existing)) {
-            eventId = existing
-          } else {
-            sessionStorage.setItem(storageKey, eventId)
+          if (existing) {
+            try {
+              const saved = JSON.parse(existing) as { eventId?: string; eventTime?: number }
+              if (saved.eventId) eventId = saved.eventId
+              if (saved.eventTime) eventTime = saved.eventTime
+            } catch { if (/^[0-9a-f-]{36}$/i.test(existing)) eventId = existing }
           }
+          sessionStorage.setItem(storageKey, JSON.stringify({ eventId, eventTime }))
         } catch {
           /* ignore */
         }
@@ -56,8 +60,6 @@ export function MetaViewContentShowroom({ ready }: Props) {
 
       const conservative = isMetaCoreSetupConservative()
       // Core Setup: sin content_* en Pixel; subtipo solo viaja en outbox (lv_internal_subtype).
-      trackMetaPixelEvent('ViewContent', undefined, eventId)
-
       void (async () => {
         let ids = getMetaClickIds()
         if (!ids.fbp && !META_PIXEL_SIMULATE) {
@@ -74,6 +76,7 @@ export function MetaViewContentShowroom({ ready }: Props) {
             event_name: 'ViewContent',
             visit_key: visitKey,
             event_id: eventId,
+            event_time: eventTime,
             lv_internal_subtype: 'showroom_general',
             event_source_url: currentMetaEventSourceUrl(),
             fbp: ids.fbp || undefined,
@@ -88,13 +91,14 @@ export function MetaViewContentShowroom({ ready }: Props) {
             try {
               const json = (await res.json()) as { event_id?: string }
               if (json.event_id && typeof window !== 'undefined') {
-                sessionStorage.setItem(`lv_meta_visit:${visitKey}`, json.event_id)
+                sessionStorage.setItem(`lv_meta_visit:${visitKey}`, JSON.stringify({ eventId: json.event_id, eventTime }))
+                trackMetaPixelEvent('ViewContent', undefined, json.event_id)
               }
             } catch {
               /* ignore */
             }
           })
-          .catch(() => {})
+          .catch(() => { firedVisitKey.current = null })
       })()
     }
 

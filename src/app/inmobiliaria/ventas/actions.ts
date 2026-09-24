@@ -43,15 +43,8 @@ export async function recordUnitClosingAction(
             saleId: String(closing.id),
             leadId: payload.lead_id,
             unitId: payload.unit_id,
-            saleAt: String(closing.sale_at || payload.sale_at || new Date().toISOString()),
-            value: payload.sale_price_final,
-            currency:
-              (closing as { currency?: string | null }).currency ||
-              payload.currency ||
-              null,
             tenantId: payload.tenant_id,
             projectId,
-            registeredAt: String(closing.created_at || new Date().toISOString()),
           })
         }
       } catch (error) {

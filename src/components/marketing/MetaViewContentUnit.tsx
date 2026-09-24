@@ -45,7 +45,7 @@ export function MetaViewContentUnit({
     const emit = () => {
       if (!enabled || !unitId || !hasAdsConsent()) return
 
-      const { visitKey, eventId } = getOrCreateUnitVisitIdentity(unitId)
+      const { visitKey, eventId, eventTime } = getOrCreateUnitVisitIdentity(unitId)
       if (shouldSkipViewContent(firedVisitKey.current, visitKey)) return
 
       // Core Setup: sin parámetros de contenido en Pixel/CAPI.
@@ -58,8 +58,6 @@ export function MetaViewContentUnit({
             content_name: `Unidad ${unitNumber}`,
             content_category: category || 'unit',
           }
-      trackMetaPixelEvent('ViewContent', params, eventId)
-
       void (async () => {
         let ids = getMetaClickIds()
         // Con Pixel simulado no hay fbevents.js: no esperar _fbp.
@@ -80,6 +78,7 @@ export function MetaViewContentUnit({
             event_name: 'ViewContent',
             visit_key: visitKey,
             event_id: eventId,
+            event_time: eventTime,
             unit_id: unitId,
             lv_internal_subtype: 'detalle_unidad',
             ...(conservative
@@ -100,12 +99,15 @@ export function MetaViewContentUnit({
             if (!res.ok && res.status !== 202) return
             try {
               const data = (await res.json()) as { event_id?: string }
-              if (data.event_id) rememberUnitVisitEventId(unitId, data.event_id)
+              if (data.event_id) {
+                rememberUnitVisitEventId(unitId, data.event_id)
+                trackMetaPixelEvent('ViewContent', params, data.event_id)
+              }
             } catch {
               // ignore
             }
           })
-          .catch(() => {})
+          .catch(() => { firedVisitKey.current = null })
       })()
     }
 

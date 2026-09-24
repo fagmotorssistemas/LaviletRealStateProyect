@@ -21,6 +21,7 @@ import {
   addTourFavorite,
 } from '@/lib/tour/tourFavorites'
 import { captureWishlistAfterSave } from '@/lib/meta/wishlistBrowser'
+import { hasAdsConsent } from '@/lib/tour/consent'
 import { cn } from '@/lib/utils'
 
 export type TourSaveContext = {
@@ -76,7 +77,7 @@ export async function saveTourUnit(context: TourSaveContext, phone?: string) {
     })
   }
 
-  logTourEvent({
+  const durableFavorite = await logTourEvent({
     event_type: 'guardar_unidad',
     typology_code: context.typologyCode || null,
     unit_type_id: context.unitTypeId || null,
@@ -92,12 +93,18 @@ export async function saveTourUnit(context: TourSaveContext, phone?: string) {
     },
   })
 
-  captureWishlistAfterSave({
+  const captured = await captureWishlistAfterSave({
     unitId: context.unitId,
     unitNumber: context.unitNumber,
     typologyCode: context.typologyCode,
     leadId: leadId || getShowroomLeadId() || null,
   })
+  if (!durableFavorite) {
+    throw new Error('No se pudo confirmar el guardado del favorito. Reintente.')
+  }
+  if (context.unitId && hasAdsConsent() && !captured) {
+    throw new Error('Guardamos el favorito, pero falta registrar su mediciÃ³n. Reintente para completarla.')
+  }
 }
 
 export function TourSaveUnitModal({

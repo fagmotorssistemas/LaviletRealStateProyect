@@ -29,6 +29,7 @@ export async function persistAddToWishlist(
     unitNumber: string
     typologyCode?: string | null
     eventId?: string | null
+    eventTime?: number | null
     eventSourceUrl?: string | null
     fbp?: string | null
     fbc?: string | null
@@ -52,6 +53,7 @@ export async function persistAddToWishlist(
     eventName: 'AddToWishlist',
     idempotencyKey: buildWishlistIdempotencyKey(leadId, unitId),
     eventId: input.eventId || undefined,
+    eventTime: input.eventTime || undefined,
     leadId,
     visitorKey,
     adsConsentRequired: true,

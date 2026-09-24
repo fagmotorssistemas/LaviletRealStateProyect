@@ -18,6 +18,7 @@ import {
   isWaLeadSubmittedDeliveryEnabled,
   isWaLeadSubmittedEnabled,
 } from '@/lib/meta/waLeadSubmittedFlags'
+import { resolveDeliveryLane } from '@/lib/meta/deliveryLane'
 
 export type WaLeadSubmittedResult = {
   attempted: boolean
@@ -128,6 +129,7 @@ export async function maybeRegisterWaLeadSubmitted(input: {
   }
   contactId: number | string
   currentMessage: string
+  sourceMessageSentAt?: string | null
   scoreEvents?: string[] | null
   /** Última oferta bot/asesor con unidades (contexto; no backfill). */
   recentOfferText?: string | null
@@ -227,7 +229,10 @@ export async function maybeRegisterWaLeadSubmitted(input: {
 
   // Sellar interés del turno actual (no el grant de consentimiento).
   if (admin && eligibility.turnCommercialInterest) {
-    const stamped = new Date().toISOString()
+    const sourceMs = Date.parse(String(input.sourceMessageSentAt || ''))
+    const stamped = Number.isFinite(sourceMs)
+      ? new Date(sourceMs).toISOString()
+      : new Date().toISOString()
     try {
       await admin
         .from('leads')
@@ -476,7 +481,11 @@ export async function maybeRegisterWaLeadSubmitted(input: {
   }
 
   const eventId = randomUUID()
-  const eventTime = Math.floor(Date.now() / 1000)
+  const commercialAt = Date.parse(String(input.lead.meta_wa_commercial_interest_at || input.sourceMessageSentAt || ''))
+  if (!Number.isFinite(commercialAt)) {
+    return { attempted: true, stage: 'blocked', reason: 'commercial_interest_time_required', eventId: null, blockers: plan.blockers, retainAttention: true }
+  }
+  const eventTime = Math.floor(commercialAt / 1000)
   const payload = buildWaLeadSubmittedPayload({
     phone: (consentRow?.phone as string | null) || input.lead.phone,
     fullName: (consentRow?.name as string | null) || input.lead.name,
@@ -497,10 +506,7 @@ export async function maybeRegisterWaLeadSubmitted(input: {
         p_lead_id: input.lead.id,
         p_event_id: eventId,
         p_event_time: eventTime,
-        p_lane:
-          String(env.META_CAPI_DELIVERY_LANE || '').toLowerCase() === 'test'
-            ? 'test'
-            : 'live',
+        p_lane: resolveDeliveryLane(env),
         p_payload: payload,
         p_status: OUTBOX_FLUSHABLE_STATUS,
       },

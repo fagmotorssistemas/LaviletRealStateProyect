@@ -131,6 +131,7 @@ export type EnqueueMetaEventInput = {
   deliveryLane?: 'test' | 'live'
   visitorKey?: string | null
   leadId?: string | null
+  contactId?: string | null
   /** Si false, no encola. */
   adsConsent: boolean
   /** Solo website: capturar IP/UA del request actual (visitante). */
@@ -152,6 +153,24 @@ export async function enqueueMetaEvent(
 ): Promise<{ ok: boolean; skipped?: string; status?: number }> {
   if (!input.adsConsent) return { ok: false, skipped: 'no_ads_consent' }
   if (!isMetaCapiConfigured()) return { ok: false, skipped: 'not_configured' }
+
+  const expectedSource = input.eventName === 'Purchase'
+    ? 'system_generated'
+    : input.eventName === 'LeadSubmitted' ? 'business_messaging' : 'website'
+  if (input.actionSource !== expectedSource) {
+    return { ok: false, skipped: 'action_source_mismatch' }
+  }
+  if (input.eventName === 'LeadSubmitted') {
+    const waba = String(input.whatsappBusinessAccountId || '').trim()
+    const messagingDataset = String(input.messagingDatasetId || '').trim()
+    const webDataset = String(process.env.META_EVENTS_DATASET_ID || process.env.META_DATASET_ID || process.env.META_PIXEL_ID || '').trim()
+    if (input.messagingChannel !== 'whatsapp' || !input.ctwaClid || !waba || !messagingDataset) {
+      return { ok: false, skipped: 'business_messaging_identifiers_required' }
+    }
+    if (waba === messagingDataset || (webDataset && webDataset === messagingDataset)) {
+      return { ok: false, skipped: 'business_messaging_dataset_scope_mismatch' }
+    }
+  }
 
   let clientIpAddress: string | undefined = input.clientIpAddress || undefined
   let clientUa: string | undefined = input.clientUserAgent || undefined
@@ -178,7 +197,7 @@ export async function enqueueMetaEvent(
         event_id: input.eventId,
         event_time: input.eventTime,
         action_source: input.actionSource,
-        event_source_url: sanitizeUrl(input.eventSourceUrl),
+        event_source_url: input.actionSource === 'website' ? sanitizeUrl(input.eventSourceUrl) : undefined,
         phone: input.phone || undefined,
         email: input.email || undefined,
         first_name: input.firstName || undefined,
@@ -189,11 +208,12 @@ export async function enqueueMetaEvent(
         external_id: input.externalId || undefined,
         visitor_key: input.visitorKey || undefined,
         lead_id: input.leadId || undefined,
-        fbp: input.fbp || undefined,
-        fbc: input.fbc || undefined,
-        fbclid: input.fbclid || undefined,
-        client_ip_address: clientIpAddress,
-        client_user_agent: clientUa,
+        contact_id: input.contactId || undefined,
+        fbp: input.actionSource === 'website' ? input.fbp || undefined : undefined,
+        fbc: input.actionSource === 'website' ? input.fbc || undefined : undefined,
+        fbclid: input.actionSource === 'website' ? input.fbclid || undefined : undefined,
+        client_ip_address: input.actionSource === 'website' ? clientIpAddress : undefined,
+        client_user_agent: input.actionSource === 'website' ? clientUa : undefined,
         content_ids: input.contentIds,
         content_name: input.contentName || undefined,
         content_category: input.contentCategory || undefined,
@@ -217,13 +237,26 @@ export async function enqueueMetaEvent(
       signal: AbortSignal.timeout(META_CAPI_HTTP_TIMEOUT_MS),
     })
     const ok = res.ok || res.status === 202
+    let backendCode: string | null = null
+    if (!ok) {
+      try {
+        const body = (await res.clone().json()) as Record<string, unknown>
+        backendCode = typeof body.message === 'string' && body.message === 'idempotency_key_conflict'
+          ? body.message
+          : typeof body.code === 'string' ? body.code
+            : typeof body.error === 'string' ? body.error : null
+      } catch { /* respuesta no JSON */ }
+    }
     console.info('[meta-capi] enqueue http', {
       event_id: input.eventId || null,
       event_name: input.eventName,
       http_status: res.status,
       ok,
     })
-    return { ok, status: res.status }
+    if (res.status === 409 && backendCode === 'idempotency_key_conflict') {
+      return { ok: false, status: 409, skipped: 'idempotency_key_conflict' }
+    }
+    return { ok, status: res.status, ...(backendCode ? { skipped: backendCode } : {}) }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'error'
     const timedOut =

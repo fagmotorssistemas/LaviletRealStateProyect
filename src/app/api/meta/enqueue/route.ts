@@ -75,6 +75,10 @@ export async function POST(request: Request) {
   if (!eventId || !isUuid(eventId)) {
     return NextResponse.json({ ok: false, error: 'event_id inválido' }, { status: 400 })
   }
+  const suppliedEventTime = Number(body.event_time)
+  const eventTime = Number.isFinite(suppliedEventTime) && suppliedEventTime > 0
+    ? Math.floor(suppliedEventTime)
+    : undefined
 
   const subtypeRaw = String(body.lv_internal_subtype || '').trim()
   const isShowroomGeneral = subtypeRaw === 'showroom_general'
@@ -164,6 +168,7 @@ export async function POST(request: Request) {
       eventName: 'ViewContent',
       idempotencyKey: visitKey,
       eventId,
+      eventTime,
       visitorKey,
       leadId: resolvedLeadId,
       adsConsentRequired: true,

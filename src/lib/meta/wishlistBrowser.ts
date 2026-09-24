@@ -25,22 +25,30 @@ function clientDedupeKey(leadId: string | null | undefined, unitId: string): str
   return `${lead || '_anon'}:${unitId}`
 }
 
-export function captureWishlistAfterSave(opts: {
+export async function captureWishlistAfterSave(opts: {
   unitId?: string | null
   unitNumber?: string | null
   typologyCode?: string | null
   leadId?: string | null
-}): void {
+}): Promise<boolean> {
   const unitId = String(opts.unitId || '').trim()
   const leadId = String(opts.leadId || '').trim() || null
-  if (!unitId || !hasAdsConsent()) return
+  if (!unitId || !hasAdsConsent()) return false
 
   const key = clientDedupeKey(leadId, unitId)
-  if (inFlightByKey.has(key)) return
-  if (leadId && sentSessionByLeadUnit.has(`${leadId}:${unitId}`)) return
+  if (inFlightByKey.has(key)) return false
+  if (leadId && sentSessionByLeadUnit.has(`${leadId}:${unitId}`)) return true
 
-  const eventId = newMetaEventId()
-  if (!/^[0-9a-f-]{36}$/i.test(eventId)) return
+  const storageKey = `lv_meta_wishlist:${key}`
+  let eventId = newMetaEventId()
+  let eventTime = Math.floor(Date.now() / 1000)
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}') as { eventId?: string; eventTime?: number }
+    if (saved.eventId) eventId = saved.eventId
+    if (saved.eventTime) eventTime = saved.eventTime
+    sessionStorage.setItem(storageKey, JSON.stringify({ eventId, eventTime }))
+  } catch { /* Meta deduplica con la identidad conservada mientras viva esta llamada. */ }
+  if (!/^[0-9a-f-]{36}$/i.test(eventId)) return false
 
   inFlightByKey.add(key)
 
@@ -55,15 +63,14 @@ export function captureWishlistAfterSave(opts: {
         content_category: typologyCode || 'unit',
       }
 
-  // Mismo event_name + event_id que CAPI (dedupe Pixel/servidor).
-  trackMetaPixelEvent('AddToWishlist', params, eventId)
-
   const ids = getMetaClickIds()
-  void fetch('/api/meta/wishlist', {
+  try {
+    const res = await fetch('/api/meta/wishlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       event_id: eventId,
+      event_time: eventTime,
       unit_id: unitId,
       unit_number: unitNumber || undefined,
       typology_code: typologyCode || undefined,
@@ -74,14 +81,18 @@ export function captureWishlistAfterSave(opts: {
       fbclid: ids.fbclid || undefined,
     }),
     keepalive: true,
-  })
-    .then((res) => {
-      if ((res.ok || res.status === 202) && leadId) {
-        sentSessionByLeadUnit.add(`${leadId}:${unitId}`)
-      }
     })
-    .catch(() => {})
-    .finally(() => {
-      inFlightByKey.delete(key)
-    })
+    if (!res.ok && res.status !== 202) return false
+    const json = (await res.json()) as { event_id?: string }
+    if (!json.event_id) return false
+    // Pixel solo despuÃ©s de que servidor validÃ³ contacto, proyecto, unidad y outbox.
+    trackMetaPixelEvent('AddToWishlist', params, json.event_id)
+    if (leadId) sentSessionByLeadUnit.add(`${leadId}:${unitId}`)
+    try { sessionStorage.setItem(storageKey, JSON.stringify({ eventId: json.event_id, eventTime })) } catch { /* ignore */ }
+    return true
+  } catch {
+    return false
+  } finally {
+    inFlightByKey.delete(key)
+  }
 }

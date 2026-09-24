@@ -29,6 +29,7 @@ export type NestLookupSyncItemResult = {
     status: string | null
     apiAccepted: boolean
     acceptanceTier: string | null
+    deliveryOutcome: string | null
     datasetId: string | null
     eventsReceived: number | null
     fbtraceId: string | null
@@ -311,6 +312,8 @@ export async function syncNestLookupToConversionLog(
           typeof body.acceptance_tier === 'string'
             ? body.acceptance_tier
             : null,
+        deliveryOutcome:
+          typeof body.delivery_outcome === 'string' ? body.delivery_outcome : null,
         datasetId: typeof body.dataset_id === 'string' ? body.dataset_id : null,
         eventsReceived:
           typeof meta?.events_received === 'number'
@@ -326,9 +329,15 @@ export async function syncNestLookupToConversionLog(
       let persisted = false
       let stageWritten: string | null = null
 
-      if (graphEvidence) {
+      const reportedStage = graphEvidence
+        ? 'meta_accepted'
+        : ['backend_accepted', 'transport_failed', 'meta_rejected', 'meta_unverified', 'cancelled']
+            .includes(String(nest.deliveryOutcome || ''))
+          ? String(nest.deliveryOutcome)
+          : null
+      if (reportedStage) {
         const { error } = await admin.rpc('lv_log_meta_conversion', {
-          p_stage: 'meta_accepted',
+          p_stage: reportedStage,
           p_event_name: eventName || 'ViewContent',
           p_reason: 'nest_lookup_sync',
           p_lead_id: outbox?.lead_id ?? null,
@@ -336,7 +345,7 @@ export async function syncNestLookupToConversionLog(
           p_tenant_id: null,
           p_project_id: null,
           p_event_id: eventId,
-          p_idempotency_key: `nest_lookup_sync:${eventId}`,
+          p_idempotency_key: `nest_lookup_sync:${eventId}:${reportedStage}`,
           p_delivery_lane: outbox?.delivery_lane ?? null,
           p_details: {
             source: 'fe_nest_lookup_sync',
@@ -358,7 +367,7 @@ export async function syncNestLookupToConversionLog(
         })
         if (!error) {
           persisted = true
-          stageWritten = 'meta_accepted'
+          stageWritten = reportedStage
         }
       }
 
@@ -378,9 +387,9 @@ export async function syncNestLookupToConversionLog(
         persisted,
         alreadyAccepted: false,
         stageWritten,
-        reason: graphEvidence
+        reason: reportedStage
           ? persisted
-            ? 'meta_accepted'
+            ? reportedStage
             : 'persist_failed'
           : nest.found
             ? 'found_without_graph_evidence'
