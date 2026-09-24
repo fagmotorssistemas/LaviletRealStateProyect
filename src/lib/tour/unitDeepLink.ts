@@ -46,8 +46,6 @@ export function findUnitByNumber<T extends { unit_number: string }>(
   if (!needle) return null
   return (
     units.find((item) => normalize(item.unit_number) === needle) ??
-    units.find((item) => normalize(item.unit_number).startsWith(needle)) ??
-    units.find((item) => needle.startsWith(normalize(item.unit_number))) ??
     null
   )
 }

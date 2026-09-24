@@ -858,7 +858,7 @@ export function TourFloorPlan({
   return (
     <div
       className={cn(
-        'absolute inset-0 z-[18] flex bg-[#14110e]',
+        'absolute inset-x-0 bottom-0 top-[calc(4rem+env(safe-area-inset-top))] z-[18] flex bg-[#14110e]',
         'pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]',
         'pl-[max(0px,env(safe-area-inset-left))] pr-[max(0px,env(safe-area-inset-right))]',
       )}

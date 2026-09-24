@@ -1,5 +1,7 @@
 'use client'
 
+import { UnitPublicQr } from './UnitPublicQr'
+
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
@@ -312,7 +314,7 @@ export function TourFichaDrawer({
         { label: 'Piso', value: unit.floor?.trim() || '—' },
       ]
     : []
-  const displayRows = expanded ? detailRows : compactRows
+  const displayRows = (expanded ? detailRows : compactRows).filter(row=>unit?.category!=='local'||row.label!=='Dormitorios')
   const unitAvailable = unit ? isUnitOfferable(unit.status) : false
   const suggestionPool = suggestionUnits?.length ? suggestionUnits : units
   const similarUnits = unit ? findSimilarUnits(unit, suggestionPool) : []
@@ -731,7 +733,8 @@ export function TourFichaDrawer({
                       <Download size={14} strokeWidth={2} />
                       {pdfBusy ? 'Generando…' : 'Descargar PDF'}
                     </button>
-                    <button
+                    <UnitPublicQr number={unit.unit_number}/>
+                      <button
                       type="button"
                       onClick={() => void onShare()}
                       className="flex h-10 w-10 items-center justify-center border border-[#2B1A18]/12 bg-white text-[#2B1A18] transition-colors hover:bg-[#2B1A18]/5"

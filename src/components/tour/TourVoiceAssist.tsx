@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
+import { useVoiceInterruption } from '@/hooks/useVoiceInterruption'
 import { Loader2, Mic, MicOff, X } from 'lucide-react'
 import {
   EMPTY_VOICE_FILTERS,
@@ -14,7 +15,6 @@ import {
   markAskedVoicePhone,
   parseListedOptionChoice,
   parsePhoneFromTranscript,
-  speakUnclearSpeechClarification,
   splitSpeakChunks,
   toVoiceCatalog,
   voiceAssistantGreeting,
@@ -230,8 +230,10 @@ function speakWithBrowser(text: string): Promise<void> {
       const finish = () => {
         if (settled) return
         settled = true
+        speakWaiters=speakWaiters.filter(waiter=>waiter!==finish)
         resolve()
       }
+      speakWaiters.push(finish)
       utter.onend = finish
       utter.onerror = finish
       const speakNow = () => {
@@ -243,9 +245,6 @@ function speakWithBrowser(text: string): Promise<void> {
       }
       // Hablar ya: no esperar voiceschanged (eso sumaba cientos de ms).
       speakNow()
-      if (window.speechSynthesis.getVoices().length === 0) {
-        window.speechSynthesis.addEventListener('voiceschanged', speakNow, { once: true })
-      }
       window.setTimeout(finish, Math.min(18_000, 1400 + text.length * 55))
     } catch {
       resolve()
@@ -254,6 +253,7 @@ function speakWithBrowser(text: string): Promise<void> {
 }
 
 let speakSeq = 0
+const speechRequests = new Set<AbortController>()
 let activeAudio: HTMLAudioElement | null = null
 let activeObjectUrl: string | null = null
 let speakWaiters: Array<() => void> = []
@@ -265,6 +265,9 @@ function settleSpeakWaiters() {
 }
 
 function stopSpokenAudio() {
+  speakSeq++
+  for(const request of speechRequests)request.abort()
+  speechRequests.clear()
   try {
     activeAudio?.pause()
   } catch {
@@ -302,6 +305,7 @@ function playAudioBlob(blob: Blob, seq: number): Promise<void> {
     const audio = new Audio(url)
     activeAudio = audio
     const done = () => {
+      speakWaiters=speakWaiters.filter(waiter=>waiter!==done)
       if (activeAudio === audio) {
         activeAudio = null
         if (activeObjectUrl === url) {
@@ -315,6 +319,7 @@ function playAudioBlob(blob: Blob, seq: number): Promise<void> {
       }
       resolve()
     }
+    speakWaiters.push(done)
     audio.onended = done
     audio.onerror = done
     void audio.play().catch(done)
@@ -338,8 +343,10 @@ function base64ToAudioBlob(base64: string): Blob {
 }
 
 async function fetchOpenAiSpeakBlob(text: string): Promise<Blob | null> {
+  const controller=new AbortController();speechRequests.add(controller)
   try {
     const res = await fetch('/api/tour/voice-assist/speak', {
+      signal:controller.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: text.slice(0, 600) }),
@@ -349,7 +356,7 @@ async function fetchOpenAiSpeakBlob(text: string): Promise<Blob | null> {
     return blob.size > 0 ? blob : null
   } catch {
     return null
-  }
+  } finally {speechRequests.delete(controller)}
 }
 
 function warmOpenAiSpeak() {
@@ -371,8 +378,8 @@ async function speakText(
   const line = text.replace(/\s+/g, ' ').trim()
   if (!line || typeof window === 'undefined') return
 
-  const seq = ++speakSeq
   stopSpokenAudio()
+  const seq = speakSeq
 
   const chunks = splitSpeakChunks(line)
   let index = 0
@@ -443,6 +450,9 @@ export function TourVoiceAssist({
   const [textDraft, setTextDraft] = useState('')
   const [tip, setTip] = useState<FloatingTip | null>(null)
   const tipIdRef = useRef(0)
+  const turnRef=useRef(0)
+  const requestRef=useRef<AbortController|null>(null)
+  const cancelTurn=()=>{turnRef.current++;requestRef.current?.abort();requestRef.current=null;stopSpokenAudio()}
   const mediaRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
   const streamRef = useRef<MediaStream | null>(null)
@@ -495,6 +505,7 @@ export function TourVoiceAssist({
     }
     recognitionRef.current = null
     try {
+      if(mediaRef.current){mediaRef.current.onstop=null;mediaRef.current.ondataavailable=null}
       mediaRef.current?.stop()
     } catch {
       /* ignore */
@@ -512,6 +523,7 @@ export function TourVoiceAssist({
     if (typeof window !== 'undefined') window.speechSynthesis?.getVoices()
     warmOpenAiSpeak()
     return () => {
+      turnRef.current++;requestRef.current?.abort()
       ignoreSpeechErrorRef.current = true
       conversationRef.current = false
       try {
@@ -676,6 +688,7 @@ export function TourVoiceAssist({
   ) => {
     // Abrir ficha solo cuando el visitante eligió (opción N / toque / “sí”).
     // El adelanto visual usa onPreviewUnit y no pide WhatsApp.
+    const turn=turnRef.current
     const isUnitReveal = pickedOption != null
 
     // WhatsApp solo cuando el visitante eligió una unidad.
@@ -725,6 +738,7 @@ export function TourVoiceAssist({
           }
         : undefined,
     })
+    if(turn!==turnRef.current)return
     if (!isUnitReveal) setPreviewOptionIndex(null)
     if (!openRef.current) return
 
@@ -930,10 +944,14 @@ export function TourVoiceAssist({
       return
     }
 
+    requestRef.current?.abort()
+    const controller=new AbortController();requestRef.current=controller
+    const turn=++turnRef.current
     setPhase('thinking')
     setError(null)
     try {
       const res = await fetch('/api/tour/voice-assist', {
+        signal:controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -947,10 +965,12 @@ export function TourVoiceAssist({
         error?: string
         audio_base64?: string | null
       }
+      if(controller.signal.aborted || turn!==turnRef.current)return
       if (!res.ok) throw new Error(data.error || 'No pude buscar ahora')
       setTextDraft('')
       await finishAssistantTurn(data, null)
     } catch (err) {
+      if(controller.signal.aborted || turn!==turnRef.current)return
       setPhase('error')
       setError(err instanceof Error ? err.message : 'Error al procesar')
       if (conversationRef.current && openRef.current) {
@@ -967,6 +987,9 @@ export function TourVoiceAssist({
   }
 
   const submitAudio = async (blob: Blob, ext: string) => {
+    requestRef.current?.abort()
+    const controller=new AbortController();requestRef.current=controller
+    const turn=++turnRef.current
     setPhase('thinking')
     setError(null)
     try {
@@ -979,11 +1002,12 @@ export function TourVoiceAssist({
       if (memoryMatchesRef.current.length > 0) {
         form.set('previous_matches', JSON.stringify(memoryMatchesRef.current))
       }
-      const res = await fetch('/api/tour/voice-assist', { method: 'POST', body: form })
+      const res = await fetch('/api/tour/voice-assist', { method: 'POST', body: form, signal:controller.signal })
       const data = (await res.json().catch(() => ({}))) as VoiceAssistResult & {
         error?: string
         audio_base64?: string | null
       }
+      if(controller.signal.aborted || turn!==turnRef.current)return
       if (!res.ok) throw new Error(data.error || 'No pude escuchar eso')
 
       const transcript = (data.transcript || '').trim()
@@ -1019,6 +1043,7 @@ export function TourVoiceAssist({
 
       await finishAssistantTurn({ ...data, transcript }, null)
     } catch (err) {
+      if(controller.signal.aborted || turn!==turnRef.current)return
       setPhase('error')
       setError(err instanceof Error ? err.message : 'Error al procesar')
       if (conversationRef.current && openRef.current) {
@@ -1034,6 +1059,16 @@ export function TourVoiceAssist({
     const text = textDraft.trim()
     if (!text) return
     await runTextSearch(text)
+  }
+
+  // A browser silence timeout is not a failed user utterance. Re-arm quietly.
+  const resumeQuietListening = () => {
+    const turn = turnRef.current
+    window.setTimeout(() => {
+      if (turn !== turnRef.current || !conversationRef.current || !openRef.current ||
+          typingRef.current || textDraftRef.current.trim() || ignoreSpeechErrorRef.current) return
+      void startListening()
+    }, 300)
   }
 
   const startSpeechRecognition = async (): Promise<boolean> => {
@@ -1054,20 +1089,23 @@ export function TourVoiceAssist({
       recognition.maxAlternatives = 1
 
       let finalText = ''
-      let heard = false
+      let failed = false
 
       recognition.onresult = (event: TourSpeechRecognitionEvent) => {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const row = event.results[i]
           if (!row?.[0]) continue
-          heard = true
           if (row.isFinal) finalText += row[0].transcript
         }
       }
 
       recognition.onerror = (event: { error: string }) => {
-        if (ignoreSpeechErrorRef.current) return
+        if (recognitionRef.current !== recognition || ignoreSpeechErrorRef.current) return
         if (event.error === 'aborted' || event.error === 'no-speech') return
+        failed = true
+        conversationRef.current = false
+        setPhase('error')
+        setError('Se interrumpió el reconocimiento de voz. Vuelva a tocar Hablar para intentarlo.')
         if (event.error === 'not-allowed') {
           setPhase('error')
           setError(
@@ -1077,7 +1115,9 @@ export function TourVoiceAssist({
       }
 
       recognition.onend = () => {
+        if (recognitionRef.current !== recognition) return
         recognitionRef.current = null
+        if (failed || ignoreSpeechErrorRef.current) return
         if (!openRef.current || !conversationRef.current) return
         if (textDraftRef.current.trim() || typingRef.current) {
           setPhase('ready')
@@ -1085,23 +1125,7 @@ export function TourVoiceAssist({
         }
         const text = finalText.replace(/\s+/g, ' ').trim()
         if (!text) {
-          if (!heard && conversationRef.current && openRef.current) {
-            const soft = speakUnclearSpeechClarification()
-            void finishAssistantTurn(
-              {
-                transcript: '',
-                speak: soft.speak,
-                filters: memoryFiltersRef.current ?? { ...EMPTY_VOICE_FILTERS },
-                matches: memoryMatchesRef.current.slice(0, 3),
-                follow_up: soft.follow_up,
-              },
-              null,
-            )
-            return
-          }
-          if (conversationRef.current && openRef.current && !typingRef.current) {
-            void startListening()
-          }
+          resumeQuietListening()
           return
         }
         void handleUserText(text)
@@ -1173,6 +1197,7 @@ export function TourVoiceAssist({
       setError(null)
       setPhase('recording')
       stopSpokenAudio()
+      ignoreSpeechErrorRef.current = false
 
       let stream = streamRef.current
       const live = stream?.getTracks().some((t) => t.readyState === 'live')
@@ -1197,6 +1222,7 @@ export function TourVoiceAssist({
         if (event.data.size > 0) chunksRef.current.push(event.data)
       }
       recorder.onstop = () => {
+        if (mediaRef.current !== recorder) return
         mediaRef.current = null
         stopVad()
         const type = recorder.mimeType || mime || 'audio/webm'
@@ -1204,22 +1230,8 @@ export function TourVoiceAssist({
         const noSpeech = !heardSpeechRef.current || blob.size < 120
 
         if (noSpeech) {
-          if (conversationRef.current && openRef.current) {
-            const soft = speakUnclearSpeechClarification()
-            void finishAssistantTurn(
-              {
-                transcript: '',
-                speak: soft.speak,
-                filters: memoryFiltersRef.current ?? { ...EMPTY_VOICE_FILTERS },
-                matches: memoryMatchesRef.current.slice(0, 3),
-                follow_up: soft.follow_up,
-              },
-              null,
-            )
-            return
-          }
-          setPhase('error')
-          setError('No alcancé a escucharle. Hable y espere un segundo, o toque Listo.')
+          if (conversationRef.current && openRef.current) resumeQuietListening()
+          else setPhase('ready')
           return
         }
         void submitAudio(blob, ext)
@@ -1254,6 +1266,7 @@ export function TourVoiceAssist({
   }
 
   const startRecording = async () => {
+    cancelTurn()
     setError(null)
     conversationRef.current = true
     stopSpokenAudio()
@@ -1261,6 +1274,7 @@ export function TourVoiceAssist({
   }
 
   const pauseConversation = () => {
+    cancelTurn()
     conversationRef.current = false
     ignoreSpeechErrorRef.current = true
     stopVad()
@@ -1307,12 +1321,19 @@ export function TourVoiceAssist({
   }
 
   const closePanel = () => {
+    cancelTurn()
     ignoreSpeechErrorRef.current = true
     conversationRef.current = false
     releaseMic()
     stopSpokenAudio()
     setOpen(false)
   }
+
+  useEffect(()=>{
+    if(!open){cancelTurn();conversationRef.current=false;releaseMic()}
+    // Closing from the showroom menu must also stop playback and pending responses.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[open])
 
   // Al abrir: tip off + saludo (Hablar bloqueado hasta terminar de hablar / escuchar).
   useEffect(() => {
@@ -1327,9 +1348,11 @@ export function TourVoiceAssist({
       return
     }
     setPhase('speaking')
+    const greetingTurn=turnRef.current
     const timer = window.setTimeout(() => {
       void (async () => {
         await speakText(voiceAssistantGreeting())
+        if(greetingTurn!==turnRef.current)return
         if (!openRef.current) return
         conversationRef.current = true
         if (textDraftRef.current.trim()) {
@@ -1390,6 +1413,8 @@ export function TourVoiceAssist({
       memoryMatchesRef.current = listed.length > 0 ? listed : memoryMatchesRef.current
     })
   }
+
+  useVoiceInterruption(open && (phase==='speaking'||phase==='thinking') && conversationRef.current,()=>{void startRecording()})
 
   return (
     <>
@@ -1504,6 +1529,7 @@ export function TourVoiceAssist({
                 <Loader2 size={14} className="animate-spin" /> Un momento, busco opciones…
               </p>
             ) : null}
+            {(phase==='speaking'||phase==='thinking')?<div className="flex gap-3 text-xs"><button type="button" onClick={()=>void startRecording()} className="rounded border border-white/30 p-2">Interrumpir y hablar</button><button type="button" onClick={pauseConversation} className="rounded border border-white/30 p-2">Silenciar</button></div>:null}
             {phase === 'speaking' ? (
               <p className="flex items-center justify-center gap-2 text-[13px] text-white/70">
                 <Loader2 size={14} className="animate-spin" /> Respondiendo…

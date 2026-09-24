@@ -92,9 +92,9 @@ export function pickCatalogPanoUrl(
   const variants = scene?.widths ?? pano.variants ?? {}
   if (width >= 8192 && variants['8192']) return tourDisplayUrl(variants['8192'])
   if (width >= 4096 && variants['4096']) return tourDisplayUrl(variants['4096'])
-  if (variants['8192']) return tourDisplayUrl(variants['8192'])
-  if (variants['4096']) return tourDisplayUrl(variants['4096'])
   if (variants['2048']) return tourDisplayUrl(variants['2048'])
+  if (variants['4096']) return tourDisplayUrl(variants['4096'])
+  if (variants['8192']) return tourDisplayUrl(variants['8192'])
   const fallback = scene?.url ?? pano.url
   return fallback ? tourDisplayUrl(fallback) : null
 }

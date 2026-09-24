@@ -45,9 +45,9 @@ import { TourFloorLocationPeek } from '@/components/tour/TourFloorLocationPeek'
 import { TourFavoritesPanel } from '@/components/tour/TourFavoritesPanel'
 import { TourNavModeModal, type TourNavMode } from '@/components/tour/TourNavModeModal'
 import { TourVoiceAssist } from '@/components/tour/TourVoiceAssist'
+import { ShowroomMenu } from '@/components/tour/ShowroomMenu'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
-import { COOKIE_BANNER_ENABLED, openCookiePreferences } from '@/lib/tour/consent'
 import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
 import { MetaViewContentShowroom } from '@/components/marketing/MetaViewContentShowroom'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
@@ -796,7 +796,9 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const viewerRef = useRef<Viewer | null>(null)
   const hold = useShowroomImmersive(!embedded)
   const immersive = hold.want
-  const forceLandscapeCss = useForceLandscapeCss(!embedded)
+  // Let the responsive menu and viewer follow the device orientation.
+  // Do not rotate the entire application with CSS on portrait phones.
+  const forceLandscapeCss = useForceLandscapeCss(false)
   const tourRef = useRef<VirtualTourPlugin | null>(null)
   const targetWidthRef = useRef<TourWidth>(2048)
   const catalogWidthRef = useRef<TourWidth>(4096)
@@ -1247,9 +1249,10 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
     }
   }, [])
 
-  const currentTypology: TourTypologyOption | undefined = publicCatalog?.typologies.find(
-    (item) => item.code === selectedTypology,
-  )
+  const selectedCatalogUnit=publicCatalog?.units.find(u=>u.id===selectedUnitId)
+  const currentTypology: TourTypologyOption | undefined = selectedCatalogUnit
+    ? publicCatalog?.typologies.find(item=>item.id===selectedCatalogUnit.unit_type_id)
+    : publicCatalog?.typologies.find(item=>item.code===selectedTypology)
   const onFinish = (slug: string) => {
     if (slug === finish) return
     setFinish(slug)
@@ -1296,7 +1299,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
         floor: item.floor_label || (item.floor_number == null ? null : String(item.floor_number)),
         published_commercial_price: item.price,
         status: item.status,
-        area_total_m2: total,
+        area_total_m2: item.area_total_m2 ?? total,
         area_internal_m2: internal,
         area_exterior_m2: exterior,
         area_terrace_covered_m2: terraceCov,
@@ -1388,7 +1391,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
 
   const comparePreviewsB = useMemo(() => {
     if (!compareUnitB) return []
-    const code = compareUnitB.typology_code || selectedTypology
+    const code = compareUnitB.typology_code || ''
     const typ =
       publicCatalog?.typologies?.find((item) => item.code === code) ??
       (code === selectedTypology ? currentTypology : null)
@@ -1513,7 +1516,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   const comparePanoBUrl = useMemo(() => {
     if (!compareUnitB) return null
 
-    const code = (compareUnitB.typology_code || selectedTypology || '').trim()
+    const code = (compareUnitB.typology_code || '').trim()
     const typeId = compareUnitB.unit_type_id ?? null
     const typologies = publicCatalog?.typologies ?? []
 
@@ -2407,6 +2410,13 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           : 'relative h-full w-full',
       )}
     >
+      {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">La unidad {selectedUnit.unit_number} aún no tiene un recurso disponible para esta vista.</div>:null}
+      <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
+        onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
+        onHome={()=>{setShellMode('plan');setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false)}}
+        onPick={unit=>{setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
+        onTour={unit=>{setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);setShellMode('unit');setViewMode('tour');setRoom(homeSlug);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);writeUnitQueryParam(unit.unit_number);setTourNavMode(null);setNavChooserOpen(true)}}
+      />
       <div
         className="absolute inset-0 overflow-hidden"
         style={
@@ -2600,6 +2610,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
           contain={isPlanosMode(viewMode)}
           fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
         />
+        {selectedUnit && showStill?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{overlayUrl?'Recurso de tipología. No acredita la vista exterior de esta unidad.':'Esta unidad no tiene un recurso disponible para esta vista.'}</p>:null}
         {viewMode !== 'tour' && stillItems.length > 1 ? (
           <>
             <button
@@ -2765,7 +2776,7 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       {/* Modos PC / móvil: no en el plano del edificio (ahí solo 2D/3D). */}
       {!booting && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell ? (
         <div
-          className="pointer-events-auto absolute top-0 right-0 z-[130] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))]"
+          className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top))] right-0 z-[130] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))]"
         >
           <div className="tour-modes-desktop">
               <DesktopModesList
@@ -3037,14 +3048,8 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
       >
         <div
           className={cn(
-            'pointer-events-none absolute top-0 left-0 z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5',
-            // Hueco para Preferencias (arriba izquierda; en planos va a la derecha).
-            !embedded &&
-              COOKIE_BANNER_ENABLED &&
-              !showPlanShell &&
-              'pt-[max(3.25rem,calc(env(safe-area-inset-top)+2.75rem))] sm:pt-[3.75rem]',
-            // En planos: bajar "Volver" para no tapar el toggle 2D/3D.
-            showPlanShell && 'pt-[max(3.75rem,calc(env(safe-area-inset-top)+3.25rem))] sm:pt-16',
+            'pointer-events-none absolute top-[calc(4rem+env(safe-area-inset-top))] left-0 z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5',
+            showPlanShell && 'hidden',
           )}
         >
           {/* Desktop: botones sueltos */}
@@ -3434,26 +3439,6 @@ export function TourViewer({ embedded = false }: { embedded?: boolean }) {
             writeUnitQueryParam(match.unit_number)
           }}
         />
-      ) : null}
-
-      {/* En planos: arriba derecha para no tapar el toggle 2D/3D (izq). En unidad: arriba izq. */}
-      {!embedded && COOKIE_BANNER_ENABLED && !(isComparador || isFinishCompare) && !simulatorOpen ? (
-        <div
-          className={cn(
-            'pointer-events-auto absolute top-0 z-[50] w-[min(12rem,calc(100vw-1.5rem))] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:w-[12.5rem] sm:p-3.5',
-            showPlanShell
-              ? 'right-0 pr-[max(0.5rem,env(safe-area-inset-right))]'
-              : 'left-0 pl-[max(0.5rem,env(safe-area-inset-left))]',
-          )}
-        >
-          <button
-            type="button"
-            onClick={openCookiePreferences}
-            className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
-          >
-            Preferencias de cookies
-          </button>
-        </div>
       ) : null}
 
       {selectedUnit ? (

@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { tryCreateAdminClient } from '@/lib/supabase/admin'
+import { TOUR_TENANT_ID, TOUR_PROJECT_ID } from '@/lib/tour/trackingIds'
 import {
   normalizeFilters,
   resolveVoiceCategory,
@@ -180,6 +182,15 @@ export async function POST(request: Request) {
       })
     }
 
+    // Never use prices or availability supplied by the browser as inventory truth.
+    const admin=tryCreateAdminClient()
+    if(!admin)return NextResponse.json({error:'Inventario no disponible'},{status:503})
+    const {data:inventory,error:inventoryError}=await admin.from('units')
+      .select('id,unit_number,floor,floor_number,bedrooms,bathrooms,area_total_m2,published_commercial_price,status,category')
+      .eq('tenant_id',TOUR_TENANT_ID).eq('project_id',TOUR_PROJECT_ID).eq('is_published',true).order('unit_number').limit(MAX_UNITS)
+    if(inventoryError)return NextResponse.json({error:'No se pudo comprobar el inventario'},{status:503})
+    catalog=asCatalog((inventory ?? []).map(u=>({...u,price:u.published_commercial_price})))
+    previousMatches=previousMatches.flatMap(old=>{const current=catalog.find(u=>u.id===old.id);return current?[{...current,blurb:''}]:[]})
     const result = await runTourVoiceAssist({
       transcript,
       catalog,

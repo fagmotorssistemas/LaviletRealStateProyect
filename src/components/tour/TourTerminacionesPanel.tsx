@@ -203,7 +203,7 @@ export function TourTerminacionesPanel({
     >
       <div className="flex items-start justify-between gap-3 px-4 pt-3 pb-1">
         <div className="min-w-0 flex-1">
-          <p className="mb-2 text-[12px] font-semibold text-[#1a2744]">Habitación</p>
+          <p className="mb-2 text-[12px] font-semibold text-[#1a2744]">Ambiente</p>
           <div className="relative">
             <button
               type="button"

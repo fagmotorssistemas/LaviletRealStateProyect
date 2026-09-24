@@ -1,5 +1,7 @@
 'use client'
 
+import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
+
 import { Modal } from '@/components/ui/Modal'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
@@ -366,6 +368,7 @@ export function UnitDetailModal({
         ) : null
       }
     >
+      {!isEditing && displayUnit.project_id===LAVILET_PROJECT_ID?<a href={`/tour?unidad=${encodeURIComponent(displayUnit.unit_number)}`} target="_blank" rel="noopener noreferrer" className="mb-4 inline-block rounded border border-[#bda27e] px-3 py-2 text-sm text-[#796139]">Abrir showroom de esta unidad</a>:null}
       {isEditing ? (
         <form onSubmit={handleSaveEdit} className="space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

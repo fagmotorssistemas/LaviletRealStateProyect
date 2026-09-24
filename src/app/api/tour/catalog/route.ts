@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { getTypologyAssetPublicUrl } from '@/services/inmobiliaria.service'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
-import { ensureDefaultFinishPackages } from '@/lib/tour/tourRpc'
 import {
   isExcludedTourAssetFile,
   isTourPanoramaFileName,
@@ -30,6 +29,7 @@ type UnitTypeRow = {
 }
 
 type UnitRow = {
+  area_total_m2: number | null
   id: string
   unit_number: string
   unit_type_id: string | null
@@ -67,9 +67,10 @@ export async function GET() {
       admin
         .from('units')
         .select(
-          'id, unit_number, unit_type_id, floor, floor_number, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2, category',
+          'id, unit_number, unit_type_id, floor, floor_number, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_total_m2, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2, category',
         )
         .eq('tenant_id', TOUR_TENANT_ID)
+        .eq('is_published', true)
         .order('unit_number', { ascending: true }),
       admin
         .from('finish_packages')
@@ -84,7 +85,6 @@ export async function GET() {
   if (uErr) return NextResponse.json({ error: uErr.message }, { status: 500 })
 
   const fromDb = uniqueFinishes(finishesRes.data ?? [])
-  if (fromDb.length === 0) await ensureDefaultFinishPackages(admin)
   const finishes =
     fromDb.length > 0
       ? fromDb
@@ -131,6 +131,7 @@ export async function GET() {
         bathrooms_half: row.bathrooms_half ?? 0,
         spaces: sanitizeTourSpaces(row.spaces),
         area_internal_m2: row.area_internal_m2,
+        area_total_m2: row.area_total_m2,
         area_exterior_m2: row.area_exterior_m2,
         area_terrace_covered_m2: row.area_terrace_covered_m2,
         area_terrace_open_m2: row.area_terrace_open_m2,

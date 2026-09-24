@@ -1,4 +1,5 @@
 import 'server-only'
+import { compareVoiceUnits } from './compareVoiceUnits'
 import {
   buildSpeakLine,
   filtersHaveSignal,
@@ -213,6 +214,8 @@ export async function runTourVoiceAssist(params: {
 
   const previous = wantsFreshSearch(transcript) ? null : (params.previousFilters ?? null)
   const previousMatches = wantsFreshSearch(transcript) ? [] : (params.previousMatches ?? [])
+  const comparison=compareVoiceUnits(transcript,params.catalog,previousMatches.map(u=>u.id))
+  if(comparison)return comparison
 
   // “Opción 1 / la primera” → elegir de la lista anterior (no repetir búsqueda).
   const option = parseOptionChoice(transcript)

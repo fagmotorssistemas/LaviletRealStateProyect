@@ -4,6 +4,7 @@ import { PersonCell } from '@/components/inmobiliaria/shared/PersonCell'
 import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
 import { formatDate } from '@/lib/utils'
 import type { UnitSalesClosing } from '@/types/inmobiliaria'
+import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
 
 interface SalesClosingsTableProps {
   closings: UnitSalesClosing[]
@@ -53,6 +54,7 @@ export function SalesClosingsTable({ closings, amountsVisible = true }: SalesClo
                 <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatDate(row.sale_at)}</td>
                 <td className="px-4 py-3">
                   <p className="font-medium text-slate-900">{row.unit?.unit_number ?? '—'}</p>
+                  {row.unit?.project_id===LAVILET_PROJECT_ID || row.unit?.project?.id===LAVILET_PROJECT_ID?<a href={`/tour?unidad=${encodeURIComponent(row.unit.unit_number)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-[#796139] underline">Abrir showroom</a>:null}
                   <p className="text-xs text-slate-400">{row.unit?.project?.name ?? 'Sin proyecto'}</p>
                 </td>
                 <td className="px-4 py-3 text-slate-700">{row.lead?.name ?? '—'}</td>

@@ -84,5 +84,5 @@ export function buildFichaSpecRows(unit: TourUnitSummary): FichaSpecRow[] {
   if (unit.typology_code) {
     rows.push({ label: 'Tipología', value: unit.typology_code })
   }
-  return rows
+  return unit.category==='local'?rows.filter(row=>row.label!=='Dormitorios'):rows
 }

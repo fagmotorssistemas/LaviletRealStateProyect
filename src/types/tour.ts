@@ -196,6 +196,7 @@ export type TourPublicCatalog = {
   lights: { slug: TourLightMode; label: string }[]
   typologies: TourTypologyOption[]
   units: Array<{
+    area_total_m2?: number | null
     id: string
     unit_code: string
     unit_type_id: string | null
