@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import { Bodoni_Moda, Cormorant_Garamond } from 'next/font/google'
 import localFont from 'next/font/local'
 import { Toaster } from 'sonner'
 import { AuthProvider } from '@/contexts/AuthContext'
@@ -17,15 +16,19 @@ const satoshi = localFont({
   display: 'swap',
 })
 
-const cormorant = Cormorant_Garamond({
-  subsets: ['latin'],
-  weight: ['500', '600', '700'],
+// Keep display fonts local so production builds do not depend on Google Fonts.
+const cormorant = localFont({
+  src: '../../public/fonts/CormorantGaramond/CormorantGaramond-Variable.ttf',
+  weight: '300 700',
+  style: 'normal',
   variable: '--font-cormorant',
   display: 'swap',
 })
 
-const bodoni = Bodoni_Moda({
-  subsets: ['latin', 'latin-ext'],
+const bodoni = localFont({
+  src: '../../public/fonts/BodoniModa/BodoniModa-Variable.ttf',
+  weight: '400 900',
+  style: 'normal',
   display: 'swap',
   variable: '--font-bodoni',
 })
