@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight, ChevronRight, RefreshCw, Search } from 'lucide-react'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
-import { conversationGroups, explainStep, humanValue, statusLabel, stepTitle, type ExplanationFact } from './messageExplanation'
+import { catalogSnapshots, conversationGroups, explainStep, humanValue, statusLabel, stepTitle, type ExplanationFact } from './messageExplanation'
+import { reviewDecision } from './reviewDecision'
 import styles from './MessageTraceView.module.css'
 import { promptContextParts } from './promptContext'
 
@@ -120,12 +121,15 @@ export function MessageTraceView() {
           </div> : <>
             <ol className={styles.steps} aria-label="Pasos observados de este mensaje">{steps.map(item => <li key={item.order}>
               <button type="button" aria-pressed={item.order === step?.order} onClick={() => setStepOrder(item.order)} data-status={item.status} data-ai={item.key === 'model_request'}>
-                <span className={styles.stepNumber}>{item.order.toString().padStart(2, '0')}</span><span><strong>{stepTitle(item)}</strong><small>{statusLabel(item.status)} · {duration(item.durationMs)}</small></span><ChevronRight size={14} />
+                <span className={styles.stepNumber}>{item.order.toString().padStart(2, '0')}</span><span><strong>{stepTitle(item)}</strong><small>{statusLabel(item.status)} · {duration(item.durationMs)}</small>
+                  {item.key === 'response_coverage' && <small className={styles.verdictBadge} data-tone={reviewDecision(item.output).tone}>{reviewDecision(item.output).title}</small>}
+                </span><ChevronRight size={14} />
               </button>
             </li>)}</ol>
             {explanation && step && <section className={styles.detail} ref={panel} tabIndex={-1} aria-label="Explicación del paso seleccionado" aria-live="polite">
               <header><div><span className={styles.eyebrow}>Paso {step.order} · {statusLabel(step.status)}</span><h4>{explanation.title}</h4></div><span className={styles.badge} data-tone="observed">Observado en el registro</span></header>
               <p className={styles.summary}>{explanation.summary}</p>
+              {step.key === 'response_coverage' && <ReviewDecision output={step.output} catalog={catalogSnapshots(execution, step)} />}
               {step.key === 'draft_validation' && <DraftDecision data={((step.output.output_snapshot || {}) as Record<string, unknown>).data} />}
               {step.key === 'model_request' && <AIExchange step={step} onCause={explanation.cause ? () => selectStep(explanation.cause!.order) : undefined} />}
               <FactSection title="Qué información utilizó" facts={explanation.used} empty="No se guardaron entradas legibles para este paso." />
@@ -203,6 +207,16 @@ function DraftDecision({ data }: { data: unknown }) {
     </>}
     <h5>Qué ocurrió después</h5><p>{String(record.siguiente_accion || 'No registrado')}</p>
   </div>
+}
+
+function ReviewDecision({ output, catalog }: { output: Record<string, unknown>; catalog: Record<string, unknown>[] }) {
+  const decision = reviewDecision(output, catalog)
+  return <section className={styles.reviewVerdict} data-tone={decision.tone} aria-label="Resultado de la validación del borrador">
+    <h5>{decision.title}</h5><p>{decision.explanation}</p>
+    {decision.details.length > 0 && <><strong>Por qué se tomó esta decisión</strong><ul>{decision.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul></>}
+    {output.review_reference_source != null && <p>Las referencias de unidades se contrastan con los hechos guardados en el resultado de esta misma ejecución, no con el catálogo actual.</p>}
+    <strong>¿Se intentó reparar?</strong><p>{decision.repair}</p>
+  </section>
 }
 
 function FactSection({ title, facts, empty, description }: { title: string; facts: ExplanationFact[]; empty: string; description?: string }) {

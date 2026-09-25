@@ -98,3 +98,11 @@
 .contextHistory { color: #174b9b; background-color: #eaf2ff; }
 .contextMemory { color: #126044; background-color: #e6f5ec; }
 .contextCurrent { color: #79420a; background-color: #fff1cf; }
+.reviewVerdict { margin: 16px 0; padding: 16px; border: 1px solid #9aa3ad; border-left-width: 5px; border-radius: 8px; background: #f5f6f8; color: #34404c; overflow-wrap: anywhere; }
+.reviewVerdict h5 { margin: 0 0 10px; font-size: 16px; }
+.reviewVerdict p, .reviewVerdict li { font-size: 13px; line-height: 1.6; }
+.reviewVerdict li + li { margin-top: 10px; }
+.verdictBadge { display: block; margin-top: 6px; padding: 4px 6px; border-radius: 4px; font-weight: 600; }
+.reviewVerdict[data-tone="accepted"], .verdictBadge[data-tone="accepted"] { background: #edf8ef; color: #205932; border-color: #398252; }
+.reviewVerdict[data-tone="metadata"], .verdictBadge[data-tone="metadata"] { background: #fff5e6; color: #784400; border-color: #b97717; }
+.reviewVerdict[data-tone="rejected"], .verdictBadge[data-tone="rejected"] { background: #fff0f0; color: #882c2c; border-color: #bd5050; }

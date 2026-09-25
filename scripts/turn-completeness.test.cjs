@@ -559,3 +559,28 @@ test('optional new opening survives but repeated opening is removed and capitali
  const repeated=await completeTurnReply({current,baseReply,verified:{},history:[{role:'bot',content:'Perfecto, le ayudo.'}]},model(candidate,approved).generate);
  assert.equal(repeated.reply,'Gracias a usted. Tenemos departamentos.');
 });
+
+test('unit numbers used as internal IDs are explained and do not trigger unsupported repair', async () => {
+ const current='que opciones tiene para familia';
+ const baseReply='Tenemos penthouses de 2 dormitorios.';
+ const reply='Puede revisar penthouses de 2 dormitorios.';
+ const candidate={reply,requests:[covered(current)],question:noQuestion};
+ const review={...approved,claims:[{fragment:reply,subject:'penthouses',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}],
+  factual_values:[{unit_id:'603',field:'bedrooms',value:2,fragment:'penthouses de 2 dormitorios'}]};
+ let calls=0;
+ const result=await completeTurnReply({current,baseReply,audit:{semantic_review_enabled:true},verified:{catalogo:[{id:'uuid603',unit_number:'603',bedrooms:2}]}},async()=>[candidate,review][calls++]);
+ assert.equal(calls,2);
+ assert.equal(result.reply,baseReply);
+ assert.equal(result.audit.semantic_review.validation_details[0].reason,'unit_id_not_in_catalog');
+ assert.equal(result.audit.semantic_review.validation_details[0].expected_unit_id,'uuid603');
+ assert.equal(result.audit.semantic_review.repair_eligibility.reason,'error_not_supported_by_repair_policy');
+ assert.equal(result.audit.repair_attempts.length,0);
+});
+
+test('historical reviewer references expose only implicated units from the same saved contract', () => {
+ const {reviewReferenceSnapshot}=require('../src/lib/integrations/automation/semantic-review.ts');
+ assert.deepEqual(reviewReferenceSnapshot({}),[]);
+ const snapshot=reviewReferenceSnapshot({turn_completeness:{semantic_review:{validation_details:[{unit_id:'603'}]},
+  writer_contract:{hechos_protegidos:[{id:'uuid603',unit_number:'603',category:'penthouse',private:'not exposed'}, {id:'uuid604',unit_number:'604'}]}}});
+ assert.deepEqual(snapshot,[{id:'uuid603',unit_number:'603',category:'penthouse'}]);
+});

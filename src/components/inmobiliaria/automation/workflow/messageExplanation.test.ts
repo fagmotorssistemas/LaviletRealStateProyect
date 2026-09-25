@@ -3,6 +3,28 @@ import assert from 'node:assert/strict'
 import { conversationGroups, explainStep, humanValue, stepTitle } from './messageExplanation'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 import { promptContextParts } from './promptContext'
+import { reviewDecision } from './reviewDecision'
+
+test('review decision explains the historical family draft ID failure with its actual snapshot', () => {
+  const result = reviewDecision({ status: 'rejected_review', issues: ['invalid_review_metadata'], repair_attempts: [],
+    semantic_review: { validation_details: [{ code: 'invalid_unit_fact', kind: 'review_metadata', unit_id: '603', field: 'bedrooms', received: 2, index: 9, fragment: 'penthouses con 2 o 3 dormitorios' }] } },
+    [{ id: 'uuid-603', unit_number: '603' }])
+  assert.equal(result.tone, 'metadata')
+  assert.match(result.details[0], /unit_id="603"/)
+  assert.match(result.details[0], /uuid-603/)
+  assert.match(result.details[0], /factual_values\[9\]/)
+  assert.match(result.repair, /registro histórico/)
+})
+test('review decision distinguishes catalogue disagreement, acceptance and missing evidence', () => {
+  assert.equal(reviewDecision({ status: 'checked' }).tone, 'accepted')
+  assert.equal(reviewDecision({}).tone, 'unknown')
+  const mismatch = reviewDecision({ status: 'rejected_review', semantic_review: { validation_details: [{ code: 'catalog_value_mismatch', field: 'bedrooms', received: 5, expected: 3, unit_id: 'u' }] } })
+  assert.equal(mismatch.tone, 'rejected')
+  assert.match(mismatch.details[0], /recibido: 5; catálogo: 3/)
+  const absent = reviewDecision({ status: 'rejected_review', issues: ['invalid_review_metadata'], semantic_review: { validation_details: [{ code: 'invalid_unit_fact', unit_id: '603' }] } })
+  assert.match(absent.details[0], /no distingue/)
+  assert.doesNotMatch(absent.details[0], /se esperaba su identificador/)
+})
 
 test('prompt colors preserve the captured JSON and identify nested conversational context only', () => {
   const data = { mensaje_actual: 'Y los precios?', contexto_verificado: {

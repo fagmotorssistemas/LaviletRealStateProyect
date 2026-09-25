@@ -1,6 +1,17 @@
 import { object, text, type Row } from './data'
 
 const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number']
+
+/** Historical evidence from this event only, never today's catalogue. */
+export function reviewReferenceSnapshot(result: unknown): Row[] {
+  const coverage = object(object(result).turn_completeness)
+  const details = object(coverage.semantic_review).validation_details
+  const refs = new Set((Array.isArray(details) ? details : []).map(item => text(object(item).unit_id)).filter(Boolean))
+  const facts = object(coverage.writer_contract).hechos_protegidos
+  return (Array.isArray(facts) ? facts : []).map(object)
+    .filter(unit => refs.has(text(unit.id)) || refs.has(text(unit.unit_number)))
+    .slice(0, 80).map(unit => ({ id: text(unit.id), unit_number: text(unit.unit_number), category: text(unit.category) }))
+}
 export const factualValuesSchema = { type: 'array', maxItems: 80, items: { type: 'object', additionalProperties: false,
   properties: { fragment: { type: 'string' }, unit_id: { type: 'string' }, field: { type: 'string', enum: factFields }, value: { type: 'number' } },
   required: ['fragment', 'unit_id', 'field', 'value'] } }
@@ -18,8 +29,12 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
   return value.flatMap((raw, index) => {
     const fact = object(raw), unit = units.find(unit => unit.id === fact.unit_id), field = text(fact.field)
     const detail = { index, fragment: text(fact.fragment), unit_id: fact.unit_id, field, received: fact.value }
-    if (!unit || !factFields.includes(field) || typeof fact.value !== 'number' || !Number.isFinite(fact.value))
-      return [{ ...detail, code: 'invalid_unit_fact', kind: 'review_metadata' }]
+    if (!unit || !factFields.includes(field) || typeof fact.value !== 'number' || !Number.isFinite(fact.value)) {
+      const numbered = !unit ? units.filter(candidate => text(candidate.unit_number) === text(fact.unit_id)) : []
+      return [{ ...detail, code: 'invalid_unit_fact', kind: 'review_metadata',
+        reason: !unit ? 'unit_id_not_in_catalog' : !factFields.includes(field) ? 'unsupported_field' : 'invalid_numeric_value',
+        ...(numbered.length === 1 ? { expected_unit_id: numbered[0].id, unit_number: numbered[0].unit_number } : {}) }]
+    }
     if (unit[field] == null || unit[field] === '' || Number(unit[field]) !== fact.value)
       return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected: unit[field] ?? null }]
     if (!text(fact.fragment).trim() || !reply.includes(text(fact.fragment)))

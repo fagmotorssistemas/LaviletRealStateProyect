@@ -125,7 +125,7 @@ export function decisionRecord(step: WorkflowExecutionStep) {
 export function catalogSnapshots(execution: WorkflowExecution, step: WorkflowExecutionStep): CatalogSnapshot[] {
   const units = new Map<string, CatalogSnapshot>()
   for (const item of [...execution.steps].filter(item => item.order <= step.order).sort((a, b) => a.order - b.order)) {
-    for (const candidate of [...rows(item.output.catalog_snapshot), ...rows(row(item.output.catalog_results).units)]) {
+    for (const candidate of [...rows(item.output.catalog_snapshot), ...rows(row(item.output.catalog_results).units), ...rows(item.output.review_reference_snapshot)]) {
       if (str(candidate.id) && str(candidate.unit_number)) units.set(str(candidate.id), {
         id: str(candidate.id), unit_number: str(candidate.unit_number), category: str(candidate.category), bedrooms: candidate.bedrooms,
         floor_number: candidate.floor_number, area_internal_m2: candidate.area_internal_m2, area_exterior_m2: candidate.area_exterior_m2,

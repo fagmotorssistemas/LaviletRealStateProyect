@@ -342,6 +342,12 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       let review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement) + visitRules + (semanticEnabled ? '\n' + CLAIM_RULES + '\n' + FLEXIBLE_FACT_RULES : ''), { ...context, catalog_evidence: { catalog_query: input.audit?.catalog_query, catalog_results: input.audit?.catalog_results, alternative_results: input.audit?.alternative_results }, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, semanticEnabled ? evidenceReviewSchema : reviewSchema, undefined, undefined, undefined, 'review')
       if (semanticEnabled) {
         let factIssues = factualValueIssues(review.factual_values, reply, input.verified.catalogo)
+        const repairEligibility = { policy: 'literal_review_fragments_v1',
+          eligible: factIssues.length > 0 && factIssues.every(issue => issue.code === 'review_fragment_not_in_reply')
+            && reviewClaims(review.claims, reply).valid && review.answers_supported === true,
+          reason: !factIssues.length ? 'no_factual_metadata_errors'
+            : factIssues.some(issue => issue.code !== 'review_fragment_not_in_reply') ? 'error_not_supported_by_repair_policy'
+              : !reviewClaims(review.claims, reply).valid || review.answers_supported !== true ? 'claims_not_supported' : 'literal_fragments_repairable' }
         // One bounded repair of reviewer metadata, never a rewrite or a waiver
         // of an unsupported commercial claim or a mismatched catalog value.
         if (factIssues.length && factIssues.every(issue => issue.code === 'review_fragment_not_in_reply')
@@ -365,14 +371,14 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         }
         const checked = reviewClaims(review.claims, reply)
         const factsValid = factIssues.length === 0
-        semanticReview = { status: checked.valid && factsValid ? 'checked' : 'rejected', query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: factsValid, validation_details: factIssues }
+        semanticReview = { status: checked.valid && factsValid ? 'checked' : 'rejected', query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: factsValid, validation_details: factIssues, repair_eligibility: repairEligibility }
         if (!checked.valid) return fallback('rejected_review', requests, ['semantic_claims_unsupported_or_invalid'])
         if (!factsValid) return fallback('rejected_review', requests, [factIssues.every(i => i.kind === 'review_metadata') ? 'invalid_review_metadata' : 'unit_fact_mismatch_or_invalid'])
       }
       reviewMissing = Array.isArray(review.missing_fact_fragments) ? review.missing_fact_fragments.filter((fragment): fragment is string => typeof fragment === 'string' && literal(fragment, input.current)) : []
       const required = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', ...(withoutUrls(reply).includes('?') ? ['question_has_purpose'] : [])]
       if (!required.every(key => review[key] === true)) {
-        return fallback('rejected_review', requests)
+        return fallback('rejected_review', requests, required.filter(key => review[key] !== true).map(key => `review_check_failed:${key}`))
       }
       if (!Array.isArray(review.missing_fact_fragments) || review.missing_fact_fragments.some(fragment => typeof fragment !== 'string' || !literal(fragment, input.current))) return fallback('invalid_review', requests)
       unresolved = uniqueFragments([...unresolved, ...review.missing_fact_fragments as string[]])

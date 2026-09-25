@@ -5,6 +5,7 @@ import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 import { executionOutcome, executionRoute } from '@/lib/integrations/automation/execution-route'
 import { sanitizeTraceSummary, traceText } from '@/lib/integrations/automation/trace-summary'
 import { readWorkflowCursor, writeWorkflowCursor, WORKFLOW_PAGE_SIZE } from './pagination'
+import { reviewReferenceSnapshot } from '@/lib/integrations/automation/semantic-review'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -127,7 +128,10 @@ export async function GET(request: Request) {
       const lead = leadByKommo.get(`${row.tenant_id}:${row.project_id}:${Number(payload.kommoId)}`)
       const action = text(result.action) || text(result.reason)
       const content = text(payload.text) || text(payload.message) || text(payload.content)
-      const steps = stepsByEvent.get(row.id) || []
+      const references = reviewReferenceSnapshot(result)
+      const steps = (stepsByEvent.get(row.id) || []).map(step => step.key === 'response_coverage' && references.length
+        ? { ...step, output: { ...step.output, review_reference_snapshot: sanitizeTraceSummary({ units: references }).units,
+          review_reference_source: 'event_result.turn_completeness.writer_contract.hechos_protegidos' } } : step)
       const trace = executionRoute(steps, row.kind, payload, result, lead)
       return {
         id: row.id,
