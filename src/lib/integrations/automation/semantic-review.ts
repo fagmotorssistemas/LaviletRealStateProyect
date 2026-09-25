@@ -1,5 +1,25 @@
 import { object, text, type Row } from './data'
 
+const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number']
+export const factualValuesSchema = { type: 'array', maxItems: 80, items: { type: 'object', additionalProperties: false,
+  properties: { fragment: { type: 'string' }, unit_id: { type: 'string' }, field: { type: 'string', enum: factFields }, value: { type: 'number' } },
+  required: ['fragment', 'unit_id', 'field', 'value'] } }
+
+export const FLEXIBLE_FACT_RULES = `La respuesta_base es una propuesta, no evidencia independiente ni un texto obligatorio. Puede omitir cifras y opciones secundarias si responde plenamente al mensaje actual. answered_content_preserved evalúa la información necesaria para esa consulta, no que se repitan todas las cifras de la base. No equipare mayor precio con mayor superficie o exclusividad. Para afirmar un máximo de precio use el ranking calculado sobre el conjunto pertinente; si no existe evidencia, rechace esa afirmación.
+En factual_values extraiga TODAS las relaciones explícitas entre una unidad y sus valores numéricos (dormitorios, baños, áreas, precio publicado, planta). Use el ID del catálogo, field y value numérico; fragment debe copiar literalmente el texto que lo afirma. Desagregue afirmaciones compartidas por varias unidades. No use números del historial como evidencia. Use [] si no hay valores atribuibles a unidades concretas. Si hay más de 80 relaciones no apruebe la respuesta.`
+
+export function validateFactualValues(value: unknown, reply: string, catalog: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 80) return false
+  const units = Array.isArray(catalog) ? catalog.map(object) : []
+  return value.every(raw => {
+    const fact = object(raw), unit = units.find(unit => unit.id === fact.unit_id)
+    const field = text(fact.field)
+    return !!unit && factFields.includes(field) && typeof fact.value === 'number' && Number.isFinite(fact.value)
+      && unit[field] !== null && unit[field] !== undefined && unit[field] !== '' && Number(unit[field]) === fact.value
+      && !!text(fact.fragment).trim() && reply.includes(text(fact.fragment))
+  })
+}
+
 export const claimSchema = { type: 'array', maxItems: 16, items: { type: 'object', additionalProperties: false, properties: {
   fragment: { type: 'string' }, subject: { type: 'string' }, polarity: { type: 'string', enum: ['affirmation', 'negation', 'uncertainty'] },
   verdict: { type: 'string', enum: ['supported', 'unsupported', 'contradicted'] },

@@ -29,7 +29,7 @@ export function responsePlan(baseReply: string, audit: Row) {
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
 Use contrato_redaccion para expresar con naturalidad la decisión ya tomada. No elija otra ruta, unidad, acción ni siguiente paso. Adapte la extensión a lo que pide el cliente: una aceptación continúa la propuesta pendiente; una comparación explica diferencias; una consulta concreta recibe primero su respuesta. No convierta un resumen en una lista de fichas.
 No narre su procesamiento interno ni las operaciones que realiza para preparar la respuesta: evite «descarto los penthouses», «me concentro en los departamentos», «he interpretado su intención» o «aplico el filtro». Exprese directamente la información útil para el cliente; por ejemplo, «Los departamentos de 3 dormitorios comparten estas características…». Puede reconocer brevemente su preferencia sin describir el trabajo interno. Esto no impide informar una acción real solicitada por el cliente cuando su resultado esté confirmado en el contexto operativo; nunca la invente.
-Conserve los hechos, condiciones, cifras y enlaces obligatorios. No añada brochure, saludo, invitación ni pregunta por costumbre: respete el contrato y el modo comercial del contexto.
+Conserve los hechos necesarios para responder la consulta, condiciones y enlaces obligatorios. Las cifras_obligatorias del contrato deben conservarse; otras cifras de opciones secundarias pueden omitirse cuando no sean pertinentes, sin alterar los valores que sí mencione. No añada brochure, saludo, invitación ni pregunta por costumbre: respete el contrato y el modo comercial del contexto.
 Si recibe apertura_decidida, conserve literalmente su prefix al inicio; si está vacío, no añada una apertura de cortesía. La regla antirrepetición ya tomó esta decisión; no la reinterprete.
 El saludo lo aplica el sistema después de redactar: no añada saludos nuevos. Si decisiones_protegidas=true, solo mejore la expresión, sin añadir hechos ni preguntas; conserve literalmente la pregunta_siguiente cuando exista.
 Puede mejorar una base correcta pero poco natural. Si ya es clara y pertinente, consérvela. Nunca invente datos para embellecerla.`
@@ -42,7 +42,7 @@ export function finalWriterContract(baseReply: string, audit: Row = {}) {
     objetivo: 'Responder las solicitudes actuales conservando la decisión y el próximo paso de la respuesta base.',
     hechos_protegidos: plan.protected_facts,
     price_evidence: audit.price_evidence || null,
-    cifras_obligatorias: plan.required_numbers, enlaces_obligatorios: plan.required_links,
+    cifras_obligatorias: audit.semantic_review_enabled === true && !plan.locked ? [] : plan.required_numbers, enlaces_obligatorios: plan.required_links,
     pregunta_siguiente: plan.next_question,
     pregunta_pendiente: object(audit.pending_question),
     presentacion: object(audit.alternative_presentation),

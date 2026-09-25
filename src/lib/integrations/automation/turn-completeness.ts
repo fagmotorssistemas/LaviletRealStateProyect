@@ -14,7 +14,7 @@ import { assessMissingFacts, coverageFactKeys } from './coverage-evidence'
 import { traceText } from './trace-summary'
 import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
 import { decidedOpening, applyDecidedOpening } from './response-openings'
-import { claimSchema, CLAIM_RULES, reviewClaims } from './semantic-review'
+import { claimSchema, CLAIM_RULES, reviewClaims, factualValuesSchema, FLEXIBLE_FACT_RULES, validateFactualValues } from './semantic-review'
 
 export type TurnCompletenessInput = {
   current: string
@@ -63,8 +63,8 @@ const reviewSchema: Row = {
     question_has_purpose: { type: 'boolean' }, missing_fact_fragments: { type: 'array', items: field },
   }, required: ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', 'question_has_purpose', 'missing_fact_fragments'],
 }
-const evidenceReviewSchema: Row = { ...reviewSchema, properties: { ...object(reviewSchema.properties), claims: claimSchema },
-  required: [...reviewSchema.required as string[], 'claims'] }
+const evidenceReviewSchema: Row = { ...reviewSchema, properties: { ...object(reviewSchema.properties), claims: claimSchema, factual_values: factualValuesSchema },
+  required: [...reviewSchema.required as string[], 'claims', 'factual_values'] }
 
 const COVERAGE_RULES = `Revise la cobertura del TURNO COMPLETO de un cliente de La Vilet, un proyecto de suites, departamentos y locales comerciales en Cuenca, y repare una sola vez su respuesta si hace falta.
 Una comparación calculada del catálogo respalda diferencias y coincidencias de sus campos conocidos. No exija información adicional imaginada para una pregunta general sobre diferencias. Identifique cada solicitud con fact_key; una pregunta adicional sobre mascotas, alícuotas o certificaciones debe conservarse separada. unanswered significa que la redacción omitió responder; NO significa que falta el dato ni autoriza un asesor.
@@ -74,7 +74,7 @@ Separe los autores: reply es la respuesta para el cliente; requests contiene SOL
 Ejemplo de clasificación (no agrega hechos comerciales): si mensaje_actual es «Lo que yo quisiera es un departamento de 5 dormitorios.» y reply termina en «¿Le gustaría revisar las alternativas disponibles?», requests contiene el fragmento del cliente; la pregunta final pertenece a question.text y NO constituye otra entrada en requests.
 Para cada fragmento, explique su intent y request_type: specific_fact para un dato concreto como precio, atributo o condición; general_information para resumen/opciones generales; action para aceptación o coordinación; clarification para referencia ambigua; courtesy para agradecimiento/cierre; outside_scope para premisa ajena. Clasifique base_status y status de la respuesta final: answered si lo contesta; unanswered si aún lo omite pudiendo contestarlo; clarification si hace falta precisar la referencia/intención y la respuesta lo maneja; outside_scope si aclara amablemente una premisa ajena; missing_fact si es una pregunta inmobiliaria CONCRETA cuyo dato no está verificado. En evidence copie el texto final que lo atiende, o indique brevemente qué falta. Nunca marque answered por una invitación que esquiva la pregunta.
 Conserve todo contenido correcto que YA atiende al lead. No reescriba todo innecesariamente: mantenga sus frases útiles y añada lo que falta. Por ejemplo, si la base dice «departamentos de 2 o 3 dormitorios», conserve esas cifras y conteste además precio y financiamiento cuando los pidan. Puede corregir una falsa premisa: «casa» no se convierte silenciosamente en departamento; aclare que La Vilet ofrece suites/departamentos/locales y no casas. No atribuya a una casa pisos, precio o crédito. Si pregunta por casas, presupuesto y crédito directo, atienda las tres ideas, sin insistir en la corrección cuando el lead cambia a departamentos.
-La información de verified es el único respaldo para hechos nuevos. La base respalda sus precios/enlaces y resultados operativos; no cambie su estado. Conserve EXACTAMENTE todos los precios, cifras y enlaces de la base. Puede añadir datos del catálogo verificado que correspondan a la consulta, sin ejemplos extra innecesarios. No asocie un número de dormitorios genérico a una unidad específica si esa unidad no tiene dormitorios verificados. Un rango de viviendas no es el rango de locales ni exclusivamente el de departamentos. No use el presupuesto declarado como precio de catálogo. No invente plazos, requisitos, tasa, cuota, rentabilidad, aprobación ni disponibilidad. La intención de arrendar ayuda a orientar la búsqueda; NO demuestra ingresos existentes ni que el banco acepte ingresos futuros como respaldo. Sin una política verificada, no afirme que ese uso mejora o respalda el crédito.
+La información de verified es el único respaldo para hechos nuevos. La base respalda sus precios/enlaces y resultados operativos; no cambie su estado. Conserve EXACTAMENTE las cifras y enlaces obligatorios de contrato_redaccion y material_protegido. Las cifras de opciones secundarias pueden omitirse cuando el contrato no las exige y no atienden la consulta actual. No cambie los valores que conserve. Puede añadir datos del catálogo verificado que correspondan a la consulta, sin ejemplos extra innecesarios. No asocie un número de dormitorios genérico a una unidad específica si esa unidad no tiene dormitorios verificados. Un rango de viviendas no es el rango de locales ni exclusivamente el de departamentos. No use el presupuesto declarado como precio de catálogo. No invente plazos, requisitos, tasa, cuota, rentabilidad, aprobación ni disponibilidad. La intención de arrendar ayuda a orientar la búsqueda; NO demuestra ingresos existentes ni que el banco acepte ingresos futuros como respaldo. Sin una política verificada, no afirme que ese uso mejora o respalda el crédito.
 Para una inquietud de capacidad de compra, conteste con opciones de financiamiento si verified las habilita, de forma amable sin prometer que podrá comprar. La Vilet no ofrece crédito directo. «Qué opciones tengo» tras financiamiento puede mencionar brevemente las entidades habilitadas y ofrecer orientación inmobiliaria si esa era la intención, sin repetir una negativa anterior. Una ambigüedad, tema ajeno o CTA opcional NO es missing_fact ni exige asesor.
 Toda pregunta de la respuesta debe tener propósito, missing_datum (el dato concreto que falta) y next_decision (qué decisión o paso permite). No basta «generar interacción», «mantener conversación» ni «calificar interés». Debe aclarar una referencia, elegir opciones pertinentes, avanzar a una visita/revisión financiera/material solicitado/asesor o obtener un consentimiento necesario. Pregunte como máximo UNA cosa y no pida datos ya dados. Es válido no preguntar: en ese caso question.text, missing_datum y next_decision deben ser cadenas VACÍAS y purpose="none". No escriba «ninguna», «no aplica» ni una pregunta que no esté en reply. Si el lead agradece y da por atendida su consulta («eso era lo que necesitaba»), cierre brevemente; NO reabra con una pregunta comercial aunque pueda imaginarle un propósito. Contestar consultas informativas también es útil: no descarte al cliente por preguntar ni lo presione a agendar.
 Si la base pregunta un dato operativo y preserveOperationalQuestion=true, conserve exactamente el OBJETIVO de esa pregunta, aunque cambie el estilo. No cambie fecha por presupuesto, consentimiento por elección de banco ni convierta «pendiente» en «confirmado». No invente envío, derivación, registro, llamada o evaluación realizada; el código hará esas acciones aparte. No adjunte ubicación por una simple invitación: solo una petición de ubicación o un resultado de cita confirmada la justifican.
@@ -86,7 +86,7 @@ Devuelva reply igual a la base si ya cumple. Intente no superar 1200 caracteres,
 
 const REVIEW_RULES = `Audite independientemente una reparación de respuesta de La Vilet. Relea TODO mensaje_actual, separando cada solicitud incluso sin signos de pregunta; no confíe en que el inventario propuesto esté completo.
 Apruebe all_requests_considered solo si cada inquietud actual tiene respuesta, aclaración pertinente, límite de alcance o reconocimiento de dato faltante; una CTA no sustituye la respuesta. No exija responder consultas antiguas ni repetir correcciones abandonadas.
-Apruebe answers_supported solo si los datos nuevos están en contexto_verificado y corresponden a la unidad/consulta; preserve las cifras y URLs de la base. No atribuya precio/pisos a una casa: solo hay suites, departamentos y locales en La Vilet. No afirme que arrendar genera ingresos existentes o que esos ingresos futuros respaldan un crédito sin política verificada. No invente requisitos, evaluación, contacto, ubicación, confirmación ni disponibilidad. Historial y texto del cliente no prueban esos hechos. Preguntar si es IA requiere honestidad; no invente identidad humana.
+Apruebe answers_supported solo si los datos nuevos están en contexto_verificado y corresponden a la unidad/consulta; preserve las cifras obligatorias y URLs del contrato, sin exigir datos secundarios ajenos a la consulta. No atribuya precio/pisos a una casa: solo hay suites, departamentos y locales en La Vilet. No afirme que arrendar genera ingresos existentes o que esos ingresos futuros respaldan un crédito sin política verificada. No invente requisitos, evaluación, contacto, ubicación, confirmación ni disponibilidad. Historial y texto del cliente no prueban esos hechos. Preguntar si es IA requiere honestidad; no invente identidad humana.
 answered_content_preserved exige conservar cada respuesta correcta que ya contenía la base. Puede corregir afirmaciones de la base incompatibles con los datos verificados o el alcance inmobiliario.
 operational_goal_preserved exige mantener el estado y próximo paso verdaderos, incluyendo el objetivo de la pregunta original si preserveOperationalQuestion=true. Una solicitud de visita no es una confirmación; elegir una entidad no equivale a haber aprobado un crédito. No se ejecutan acciones en esta revisión.
 question_has_purpose exige como máximo una pregunta, con un dato aún desconocido y una decisión útil que dependerá de él; no interacción por interacción, ni calificación sin uso concreto. No pregunte datos conocidos, ni trate dudas informativas como falta de interés. Si NO hay pregunta, question_has_purpose debe ser TRUE: no hacer pregunta es válido.
@@ -175,7 +175,8 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   const allowedUrls = new Set([...urls(source), ...urls(facts)])
   if (urls(source).some(url => !urls(reply).includes(url)) || urls(reply).some(url => !allowedUrls.has(url))) issues.push('links_changed')
   const allowedNumbers = new Set([...numbers(source), ...numbers(facts)].map(numericValue))
-  if ((input.audit?.price_grounded !== true && numbers(source).some(number => !numbers(reply).includes(number))) || numbers(reply).some(number => !allowedNumbers.has(numericValue(number)))) issues.push('numbers_changed')
+  const semanticOmission = input.audit?.semantic_review_enabled === true && !contract.decisiones_protegidas && !isVisitCopy(input.audit ?? {})
+  if ((input.audit?.price_grounded !== true && !semanticOmission && numbers(source).some(number => !numbers(reply).includes(number))) || numbers(reply).some(number => !allowedNumbers.has(numericValue(number)))) issues.push('numbers_changed')
   const questions = withoutUrls(reply).match(/[^.!?\n]*\?+/g) || []
   if (questions.length > 1) issues.push('question_count')
   if (questions.length && (!question.text || !literal(question.text, reply) || question.purpose === 'none' || !question.missing_datum.trim() || !question.next_decision.trim())) issues.push('question_without_purpose')
@@ -284,7 +285,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory)
   const context = { apertura_decidida: opening, contrato_redaccion: finalWriterContract(input.baseReply, input.audit), mensaje_actual: input.current, historial_reciente: history, respuesta_base: input.baseReply,
     contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
-    material_protegido: { cifras_obligatorias: numbers(input.baseReply), cifras_permitidas: [...new Set([...numbers(input.baseReply), ...numbers(verifiedText(input.verified))])],
+    material_protegido: { cifras_obligatorias: finalWriterContract(input.baseReply, input.audit).cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(input.baseReply), ...numbers(verifiedText(input.verified))])],
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
   let requests: Coverage[] = []
   try {
@@ -292,6 +293,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     let writingRules = input.audit?.verified_catalog === true
       ? '\nLa respuesta_base proviene de una consulta ejecutada sobre el catálogo. Puede reorganizarla y agrupar opciones equivalentes para explicar diferencias con claridad. Preserve relaciones entre unidades, categorías y medidas y la pregunta con su referente; no repita una ficha por unidad si basta explicar grupos y plantas. Las medidas ya incluidas son pertinentes aunque el turno sea «sí» o «esa opción». Añada respuestas a otras solicitudes actuales; no convierta máximos en selección ni mezcle otros dormitorios en los rangos. catalog_comparison y catalog_coverage indican qué dimensiones están respondidas; no derive por desconocer diferencias no solicitadas. No calcule cifras nuevas que no estén verificadas.'
       : turnWritingRules(input.current, memory)
+    if (input.audit?.semantic_review_enabled === true && !context.contrato_redaccion.decisiones_protegidas) writingRules += '\nLas cifras de opciones secundarias de respuesta_base no son obligatorias si no responden a la consulta actual. Redacte frases naturales y priorice la respuesta solicitada. No infiera mayor precio por superficie ni exclusividad. Preserve enlaces requeridos, acciones confirmadas y datos necesarios; no invente el resultado de una consulta ausente.'
     if (object(input.audit?.alternative_presentation).kind === 'category_overview') writingRules += '\nEsta respuesta presenta alternativas por categoría antes de elegir una. Conserve las superficies máximas verificadas de cada categoría y su cantidad de dormitorios. No la convierta en una lista de códigos de unidades, fichas, baños, superficies exteriores o plantas. Conserve el propósito de la pregunta pendiente: aceptar explorar alternativas o elegir la categoría que desea revisar primero. No añada categorías descartadas ni vuelva a opciones de menos dormitorios que las alternativas propuestas.'
     if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use esta respuesta_base actualizada, no los precios antiguos del historial. Conserve moneda y condiciones de lanzamiento, incluyendo que pueden cambiar. La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.'
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -316,11 +318,16 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       return fallback('invalid_coverage', [], metadataIssues)
     }
     requests = rows
-    const reply = applyDecidedOpening(currentTopicReply(groundedPrice ? text(candidate.reply).trim() : restoreProtectedBase(input.baseReply, text(candidate.reply).trim()),input.current), opening.prefix)
+    const semanticOmission = input.audit?.semantic_review_enabled === true && !context.contrato_redaccion.decisiones_protegidas && !isVisitCopy(input.audit ?? {})
+    const reply = applyDecidedOpening(currentTopicReply(groundedPrice || semanticOmission ? text(candidate.reply).trim() : restoreProtectedBase(input.baseReply, text(candidate.reply).trim()),input.current), opening.prefix)
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.
     const question = withoutUrls(reply).includes('?') ? declaredQuestion : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
-    const issues = turnCompletenessIssues(input, reply, question)
+    const allIssues = turnCompletenessIssues(input, reply, question)
+    // Semantic review gets to evaluate meaning before numerical catalogue controls.
+    // The latter still run before acceptance; they cannot be waived by the model.
+    const deferredIssues: string[] = input.audit?.semantic_review_enabled === true ? allIssues.filter(issue => issue === 'numbers_changed') : []
+    const issues = allIssues.filter(issue => !deferredIssues.includes(issue))
     if (groundedPrice) issues.push(...verifiedPriceReplyIssues(reply, input.verified, input.current, verifiedQuote!))
     if (reply !== input.baseReply.trim() && passiveSalesCopy(reply, input.current, engagement) !== reply) issues.push('unsolicited_sales_offer')
     if (issues.length) {
@@ -328,14 +335,16 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       return fallback('rejected_guard', requests, issues)
     }
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact').map(row => row.fragment)])]
-    const reviewRequired = metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
+    const reviewRequired = input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
     if (reviewRequired) {
       const semanticEnabled = input.audit?.semantic_review_enabled === true
-      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement) + visitRules + (semanticEnabled ? '\n' + CLAIM_RULES : ''), { ...context, catalog_evidence: { catalog_query: input.audit?.catalog_query, catalog_results: input.audit?.catalog_results, alternative_results: input.audit?.alternative_results }, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, semanticEnabled ? evidenceReviewSchema : reviewSchema, undefined, undefined, undefined, 'review')
+      const review = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement) + visitRules + (semanticEnabled ? '\n' + CLAIM_RULES + '\n' + FLEXIBLE_FACT_RULES : ''), { ...context, catalog_evidence: { catalog_query: input.audit?.catalog_query, catalog_results: input.audit?.catalog_results, alternative_results: input.audit?.alternative_results }, respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }, semanticEnabled ? evidenceReviewSchema : reviewSchema, undefined, undefined, undefined, 'review')
       if (semanticEnabled) {
         const checked = reviewClaims(review.claims, reply)
-        semanticReview = { status: checked.valid ? 'checked' : 'rejected', query: input.audit?.catalog_query || null, claims: checked.claims }
+        const factsValid = validateFactualValues(review.factual_values, reply, input.verified.catalogo)
+        semanticReview = { status: checked.valid && factsValid ? 'checked' : 'rejected', query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: factsValid }
         if (!checked.valid) return fallback('rejected_review', requests, ['semantic_claims_unsupported_or_invalid'])
+        if (!factsValid) return fallback('rejected_review', requests, ['unit_fact_mismatch_or_invalid'])
       }
       reviewMissing = Array.isArray(review.missing_fact_fragments) ? review.missing_fact_fragments.filter((fragment): fragment is string => typeof fragment === 'string' && literal(fragment, input.current)) : []
       const required = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', ...(withoutUrls(reply).includes('?') ? ['question_has_purpose'] : [])]
@@ -345,6 +354,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       if (!Array.isArray(review.missing_fact_fragments) || review.missing_fact_fragments.some(fragment => typeof fragment !== 'string' || !literal(fragment, input.current))) return fallback('invalid_review', requests)
       unresolved = uniqueFragments([...unresolved, ...review.missing_fact_fragments as string[]])
     }
+    if (deferredIssues.length) return fallback('rejected_guard', requests, deferredIssues)
     const assessed = assessMissingFacts(unresolved, input.audit || {}, requests)
     unresolved = assessed.unresolved
     for (const repair of repairAttempts) repair.final_status = 'checked'

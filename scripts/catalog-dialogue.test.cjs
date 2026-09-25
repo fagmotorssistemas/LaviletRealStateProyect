@@ -25,6 +25,20 @@ const info = (query, extra = {}) => ({
   referencia_unidad: { reason: 'catalog_query', query, matches: [], needsClarification: false }, ...extra,
 })
 
+test('relative most expensive selection ranks published prices, retains ties and refuses incomplete prices', () => {
+  const catalogo = [ { ...catalogue[1], published_commercial_price: 310000 }, { ...catalogue.at(-1), published_commercial_price: 550000 } ]
+  const selected = query('select', { selector: 'most_expensive' })
+  const result = catalogDialogueReply(info(selected, { catalogo, politica_comercial: { precios_autorizados: true } }))
+  assert.match(result.reply, /602/)
+  assert.match(result.reply, /550/)
+  assert.ok(!result.reply.includes('202'))
+  assert.equal(result.audit.catalog_ranking.unit_ids.length, 1)
+  const missing = catalogDialogueReply(info(selected, { catalogo: [{ ...catalogo[0], published_commercial_price: null }, catalogo[1]], politica_comercial: { precios_autorizados: true } }))
+  assert.match(missing.reply, /No tengo precios/)
+  const tied = rankCatalog(catalogo.map(unit => ({ ...unit, published_commercial_price: 550000 })), 'most_expensive', true)
+  assert.equal(tied.units.length, 2)
+})
+
 test('Carlos broad largest query relaxes unavailable preference but preserves hard and explicit filters', () => {
   const current = 'entonces cuál es la vivienda más espaciosa que tiene?'
   const semantics = { property: { confidence: 'high', group: 'residential', category: null, operation: 'search', reference_kind: 'relative', selector: 'largest', query_scope: 'catalog', filters: {} } }

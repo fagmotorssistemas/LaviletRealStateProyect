@@ -76,6 +76,8 @@ const values: Record<string, string> = {
   writing: 'Redacción', review: 'Revisión', extraction: 'Interpretación', structured_result_received: 'Resultado estructurado recibido',
   catalog_compare: 'Comparación del catálogo', catalog_search: 'Búsqueda del catálogo', catalog_rank: 'Ordenación del catálogo', catalog_select: 'Selección de unidad', catalog_details: 'Detalles de unidad',
   numbers_changed: 'Cifras no conservadas o no permitidas', links_changed: 'Enlaces cambiados', unsupported_fact: 'Dato sin respaldo',
+  unit_fact_mismatch_or_invalid: 'Un valor atribuido a una unidad no coincide con el catálogo, o la lista de datos extraídos es inválida',
+  semantic_claims_unsupported_or_invalid: 'La revisión semántica no respaldó todas las afirmaciones o devolvió evidencia inválida',
 }
 const ruleLabels: Record<string, string> = {
   'property.resolve_query': 'Resolver referencias y mantener los filtros de búsqueda',

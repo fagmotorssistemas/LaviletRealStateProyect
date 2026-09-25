@@ -15,7 +15,32 @@ const { protectedSentences } = require('../src/lib/integrations/automation/turn-
 const { operationalCopyIssues } = require('../src/lib/integrations/automation/operational-copy.ts')
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
-const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [] }
+const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
+
+test('semantic review permits omitting irrelevant base numbers but checks unit-value relationships', async () => {
+  const current = 'Quiero conocer el penthouse'
+  const input = { current, baseReply: 'Departamento 502: 120,83 m². Penthouse 602: 142,09 m².',
+    audit: { semantic_review_enabled: true }, verified: { catalogo: [
+      { id: 'd502', category: 'departamento', unit_number: '502', area_internal_m2: 120.83 },
+      { id: 'p602', category: 'penthouse', unit_number: '602', area_internal_m2: 142.09 },
+    ] } }
+  const reply = 'El penthouse 602 ofrece 142,09 m² interiores.'
+  const claim = { fragment: reply, subject: 'p602', polarity: 'affirmation', verdict: 'supported', evidence: 'p602 area_internal_m2=142.09', evidence_source: 'verified_context' }
+  const candidate = { reply, requests: [covered(current)], question: noQuestion }
+  const review = { ...approved, claims: [claim], factual_values: [{ fragment: reply, unit_id: 'p602', field: 'area_internal_m2', value: 142.09 }] }
+  const mock = model(candidate, review)
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, reply)
+  assert.equal(mock.calls.length, 2)
+  const swapped = await completeTurnReply(input, model(candidate, { ...review, factual_values: [{ ...review.factual_values[0], unit_id: 'd502' }] }).generate)
+  assert.equal(swapped.audit.status, 'rejected_review')
+  assert.equal(swapped.reply, input.baseReply)
+  const unsupported = await completeTurnReply(input, model(candidate, { ...review, claims: [{ ...claim, verdict: 'unsupported' }] }).generate)
+  assert.equal(unsupported.audit.status, 'rejected_review')
+  const unanswered = await completeTurnReply(input, model(candidate, { ...review, all_requests_considered: false }).generate)
+  assert.equal(unanswered.audit.status, 'rejected_review')
+})
 
 test('opening decision preserves base courtesy and removes actual repetitions before writing', async () => {
   const input = { current: 'Quiero información', baseReply: 'Claro que sí, con mucho gusto. Tenemos departamentos.', verified: {} }

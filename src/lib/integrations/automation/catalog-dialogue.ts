@@ -60,7 +60,7 @@ export function filterCatalog(catalog: Row[], query: CatalogQuery, scopedIds?: s
 export function rankCatalog(units: Row[], selector: string | null, pricesAllowed = false) {
   const field = ['largest', 'smallest'].includes(selector || '') ? 'area_internal_m2'
     : pricesAllowed && ['cheapest', 'most_expensive'].includes(selector || '') ? 'published_commercial_price' : null
-  const unknown = field ? units.filter(unit => measurement(unit[field]) === null) : units
+  const unknown = field ? units.filter(unit => measurement(unit[field]) === null || field === 'published_commercial_price' && Number(unit[field]) <= 0) : units
   if (!field || !units.length || unknown.length) return { units: [] as Row[], complete: false, unknown_unit_ids: unitIds(unknown) }
   const values = units.map(unit => measurement(unit[field])!)
   const extreme = ['smallest', 'cheapest'].includes(selector || '') ? Math.min(...values) : Math.max(...values)
@@ -265,6 +265,8 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const semantic = object(object(info.semantica_turno).property)
   const raw = object(reference.query || context.query || (semantic.confidence === 'high' ? semantic : {}))
   const query = catalogQuery(raw)
+  // A relative price choice needs a complete price ranking before selecting a unit.
+  if (query.operation === 'select' && ['cheapest', 'most_expensive'].includes(query.selector || '')) query.operation = 'rank'
   if (query.operation === 'none') return null
   const catalog = rows(info.catalogo)
   if (!catalog.length) return null
@@ -321,7 +323,9 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   }
   if (query.operation === 'rank') {
     const ranked = rankCatalog(units, query.selector, object(info.politica_comercial).precios_autorizados === true)
-    if (!ranked.complete) return respond('Falta una medida verificada para comparar todas esas opciones. Puedo mostrarle los datos disponibles sin afirmar cuál es la mayor.',
+    if (!ranked.complete) return respond(['cheapest', 'most_expensive'].includes(query.selector || '')
+      ? 'No tengo precios publicados y autorizados suficientes para comparar todas esas opciones y confirmar cuál tiene el mayor o menor precio.'
+      : 'Falta una medida verificada para comparar todas esas opciones. Puedo mostrarle los datos disponibles sin afirmar cuál es la mayor.',
       { catalog_results: { ...object(baseAudit.catalog_results), complete: false, unknown_unit_ids: ranked.unknown_unit_ids }, coverage_complete: false })
     const ranking = ranked.units
     const dimension = ['cheapest', 'most_expensive'].includes(query.selector || '') ? 'precio publicado' : 'superficie interior'

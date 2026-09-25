@@ -134,7 +134,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.query_transition = { reason: 'largest_available_after_unavailable_preference', before: inheritedBedrooms, after: { ...filters }, preference_retained: inheritedBedrooms.bedrooms }
   } else context.query_transition = {}
   let operation = asksRanking ? 'rank' : broadResidential || hasCurrentFilters && !['compare', 'details'].includes(text(semantic.operation)) ? 'search' : text(semantic.operation) || 'none'
-  if (selector && ['search', 'rank'].includes(operation)) operation = 'rank'
+  if (selector && (['search', 'rank'].includes(operation) || ['cheapest', 'most_expensive'].includes(selector) && operation === 'select')) operation = 'rank'
   const query: Row = { group: group || text(previousQuery.group) || null,
     category: broadResidential ? null : category || text(previousQuery.category || context.preference_category) || null,
     filters, operation, selector: selector || null,
