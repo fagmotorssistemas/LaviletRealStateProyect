@@ -47,7 +47,7 @@ const labels: Record<string, string> = {
   catalog_comparison: 'Comparación calculada', candidate_count: 'Cantidad de candidatas', reference_unit_ids: 'Unidades interpretadas', reference_needs_clarification: 'Referencia por aclarar',
   handoff_assessments: 'Contraste de los posibles faltantes', fact_key: 'Dato solicitado', review_status: 'Estado de la revisión', pending_commercial_handoff: 'Consulta comercial pendiente',
   source: 'Ruta registrada', result: 'Resultado', task: 'Tarea del modelo', model: 'Modelo utilizado', prompt_revision: 'Versión de las instrucciones utilizadas', instructions_version: 'Versión de las instrucciones utilizadas', issues: 'Controles que rechazaron el borrador',
-  price_evidence: 'Precios contrastados con el catálogo actual', price_usd: 'Precio verificado en USD', approximate: 'Precio aproximado', units: 'Unidades verificadas', repair_attempts: 'Intentos de corrección del borrador',
+  price_evidence: 'Precios contrastados con el catálogo actual', price_usd: 'Precio verificado en USD', approximate: 'Precio aproximado', units: 'Unidades verificadas', repair_attempts: 'Intentos de reparación del mensaje o de su ficha interna',
   property_excluded_categories: 'Categorías descartadas', unit_number: 'Número de unidad',
 }
 const values: Record<string, string> = {
@@ -77,6 +77,11 @@ const values: Record<string, string> = {
   catalog_compare: 'Comparación del catálogo', catalog_search: 'Búsqueda del catálogo', catalog_rank: 'Ordenación del catálogo', catalog_select: 'Selección de unidad', catalog_details: 'Detalles de unidad',
   numbers_changed: 'Cifras no conservadas o no permitidas', links_changed: 'Enlaces cambiados', unsupported_fact: 'Dato sin respaldo',
   unit_fact_mismatch_or_invalid: 'Un valor atribuido a una unidad no coincide con el catálogo, o la lista de datos extraídos es inválida',
+  invalid_review_metadata: 'Ficha interna del revisor inválida; no significa por sí solo que el mensaje comercial tenga datos incorrectos',
+  review_fragment_not_in_reply: 'El revisor citó un fragmento que no aparece literalmente en el mensaje propuesto',
+  catalog_value_mismatch: 'El valor registrado por el revisor no coincide con el catálogo de esa unidad',
+  invalid_unit_fact: 'La referencia a la unidad o al atributo en la ficha del revisor es inválida',
+  review_repair_omitted_facts: 'La reparación omitió relaciones que debía volver a comprobar',
   semantic_claims_unsupported_or_invalid: 'La revisión semántica no respaldó todas las afirmaciones o devolvió evidencia inválida',
 }
 const ruleLabels: Record<string, string> = {
@@ -183,14 +188,15 @@ function coverageSections(output: Row): ExplanationSection[] {
     ] },
     { title: 'Error detectado', description: 'Estos controles explican el rechazo de la propuesta. Un error en requests significa que falló la lista interna de solicitudes; no demuestra que el texto comercial fuera incorrecto.', facts: [
       { label: 'Controles registrados', value: Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
+      ...rows(row(output.semantic_review).validation_details).map(detail => ({ label: detail.kind === 'review_metadata' ? 'Error en la ficha del revisor' : 'Discrepancia con el catálogo', value: `${humanValue(detail.code)}. Fragmento: ${str(detail.fragment) || 'No registrado'}. Campo: ${str(detail.field) || 'No registrado'}. Recibido: ${humanValue(detail.received)}. Esperado: ${humanValue(detail.expected)}` })),
     ] },
-    { title: 'Decisiones y evidencia', description: 'La apertura y los filtros los decide el sistema. La revisión semántica contrasta lo que afirma la respuesta con los datos disponibles; no garantiza por sí sola la veracidad.', facts: [
+    { title: 'Decisiones y evidencia', description: 'El sistema conserva las aperturas elegidas y controla las repeticiones; una apertura vacía permite cortesía opcional. La revisión semántica contrasta las afirmaciones y el código comprueba sus referencias y valores.', facts: [
       { label: 'Apertura', value: output.opening_decision ? humanValue(output.opening_decision) : 'No registrada' },
       { label: 'Cambio de filtros', value: output.query_transition && Object.keys(row(output.query_transition)).length ? humanValue(output.query_transition) : 'No se registró un cambio de alcance.' },
       { label: 'Afirmaciones contrastadas', value: output.semantic_review ? humanValue(output.semantic_review) : 'Este registro no incluye revisión por afirmaciones.' },
     ] },
     { title: 'Intento de reparación', description: 'Indica si se pidió a la IA corregir un resultado inválido antes de conservar o descartar su propuesta.', facts: attempts.length ? attempts.map((attempt, index) => ({
-      label: `Intento ${index + 1}`, value: `Error inicial: ${humanValue(attempt.status)}. Controles: ${humanValue(attempt.issues)}. Resultado final: ${attempt.final_status ? humanValue(attempt.final_status) : 'No registrado; consulte el resultado general de este paso.'}`,
+      label: `Intento ${index + 1}${attempt.target === 'review_metadata' ? ' · Reparación de la ficha del revisor, conservando el mensaje' : ''}`, value: `Error inicial: ${humanValue(attempt.status)}. Controles: ${humanValue(attempt.issues)}. Resultado final: ${attempt.final_status ? humanValue(attempt.final_status) : 'No registrado; consulte el resultado general de este paso.'}`,
     })) : [{ label: 'Reparaciones registradas', value: 'No se registró ningún intento de reparación en esta ejecución.' }] },
     { title: 'Solicitudes del cliente atendidas', description: 'La revisión de cobertura comprueba qué pidió el cliente y si la respuesta atiende cada solicitud. Una lista vacía no certifica que todo esté resuelto.', facts: [
       { label: 'Alcance de la revisión', value: invalid ? 'La lista interna no pudo validarse. La revisión de contenido no se completó.' : checked ? 'Revisión completada en este paso.' : 'No hay una revisión aprobada registrada. Las clasificaciones siguientes, si existen, no acreditan cobertura completa.' },

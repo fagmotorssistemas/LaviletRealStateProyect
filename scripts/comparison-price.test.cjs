@@ -126,3 +126,23 @@ test('accepting several quoted options does not choose the cheapest on behalf of
   const context = info({ historial: [{ role: 'bot', content: 'Podemos revisar el departamento 202 o el departamento 302. ¿Le gustaría conocer estas opciones?' }] })
   assert.equal(acceptedPriceOption(context, 'Sí por favor', {}), null)
 })
+
+
+test('generic price followup quotes only offered units, grouped by category and bedrooms',()=>{
+ const offered=['u202','u302','u502','u602'];
+ const input={catalogo:catalog,politica_comercial:{precios_autorizados:true,precios_aproximados:true},property_context:{offered_ids:offered},lead:{preferred_bedrooms:5}};
+ const quote=unitPriceQuote(input,'Pero y cuales son los precios?',{});
+ assert.equal(quote.quoted,true);
+ assert.deepEqual(quote.units.map(u=>u.id),offered);
+ assert.deepEqual(quote.ranges.map(r=>[r.category,r.bedrooms,r.min,r.max]),[['departamento',3,250000,310000],['penthouse',3,550000,550000]]);
+ assert.match(quote.reply,/departamentos de 3 dormitorios/);
+ assert.match(quote.reply,/penthouses de 3 dormitorios/);
+ assert.doesNotMatch(quote.reply,/5 dormitorios|210[.,]000|departamento 202/);
+ assert.deepEqual(verifiedPriceReplyIssues(quote.reply,input,'Pero y cuales son los precios?',quote),[]);
+ const changed=unitPriceQuote(input,'Precio de departamentos de 2 dormitorios',{});
+ assert.deepEqual(changed.units.map(u=>u.id),['u101']);
+ assert.equal(unitPriceQuote({...input,politica_comercial:{precios_autorizados:false}},'Y los precios?',{}).quoted,false);
+ const partial=unitPriceQuote({...input,catalogo:catalog.map(u=>u.id==='u302'?{...u,published_commercial_price:null}:u)},'Y los precios?',{});
+ assert.equal(partial.ranges[0].complete,false);
+ assert.match(partial.reply,/con precio publicado/);
+});

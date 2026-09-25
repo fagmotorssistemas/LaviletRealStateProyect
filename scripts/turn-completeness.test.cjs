@@ -526,3 +526,36 @@ test('catalogue evidence cannot answer attributes or comparisons of an absent un
   assert.equal(catalogCoversFragment('cuantos dormitorios tiene el departamento 601?', 'bedrooms', audit), false)
   assert.equal(catalogCoversFragment('cuantos dormitorios tiene el penthouse 601?', 'bedrooms', audit), true)
 })
+
+
+test('reviewer repairs nonliteral evidence once without rewriting the commercial draft', async () => {
+ const current='Y no tiene algo de 5 habitaciones?';
+ const reply='No tenemos viviendas de 5 dormitorios. Los departamentos ofrecen hasta 120,83 m2 interiores.';
+ const input={ current, baseReply:'No tenemos viviendas de 5 dormitorios. Departamentos: 120,83 m2 interiores.', audit:{semantic_review_enabled:true}, verified:{catalogo:[{id:'d',area_internal_m2:120.83}]} };
+ const candidate={reply,requests:[covered(current)],question:noQuestion};
+ const fact={unit_id:'d',field:'area_internal_m2',value:120.83,fragment:'Departamentos: 120,83 m2 interiores.'};
+ const review={...approved,claims:[{fragment:reply,subject:'alternativas',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}],factual_values:[fact]};
+ for(const success of [true,false]) {
+  const responses=[candidate,review,{...review,factual_values:[{...fact,fragment:success?'Los departamentos ofrecen hasta 120,83 m2 interiores.':fact.fragment}]}];
+  let calls=0;
+  const result=await completeTurnReply(input,async()=>responses[calls++]);
+  assert.equal(calls,3,JSON.stringify(result.audit));
+  assert.equal(result.reply,success?reply:input.baseReply);
+  assert.equal(result.audit.status,success?'checked':'rejected_review');
+  assert.equal(result.audit.repair_attempts[0].target,'review_metadata');
+  assert.equal(result.audit.repair_attempts[0].issues[0].code,'review_fragment_not_in_reply');
+ }
+ const responses=[candidate,review,{...review,factual_values:[]}];let calls=0;
+ const omitted=await completeTurnReply(input,async()=>responses[calls++]);
+ assert.equal(omitted.audit.status,'rejected_review');
+ assert.equal(calls,3);
+});
+
+test('optional new opening survives but repeated opening is removed and capitalized',async()=>{
+ const current='Si claro, muchas gracias';const baseReply='Tenemos departamentos.';
+ const candidate={reply:'Perfecto, gracias a usted. Tenemos departamentos.',requests:[covered(current)],question:noQuestion};
+ const accepted=await completeTurnReply({current,baseReply,verified:{}},model(candidate,approved).generate);
+ assert.equal(accepted.reply,candidate.reply);
+ const repeated=await completeTurnReply({current,baseReply,verified:{},history:[{role:'bot',content:'Perfecto, le ayudo.'}]},model(candidate,approved).generate);
+ assert.equal(repeated.reply,'Gracias a usted. Tenemos departamentos.');
+});

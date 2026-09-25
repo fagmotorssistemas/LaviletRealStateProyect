@@ -2,6 +2,23 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { conversationGroups, explainStep, humanValue, stepTitle } from './messageExplanation'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
+import { promptContextParts } from './promptContext'
+
+test('prompt colors preserve the captured JSON and identify nested conversational context only', () => {
+  const data = { mensaje_actual: 'Y los precios?', contexto_verificado: {
+    historial: [{ role: 'bot', content: 'Departamentos y penthouses. <script>literal</script>' }],
+    property_context: { offered_ids: ['a', 'b'] }, catalogo: [{ id: 'a', bedrooms: 3 }],
+    lead: { presupuesto: '[dato protegido]' }, historial_reciente: '[resumen limitado]',
+  }, respuesta_base: 'Una propuesta, no historial.' }
+  const parts = promptContextParts(data)
+  assert.equal(parts.map(p => p.text).join(''), JSON.stringify(data, null, 2))
+  assert.ok(parts.some(p => p.kind === 'current' && p.text.includes('Y los precios?')))
+  assert.ok(parts.some(p => p.kind === 'history' && p.text.includes('Departamentos y penthouses')))
+  assert.ok(parts.some(p => p.kind === 'history' && p.text.includes('[resumen limitado]')))
+  assert.ok(parts.some(p => p.kind === 'memory' && p.text.includes('[dato protegido]')))
+  assert.ok(parts.some(p => p.kind === 'other' && p.text.includes('bedrooms')))
+  assert.ok(parts.some(p => p.kind === 'other' && p.text.includes('Una propuesta, no historial.')))
+})
 
 const step = (order: number, key: string, output: Record<string, unknown> = {}, input: Record<string, unknown> = {}): WorkflowExecutionStep => ({ order, key, label: key, category: 'decision', status: 'succeeded', source: 'test', startedAt: '', completedAt: '', durationMs: 2, errorCode: null, input, output })
 
@@ -50,6 +67,16 @@ test('repair outcome and incomplete historical evidence remain distinct', () => 
   assert.match(historical[5].facts[0].value, /No quedó registrado/)
   const other = step(3, 'message_delivery')
   assert.equal(explainStep(execution([other]), other).coverageSections, null)
+})
+
+test('reviewer metadata rejection exposes the literal fragment and bounded repair outcome', () => {
+  const detail = { kind: 'review_metadata', code: 'review_fragment_not_in_reply', fragment: 'Texto tomado de la base', field: 'area_internal_m2', received: 120.83 }
+  const item = step(1, 'response_coverage', { status: 'rejected_review', issues: ['invalid_review_metadata'],
+    semantic_review: { validation_details: [detail] }, repair_attempts: [{ target: 'review_metadata', status: 'invalid_review_metadata', issues: [detail], final_status: 'rejected_review' }] })
+  const sections = explainStep(execution([item]), item).coverageSections!
+  assert.match(sections[1].facts[0].value, /Ficha interna/)
+  assert.match(sections[1].facts[1].value, /Texto tomado de la base/)
+  assert.match(sections[3].facts[0].label, /conservando el mensaje/)
 })
 const execution = (steps: WorkflowExecutionStep[], extra: Partial<WorkflowExecution> = {}): WorkflowExecution => ({ id: 'event-a', workflowId: 'overview', path: [], status: 'completed', action: 'accepted', outcome: 'Kommo aceptó el envío', occurredAt: '', leadName: 'Consulta', message: 'Compare estas opciones', traceAvailable: true, steps, ...extra })
 

@@ -93,3 +93,8 @@
 @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } .messages { border-right: 0; border-bottom: 1px solid #dfe5d8; max-height: 255px; } .main { padding: 16px; } .filters { grid-template-columns: 1fr; gap: 12px; } .detail { padding: 16px; } }
 @media (max-width: 480px) { .steps { grid-template-columns: 1fr; } .toolbar { align-items: flex-start; padding: 16px; } .toolbar h2 { font-size: 17px; } .facts dl > div, .decision dl > div { grid-template-columns: 1fr; gap: 3px; } .badge { font-size: 10px; } .filters { padding: 14px 16px; } }
 @media (pointer: coarse) { .trace button, .trace summary, .trace select { min-height: 44px; } }
+.contextLegend { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+.contextLegend span { padding: .3rem .6rem; border: 1px solid currentColor; border-radius: .35rem; font-weight: 600; }
+.contextHistory { color: #174b9b; background-color: #eaf2ff; }
+.contextMemory { color: #126044; background-color: #e6f5ec; }
+.contextCurrent { color: #79420a; background-color: #fff1cf; }

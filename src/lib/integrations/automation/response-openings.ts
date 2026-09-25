@@ -47,7 +47,10 @@ export function decidedOpening(base: string, history: unknown) {
   return { prefix: replyOpening(chosen)?.prefix || '', removed_repetition: chosen !== base }
 }
 
-export function applyDecidedOpening(reply: string, prefix: string) {
+export function applyDecidedOpening(reply: string, prefix: string, history?: unknown) {
+  // An absent base opening leaves room for natural courtesy; history still
+  // prevents repeating it. A chosen prefix remains protected.
+  if (!prefix) return variedReplyOpening(reply.trim(), history)
   let body = reply.trim()
   for (let i = 0; i < 4; i++) {
     const opening = replyOpening(body)

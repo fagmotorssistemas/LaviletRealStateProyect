@@ -356,7 +356,13 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     const overview = alternativeOverview(units)
     const names = [...new Set(units.map(unit => plural[text(unit.category)]))]
     const next = `¿Prefiere que revisemos primero ${join(names, 'o')}?`
-    return respond(`${overview.reply} ${next}`, {
+    const rankedGroups = [...overview.groups].sort((a, b) => Number(b.max_area_internal_m2) - Number(a.max_area_internal_m2))
+    const comparable = rankedGroups.length === 2 && rankedGroups.every(g => g.max_area_internal_m2 !== null)
+      && rankedGroups[0].max_area_internal_m2 !== rankedGroups[1].max_area_internal_m2
+    const continuation = comparable
+      ? `Los ${categorySummary(units.filter(u => u.category === rankedGroups[0].category))[0]} ofrecen hasta ${number(rankedGroups[0].max_area_internal_m2!)} m² interiores, frente a un máximo de ${number(rankedGroups[1].max_area_internal_m2!)} m² interiores en los ${categorySummary(units.filter(u => u.category === rankedGroups[1].category))[0]}.`
+      : overview.reply
+    return respond(`${continuation} ${next}`, {
       offered_unit_ids: unitIds(units), alternative_presentation: { kind: 'category_overview', groups: overview.groups },
       pending_question: question('property_category', 'choose_category', next),
     })

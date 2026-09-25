@@ -9,16 +9,25 @@ export const FLEXIBLE_FACT_RULES = `La respuesta_base es una propuesta, no evide
 En factual_values extraiga TODAS las relaciones explícitas entre una unidad y sus valores numéricos (dormitorios, baños, áreas, precio publicado, planta). Use el ID del catálogo, field y value numérico; fragment debe copiar literalmente el texto que lo afirma. Desagregue afirmaciones compartidas por varias unidades. No use números del historial como evidencia. Use [] si no hay valores atribuibles a unidades concretas. Si hay más de 80 relaciones no apruebe la respuesta.`
 
 export function validateFactualValues(value: unknown, reply: string, catalog: unknown): boolean {
-  if (!Array.isArray(value) || value.length > 80) return false
+  return factualValueIssues(value, reply, catalog).length === 0
+}
+
+export function factualValueIssues(value: unknown, reply: string, catalog: unknown): Row[] {
+  if (!Array.isArray(value) || value.length > 80) return [{ code: 'invalid_fact_list', kind: 'review_metadata' }]
   const units = Array.isArray(catalog) ? catalog.map(object) : []
-  return value.every(raw => {
-    const fact = object(raw), unit = units.find(unit => unit.id === fact.unit_id)
-    const field = text(fact.field)
-    return !!unit && factFields.includes(field) && typeof fact.value === 'number' && Number.isFinite(fact.value)
-      && unit[field] !== null && unit[field] !== undefined && unit[field] !== '' && Number(unit[field]) === fact.value
-      && !!text(fact.fragment).trim() && reply.includes(text(fact.fragment))
+  return value.flatMap((raw, index) => {
+    const fact = object(raw), unit = units.find(unit => unit.id === fact.unit_id), field = text(fact.field)
+    const detail = { index, fragment: text(fact.fragment), unit_id: fact.unit_id, field, received: fact.value }
+    if (!unit || !factFields.includes(field) || typeof fact.value !== 'number' || !Number.isFinite(fact.value))
+      return [{ ...detail, code: 'invalid_unit_fact', kind: 'review_metadata' }]
+    if (unit[field] == null || unit[field] === '' || Number(unit[field]) !== fact.value)
+      return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected: unit[field] ?? null }]
+    if (!text(fact.fragment).trim() || !reply.includes(text(fact.fragment)))
+      return [{ ...detail, code: 'review_fragment_not_in_reply', kind: 'review_metadata' }]
+    return []
   })
 }
+
 
 export const claimSchema = { type: 'array', maxItems: 16, items: { type: 'object', additionalProperties: false, properties: {
   fragment: { type: 'string' }, subject: { type: 'string' }, polarity: { type: 'string', enum: ['affirmation', 'negation', 'uncertainty'] },

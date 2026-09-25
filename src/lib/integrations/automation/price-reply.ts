@@ -95,11 +95,17 @@ function priceSelection(info: Row, current: string, summary: Row) {
   const bedroomMatch = m.match(/\b(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:dormitorios?|habitaciones?|cuartos?)\b/)
   const bedrooms = bedroomMatch ? Number(bedroomWords[bedroomMatch[1]] || bedroomMatch[1]) : 0
   const explicit = reference.hasUnitMention === true || resolved.hasUnitMention
-  let selected: Row[], contextual = false
+  const offeredIds = ids(propertyContext.offered_ids)
+  let selected: Row[], contextual = false, offeredRange = false
   // A category explicitly requested in this turn supersedes remembered units.
   // Literal unit codes still take precedence (including ambiguous codes).
   if (category && !resolved.hasUnitMention) {
     selected = catalog.filter(unit => matchesCategory(unit, category) && (!bedrooms || Number(unit.bedrooms) === bedrooms))
+  } else if (!explicit && !bedrooms && !comparisonIds.length && !ids(propertyContext.selected_ids).length
+    && !ids(propertyContext.focused_ids).length && offeredIds.length && asksUnitPrice(current, true)
+    && !/\b(?:ese|esa|aquel|aquella)\b/.test(m)) {
+    selected = hydrate(offeredIds); contextual = true; offeredRange = true
+    if (selected.length !== new Set(offeredIds).size) return { selected: [], category, bedrooms, explicit, contextual, needsClarification: true }
   } else if (reference.needsClarification === true) return { selected: [], category, bedrooms, explicit, contextual, needsClarification: true }
   else if (text(reference.reason) && (referenceUnits.length || explicit)) {
     selected = referenceUnits; contextual = true
@@ -127,7 +133,7 @@ function priceSelection(info: Row, current: string, summary: Row) {
     const preferredBedrooms = preferred === 'local' ? 0 : Number(object(info.lead).preferred_bedrooms)
     selected = remembered.length ? remembered : preferred ? catalog.filter(unit => matchesCategory(unit, preferred) && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
   }
-  return { selected, category, bedrooms, explicit, contextual, needsClarification: false }
+  return { selected, category, bedrooms, explicit, contextual, offeredRange, needsClarification: false }
 }
 
 function comparisonFacts(units: Row[], contextual: boolean) {
@@ -138,7 +144,7 @@ function comparisonFacts(units: Row[], contextual: boolean) {
 
 // Price facts always come from this turn's authorized catalog. A media reference or
 // conversation summary identifies a unit but never authorizes disclosing its price.
-type PriceQuote = { reply: string; quoted: boolean; needsAdvisor?: boolean; financingOffer?: string; units?: Row[]; prices?: number[]; comparison?: { ids: string[]; difference: number } }
+type PriceQuote = { reply: string; quoted: boolean; needsAdvisor?: boolean; financingOffer?: string; units?: Row[]; prices?: number[]; ranges?: { category: string; bedrooms: number; min: number; max: number; complete: boolean }[]; comparison?: { ids: string[]; difference: number } }
 export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQuote | null {
   if (asksForHouse(current)) return null
   if (!asksUnitPrice(current, ['property', 'mixed'].includes(text(info.alcance_negocio)))) return null
@@ -163,8 +169,19 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
   const money = (value: unknown) => '$' + Number(value).toLocaleString('es-EC', { maximumFractionDigits: 2 })
   const unitName = (unit: Row) => `${unit.category === 'local' ? 'local' : unit.category === 'suite' ? 'suite' : unit.category === 'penthouse' ? 'penthouse' : 'departamento'} ${text(unit.unit_number)}`
   const approximate = policy.precios_aproximados === true
+  const ranges = selection.offeredRange && selected.length > 1 ? [...new Set(selected.map(u => `${u.category}:${Number(u.bedrooms) || 0}`))].map(key => {
+    const group = selected.filter(u => `${u.category}:${Number(u.bedrooms) || 0}` === key)
+    const values = group.map(moneyValue).filter((v): v is number => v !== null)
+    return { category: text(group[0].category), bedrooms: Number(group[0].bedrooms) || 0,
+      min: Math.min(...values), max: Math.max(...values), complete: values.length === group.length }
+  }).filter(r => Number.isFinite(r.min)) : undefined
   let reply: string
-  if (priced.length === 1) {
+  if (ranges?.length) {
+    reply = 'De las opciones que acabamos de revisar: ' + ranges.map(r => {
+      const label = ({ departamento: 'departamentos', penthouse: 'penthouses', suite: 'suites', local: 'locales' } as Record<string, string>)[r.category] || r.category
+      return `${label}${r.bedrooms ? ` de ${r.bedrooms} dormitorios` : ''}${r.complete ? '' : ' con precio publicado'}: ${r.min === r.max ? money(r.min) : `desde ${money(r.min)} hasta ${money(r.max)}`} USD`
+    }).join('; ') + '.'
+  } else if (priced.length === 1) {
     const name = `${priced[0].category === 'suite' ? 'la' : 'el'} ${unitName(priced[0])}`
     const value = money(priced[0].published_commercial_price)
     reply = variant([
@@ -183,7 +200,7 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
     const intro = variant([subject, count ? `Para ${count} dormitorios, los valores` : 'Para estas opciones, los valores', 'En estas opciones, los precios'], info.historial)
     reply = `${intro} ${min === max ? `parten de ${money(min)}` : `van de ${money(min)} a ${money(max)}`} USD.`
   }
-  const comparison = comparisonFacts(selection.selected, contextual)
+  const comparison = ranges ? null : comparisonFacts(selection.selected, contextual)
   if (comparison) reply += comparison.difference === 0 ? ' Ambas opciones tienen el mismo precio.' : ` La diferencia es de ${money(comparison.difference)} USD.`
   if (approximate) reply += ' ' + variant([
     'Son valores referenciales de lanzamiento y pueden cambiar.',
@@ -211,7 +228,7 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
       `Para el financiamiento trabajamos con ${partners.join(' o ')}; podemos orientarle durante el proceso.`,
     ], info.historial)
   }
-  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, units: priced, prices: priced.map(unit => moneyValue(unit)!), ...(comparison ? { comparison } : {}) }
+  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, units: priced, prices: priced.map(unit => moneyValue(unit)!), ...(ranges ? { ranges } : {}), ...(comparison ? { comparison } : {}) }
 }
 
 export function acceptedPriceOption(info: Row, current: string, summary: Row) {
@@ -238,6 +255,7 @@ export function priceEvidence(quote: PriceQuote, info: Row) {
     approximate: object(info.politica_comercial).precios_aproximados === true,
     units: (quote.units || []).map(unit => ({ id: unit.id, unit_number: unit.unit_number, category: unit.category, price_usd: moneyValue(unit) })),
     comparison: quote.comparison || null,
+    ranges: quote.ranges || [],
   }
 }
 
@@ -248,7 +266,7 @@ export function verifiedPriceReplyIssues(reply: string, info: Row, current: stri
   })
   const prices = quote.prices || []
   if (amounts.some(amount => amount === null || !prices.includes(amount) && amount !== quote.comparison?.difference)) issues.push('unsupported_fact')
-  const required = (quote.units || []).length > 3 ? [Math.min(...prices), Math.max(...prices)] : prices
+  const required = quote.ranges?.length ? quote.ranges.flatMap(r => [r.min, r.max]) : (quote.units || []).length > 3 ? [Math.min(...prices), Math.max(...prices)] : prices
   if (required.some(price => !amounts.includes(price))) issues.push('verified_price_omitted')
   // A known amount attached to the wrong property is still an incorrect fact.
   const mentions = [...reply.matchAll(/\b(suite|departamento|penthouse|local)\s+(?:n[úu]mero\s+)?(LC[- ]?\d+|\d{1,4})\b/gi)]

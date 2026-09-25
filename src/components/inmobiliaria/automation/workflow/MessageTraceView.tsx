@@ -6,6 +6,7 @@ import { ArrowRight, ChevronRight, RefreshCw, Search } from 'lucide-react'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 import { conversationGroups, explainStep, humanValue, statusLabel, stepTitle, type ExplanationFact } from './messageExplanation'
 import styles from './MessageTraceView.module.css'
+import { promptContextParts } from './promptContext'
 
 export function MessageTraceView() {
   const [executions, setExecutions] = useState<WorkflowExecution[]>([])
@@ -167,7 +168,14 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
     <details className={styles.technical}><summary>1. Entrada · instrucciones, mensaje e historial</summary>
       {step.input.prompt_snapshot ? <>
         <h5>Instrucciones compuestas</h5><pre>{String(snapshot.instructions || '')}</pre>
-        <h5>Datos enviados</h5><p>{String(snapshot.user_prefix || '')}</p><pre>{JSON.stringify(snapshot.data, null, 2)}</pre>
+        <h5>Datos enviados · contexto destacado</h5><p>{String(snapshot.user_prefix || '')}</p>
+        <div className={styles.contextLegend} aria-label="Colores del contexto enviado">
+          <span className={styles.contextHistory}>Historial de mensajes</span>
+          <span className={styles.contextMemory}>Memoria y datos del lead</span>
+          <span className={styles.contextCurrent}>Mensaje actual</span>
+        </div>
+        <p>El color identifica campos presentes en esta captura de la entrada, no todo el historial almacenado. El catálogo y las instrucciones se muestran sin resaltar. Si un campo está abreviado, no se reconstruye su contenido.</p>
+        <pre aria-label="Datos enviados a la IA con contexto destacado">{promptContextParts(snapshot.data).map((part, index) => <span key={index} className={part.kind === 'history' ? styles.contextHistory : part.kind === 'memory' ? styles.contextMemory : part.kind === 'current' ? styles.contextCurrent : undefined}>{part.text}</span>)}</pre>
         <h5>Formato exigido</h5><pre>{JSON.stringify(snapshot.response_schema, null, 2)}</pre>
       </> : <p>Esta ejecución no conservó la entrada. No se reconstruye a partir del hash del prompt.</p>}
     </details>
