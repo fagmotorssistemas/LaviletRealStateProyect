@@ -431,6 +431,7 @@ export async function flushLocalMetaOutbox(
       contentName: typeof payload.content_name === 'string' ? payload.content_name : undefined,
       contentCategory:
         typeof payload.content_category === 'string' ? payload.content_category : undefined,
+      contentType: typeof payload.content_type === 'string' ? payload.content_type : undefined,
       lvInternalSubtype:
         typeof payload.lv_internal_subtype === 'string' ? payload.lv_internal_subtype : undefined,
       unitId: typeof payload.unit_id === 'string' ? payload.unit_id : undefined,

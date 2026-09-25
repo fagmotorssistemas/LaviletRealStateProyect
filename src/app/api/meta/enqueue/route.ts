@@ -8,6 +8,7 @@ import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox, persistMetaConversion } from '@/lib/meta/localOutbox'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 import { clientIp } from '@/lib/tour/geo'
+import { homeListingContentParams, isMetaCoreSetupConservativeEnv } from '@/lib/meta/homeListingContent'
 import {
   allowRateLimited,
   assertVisitKeyMatchesVisitor,
@@ -90,12 +91,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
   }
 
-  const conservative =
-    (process.env.META_CORE_SETUP_CONSERVATIVE ||
-      process.env.NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE ||
-      'true')
-      .trim()
-      .toLowerCase() !== 'false'
+  const conservative = isMetaCoreSetupConservativeEnv()
 
   const eventSourceUrl =
     sanitizeMetaEventSourceUrl(
@@ -153,11 +149,7 @@ export async function POST(request: Request) {
       unit_id: unitId,
       ...(conservative
         ? {}
-        : {
-            content_ids: [unitId],
-            content_name: `Unidad ${unit.unit_number}`,
-            content_category: unit.category || 'unit',
-          }),
+        : homeListingContentParams(unitId, { unitNumber: unit.unit_number }) || {}),
       ...sharedUser,
     }
   }

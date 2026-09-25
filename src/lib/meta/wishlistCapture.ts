@@ -9,15 +9,10 @@ import {
   OUTBOX_FLUSHABLE_STATUS,
   persistMetaConversion,
 } from '@/lib/meta/localOutbox'
+import { homeListingContentParams, isMetaCoreSetupConservativeEnv } from '@/lib/meta/homeListingContent'
 
 function isCoreSetupConservative(): boolean {
-  return (
-    (process.env.META_CORE_SETUP_CONSERVATIVE ||
-      process.env.NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE ||
-      'true')
-      .trim()
-      .toLowerCase() !== 'false'
-  )
+  return isMetaCoreSetupConservativeEnv()
 }
 
 export async function persistAddToWishlist(
@@ -48,6 +43,7 @@ export async function persistAddToWishlist(
   const conservative = isCoreSetupConservative()
   const unitNumber = String(input.unitNumber || '').trim()
   const typologyCode = String(input.typologyCode || '').trim() || null
+  const listingContent = conservative ? null : homeListingContentParams(unitId, { unitNumber })
 
   return persistMetaConversion(admin, {
     eventName: 'AddToWishlist',
@@ -63,13 +59,7 @@ export async function persistAddToWishlist(
       action_source: 'website',
       lv_internal_subtype: 'favorito',
       event_source_url: input.eventSourceUrl || undefined,
-      ...(conservative
-        ? {}
-        : {
-            content_ids: [unitId],
-            content_name: unitNumber ? `Unidad ${unitNumber}` : undefined,
-            content_category: typologyCode || 'unit',
-          }),
+      ...(listingContent || {}),
       unit_id: unitId,
       unit_number: unitNumber || undefined,
       typology_code: typologyCode || undefined,

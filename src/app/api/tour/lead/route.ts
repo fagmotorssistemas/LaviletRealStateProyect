@@ -20,6 +20,7 @@ import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
 import { persistInfoRequestLeadEvent } from '@/lib/meta/infoRequestLeadProducer'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
+import { homeListingContentParams, isMetaCoreSetupConservativeEnv } from '@/lib/meta/homeListingContent'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -158,12 +159,13 @@ export async function POST(request: Request) {
     const realEmail = !isArtificialEmail(rawEmail) ? rawEmail : undefined
     const realName = !isArtificialName(rawName) ? rawName : undefined
 
-    const conservative =
-      (process.env.META_CORE_SETUP_CONSERVATIVE ||
-        process.env.NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE ||
-        'true')
-        .trim()
-        .toLowerCase() !== 'false'
+    const conservative = isMetaCoreSetupConservativeEnv()
+    const listingContent =
+      !conservative && typeof body.unit_id === 'string'
+        ? homeListingContentParams(body.unit_id, {
+            unitNumber: typeof body.unit_number === 'string' ? body.unit_number : null,
+          })
+        : null
 
     const metaLeadPayload = {
       action_source: 'website',
@@ -179,13 +181,7 @@ export async function POST(request: Request) {
       fbclid: body.fbclid,
       client_ip_address: clientIpAddress,
       client_user_agent: clientUa,
-      ...(conservative
-        ? {}
-        : {
-            content_ids: body.unit_id ? [body.unit_id] : undefined,
-            content_name: body.unit_number ? `Unidad ${body.unit_number}` : undefined,
-            content_category: body.typology_code || undefined,
-          }),
+      ...(listingContent || {}),
       visitor_key: visitorKey,
     }
 
