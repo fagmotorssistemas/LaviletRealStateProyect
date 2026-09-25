@@ -1,8 +1,17 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "work/capi-20260924": false
+    }
+  },
   "crons": [
     {
       "path": "/api/meta/sync-nest-results",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/meta/weekly-objective-qualification",
+      "schedule": "0 6 * * *"
     }
   ]
 }

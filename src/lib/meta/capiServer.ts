@@ -11,6 +11,7 @@ export type MetaServerEventName =
   | 'Lead'
   | 'Schedule'
   | 'LeadSubmitted'
+  | 'QualifiedLead'
   | 'AddToWishlist'
   | 'Purchase'
 
@@ -81,9 +82,11 @@ function sanitizeUrl(raw?: string | null) {
     const url = new URL(raw)
     if (/^\/simulador(?:\/|$)/i.test(url.pathname)) return undefined
     const conservative =
-      (process.env.META_CORE_SETUP_CONSERVATIVE ||
+      (
+        process.env.META_CORE_SETUP_CONSERVATIVE ||
         process.env.NEXT_PUBLIC_META_CORE_SETUP_CONSERVATIVE ||
-        'true')
+        'true'
+      )
         .trim()
         .toLowerCase() !== 'false'
     if (conservative) return url.origin
@@ -140,6 +143,10 @@ export type EnqueueMetaEventInput = {
   ctwaClid?: string | null
   whatsappBusinessAccountId?: string | null
   messagingDatasetId?: string | null
+  qualificationSource?: 'crm_persisted_evaluation' | null
+  temperature?: 'tibio' | 'caliente' | null
+  evidenceLabels?: string[]
+  initialLeadSubmittedEventId?: string | null
 }
 
 /**
@@ -154,21 +161,40 @@ export async function enqueueMetaEvent(
   if (!input.adsConsent) return { ok: false, skipped: 'no_ads_consent' }
   if (!isMetaCapiConfigured()) return { ok: false, skipped: 'not_configured' }
 
-  const expectedSource = input.eventName === 'Purchase'
-    ? 'system_generated'
-    : input.eventName === 'LeadSubmitted' ? 'business_messaging' : 'website'
+  const expectedSource =
+    input.eventName === 'Purchase'
+      ? 'system_generated'
+      : input.eventName === 'LeadSubmitted' || input.eventName === 'QualifiedLead'
+        ? 'business_messaging'
+        : 'website'
   if (input.actionSource !== expectedSource) {
     return { ok: false, skipped: 'action_source_mismatch' }
   }
-  if (input.eventName === 'LeadSubmitted') {
+  if (input.eventName === 'LeadSubmitted' || input.eventName === 'QualifiedLead') {
     const waba = String(input.whatsappBusinessAccountId || '').trim()
     const messagingDataset = String(input.messagingDatasetId || '').trim()
-    const webDataset = String(process.env.META_EVENTS_DATASET_ID || process.env.META_DATASET_ID || process.env.META_PIXEL_ID || '').trim()
+    const webDataset = String(
+      process.env.META_EVENTS_DATASET_ID ||
+        process.env.META_DATASET_ID ||
+        process.env.META_PIXEL_ID ||
+        '',
+    ).trim()
     if (input.messagingChannel !== 'whatsapp' || !input.ctwaClid || !waba || !messagingDataset) {
       return { ok: false, skipped: 'business_messaging_identifiers_required' }
     }
+    if (
+      input.eventName === 'QualifiedLead' &&
+      (input.qualificationSource !== 'crm_persisted_evaluation' ||
+        !['tibio', 'caliente'].includes(String(input.temperature)) ||
+        !input.evidenceLabels?.length)
+    ) {
+      return { ok: false, skipped: 'qualified_lead_evidence_required' }
+    }
     if (waba === messagingDataset || (webDataset && webDataset === messagingDataset)) {
-      return { ok: false, skipped: 'business_messaging_dataset_scope_mismatch' }
+      return {
+        ok: false,
+        skipped: 'business_messaging_dataset_scope_mismatch',
+      }
     }
   }
 
@@ -197,7 +223,8 @@ export async function enqueueMetaEvent(
         event_id: input.eventId,
         event_time: input.eventTime,
         action_source: input.actionSource,
-        event_source_url: input.actionSource === 'website' ? sanitizeUrl(input.eventSourceUrl) : undefined,
+        event_source_url:
+          input.actionSource === 'website' ? sanitizeUrl(input.eventSourceUrl) : undefined,
         phone: input.phone || undefined,
         email: input.email || undefined,
         first_name: input.firstName || undefined,
@@ -232,6 +259,10 @@ export async function enqueueMetaEvent(
         ctwa_clid: input.ctwaClid || undefined,
         whatsapp_business_account_id: input.whatsappBusinessAccountId || undefined,
         messaging_dataset_id: input.messagingDatasetId || undefined,
+        qualification_source: input.qualificationSource || undefined,
+        temperature: input.temperature || undefined,
+        evidence_labels: input.evidenceLabels,
+        initial_lead_submitted_event_id: input.initialLeadSubmittedEventId || undefined,
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(META_CAPI_HTTP_TIMEOUT_MS),
@@ -241,11 +272,17 @@ export async function enqueueMetaEvent(
     if (!ok) {
       try {
         const body = (await res.clone().json()) as Record<string, unknown>
-        backendCode = typeof body.message === 'string' && body.message === 'idempotency_key_conflict'
-          ? body.message
-          : typeof body.code === 'string' ? body.code
-            : typeof body.error === 'string' ? body.error : null
-      } catch { /* respuesta no JSON */ }
+        backendCode =
+          typeof body.message === 'string' && body.message === 'idempotency_key_conflict'
+            ? body.message
+            : typeof body.code === 'string'
+              ? body.code
+              : typeof body.error === 'string'
+                ? body.error
+                : null
+      } catch {
+        /* respuesta no JSON */
+      }
     }
     console.info('[meta-capi] enqueue http', {
       event_id: input.eventId || null,
@@ -256,12 +293,15 @@ export async function enqueueMetaEvent(
     if (res.status === 409 && backendCode === 'idempotency_key_conflict') {
       return { ok: false, status: 409, skipped: 'idempotency_key_conflict' }
     }
-    return { ok, status: res.status, ...(backendCode ? { skipped: backendCode } : {}) }
+    return {
+      ok,
+      status: res.status,
+      ...(backendCode ? { skipped: backendCode } : {}),
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'error'
     const timedOut =
-      (error instanceof Error && error.name === 'TimeoutError') ||
-      /aborted|timeout/i.test(message)
+      (error instanceof Error && error.name === 'TimeoutError') || /aborted|timeout/i.test(message)
     console.error('[meta-capi] enqueue failed', {
       event_id: input.eventId || null,
       error: message.slice(0, 180),
