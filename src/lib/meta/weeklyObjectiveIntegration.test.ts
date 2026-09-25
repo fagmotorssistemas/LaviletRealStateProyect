@@ -24,6 +24,7 @@ test('persistir selección no crea outbox ni conversiones y la métrica Meta lee
   assert.doesNotMatch(migration,/(?:insert\s+into|update|delete\s+from)\s+public\.meta_capi_outbox/i)
   assert.doesNotMatch(migration,/(?:insert\s+into|update|delete\s+from)\s+public\.(?:appointments|unit_sales_closings)/i)
   assert.match(service,/meta_capi_conversion_log[\s\S]*meta_accepted/)
+  assert.match(service,/meta_capi_conversion_log[\s\S]*meta_accepted[\s\S]*delivery_lane[\s\S]*live/)
   assert.match(service,/meta_capi_outbox[\s\S]*forwarded_at/)
   assert.doesNotMatch(linkMigration,/(?:insert\s+into|update|delete\s+from)\s+public\.meta_capi_outbox/i)
   assert.match(linkMigration,/qualification_event_id[\s\S]*new\.event_id/i)

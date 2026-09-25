@@ -34,7 +34,7 @@ export async function buildWeeklyObjectiveQualification(admin:SupabaseClient,ten
   const eventIds=(intents.data||[]).map(r=>String(r.event_id));const accepted=new Set<string>()
   const sent=new Set<string>()
   if(eventIds.length){const outbox=await admin.from('meta_capi_outbox').select('event_id,status,forwarded_at').in('event_id',eventIds);if(outbox.error)throw outbox.error;for(const r of outbox.data||[])if(r.forwarded_at||r.status==='forwarded')sent.add(String(r.event_id))}
-  if(eventIds.length){const log=await admin.from('meta_capi_conversion_log').select('event_id,stage').in('event_id',eventIds).eq('stage','meta_accepted');if(log.error)throw log.error;for(const r of log.data||[])accepted.add(String(r.event_id))}
+  if(eventIds.length){const log=await admin.from('meta_capi_conversion_log').select('event_id,stage').in('event_id',eventIds).eq('stage','meta_accepted').eq('delivery_lane','live');if(log.error)throw log.error;for(const r of log.data||[])accepted.add(String(r.event_id))}
   const intentByLead=new Map((intents.data||[]).map(r=>[String(r.lead_id),r]))
   const rows:WeeklyObjectivePanelRow[]=[]
   for(const definition of WEEKLY_OBJECTIVE_DEFINITIONS){const selection=selectWeeklyContactsForObjective(contacts,rules,{objectiveId:definition.objectiveId,ownGroupId:definition.objectiveId,eligibleEventTypes:[...definition.eventTypes],weeklyTarget:WEEKLY_OBJECTIVE_TARGET,windowStart:start,windowEnd:end});const ids=[...selection.ownContactIds,...selection.incorporatedContactIds]
