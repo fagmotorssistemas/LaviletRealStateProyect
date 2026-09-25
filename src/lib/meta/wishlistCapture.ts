@@ -9,7 +9,10 @@ import {
   OUTBOX_FLUSHABLE_STATUS,
   persistMetaConversion,
 } from '@/lib/meta/localOutbox'
-import { homeListingContentParams, isMetaCoreSetupConservativeEnv } from '@/lib/meta/homeListingContent'
+import {
+  homeListingCatalogIdentityParams,
+  isMetaCoreSetupConservativeEnv,
+} from '@/lib/meta/homeListingContent'
 
 function isCoreSetupConservative(): boolean {
   return isMetaCoreSetupConservativeEnv()
@@ -43,7 +46,10 @@ export async function persistAddToWishlist(
   const conservative = isCoreSetupConservative()
   const unitNumber = String(input.unitNumber || '').trim()
   const typologyCode = String(input.typologyCode || '').trim() || null
-  const listingContent = conservative ? null : homeListingContentParams(unitId, { unitNumber })
+  const listingContent = homeListingCatalogIdentityParams(unitId, {
+    unitNumber,
+    includeContentName: !conservative,
+  })
 
   return persistMetaConversion(admin, {
     eventName: 'AddToWishlist',

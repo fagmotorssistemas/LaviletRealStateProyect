@@ -12,7 +12,7 @@ import {
   isMetaCoreSetupConservative,
 } from '@/lib/marketing/metaEventSourceUrl'
 import { trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
-import { homeListingContentParams } from '@/lib/meta/homeListingContent'
+import { homeListingCatalogIdentityParams } from '@/lib/meta/homeListingContent'
 import {
   claimViewContentSend,
   shouldSkipViewContent,
@@ -49,12 +49,14 @@ export function MetaViewContentUnit({
       const { visitKey, eventId, eventTime } = getOrCreateUnitVisitIdentity(unitId)
       if (shouldSkipViewContent(firedVisitKey.current, visitKey)) return
 
-      // Core Setup: sin parámetros de contenido en Pixel/CAPI.
-      // Fuera de Core Setup: content_ids=units.id y content_type=home_listing (catálogo inmobiliario).
+      // Catálogo inmobiliario: siempre content_ids + content_type=home_listing.
+      // Core Setup: omite content_name; Nest también preserva ids+type bajo conservative.
       const conservative = isMetaCoreSetupConservative()
-      const params = conservative
-        ? undefined
-        : homeListingContentParams(unitId, { unitNumber }) || undefined
+      const params =
+        homeListingCatalogIdentityParams(unitId, {
+          unitNumber,
+          includeContentName: !conservative,
+        }) || undefined
       void (async () => {
         let ids = getMetaClickIds()
         // Con Pixel simulado no hay fbevents.js: no esperar _fbp.
@@ -78,7 +80,7 @@ export function MetaViewContentUnit({
             event_time: eventTime,
             unit_id: unitId,
             lv_internal_subtype: 'detalle_unidad',
-            ...(conservative ? {} : params || {}),
+            ...(params || {}),
             event_source_url: currentMetaEventSourceUrl(),
             fbp: ids.fbp || undefined,
             fbc: ids.fbc || undefined,

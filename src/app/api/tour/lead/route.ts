@@ -20,7 +20,7 @@ import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox } from '@/lib/meta/localOutbox'
 import { persistInfoRequestLeadEvent } from '@/lib/meta/infoRequestLeadProducer'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
-import { homeListingContentParams, isMetaCoreSetupConservativeEnv } from '@/lib/meta/homeListingContent'
+import { homeListingCatalogIdentityParams, isMetaCoreSetupConservativeEnv } from '@/lib/meta/homeListingContent'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -161,9 +161,10 @@ export async function POST(request: Request) {
 
     const conservative = isMetaCoreSetupConservativeEnv()
     const listingContent =
-      !conservative && typeof body.unit_id === 'string'
-        ? homeListingContentParams(body.unit_id, {
+      typeof body.unit_id === 'string'
+        ? homeListingCatalogIdentityParams(body.unit_id, {
             unitNumber: typeof body.unit_number === 'string' ? body.unit_number : null,
+            includeContentName: !conservative,
           })
         : null
 

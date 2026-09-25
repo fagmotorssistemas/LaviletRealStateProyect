@@ -148,6 +148,6 @@ export async function buildLaviletHomeListingCatalog(
     generatedAt: new Date().toISOString(),
     projectId: LAVILET_PROJECT_ID,
     datasetCompatibilityNote:
-      'home_listing_id = units.id. Con Core Setup OFF, Pixel/CAPI deben usar content_ids=[units.id] y content_type=home_listing. Dataset web 923439043758658; no messaging WhatsApp.',
+      'home_listing_id = units.id. Pixel/CAPI deben usar content_ids=[units.id] y content_type=home_listing (también con Core Setup ON; Nest preserva ids+type). Dataset web 923439043758658; no messaging WhatsApp.',
   }
 }

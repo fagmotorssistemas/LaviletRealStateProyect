@@ -3,7 +3,8 @@
  * content_ids = home_listing_id = units.id
  * content_type = home_listing (docs Marketing API Real Estate Ads / audience)
  *
- * No usar en Pixel/CAPI mientras META_CORE_SETUP_CONSERVATIVE esté activo.
+ * Identidad catálogo (ids + type) se envía siempre con unidad UUID.
+ * content_name es opcional y se omite bajo Core Setup conservador.
  */
 export const META_HOME_LISTING_CONTENT_TYPE = 'home_listing' as const
 
@@ -43,5 +44,27 @@ export function homeListingContentParams(
     content_ids: [id],
     content_type: META_HOME_LISTING_CONTENT_TYPE,
     ...(content_name ? { content_name } : {}),
+  }
+}
+
+/**
+ * Identidad mínima del catálogo inmobiliario para Pixel/CAPI.
+ * Siempre incluye content_ids + content_type cuando hay unit UUID.
+ * content_name solo si includeContentName=true (fuera de Core Setup name strip).
+ */
+export function homeListingCatalogIdentityParams(
+  unitId: string,
+  opts?: {
+    unitNumber?: string | null
+    contentName?: string | null
+    includeContentName?: boolean
+  },
+): HomeListingContentParams | null {
+  const full = homeListingContentParams(unitId, opts)
+  if (!full) return null
+  if (opts?.includeContentName) return full
+  return {
+    content_ids: full.content_ids,
+    content_type: full.content_type,
   }
 }

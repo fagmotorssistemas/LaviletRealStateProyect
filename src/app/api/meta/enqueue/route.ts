@@ -8,7 +8,7 @@ import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { flushLocalMetaOutbox, persistMetaConversion } from '@/lib/meta/localOutbox'
 import { sanitizeMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 import { clientIp } from '@/lib/tour/geo'
-import { homeListingContentParams, isMetaCoreSetupConservativeEnv } from '@/lib/meta/homeListingContent'
+import { homeListingCatalogIdentityParams, isMetaCoreSetupConservativeEnv } from '@/lib/meta/homeListingContent'
 import {
   allowRateLimited,
   assertVisitKeyMatchesVisitor,
@@ -147,9 +147,10 @@ export async function POST(request: Request) {
       event_source_url: eventSourceUrl,
       lv_internal_subtype: 'detalle_unidad',
       unit_id: unitId,
-      ...(conservative
-        ? {}
-        : homeListingContentParams(unitId, { unitNumber: unit.unit_number }) || {}),
+      ...(homeListingCatalogIdentityParams(unitId, {
+        unitNumber: unit.unit_number,
+        includeContentName: !conservative,
+      }) || {}),
       ...sharedUser,
     }
   }

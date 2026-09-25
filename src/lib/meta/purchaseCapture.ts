@@ -3,6 +3,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildPurchaseIdempotencyKey, isPurchaseMetaSendEnabled, isPurchaseSaleEligibleForDelivery, META_NEST_BACKEND_PENDING_ERROR } from '@/lib/meta/metaMeasurementContract'
 import { flushLocalMetaOutbox, OUTBOX_FLUSHABLE_STATUS, OUTBOX_REVIEW_HOLD_STATUS, persistMetaConversion } from '@/lib/meta/localOutbox'
+import { homeListingCatalogIdentityParams } from '@/lib/meta/homeListingContent'
 
 export { isPurchaseMetaSendEnabled }
 
@@ -45,6 +46,8 @@ export async function persistPurchasePrepared(
   else if (!deliveryOn) blockReason = META_NEST_BACKEND_PENDING_ERROR
   else if (!afterCutover) blockReason = 'purchase_before_activation_cutover'
 
+  const listingContent = homeListingCatalogIdentityParams(unitId)
+
   const result = await persistMetaConversion(admin, {
     eventName: 'Purchase', idempotencyKey: buildPurchaseIdempotencyKey(saleId),
     // 0 es un sentinel local retenido; no suplanta la fecha real y nunca se entrega.
@@ -57,6 +60,7 @@ export async function persistPurchasePrepared(
       sale_id: saleId, lead_id: leadId, unit_id: unitId, value,
       currency: currency || undefined, sale_at: saleAt || undefined,
       registered_at: registeredAt || undefined,
+      ...(listingContent || {}),
       tenant_id: String(sale.tenant_id || input.tenantId || '') || undefined,
       project_id: input.projectId || undefined,
       details: { delivery_enabled: deliveryOn, delivery_eligible: deliveryEligible, block_reason: blockReason, activation_cutover: process.env.META_PURCHASE_ACTIVATED_AT || null, source: 'unit_sales_closings' },

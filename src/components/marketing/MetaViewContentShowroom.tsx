@@ -3,10 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { hasAdsConsent, META_PIXEL_SIMULATE } from '@/lib/tour/consent'
 import { getMetaClickIds } from '@/lib/marketing/metaCookies'
-import {
-  currentMetaEventSourceUrl,
-  isMetaCoreSetupConservative,
-} from '@/lib/marketing/metaEventSourceUrl'
+import { currentMetaEventSourceUrl } from '@/lib/marketing/metaEventSourceUrl'
 import { trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
 import { getVisitorKey } from '@/lib/tour/visitorTracking'
 import { newMetaEventId } from '@/lib/marketing/metaPixel'
@@ -58,8 +55,7 @@ export function MetaViewContentShowroom({ ready }: Props) {
         }
       }
 
-      const conservative = isMetaCoreSetupConservative()
-      // Core Setup: sin content_* en Pixel; subtipo solo viaja en outbox (lv_internal_subtype).
+      // showroom_general: nunca content_* (no inventar listing del catálogo).
       void (async () => {
         let ids = getMetaClickIds()
         if (!ids.fbp && !META_PIXEL_SIMULATE) {
@@ -82,7 +78,6 @@ export function MetaViewContentShowroom({ ready }: Props) {
             fbp: ids.fbp || undefined,
             fbc: ids.fbc || undefined,
             fbclid: ids.fbclid || undefined,
-            ...(conservative ? {} : {}),
           }),
           keepalive: true,
         })

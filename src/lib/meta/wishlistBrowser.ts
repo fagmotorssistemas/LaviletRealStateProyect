@@ -15,7 +15,7 @@ import {
   isMetaCoreSetupConservative,
 } from '@/lib/marketing/metaEventSourceUrl'
 import { newMetaEventId, trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
-import { homeListingContentParams } from '@/lib/meta/homeListingContent'
+import { homeListingCatalogIdentityParams } from '@/lib/meta/homeListingContent'
 
 const inFlightByKey = new Set<string>()
 /** Solo con leadId: evita re-disparo de sesión del mismo lead+unidad. */
@@ -56,9 +56,11 @@ export async function captureWishlistAfterSave(opts: {
   const conservative = isMetaCoreSetupConservative()
   const unitNumber = String(opts.unitNumber || '').trim()
   const typologyCode = String(opts.typologyCode || '').trim()
-  const params = conservative
-    ? undefined
-    : homeListingContentParams(unitId, { unitNumber }) || undefined
+  const params =
+    homeListingCatalogIdentityParams(unitId, {
+      unitNumber,
+      includeContentName: !conservative,
+    }) || undefined
 
   const ids = getMetaClickIds()
   try {
@@ -82,7 +84,7 @@ export async function captureWishlistAfterSave(opts: {
     if (!res.ok && res.status !== 202) return false
     const json = (await res.json()) as { event_id?: string }
     if (!json.event_id) return false
-    // Pixel solo despuÃ©s de que servidor validÃ³ contacto, proyecto, unidad y outbox.
+    // Pixel solo después de que servidor validó contacto, proyecto, unidad y outbox.
     trackMetaPixelEvent('AddToWishlist', params, json.event_id)
     if (leadId) sentSessionByLeadUnit.add(`${leadId}:${unitId}`)
     try { sessionStorage.setItem(storageKey, JSON.stringify({ eventId: json.event_id, eventTime })) } catch { /* ignore */ }

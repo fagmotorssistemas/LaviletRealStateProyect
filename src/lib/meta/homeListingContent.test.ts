@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  homeListingCatalogIdentityParams,
   homeListingContentParams,
   isMetaCoreSetupConservativeEnv,
   META_HOME_LISTING_CONTENT_TYPE,
@@ -17,9 +18,29 @@ test('content_ids = unit UUID y content_type = home_listing', () => {
   assert.equal(params?.content_type, 'home_listing')
 })
 
+test('identidad catálogo siempre manda ids+type sin content_name por defecto', () => {
+  const id = '7945f316-b72f-4b59-a15b-cf4241979f7f'
+  assert.deepEqual(homeListingCatalogIdentityParams(id, { unitNumber: '001' }), {
+    content_ids: [id],
+    content_type: META_HOME_LISTING_CONTENT_TYPE,
+  })
+  assert.deepEqual(
+    homeListingCatalogIdentityParams(id, {
+      unitNumber: '001',
+      includeContentName: true,
+    }),
+    {
+      content_ids: [id],
+      content_type: META_HOME_LISTING_CONTENT_TYPE,
+      content_name: 'Unidad 001',
+    },
+  )
+})
+
 test('rechaza ids no UUID (no inventa content_ids)', () => {
   assert.equal(homeListingContentParams('001'), null)
   assert.equal(homeListingContentParams(''), null)
+  assert.equal(homeListingCatalogIdentityParams('001'), null)
 })
 
 test('Core Setup conservador sigue activo por defecto', () => {
