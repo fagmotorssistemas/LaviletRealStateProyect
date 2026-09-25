@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { informationSubject } from './information-context'
+import { bedroomOptionsFromText } from './bedroom-options'
 import { resolveCatalogReference } from './catalog-reference'
 import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText } from './turn-semantics'
 
@@ -129,9 +130,11 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     }
   }
   const lexicalFilters = propertyFiltersFromText(current, text(pending.id))
+  const bedroomChoices = bedroomOptionsFromText(current)
+  if (bedroomChoices.length > 1) { lexicalFilters.bedrooms = null; lexicalFilters.bedrooms_any = bedroomChoices }
   const currentFilters = normalizedPropertyFilters(semantic.filters)
   if (currentFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true) currentFilters.bedrooms_required = null
-  const suppliedFilters = Object.fromEntries(Object.entries(lexicalFilters).map(([key, value]) => [key, value ?? currentFilters[key as keyof typeof currentFilters]]))
+  const suppliedFilters = { ...currentFilters, ...Object.fromEntries(Object.entries(lexicalFilters).filter(([, value]) => value !== null)) }
   const hasCurrentFilters = Object.values(suppliedFilters).some(value => value !== null)
   const group = confirmsSet ? text(previousQuery.group) : text(semantic.group) || (category === 'local' ? 'commercial' : category ? 'residential' : '')
   const broadResidential = group === 'residential' && !category && /\bviviendas?|residencial|(?:algo|opciones?|espacio) para vivir\b/.test(m)
@@ -142,6 +145,8 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // Only a change of use (housing/local) invalidates its previous constraints.
   const filters = { ...(groupChanged ? emptyPropertyFilters() : normalizedPropertyFilters(previousQuery.filters)),
     ...Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null)) }
+  if (suppliedFilters.bedrooms_any?.length && (lexicalFilters.bedrooms === null || suppliedFilters.bedrooms_any.includes(lexicalFilters.bedrooms))) { filters.bedrooms = null; filters.bedrooms_any = suppliedFilters.bedrooms_any }
+  else if (suppliedFilters.bedrooms != null) delete filters.bedrooms_any
   const asksRanking = /\b(?:cual|cuales|que|cuanto)\b.*\b(?:mas grande|mas amplio|mayor|mas pequen|mas barat|mas economic|menor)/.test(m)
   const selector = semanticValid ? semantic.reference_kind === 'relative' || semantic.operation === 'rank' ? text(semantic.selector) || relativeSelector(current) : '' : relativeSelector(current)
   const inheritedBedrooms = normalizedPropertyFilters(previousQuery.filters)
@@ -234,6 +239,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       filters: { ...proposedFilters, ...Object.fromEntries(Object.entries(lexicalFilters).filter(([, value]) => value !== null)) },
       operation: 'search', selector: null })
     operation = 'search'
+    delete filters.bedrooms_any
     Object.assign(filters, query.filters)
     context.offered_ids = ids(pending.candidate_ids)
     context.selected_ids = []; context.comparison_ids = []; context.focused_ids = []
@@ -271,7 +277,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       && (query.group !== 'residential' || ['suite', 'departamento', 'penthouse'].includes(text(unit.category)))
       && (query.group !== 'commercial' || unit.category === 'local') && !excluded.includes(text(unit.category))
       && (filters.floor_number === null || Number(unit.floor_number) === filters.floor_number)
-      && (filters.bedrooms === null || Number(unit.bedrooms) === filters.bedrooms)
+      && (Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length ? filters.bedrooms_any.includes(Number(unit.bedrooms)) : filters.bedrooms === null || Number(unit.bedrooms) === filters.bedrooms)
       && (filters.min_area_m2 === null || Number(unit.area_internal_m2) >= filters.min_area_m2)
       && (filters.max_area_m2 === null || Number(unit.area_internal_m2) > 0 && Number(unit.area_internal_m2) <= filters.max_area_m2))
     context.selected_ids = []; context.comparison_ids = []

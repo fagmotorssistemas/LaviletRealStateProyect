@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { reviewedCatalogDenials } from './semantic-review'
+import { bedroomOptions } from './bedroom-options'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
 export type CatalogQuery = {
@@ -10,7 +11,7 @@ export type CatalogQuery = {
   operation: Operation
   selector: string | null
   scope: string
-  filters: { bedrooms: number | null; bedrooms_required: boolean | null; floor_number: number | null; min_area_m2: number | null; max_area_m2: number | null }
+  filters: { bedrooms: number | null; bedrooms_any?: number[]; bedrooms_required: boolean | null; floor_number: number | null; min_area_m2: number | null; max_area_m2: number | null }
 }
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : []
@@ -40,7 +41,7 @@ export function catalogQuery(value: unknown): CatalogQuery {
     operation: operations.has(text(input.operation)) ? input.operation as Operation : 'none',
     selector: text(input.selector) || null,
     scope: text(input.scope || input.query_scope) || 'catalog',
-    filters: { bedrooms: finite(filters.bedrooms, 1), bedrooms_required: typeof filters.bedrooms_required === 'boolean' ? filters.bedrooms_required : null,
+    filters: { ...(bedroomOptions(filters.bedrooms_any).length > 1 ? { bedrooms_any: bedroomOptions(filters.bedrooms_any) } : {}), bedrooms: bedroomOptions(filters.bedrooms_any).length > 1 ? null : finite(filters.bedrooms, 1), bedrooms_required: typeof filters.bedrooms_required === 'boolean' ? filters.bedrooms_required : null,
       floor_number: finite(filters.floor_number), min_area_m2: finite(filters.min_area_m2, 0.01), max_area_m2: finite(filters.max_area_m2, 0.01) },
   }
 }
@@ -50,7 +51,7 @@ export function filterCatalog(catalog: Row[], query: CatalogQuery, scopedIds?: s
     .filter(unit => !scopedIds || scopedIds.includes(text(unit.id)))
     .filter(unit => !query.group || (query.group === 'residential' ? residential.has(text(unit.category)) : unit.category === 'local'))
     .filter(unit => !query.category || unit.category === query.category)
-    .filter(unit => query.filters.bedrooms === null || measurement(unit.bedrooms) === query.filters.bedrooms)
+    .filter(unit => query.filters.bedrooms_any?.length ? query.filters.bedrooms_any.includes(Number(unit.bedrooms)) : query.filters.bedrooms === null || measurement(unit.bedrooms) === query.filters.bedrooms)
     .filter(unit => query.filters.floor_number === null || unit.floor_number !== null && unit.floor_number !== undefined && Number(unit.floor_number) === query.filters.floor_number)
     .filter(unit => query.filters.min_area_m2 === null || (measurement(unit.area_internal_m2) ?? -Infinity) >= query.filters.min_area_m2)
     .filter(unit => query.filters.max_area_m2 === null || (measurement(unit.area_internal_m2) ?? Infinity) <= query.filters.max_area_m2)
@@ -104,8 +105,7 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
     && /\b(?:departamentos?|penthouses?|suites?|unidades?)\s+\d{2,4}\b/i.test(reply)) return { valid: false, reason: 'alternative_unit_list_premature' }
   const pending = object(audit.pending_question)
   if (ids(pending.target_ids).length && text(pending.question) && !reply.includes(text(pending.question))) return { valid: false, reason: 'catalog_pending_question_changed' }
-  const verified = rows(object(audit.catalog_results).units).length
-    ? rows(object(audit.catalog_results).units) : rows(object(audit.alternative_results).units)
+  const verified = [...new Map([...rows(object(audit.catalog_results).units), ...rows(object(audit.alternative_results).units)].map(unit => [unit.id, unit])).values()]
   if (!verified.length) return { valid: true }
   const decimal = (value: string) => {
     const clean = value.replace(/[.,]$/, '')
@@ -294,19 +294,19 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const question = (id: string, act: string, value: string, targets: Row[] = [], candidatesForQuestion = units) => ({ id, act, question: value, target_ids: unitIds(targets), candidate_ids: unitIds(candidatesForQuestion) })
   if (!units.length) {
     const subject = query.category ? plural[query.category] : query.group === 'commercial' ? 'locales comerciales' : 'viviendas'
-    const conditions = [query.filters.bedrooms !== null ? `de ${query.filters.bedrooms} dormitorios` : '', query.filters.floor_number !== null ? `en la planta ${query.filters.floor_number}` : ''].filter(Boolean).join(' ')
+    const conditions = [query.filters.bedrooms_any?.length ? `de ${query.filters.bedrooms_any.join(' o ')} dormitorios` : query.filters.bedrooms !== null ? `de ${query.filters.bedrooms} dormitorios` : '', query.filters.floor_number !== null ? `en la planta ${query.filters.floor_number}` : ''].filter(Boolean).join(' ')
     const opening = `Actualmente no contamos con ${subject} disponibles${conditions ? ` ${conditions}` : ''}.`
     if (query.filters.bedrooms_required === true) return respond(opening)
     let proposed = catalogQuery({ ...query, operation: 'search', scope: 'catalog', selector: null,
-      filters: { ...query.filters, bedrooms: null, floor_number: null, min_area_m2: null, max_area_m2: null } })
+      filters: { ...query.filters, bedrooms_any: [], bedrooms: null, floor_number: null, min_area_m2: null, max_area_m2: null } })
     let wider = filterCatalog(catalog, proposed).filter(unit => !excluded.includes(text(unit.category)))
-    const offerOtherHomes = query.category === 'departamento' && query.filters.bedrooms !== null
+    const offerOtherHomes = query.category === 'departamento' && (query.filters.bedrooms !== null || !!query.filters.bedrooms_any?.length)
       && query.filters.floor_number === null && query.filters.min_area_m2 === null && query.filters.max_area_m2 === null
     if (query.group === 'residential' && (!wider.length || offerOtherHomes)) {
       proposed = { ...proposed, category: null }
       wider = filterCatalog(catalog, proposed).filter(unit => !excluded.includes(text(unit.category)))
     }
-    if (query.filters.bedrooms !== null && wider.length) {
+    if ((query.filters.bedrooms !== null || query.filters.bedrooms_any?.length) && wider.length) {
       const maxBedrooms = Math.max(...wider.map(unit => measurement(unit.bedrooms) || 0))
       if (maxBedrooms > 0) {
         proposed = { ...proposed, filters: { ...proposed.filters, bedrooms: maxBedrooms, bedrooms_required: false } }
@@ -379,7 +379,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     return respond(reply, { focused_unit_ids: unitIds(units), selected_unit_ids: query.operation === 'select' ? unitIds(units) : [], offered_unit_ids: unitIds(units),
       unit_reference: { ids: unitIds(units), numbers: units.map(value => value.unit_number) }, unit_model: { unit_id: unit.id, unit_number: unit.unit_number, url } })
   }
-  const broad = !query.category && query.filters.bedrooms === null && query.filters.floor_number === null && query.filters.min_area_m2 === null && query.filters.max_area_m2 === null
+  const broad = !query.category && query.filters.bedrooms === null && !query.filters.bedrooms_any?.length && query.filters.floor_number === null && query.filters.min_area_m2 === null && query.filters.max_area_m2 === null
   if (broad) {
     const questionText = query.group === 'commercial' ? '¿Qué tipo de local busca?'
       : query.group === 'residential' ? '¿Qué tipo de vivienda le gustaría conocer?' : '¿Qué tipo de propiedad le gustaría conocer?'

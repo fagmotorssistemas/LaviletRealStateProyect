@@ -1,4 +1,5 @@
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
+import { reviewDecision } from './reviewDecision'
 
 type Row = Record<string, unknown>
 export type ExplanationFact = { label: string; value: string }
@@ -188,7 +189,7 @@ function coverageSections(output: Row): ExplanationSection[] {
     ] },
     { title: 'Error detectado', description: 'Estos controles explican el rechazo de la propuesta. Un error en requests significa que falló la lista interna de solicitudes; no demuestra que el texto comercial fuera incorrecto.', facts: [
       { label: 'Controles registrados', value: Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
-      ...rows(row(output.semantic_review).validation_details).map(detail => ({ label: detail.kind === 'review_metadata' ? 'Error en la ficha del revisor' : 'Discrepancia con el catálogo', value: `${humanValue(detail.code)}. Fragmento: ${str(detail.fragment) || 'No registrado'}. Campo: ${str(detail.field) || 'No registrado'}. Recibido: ${humanValue(detail.received)}. Esperado: ${humanValue(detail.expected)}` })),
+      ...(rows(row(output.semantic_review).validation_details).length ? reviewDecision(output).causes.map(value => ({ label: 'Causa agrupada', value })) : []),
     ] },
     { title: 'Decisiones y evidencia', description: 'El sistema conserva las aperturas elegidas y controla las repeticiones; una apertura vacía permite cortesía opcional. La revisión semántica contrasta las afirmaciones y el código comprueba sus referencias y valores.', facts: [
       { label: 'Apertura', value: output.opening_decision ? humanValue(output.opening_decision) : 'No registrada' },

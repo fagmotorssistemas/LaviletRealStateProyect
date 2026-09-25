@@ -52,7 +52,7 @@ test('opening decision preserves base courtesy and removes actual repetitions be
   assert.equal(repeated.audit.opening_decision.removed_repetition, true)
 })
 
-test('semantic review records evidence and rejects neutral or unsupported claims without another model call', async () => {
+test('semantic review records evidence and falls back if unsupported claims cannot be repaired', async () => {
   const current = 'Quiero información', reply = 'Ofrecemos departamentos.'
   const input = { current, baseReply: 'Tenemos departamentos.', verified: { categorias: ['departamento'] }, audit: { semantic_review_enabled: true } }
   const candidate = { reply, requests: [covered(current)], question: noQuestion }
@@ -183,7 +183,8 @@ test('repair service failure falls back and records its final status', async () 
   const mock = model({ reply: 'Hola.', requests: null, question: noQuestion }, new Error('unavailable'))
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.reply, input.baseReply)
-  assert.equal(result.audit.repair_attempts[0].final_status, 'unavailable')
+  assert.equal(result.audit.repair_attempts[0].final_status, 'invalid_coverage')
+  assert.equal(result.audit.repair_attempts[0].failure, 'repair_call_failed')
   assert.equal(mock.calls.length, 2)
 })
 
@@ -507,7 +508,8 @@ test('an unchanged answer with an omitted request still receives independent cov
   const mock = model({ reply: input.baseReply, requests: [covered(comparison)], question: noQuestion },
     { ...approved, all_requests_considered: false, missing_fact_fragments: [missing] })
   const result = await completeTurnReply(input, mock.generate)
-  assert.equal(mock.calls.length, 2)
+  assert.equal(mock.calls.length, 3)
+  assert.equal(result.audit.repair_attempts[0].failure, 'repair_call_failed')
   assert.equal(result.audit.independent_review, true)
   assert.equal(result.needsAdvisor, true)
   assert.deepEqual(result.unresolved, [missing])
@@ -560,7 +562,7 @@ test('optional new opening survives but repeated opening is removed and capitali
  assert.equal(repeated.reply,'Gracias a usted. Tenemos departamentos.');
 });
 
-test('unit numbers used as internal IDs are explained and do not trigger unsupported repair', async () => {
+test('unambiguous unit numbers are resolved without rewriting or another model call', async () => {
  const current='que opciones tiene para familia';
  const baseReply='Tenemos penthouses de 2 dormitorios.';
  const reply='Puede revisar penthouses de 2 dormitorios.';
@@ -570,10 +572,9 @@ test('unit numbers used as internal IDs are explained and do not trigger unsuppo
  let calls=0;
  const result=await completeTurnReply({current,baseReply,audit:{semantic_review_enabled:true},verified:{catalogo:[{id:'uuid603',unit_number:'603',bedrooms:2}]}},async()=>[candidate,review][calls++]);
  assert.equal(calls,2);
- assert.equal(result.reply,baseReply);
- assert.equal(result.audit.semantic_review.validation_details[0].reason,'unit_id_not_in_catalog');
- assert.equal(result.audit.semantic_review.validation_details[0].expected_unit_id,'uuid603');
- assert.equal(result.audit.semantic_review.repair_eligibility.reason,'error_not_supported_by_repair_policy');
+ assert.equal(result.reply,reply);
+ assert.equal(result.audit.status,'checked');
+ assert.deepEqual(result.audit.semantic_review.reference_corrections,[{code:'unit_number_resolved',from:'603',to:'uuid603'}]);
  assert.equal(result.audit.repair_attempts.length,0);
 });
 
@@ -583,4 +584,80 @@ test('historical reviewer references expose only implicated units from the same 
  const snapshot=reviewReferenceSnapshot({turn_completeness:{semantic_review:{validation_details:[{unit_id:'603'}]},
   writer_contract:{hechos_protegidos:[{id:'uuid603',unit_number:'603',category:'penthouse',private:'not exposed'}, {id:'uuid604',unit_number:'604'}]}}});
  assert.deepEqual(snapshot,[{id:'uuid603',unit_number:'603',category:'penthouse'}]);
+});
+
+test('empty search retains verified alternatives for writer, reviewer, aggregate checks and final guard', async () => {
+ const {turnEvidence}=require('../src/lib/integrations/automation/turn-evidence.ts');
+ const {validateCatalogReply}=require('../src/lib/integrations/automation/catalog-dialogue.ts');
+ const units=[{id:'d202',unit_number:'202',category:'departamento',bedrooms:3,area_internal_m2:120.83},
+  {id:'p602',unit_number:'602',category:'penthouse',bedrooms:3,area_internal_m2:142.09},
+  {id:'p605',unit_number:'605',category:'penthouse',bedrooms:3,area_internal_m2:140.53}];
+ const current='me interesa alguna opcion de 5 o 6 cuartos';
+ const reply='La Vilet no dispone de viviendas de 5 o 6 dormitorios. Los departamentos de 3 dormitorios alcanzan hasta 120,83 m² interiores y los penthouses de 3 dormitorios hasta 142,09 m² interiores.';
+ const audit={semantic_review_enabled:true,verified_catalog:true,catalog_query:{scope:'catalog',group:'residential',filters:{bedrooms:null,bedrooms_any:[5,6]}},
+  catalog_results:{units:[],unit_ids:[],complete:true,unknown_unit_ids:[]},alternative_results:{units,unit_ids:units.map(u=>u.id),query:{filters:{bedrooms:3}}}};
+ const facts=[{fragment:'S2',unit_id:'group:departamento:3:max',field:'area_internal_m2',value:120.83},
+  {fragment:'S2',unit_id:'group:penthouse:3:max',field:'area_internal_m2',value:142.09}];
+ const claims=[{fragment:'S1',subject:'viviendas 5 o 6 dormitorios',polarity:'negation',verdict:'supported',evidence:'consulta completa sin coincidencias',evidence_source:'catalog_no_results'},
+  {fragment:'S2',subject:'alternativas',polarity:'affirmation',verdict:'supported',evidence:'grupos calculados',evidence_source:'verified_context'}];
+ const mock=model({reply,requests:[covered(current)],question:noQuestion},{...approved,claims,factual_values:facts});
+ const result=await completeTurnReply({current,baseReply:'No tenemos viviendas de 6 dormitorios. Departamentos de 3 dormitorios: 120,83 m². Penthouses de 3 dormitorios: 142,09 m².',verified:{catalogo:[]},audit},mock.generate);
+ assert.equal(result.audit.status,'checked',JSON.stringify(result.audit));
+ assert.equal(result.reply,reply);assert.equal(mock.calls.length,2);
+ assert.equal(result.audit.semantic_review.evidence_summary.unit_count,3);
+ assert.equal(validateCatalogReply(reply,{...audit,semantic_review:result.audit.semantic_review}).valid,true);
+ const evidence=turnEvidence({catalogo:[]},audit);
+ assert.deepEqual(evidence.query_result_ids,[]);assert.deepEqual(evidence.alternative_ids,units.map(u=>u.id));
+ assert.equal(evidence.groups.find(g=>g.id==='group:penthouse:3:max').area_internal_m2,142.09);
+ assert.equal(evidence.groups.find(g=>g.id==='group:penthouse:3:min').area_internal_m2,140.53);
+ for(const call of mock.calls) assert.deepEqual(call[1].evidencia_turno.units.map(u=>u.id),units.map(u=>u.id));
+});
+
+test('reference normalization never changes numbers or resolves ambiguous unit numbers', () => {
+ const {normalizeReviewReferences,turnEvidence}=require('../src/lib/integrations/automation/turn-evidence.ts');
+ const {factualValueIssues}=require('../src/lib/integrations/automation/semantic-review.ts');
+ const units=[{id:'a',unit_number:'602',category:'penthouse',bedrooms:3,area_internal_m2:142.09}];
+ const reply='El penthouse 602 tiene 5 dormitorios.';
+ const review={factual_values:[{unit_id:'602',fragment:'S1',field:'bedrooms',value:5}]};
+ const normalized=normalizeReviewReferences(review,units,reply);
+ assert.equal(normalized.review.factual_values[0].value,5);
+ assert.equal(factualValueIssues(normalized.review.factual_values,reply,units)[0].code,'catalog_value_mismatch');
+ const ambiguous=normalizeReviewReferences(review,[...units,{...units[0],id:'b'}],reply);
+ assert.equal(ambiguous.review.factual_values[0].unit_id,'602');
+ const partial=turnEvidence({catalogo:[...units,{id:'b',category:'penthouse',bedrooms:3,area_internal_m2:null}]});
+ assert.equal(partial.groups.find(g=>g.id==='group:penthouse:3:max').area_internal_m2,undefined);
+ const conflict=turnEvidence({}, {verified_catalog:true,catalog_results:{units},alternative_results:{units:[{...units[0],bedrooms:5}]}});
+ assert.equal(conflict.conflicts[0].kind,'system_evidence');
+});
+
+test('a commercial defect has one rewrite and independent recheck; a repeated defect falls back',async()=>{
+ const current='Detalles del penthouse';const baseReply='Penthouse 602: 3 dormitorios.';
+ const input={current,baseReply,verified:{catalogo:[{id:'p',unit_number:'602',bedrooms:3}]},audit:{semantic_review_enabled:true}};
+ const candidate=reply=>({reply,requests:[covered(current)],question:noQuestion});
+ const review=(reply,value)=>({...approved,claims:[{fragment:'S1',subject:'p',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}],
+  factual_values:[{unit_id:'p',field:'bedrooms',value,fragment:'S1'}]});
+ const bad='El penthouse 602 tiene 5 dormitorios.',good='El penthouse 602 tiene 3 dormitorios.';
+ for(const repaired of [true,false]){
+  const mock=model(candidate(bad),review(bad,5),candidate(repaired?good:bad),review(repaired?good:bad,repaired?3:5));
+  const result=await completeTurnReply(input,mock.generate);
+  assert.equal(mock.calls.length,4);assert.equal(result.reply,repaired?good:baseReply);
+  assert.equal(result.audit.status,repaired?'checked':'rejected_review');
+  assert.equal(result.audit.repair_attempts.length,1);
+  assert.equal(result.audit.repair_attempts[0].target,'commercial_draft');
+  assert.equal(mock.calls[2][1].reparacion.controles[0].code,'catalog_value_mismatch');
+ }
+});
+
+test('unknown reference gets one metadata repair and cannot bypass checks by omitting facts',async()=>{
+ const current='Detalles del penthouse',reply='El penthouse 602 tiene 3 dormitorios.';
+ const candidate={reply,requests:[covered(current)],question:noQuestion};
+ const fact={unit_id:'unknown',field:'bedrooms',value:3,fragment:'S1'};
+ const review={...approved,claims:[{fragment:'S1',subject:'p',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}],factual_values:[fact]};
+ for(const repaired of [true,false]){
+  const mock=model(candidate,review,{...review,factual_values:repaired?[{...fact,unit_id:'p'}]:[]});
+  const result=await completeTurnReply({current,baseReply:'Penthouse 602: 3 dormitorios.',audit:{semantic_review_enabled:true},verified:{catalogo:[{id:'p',unit_number:'602',bedrooms:3}]}},mock.generate);
+  assert.equal(mock.calls.length,3);assert.equal(result.audit.repair_attempts.length,1);
+  assert.equal(result.audit.status,repaired?'checked':'rejected_review');
+  assert.equal(mock.calls[2][1].respuesta_propuesta,reply);
+ }
 });

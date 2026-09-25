@@ -39,11 +39,23 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
       : issue === 'semantic_claims_unsupported_or_invalid' ? 'Una afirmación carece de respaldo o su ficha no cumple el contrato. Consulte las afirmaciones contrastadas.' : issue)
   }
   const eligibility = row(review.repair_eligibility)
+  const descriptions: Record<string, string> = {
+    invalid_unit_fact: 'Referencias, campos o valores de la ficha no pudieron asociarse con la evidencia del turno.',
+    review_fragment_not_in_reply: 'El revisor entregó citas que no aparecen literalmente en el borrador.',
+    catalog_value_mismatch: 'Los valores declarados no coinciden con los datos verificados.',
+    conflicting_evidence: 'El sistema preparó datos contradictorios para una misma unidad.',
+    review_repair_omitted_facts: 'La reparación omitió relaciones que debía conservar.',
+  }
+  const causes = [...new Set(errors.map(error => text(error.code)))].map(code => `${descriptions[code] || code} (${errors.filter(error => error.code === code).length} comprobaciones afectadas).`)
+  const corrections = list(review.reference_corrections)
+  if (!errors.length && corrections.length) causes.push(`Se resolvieron ${corrections.length} referencias internas sin cambiar el texto comercial ni sus valores.`)
+  if (!causes.length) causes.push(...details)
   const repair = attempts.length ? `Hubo ${attempts.length} intento(s) registrado(s). Consulte su resultado en Intento de reparación.`
+    : eligibility.policy === 'review_metadata_v2' && eligibility.reason === 'data_or_evidence_error' ? 'La política distingue errores internos de discrepancias de datos. No se registró un intento; consulte la evidencia y el resultado final.'
     : eligibility.reason === 'error_not_supported_by_repair_policy' ? 'No se intentó reparar: el error no está admitido por la política registrada. Esa política solo repara citas no literales del revisor; no referencias de unidades, campos ni valores.'
       : eligibility.reason === 'claims_not_supported' ? 'No se intentó reparar: no se confirmó el respaldo de las afirmaciones, requisito de la reparación de citas.'
         : status === 'checked' ? 'No hubo intentos registrados; la propuesta quedó aprobada en este paso.'
-          : errors.some(error => error.code === 'invalid_unit_fact') ? 'No hay intentos registrados. La reparación actual solo contempla citas no literales; este fallo de referencia, campo o valor queda fuera. El registro histórico no conserva la política que se ejecutó.'
+          : errors.some(error => error.code === 'invalid_unit_fact') ? 'No hay intentos registrados. Este registro histórico no conserva la política que se ejecutó; no se atribuye a la política actual.'
             : 'No hay intentos registrados. Este registro no conserva un motivo específico para no reparar.'
-  return { tone, title, explanation, details, repair }
+  return { tone, title, explanation, details, causes, repair }
 }

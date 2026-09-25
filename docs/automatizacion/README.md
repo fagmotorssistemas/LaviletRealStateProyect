@@ -1,5 +1,7 @@
 # Automatización de La Vilet: referencia canónica
 
+**Actualización local del 25/09/2026:** [Validación con evidencia compartida, reparaciones acotadas y mapa de líneas modificadas](validacion-evidencia-compartida-20260925.md). Este paquete está pendiente de publicación; consulte su sección de validación y alcance.
+
 **Revisión:** 22 de septiembre de 2026. El motor conversacional v2 y el Workflow base están versionados en `c1149bb`. La vista **Por mensaje**, su nueva instrumentación y las correcciones de continuidad descritas en el documento 11 son cambios locales pendientes de despliegue; no se ha verificado su funcionamiento en producción.
 **Alcance:** mensajes de WhatsApp recibidos mediante Kommo, respuestas del bot, citas, financiamiento, nutrición y traspasos a asesores.
 **Propósito:** explicar el comportamiento real sin mezclar reglas activas, cambios locales y propuestas futuras.

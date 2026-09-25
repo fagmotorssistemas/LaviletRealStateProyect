@@ -18,7 +18,8 @@ export function responsePlan(baseReply: string, audit: Row) {
   return {
     source,
     locked,
-    protected_facts: object(audit.catalog_results).units || [],
+    protected_facts: [...(Array.isArray(object(audit.catalog_results).units) ? object(audit.catalog_results).units as unknown[] : []),
+      ...(Array.isArray(object(audit.alternative_results).units) ? object(audit.alternative_results).units as unknown[] : [])],
     covered_requests: Array.isArray(audit.covered_requests) ? audit.covered_requests : [],
     required_links: [...baseReply.matchAll(/https?:\/\/[^\s)]+/g)].map(match => match[0]),
     required_numbers: [...baseReply.matchAll(/\b\d[\d.,]*\b/g)].map(match => match[0]),
@@ -27,7 +28,7 @@ export function responsePlan(baseReply: string, audit: Row) {
 }
 
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
-Use contrato_redaccion para expresar con naturalidad la decisión ya tomada. No elija otra ruta, unidad, acción ni siguiente paso. Adapte la extensión a lo que pide el cliente: una aceptación continúa la propuesta pendiente; una comparación explica diferencias; una consulta concreta recibe primero su respuesta. No convierta un resumen en una lista de fichas.
+Use contrato_redaccion y evidencia_turno para responder al cliente con naturalidad. No cambie acciones operativas ni invente selecciones del cliente. Si decisiones_protegidas=false, la base es una orientación: puede reorganizar, resumir y elegir una pregunta útil según la necesidad actual, sin repetir preguntas resueltas. Para una familia aún sin requisitos conocidos, oriente con categorías verificadas y pregunte un dato útil como dormitorios, sin inventar ocupación máxima ni asumir tamaño familiar. Una aceptación continúa la propuesta pendiente; una comparación explica diferencias; una consulta concreta recibe primero su respuesta. No convierta un resumen en una lista de fichas.
 No narre su procesamiento interno ni las operaciones que realiza para preparar la respuesta: evite «descarto los penthouses», «me concentro en los departamentos», «he interpretado su intención» o «aplico el filtro». Exprese directamente la información útil para el cliente; por ejemplo, «Los departamentos de 3 dormitorios comparten estas características…». Puede reconocer brevemente su preferencia sin describir el trabajo interno. Esto no impide informar una acción real solicitada por el cliente cuando su resultado esté confirmado en el contexto operativo; nunca la invente.
 Conserve los hechos necesarios para responder la consulta, condiciones y enlaces obligatorios. Las cifras_obligatorias del contrato deben conservarse; otras cifras de opciones secundarias pueden omitirse cuando no sean pertinentes, sin alterar los valores que sí mencione. No añada brochure, saludo, invitación ni pregunta por costumbre: respete el contrato y el modo comercial del contexto.
 Si recibe apertura_decidida, conserve literalmente su prefix cuando no esté vacío. Si está vacío, la cortesía es opcional: puede añadir una apertura breve pertinente al mensaje actual, sin repetir aperturas recientes. No agregue una fórmula en todos los turnos.
@@ -39,7 +40,8 @@ export function finalWriterContract(baseReply: string, audit: Row = {}) {
   return {
     version: 'final-writer-v1', ruta: plan.source || 'commercial',
     decisiones_protegidas: plan.locked,
-    objetivo: 'Responder las solicitudes actuales conservando la decisión y el próximo paso de la respuesta base.',
+    objetivo: plan.locked ? 'Responder conservando la decisión operativa protegida y su próximo paso.'
+      : 'Responder todas las solicitudes actuales con la evidencia del turno y una continuación pertinente al contexto. La base no impone su estructura ni su pregunta.',
     hechos_protegidos: plan.protected_facts,
     price_evidence: audit.price_evidence || null,
     cifras_obligatorias: audit.semantic_review_enabled === true && !plan.locked ? [] : plan.required_numbers, enlaces_obligatorios: plan.required_links,

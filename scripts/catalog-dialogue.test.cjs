@@ -25,6 +25,46 @@ const info = (query, extra = {}) => ({
   referencia_unidad: { reason: 'catalog_query', query, matches: [], needsClarification: false }, ...extra,
 })
 
+test('bedroom alternatives query every requested count, including word forms, without inventing a denial', () => {
+  const {propertyFiltersFromText}=require('../src/lib/integrations/automation/turn-semantics.ts')
+  for(const current of ['no tiene opciones de 5 dormitorios o de 6?', 'me interesa una opcion de cinco o seis cuartos']) {
+    const filters=propertyFiltersFromText(current)
+    assert.deepEqual(filters.bedrooms_any,[5,6]);assert.equal(filters.bedrooms,null)
+    const noMatches=catalogDialogueReply(info(query('search',{filters})))
+    assert.match(noMatches.reply,/5 o 6 dormitorios/)
+    assert.deepEqual(noMatches.audit.catalog_query.filters.bedrooms_any,[5,6])
+    assert.deepEqual(noMatches.audit.catalog_results.units,[])
+    assert.ok(noMatches.audit.alternative_results.units.every(u=>u.bedrooms===3))
+    const available=unit('701','penthouse',5,180,20,7)
+    const result=catalogDialogueReply(info(query('search',{filters}),{catalogo:[...catalogue,available]}))
+    assert.deepEqual(result.audit.catalog_results.unit_ids,['unit-701'])
+    assert.doesNotMatch(result.reply,/no contamos/)
+  }
+  for(const current of ['precios de 500 o 600 mil','entre 5 y 6 dormitorios','no quiero 5 o 6 dormitorios'])
+    assert.equal(propertyFiltersFromText(current).bedrooms_any,undefined)
+})
+
+test('accepting alternatives after a disjunctive query does not restore unavailable bedroom counts', () => {
+  const first=catalogDialogueReply(info(query('search',{filters:{bedrooms_any:[5,6]}})))
+  const summary={_property_context:{query:first.audit.catalog_query,pending_question:first.audit.pending_question,offered_ids:first.audit.alternative_results.unit_ids}}
+  const current='me interesan los penthouses'
+  const semantics=normalizeTurnSemantics({turn_semantics:{primary_intent:'select_property',primary_evidence:current,confidence:'high',property:{category:'penthouse',group:'residential',operation:'search',reference_kind:'none',filters:{},evidence:current,confidence:'high'}}},current)
+  const turn=resolvePropertyTurn(catalogue,current,summary,[],semantics)
+  assert.equal(turn.query.filters.bedrooms_any,undefined)
+  assert.equal(turn.query.filters.bedrooms,3)
+  assert.ok(turn.matches.length>0)
+  const next=catalogDialogueReply(info(turn.query,{property_context:turn.context,referencia_unidad:turn}))
+  assert.doesNotMatch(next.reply,/no contamos|5 o 6/)
+})
+
+test('semantic alternatives survive normalization and lookup even without the lexical spelling pattern', () => {
+  const current='Me sirven cuatro, seis u ocho habitaciones'
+  const semantics=normalizeTurnSemantics({turn_semantics:{primary_intent:'select_property',primary_evidence:current,confidence:'high',property:{group:'residential',operation:'search',filters:{bedrooms_any:[4,6,8]},evidence:current,confidence:'high'}}},current)
+  assert.deepEqual(semantics.property.filters.bedrooms_any,[4,6,8])
+  const turn=resolvePropertyTurn(catalogue,current,{},[],semantics)
+  assert.deepEqual(turn.query.filters.bedrooms_any,[4,6,8])
+})
+
 test('relative most expensive selection ranks published prices, retains ties and refuses incomplete prices', () => {
   const catalogo = [ { ...catalogue[1], published_commercial_price: 310000 }, { ...catalogue.at(-1), published_commercial_price: 550000 } ]
   const selected = query('select', { selector: 'most_expensive' })

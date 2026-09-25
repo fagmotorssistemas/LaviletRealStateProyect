@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
+import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
 
 export const questionIds = [
   'visit_invitation',
@@ -32,7 +33,7 @@ const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'n
 const queryScopes = new Set(['catalog', 'offered', 'comparison', 'selected'])
 const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'choose_category', 'choose_floor', 'explore_alternatives', 'budget', 'visit', 'other'])
 
-export type PropertyFilters = { floor_number: number | null; bedrooms: number | null; bedrooms_required: boolean | null; min_area_m2: number | null; max_area_m2: number | null }
+export type PropertyFilters = { floor_number: number | null; bedrooms: number | null; bedrooms_any?: number[]; bedrooms_required: boolean | null; min_area_m2: number | null; max_area_m2: number | null }
 export const emptyPropertyFilters = (): PropertyFilters => ({ floor_number: null, bedrooms: null, bedrooms_required: null, min_area_m2: null, max_area_m2: null })
 const enumSchema = (values: Iterable<string>) => ({ type: 'string', enum: [...values] })
 const nullableEnumSchema = (values: Iterable<string>) => ({ type: ['string', 'null'], enum: [...values, null] })
@@ -48,7 +49,7 @@ export const TURN_SEMANTICS_SCHEMA = strictObject({
     excluded_categories: { type: 'array', items: enumSchema(propertyCategories) }, operation: enumSchema(operations),
     reference_kind: enumSchema(referenceKinds), unit_numbers: { type: 'array', items: { type: 'string' } },
     selector: nullableEnumSchema(unitSelectors), query_scope: nullableEnumSchema(queryScopes),
-    filters: strictObject({ floor_number: { type: ['integer', 'null'] }, bedrooms: { type: ['integer', 'null'] }, bedrooms_required: { type: ['boolean', 'null'] }, min_area_m2: { type: ['number', 'null'] }, max_area_m2: { type: ['number', 'null'] } }),
+    filters: strictObject({ floor_number: { type: ['integer', 'null'] }, bedrooms: { type: ['integer', 'null'] }, bedrooms_any: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 30 } }, bedrooms_required: { type: ['boolean', 'null'] }, min_area_m2: { type: ['number', 'null'] }, max_area_m2: { type: ['number', 'null'] } }),
     evidence: { type: 'string' }, confidence: confidenceSchema,
   }),
   budget: strictObject({ status: enumSchema(budgetStatuses), amount: { type: ['number', 'null'] }, evidence: { type: 'string' }, confidence: confidenceSchema }),
@@ -58,7 +59,8 @@ export function normalizedPropertyFilters(raw: unknown): PropertyFilters {
   const row = object(raw)
   const bounded = (key: string, max: number, integer = false, minimum = 0) => typeof row[key] === 'number' && Number.isFinite(row[key])
     && Number(row[key]) >= minimum && Number(row[key]) <= max && (!integer || Number.isInteger(row[key])) ? Number(row[key]) : null
-  return { floor_number: bounded('floor_number', 100, true), bedrooms: bounded('bedrooms', 30, true), bedrooms_required: typeof row.bedrooms_required === 'boolean' ? row.bedrooms_required : null,
+  const choices = bedroomOptions(row.bedrooms_any)
+  return { ...(choices.length > 1 ? { bedrooms_any: choices } : {}), floor_number: bounded('floor_number', 100, true), bedrooms: choices.length > 1 ? null : bounded('bedrooms', 30, true), bedrooms_required: typeof row.bedrooms_required === 'boolean' ? row.bedrooms_required : null,
     min_area_m2: bounded('min_area_m2', 100000, false, 1), max_area_m2: bounded('max_area_m2', 100000, false, 1) }
 }
 
@@ -92,6 +94,8 @@ export function propertyFiltersFromText(current: string, pendingId = ''): Proper
   if (/\bplanta baja\b/.test(value)) filters.floor_number = 0
   const bedrooms = value.match(new RegExp('(?:^|[^a-z0-9])(?:de\\s*)?(' + numberToken + ')\\s*(?:dormitorios?|habitaciones?|cuartos?)\\b'))
   if (bedrooms) filters.bedrooms = tokenNumber(bedrooms[1])
+  const choices = bedroomOptionsFromText(current)
+  if (choices.length > 1) { filters.bedrooms = null; filters.bedrooms_any = choices }
   if (bedrooms && !/\bno (?:es|son|necesito|necesariamente|tienen que ser)\b/.test(value)
     && (/\b(?:exactamente|indispensables?|obligatori[oa]s?|necesariamente)\b/.test(value)
       || /\b(?:menos|otra cantidad)\b.{0,25}\bno me sirve\b|\bno (?:acepto|quiero) menos\b/.test(value))) filters.bedrooms_required = true
@@ -133,7 +137,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
     "unit_numbers":[],
     "selector":null,
     "query_scope":null,
-    "filters":{"floor_number":null,"bedrooms":null,"bedrooms_required":null,"min_area_m2":null,"max_area_m2":null},
+    "filters":{"floor_number":null,"bedrooms":null,"bedrooms_any":[],"bedrooms_required":null,"min_area_m2":null,"max_area_m2":null},
     "evidence":"copia literal breve del mensaje actual o cadena vacía",
     "confidence":"high|medium|low"
   },
@@ -155,6 +159,7 @@ property.group distingue residential (vivienda en general) de commercial (locale
 property.operation distingue buscar opciones (search), preguntar cuáles son mayores/menores/baratas (rank), comparar (compare), elegir afirmativamente (select) y pedir detalles (details). «¿Cuál es la opción más grande?» es rank, NO select. «Prefiero la más grande de esas» es select. Un empate se puede mostrar como resultado de una consulta; no obliga al cliente a elegir antes de recibir información.
 property.filters expresa restricciones actuales: «5ta planta», «quinta planta» y «piso cinco» son floor_number=5; «de5habiataciones» expresa bedrooms=5. Corrija errores evidentes sin inventar datos. Una restricción no es un número de unidad ni una negativa a la pregunta anterior. «No tiene opciones de 5 habitaciones» pregunta disponibilidad, no rechaza presupuesto.
 bedrooms_required=true solo si declara indispensable/exacta esa cantidad; false solo si acepta expresamente otra cantidad; null si no expresa esa decisión. No insista con menos dormitorios cuando el requisito es indispensable.
+Si admite varias cantidades de dormitorios, conserve todas en bedrooms_any y bedrooms=null; por ejemplo «cinco o seis cuartos» produce [5,6]. Sin alternativas explícitas use bedrooms_any=[]. Distinga alternativas admitidas de cantidades negadas, rangos y números de unidades. No restaure requisitos anteriores si está aceptando alternativas ofrecidas; conserve el referente de la pregunta pendiente.
 query_scope=catalog para buscar o consultar máximos sin lista concreta, offered para «de esas opciones», comparison para la comparación activa, selected para la elegida. Preserve null si no aplica. La memoria conserva filtros previos; no los extraiga otra vez como declaraciones nuevas.
 pregunta_pendiente.act, target_ids y candidate_ids expresan el foco real. «Sí prefiero esa opción» tras ofrecer detalles del 502 acepta esa oferta sobre 502 aunque antes se mencionara 504; es referencia followup, no explicit. No convierta aceptar detalles o un recorrido en visita, compra o reserva.
 Si pregunta_pendiente.act=explore_alternatives, una aceptación permite explorar proposed_query, no elige una unidad ni reemplaza el requisito original. El sistema aplicará esa consulta; no vuelva a extraer dormitorios del historial ni transforme el sí en select. Elegir una categoría (por ejemplo, departamentos entre alternativas residenciales) refina la búsqueda sin borrar dormitorios, planta o superficie ya establecidos. Un sí a una elección entre varias categorías o unidades no identifica una de ellas.
@@ -240,7 +245,9 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     semanticFilters.bedrooms_required = null
     normalizationIssues.push('bedrooms_requirement_without_explicit_evidence')
   }
-  const filters = Object.fromEntries(Object.entries(lexicalFilters).map(([key, literal]) => [key, literal ?? semanticFilters[key as keyof PropertyFilters]])) as PropertyFilters
+  const filters: PropertyFilters = { ...semanticFilters, ...Object.fromEntries(Object.entries(lexicalFilters).filter(([, value]) => value !== null)) }
+  if (lexicalFilters.bedrooms !== null && !semanticFilters.bedrooms_any?.includes(lexicalFilters.bedrooms)) delete filters.bedrooms_any
+  else if (filters.bedrooms_any?.length) filters.bedrooms = null
   const hasFilters = Object.values(filters).some(value => value !== null)
   if (hasFilters && pendingId.startsWith('budget') && /habit|dormitor|cuarto|planta|piso|opciones/.test(value)) {
     answerQuestionId = ''; normalizationIssues.push('property_query_is_not_budget_answer')

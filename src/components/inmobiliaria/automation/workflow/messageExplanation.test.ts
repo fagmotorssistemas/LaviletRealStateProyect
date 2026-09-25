@@ -5,6 +5,17 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 
+test('review diagnostics group repeated causes while retaining individual received and expected values', () => {
+  const detail={code:'catalog_value_mismatch',unit_id:'p',field:'bedrooms',received:5,expected:3}
+  const decision=reviewDecision({status:'rejected_review',semantic_review:{validation_details:[detail,detail,detail]}})
+  assert.equal(decision.causes.length,1)
+  assert.match(decision.causes[0],/3 comprobaciones/)
+  assert.equal(decision.details.length,3)
+  assert.match(decision.details[0],/recibido: 5; catálogo: 3/)
+  const accepted=reviewDecision({status:'checked',semantic_review:{reference_corrections:[{code:'unit_number_resolved'}]}})
+  assert.match(accepted.causes[0],/sin cambiar el texto comercial/)
+})
+
 test('review decision explains the historical family draft ID failure with its actual snapshot', () => {
   const result = reviewDecision({ status: 'rejected_review', issues: ['invalid_review_metadata'], repair_attempts: [],
     semantic_review: { validation_details: [{ code: 'invalid_unit_fact', kind: 'review_metadata', unit_id: '603', field: 'bedrooms', received: 2, index: 9, fragment: 'penthouses con 2 o 3 dormitorios' }] } },
@@ -105,7 +116,8 @@ test('reviewer metadata rejection exposes the literal fragment and bounded repai
     semantic_review: { validation_details: [detail] }, repair_attempts: [{ target: 'review_metadata', status: 'invalid_review_metadata', issues: [detail], final_status: 'rejected_review' }] })
   const sections = explainStep(execution([item]), item).coverageSections!
   assert.match(sections[1].facts[0].value, /Ficha interna/)
-  assert.match(sections[1].facts[1].value, /Texto tomado de la base/)
+  assert.match(sections[1].facts[1].value, /citas que no aparecen literalmente/)
+  assert.match(reviewDecision({semantic_review:{validation_details:[detail]}}).details[0], /Texto tomado de la base/)
   assert.match(sections[3].facts[0].label, /conservando el mensaje/)
 })
 const execution = (steps: WorkflowExecutionStep[], extra: Partial<WorkflowExecution> = {}): WorkflowExecution => ({ id: 'event-a', workflowId: 'overview', path: [], status: 'completed', action: 'accepted', outcome: 'Kommo aceptó el envío', occurredAt: '', leadName: 'Consulta', message: 'Compare estas opciones', traceAvailable: true, steps, ...extra })

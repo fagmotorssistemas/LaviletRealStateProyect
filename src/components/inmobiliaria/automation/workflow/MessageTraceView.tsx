@@ -213,7 +213,8 @@ function ReviewDecision({ output, catalog }: { output: Record<string, unknown>; 
   const decision = reviewDecision(output, catalog)
   return <section className={styles.reviewVerdict} data-tone={decision.tone} aria-label="Resultado de la validación del borrador">
     <h5>{decision.title}</h5><p>{decision.explanation}</p>
-    {decision.details.length > 0 && <><strong>Por qué se tomó esta decisión</strong><ul>{decision.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul></>}
+    {decision.causes.length > 0 && <><strong>Por qué se tomó esta decisión</strong><ul>{decision.causes.map((cause, index) => <li key={index}>{cause}</li>)}</ul></>}
+    {decision.details.length > 0 && <details><summary>Ver las {decision.details.length} comprobaciones individuales</summary><ul>{decision.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul></details>}
     {output.review_reference_source != null && <p>Las referencias de unidades se contrastan con los hechos guardados en el resultado de esta misma ejecución, no con el catálogo actual.</p>}
     <strong>¿Se intentó reparar?</strong><p>{decision.repair}</p>
   </section>
