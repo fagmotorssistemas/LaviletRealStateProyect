@@ -31,15 +31,26 @@ export async function buildWeeklyObjectiveQualification(admin:SupabaseClient,ten
   const enabled=!activation.error&&activation.data?.enabled===true
   const intents=leadIds.length?await admin.from('meta_crm_qualification_intents').select('lead_id,event_id,status').in('lead_id',leadIds):{data:[],error:null}
   if(intents.error)throw intents.error
-  const eventIds=(intents.data||[]).map(r=>String(r.event_id));const accepted=new Set<string>()
+  // Solo intenciones encoladas (no held/excluded retenidas) alimentan enviados/aceptados live.
+  const liveIntents=(intents.data||[]).filter(r=>String(r.status)==='enqueued')
+  const eventIds=liveIntents.map(r=>String(r.event_id)).filter(Boolean)
+  const accepted=new Set<string>()
   const sent=new Set<string>()
-  if(eventIds.length){const outbox=await admin.from('meta_capi_outbox').select('event_id,status,forwarded_at').in('event_id',eventIds);if(outbox.error)throw outbox.error;for(const r of outbox.data||[])if(r.forwarded_at||r.status==='forwarded')sent.add(String(r.event_id))}
-  if(eventIds.length){const log=await admin.from('meta_capi_conversion_log').select('event_id,stage').in('event_id',eventIds).eq('stage','meta_accepted').eq('delivery_lane','live');if(log.error)throw log.error;for(const r of log.data||[])accepted.add(String(r.event_id))}
-  const intentByLead=new Map((intents.data||[]).map(r=>[String(r.lead_id),r]))
+  if(eventIds.length){
+    const outbox=await admin.from('meta_capi_outbox').select('event_id,status,forwarded_at,delivery_lane').in('event_id',eventIds).eq('delivery_lane','live')
+    if(outbox.error)throw outbox.error
+    for(const r of outbox.data||[])if(r.forwarded_at||r.status==='forwarded')sent.add(String(r.event_id))
+  }
+  if(eventIds.length){
+    const log=await admin.from('meta_capi_conversion_log').select('event_id,stage').in('event_id',eventIds).eq('stage','meta_accepted').eq('delivery_lane','live')
+    if(log.error)throw log.error
+    for(const r of log.data||[])accepted.add(String(r.event_id))
+  }
+  const intentByLead=new Map(liveIntents.map(r=>[String(r.lead_id),r]))
   const rows:WeeklyObjectivePanelRow[]=[]
   for(const definition of WEEKLY_OBJECTIVE_DEFINITIONS){const selection=selectWeeklyContactsForObjective(contacts,rules,{objectiveId:definition.objectiveId,ownGroupId:definition.objectiveId,eligibleEventTypes:[...definition.eventTypes],weeklyTarget:WEEKLY_OBJECTIVE_TARGET,windowStart:start,windowEnd:end});const ids=[...selection.ownContactIds,...selection.incorporatedContactIds]
     if(persist&&enabled&&ids.length){const contactById=new Map(contacts.map(c=>[c.contactId,c]));const payload=ids.map(id=>{const c=contactById.get(id)!;const ev=c.evidence.find(e=>definition.eventTypes.includes(e.eventType as never))!;const lead=eligibleLeads.find(l=>String(l.id)===id)!;return{tenant_id:lead.tenant_id,project_id:lead.project_id,objective_id:definition.objectiveId,lead_id:id,relation:selection.ownContactIds.includes(id)?'own':'incorporated',evidence_event_id:ev.evidenceId,evidence_event_type:ev.eventType,evidence_occurred_at:ev.occurredAt}});const saved=await admin.from('crm_weekly_objective_selections').upsert(payload,{onConflict:'objective_id,lead_id',ignoreDuplicates:true});if(saved.error)throw saved.error}
     const sentCount=ids.filter(id=>{const intent=intentByLead.get(id);return Boolean(intent&&sent.has(String(intent.event_id)))}).length;const metaAccepted=ids.filter(id=>{const intent=intentByLead.get(id);return Boolean(intent&&accepted.has(String(intent.event_id)))}).length
     rows.push({objectiveId:definition.objectiveId,label:definition.label,own:selection.own,incorporated:selection.incorporated,eligible:selection.total,selected:selection.total,pending:selection.total-metaAccepted,sent:sentCount,metaAccepted,missing:selection.missingToTarget,configurationPending:selection.configurationPending})}
-  return{enabled,windowStart:start,windowEnd:end,target:WEEKLY_OBJECTIVE_TARGET,rows,note:'Selección interna ≠ envío ni aceptación Meta. Solo meta_accepted cuenta como aceptación.'}
+  return{enabled,windowStart:start,windowEnd:end,target:WEEKLY_OBJECTIVE_TARGET,rows,note:'Selección interna ≠ envío ni aceptación Meta. Solo meta_accepted live cuenta como aceptación; prueba y retenidos no suman.'}
 }
