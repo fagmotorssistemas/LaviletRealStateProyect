@@ -355,6 +355,33 @@ export function MetaCapiBitacoraView() {
         )}
       </section>
 
+      <section className="space-y-2 rounded-2xl border border-[#ece6dc] bg-white p-3 sm:p-4">
+        <div>
+          <h2 className="text-sm font-semibold text-[#1f1a14]">Calificación semanal por objetivo</h2>
+          <p className="mt-1 text-[11px] text-[#6b645c]">
+            Ventana móvil de siete días. Selección interna, envío y aceptación de Meta se cuentan por separado.
+          </p>
+        </div>
+        {data?.weeklyQualification?.rows?.length ? (
+          <div className="overflow-x-auto"><table className="min-w-full text-left text-[11px]">
+            <thead className="border-b border-[#ece6dc] text-[10px] tracking-[0.08em] text-[#8a8176] uppercase"><tr>
+              <th className="px-2 py-2">Objetivo</th><th className="px-2 py-2">Propios</th>
+              <th className="px-2 py-2">Incorporados</th><th className="px-2 py-2">Seleccionados</th>
+              <th className="px-2 py-2">Pendientes</th><th className="px-2 py-2">Enviados</th><th className="px-2 py-2">Meta aceptó</th>
+              <th className="px-2 py-2">Faltante a 50</th>
+            </tr></thead>
+            <tbody>{data.weeklyQualification.rows.map(row=><tr key={row.objectiveId} className="border-b border-[#f0ebe3]">
+              <td className="px-2 py-2 font-medium">{row.label}</td><td className="px-2 py-2 tabular-nums">{row.own}</td>
+              <td className="px-2 py-2 tabular-nums">{row.incorporated}</td><td className="px-2 py-2 tabular-nums">{row.selected}</td>
+              <td className="px-2 py-2 tabular-nums">{row.pending}</td>
+              <td className="px-2 py-2 tabular-nums">{row.sent}</td><td className="px-2 py-2 tabular-nums">{row.metaAccepted}</td>
+              <td className="px-2 py-2 tabular-nums">{row.missing}</td>
+            </tr>)}</tbody>
+          </table></div>
+        ):<p className="text-[11px] text-[#8a8176]">Sin evidencia positiva elegible en la ventana.</p>}
+        <p className="text-[10px] text-[#8a8176]">{data?.weeklyQualification?.note}</p>
+      </section>
+
       <section className="overflow-hidden rounded-2xl border border-[#ece6dc] bg-white">
         {pending && rows.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#8a8176]">

@@ -15,6 +15,7 @@ import {
 import { accelerateTestMessages, testResponseMode } from '@/lib/integrations/automation/test-response-mode'
 import { TEST_RESPONSE_SECONDS } from '@/lib/inmobiliaria/testResponseMode'
 import type { KommoMessageEvidence } from '@/lib/integrations/automation/message-evidence'
+import { acceptsKommoTestContactBatch } from '@/lib/integrations/automation/kommoWebhookIsolation'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,6 +53,15 @@ export async function POST(request: Request) {
     if (probe) events = attachCtwaProbeSummary(events, probe)
   } catch {
     return NextResponse.json({ error: 'Evento inválido' }, { status: 400, headers })
+  }
+
+  // Aislamiento operativo opcional: rechaza el lote completo antes de cualquier
+  // RPC cuando contiene una persona distinta del contacto de prueba configurado.
+  if (process.env.KOMMO_WEBHOOK_ALLOWED_CONTACT_ID?.trim()) {
+    const contactIds = [...evidence, ...events, ...advisorOutbound].map(item => item.contactId)
+    if (!acceptsKommoTestContactBatch(process.env.KOMMO_WEBHOOK_ALLOWED_CONTACT_ID, contactIds)) {
+      return NextResponse.json({ accepted: true, filtered: 'test_contact_only' }, { status: 200, headers })
+    }
   }
   try {
     // Persist before acknowledging. An optional post-response task wakes the same worker.

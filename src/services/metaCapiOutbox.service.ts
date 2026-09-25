@@ -1,5 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { buildWeeklyObjectiveQualification, type WeeklyObjectivePanel } from './weeklyObjectiveQualification.service'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import { isMetaCapiConfigured } from '@/lib/meta/capiServer'
 import {
@@ -315,6 +316,7 @@ export type MetaCapiOutboxResult = {
   notConfigured: MetaCapiNotConfiguredDiag[]
   whatsapp: MetaWhatsAppVisibility
   optimizationVolume: OptimizationEventVolume[]
+  weeklyQualification: WeeklyObjectivePanel
   fetchedAt: string
   scope: { tenantIds: string[]; includeOrphanShowroom: boolean }
 }
@@ -1442,6 +1444,7 @@ export async function listMetaCapiOutbox(
     optimizationEvidence,
     new Date().toISOString(),
   )
+  const weeklyQualification = await buildWeeklyObjectiveQualification(admin, tenantIds)
 
   const kpisByChannel: MetaCapiChannelKpis = {
     web: 0,
@@ -1499,6 +1502,7 @@ export async function listMetaCapiOutbox(
     notConfigured: notConfiguredRows,
     whatsapp,
     optimizationVolume,
+    weeklyQualification,
     fetchedAt: new Date().toISOString(),
     scope: { tenantIds, includeOrphanShowroom },
   }
