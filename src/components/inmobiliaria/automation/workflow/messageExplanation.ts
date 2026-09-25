@@ -220,6 +220,26 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   const query = output.catalog_query || output.query || input.catalog_query || input.query
   const queryText = queryDescription(query, snapshots)
+  if (step.key === 'catalog_resolution') {
+    const before = row(input.previous_query), after = row(query)
+    const oldFilters = row(before.filters), applied = row(after.filters), supplied = row(input.filters)
+    if (after.category && after.category !== before.category) found.push(fact('Qué cambió', `La categoría pasó a ${humanValue(after.category)}.`))
+    for (const key of ['bedrooms', 'floor_number', 'min_area_m2', 'max_area_m2']) {
+      if (applied[key] != null && oldFilters[key] === applied[key] && supplied[key] == null) {
+        found.push(fact('Qué se conservó de la memoria', `${labels[key]}: ${humanValue(applied[key])}. No se indicó un valor nuevo en este mensaje; el sistema mantuvo el de la consulta anterior.`))
+      } else if (oldFilters[key] != null && oldFilters[key] !== applied[key]) {
+        found.push(fact('Qué filtro cambió', `${labels[key]}: antes ${humanValue(oldFilters[key])}; ahora ${applied[key] == null ? 'sin restricción activa' : humanValue(applied[key])}.`))
+      }
+    }
+    if (queryText) found.push(fact('Qué se buscó con esa decisión', queryText))
+    const next = execution.steps.find(item => item.order > step.order && item.key === 'dialogue_decision')
+    const results = row(next?.output.catalog_results)
+    if (next?.output.catalog_coverage && row(next.output.catalog_coverage).status === 'no_results'
+      || results.complete === true && Array.isArray(results.unit_ids) && !results.unit_ids.length) {
+      found.push(fact('Resultado de la búsqueda registrada', 'No se encontraron unidades para esa consulta. La ausencia de coincidencias corresponde a estos filtros, no a todo el catálogo.'))
+    }
+    if (!Object.keys(before).length) used.push(fact('Memoria anterior', 'No hay una consulta anterior registrada en este paso.'))
+  }
   if (queryText) used.push(fact('Consulta ejecutada', queryText))
   if (has(output, 'coverage_locked')) found.push(fact('Revisión posterior', output.coverage_locked === false
     ? 'Permitida. Este dato no significa que falte información ni que se haya solicitado un asesor.' : 'La respuesta estaba protegida frente a una reescritura posterior.'))

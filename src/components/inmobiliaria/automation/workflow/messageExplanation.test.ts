@@ -21,6 +21,14 @@ test('prompt colors preserve the captured JSON and identify nested conversationa
 })
 
 const step = (order: number, key: string, output: Record<string, unknown> = {}, input: Record<string, unknown> = {}): WorkflowExecutionStep => ({ order, key, label: key, category: 'decision', status: 'succeeded', source: 'test', startedAt: '', completedAt: '', durationMs: 2, errorCode: null, input, output })
+test('catalog explanation identifies inherited filters without inventing a no-results outcome', () => {
+  const item = step(10, 'catalog_resolution', { query: { category: 'penthouse', filters: { bedrooms: 5 } } },
+    { previous_query: { filters: { bedrooms: 5 } }, filters: { bedrooms: null } })
+  const explanation = explainStep(execution([item]), item)
+  assert.ok(explanation.found.some(f => f.label === 'Qué se conservó de la memoria' && f.value.includes('5')))
+  assert.ok(explanation.found.some(f => f.label === 'Qué cambió'))
+  assert.ok(!explanation.found.some(f => f.label === 'Resultado de la búsqueda registrada'))
+})
 
 test('pending messages remain alongside lead history before a conversation is assigned', () => {
   const old = { ...execution([]), id: 'old', leadGroupId: 'tenant:project:42', conversationId: 'conversation-1' }

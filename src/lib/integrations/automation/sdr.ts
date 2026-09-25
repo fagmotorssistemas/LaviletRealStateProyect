@@ -164,6 +164,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const quote = unitPriceQuote(info, current, summary)
   const alternative = !quote ? unitAlternative(info,current,statedBudget(current)) : null
   if(alternative)return {reply:alternative.reply,audit:{source:'unit_alternative',fallback:false,
+    ...(object(alternative).pending_question ? { pending_question: object(alternative).pending_question } : {}),
     alternative_phase: text(object(alternative).phase) || null, alternative_unit_id:alternative.unit?.id||null}}
   const budgetOptions=budgetOptionsReply(info,current)
   if(budgetOptions && !quote)return {reply:budgetOptions,audit:{source:'budget_options',fallback:false}}

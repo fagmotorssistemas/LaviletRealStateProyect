@@ -300,10 +300,17 @@ export function unitAlternative(info: Row, current: string, budget: number|null 
     const question = apartments.length && penthouses.length
       ? '¿Le gustaría que comparemos ambas alternativas para valorar cuál se adapta mejor a lo que busca?'
       : '¿Le gustaría que revisemos estas opciones para valorar si alguna se adapta a lo que busca?'
+    const candidates = catalog.filter(unit => Number(unit.bedrooms) > 0 && Number(unit.bedrooms) === Math.max(...catalog
+      .filter(other => other.category === unit.category).map(other => Number(other.bedrooms) || 0)))
+    const counts = [...new Set(candidates.map(unit => Number(unit.bedrooms)))]
     return {
       reply:`${intro} Sin embargo, podemos ayudarle a evaluar nuestras alternativas residenciales más amplias: ${alternatives}. ${question}`,
       unit:null,
       phase:'compare_categories',
+      pending_question: { id: 'property_category', act: 'explore_alternatives', question,
+        candidate_ids: candidates.map(unit => unit.id), target_ids: [],
+        proposed_query: { group: 'residential', category: null, operation: 'search', scope: 'offered',
+          filters: { bedrooms: counts.length === 1 ? counts[0] : null, bedrooms_required: false } } },
     }
   }
   let candidates=catalog

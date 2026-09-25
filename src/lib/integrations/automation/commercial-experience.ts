@@ -1,4 +1,5 @@
 import { CURRENT_TONE } from './conversation-tone'
+import { informationSubject } from './information-context'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { commercialTurnTopics } from './multi-topic-turn'
@@ -272,7 +273,9 @@ export function isProjectInformationRequest(current: string) {
 
 export function projectOverviewReply(info: Row, current: string) {
   const message = normalized(current)
-  if (!isProjectInformationRequest(current) || !info.posicionamiento_proyecto) return ''
+  const subject = informationSubject(current, info)
+  // This paragraph is also used as one component of a mixed visit response.
+  if (!(subject === 'project' || (subject === null && isProjectInformationRequest(current))) || !info.posicionamiento_proyecto) return ''
   const history = (Array.isArray(info.historial) ? info.historial : []).map(object)
   const firstReply = !history.some(row => ['bot', 'asesor'].includes(text(row.role)))
   const includesGreeting = /^(?:hola|buenos dias|buen dia|buenas tardes|buenas noches|buenas|saludos|que tal)\b/.test(message)
@@ -292,6 +295,8 @@ export function projectOverviewReply(info: Row, current: string) {
 }
 
 export function projectInformationReply(info: Row, current: string, brochureUrl: string) {
+  // Only a single project request may consume the whole turn as a presentation.
+  if (informationSubject(current, info) !== 'project') return ''
   // Shared eligibility for both conversation entry and commercial fallback.
   // A general presentation must not consume specific questions or visit actions.
   if (/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|agendar|constructora|entrega|ubicacion|sector|alrededor|cerca/.test(normalized(current))) return ''

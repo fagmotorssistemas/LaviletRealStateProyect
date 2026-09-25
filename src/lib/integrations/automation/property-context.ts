@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
+import { informationSubject } from './information-context'
 import { resolveCatalogReference } from './catalog-reference'
 import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText } from './turn-semantics'
 
@@ -76,7 +77,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const pending = normalizedPendingQuestion(Object.keys(object(summary._pending_question)).length ? summary._pending_question : context.pending_question)
   const acceptsDetails = pending.act === 'show_unit_details'
     && /^(?:si\s+)?(?:por favor\s+)?(?:envieme|mandeme|compartame|muestreme)\s+(?:los\s+)?detalles(?:\s+por favor)?$/.test(m)
-  const positive = acceptsDetails || /^(?:si(?: por favor| esta bien| me parece bien)?|claro|de acuerdo|esta bien|me parece bien|perfecto|revisemos|veamos|si (?:prefiero|quiero|me interesa) (?:esa|esta) opcion|(?:prefiero|quiero|me interesa) (?:esa|esta) opcion)(?: gracias)?$/.test(m.replace(/[.!¡,]/g, '').trim())
+  const positive = acceptsDetails || /^(?:si(?: claro| por favor| esta bien| me parece bien)?|claro|de acuerdo|esta bien|me parece bien|perfecto|revisemos|veamos|si (?:prefiero|quiero|me interesa) (?:esa|esta) opcion|(?:prefiero|quiero|me interesa) (?:esa|esta) opcion)(?: gracias)?$/.test(m.replace(/[.!¡,]/g, '').trim())
   const confirmsSet = positive && ['choose_category', 'explore_alternatives'].includes(text(pending.act))
   const semanticValid = semantic.confidence === 'high'
   const category = semanticValid && !confirmsSet ? text(semantic.category) : ''
@@ -84,6 +85,26 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const eligible = (units: Row[]) => units.filter(unit => (!category || unit.category === category) && !excluded.includes(text(unit.category)))
   const fromIds = (value: unknown) => ids(value).flatMap(id => catalog.filter(unit => text(unit.id) === id))
   const previousQuery = object(context.query)
+  // Older alternative offers recorded the journey but omitted their proposal.
+  // Recover only a documented alternative journey, never an arbitrary old filter.
+  const previousFilters = normalizedPropertyFilters(previousQuery.filters)
+  if (context.journey === 'residential_alternatives' && ['compare_categories', 'choose_category'].includes(text(context.phase))
+    && pending.act === 'choose_category' && (positive || !!category || answersPendingQuestion(semantics, pending.id as Parameters<typeof answersPendingQuestion>[1], 'affirmative'))
+    && previousFilters.bedrooms !== null && previousFilters.bedrooms_required !== true
+    && !catalog.some(unit => ['departamento', 'penthouse'].includes(text(unit.category)) && Number(unit.bedrooms) === previousFilters.bedrooms)) {
+    const options = catalog.filter(unit => ['departamento', 'penthouse'].includes(text(unit.category))
+      && (previousFilters.floor_number === null || Number(unit.floor_number) === previousFilters.floor_number)
+      && (previousFilters.min_area_m2 === null || Number(unit.area_internal_m2) >= previousFilters.min_area_m2)
+      && (previousFilters.max_area_m2 === null || Number(unit.area_internal_m2) <= previousFilters.max_area_m2))
+    const candidates = options.filter(unit => Number(unit.bedrooms) > 0 && Number(unit.bedrooms) === Math.max(...options
+      .filter(other => other.category === unit.category).map(other => Number(other.bedrooms) || 0)))
+    if (candidates.length) {
+      const counts = [...new Set(candidates.map(unit => Number(unit.bedrooms)))]
+      pending.act = 'explore_alternatives'; pending.candidate_ids = unitIds(candidates)
+      pending.proposed_query = normalizedPropertyQuery({ group: 'residential', operation: 'search', scope: 'offered',
+        filters: { ...previousFilters, bedrooms: counts.length === 1 ? counts[0] : null, bedrooms_required: false } })
+    }
+  }
   // Compatibility for the former no-match offer, which recorded its verified
   // alternatives but mislabeled its yes/no question as a category choice.
   if (positive && pending.act === 'choose_category' && normalized(text(pending.question)) === 'le gustaria revisar las alternativas disponibles') {
@@ -134,11 +155,14 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.query_transition = { reason: 'largest_available_after_unavailable_preference', before: inheritedBedrooms, after: { ...filters }, preference_retained: inheritedBedrooms.bedrooms }
   } else context.query_transition = {}
   let operation = asksRanking ? 'rank' : broadResidential || hasCurrentFilters && !['compare', 'details'].includes(text(semantic.operation)) ? 'search' : text(semantic.operation) || 'none'
+  const continuesInformation = informationSubject(current, { property_context: context, historial: history, semantica_turno: semantics }) === 'property'
+  if (continuesInformation && !hasCurrentFilters && !category) operation = 'details'
   if (selector && (['search', 'rank'].includes(operation) || ['cheapest', 'most_expensive'].includes(selector) && operation === 'select')) operation = 'rank'
   const query: Row = { group: group || text(previousQuery.group) || null,
     category: broadResidential ? null : category || text(previousQuery.category || context.preference_category) || null,
     filters, operation, selector: selector || null,
-    scope: text(semantic.query_scope) || (operation === 'search' || operation === 'rank' ? 'catalog' : null) }
+    scope: continuesInformation ? ids(context.selected_ids).length ? 'selected' : ids(context.comparison_ids).length ? 'comparison' : 'offered'
+      : text(semantic.query_scope) || (operation === 'search' || operation === 'rank' ? 'catalog' : null) }
   context.query = query
   if (groupChanged) context.original_query = {}
   if (broadResidential) { context.preference_category = null; context.excluded_categories = []; context.selected_ids = []; context.comparison_ids = [] }
@@ -198,7 +222,9 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // the customer to repeat a code. Accepting details never books a visit or purchase.
   const acceptsPending = positive || answersPendingQuestion(semantics, pending.id as Parameters<typeof answersPendingQuestion>[1], 'affirmative')
   const proposal = normalizedPropertyQuery(pending.proposed_query)
-  const acceptedAlternative = pending.act === 'explore_alternatives' && acceptsPending && Object.keys(proposal).length > 0
+  const acceptedAlternative = pending.act === 'explore_alternatives' && (acceptsPending || !!category)
+    && normalizedPropertyFilters(previousQuery.filters).bedrooms_required !== true
+    && Object.keys(proposal).length > 0
   if (acceptedAlternative) {
     // Exploring a relaxed query is not a new declaration of the original need,
     // and accepting a set never selects one of its units.
@@ -212,6 +238,8 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.offered_ids = ids(pending.candidate_ids)
     context.selected_ids = []; context.comparison_ids = []; context.focused_ids = []
     context.pending_question = {}
+    context.phase = 'exploring_alternatives'
+    context.query_transition = { reason: 'accepted_alternatives', before: previousQuery, after: { ...query }, original_requirement_retained: true }
   } else if (pending.act === 'choose_category' && acceptsPending && !category) {
     query.operation = operation = 'search'
     // A bare yes cannot restore an older preference after several categories
@@ -314,7 +342,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []; context.phase = null
     return result([], 'category_change')
   }
-  const followup = (semanticValid && ['comparison', 'followup'].includes(text(semantic.reference_kind)))
+  const followup = continuesInformation || (semanticValid && ['comparison', 'followup'].includes(text(semantic.reference_kind)))
     || /^(?:y\s+)?(?:en\s+)?(?:el\s+)?(?:precio|valor)\b|\b(?:y (?:el|en) precio|que (?:precio|valor)|cuanto (?:cuesta|vale|cuestan|valen)|diferencia|ambos|ambas|entre ellos)\b/.test(m)
   if (followup && !/\b(?:edificio|proyecto|sector|alimentos|papas|vehiculos?|motos?)\b/.test(m)) {
     const requested = ids(context.comparison_ids).length ? ids(context.comparison_ids) : ids(context.selected_ids)

@@ -18,6 +18,22 @@ const info = (history: unknown[] = []) => ({
 })
 
 describe('project information conversation', () => {
+  it('uses interpreted project intent for a typo after a greeting', () => {
+    const reply = projectInformationReply({ ...info([{ role: 'bot', content: 'Hola, ¿en qué podemos ayudarle?' }]),
+      semantica_turno: { primary_intent: 'project_information', confidence: 'high', property: { operation: 'search' } } }, 'Quieor informacion', BROCHURE_URL)
+    assert.match(reply, /brochure/)
+    assert.match(reply, /Puertas del Sol/)
+  })
+  it('does not restart the project presentation with an active property, but allows an explicit topic change', () => {
+    const context = { ...info(), property_context: { selected_ids: ['u502'], query: { category: 'departamento' } } }
+    assert.equal(projectInformationReply(context, 'Quiero información', BROCHURE_URL), '')
+    assert.match(projectInformationReply(context, 'Quiero información general del proyecto', BROCHURE_URL), /brochure/)
+  })
+  it('leaves mixed project questions to the full response instead of consuming them as an overview', () => {
+    assert.equal(projectInformationReply({ ...info(), semantica_turno: {
+      primary_intent: 'project_information', confidence: 'high', requests: [{ domain: 'property' }, { domain: 'property' }],
+    } }, 'Quiero información del proyecto y saber si admiten mascotas', BROCHURE_URL), '')
+  })
   it('does not replace specific project questions or operational requests with an overview', () => {
     for (const current of ['Quiero información del proyecto y el precio del 502',
       'Quiero información del proyecto y agendar una visita', 'Quiero información del proyecto y del crédito',

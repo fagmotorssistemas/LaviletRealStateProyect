@@ -18,6 +18,42 @@ const catalog = [
 ]
 const apartments = [{role:'bot',content:'El departamento 202 está en la segunda planta y el 302 en la tercera. Ambos tienen 3 dormitorios.'}]
 const penthouses = [{role:'bot',content:'Estas son las opciones: el penthouse 602 (142,09 m²); el penthouse 605 (140,53 m²). ¿Cuál de estas opciones le gustaría conocer?'}]
+test('accepted alternatives survive a price interruption and a category choice', () => {
+  const { unitAlternative } = require('../src/lib/integrations/automation/unit-alternatives.ts')
+  const offer = unitAlternative({ catalogo: catalog }, 'no tiene nada de 5 dormitorios?')
+  assert.equal(offer.pending_question.act, 'explore_alternatives')
+  let saved = { query: { group: 'residential', filters: { bedrooms: 5 } }, pending_question: offer.pending_question }
+  const yes = 'si claro. gracias'
+  const accepted = resolvePropertyTurn(catalog, yes, { _property_context: saved }, [], semantics(yes, { operation: 'none' }))
+  assert.equal(accepted.query.filters.bedrooms, 3)
+  assert.equal(accepted.context.original_query.filters.bedrooms, 5)
+  saved = rememberPropertyReply(catalog, accepted.context, 'Opciones de tres dormitorios. ¿Qué categoría prefiere?', {
+    offered_unit_ids: accepted.matches.map(unit => unit.id), pending_question: { id: 'property_category', act: 'choose_category', question: '¿Qué categoría prefiere?' } })
+  const price = resolvePropertyTurn(catalog, '¿y los precios?', { _property_context: saved }, [], semantics('¿y los precios?', { operation: 'none' }))
+  const selected = resolvePropertyTurn(catalog, 'me interesan los penthouses', { _property_context: price.context }, [], semantics('me interesan los penthouses', { category: 'penthouse', operation: 'search' }))
+  assert.equal(selected.query.filters.bedrooms, 3)
+  assert.equal(selected.query.category, 'penthouse')
+  const answer = catalogDialogueReply({ catalogo: catalog, referencia_unidad: selected, property_context: selected.context }, 'me interesan los penthouses')
+  assert.doesNotMatch(answer.reply, /5 dormitorios|no contamos/)
+  assert.match(answer.reply, /3 dormitorios/)
+})
+test('legacy alternative choice recovers the active search without erasing the original need', () => {
+  const saved = { journey: 'residential_alternatives', phase: 'compare_categories', query: { group: 'residential', filters: { bedrooms: 5 } },
+    pending_question: { id: 'property_category', act: 'choose_category', question: '¿Departamentos o penthouses?' } }
+  const current = 'me interesan los penthouses'
+  const result = resolvePropertyTurn(catalog, current, { _property_context: saved }, [], semantics(current, { category: 'penthouse', operation: 'search' }))
+  assert.equal(result.query.filters.bedrooms, 3)
+  assert.deepEqual(result.matches.map(unit => unit.id), ['u602', 'u605'])
+  const firm = resolvePropertyTurn(catalog, current, { _property_context: { ...saved, query: { ...saved.query, filters: { bedrooms: 5, bedrooms_required: true } } } }, [], semantics(current, { category: 'penthouse', operation: 'search' }))
+  assert.equal(firm.query.filters.bedrooms, 5)
+})
+test('generic information continues the selected unit instead of searching the full catalogue', () => {
+  const current = 'quiero informacion'
+  const result = resolvePropertyTurn(catalog, current, { _property_context: { selected_ids: ['u602'], query: { category: 'penthouse' } } }, [],
+    { primary_intent: 'project_information', confidence: 'high', property: { operation: 'search', confidence: 'high' } })
+  assert.equal(result.query.operation, 'details')
+  assert.deepEqual(result.matches.map(unit => unit.id), ['u602'])
+})
 function semantics(current, property) {
   return normalizeTurnSemantics({turn_semantics:{primary_intent:'select_property',primary_evidence:current,confidence:'high',property:{...property,evidence:current,confidence:'high'}}},current,{})
 }

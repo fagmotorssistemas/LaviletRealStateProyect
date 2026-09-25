@@ -470,6 +470,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain ? '' : current,
   }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
   const { extracted, semantics: turnSemantics } = interpretation
+  turnSemantics.requests = interpretation.requests
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: process.env.OPENAI_MODEL,
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
   const categoryPreference = preferredPropertyCategory(current, turnSemantics)
@@ -672,8 +673,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
 
   // General information is about the project even when extraction also assigns
   // a property group/search. Keep operational actions ahead of this presentation.
-  if (!reply && !inbound.mediaFailed && !operationalTurn && isProjectInformationRequest(current)) {
-    const info = await commercialContext(lead, context.historial)
+  if (!reply && !inbound.mediaFailed && !operationalTurn && (isProjectInformationRequest(current) || turnSemantics.primary_intent === 'project_information')) {
+    const info = { ...await commercialContext(lead, context.historial), semantica_turno: turnSemantics, property_context: reference.context }
     reply = projectInformationReply(info, current, BROCHURE_URL)
     if (reply) audit = { source: 'project_overview', brochure_sent: true }
   }
