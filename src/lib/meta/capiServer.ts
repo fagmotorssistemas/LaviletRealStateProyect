@@ -119,6 +119,8 @@ export type EnqueueMetaEventInput = {
   contentIds?: string[]
   contentName?: string | null
   contentCategory?: string | null
+  /** Meta custom_data.content_type; home listings = `home_listing`. */
+  contentType?: string | null
   lvInternalSubtype?: string | null
   unitId?: string | null
   saleId?: string | null
@@ -244,6 +246,7 @@ export async function enqueueMetaEvent(
         content_ids: input.contentIds,
         content_name: input.contentName || undefined,
         content_category: input.contentCategory || undefined,
+        content_type: input.contentType || undefined,
         lv_internal_subtype: input.lvInternalSubtype || undefined,
         unit_id: input.unitId || undefined,
         sale_id: input.saleId || undefined,

@@ -15,6 +15,7 @@ import {
   isMetaCoreSetupConservative,
 } from '@/lib/marketing/metaEventSourceUrl'
 import { newMetaEventId, trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
+import { homeListingContentParams } from '@/lib/meta/homeListingContent'
 
 const inFlightByKey = new Set<string>()
 /** Solo con leadId: evita re-disparo de sesión del mismo lead+unidad. */
@@ -57,11 +58,7 @@ export async function captureWishlistAfterSave(opts: {
   const typologyCode = String(opts.typologyCode || '').trim()
   const params = conservative
     ? undefined
-    : {
-        content_ids: [unitId],
-        content_name: unitNumber ? `Unidad ${unitNumber}` : undefined,
-        content_category: typologyCode || 'unit',
-      }
+    : homeListingContentParams(unitId, { unitNumber }) || undefined
 
   const ids = getMetaClickIds()
   try {

@@ -148,6 +148,6 @@ export async function buildLaviletHomeListingCatalog(
     generatedAt: new Date().toISOString(),
     projectId: LAVILET_PROJECT_ID,
     datasetCompatibilityNote:
-      'home_listing_id = units.id = content_ids de ViewContent/Wishlist cuando Core Setup no está en modo conservador. Dataset web 923439043758658; no usa messaging dataset WhatsApp.',
+      'home_listing_id = units.id. Con Core Setup OFF, Pixel/CAPI deben usar content_ids=[units.id] y content_type=home_listing. Dataset web 923439043758658; no messaging WhatsApp.',
   }
 }

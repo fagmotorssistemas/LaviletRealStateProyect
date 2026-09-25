@@ -12,6 +12,7 @@ import {
   isMetaCoreSetupConservative,
 } from '@/lib/marketing/metaEventSourceUrl'
 import { trackMetaPixelEvent } from '@/lib/marketing/metaPixel'
+import { homeListingContentParams } from '@/lib/meta/homeListingContent'
 import {
   claimViewContentSend,
   shouldSkipViewContent,
@@ -49,15 +50,11 @@ export function MetaViewContentUnit({
       if (shouldSkipViewContent(firedVisitKey.current, visitKey)) return
 
       // Core Setup: sin parámetros de contenido en Pixel/CAPI.
-      // Simulación Preview: no carga fbevents.js; sanear URL propia ≠ URL de fbevents.
+      // Fuera de Core Setup: content_ids=units.id y content_type=home_listing (catálogo inmobiliario).
       const conservative = isMetaCoreSetupConservative()
       const params = conservative
         ? undefined
-        : {
-            content_ids: [unitId],
-            content_name: `Unidad ${unitNumber}`,
-            content_category: category || 'unit',
-          }
+        : homeListingContentParams(unitId, { unitNumber }) || undefined
       void (async () => {
         let ids = getMetaClickIds()
         // Con Pixel simulado no hay fbevents.js: no esperar _fbp.
@@ -81,13 +78,7 @@ export function MetaViewContentUnit({
             event_time: eventTime,
             unit_id: unitId,
             lv_internal_subtype: 'detalle_unidad',
-            ...(conservative
-              ? {}
-              : {
-                  content_ids: [unitId],
-                  content_name: `Unidad ${unitNumber}`,
-                  content_category: category || 'unit',
-                }),
+            ...(conservative ? {} : params || {}),
             event_source_url: currentMetaEventSourceUrl(),
             fbp: ids.fbp || undefined,
             fbc: ids.fbc || undefined,
@@ -117,7 +108,7 @@ export function MetaViewContentUnit({
       cancelled = true
       window.removeEventListener('lv-consent-changed', emit)
     }
-  }, [unitId, unitNumber, category, enabled])
+  }, [unitId, unitNumber, enabled])
 
   return null
 }
