@@ -1,4 +1,5 @@
 import { currentTopicReply } from './current-topic'
+import { withHandoffNotice } from './handoff-copy'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { visitTruthReply } from './visit-copy'
 import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
@@ -1070,6 +1071,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
+      commercial_continuation: reviewed.audit.commercial_continuation,
+      text_transformations: reviewed.audit.text_transformations,
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
       price_evidence: reviewed.audit.price_evidence,
       final_validation: reviewed.audit.final_validation,
@@ -1103,13 +1106,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       const reason = reviewed.unresolved.length ? 'resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650) : pendingCommercialHandoff
       const notice = await transferToAdvisor(reason, { rule_id: 'advisor.verified_information_gap', origin: 'coverage_review', caused_by_step: coverageStep,
         facts: { unresolved: reviewed.unresolved, review_status: reviewed.audit.status, pending_commercial_handoff: pendingCommercialHandoff || null } })
-      reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + notice
+      const beforeHandoff = reply
+      reply = withHandoffNotice(reply, notice)
+      audit.handoff_text_transformations = [{ stage: 'Derivación por consultas pendientes: aviso añadido conservando la pregunta', before: beforeHandoff, after: reply }]
       audit = { ...audit, additional_questions_handoff: true }
     }
   }
   // A writer may improve the answer, but cannot hide a handoff already performed.
   if (handoffNotice && !reply.includes(handoffNotice)) {
-    reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + handoffNotice
+    const beforeHandoff = reply
+    reply = withHandoffNotice(reply, handoffNotice)
+    audit.handoff_text_transformations = [{ stage: 'Aviso de derivación realizada: se conserva la pregunta', before: beforeHandoff, after: reply }]
   }
   if (!['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
     reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
@@ -1137,7 +1144,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reply = naturalConversationReply(withOpening(catalogBaseReply), text(lead.name), turnGreeting, activeLast.sentAt)
     if (locationRequestKind(current)) reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
     if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
-    if (handoffNotice && !reply.includes(handoffNotice)) reply = reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() + '\n\n' + handoffNotice
+    if (handoffNotice && !reply.includes(handoffNotice)) reply = withHandoffNotice(reply, handoffNotice)
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
   }
   const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
@@ -1147,7 +1154,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   audit.pending_question = reply.includes('?') ? replyPending : {}
   if (!reply.trim() || reply.length > 3000) throw new Error('EMPTY_OR_LONG_REPLY')
   trace.finish(validationStep, 'succeeded', {
-    text_transformations: beforeFinalFormatting !== reply ? [{ stage: 'Validación y formato final antes de Kommo', before: beforeFinalFormatting, after: reply }] : [],
+    text_transformations: [...(Array.isArray(audit.handoff_text_transformations) ? audit.handoff_text_transformations : []), ...(beforeFinalFormatting !== reply ? [{ stage: 'Validación y formato final antes de Kommo', before: beforeFinalFormatting, after: reply }] : [])],
     final_preview: traceText(reply, 3000),
     response_length: reply.length,
     response_preview: traceText(reply, 280),

@@ -93,6 +93,7 @@ No se presente si no se lo preguntan. Nunca afirme ser una persona; si preguntan
 Devuelva reply igual a la base si ya cumple. Intente no superar 1200 caracteres, límite absoluto 1500. El propósito y la cobertura son para auditoría interna, no los mencione al cliente. Devuelva solo el JSON del esquema.`
 
 const REVIEW_RULES = `Audite independientemente una reparación de respuesta de La Vilet. Relea TODO mensaje_actual, separando cada solicitud incluso sin signos de pregunta; no confíe en que el inventario propuesto esté completo.
+Distinga un referente pendiente de un dato del proyecto ausente: preguntar qué unidad interesa es clarification, no missing_fact. No añada a missing_fact_fragments una consulta que se resuelve aclarando la referencia con el cliente. Un dato realmente ausente requiere una consulta identificada y falta de evidencia; aprobar una aclaración y pedir derivación por esa misma consulta es contradictorio.
 Evalúe la coherencia del texto completo, después de las transformaciones. answered_content_preserved debe ser false si hay oraciones incompletas, sujetos sin predicado o conectores rotos por un recorte. No rechace diferencias de estilo correctas. Explicar que no hay crédito directo es pertinente ante preguntas generales de financiamiento; si la explicación es ajena al tema actual, solicite reformular el mensaje completo.
 ${COMMERCIAL_CONTINUATION_RULES}
 operational_goal_preserved debe ser false si la propuesta ignora la necesidad actual, vuelve a exigir una selección ya resuelta o afirma un cambio de selección no solicitado. Ofrecer alternativas no equivale a seleccionarlas. Evalúe esto con property_context, mensaje_actual e historial; no exija conservar una pregunta comercial de la base cuando decisiones_protegidas=false.
@@ -356,6 +357,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           : 'Corrija los controles indicados usando únicamente la evidencia verificada; mantenga el resto de la respuesta pertinente.',
         borrador: proposedReply, metadatos: previousMetadata, controles: repairAttempts.at(-1)?.issues,
         evaluacion_anterior: repairAttempts.at(-1)?.rejected_review,
+        contraste_faltantes: repairAttempts.at(-1)?.assessments,
       } } : {}) }, coverageSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
     if (metadataDraft !== null && proposedReply !== metadataDraft) return fallback('rejected_guard', [], ['metadata_repair_changed_reply'])
@@ -480,7 +482,13 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       }
       return fallback(status, requests, finalIssues)
     }
-    const assessed = assessMissingFacts(unresolved, input.audit || {}, requests)
+    const assessed = assessMissingFacts(unresolved, input.audit || {}, requests, { ...question,
+      validated: continuationChecks.question_has_purpose === true && continuationChecks.operational_goal_preserved === true })
+    if (assessed.assessments.some(item => item.outcome === 'review_conflict') && attempt === 0 && repairAttempts.length === 0) {
+      repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: ['contradictory_missing_fact'],
+        proposed_preview: traceText(reply, 1500), assessments: assessed.assessments })
+      continue
+    }
     unresolved = assessed.unresolved
     for (const repair of repairAttempts) repair.final_status = 'checked'
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,

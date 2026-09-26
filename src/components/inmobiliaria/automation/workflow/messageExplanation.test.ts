@@ -5,6 +5,15 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 
+test('coverage shows subsequent handoff changes without presenting its intermediate reply as delivered',()=>{
+  const coverage=step(1,'response_coverage',{status:'checked',needs_advisor:false,handoff_assessments:[{fragment:'precio?',outcome:'clarification_needed',reason:'Falta identificar la unidad'}]})
+  const validation=step(2,'response_validation',{text_transformations:[{stage:'Derivación',before:'¿Qué unidad?',after:'Aviso. ¿Qué unidad?'}]})
+  const sections=explainStep(execution([coverage,validation]),coverage).coverageSections!
+  assert.ok(sections.some(section=>section.title==='Cambios posteriores a esta aprobación'))
+  assert.match(JSON.stringify(sections),/precisión del cliente/)
+  assert.match(JSON.stringify(sections),/Aviso/)
+})
+
 test('text changes distinguish the reviewed draft from the final formatting before delivery',()=>{
   for(const key of ['response_coverage','response_validation']){
     const item=step(1,key,{status:'checked',text_transformations:[{stage:'Normalización de ruta',before:'Texto original',after:'Texto modificado'}]})

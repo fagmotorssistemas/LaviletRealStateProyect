@@ -52,6 +52,9 @@ const labels: Record<string, string> = {
   property_excluded_categories: 'Categorías descartadas', unit_number: 'Número de unidad',
 }
 const values: Record<string, string> = {
+  clarification_needed: 'Se necesita una precisión del cliente; no requiere asesor por este motivo',
+  review_conflict: 'Clasificaciones contradictorias; no autorizan una derivación automática',
+  contradictory_missing_fact: 'La misma consulta figura como atendida o aclaración y como dato faltante',
   price_unit_mismatch: 'El importe no corresponde a la unidad mencionada', price_unit_outside_query: 'Se menciona una unidad ajena a la consulta de precios', verified_price_omitted: 'Falta un precio verificado solicitado',
   invalid_coverage: 'Borrador descartado: ficha interna de redacción inválida',
   residential: 'Viviendas', commercial: 'Locales comerciales', property: 'Consulta inmobiliaria', mixed: 'Consulta inmobiliaria y otro tema', neutral: 'Sin intención comercial definida', out_of_scope: 'Consulta ajena al proyecto',
@@ -241,11 +244,15 @@ function coverageSections(output: Row): ExplanationSection[] {
       { label: '¿La revisión solicita un asesor?', value: output.needs_advisor === true ? 'Sí. Esto registra la necesidad; el envío al asesor debe comprobarse en el paso de derivación.' : output.needs_advisor === false ? 'No. Esta revisión no solicitó una derivación.' : 'No quedó registrado.' },
       { label: 'Datos considerados faltantes', value: Array.isArray(output.missing_fact_fragments) && output.missing_fact_fragments.length ? humanValue(output.missing_fact_fragments) : 'No se registraron datos considerados faltantes.' },
       { label: 'Comprobación de esos faltantes', value: Array.isArray(output.handoff_assessments) && output.handoff_assessments.length ? humanValue(output.handoff_assessments) : 'No se registró un contraste de posibles faltantes.' },
+      ...rows(output.handoff_assessments).map(item => ({ label: 'Decisión para esta consulta', value: `${str(item.fragment)}: ${humanValue(item.outcome)}. ${str(item.reason)}${item.question ? ` Pregunta conservada: ${str(item.question)}` : ''}` })),
     ] },
   ]
 }
 
 export function explainStep(execution: WorkflowExecution, step: WorkflowExecutionStep): StepExplanation {
+  const laterValidation = step.key === 'response_coverage' ? execution.steps.find(item => item.key === 'response_validation' && item.order > step.order) : undefined
+  const laterChanges = laterValidation && rows(laterValidation.output.text_transformations).length
+    ? transformationSections(laterValidation.output).map(section => ({ ...section, title: 'Cambios posteriores a esta aprobación', description: 'La validación final registró estos cambios después de la revisión. La respuesta conservada en este paso es intermedia; consulte Envío a Kommo para verificar el envío.' })) : []
   const input = step.input, output = step.output, decision = decisionRecord(step), snapshots = catalogSnapshots(execution, step)
   const used = Object.entries(input).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query'].includes(key))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
@@ -304,7 +311,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
         : step.key === 'response_coverage' ? 'Se revisó si la respuesta atiende las solicitudes del mensaje. Los estados registrados permiten revisar esa decisión.'
           : 'Entradas y resultados conservados para este paso de la ejecución.'
   return {
-    coverageSections: step.key === 'response_coverage' ? coverageSections(output) : step.key === 'response_validation' ? transformationSections(output) : null,
+    coverageSections: step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output)] : step.key === 'response_validation' ? transformationSections(output) : null,
     title: stepTitle(step), summary, used, found, units, cause, missingCause: hasCause && !cause, linkedActions,
     origin: str(decision.origin) ? decision.origin === 'catalog' ? 'Consulta calculada del catálogo' : humanValue(decision.origin) : 'Origen no registrado en este paso.',
     reason: reason ? humanValue(reason) : 'No se guardó un motivo específico. No se deduce de los pasos cercanos.',

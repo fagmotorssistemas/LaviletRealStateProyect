@@ -53,10 +53,19 @@ export function catalogCoversFragment(fragment: string, factKey: unknown, audit:
   return known.has(attribute) && Boolean(patterns[attribute]?.test(n.replace(/[¿¡]/g, '').trim()))
 }
 
-export function assessMissingFacts(fragments: string[], audit: Row, facts: Row[] = []) {
+export function assessMissingFacts(fragments: string[], audit: Row, facts: Row[] = [], clarification: Row = {}) {
   const assessments = [...new Set(fragments)].map(fragment => {
     const request = facts.find(row => text(row.fragment) === fragment)
     const answered = catalogCoversFragment(fragment, request?.fact_key, audit)
+    const question = text(clarification.text)
+    const needsClarification = clarification.validated === true && clarification.purpose === 'clarify_request'
+      && question.length > 0 && ['answered', 'clarification'].includes(text(request?.status))
+      && text(request?.evidence).includes(question)
+    if (!answered && needsClarification) return { fragment, fact_key: text(request?.fact_key) || null,
+      outcome: 'clarification_needed', reason: 'La pregunta aprobada solicita una precisión al cliente; no demuestra que falte información del proyecto.', question }
+    if (!answered && request && request.base_status !== 'missing_fact' && ['answered', 'clarification', 'outside_scope'].includes(text(request.status))) return {
+      fragment, fact_key: text(request.fact_key) || null, outcome: 'review_conflict',
+      reason: 'La revisión marca como faltante una solicitud clasificada como atendida o aclaración. Esta contradicción no autoriza una derivación automática.' }
     return { fragment, fact_key: text(request?.fact_key) || null, outcome: answered ? 'answered_by_catalog' : 'missing_fact',
       reason: answered ? 'El catálogo verificado ya responde esta consulta.' : text(request?.evidence) || 'La revisión identificó un dato concreto sin respaldo.' }
   })

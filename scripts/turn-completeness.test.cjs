@@ -17,6 +17,44 @@ const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
 
+test('approved clarification is not a missing project fact even when reviewer marks it missing', async()=>{
+  const current='cual es el precio?'
+  const reply='El precio depende de la opción. ¿De qué propiedad le gustaría conocer el precio?'
+  const question={text:'¿De qué propiedad le gustaría conocer el precio?',purpose:'clarify_request',missing_datum:'Unidad',next_decision:'Consultar precio de la unidad'}
+  const candidate={reply,question,requests:[{...covered(current),fact_key:'price',evidence:reply}]}
+  const input={current,baseReply:question.text,verified:{},audit:{source:'unit_price'}}
+  const result=await completeTurnReply(input,model(candidate,{...approved,missing_fact_fragments:[current]}).generate)
+  assert.equal(result.reply,reply)
+  assert.equal(result.needsAdvisor,false)
+  assert.deepEqual(result.unresolved,[])
+  assert.equal(result.audit.handoff_assessments[0].outcome,'clarification_needed')
+  const missing='¿Aceptan mascotas?'
+  const mixed=await completeTurnReply({...input,current:current+' '+missing},model({...candidate,requests:[...candidate.requests,{...covered(missing,'missing_fact','missing_fact'),fact_key:'policy'}]}, {...approved,missing_fact_fragments:[current,missing]}).generate)
+  assert.equal(mixed.needsAdvisor,true)
+  assert.deepEqual(mixed.unresolved,[missing])
+})
+
+test('contradictory missing-fact labels are retried and cannot independently authorize handoff',async()=>{
+  const current='¿Qué condiciones hay?'
+  const reply='Las condiciones necesitan precisión.'
+  const candidate={reply,question:noQuestion,requests:[covered(current)]}
+  const review={...approved,missing_fact_fragments:[current]}
+  // Force independent review even for identical prose.
+  const checked=await completeTurnReply({current,baseReply:'Podemos orientarle.',verified:{}},model(candidate,review,candidate,review).generate)
+  assert.equal(checked.needsAdvisor,false)
+  assert.equal(checked.audit.repair_attempts.length,1)
+  assert.equal(checked.audit.handoff_assessments[0].outcome,'review_conflict')
+})
+
+test('handoff notice preserves the reviewed question and does not duplicate notices',()=>{
+  const {withHandoffNotice}=require('../src/lib/integrations/automation/handoff-copy.ts')
+  const reply='Podemos revisar opciones. ¿Qué unidad le interesa?'
+  const notice='Un asesor revisará la política pendiente.'
+  const final=withHandoffNotice(reply,notice)
+  assert.ok(final.endsWith(reply))
+  assert.equal(withHandoffNotice(final,notice),final)
+})
+
 test('general financing preserves the original complete draft and audits actual normalizations', async () => {
   const current='y que opciones de financiamiento tiene?'
   const reply='En cuanto a financiamiento, La Vilet no ofrece crédito directo, pero puede solicitar financiamiento hipotecario a través de Banco Pichincha o la Cooperativa JEP.'
