@@ -77,6 +77,8 @@ const values: Record<string, string> = {
   writing: 'Redacción', review: 'Revisión', extraction: 'Interpretación', structured_result_received: 'Resultado estructurado recibido',
   catalog_compare: 'Comparación del catálogo', catalog_search: 'Búsqueda del catálogo', catalog_rank: 'Ordenación del catálogo', catalog_select: 'Selección de unidad', catalog_details: 'Detalles de unidad',
   numbers_changed: 'Cifras no conservadas o no permitidas', links_changed: 'Enlaces cambiados', unsupported_fact: 'Dato sin respaldo',
+  eq: 'igual a', gt: 'mayor que', gte: 'mayor o igual que', lt: 'menor que', lte: 'menor o igual que', between: 'entre límites',
+  numeric_relation_not_in_reply: 'La comparación registrada por el revisor no corresponde al límite u operador escrito en el mensaje',
   unit_fact_mismatch_or_invalid: 'Un valor atribuido a una unidad no coincide con el catálogo, o la lista de datos extraídos es inválida',
   invalid_review_metadata: 'Ficha interna del revisor inválida; no significa por sí solo que el mensaje comercial tenga datos incorrectos',
   review_fragment_not_in_reply: 'El revisor citó un fragmento que no aparece literalmente en el mensaje propuesto',
@@ -188,6 +190,11 @@ function coverageSections(output: Row): ExplanationSection[] {
       { label: 'Qué ocurrió', value: selection }, present('final_preview', 'Respuesta conservada'), present('proposed_preview', 'Propuesta de la IA (borrador)'), present('base_preview', 'Respuesta base de respaldo'),
     ] },
     { title: 'Error detectado', description: 'Estos controles explican el rechazo de la propuesta. Un error en requests significa que falló la lista interna de solicitudes; no demuestra que el texto comercial fuera incorrecto.', facts: [
+      ...(Object.keys(row(output.final_validation)).length ? [{ label: 'Decisión conjunta', value: row(output.final_validation).passed === true
+        ? 'Catálogo, relaciones numéricas y controles de la ruta aprobados dentro del mismo proceso de reparación.'
+        : `Controles finales: ${humanValue(row(output.final_validation).issues)}` }] : []),
+      ...rows(row(output.final_validation).details).map(detail => ({ label: 'Dato comprobado', value:
+        `Fragmento: ${str(detail.fragment)}. Atributo: ${humanValue(detail.field)}. Relación: ${humanValue(detail.operator)}. Valores del texto: ${humanValue(detail.received)}. Valores verificados: ${humanValue(detail.expected)}.` })),
       { label: 'Controles registrados', value: Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
       ...(rows(row(output.semantic_review).validation_details).length ? reviewDecision(output).causes.map(value => ({ label: 'Causa agrupada', value })) : []),
     ] },

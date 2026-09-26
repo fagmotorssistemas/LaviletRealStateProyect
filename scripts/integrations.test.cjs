@@ -2357,7 +2357,7 @@ test('a photo request uses the latest unit from the client, recovers a lost summ
     assert.doesNotMatch(reply.reply,/asesor|convendría|mayor tamaño|preferir|otra opción|aquí.*foto/i)
     if(message.includes('fotografía')) assert.match(reply.reply,/tour.*recorrer/)
     else {
-      assert.match(reply.reply,/suite 210/)
+      assert.match(reply.reply,/suite 210/i)
       assert.match(reply.reply,/tour\?unidad=210/)
       assert.doesNotMatch(reply.reply,/departamento 202|unidad=202/)
     }
@@ -2434,6 +2434,35 @@ const checkedBaseCoverage = async input => require('../src/lib/integrations/auto
   async () => ({ reply: input.baseReply, requests: [], question: { text: input.baseReply.match(/¿[^?]+\?/g)?.at(-1) || '',
     purpose: /¿/.test(input.baseReply) ? 'choose_property' : 'none', missing_datum: /¿/.test(input.baseReply) ? 'opción de interés' : '',
     next_decision: /¿/.test(input.baseReply) ? 'mostrar detalles de esa opción' : '' } }))
+
+test('explicit 605 choice shares its state, catalogue facts and tour through the real final reviewer', async t => {
+  live(t)
+  for (const current of ['el 605 por favor', 'pero si ya le dije la 605']) {
+    const question='¿Cuál de estas opciones le gustaría conocer?'
+    const pending={id:'unit_choice',act:'choose_unit',question,candidate_ids:['penthouse-602','penthouse-605']}
+    const summary={_property_context:{version:2,offered_ids:pending.candidate_ids,pending_question:pending,
+      query:{category:'penthouse',operation:'search',filters:{bedrooms:5}}}}
+    const h=conversationHarness({catalog:continuityCatalog,commercialInfo:{...priceInfo(),catalogo:continuityCatalog},
+      realCommercial:true,commercialAi:deterministicOnly,captureTrace:true,summary,history:[{role:'bot',content:question}],
+      extracted:{turn_semantics:extractedProperty(current,{operation:'select',reference_kind:'explicit',unit_numbers:['605'],
+        category:'penthouse',filters:{bedrooms:3,floor_number:6},query_scope:'offered'})},
+      turnComplete: input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input,async (...args)=>{
+        if(args.at(-1)==='review') return {all_requests_considered:true,answers_supported:true,answered_content_preserved:true,
+          operational_goal_preserved:true,question_has_purpose:true,missing_fact_fragments:[],factual_values:[],
+          claims:[{fragment:input.baseReply,subject:'605',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}]}
+        return {reply:input.baseReply,requests:[{fragment:current,intent:'Elegir 605',request_type:'action',base_status:'answered',status:'answered',evidence:input.baseReply,fact_key:null}],
+          question:{text:input.baseReply.match(/¿[^?]+\?/g)?.at(-1)||'',purpose:input.baseReply.includes('?')?'clarify_request':'none',missing_datum:input.baseReply.includes('?')?'Detalle solicitado':'',next_decision:input.baseReply.includes('?')?'Ampliar información':''}}
+      })})
+    h.rows[0].payload.text=current
+    await h.process([h.rows[0]],async()=>{})
+    const sent=h.calls.find(call=>call.name==='register_outbound_message').args
+    assert.match(sent.p_content,/unidad=605/)
+    assert.doesNotMatch(sent.p_content,/602|5 dormitorios|Cuál de estas/)
+    assert.deepEqual(sent.p_tool_calls.selected_unit_ids,['penthouse-605'])
+    assert.equal(sent.p_tool_calls.turn_completeness.status,'checked')
+    assert.equal(sent.p_tool_calls.turn_completeness.final_validation.passed,true)
+  }
+})
 
 test('project overview takes priority over a broad catalogue interpretation throughout the conversation', async t => {
   live(t)

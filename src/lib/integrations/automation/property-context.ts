@@ -213,6 +213,45 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.preference_category = category
     context.excluded_categories = excluded
   }
+  // Semantic explicit codes must actually occur in this message; history cannot fabricate them.
+  const semanticNumbers = semanticValid ? ids(semantic.unit_numbers) : []
+  const semanticExplicit = semanticValid && ['explicit', 'comparison'].includes(text(semantic.reference_kind))
+  const literalNumbers = [...current.matchAll(/(?:^|[^\d])((?:LC-?)?\d{1,4})(?=[^\d]|$)/gi)].map(match => code(match[1]))
+  const literalUnits = catalog.filter(unit => semanticNumbers.some(number => code(number) === code(unit.unit_number))
+    && literalNumbers.includes(code(unit.unit_number)))
+  const currentUnitMention = literalUnits.length > 0 || ids(object(base).requestedCodes).some(number => literalNumbers.includes(code(number)))
+    || semanticExplicit && semanticNumbers.some(number => literalNumbers.includes(code(number)))
+  if ((base.hasUnitMention || semanticExplicit && semanticNumbers.length > 0) && currentUnitMention) {
+    // Clients say "departamento 602" for a penthouse or "departamento 210" for a suite.
+    // A known explicit residential number is more precise than that category label.
+    let matches = base.matches.filter(unit => !excluded.includes(text(unit.category)))
+    if (literalUnits.length && semanticExplicit) matches = [...new Map([...literalUnits, ...base.matches.filter(unit =>
+      ids(object(base).requestedCodes).some(number => code(number) === code(unit.unit_number)) && literalNumbers.includes(code(unit.unit_number)))]
+      .filter(unit => !excluded.includes(text(unit.category))).map(unit => [unit.id, unit])).values()]
+    const rejected = matches.filter(unit => {
+      const number = Number(text(unit.unit_number).replace(/\D/g, ''))
+      const before = new RegExp(`\\b(?:no(?: (?:quiero|prefiero|elijo|escojo|me interesa))?|descarto|rechazo)\\s+(?:(?:el|la|departamento|suite|penthouse|local|unidad)\\s+)*0*${number}\\b`)
+      const after = new RegExp(`\\b0*${number}\\s+(?:ya\\s+)?(?:no me (?:interesa|sirve|conviene)|lo descarto|la descarto)\\b`)
+      return before.test(m) || after.test(m)
+    })
+    matches = matches.filter(unit => !rejected.includes(unit))
+    if (rejected.length && !matches.length) {
+      context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []
+      return result([], 'unit_rejected')
+    }
+    // Invalid explicit codes must never fall back to an older, valid selection.
+    const requestedCodes = ids(object(base).requestedCodes)
+    const incomplete = !matches.length || (semanticNumbers.length > 0 && literalUnits.length !== semanticNumbers.length)
+      || (!semanticExplicit && requestedCodes.some(number => !catalog.some(unit => Number(text(unit.unit_number).replace(/\D/g, '')) === Number(number))))
+    query.operation = matches.length > 1 ? 'compare' : ['details', 'compare'].includes(text(semantic.operation)) ? text(semantic.operation) : 'select'
+    query.selector = null
+    context.pending_question = {}
+    context.focused_ids = matches.length === 1 && !incomplete ? unitIds(matches) : []
+    context.comparison_ids = matches.length > 1 ? unitIds(matches) : []
+    context.selected_ids = matches.length === 1 && !incomplete ? unitIds(matches) : []
+    context.offered_ids = matches.length && !incomplete ? unitIds(matches) : []
+    return result(matches, incomplete ? 'ambiguous' : pending.act === 'choose_unit' && matches.length === 1 && !/precio|cuesta|cuanto|compar|\bno\b/.test(m) ? 'explicit_pending_choice' : literalUnits.length ? 'semantic_explicit' : 'explicit', !incomplete, incomplete)
+  }
   // A literal answer to the offered choice outranks an inconsistent AI search.
   // Do not promote mentions in comparisons, prices, refusals or mixed requests.
   const choice = m.match(/^(?:(?:perfecto|entonces|bien)\s+)*(?:revisemos|veamos|quiero ver|quiero conocer|elijo|escojo|prefiero)\s+(?:(?:el|la|opcion|departamento|suite|penthouse|unidad)\s+)*(\d{3,4})(?:\s+(?:entonces|entocnes|por favor))?$/)
@@ -289,37 +328,6 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       return result(ranked, ranked.length > 1 ? 'ranking_tie' : 'catalog_rank')
     }
     return result(candidates, candidates.length ? acceptedAlternative ? 'accepted_alternative_query' : 'catalog_search' : 'catalog_no_match')
-  }
-  // Semantic explicit codes must actually occur in this message; history cannot fabricate them.
-  const semanticNumbers = semanticValid ? ids(semantic.unit_numbers) : []
-  const semanticExplicit = semanticValid && ['explicit', 'comparison'].includes(text(semantic.reference_kind))
-  const literalNumbers = [...current.matchAll(/(?:^|[^\d])((?:LC-?)?\d{1,4})(?=[^\d]|$)/gi)].map(match => code(match[1]))
-  const literalUnits = catalog.filter(unit => semanticNumbers.some(number => code(number) === code(unit.unit_number))
-    && literalNumbers.includes(code(unit.unit_number)))
-  if (base.hasUnitMention || semanticExplicit && semanticNumbers.length > 0) {
-    // Clients say "departamento 602" for a penthouse or "departamento 210" for a suite.
-    // A known explicit residential number is more precise than that category label.
-    let matches = base.matches.filter(unit => !excluded.includes(text(unit.category)))
-    if (literalUnits.length && semanticExplicit) matches = literalUnits.filter(unit => !excluded.includes(text(unit.category)))
-    const rejected = matches.filter(unit => {
-      const number = Number(text(unit.unit_number).replace(/\D/g, ''))
-      const before = new RegExp(`\\b(?:no (?:quiero|prefiero|elijo|escojo|me interesa)|descarto|rechazo)\\s+(?:(?:el|la|departamento|suite|penthouse|local|unidad)\\s+)*0*${number}\\b`)
-      const after = new RegExp(`\\b0*${number}\\s+(?:ya\\s+)?(?:no me (?:interesa|sirve|conviene)|lo descarto|la descarto)\\b`)
-      return before.test(m) || after.test(m)
-    })
-    matches = matches.filter(unit => !rejected.includes(unit))
-    if (rejected.length && !matches.length) {
-      context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []
-      return result([], 'unit_rejected')
-    }
-    // Invalid explicit codes must never fall back to an older, valid selection.
-    const requestedCodes = ids(object(base).requestedCodes)
-    const incomplete = !matches.length || (semanticNumbers.length > 0 && literalUnits.length !== semanticNumbers.length)
-      || (!semanticExplicit && requestedCodes.some(number => !catalog.some(unit => Number(text(unit.unit_number).replace(/\D/g, '')) === Number(number))))
-    context.comparison_ids = matches.length > 1 ? unitIds(matches) : []
-    context.selected_ids = matches.length === 1 && !incomplete ? unitIds(matches) : []
-    context.offered_ids = matches.length && !incomplete ? unitIds(matches) : []
-    return result(matches, incomplete ? 'ambiguous' : literalUnits.length ? 'semantic_explicit' : 'explicit', !incomplete, incomplete)
   }
   const declinedSelector = /\b(?:no (?:quiero|prefiero|elijo|escojo|me interesa)|descarto)\b[^.!?]{0,35}\b(?:mas (?:grande|amplio|pequeno|barato|caro)|primero|ultimo)\b/.test(m)
   if (selector && declinedSelector) return result([], 'ambiguous', false, true)

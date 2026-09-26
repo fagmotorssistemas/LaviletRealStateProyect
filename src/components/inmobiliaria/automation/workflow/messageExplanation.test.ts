@@ -96,6 +96,17 @@ test('invalid writer metadata separates rejection from advisor decision and neve
   assert.equal(result.reason, 'No se identificó un dato faltante que requiera derivación.')
 })
 
+test('joint validation explains the exact field, operator and evidence behind a rejection', () => {
+  const item=step(1,'response_coverage',{status:'rejected_catalog_guard',final_validation:{passed:false,issues:['catalog_area_mismatch'],
+    details:[{fragment:'23,01 m² interiores',field:'area_internal_m2',operator:'eq',received:[23.01],expected:[140.53]}]}})
+  const facts=explainStep(execution([item]),item).coverageSections![1].facts
+  const detail=facts.find(fact=>fact.label==='Dato comprobado')!.value
+  assert.match(detail,/23,01 m² interiores/)
+  assert.match(detail,/igual a/)
+  assert.match(detail,/140.53/)
+  assert.match(detail,/23.01/)
+})
+
 test('repair outcome and incomplete historical evidence remain distinct', () => {
   const item = step(1, 'response_coverage', { status: 'checked', repair_attempts: [{ status: 'invalid_coverage', issues: ['fragment'], final_status: 'checked' }],
     requests: [{ fragment: 'Quiero información', status: 'answered', evidence: 'Descripción del proyecto' }] })

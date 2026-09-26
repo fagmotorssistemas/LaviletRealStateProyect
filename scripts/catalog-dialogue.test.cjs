@@ -25,6 +25,33 @@ const info = (query, extra = {}) => ({
   referencia_unidad: { reason: 'catalog_query', query, matches: [], needsClarification: false }, ...extra,
 })
 
+test('area attributes and mathematical bounds are independent of prose spelling', () => {
+  const units=[{id:'p602',unit_number:'602',category:'penthouse',bedrooms:3,area_internal_m2:142.09,area_exterior_m2:25.3},
+    {id:'p605',unit_number:'605',category:'penthouse',bedrooms:3,area_internal_m2:140.53,area_exterior_m2:23.01}]
+  const audit={verified_catalog:true,catalog_results:{units}}
+  for(const reply of [
+    'Penthouse 605: 140,53 m² interiores y 23,01 m² de área exterior.',
+    'Penthouse 605: superficie exterior de 23,01 m².',
+    'Penthouses 602 y 605: superficies superiores a 140 m² interiores.',
+    'Penthouses 602 y 605: entre 140 y 143 m² interiores.',
+    'Penthouses 602 y 605: menos de 143 m² interiores.',
+  ]) assert.equal(validateCatalogReply(reply,audit).valid,true,reply)
+  for(const reply of [
+    'Penthouse 605: 23,01 m² interiores.',
+    'Penthouse 605: superficie exterior de 140,53 m².',
+    'Penthouses 602 y 605: superficies superiores a 141 m² interiores.',
+    'Penthouses de 3 dormitorios: más de 141 m² interiores.',
+    'Penthouses 602 y 605: entre 141 y 143 m² interiores.',
+    'Penthouses 602 y 605: menos de 140 m² interiores.',
+  ]) assert.equal(validateCatalogReply(reply,audit).valid,false,reply)
+  const natural='El penthouse 605 dispone de un balcón de 23,01 m².'
+  const reviewed={...audit,semantic_review:{status:'checked',factual_values:[{unit_id:'p605',field:'area_exterior_m2',value:23.01,fragment:natural}]}}
+  assert.equal(validateCatalogReply(natural,reviewed).valid,true)
+  const falseInterior='El penthouse 605 dispone de 23,01 m² interiores.'
+  assert.equal(validateCatalogReply(falseInterior,{...reviewed,semantic_review:{status:'checked',factual_values:[
+    {...reviewed.semantic_review.factual_values[0],fragment:falseInterior}]}}).valid,false)
+})
+
 test('bedroom alternatives query every requested count, including word forms, without inventing a denial', () => {
   const {propertyFiltersFromText}=require('../src/lib/integrations/automation/turn-semantics.ts')
   for(const current of ['no tiene opciones de 5 dormitorios o de 6?', 'me interesa una opcion de cinco o seis cuartos']) {

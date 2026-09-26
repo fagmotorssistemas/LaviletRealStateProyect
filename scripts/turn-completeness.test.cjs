@@ -17,6 +17,29 @@ const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
 
+test('catalog comparisons compute bounds and final catalog failures share the single repair budget', async () => {
+  const unit = {id:'p605',unit_number:'605',category:'penthouse',bedrooms:3,bathrooms_full:3,area_internal_m2:140.53,area_exterior_m2:23.01}
+  const current='Me interesa el 605'
+  const baseReply='Penthouse 605: 140,53 m² interiores y 23,01 m² exteriores.'
+  const input={current,baseReply,verified:{catalogo:[unit]},audit:{semantic_review_enabled:true,verified_catalog:true,catalog_results:{units:[unit]}}}
+  const reply='El penthouse 605 tiene más de 140 m² interiores y 23,01 m² de área exterior.'
+  const candidate={reply,requests:[covered(current)],question:noQuestion}
+  const review={...approved,claims:[{fragment:reply,subject:'605',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}],
+    factual_values:[{fragment:reply,unit_id:'p605',field:'area_internal_m2',operator:'gt',value:140,upper_value:null},{fragment:reply,unit_id:'p605',field:'area_exterior_m2',value:23.01}]}
+  const accepted=await completeTurnReply(input,model(candidate,review).generate)
+  assert.equal(accepted.audit.status,'checked')
+  assert.equal(accepted.reply,reply)
+  const bad={...candidate,reply:'Penthouse 605: 23,01 m² interiores.'}
+  const dishonestReview={...approved,claims:[{...review.claims[0],fragment:bad.reply}],factual_values:[]}
+  const mock=model(bad,dishonestReview,candidate,review)
+  const repaired=await completeTurnReply(input,mock.generate)
+  assert.equal(repaired.reply,reply)
+  assert.equal(repaired.audit.status,'checked')
+  assert.equal(repaired.audit.repair_attempts.length,1)
+  assert.deepEqual(repaired.audit.repair_attempts[0].issues,['catalog_area_mismatch'])
+  assert.equal(mock.calls.length,4)
+})
+
 test('semantic review permits omitting irrelevant base numbers but checks unit-value relationships', async () => {
   const current = 'Quiero conocer el penthouse'
   const input = { current, baseReply: 'Departamento 502: 120,83 m². Penthouse 602: 142,09 m².',

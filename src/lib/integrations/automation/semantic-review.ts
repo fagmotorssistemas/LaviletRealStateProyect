@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { decimalNumber, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
 
 const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number']
 
@@ -13,11 +14,14 @@ export function reviewReferenceSnapshot(result: unknown): Row[] {
     .slice(0, 80).map(unit => ({ id: text(unit.id), unit_number: text(unit.unit_number), category: text(unit.category) }))
 }
 export const factualValuesSchema = { type: 'array', maxItems: 80, items: { type: 'object', additionalProperties: false,
-  properties: { fragment: { type: 'string' }, unit_id: { type: 'string' }, field: { type: 'string', enum: factFields }, value: { type: 'number' } },
-  required: ['fragment', 'unit_id', 'field', 'value'] } }
+  properties: { fragment: { type: 'string' }, unit_id: { type: 'string' }, field: { type: 'string', enum: factFields }, value: { type: 'number' },
+    operator: { type: 'string', enum: [...numericOperators] }, upper_value: { type: ['number', 'null'] } },
+  required: ['fragment', 'unit_id', 'field', 'value', 'operator', 'upper_value'] } }
 
 export const FLEXIBLE_FACT_RULES = `La respuesta_base es una propuesta, no evidencia independiente ni un texto obligatorio. Puede omitir cifras y opciones secundarias si responde plenamente al mensaje actual. answered_content_preserved evalúa la información necesaria para esa consulta, no que se repitan todas las cifras de la base. No equipare mayor precio con mayor superficie o exclusividad. Para afirmar un máximo de precio use el ranking calculado sobre el conjunto pertinente; si no existe evidencia, rechace esa afirmación.
 En factual_values extraiga TODAS las relaciones explícitas entre una unidad y sus valores numéricos (dormitorios, baños, áreas, precio publicado, planta). Use el ID del catálogo, field y value numérico. En fragment use preferentemente el identificador S1, S2... de oraciones_borrador: el sistema lo convierte en la oración exacta. También admite una copia literal, nunca una cita resumida. Para resúmenes de categoría («hasta», «desde»), use el ID group:...:max o group:...:min de evidencia_turno.groups y el valor calculado allí. No atribuya un máximo a todas las unidades ni enumere los valores de cada unidad cuando el texto solo expresa un máximo. No calcule grupos nuevos ni mezcle conjuntos. Desagregue solo afirmaciones explícitas compartidas por unidades concretas. No use números del historial como evidencia. Use [] si no hay relaciones numéricas verificables. Si hay más de 80 relaciones no apruebe la respuesta.`
+
+export const NUMERIC_RELATION_RULES = 'En factual_values indique operator: eq para valores exactos, gt/gte/lt/lte para comparaciones y between para intervalos (upper_value es el extremo superior; null en los otros casos). Represente el limite escrito, no lo sustituya por el valor del catalogo. Cada unidad nombrada en una comparacion colectiva necesita su propia relacion. El codigo comprobara el operador contra el fragmento y calculara la relacion con los datos verificados. No use una aprobacion narrativa para omitir relaciones numericas.'
 
 export function validateFactualValues(value: unknown, reply: string, catalog: unknown): boolean {
   return factualValueIssues(value, reply, catalog).length === 0
@@ -29,13 +33,24 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
   return value.flatMap((raw, index) => {
     const fact = object(raw), unit = units.find(unit => unit.id === fact.unit_id), field = text(fact.field)
     const detail = { index, fragment: text(fact.fragment), unit_id: fact.unit_id, field, received: fact.value }
+    if (fact.operator !== 'between' && fact.upper_value != null)
+      return [{ ...detail, code: 'unexpected_numeric_upper_bound', kind: 'review_metadata' }]
+    if (fact.operator && fact.operator !== 'eq') {
+      const fragment = text(fact.fragment).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      const literals = [...fragment.matchAll(/\d[\d.,]*/g)]
+      const matching = literals.filter(match => decimalNumber(match[0]) === fact.value)
+      const expressed = fact.operator === 'between'
+        ? /\bentre\b|\d\s*(?:a|–|-)\s*\d/.test(fragment) && literals.some(match => decimalNumber(match[0]) === fact.upper_value)
+        : matching.some(match => relationBefore(fragment.slice(0, match.index)) === fact.operator)
+      if (!matching.length || !expressed) return [{ ...detail, code: 'numeric_relation_not_in_reply', kind: 'review_metadata' }]
+    }
     if (!unit || !factFields.includes(field) || typeof fact.value !== 'number' || !Number.isFinite(fact.value)) {
       const numbered = !unit ? units.filter(candidate => text(candidate.unit_number) === text(fact.unit_id)) : []
       return [{ ...detail, code: 'invalid_unit_fact', kind: 'review_metadata',
         reason: !unit ? 'unit_id_not_in_catalog' : !factFields.includes(field) ? 'unsupported_field' : 'invalid_numeric_value',
         ...(numbered.length === 1 ? { expected_unit_id: numbered[0].id, unit_number: numbered[0].unit_number } : {}) }]
     }
-    if (unit[field] == null || unit[field] === '' || Number(unit[field]) !== fact.value)
+    if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value))
       return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected: unit[field] ?? null }]
     if (!text(fact.fragment).trim() || !reply.includes(text(fact.fragment)))
       return [{ ...detail, code: 'review_fragment_not_in_reply', kind: 'review_metadata' }]

@@ -984,6 +984,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   // A specialist may protect its action, but must still account for other requests in the turn.
   if (interpretation.requests.length > 1) audit.coverage_complete = false
+  // Attach from the resolved state, independently of the commercial route.
+  if (audit.verified_catalog === true && !propertyTurn.needsClarification) {
+    const delivery = unitModelDelivery({ explicit: propertyTurn.explicit === true, hasUnitMention: propertyTurn.hasUnitMention === true,
+      matches: (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).map(object) }, current, context.historial, previousSummary._unit_models_sent)
+    if (delivery) {
+      reply = appendUnitModel(reply, delivery)
+      audit.unit_model = delivery
+    }
+  }
   const plannedResponse = responsePlan(reply, audit)
   const catalogBaseReply = audit.verified_catalog === true ? reply : ''
   audit = { ...audit, response_plan: plannedResponse, turn_contract: CONVERSATION_CONTRACT_VERSION,
@@ -1021,7 +1030,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     })
     const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true },
+      validateReply: candidate => [
+        ...(quote?.quoted === true && priceReplyIssues(candidate, info, current, quote.prices).includes('unsupported_fact') ? ['unsupported_price_rewrite'] : []),
+        ...(financingCollectionIssues(candidate, audit, current) ? ['financing_collection_changed'] : []),
+      ],
+      normalizeReply: candidate => directReply(currentTopicReply(sectorClaimsReply(
+        visitTruthReply(candidate, info, audit, proposals, protectedSentences)), current), current),
       preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
+    // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
     const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
     const catalogValidation = validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence })
@@ -1034,8 +1050,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       // not become an information gap because an AI draft changed its prices.
       // Keep genuine missing facts flagged by the review (e.g. an unknown fee).
       reviewed.audit = { ...reviewed.audit, status: invalidPrice ? 'rejected_price_guard' : 'rejected_catalog_guard',
+        final_validation: { passed: false, boundary_integrity_failure: true, issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason], details: catalogValidation.details || [] },
         candidate_requests: reviewed.audit.requests, requests: [],
-        issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: true }
+        issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: true, final_preview: traceText(reply, 1500) }
       const originalGaps = (Array.isArray(reviewed.audit.candidate_requests) ? reviewed.audit.candidate_requests : []).map(object)
         .filter(request => request.base_status === 'missing_fact').map(request => text(request.fragment)).filter(Boolean)
       originalGaps.push(...(Array.isArray(reviewed.audit.missing_fact_fragments) ? reviewed.audit.missing_fact_fragments : [])
@@ -1055,6 +1072,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     trace.finish(coverageStep, 'succeeded', {
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
       price_evidence: reviewed.audit.price_evidence,
+      final_validation: reviewed.audit.final_validation,
+      fallback_validation: reviewed.audit.fallback_validation,
       repair_attempts: reviewed.audit.repair_attempts,
       semantic_review: reviewed.audit.semantic_review, opening_decision: reviewed.audit.opening_decision, query_transition: audit.query_transition,
       missing_fact_fragments: reviewed.audit.missing_fact_fragments, handoff_assessments: reviewed.audit.handoff_assessments,

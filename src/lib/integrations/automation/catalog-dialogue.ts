@@ -1,7 +1,9 @@
+import { areaAssertions, satisfiesNumeric } from './numeric-relations'
 import { object, text, type Row } from './data'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
-import { reviewedCatalogDenials } from './semantic-review'
+import { factualValueIssues, reviewedCatalogDenials } from './semantic-review'
+import { turnEvidence } from './turn-evidence'
 import { bedroomOptions } from './bedroom-options'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
@@ -97,7 +99,7 @@ export function compareCatalog(units: Row[]) {
  * A number occurring elsewhere in the project does not authorize attaching it
  * to this category, bedroom count or unit. Non-catalogue questions remain free
  * to be completed by the normal coverage stage. */
-export function validateCatalogReply(reply: string, audit: Row): { valid: boolean; reason?: string } {
+export function validateCatalogReply(reply: string, audit: Row): { valid: boolean; reason?: string; details?: Row[] } {
   if (audit.verified_catalog !== true) return { valid: true }
   const requiredTour = text(object(audit.unit_model).url)
   if (requiredTour && !reply.includes(requiredTour)) return { valid: false, reason: 'unit_tour_omitted' }
@@ -107,6 +109,10 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
   if (ids(pending.target_ids).length && text(pending.question) && !reply.includes(text(pending.question))) return { valid: false, reason: 'catalog_pending_question_changed' }
   const verified = [...new Map([...rows(object(audit.catalog_results).units), ...rows(object(audit.alternative_results).units)].map(unit => [unit.id, unit])).values()]
   if (!verified.length) return { valid: true }
+  const review = object(audit.semantic_review)
+  const reviewFacts = review.status === 'checked' && !factualValueIssues(review.factual_values, reply, [...verified, ...turnEvidence({}, audit).groups]).length
+    ? rows(review.factual_values) : []
+  const comparable = (value: string) => value.replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const decimal = (value: string) => {
     const clean = value.replace(/[.,]$/, '')
     const last = Math.max(clean.lastIndexOf('.'), clean.lastIndexOf(','))
@@ -166,21 +172,25 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
       if (/\bplanta baja\b/.test(clause)) floors.push(0)
       if (floors.length && relevant.some(unit => !floors.includes(finite(unit.floor_number)!))) return { valid: false, reason: 'catalog_floor_mismatch' }
     }
-    const areas = [...clause.matchAll(/(\d[\d.,]*(?:\s*(?:a|y|o|–|-)\s*\d[\d.,]*)?)\s*(?:m2|metros? cuadrados?)\s*(interior(?:es)?|exterior(?:es)?)?/g)]
-    for (const match of areas) {
-      const field = match[2]?.startsWith('exterior') ? 'area_exterior_m2' : 'area_internal_m2'
-      const allowed = relevant.map(unit => measurement(unit[field])).filter(value => value !== null)
-      const requested = (match[1].match(/\d[\d.,]*/g) || []).map(decimal)
-      const after = clause.slice((match.index || 0) + match[0].length)
-      if (/^\s*(?:mas|menos|adicionales|de diferencia)\b/.test(after)) return { valid: false, reason: 'catalog_derived_fact_unverified' }
-      if (requested.some(area => !allowed.some(value => Math.abs(value - area) < 0.005))) return { valid: false, reason: 'catalog_area_mismatch' }
-      if (references.length && relevant.some(unit => {
-        const actual = measurement(unit[field])
-        if (actual === null) return true
-        return /\d\s*(?:a|–|-)\s*\d/.test(match[1]) && requested.length === 2
-          ? actual < Math.min(...requested) || actual > Math.max(...requested)
-          : !requested.some(area => Math.abs(actual - area) < 0.005)
-      })) return { valid: false, reason: 'catalog_area_mismatch' }
+    for (const area of areaAssertions(clause)) {
+      // The reviewer resolves natural language to a typed field. Use that
+      // binding only after checking its literal fragment and catalogue value;
+      // never override an explicit conflicting label in the actual reply.
+      const bindings = reviewFacts.filter(fact => ['area_internal_m2', 'area_exterior_m2'].includes(text(fact.field))
+        && comparable(text(fact.fragment)).includes(area.fragment) && area.values.includes(Number(fact.value))
+        && relevant.some(unit => unit.id === fact.unit_id))
+      const boundFields = [...new Set(bindings.map(fact => text(fact.field)))]
+      if (!area.fieldExplicit && boundFields.length === 1) area.field = boundFields[0]
+      const allowed = relevant.map(unit => measurement(unit[area.field])).filter((value): value is number => value !== null)
+      const matches = (actual: number) => area.operator === 'between'
+        ? satisfiesNumeric(actual, area.values[0], 'between', area.values[1])
+        : area.values.some(value => satisfiesNumeric(actual, value, area.operator))
+      if (area.derived) return { valid: false, reason: 'catalog_derived_fact_unverified' }
+      if (area.exactRange && area.values.some(value => !allowed.some(actual => satisfiesNumeric(actual, value))))
+        return { valid: false, reason: 'catalog_area_mismatch' }
+      if (!allowed.length || !allowed.some(matches) || (references.length || area.operator !== 'eq') && (allowed.length !== relevant.length || !allowed.every(matches)))
+        return { valid: false, reason: 'catalog_area_mismatch', details: [{ fragment: clause, field: area.field,
+          received: area.values, operator: area.operator, expected: allowed, unit_ids: relevant.map(unit => unit.id) }] }
     }
   }
   return { valid: true }

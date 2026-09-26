@@ -18,6 +18,27 @@ const catalog = [
 ]
 const apartments = [{role:'bot',content:'El departamento 202 está en la segunda planta y el 302 en la tercera. Ambos tienen 3 dormitorios.'}]
 const penthouses = [{role:'bot',content:'Estas son las opciones: el penthouse 602 (142,09 m²); el penthouse 605 (140,53 m²). ¿Cuál de estas opciones le gustaría conocer?'}]
+
+test('explicit choices resolve once before inherited filters and affirmative question branches', () => {
+  const { unitModelDelivery } = require('../src/lib/integrations/automation/unit-model.ts')
+  for (const current of ['el 605 por favor', 'pero si ya le dije la 605', 'prefiero el 605']) {
+    const state = { offered_ids: ['u602','u605'], query: {category:'penthouse',operation:'search',filters:{bedrooms:5}},
+      pending_question:{id:'unit_choice',act:'choose_unit',candidate_ids:['u602','u605']} }
+    const semantic = semantics(current, {operation:'select',category:'penthouse',reference_kind:'explicit',unit_numbers:['605'],filters:{bedrooms:3,floor_number:6}})
+    semantic.answer_to_previous = {question_id:'unit_choice',kind:'affirmative',confidence:'high',evidence:current}
+    const selected = resolvePropertyTurn(catalog,current,{_property_context:state},penthouses,semantic)
+    assert.deepEqual(selected.context.selected_ids,['u605'])
+    assert.deepEqual(selected.context.focused_ids,['u605'])
+    assert.equal(selected.needsClarification,false)
+    assert.equal(selected.query.operation,'select')
+    assert.equal(selected.query.filters.bedrooms,null)
+    const base = catalogDialogueReply(info(selected,penthouses))
+    assert.match(base.reply,/605/)
+    assert.doesNotMatch(base.reply,/602|Cuál de estas/)
+    assert.match(unitModelDelivery(selected,current,penthouses).url,/unidad=605/)
+    assert.equal(unitModelDelivery(selected,current,penthouses,['u605']),null)
+  }
+})
 test('accepted alternatives survive a price interruption and a category choice', () => {
   const { unitAlternative } = require('../src/lib/integrations/automation/unit-alternatives.ts')
   const offer = unitAlternative({ catalogo: catalog }, 'no tiene nada de 5 dormitorios?')
