@@ -19,6 +19,19 @@ const catalogue = [
   ...['304', '404', '504'].map(code => unit(code, 'departamento', 2, 109.69, 34.59, Number(code[0]))),
   unit('602', 'penthouse', 3, 142.09, 70, 6),
 ]
+
+test('inclusive bounds and catalogue endpoints retain their different meanings', () => {
+  const {relationBefore}=require('../src/lib/integrations/automation/numeric-relations.ts')
+  for(const prefix of ['hasta ', 'llegan hasta ', 'un máximo de ', 'como máximo ', 'no más de ']) assert.equal(relationBefore(prefix),'lte')
+  for(const prefix of ['desde ', 'a partir de ', 'un mínimo de ', 'como mínimo ', 'al menos ']) assert.equal(relationBefore(prefix),'gte')
+  const audit={verified_catalog:true,catalog_results:{units:[
+    {id:'x',unit_number:'801',category:'penthouse',area_internal_m2:140.53},
+    {id:'y',unit_number:'802',category:'penthouse',area_internal_m2:142.09}]}}
+  for(const text of ['hasta 142,09','desde 140,53','a partir de 140,53','como máximo 150','al menos 140','entre 140 y 143'])
+    assert.equal(validateCatalogReply(`Los penthouses ofrecen superficies de ${text} m² interiores.`,audit).valid,true,text)
+  for(const text of ['hasta 150','hasta 140','desde 140','desde 142,09','a partir de 100'])
+    assert.equal(validateCatalogReply(`Los penthouses ofrecen superficies de ${text} m² interiores.`,audit).valid,false,text)
+})
 const query = (operation, overrides = {}) => catalogQuery({ operation, group: 'residential', scope: 'catalog', ...overrides })
 const info = (query, extra = {}) => ({
   catalogo: catalogue, lead: {}, historial: [], property_context: {},
@@ -137,6 +150,12 @@ test('semantic empty-query denial accepts synonyms without bypassing other catal
     assert.equal(validateCatalogReply(reply.replace('120,83', '999,99'), audit).valid, false)
     assert.equal(validateCatalogReply(reply, { ...audit, semantic_review: { ...audit.semantic_review, status: 'rejected' } }).valid, false)
     assert.equal(validateCatalogReply(reply, { ...audit, catalog_results: { ...audit.catalog_results, complete: false } }).valid, false)
+    if (denial.includes('no cuenta')) {
+      const mislabeled={...audit,semantic_review:{...audit.semantic_review,claims:[{...claims[0],polarity:'affirmation'}]}}
+      assert.equal(validateCatalogReply(reply,mislabeled).valid,true)
+      assert.equal(validateCatalogReply(reply,{...mislabeled,catalog_results:{...audit.catalog_results,complete:false}}).valid,false)
+      assert.equal(validateCatalogReply(reply,{...mislabeled,semantic_review:{...mislabeled.semantic_review,status:'rejected'}}).valid,false)
+    }
     const affirmative = reply.replace(denial, 'Tenemos departamentos de 5 dormitorios.')
     assert.equal(validateCatalogReply(affirmative, audit).valid, false)
   }

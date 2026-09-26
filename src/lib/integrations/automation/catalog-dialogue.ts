@@ -110,7 +110,8 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
   const verified = [...new Map([...rows(object(audit.catalog_results).units), ...rows(object(audit.alternative_results).units)].map(unit => [unit.id, unit])).values()]
   if (!verified.length) return { valid: true }
   const review = object(audit.semantic_review)
-  const reviewFacts = review.status === 'checked' && !factualValueIssues(review.factual_values, reply, [...verified, ...turnEvidence({}, audit).groups]).length
+  const groups = turnEvidence({}, audit).groups
+  const reviewFacts = review.status === 'checked' && !factualValueIssues(review.factual_values, reply, [...verified, ...groups]).length
     ? rows(review.factual_values) : []
   const comparable = (value: string) => value.replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const decimal = (value: string) => {
@@ -126,7 +127,7 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
   const words: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 }
   const factualReply = reviewedCatalogDenials(reply, audit).reduce((body, fragment) => body.replace(fragment, ''), reply)
   const raw = factualReply.replace(/https?:\/\/\S+/g, '').replace(/¿[^?]*\?/g, '').replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const clauses = raw.split(/(?<!\d)\.\s+|(?<=\d)\.(?!\d)\s+|[;\n]+|\s+y\s+(?=(?:el |la |los |las )?(?:departamentos?|suites?|penthouses?|locales?|unidades?)\s+\d)/)
+  const clauses = raw.replace(/,\s*(?:frente a|mientras que|en cambio)\s+/g, '; ').split(/(?<!\d)\.\s+|(?<=\d)\.(?!\d)\s+|[;\n]+|\s+y\s+(?=(?:el |la |los |las )?(?:departamentos?|suites?|penthouses?|locales?|unidades?)\s+\d)/)
   for (const clause of clauses) {
     if (!clause.trim() || /[¿?]/.test(clause) || /\bno (?:contamos|tenemos|aparecen|ofrecemos|disponemos|dispone|hay)|pendiente.*verificar|falta.*verific/.test(clause)) continue
     let relevant = verified
@@ -178,17 +179,21 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
       // never override an explicit conflicting label in the actual reply.
       const bindings = reviewFacts.filter(fact => ['area_internal_m2', 'area_exterior_m2'].includes(text(fact.field))
         && comparable(text(fact.fragment)).includes(area.fragment) && area.values.includes(Number(fact.value))
-        && relevant.some(unit => unit.id === fact.unit_id))
+        && (relevant.some(unit => unit.id === fact.unit_id) || groups.some(group => group.id === fact.unit_id)))
       const boundFields = [...new Set(bindings.map(fact => text(fact.field)))]
       if (!area.fieldExplicit && boundFields.length === 1) area.field = boundFields[0]
-      const allowed = relevant.map(unit => measurement(unit[area.field])).filter((value): value is number => value !== null)
+      const boundGroups = groups.filter(group => bindings.some(fact => fact.unit_id === group.id && fact.field === area.field))
+      const groupIds = new Set(boundGroups.flatMap(group => ids(group.member_ids)))
+      const areaUnits = !references.length && groupIds.size ? relevant.filter(unit => groupIds.has(text(unit.id))) : relevant
+      const allowed = areaUnits.map(unit => measurement(unit[area.field])).filter((value): value is number => value !== null)
       const matches = (actual: number) => area.operator === 'between'
         ? satisfiesNumeric(actual, area.values[0], 'between', area.values[1])
         : area.values.some(value => satisfiesNumeric(actual, value, area.operator))
       if (area.derived) return { valid: false, reason: 'catalog_derived_fact_unverified' }
       if (area.exactRange && area.values.some(value => !allowed.some(actual => satisfiesNumeric(actual, value))))
         return { valid: false, reason: 'catalog_area_mismatch' }
-      if (!allowed.length || !allowed.some(matches) || (references.length || area.operator !== 'eq') && (allowed.length !== relevant.length || !allowed.every(matches)))
+      const wrongEndpoint = area.endpoint && allowed.length && !satisfiesNumeric(Math[area.endpoint](...allowed), area.values[0])
+      if (!allowed.length || wrongEndpoint || !allowed.some(matches) || (references.length || area.operator !== 'eq') && (allowed.length !== areaUnits.length || !allowed.every(matches)))
         return { valid: false, reason: 'catalog_area_mismatch', details: [{ fragment: clause, field: area.field,
           received: area.values, operator: area.operator, expected: allowed, unit_ids: relevant.map(unit => unit.id) }] }
     }

@@ -20,11 +20,19 @@ export function satisfiesNumeric(actual: number, value: number, operator: unknow
   }
 }
 export function relationBefore(value: string): NumericOperator {
-  if (/(?:al menos|como minimo|no menos de|mayor(?:es)? o igual(?:es)? (?:a|que))\s*$/.test(value)) return 'gte'
-  if (/(?:como maximo|no mas de|menor(?:es)? o igual(?:es)? (?:a|que))\s*$/.test(value)) return 'lte'
+  value = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  if (/(?:desde|a partir de|minimo de|al menos|como minimo|no menos de|mayor(?:es)? o igual(?:es)? (?:a|que))\s*$/.test(value)) return 'gte'
+  if (/(?:hasta|maximo de|como maximo|no mas de|menor(?:es)? o igual(?:es)? (?:a|que))\s*$/.test(value)) return 'lte'
   if (/(?:mas de|superior(?:es)? a|mayor(?:es)? (?:a|que))\s*$/.test(value)) return 'gt'
   if (/(?:menos de|inferior(?:es)? a|menor(?:es)? (?:a|que))\s*$/.test(value)) return 'lt'
   return 'eq'
+}
+/** Catalogue endpoints assert an attained minimum/maximum, not just a loose bound. */
+export function endpointBefore(value: string): 'min' | 'max' | null {
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  if (/(?:hasta|maximo de)\s*$/.test(normalized)) return 'max'
+  if (/(?:desde|a partir de|minimo de)\s*$/.test(normalized)) return 'min'
+  return null
 }
 export function areaAssertions(clause: string) {
   const matches = [...clause.matchAll(/(\d[\d.,]*)(?:\s*(a|y|o|–|-)\s*(\d[\d.,]*))?\s*(?:m2|metros? cuadrados?)/g)]
@@ -37,6 +45,7 @@ export function areaAssertions(clause: string) {
     const values = [decimalNumber(match[1]), ...(match[3] ? [decimalNumber(match[3])] : [])]
     const range = values.length === 2 && (['a', '–', '-'].includes(match[2]) || /\bentre\s*$/.test(before))
     return { field, fieldExplicit: Boolean(suffix || prefix), values, operator: range ? 'between' as const : relationBefore(before),
+      endpoint: range ? null : endpointBefore(before),
       fragment: match[0], derived: /^\s*(?:(?:interior|exterior)(?:es)?\s*)?(?:mas|menos|adicionales|de diferencia)\b/.test(after),
       exactRange: range && !/\bentre\s*$/.test(before) }
   })

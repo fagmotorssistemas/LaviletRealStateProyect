@@ -79,6 +79,7 @@ const values: Record<string, string> = {
   numbers_changed: 'Cifras no conservadas o no permitidas', links_changed: 'Enlaces cambiados', unsupported_fact: 'Dato sin respaldo',
   eq: 'igual a', gt: 'mayor que', gte: 'mayor o igual que', lt: 'menor que', lte: 'menor o igual que', between: 'entre límites',
   numeric_relation_not_in_reply: 'La comparación registrada por el revisor no corresponde al límite u operador escrito en el mensaje',
+  catalog_endpoint_mismatch: 'El máximo o mínimo anunciado no coincide con el extremo verificado de ese grupo del catálogo',
   unit_fact_mismatch_or_invalid: 'Un valor atribuido a una unidad no coincide con el catálogo, o la lista de datos extraídos es inválida',
   invalid_review_metadata: 'Ficha interna del revisor inválida; no significa por sí solo que el mensaje comercial tenga datos incorrectos',
   review_fragment_not_in_reply: 'El revisor citó un fragmento que no aparece literalmente en el mensaje propuesto',

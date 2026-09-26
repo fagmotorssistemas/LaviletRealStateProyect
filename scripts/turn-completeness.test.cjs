@@ -17,6 +17,33 @@ const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
 
+test('recorded category maxima expressed as hasta pass review and final catalog without repair', async () => {
+  const {validateCatalogReply}=require('../src/lib/integrations/automation/catalog-dialogue.ts')
+  const {factualValueIssues}=require('../src/lib/integrations/automation/semantic-review.ts')
+  const {turnEvidence}=require('../src/lib/integrations/automation/turn-evidence.ts')
+  const units=[{id:'d202',unit_number:'202',category:'departamento',bedrooms:3,area_internal_m2:120.83},
+    {id:'p602',unit_number:'602',category:'penthouse',bedrooms:3,area_internal_m2:142.09},
+    {id:'p605',unit_number:'605',category:'penthouse',bedrooms:3,area_internal_m2:140.53}]
+  const current='busco departamentos de 5 o 6 dormitorios'
+  const reply='Por el momento, La Vilet no cuenta con departamentos de 5 o 6 dormitorios en su catálogo. Sin embargo, la opción más amplia disponible son los departamentos y penthouses de 3 dormitorios. Los departamentos de esta categoría ofrecen hasta 120,83 m² interiores, mientras que los penthouses llegan hasta 142,09 m² interiores, ambos con áreas exteriores y ambientes cómodos para la vida familiar.'
+  const audit={semantic_review_enabled:true,verified_catalog:true,catalog_query:{category:'departamento',scope:'catalog',filters:{bedrooms_any:[5,6]}},catalog_results:{units:[],complete:true,unknown_unit_ids:[]},alternative_results:{units}}
+  const facts=[{unit_id:'group:departamento:3:max',field:'area_internal_m2',value:120.83,operator:'lte',upper_value:null,fragment:'departamentos de esta categoría ofrecen hasta 120,83 m² interiores'},
+    {unit_id:'group:penthouse:3:max',field:'area_internal_m2',value:142.09,operator:'lte',upper_value:null,fragment:'penthouses llegan hasta 142,09 m² interiores'}]
+  const review={...approved,factual_values:facts,claims:[{fragment:reply.split('. ')[0]+'.',subject:'sin departamentos de 5 o 6 dormitorios',polarity:'affirmation',verdict:'supported',evidence:'consulta completa sin coincidencias',evidence_source:'catalog_no_results'},
+    {fragment:reply,subject:'alternativas',polarity:'affirmation',verdict:'supported',evidence:'máximos verificados',evidence_source:'verified_context'}]}
+  const mock=model({reply,requests:[covered(current)],question:noQuestion},review)
+  const result=await completeTurnReply({current,baseReply:'Departamentos de 3 dormitorios, hasta 120,83 m². Penthouses de 3 dormitorios, hasta 142,09 m².',verified:{},audit},mock.generate)
+  assert.equal(result.audit.status,'checked')
+  assert.equal(result.reply,reply)
+  assert.equal(mock.calls.length,2)
+  assert.deepEqual(result.audit.repair_attempts,[])
+  assert.equal(validateCatalogReply(reply,{...audit,semantic_review:result.audit.semantic_review}).valid,true)
+  const evidence=turnEvidence({},audit)
+  const exaggerated=reply.replace('142,09','150')
+  const bad={...facts[1],value:150,fragment:facts[1].fragment.replace('142,09','150')}
+  assert.equal(factualValueIssues([bad],exaggerated,[...units,...evidence.groups])[0].code,'catalog_endpoint_mismatch')
+})
+
 test('catalog comparisons compute bounds and final catalog failures share the single repair budget', async () => {
   const unit = {id:'p605',unit_number:'605',category:'penthouse',bedrooms:3,bathrooms_full:3,area_internal_m2:140.53,area_exterior_m2:23.01}
   const current='Me interesa el 605'

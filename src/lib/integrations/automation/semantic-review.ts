@@ -1,5 +1,5 @@
 import { object, text, type Row } from './data'
-import { decimalNumber, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
+import { decimalNumber, endpointBefore, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
 
 const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number']
 
@@ -52,6 +52,11 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
     }
     if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value))
       return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected: unit[field] ?? null }]
+    const fragment = text(fact.fragment)
+    const endpoint = [...fragment.matchAll(/\d[\d.,]*/g)].filter(match => decimalNumber(match[0]) === fact.value)
+      .map(match => endpointBefore(fragment.slice(0, match.index))).find(Boolean)
+    if (endpoint && unit.aggregation && (unit.aggregation !== endpoint || !satisfiesNumeric(Number(unit[field]), fact.value as number)))
+      return [{ ...detail, code: 'catalog_endpoint_mismatch', kind: 'catalog_data', expected: unit[field], aggregation: endpoint }]
     if (!text(fact.fragment).trim() || !reply.includes(text(fact.fragment)))
       return [{ ...detail, code: 'review_fragment_not_in_reply', kind: 'review_metadata' }]
     return []
@@ -88,7 +93,8 @@ export function reviewedCatalogDenials(reply: string, audit: Row): string[] {
     const counts: Record<string, number> = { uno: 1, una: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 }
     const numericFragment = fragment.replace(/\b(uno|una|un|dos|tres|cuatro|cinco|seis)\s+(?=dormitorios?|habitaciones?|cuartos?)/gi, word => String(counts[word.trim().toLowerCase()]) + ' ')
     // Recheck the recorded claim against this reply and the exact query it reviewed.
-    return claim.evidence_source === 'catalog_no_results' && claim.polarity === 'negation' && claim.verdict === 'supported'
+    const explicitDenial = /\bno cuenta(?:n)? con\b/i.test(fragment)
+    return claim.evidence_source === 'catalog_no_results' && (claim.polarity === 'negation' || claim.polarity === 'affirmation' && explicitDenial) && claim.verdict === 'supported'
       && fragment.length > 0 && reply.includes(fragment) && text(claim.evidence).length > 0
       && reply.split(/(?<!\d)\.\s+|[;\n]+/).some(sentence => sentence.trim().replace(/\.$/, '') === fragment.trim().replace(/\.$/, ''))
       && !/https?:\/\//.test(fragment)
