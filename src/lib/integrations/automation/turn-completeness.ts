@@ -287,7 +287,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       audit: { semantic_review: semanticReview, opening_decision: opening, writer_contract: finalWriterContract(input.baseReply, input.audit), price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments,
         needs_advisor: unresolved.length > 0, unresolved, draft_rejected: true, independent_review: reviewMissing.length > 0 || status === 'rejected_review',
-        base_preview: traceText(originalBase, 1000), proposed_preview: traceText(proposedReply, 1000), final_preview: traceText(reply, 1000) } }
+        base_preview: traceText(originalBase, 1500), proposed_preview: traceText(proposedReply, 1500), final_preview: traceText(reply, 1500) } }
   }
   // Removing an obsolete denial must not skip the semantic repair itself. The
   // current question may ask about the remaining legitimate alternatives.
@@ -326,7 +326,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       if (attempt === 0) {
         metadataDraft = proposedReply
         previousMetadata = { requests: candidate.requests, question: candidate.question }
-        repairAttempts.push({ status: 'invalid_coverage', issues: metadataIssues, proposed_preview: traceText(proposedReply, 1000) })
+        repairAttempts.push({ status: 'invalid_coverage', issues: metadataIssues, proposed_preview: traceText(proposedReply, 1500) })
         continue
       }
       return fallback('invalid_coverage', [], metadataIssues)
@@ -345,7 +345,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (groundedPrice) issues.push(...verifiedPriceReplyIssues(reply, input.verified, input.current, verifiedQuote!))
     if (reply !== input.baseReply.trim() && passiveSalesCopy(reply, input.current, engagement) !== reply) issues.push('unsolicited_sales_offer')
     if (issues.length) {
-      if (groundedPrice && attempt === 0) { repairAttempts.push({ status: 'rejected_guard', issues, proposed_preview: traceText(proposedReply, 1000) }); continue }
+      if (groundedPrice && attempt === 0) { repairAttempts.push({ status: 'rejected_guard', issues, proposed_preview: traceText(proposedReply, 1500) }); continue }
       return fallback('rejected_guard', requests, issues)
     }
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact').map(row => row.fragment)])]
@@ -371,7 +371,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         // of an unsupported commercial claim or a mismatched catalog value.
         if (repairEligibility.eligible && repairAttempts.length === 0) {
           const repair: Row = { status: 'invalid_review_metadata', target: 'review_metadata', issues: factIssues,
-            proposed_preview: traceText(reply, 1000) }
+            proposed_preview: traceText(reply, 1500) }
           repairAttempts.push(repair)
           const previousFacts = (Array.isArray(review.factual_values) ? review.factual_values : []).map(object)
           const repaired = await generate(REVIEW_RULES + RESIDENTIAL_CONTINUITY_RULES + '\n' + passiveSalesRules(engagement) + visitRules + '\n' + CLAIM_RULES + '\n' + FLEXIBLE_FACT_RULES,
@@ -395,7 +395,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         semanticReview = { status: checked.valid && factsValid ? 'checked' : 'rejected', query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: factsValid, validation_details: factIssues, repair_eligibility: repairEligibility,
           reference_corrections: normalized.corrections, evidence_summary: { version: sharedEvidence.version, unit_count: sharedEvidence.units.length, alternative_ids: sharedEvidence.alternative_ids, group_count: sharedEvidence.groups.length } }
         if ((!checked.valid || factIssues.some(issue => issue.kind === 'catalog_data')) && attempt === 0 && repairAttempts.length === 0 && !sharedEvidence.conflicts.length) {
-          repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: factIssues.length ? factIssues : ['semantic_claims_unsupported_or_invalid'], rejected_review: review, proposed_preview: traceText(reply, 1000) })
+          repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: factIssues.length ? factIssues : ['semantic_claims_unsupported_or_invalid'], rejected_review: review, proposed_preview: traceText(reply, 1500) })
           continue
         }
         if (!checked.valid) return fallback('rejected_review', requests, ['semantic_claims_unsupported_or_invalid'])
@@ -405,7 +405,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       const required = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', ...(withoutUrls(reply).includes('?') ? ['question_has_purpose'] : [])]
       if (!required.every(key => review[key] === true)) {
         if (attempt === 0 && repairAttempts.length === 0) {
-          repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: required.filter(key => review[key] !== true).map(key => `review_check_failed:${key}`), rejected_review: review, proposed_preview: traceText(reply, 1000) })
+          repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: required.filter(key => review[key] !== true).map(key => `review_check_failed:${key}`), rejected_review: review, proposed_preview: traceText(reply, 1500) })
           continue
         }
         return fallback('rejected_review', requests, required.filter(key => review[key] !== true).map(key => `review_check_failed:${key}`))
@@ -421,7 +421,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       audit: { semantic_review: semanticReview, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
         independent_review: reviewRequired,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments, needs_advisor: unresolved.length > 0, unresolved,
-        base_preview: traceText(originalBase, 1000), proposed_preview: traceText(proposedReply, 1000), final_preview: traceText(reply, 1000) } }
+        base_preview: traceText(originalBase, 1500), proposed_preview: traceText(proposedReply, 1500), final_preview: traceText(reply, 1500) } }
     }
     return fallback('unavailable', requests)
   } catch {

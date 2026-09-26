@@ -2,7 +2,7 @@
 
 Fecha: 25 de septiembre de 2026. Base de comparación: `4a266e7`.
 
-Estado: implementado en el repositorio local; pendiente de commit, push y despliegue. Este documento no acredita que Vercel ya esté ejecutando estos cambios. No hay migraciones SQL en este paquete.
+Estado: incorporado al commit `22ad84f`. No hay migraciones SQL en este paquete. La [auditoría del 26/09](auditoria-visibilidad-cache-20260926.md) documenta los casos que todavía no resuelve, el cambio de visibilidad y la medición real de caché. Los rangos del anexo corresponden al paquete original frente a `4a266e7`.
 
 ## Qué problema se corrige
 

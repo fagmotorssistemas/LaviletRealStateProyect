@@ -163,10 +163,14 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
   const snapshot = (step.input.prompt_snapshot || {}) as Record<string, unknown>
   const output = (step.output.output_snapshot || {}) as Record<string, unknown>
   const input = (snapshot.data || {}) as Record<string, unknown>
+  const usage = (step.output.token_usage || {}) as Record<string, unknown>
   return <div className={styles.aiExchange}>
     {typeof input.borrador_rechazado === 'string' && <DraftDecision data={{ borrador_evaluado: input.borrador_rechazado, decision: 'Rechazado antes de esta corrección', motivos_registrados: input.correcciones_requeridas, siguiente_accion: 'Esta llamada intenta corregir ese borrador' }} />}
     <h5>Entrada y salida de esta llamada a IA</h5>
     <p>Modelo: {String(step.input.model || 'No registrado')}. Copia protegida: puede ocultar datos sensibles.</p>
+    <p>Los mensajes nuevos no se ocultan por mencionar presupuestos. Las credenciales y los identificadores personales siguen protegidos.</p>
+    {JSON.stringify([snapshot, output]).includes('[contenido personal protegido]') && <p className={styles.notice}>Este registro antiguo se guardó con el texto oculto. Cambiar la vista no recupera lo que no se conservó; las capturas nuevas mantienen el texto comercial.</p>}
+    {typeof usage.input_tokens === 'number' && <p>Tokens de entrada: {usage.input_tokens.toLocaleString('es-EC')}. Reutilizados desde caché: {typeof usage.cached_input_tokens === 'number' ? usage.cached_input_tokens.toLocaleString('es-EC') : 'No registrado'}. Tokens de salida: {typeof usage.output_tokens === 'number' ? usage.output_tokens.toLocaleString('es-EC') : 'No registrado'}.</p>}
     {!!(snapshot.limited || output.limited) && <p className={styles.notice}>Parte del contenido supera el límite de captura y está abreviado.</p>}
     {!!step.input.attachments_omitted && <p>Se envió un archivo o imagen. Su contenido binario no se conserva aquí.</p>}
     <details className={styles.technical}><summary>1. Entrada · instrucciones, mensaje e historial</summary>

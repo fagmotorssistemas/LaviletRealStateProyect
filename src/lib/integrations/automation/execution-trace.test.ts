@@ -111,7 +111,8 @@ test('trace captures actual versions and sanitized steps without modifying decis
     batch_id: event.id, batch_event_ids: [event.id],
   })
   const serialized = JSON.stringify(stored)
-  for (const secret of ['private-value', 'customer@example.com', '0102030405', '2000']) assert.ok(!serialized.includes(secret))
+  for (const secret of ['private-value', 'customer@example.com', '0102030405']) assert.ok(!serialized.includes(secret))
+  assert.ok(serialized.includes('2000'))
   assert.deepEqual((stored[1].output_summary as Record<string, unknown>).candidate_unit_ids, ['unit-502'])
   assert.equal(stored[1].status, 'succeeded')
 })
@@ -149,7 +150,7 @@ test('unfinished steps are visible as incomplete and invalid event ids never wri
   await invalid.flush()
 })
 
-test('legacy audit summaries strip credentials, URL secrets and personal financial fields recursively', () => {
+test('audit summaries preserve commercial budgets while removing credentials and contact identifiers', () => {
   const sanitized = sanitizeTraceSummary({
     source: 'catalog', filters: { bedrooms: 3, budget: 12345 },
     link: 'https://example.com/api?key=private-value', authorization: 'Bearer private-value',
@@ -157,10 +158,29 @@ test('legacy audit summaries strip credentials, URL secrets and personal financi
   })
   const serialized = JSON.stringify(sanitized)
   assert.ok(!serialized.includes('private-value'))
-  assert.ok(!serialized.includes('12345'))
+  assert.equal((sanitized.filters as Record<string, unknown>).budget, 12345)
   assert.equal((sanitized.filters as Record<string, unknown>).bedrooms, 3)
   assert.equal(traceText('Departamento 502 tiene 120.83 m²'), 'Departamento 502 tiene 120.83 m²')
   assert.deepEqual(sanitizeTraceSummary(sanitized), sanitized)
+})
+
+test('budget replies survive persistence and reading without suppressing the whole message', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return {} }, report: () => {} })
+  const reply = ('Con su presupuesto de 70 mil dólares podemos revisar las opciones. ' + 'Detalle comercial. '.repeat(65)).trim()
+  await withAIExecutionTrace(trace, async () => {
+    beginModelTrace('Reglas', 'configured-model', 'writing', { mensaje_actual: 'Cuento con 70 mil dólares.', budget: { amount: 70000 }, qualification: { presupuesto_texto: '70 mil' } })
+      .finish(undefined, undefined, { reply })
+  })
+  trace.add('response_coverage', 'Revisión', 'decision', 'turn-completeness.ts', 'succeeded', {}, { proposed_preview: traceText(reply,1500) })
+  await trace.flush()
+  const model = stored.find(row => row.step_key === 'model_request')!
+  const output = sanitizeTraceSummary(model.output_summary)
+  assert.equal(((output.output_snapshot as Record<string, unknown>).data as Record<string, unknown>).reply, reply)
+  const data = ((model.input_summary as Record<string, unknown>).prompt_snapshot as Record<string, unknown>).data as Record<string, unknown>
+  assert.deepEqual(data.budget, { amount: 70000 })
+  assert.deepEqual(data.qualification, { presupuesto_texto: '70 mil' })
+  assert.equal(sanitizeTraceSummary(stored.at(-1)!.output_summary).proposed_preview, reply)
 })
 
 test('internal UUIDs survive redaction without exposing phone-like values or protected fields', () => {

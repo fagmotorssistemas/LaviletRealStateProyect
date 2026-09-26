@@ -4,12 +4,10 @@ const internalIdKey = /^(?:id|batch_id|batch_event_ids|event_id|event_ids|conver
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const privateKey = /^(?:.*_)?(?:authorization|password|secret|token|api_key|access_token|refresh_token|phone|telefono|mobile|email|correo|cedula|dni|identificacion|national_id|full_name|ruc|job_title|employment_stability_months|account_number|numero_cuenta|salary|salario|sueldo|income|ingresos|employer|empleador|financial_documents|personal_data)$/i
-const privateFinancialText = /\b(?:mi[s]?\s+(?:ingresos?|sueldo|salario|c[eé]dula|cuenta|ahorros?|capital|presupuesto)|(?:c[eé]dula|dni|identificaci[oó]n|sueldo|salario|ingresos?\s+mensuales)\s*(?:es|son|de|:|n[uú]mero)?\s*[$\d])/i
 
 /** Audit previews are deliberately smaller than the protected conversation history. */
 export function traceText(value: unknown, max = 360) {
   const content = typeof value === 'string' ? value : ''
-  if (privateFinancialText.test(content) || /\d/.test(content) && /\b(?:presupuesto|capital|ahorros|gano|dispongo|cuento con|tengo disponible)/i.test(content)) return '[contenido personal protegido]'
   return content
     .replace(/https?:\/\/[^\s<>]+/gi, raw => {
       try {
@@ -28,12 +26,12 @@ export function sanitizeTraceSummary(value: unknown): Summary {
   const seen = new WeakSet<object>()
   function clean(input: unknown, depth: number, key = ''): unknown {
     if (key === 'prompt_snapshot' || key === 'output_snapshot') return sanitizePromptSnapshot(input)
-    if (privateKey.test(key) || /^(?:min_|max_)?(?:budget|presupuesto|initial_capital|capital_inicial)(?:_(?:amount|min|max|text|texto))?$/i.test(key)) return '[dato protegido]'
+    if (privateKey.test(key)) return '[dato protegido]'
     if (input === null || typeof input === 'boolean') return input
     if (typeof input === 'number') return Number.isFinite(input) ? input : null
     // Opaque database IDs link the actual execution and its catalogue results.
     // Preserve only exact UUIDs in these fields; arbitrary text still needs redaction.
-    if (typeof input === 'string') return internalIdKey.test(key) && uuid.test(input) ? input : traceText(input, 1000)
+    if (typeof input === 'string') return internalIdKey.test(key) && uuid.test(input) ? input : traceText(input, 1500)
     if (!input || typeof input !== 'object') return null
     if (depth >= 6 || seen.has(input)) return '[resumen limitado]'
     seen.add(input)
@@ -50,7 +48,7 @@ export function sanitizePromptSnapshot(value: unknown): Summary {
   let limited = false
   const seen = new WeakSet<object>()
   function clean(input: unknown, depth = 0, key = ''): unknown {
-    if (privateKey.test(key) || /budget|presupuesto|initial_capital|capital_inicial/i.test(key)) return '[dato protegido]'
+    if (privateKey.test(key)) return '[dato protegido]'
     if (remaining <= 0 || depth > 20) { limited = true; return '[resumen limitado]' }
     if (typeof input === 'string') {
       if (input.length > 120000) limited = true

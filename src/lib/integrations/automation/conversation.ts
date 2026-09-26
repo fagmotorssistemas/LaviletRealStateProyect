@@ -995,7 +995,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       result_unit_ids: object(audit.catalog_results).unit_ids, pending_question: audit.pending_question,
       coverage_locked: plannedResponse.locked,
       catalog_snapshot: catalogSnapshot(object(audit.catalog_results).units), catalog_comparison: audit.catalog_comparison,
-      base_preview: traceText(reply, 1000),
+      base_preview: traceText(reply, 1500),
       decision: decisionRecord({ rule_id: `response.${text(audit.source) || 'commercial'}`, origin: audit.verified_catalog === true ? 'catalog' : commercialPromptRoute ? 'model' : 'policy',
         caused_by_step: audit.verified_catalog === true ? catalogStep : semanticStep,
         reason: audit.verified_catalog === true ? 'La consulta al catálogo determina las opciones y los datos de esta respuesta.' : 'La intención y el estado de la conversación determinan esta ruta de respuesta.',
@@ -1016,7 +1016,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)
     const coverageStep = trace.start('response_coverage', 'Redactar y validar la respuesta final', 'decision', 'turn-completeness.ts', {
-      base_preview: traceText(reply, 1000), source: text(audit.source) || 'commercial',
+      base_preview: traceText(reply, 1500), source: text(audit.source) || 'commercial',
       catalog_coverage: audit.catalog_coverage,
     })
     const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
@@ -1060,7 +1060,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       missing_fact_fragments: reviewed.audit.missing_fact_fragments, handoff_assessments: reviewed.audit.handoff_assessments,
       unresolved: reviewed.unresolved, needs_advisor: reviewed.needsAdvisor || needsCommercialHandoff,
       base_preview: reviewed.audit.base_preview, proposed_preview: reviewed.audit.proposed_preview,
-      final_preview: traceText(reply, 1000),
+      final_preview: traceText(reply, 1500),
       decision: decisionRecord({ rule_id: 'coverage.verify_information_gap', origin: 'coverage_review', caused_by_step: dialogueStep,
         reason: reviewed.needsAdvisor ? 'La revisión identificó una consulta concreta sin datos verificados.'
           : needsCommercialHandoff ? 'La consulta pendiente de la ruta comercial no pudo resolverse con el contexto.'
