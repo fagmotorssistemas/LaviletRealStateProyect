@@ -17,6 +17,30 @@ const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
 
+test('commercial budget objection permits choosing alternatives or financing and records its purpose', async () => {
+  const current = 'Tengo un presupuesto limitado'
+  const baseReply = 'Penthouse 805: USD 550.000. ¿Qué planta prefiere?'
+  const reply = 'Entiendo. El penthouse 805 tiene un precio referencial de USD 550.000, sujeto a cambios. Podemos revisar alternativas verificadas o conversar sobre financiamiento. ¿Prefiere comparar alternativas o revisar financiamiento para el penthouse?'
+  const question = {text:'¿Prefiere comparar alternativas o revisar financiamiento para el penthouse?',purpose:'permission_to_continue',missing_datum:'Camino preferido',next_decision:'Comparar alternativas o revisar financiamiento conservando el interés en el penthouse'}
+  const input = {current,baseReply,preserveOperationalQuestion:true,verified:{property_context:{selected_ids:['p805']},catalogo:[{id:'p805',category:'penthouse',unit_number:'805',price:550000}]},audit:{source:'property_budget_deferred'}}
+  const candidate = {reply,requests:[covered(current)],question}
+  const mock = model(candidate,approved)
+  const result = await completeTurnReply(input,mock.generate)
+  assert.equal(result.audit.status,'checked')
+  assert.equal(result.reply,reply)
+  assert.deepEqual(result.audit.commercial_continuation.selected_units,['penthouse 805'])
+  assert.equal(result.audit.commercial_continuation.question.next_decision,question.next_decision)
+  assert.equal(result.audit.commercial_continuation.checks.operational_goal_preserved,true)
+  assert.equal(mock.calls[0][1].preserveOperationalQuestion,false)
+  assert.equal(mock.calls[0][1].contrato_redaccion.decisiones_protegidas,false)
+  assert.match(mock.calls[1][0],/Ofrecer alternativas no equivale a seleccionarlas/)
+  const denied = {...approved,operational_goal_preserved:false}
+  const rejected = await completeTurnReply(input,model(candidate,denied,candidate,denied).generate)
+  assert.equal(rejected.audit.status,'rejected_review')
+  assert.ok(rejected.audit.issues.includes('review_check_failed:operational_goal_preserved'))
+  assert.equal(rejected.audit.commercial_continuation.checks.operational_goal_preserved,false)
+})
+
 test('recorded category maxima expressed as hasta pass review and final catalog without repair', async () => {
   const {validateCatalogReply}=require('../src/lib/integrations/automation/catalog-dialogue.ts')
   const {factualValueIssues}=require('../src/lib/integrations/automation/semantic-review.ts')
@@ -259,7 +283,7 @@ test('final writer receives a route-specific contract for information, price and
 test('protected route allows natural wording but rejects changing the next question', async () => {
   const baseReply = 'Tenemos alternativas. ¿Qué planta prefiere?'
   const question = { text: '¿Qué planta prefiere?', purpose: 'choose_property', missing_datum: 'Planta', next_decision: 'Filtrar alternativas' }
-  const input = { current: 'Quiero ver alternativas', baseReply, verified: {}, audit: { source: 'property_floor_options' }, preserveOperationalQuestion: true }
+  const input = { current: 'Quiero ver alternativas', baseReply, verified: {}, audit: { source: 'financing_selection_required' }, preserveOperationalQuestion: true }
   const draft = 'Con gusto le mostramos las alternativas. ¿Qué planta prefiere?'
   const mock = model({ reply: draft, requests: [covered(input.current)], question }, approved)
   const result = await completeTurnReply(input, mock.generate)

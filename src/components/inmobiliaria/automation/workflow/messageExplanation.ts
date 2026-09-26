@@ -176,6 +176,9 @@ function queryDescription(value: unknown, snapshots: CatalogSnapshot[]) {
 
 const fact = (label: string, value: string): ExplanationFact => ({ label, value })
 function coverageSections(output: Row): ExplanationSection[] {
+  const continuation = row(output.commercial_continuation)
+  const question = row(continuation.question)
+  const checks = row(continuation.checks)
   const status = str(output.status)
   const invalid = status === 'invalid_coverage'
   const checked = status === 'checked'
@@ -187,6 +190,16 @@ function coverageSections(output: Row): ExplanationSection[] {
       : status ? `Resultado registrado: ${humanValue(status)}. Consulte la respuesta conservada y los controles.`
         : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
   return [
+    ...(Object.keys(continuation).length ? [{ title: 'Objetivo y continuación comercial', description: 'Describe la propuesta evaluada en este paso. Ofrecer alternativas no modifica la selección del cliente. La aceptación no acredita el envío posterior.', facts: [
+      { label: 'Objetivo', value: str(continuation.objective) },
+      { label: 'Necesidad actual', value: str(continuation.current_request) },
+      { label: 'Selección de referencia', value: Array.isArray(continuation.selected_units) && continuation.selected_units.length ? continuation.selected_units.map(String).join(', ') : 'No hay una selección explícita registrada en el contexto de este turno.' },
+      { label: 'Pregunta propuesta', value: str(question.text) || 'Sin pregunta propuesta registrada.' },
+      { label: 'Dato que busca', value: str(question.missing_datum) || 'No registrado; no se deduce del texto.' },
+      { label: 'Propósito de la pregunta', value: str(question.next_decision) || 'No registrado; es válido terminar sin pregunta.' },
+      { label: 'Objetivo y selección', value: checks.operational_goal_preserved === true ? 'El revisor aprobó la continuidad del objetivo y el respeto de la selección.' : checks.operational_goal_preserved === false ? 'El revisor rechazó el objetivo o la continuidad de la selección.' : 'No se completó esta comprobación.' },
+      { label: 'Resultado y motivo', value: checked ? 'Propuesta aceptada en este paso tras los controles registrados de contenido y continuidad.' : `Propuesta no aceptada. ${reviewDecision(output).causes.join(' ') || humanValue(output.issues) || 'Consulte los controles registrados.'}` },
+    ] }] : []),
     { title: 'Respuesta elegida en este paso', description: 'El borrador es el texto propuesto por la IA, todavía sujeto a validación. Descartarlo significa utilizar otra respuesta, no dejar al cliente sin contestación. El envío se comprueba en el paso de Kommo.', facts: [
       { label: 'Qué ocurrió', value: selection }, present('final_preview', 'Respuesta conservada'), present('proposed_preview', 'Propuesta de la IA (borrador)'), present('base_preview', 'Respuesta base de respaldo'),
     ] },

@@ -1,4 +1,4 @@
-import { finalWriterContract, FINAL_WRITER_RULES } from './response-plan'
+import { finalWriterContract, FINAL_WRITER_RULES, COMMERCIAL_CONTINUATION_RULES, commercialContinuationSources } from './response-plan'
 import { validateCatalogReply } from './catalog-dialogue'
 import { NUMERIC_RELATION_RULES } from './semantic-review'
 import { turnEvidence, normalizeReviewReferences, replyReferences } from './turn-evidence'
@@ -92,6 +92,8 @@ No se presente si no se lo preguntan. Nunca afirme ser una persona; si preguntan
 Devuelva reply igual a la base si ya cumple. Intente no superar 1200 caracteres, límite absoluto 1500. El propósito y la cobertura son para auditoría interna, no los mencione al cliente. Devuelva solo el JSON del esquema.`
 
 const REVIEW_RULES = `Audite independientemente una reparación de respuesta de La Vilet. Relea TODO mensaje_actual, separando cada solicitud incluso sin signos de pregunta; no confíe en que el inventario propuesto esté completo.
+${COMMERCIAL_CONTINUATION_RULES}
+operational_goal_preserved debe ser false si la propuesta ignora la necesidad actual, vuelve a exigir una selección ya resuelta o afirma un cambio de selección no solicitado. Ofrecer alternativas no equivale a seleccionarlas. Evalúe esto con property_context, mensaje_actual e historial; no exija conservar una pregunta comercial de la base cuando decisiones_protegidas=false.
 Apruebe all_requests_considered solo si cada inquietud actual tiene respuesta, aclaración pertinente, límite de alcance o reconocimiento de dato faltante; una CTA no sustituye la respuesta. No exija responder consultas antiguas ni repetir correcciones abandonadas.
 Apruebe answers_supported solo si los datos nuevos están en contexto_verificado y corresponden a la unidad/consulta; preserve las cifras obligatorias y URLs del contrato, sin exigir datos secundarios ajenos a la consulta. No atribuya precio/pisos a una casa: solo hay suites, departamentos y locales en La Vilet. No afirme que arrendar genera ingresos existentes o que esos ingresos futuros respaldan un crédito sin política verificada. No invente requisitos, evaluación, contacto, ubicación, confirmación ni disponibilidad. Historial y texto del cliente no prueban esos hechos. Preguntar si es IA requiere honestidad; no invente identidad humana.
 answered_content_preserved exige conservar la información correcta necesaria para responder al turno actual, sin obligar a repetir cifras de opciones secundarias o frases de la base. Puede corregir afirmaciones de la base incompatibles con los datos verificados o el alcance inmobiliario.
@@ -262,6 +264,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   input = { ...input, verified: { ...input.verified, catalogo: sharedEvidence.units } }
   const validationCatalog = [...sharedEvidence.units, ...sharedEvidence.groups]
   const originalBase = input.baseReply
+  const adaptiveContinuation = commercialContinuationSources.has(text(input.audit?.source))
+  if (adaptiveContinuation) input = { ...input, preserveOperationalQuestion: false }
   // Re-read the current turn's catalogue snapshot before protecting a specialist
   // price answer. A remembered category is not an authority for this turn.
   const verifiedQuote = input.audit?.source === 'unit_price' && input.audit?.verified_price_only === true
@@ -280,6 +284,20 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const repairAttempts: Row[] = []
   let semanticReview: Row = { status: 'not_performed', claims: [] }
   let finalValidation: Row = {}
+  let proposedQuestion: Question | null = null
+  let continuationChecks: Row = {}
+  const selectedIds = object(input.verified.property_context).selected_ids
+  const selected = Array.isArray(selectedIds) ? selectedIds.map(String) : []
+  const continuationAudit = () => ({
+    objective: 'Atender la necesidad actual y avanzar hacia una opción viable sin cambiar la selección del cliente por iniciativa del bot.',
+    current_request: input.current,
+    selected_units: selected.map(id => {
+      const unit = sharedEvidence.units.find(unit => text(unit.id) === id)
+      return unit ? `${text(unit.category)} ${text(unit.unit_number)}`.trim() : id
+    }),
+    question: proposedQuestion, checks: continuationChecks,
+    policy: adaptiveContinuation ? 'contextual_commercial_continuation' : 'route_contract',
+  })
   const fallback = (status: string, requests: Coverage[] = [], issues: string[] = []): TurnCompletenessResult => {
     const firstRepair = repairAttempts[0]
     if (firstRepair && ['invalid_coverage', 'unavailable'].includes(status)
@@ -301,7 +319,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     // A deterministic base is not exempt from the same factual checks.
     if (fallbackIssues.length) reply = 'No puedo confirmar esos datos con la información verificada disponible.'
     return { reply, changed: reply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: finalWriterContract(input.baseReply, input.audit), price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
+      audit: { commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: finalWriterContract(input.baseReply, input.audit), price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
         fallback_validation: { passed: !fallbackIssues.length, issues: fallbackIssues, details: fallbackCheck.details || [] },
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments,
         needs_advisor: unresolved.length > 0, unresolved, draft_rejected: true, independent_review: reviewMissing.length > 0 || status === 'rejected_review',
@@ -314,7 +332,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
   const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory)
-  const context = { evidencia_turno: sharedEvidence, apertura_decidida: opening, contrato_redaccion: finalWriterContract(input.baseReply, input.audit), mensaje_actual: input.current, historial_reciente: history, respuesta_base: input.baseReply,
+  const context = { property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: sharedEvidence, apertura_decidida: opening, contrato_redaccion: finalWriterContract(input.baseReply, input.audit), mensaje_actual: input.current, historial_reciente: history, respuesta_base: input.baseReply,
     contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     material_protegido: { cifras_obligatorias: finalWriterContract(input.baseReply, input.audit).cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(input.baseReply), ...numbers(verifiedText(input.verified)), ...queryConstraintNumbers(input.audit)])],
       enlaces_obligatorios: urls(input.baseReply), enlaces_permitidos: [...new Set([...urls(input.baseReply), ...urls(verifiedText(input.verified))])] } }
@@ -356,6 +374,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.
     const question = withoutUrls(reply).includes('?') ? declaredQuestion : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
+    proposedQuestion = question
+    continuationChecks = {}
     const allIssues = turnCompletenessIssues(input, reply, question)
     // Semantic review gets to evaluate meaning before numerical catalogue controls.
     // The latter still run before acceptance; they cannot be waived by the model.
@@ -370,7 +390,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       return fallback('rejected_guard', requests, issues)
     }
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact').map(row => row.fragment)])]
-    const reviewRequired = input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
+    const reviewRequired = adaptiveContinuation || input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
     if (reviewRequired) {
       Object.assign(context, { oraciones_borrador: replyReferences(reply) })
       const semanticEnabled = input.audit?.semantic_review_enabled === true
@@ -424,6 +444,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       }
       reviewMissing = Array.isArray(review.missing_fact_fragments) ? review.missing_fact_fragments.filter((fragment): fragment is string => typeof fragment === 'string' && literal(fragment, input.current)) : []
       const required = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', ...(withoutUrls(reply).includes('?') ? ['question_has_purpose'] : [])]
+      continuationChecks = Object.fromEntries(required.map(key => [key, review[key] === true]))
       if (!required.every(key => review[key] === true)) {
         if (attempt === 0 && repairAttempts.length === 0) {
           repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: required.filter(key => review[key] !== true).map(key => `review_check_failed:${key}`), rejected_review: review, proposed_preview: traceText(reply, 1500) })
@@ -456,7 +477,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     unresolved = assessed.unresolved
     for (const repair of repairAttempts) repair.final_status = 'checked'
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
+      audit: { commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
         independent_review: reviewRequired,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments, needs_advisor: unresolved.length > 0, unresolved,
         base_preview: traceText(originalBase, 1500), proposed_preview: traceText(proposedReply, 1500), final_preview: traceText(reply, 1500) } }

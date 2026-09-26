@@ -5,6 +5,18 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 
+test('commercial continuation explains the recorded objective selection question and reviewer verdict', () => {
+  const item=step(1,'response_coverage',{status:'checked',commercial_continuation:{objective:'Resolver la limitación económica',current_request:'Presupuesto limitado',selected_units:['penthouse 805'],question:{text:'¿Alternativas o financiamiento?',missing_datum:'Preferencia',next_decision:'Elegir camino'},checks:{operational_goal_preserved:true}}})
+  const sections=explainStep(execution([item]),item).coverageSections!
+  const section=sections.find(section=>section.title==='Objetivo y continuación comercial')!
+  assert.ok(section)
+  assert.equal(section.facts.find(f=>f.label==='Selección de referencia')?.value,'penthouse 805')
+  assert.equal(section.facts.find(f=>f.label==='Propósito de la pregunta')?.value,'Elegir camino')
+  assert.match(section.facts.find(f=>f.label==='Resultado y motivo')!.value,/aceptada/)
+  const old=explainStep(execution([step(2,'response_coverage')]),step(2,'response_coverage')).coverageSections!
+  assert.equal(old.some(section=>section.title==='Objetivo y continuación comercial'),false)
+})
+
 test('review diagnostics group repeated causes while retaining individual received and expected values', () => {
   const detail={code:'catalog_value_mismatch',unit_id:'p',field:'bedrooms',received:5,expected:3}
   const decision=reviewDecision({status:'rejected_review',semantic_review:{validation_details:[detail,detail,detail]}})
