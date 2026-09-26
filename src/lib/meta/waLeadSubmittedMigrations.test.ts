@@ -21,6 +21,20 @@ describe('waLeadSubmitted migrations + docs', () => {
     assert.doesNotMatch(sql, /action_source',\s*'website/)
   })
 
+  it('migración link evidencia huérfana: backfill + hook post-inbound', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260926113242_link_orphan_kommo_message_evidence.sql',
+      ),
+      'utf8',
+    )
+    assert.match(sql, /lv_link_kommo_message_evidence_for_lead/)
+    assert.match(sql, /lv_backfill_orphan_kommo_message_evidence/)
+    assert.match(sql, /evidence_linked/)
+    assert.match(sql, /lv_receive_kommo_observation/)
+  })
+
   it('doc separa dataset mensajería de WABA y cita CTWA bloqueo', () => {
     const md = readFileSync(
       join(process.cwd(), 'docs/META_WA_LEAD_SUBMITTED.md'),

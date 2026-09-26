@@ -9,6 +9,7 @@ import {
   maybeRegisterWaLeadSubmitted,
   type WaLeadSubmittedResult,
 } from '@/lib/meta/waLeadSubmittedDelivery'
+import { linkOrphanEvidenceAndStampCommercialInterest } from '@/lib/meta/waLeadSubmittedEvidenceLink'
 
 /**
  * Aplica grant/revoke de publicidad WhatsApp desde el mensaje del cliente
@@ -68,11 +69,10 @@ export async function applyWhatsappAdsConsentFromClientMessage(input: {
 /**
  * Evaluación LeadSubmitted del turno actual.
  * Independiente de que el bot responda: sirve para bot_paused / outside_test_lead.
- * No reenvía histórico: solo el mensaje actual (+ scoreEvents del turno si existen).
- *
- * Si consentimiento llega en un turno posterior tras interés sellado reciente,
- * la aceptación puede encolar sin otro mensaje comercial (ventana corta).
- * La aceptación sola no es interés. No hay backfill de turnos pasados.
+ * Interés del turno = mensaje actual (+ scoreEvents). Si el mensaje comercial
+ * llegó antes de existir el lead CRM, enlaza evidencia huérfana y sella interés
+ * reciente (ventana corta) para que un grant posterior pueda convertir.
+ * La aceptación sola no es interés. No convierte saludos por historial antiguo.
  */
 export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
   admin: SupabaseClient
@@ -98,6 +98,27 @@ export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
         lead,
       })),
     }
+  }
+
+  // Evidencia webhook puede preceder al lead: enlazar y recuperar sello reciente.
+  try {
+    const repaired = await linkOrphanEvidenceAndStampCommercialInterest({
+      admin: input.admin,
+      rpc: input.rpc,
+      leadId: String(lead.id),
+      contactId: input.contactId,
+      kommoId:
+        typeof lead.kommo_id === 'number' ? lead.kommo_id : null,
+      recentOfferText: input.recentOfferText,
+    })
+    if (repaired.stampedAt) {
+      lead = {
+        ...lead,
+        meta_wa_commercial_interest_at: repaired.stampedAt,
+      }
+    }
+  } catch {
+    /* soft-fail */
   }
 
   // Releer evidencia/consent desde DB (fuente autorizada; no confiar solo en memoria).
@@ -130,9 +151,10 @@ export async function evaluateWaLeadSubmittedForCurrentTurn(input: {
       meta_wa_lead_submitted_event_id: row.meta_wa_lead_submitted_event_id as
         | string
         | null,
-      meta_wa_commercial_interest_at: row.meta_wa_commercial_interest_at as
-        | string
-        | null,
+      meta_wa_commercial_interest_at:
+        (row.meta_wa_commercial_interest_at as string | null) ||
+        (lead.meta_wa_commercial_interest_at as string | null) ||
+        null,
     },
     contactId: input.contactId,
     currentMessage: input.currentMessage,

@@ -13,6 +13,7 @@ import {
   type WaLeadSubmittedBlocker,
 } from '@/lib/meta/waLeadSubmittedContract'
 import { evaluateWaLeadSubmittedEligibility } from '@/lib/meta/waLeadSubmittedEligibility'
+import { linkOrphanEvidenceAndStampCommercialInterest } from '@/lib/meta/waLeadSubmittedEvidenceLink'
 import { decideWaLeadSubmittedConsentGate } from '@/lib/meta/waLeadSubmittedConsentGate'
 import {
   isWaLeadSubmittedDeliveryEnabled,
@@ -189,7 +190,25 @@ export async function maybeRegisterWaLeadSubmitted(input: {
       : null
   const verifiedAdContext = Boolean(ctwaClidEarly)
 
-  // Interés del turno, o aceptación + sello reciente (grant ≠ interés; sin backfill).
+  // Con CTWA ya resuelto: sellar interés desde evidencia huérfana (p. ej. «más info»).
+  if (admin && !input.lead.meta_wa_commercial_interest_at) {
+    try {
+      const repaired = await linkOrphanEvidenceAndStampCommercialInterest({
+        admin,
+        leadId: input.lead.id,
+        contactId,
+        recentOfferText: input.recentOfferText,
+        verifiedAdContext,
+      })
+      if (repaired.stampedAt) {
+        input.lead.meta_wa_commercial_interest_at = repaired.stampedAt
+      }
+    } catch {
+      /* soft-fail */
+    }
+  }
+
+  // Interés del turno, o aceptación + sello reciente (grant ≠ interés).
   const eligibility = evaluateWaLeadSubmittedEligibility({
     currentMessage: input.currentMessage,
     scoreEvents: input.scoreEvents,

@@ -185,7 +185,8 @@ export function isCommercialInterestEvidence(input: {
  * 1) Interés comercial del turno → sella `commercialInterestAt` (en delivery).
  * 2) Asesor pide consentimiento (manual).
  * 3) Aceptación: puede encolar con el sello reciente; la aceptación sola no es interés.
- * No hay backfill de mensajes antiguos.
+ * Si el mensaje comercial llegó antes del lead CRM, el sello se repara desde evidencia
+ * enlazada (ventana corta); no convierte saludos por historial antiguo.
  */
 export function evaluateWaLeadSubmittedEligibility(input: {
   currentMessage: string
