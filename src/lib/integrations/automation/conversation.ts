@@ -1125,6 +1125,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const validationStep = trace.start('response_validation', 'Validar respuesta', 'decision', 'direct-reply.ts · turn-completeness.ts', {
     source: text(audit.source) || 'commercial',
   })
+  const beforeFinalFormatting = reply
   const direct = directReply(currentTopicReply(sectorClaimsReply(reply),current),current)
   if(direct !== reply) audit.direct_reply_guard = true
   const openingDecision = object(audit.turn_completeness).opening_decision
@@ -1146,6 +1147,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   audit.pending_question = reply.includes('?') ? replyPending : {}
   if (!reply.trim() || reply.length > 3000) throw new Error('EMPTY_OR_LONG_REPLY')
   trace.finish(validationStep, 'succeeded', {
+    text_transformations: beforeFinalFormatting !== reply ? [{ stage: 'Validación y formato final antes de Kommo', before: beforeFinalFormatting, after: reply }] : [],
+    final_preview: traceText(reply, 3000),
     response_length: reply.length,
     response_preview: traceText(reply, 280),
     direct_reply_adjusted: audit.direct_reply_guard === true,

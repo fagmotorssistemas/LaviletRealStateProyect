@@ -5,6 +5,16 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 
+test('text changes distinguish the reviewed draft from the final formatting before delivery',()=>{
+  for(const key of ['response_coverage','response_validation']){
+    const item=step(1,key,{status:'checked',text_transformations:[{stage:'Normalización de ruta',before:'Texto original',after:'Texto modificado'}]})
+    const section=explainStep(execution([item]),item).coverageSections!.find(s=>s.title==='Cambios del sistema sobre el texto')!
+    assert.equal(section.facts[1].value,'Texto original')
+    assert.equal(section.facts[2].value,'Texto modificado')
+    assert.match(section.description,/versión resultante/)
+  }
+})
+
 test('commercial continuation explains the recorded objective selection question and reviewer verdict', () => {
   const item=step(1,'response_coverage',{status:'checked',commercial_continuation:{objective:'Resolver la limitación económica',current_request:'Presupuesto limitado',selected_units:['penthouse 805'],question:{text:'¿Alternativas o financiamiento?',missing_datum:'Preferencia',next_decision:'Elegir camino'},checks:{operational_goal_preserved:true}}})
   const sections=explainStep(execution([item]),item).coverageSections!

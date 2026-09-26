@@ -175,6 +175,16 @@ function queryDescription(value: unknown, snapshots: CatalogSnapshot[]) {
 }
 
 const fact = (label: string, value: string): ExplanationFact => ({ label, value })
+function transformationSections(output: Row): ExplanationSection[] {
+  if (!Array.isArray(output.text_transformations)) return []
+  const changes = rows(output.text_transformations)
+  return [{ title: 'Cambios del sistema sobre el texto', description: changes.length ? 'El sistema modificó el texto en este paso. La aprobación corresponde a la versión resultante, no al borrador intacto. Consulte Envío a Kommo para el estado de envío.' : 'No se registraron transformaciones del texto en este paso.', facts: changes.flatMap(change => [
+    { label: 'Etapa responsable', value: str(change.stage) },
+    { label: 'Antes de la modificación', value: str(change.before) },
+    { label: 'Después de la modificación', value: str(change.after) },
+  ]) }]
+}
+
 function coverageSections(output: Row): ExplanationSection[] {
   const continuation = row(output.commercial_continuation)
   const question = row(continuation.question)
@@ -190,6 +200,7 @@ function coverageSections(output: Row): ExplanationSection[] {
       : status ? `Resultado registrado: ${humanValue(status)}. Consulte la respuesta conservada y los controles.`
         : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
   return [
+    ...transformationSections(output),
     ...(Object.keys(continuation).length ? [{ title: 'Objetivo y continuación comercial', description: 'Describe la propuesta evaluada en este paso. Ofrecer alternativas no modifica la selección del cliente. La aceptación no acredita el envío posterior.', facts: [
       { label: 'Objetivo', value: str(continuation.objective) },
       { label: 'Necesidad actual', value: str(continuation.current_request) },
@@ -293,7 +304,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
         : step.key === 'response_coverage' ? 'Se revisó si la respuesta atiende las solicitudes del mensaje. Los estados registrados permiten revisar esa decisión.'
           : 'Entradas y resultados conservados para este paso de la ejecución.'
   return {
-    coverageSections: step.key === 'response_coverage' ? coverageSections(output) : null,
+    coverageSections: step.key === 'response_coverage' ? coverageSections(output) : step.key === 'response_validation' ? transformationSections(output) : null,
     title: stepTitle(step), summary, used, found, units, cause, missingCause: hasCause && !cause, linkedActions,
     origin: str(decision.origin) ? decision.origin === 'catalog' ? 'Consulta calculada del catálogo' : humanValue(decision.origin) : 'Origen no registrado en este paso.',
     reason: reason ? humanValue(reason) : 'No se guardó un motivo específico. No se deduce de los pasos cercanos.',

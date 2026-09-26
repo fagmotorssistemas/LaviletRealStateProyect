@@ -30,10 +30,15 @@ test('ranking does not ignore unknown area or an additional budget constraint',(
   assert.deepEqual(resolveCatalogReference([...catalog,{category:'departamento',id:'unknown'}],'El departamento más grande',saved).matches,[])
   assert.deepEqual(resolveCatalogReference(catalog,'El departamento más grande con presupuesto de 300 mil',saved).matches,[])
 })
-test('direct credit denial is removed only when unrelated to the current request',()=>{
+test('topic helper never cuts clauses; relevance belongs to complete writing and review',()=>{
   const reply='El precio es de $550,000. No se ofrece crédito directo; los bancos aliados son Banco Pichincha y Cooperativa JEP.'
-  assert.doesNotMatch(currentTopicReply(reply,'Coticemos el departamento más grande'),/crédito directo/)
+  assert.equal(currentTopicReply(reply,'Coticemos el departamento más grande'),reply)
   assert.match(currentTopicReply(reply,'Coticemos el departamento más grande'),/550,000/)
   assert.equal(currentTopicReply(reply,'¿Tienen crédito directo?'),reply)
   assert.equal(currentTopicReply('Podemos revisar un crédito con JEP.','¿Tienen financiamiento?'),'Podemos revisar un crédito con JEP.')
+})
+
+test('general financing keeps the complete direct credit explanation',()=>{
+  const reply='En cuanto a financiamiento, La Vilet no ofrece crédito directo, pero puede solicitar financiamiento hipotecario a través de Banco Pichincha o la Cooperativa JEP.'
+  for(const current of ['y que opciones de financiamiento tiene?','¿Tienen crédito directo?','¿Y los precios?']) assert.equal(currentTopicReply(reply,current),reply)
 })

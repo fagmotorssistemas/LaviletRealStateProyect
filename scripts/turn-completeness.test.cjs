@@ -17,6 +17,26 @@ const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
 
+test('general financing preserves the original complete draft and audits actual normalizations', async () => {
+  const current='y que opciones de financiamiento tiene?'
+  const reply='En cuanto a financiamiento, La Vilet no ofrece crédito directo, pero puede solicitar financiamiento hipotecario a través de Banco Pichincha o la Cooperativa JEP.'
+  const input={current,baseReply:'Podemos revisar un crédito con Banco Pichincha o Cooperativa JEP.',verified:{},audit:{source:'financing'}}
+  const candidate={reply,requests:[covered(current)],question:noQuestion}
+  const mock=model(candidate,approved)
+  const result=await completeTurnReply(input,mock.generate)
+  assert.equal(result.reply,reply)
+  assert.deepEqual(result.audit.text_transformations,[])
+  assert.match(mock.calls[1][0],/oraciones incompletas/)
+  const adjusted=await completeTurnReply({...input,normalizeReply:text=>text.replace('En cuanto a financiamiento, ','')},model(candidate,approved).generate)
+  assert.equal(adjusted.audit.text_transformations[0].before,reply)
+  assert.equal(adjusted.audit.text_transformations[0].after,adjusted.reply)
+  const broken={...candidate,reply:reply.replace('no ofrece crédito directo','')}
+  const rejectedReview={...approved,answered_content_preserved:false}
+  const repaired=await completeTurnReply(input,model(broken,rejectedReview,candidate,approved).generate)
+  assert.equal(repaired.reply,reply)
+  assert.equal(repaired.audit.repair_attempts.length,1)
+})
+
 test('commercial budget objection permits choosing alternatives or financing and records its purpose', async () => {
   const current = 'Tengo un presupuesto limitado'
   const baseReply = 'Penthouse 805: USD 550.000. ¿Qué planta prefiere?'
@@ -384,9 +404,9 @@ test('ambiguous options clarify two plausible paths and do not require an adviso
   assert.equal(result.reply, reply)
 })
 
-test('an obsolete denial cannot leave the client without a response when the reviewer fails', async () => {
+test('model failure retains the complete base rather than mechanically cutting its clauses', async () => {
   const result = await completeTurnReply({current:'¿Qué opciones tengo?',baseReply:'No ofrecemos crédito directo.',verified:{}},async()=>{throw Error('offline')})
-  assert.match(result.reply,/qué opciones le gustaría revisar/)
+  assert.equal(result.reply,'No ofrecemos crédito directo.')
   assert.equal(result.needsAdvisor,false)
 })
 
