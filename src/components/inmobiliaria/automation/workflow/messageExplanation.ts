@@ -52,6 +52,10 @@ const labels: Record<string, string> = {
   property_excluded_categories: 'Categorías descartadas', unit_number: 'Número de unidad',
 }
 const values: Record<string, string> = {
+  quantity_supported: 'Cantidad respaldada por su atributo y fuente',
+  quantity_reference_unresolved: 'No se pudo identificar una referencia de evidencia para la cantidad',
+  quantity_evidence_conflict: 'Las fuentes identificadas contienen cantidades diferentes',
+  quantity_value_mismatch: 'La cantidad contradice el valor de ese atributo',
   clarification_needed: 'Se necesita una precisión del cliente; no requiere asesor por este motivo',
   review_conflict: 'Clasificaciones contradictorias; no autorizan una derivación automática',
   contradictory_missing_fact: 'La misma consulta figura como atendida o aclaración y como dato faltante',
@@ -181,7 +185,10 @@ const fact = (label: string, value: string): ExplanationFact => ({ label, value 
 function transformationSections(output: Row): ExplanationSection[] {
   if (!Array.isArray(output.text_transformations)) return []
   const changes = rows(output.text_transformations)
-  return [{ title: 'Cambios del sistema sobre el texto', description: changes.length ? 'El sistema modificó el texto en este paso. La aprobación corresponde a la versión resultante, no al borrador intacto. Consulte Envío a Kommo para el estado de envío.' : 'No se registraron transformaciones del texto en este paso.', facts: changes.flatMap(change => [
+  return [...(output.delivery_integrity ? [{ title: 'Integridad antes del envío', description: 'La aprobación se contrasta con el texto preparado para Kommo; no acredita entrega o lectura.', facts: [
+    { label: 'Resultado', value: row(output.delivery_integrity).status === 'revalidated' ? 'El contenido cambió y se volvió a revisar.' : row(output.delivery_integrity).status === 'restored_approved' ? 'La modificación no pasó la revisión; se recuperó el contenido aprobado.' : 'Se conserva el contenido aprobado; solo formato o un aviso operativo confirmado.' },
+    { label: 'Texto preparado para envío', value: str(row(output.delivery_integrity).final_text) },
+  ] }] : []), { title: 'Cambios del sistema sobre el texto', description: changes.length ? 'El sistema modificó el texto en este paso. La aprobación corresponde a la versión resultante, no al borrador intacto. Consulte Envío a Kommo para el estado de envío.' : 'No se registraron transformaciones del texto en este paso.', facts: changes.flatMap(change => [
     { label: 'Etapa responsable', value: str(change.stage) },
     { label: 'Antes de la modificación', value: str(change.before) },
     { label: 'Después de la modificación', value: str(change.after) },
@@ -204,6 +211,9 @@ function coverageSections(output: Row): ExplanationSection[] {
         : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
   return [
     ...transformationSections(output),
+    ...(rows(row(output.final_validation).project_quantity_checks).length ? [{ title: 'Afirmaciones y evidencia de cantidades', description: 'Se compara sujeto, dimensión y valor. Una referencia no resuelta no equivale a una afirmación falsa.', facts: rows(row(output.final_validation).project_quantity_checks).map(check => ({
+      label: str(check.fragment), value: `${check.outcome === 'supported' ? 'Respaldada' : check.outcome === 'contradicted' ? 'Contradicha por los datos' : 'Referencia sin resolver'}. ${str(check.context)}. Evidencia: ${rows(check.evidence).map(f => `${str(f.subject)}: ${str(f.text)} [${str(f.source)}]`).join('; ') || 'No identificada'}`,
+    })) }] : []),
     ...(Object.keys(continuation).length ? [{ title: 'Objetivo y continuación comercial', description: 'Describe la propuesta evaluada en este paso. Ofrecer alternativas no modifica la selección del cliente. La aceptación no acredita el envío posterior.', facts: [
       { label: 'Objetivo', value: str(continuation.objective) },
       { label: 'Necesidad actual', value: str(continuation.current_request) },

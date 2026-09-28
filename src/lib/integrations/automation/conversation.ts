@@ -1,5 +1,6 @@
 import { currentTopicReply } from './current-topic'
 import { withHandoffNotice } from './handoff-copy'
+import { requiresContentReview } from './delivery-integrity'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { visitTruthReply } from './visit-copy'
 import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
@@ -995,6 +996,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     }
   }
   const plannedResponse = responsePlan(reply, audit)
+  let reviewedText = ''
+  let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
   const catalogBaseReply = audit.verified_catalog === true ? reply : ''
   audit = { ...audit, response_plan: plannedResponse, turn_contract: CONVERSATION_CONTRACT_VERSION,
     interpretation: interpretation.diagnostic, writer_greeting: turnGreeting }
@@ -1045,6 +1048,16 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (!invalidPrice && catalogValidation.valid) {
       if(!financingCollectionIssues(reviewed.reply,audit,current)) reply = reviewed.reply
       audit.semantic_review = semanticEvidence
+      if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
+        reviewedText = reply
+        reviewFinalContent = candidate => completeTurnReply({ current, history: context.historial, baseReply: candidate,
+          verified: { ...info, avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
+          audit: { ...audit, semantic_review_enabled: true },
+          validateReply: value => [
+            ...(quote?.quoted === true && priceReplyIssues(value, info, current, quote.prices).includes('unsupported_fact') ? ['unsupported_price_rewrite'] : []),
+            ...(financingCollectionIssues(value, audit, current) ? ['financing_collection_changed'] : []),
+          ] })
+      }
     }
     else {
       // Reject the rewrite, not the conversation. A valid catalogue quote does
@@ -1147,6 +1160,22 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (handoffNotice && !reply.includes(handoffNotice)) reply = withHandoffNotice(reply, handoffNotice)
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
   }
+  if (reviewedText && reviewFinalContent && requiresContentReview(reviewedText, reply, handoffNotice)) {
+    const step = trace.start('final_content_review', 'Revisar contenido modificado antes del envío', 'decision', 'delivery-integrity.ts', {
+      approved_preview: reviewedText, candidate_preview: reply,
+    })
+    const checked = await reviewFinalContent(reply)
+    const beforeReview = reply
+    const accepted = checked.audit.status === 'checked' && (!handoffNotice || checked.reply.includes(handoffNotice))
+    // A failed second review never licenses the altered body or starts another handoff.
+    reply = accepted ? checked.reply : withHandoffNotice(reviewedText, handoffNotice)
+    audit.delivery_integrity = { changed_content: true, status: accepted ? 'revalidated' : 'restored_approved',
+      approved_text: reviewedText, candidate_text: beforeReview, final_text: reply, review: checked.audit }
+    trace.finish(step, 'succeeded', audit.delivery_integrity as Row)
+  } else if (reviewedText) {
+    audit.delivery_integrity = { changed_content: false, status: 'approved_content_preserved', approved_text: reviewedText, final_text: reply,
+      confirmed_notice_added: Boolean(handoffNotice && reply.includes(handoffNotice)) }
+  }
   const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
   // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
   const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
@@ -1154,6 +1183,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   audit.pending_question = reply.includes('?') ? replyPending : {}
   if (!reply.trim() || reply.length > 3000) throw new Error('EMPTY_OR_LONG_REPLY')
   trace.finish(validationStep, 'succeeded', {
+    delivery_integrity: audit.delivery_integrity || null,
     text_transformations: [...(Array.isArray(audit.handoff_text_transformations) ? audit.handoff_text_transformations : []), ...(beforeFinalFormatting !== reply ? [{ stage: 'Validación y formato final antes de Kommo', before: beforeFinalFormatting, after: reply }] : [])],
     final_preview: traceText(reply, 3000),
     response_length: reply.length,

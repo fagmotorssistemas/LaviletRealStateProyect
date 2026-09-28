@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { projectQuantityEvidence } from './project-quantities'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const fields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'floor_number', 'published_commercial_price']
@@ -32,7 +33,7 @@ export function turnEvidence(verified: Row, audit: Row = {}) {
         member_ids: members.map(unit => unit.id), ...values })
     }
   }
-  return { version: 'turn-evidence-v1', units, groups, conflicts,
+  return { version: 'turn-evidence-v2', units, groups, conflicts, project_facts: projectQuantityEvidence(verified),
     query: audit.catalog_query || null, query_result_ids: object(audit.catalog_results).unit_ids || [],
     alternative_query: object(audit.alternative_results).query || null,
     alternative_ids: object(audit.alternative_results).unit_ids || [] }

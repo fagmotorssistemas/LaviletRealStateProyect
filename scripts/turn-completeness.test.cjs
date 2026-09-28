@@ -17,6 +17,24 @@ const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
 
+test('project quantities use subject evidence rather than an isolated numeric allowlist',async()=>{
+  const current='Quiero información'
+  const reply='El proyecto cuenta con sistemas de seguridad 24 horas.'
+  const input={current,baseReply:'El proyecto cuenta con medidas de seguridad.',verified:{instalaciones:[{amenity_name:'Sistemas de seguridad 24h',description:'Vigilancia permanente'}]},audit:{semantic_review_enabled:true}}
+  const candidate={reply,requests:[covered(current)],question:noQuestion}
+  const review={...approved,claims:[{fragment:reply,subject:'Seguridad',polarity:'affirmation',verdict:'supported',evidence:'Sistemas de seguridad 24h',evidence_source:'verified_context'}]}
+  const result=await completeTurnReply(input,model(candidate,review).generate)
+  assert.equal(result.reply,reply)
+  assert.equal(result.audit.status,'checked')
+  assert.equal(result.audit.final_validation.project_quantity_checks[0].outcome,'supported')
+  assert.equal(result.audit.final_validation.validated_text,reply)
+  const bad={...candidate,reply:reply.replace('24','48')}
+  const denied=await completeTurnReply(input,model(bad,bad).generate)
+  assert.equal(denied.audit.status,'rejected_guard')
+  assert.ok(denied.audit.issues.includes('quantity_value_mismatch'))
+  assert.equal(denied.needsAdvisor,false)
+})
+
 test('approved clarification is not a missing project fact even when reviewer marks it missing', async()=>{
   const current='cual es el precio?'
   const reply='El precio depende de la opción. ¿De qué propiedad le gustaría conocer el precio?'

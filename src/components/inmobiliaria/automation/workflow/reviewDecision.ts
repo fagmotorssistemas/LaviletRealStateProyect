@@ -9,6 +9,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
   const status = text(output.status), review = row(output.semantic_review)
   const errors = list(review.validation_details), attempts = list(output.repair_attempts)
   const issues = Array.isArray(output.issues) ? output.issues.map(text) : []
+  const quantityChecks = list(row(output.final_validation).project_quantity_checks)
   const rejected = output.draft_rejected === true || /^(rejected|invalid)/.test(status)
   const metadata = rejected && (status === 'invalid_coverage' || issues.includes('invalid_review_metadata'))
   const tone = status === 'checked' ? 'accepted' : metadata ? 'metadata' : rejected ? 'rejected' : 'unknown'
@@ -37,6 +38,9 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
   if (!details.length) for (const issue of issues) {
     details.push(issue.startsWith('review_check_failed:') ? checks[issue.slice('review_check_failed:'.length)] || issue
       : issue === 'semantic_claims_unsupported_or_invalid' ? 'Una afirmación carece de respaldo o su ficha no cumple el contrato. Consulte las afirmaciones contrastadas.' : issue)
+  }
+  for (const check of quantityChecks.filter(check => check.outcome !== 'supported')) {
+    details.push(`Afirmación «${text(check.fragment)}»: ${check.outcome === 'contradicted' ? 'el valor contradice la evidencia de ese atributo' : 'no se pudo resolver una referencia única; no significa que el dato sea falso'}. Contexto: ${text(check.context)}. Evidencia: ${list(check.evidence).map(f => `${text(f.subject)}: ${text(f.text)} (${text(f.source)})`).join('; ') || 'sin referencia identificada'}.`)
   }
   const eligibility = row(review.repair_eligibility)
   const descriptions: Record<string, string> = {

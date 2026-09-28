@@ -5,6 +5,15 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 
+test('quantity evidence and final integrity explain acceptance versus unresolved references',()=>{
+  const item=step(1,'response_coverage',{status:'checked',final_validation:{project_quantity_checks:[{fragment:'24 horas',context:'seguridad',outcome:'supported',evidence:[{subject:'Seguridad',text:'24h',source:'instalaciones.0'}]}]}})
+  const sections=explainStep(execution([item]),item).coverageSections!
+  assert.match(JSON.stringify(sections),/Respaldada/)
+  assert.match(JSON.stringify(sections),/instalaciones.0/)
+  const invalid=reviewDecision({status:'rejected_guard',issues:['quantity_reference_unresolved'],final_validation:{project_quantity_checks:[{fragment:'24 horas',context:'piscina',outcome:'unresolved'}]}})
+  assert.match(invalid.details.join(' '),/no significa que el dato sea falso/)
+})
+
 test('coverage shows subsequent handoff changes without presenting its intermediate reply as delivered',()=>{
   const coverage=step(1,'response_coverage',{status:'checked',needs_advisor:false,handoff_assessments:[{fragment:'precio?',outcome:'clarification_needed',reason:'Falta identificar la unidad'}]})
   const validation=step(2,'response_validation',{text_transformations:[{stage:'Derivación',before:'¿Qué unidad?',after:'Aviso. ¿Qué unidad?'}]})
