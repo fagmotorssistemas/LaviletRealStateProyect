@@ -596,25 +596,12 @@ export function TourFloorPlan({
 
     const stageWider = stageW / stageH > aspect
     if (planVariant === '3d') {
-      const nudgeX = 55
-      let frameW = stageWider ? stageW : Math.round(stageH * aspect)
-      let frameH = stageWider ? Math.round(frameW / aspect) : stageH
-      if (frameW < stageW + nudgeX * 2) {
-        frameW = stageW + nudgeX * 2
-        frameH = Math.round(frameW / aspect)
-      }
-      const overflowX = Math.max(0, frameW - stageW)
-      const shiftX = Math.min(nudgeX, Math.floor(overflowX / 2))
-      const overflowY = Math.max(0, frameH - stageH)
-      const lift = Math.min(Math.round(frameH * 0.055), Math.floor(overflowY / 2))
+      const frameW = stageWider ? stageW : Math.round(stageH * aspect)
+      const frameH = stageWider ? Math.round(frameW / aspect) : stageH
       return {
         width: frameW,
         height: frameH,
         flexShrink: 0,
-        transform:
-          shiftX > 0 || lift > 0
-            ? `translate(${-shiftX}px, ${-lift}px)`
-            : undefined,
       }
     }
 
