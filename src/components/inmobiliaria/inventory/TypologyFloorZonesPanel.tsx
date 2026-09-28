@@ -396,7 +396,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       setApartments(zonesToApartments(nextDoc.zones, 1000, 1000))
       toast.message(
         next === '3d'
-          ? 'Subí el HTML o la imagen 3D: las zonas del 2D ya están listas'
+          ? 'Subí la imagen 3D: las zonas del 2D ya están listas'
           : 'Subí el plano 2D para este nivel',
       )
     }
@@ -413,14 +413,15 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       file.type === 'text/html' ||
       file.type === 'application/xhtml+xml' ||
       /\.html?$/i.test(file.name)
-    const isImage =
-      file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name)
-    if (isHtml && planVariant !== '3d') {
-      toast.error('El HTML interactivo se sube en la pestaña 3D')
+    if (isHtml) {
+      toast.error('Los planos 3D ya no usan HTML. Subí una imagen; se guarda en WebP sin pérdida.')
       return
     }
-    if (!isHtml && !isImage) {
-      toast.error('Usá una imagen o un archivo .html')
+    const isImage =
+      file.type.startsWith('image/') ||
+      /\.(png|jpe?g|webp|gif|avif|tiff?|bmp)$/i.test(file.name)
+    if (!isImage) {
+      toast.error('Usá una imagen (PNG, JPG, WebP, GIF…)')
       return
     }
     if (!typologyCode) {
@@ -484,9 +485,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       await refreshSummaries()
       invalidateFloorPlanCache(floor, typologyCode || FLOOR_PLAN_SCOPE)
       toast.success(
-        isHtml
-          ? `HTML 3D de ${floorPlanLevelLabel(floor)} guardado`
-          : `Plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)} guardado`,
+        `Plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)} guardado (WebP sin pérdida)`,
       )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo subir el plano')
@@ -500,7 +499,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     if (!typologyCode) return
     if (
       !window.confirm(
-        `¿Quitar el ${planVariant === '3d' ? '3D/HTML' : 'plano 2D'} de ${floorPlanLevelLabel(floor)}? Las zonas se mantienen.`,
+        `¿Quitar el plano ${planVariant.toUpperCase()} de ${floorPlanLevelLabel(floor)}? Las zonas se mantienen.`,
       )
     ) {
       return
@@ -861,7 +860,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
 
   const onSave = async () => {
     if (!typologyCode || !natural || !(imageUrl || htmlUrl)) {
-      toast.error('Subí un plano (2D o HTML 3D) antes de guardar las zonas')
+      toast.error('Subí un plano (2D o imagen 3D) antes de guardar las zonas')
       return
     }
     setSaving(true)
@@ -952,7 +951,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         <p className="text-xs text-[#8a8d87]">
           En <span className="font-medium text-[#3a3d36]">2D</span> y{' '}
           <span className="font-medium text-[#3a3d36]">3D</span> podés dibujar y editar las mismas
-          zonas. En 3D se editan encima del HTML; usá el ajuste fino si el conjunto queda corrido.
+          zonas. El 3D es una imagen (cualquier formato); al subir se convierte a WebP sin pérdida.
+          Usá el ajuste fino si el conjunto queda corrido.
         </p>
       </div>
 
@@ -1076,19 +1076,15 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         >
           <p>
             {uploading
-              ? 'Subiendo plano…'
+              ? 'Subiendo y convirtiendo a WebP…'
               : planVariant === '3d'
-                ? `Arrastrá acá el HTML interactivo o una imagen 3D de ${floorPlanLevelLabel(floor)}`
+                ? `Arrastrá acá la imagen 3D de ${floorPlanLevelLabel(floor)} (PNG, JPG, WebP…)`
                 : `Arrastrá acá el plano 2D de ${floorPlanLevelLabel(floor)}, o usá “Subir”`}
           </p>
           <input
             ref={fileInputRef}
             type="file"
-            accept={
-              planVariant === '3d'
-                ? 'image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif,.html,text/html'
-                : 'image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif'
-            }
+            accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/tiff,image/bmp,.png,.jpg,.jpeg,.webp,.gif,.avif,.tif,.tiff,.bmp"
             className="hidden"
             disabled={!typologyCode || uploading}
             onChange={(e) => void uploadFloorImage(e.target.files)}

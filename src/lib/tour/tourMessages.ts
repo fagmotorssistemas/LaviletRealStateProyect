@@ -120,6 +120,8 @@ export const tourEnglish: Record<string, string> = {
   'disponible': 'Available', 'reservado': 'Reserved', 'vendido': 'Sold', 'en_preventa': 'Pre-sale', 'en_proceso': 'In progress', 'bajo_contrato': 'Under contract',
   'departamento': 'Apartment', 'local': 'Commercial unit', 'suite': 'Suite', 'penthouse': 'Penthouse',
   'Planta Baja': 'Ground floor', 'Planta baja': 'Ground floor', 'Subsuelo 1': 'Basement 1', 'Subsuelo 2': 'Basement 2', 'Terraza': 'Terrace',
+  '1º': '1st', '2º': '2nd', '3º': '3rd', '4º': '4th', '5º': '5th', '6º': '6th',
+  'PB': 'GF', 'S1': 'B1', 'S2': 'B2',
   'Sala': 'Living room', 'Cocina': 'Kitchen', 'Dormitorio': 'Bedroom', 'Dormitorio principal': 'Main bedroom', 'Baño': 'Bathroom',
   'Baño social': 'Guest bathroom', 'Baño principal': 'Main bathroom', 'Lavandería': 'Laundry room', 'Comedor': 'Dining room', 'Balcón': 'Balcony',
   'Estudio': 'Study', 'Ingreso': 'Entrance', 'Pasillo': 'Hallway', 'Exterior': 'Exterior', 'Interior': 'Interior',

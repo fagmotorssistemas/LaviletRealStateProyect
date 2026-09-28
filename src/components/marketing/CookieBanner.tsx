@@ -72,10 +72,10 @@ export function CookieBanner() {
   return createPortal(
     <div
       data-lv-cookie-banner
-      className="pointer-events-none fixed inset-x-0 top-0 z-[300] p-3 pt-[max(4.25rem,calc(env(safe-area-inset-top)+3.5rem))]"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[300] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
-      <div className="pointer-events-auto mx-auto flex max-w-4xl flex-col gap-3 rounded-2xl bg-[#2B1A18] px-5 py-4 text-white shadow-2xl">
-        <div className="space-y-2 text-sm leading-relaxed text-white/80">
+      <div className="pointer-events-auto mx-auto flex max-w-3xl flex-col gap-2 rounded-xl bg-[#2B1A18]/85 px-4 py-3 text-white shadow-xl backdrop-blur-md">
+        <div className="space-y-1 text-xs leading-snug text-white/80 sm:text-[13px]">
           <p>
             Usamos cookies para el funcionamiento del sitio y del recorrido virtual. Podés aceptarlas
             todas o quedarte solo con las necesarias.
@@ -85,31 +85,31 @@ export function CookieBanner() {
             nuestra política de privacidad.
           </p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
           <Link
             href="/privacidad"
-            className="h-10 px-3 text-sm text-white/70 underline decoration-white/30 underline-offset-2 hover:text-white"
+            className="h-8 px-2.5 text-xs text-white/70 underline decoration-white/30 underline-offset-2 hover:text-white"
           >
             Ver política
           </Link>
           <button
             type="button"
             onClick={() => choose('denied')}
-            className="h-10 rounded-lg px-4 text-sm text-white/70 hover:text-white"
+            className="h-8 rounded-md px-3 text-xs text-white/70 hover:text-white"
           >
             Rechazar
           </button>
           <button
             type="button"
             onClick={() => choose('minimal')}
-            className="h-10 rounded-lg px-4 text-sm text-white/80 ring-1 ring-white/20 hover:text-white"
+            className="h-8 rounded-md px-3 text-xs text-white/80 ring-1 ring-white/20 hover:text-white"
           >
             Solo necesarias
           </button>
           <button
             type="button"
             onClick={() => choose('full')}
-            className="h-10 rounded-lg bg-[#BDA27E] px-4 text-sm font-medium text-[#2B1A18] hover:bg-[#cbb089]"
+            className="h-8 rounded-md bg-[#BDA27E]/95 px-3 text-xs font-medium text-[#2B1A18] hover:bg-[#cbb089]"
           >
             Aceptar cookies
           </button>

@@ -326,8 +326,15 @@ export function TourFloorPlan({
   const [keptHtmlFloors, setKeptHtmlFloors] = useState<number[]>([floor])
   /** URL del HTML cuyo iframe ya disparó onLoad (por piso). */
   const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
-  /** iOS/Safari: en landscape bajo, width:100%+aspect-ratio deja el plano chico; priorizar altura. */
+  /** iOS/Safari: padding más chico en landscape bajo. */
   const [landscapeFill, setLandscapeFill] = useState(false)
+  /** Área disponible del stage: para encajar el plano sin romper aspect-ratio. */
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 })
+  /** Dimensiones naturales medidas del <img> activo (corrige metadata vieja). */
+  const [measuredImageSize, setMeasuredImageSize] = useState<
+    Partial<Record<string, { width: number; height: number }>>
+  >({})
   const onSelectUnitRef = useRef(onSelectUnit)
   onSelectUnitRef.current = onSelectUnit
   const floorRef = useRef(floor)
@@ -349,6 +356,24 @@ export function TourFloorPlan({
       window.removeEventListener('orientationchange', sync)
       window.removeEventListener('resize', sync)
     }
+  }, [])
+
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const sync = () => {
+      const rect = el.getBoundingClientRect()
+      setStageSize((prev) => {
+        const width = Math.round(rect.width)
+        const height = Math.round(rect.height)
+        if (prev.width === width && prev.height === height) return prev
+        return { width, height }
+      })
+    }
+    sync()
+    const ro = new ResizeObserver(sync)
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [])
 
   const upsertLayer = (view: ReadyFloorView) => {
@@ -516,10 +541,15 @@ export function TourFloorPlan({
     })
   }, [floor, planVariant])
 
-  const planAspect = useMemo(() => {
+  const planAspectSize = useMemo(() => {
+    const measuredKey =
+      currentLayer && currentLayer.kind === 'image' ? currentLayer.url.split('?')[0] : null
+    const measured = measuredKey ? measuredImageSize[measuredKey] : null
+    if (measured && measured.width > 1 && measured.height > 1) {
+      return { width: measured.width, height: measured.height }
+    }
     if (planVariant === '3d') {
       const media = getFloorPlanVariantMedia(docForToggles, '3d')
-      // PB HTML es 2048×988; el JSON a veces trae 970 por defecto.
       const w = media.imageWidth > 1 ? media.imageWidth : 2048
       const h =
         media.imageHeight > 1
@@ -529,13 +559,77 @@ export function TourFloorPlan({
           : floor === 0
             ? 988
             : 970
-      return `${w} / ${h}`
+      return { width: w, height: h }
     }
     const media = getFloorPlanVariantMedia(docForToggles, '2d')
     const w = media.imageWidth > 1 ? media.imageWidth : shown?.width || 1024
     const h = media.imageHeight > 1 ? media.imageHeight : shown?.height || 499
-    return `${w} / ${h}`
-  }, [docForToggles, planVariant, shown?.width, shown?.height, floor])
+    return { width: w, height: h }
+  }, [
+    currentLayer,
+    measuredImageSize,
+    docForToggles,
+    planVariant,
+    shown?.width,
+    shown?.height,
+    floor,
+  ])
+
+  const planAspect = `${planAspectSize.width} / ${planAspectSize.height}`
+
+  /**
+   * 3D: “cover” — llena el stage sin barras negras ni deformar (recorta bordes).
+   * 2D: “contain” — muestra el plano completo dentro del marco.
+   */
+  const planFrameStyle = useMemo(() => {
+    const aspect = planAspectSize.width / Math.max(1, planAspectSize.height)
+    const { width: stageW, height: stageH } = stageSize
+    const cover = planVariant === '3d'
+
+    if (stageW <= 0 || stageH <= 0) {
+      return cover
+        ? { aspectRatio: planAspect, width: '100%' as const, height: '100%' as const }
+        : {
+            aspectRatio: planAspect,
+            width: '100%' as const,
+            height: 'auto' as const,
+            maxHeight: '100%' as const,
+          }
+    }
+
+    const stageAspect = stageW / stageH
+    const stageWider = stageAspect > aspect
+
+    if (cover) {
+      // Cover: anclar a la dimensión que llena el stage; la otra sobresale y se recorta.
+      return stageWider
+        ? {
+            aspectRatio: planAspect,
+            width: '100%' as const,
+            height: 'auto' as const,
+          }
+        : {
+            aspectRatio: planAspect,
+            height: '100%' as const,
+            width: 'auto' as const,
+          }
+    }
+
+    // Contain: anclar a la dimensión que cabe entera.
+    return stageWider
+      ? {
+          aspectRatio: planAspect,
+          height: '100%' as const,
+          width: 'auto' as const,
+          maxWidth: '100%' as const,
+        }
+      : {
+          aspectRatio: planAspect,
+          width: '100%' as const,
+          height: 'auto' as const,
+          maxHeight: '100%' as const,
+        }
+  }, [planAspect, planAspectSize.height, planAspectSize.width, planVariant, stageSize])
 
   const overlayAlign = useMemo(
     () => getFloorPlanOverlayAlign(docForToggles ?? null, planVariant),
@@ -862,15 +956,16 @@ export function TourFloorPlan({
   return (
     <div
       className={cn(
-        'absolute inset-x-0 bottom-0 top-[calc(4rem+env(safe-area-inset-top))] z-[18] flex bg-[#14110e]',
+        'absolute inset-x-0 bottom-0 top-[calc(4rem+env(safe-area-inset-top))] z-[18] bg-[#14110e]',
         'pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]',
         'pl-[max(0px,env(safe-area-inset-left))] pr-[max(0px,env(safe-area-inset-right))]',
       )}
     >
       <div
+        ref={stageRef}
         className={cn(
-          'relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden',
-          landscapeFill ? 'p-1' : 'p-2 sm:p-3',
+          'absolute inset-0 flex min-h-0 min-w-0 items-center justify-center overflow-hidden',
+          planVariant === '3d' ? 'p-0' : landscapeFill ? 'p-1' : 'p-2 sm:p-3',
         )}
       >
           {showPlanChrome ? (
@@ -919,26 +1014,12 @@ export function TourFloorPlan({
 
           <div
             className={cn(
-              'relative max-h-full max-w-full overflow-hidden',
+              'relative shrink-0 overflow-hidden',
               planVariant === '3d'
                 ? 'bg-[#14110e]'
                 : 'rounded-xl bg-white ring-1 ring-white/10 [@media(max-height:520px)]:rounded-lg',
             )}
-            style={
-              landscapeFill
-                ? {
-                    aspectRatio: planAspect,
-                    height: '100%',
-                    width: 'auto',
-                    maxWidth: '100%',
-                  }
-                : {
-                    aspectRatio: planAspect,
-                    width: '100%',
-                    height: 'auto',
-                    maxHeight: '100%',
-                  }
-            }
+            style={planFrameStyle}
             onMouseLeave={() => setHoverSlot(null)}
           >
             {/* Un solo iframe WebGL (piso activo). */}
@@ -1013,12 +1094,47 @@ export function TourFloorPlan({
                         setReadyFloors((prev) =>
                           prev[layer.floor] ? prev : { ...prev, [layer.floor]: true },
                         )
+                        const key = layer.url.split('?')[0]
+                        setMeasuredImageSize((prev) => {
+                          const cur = prev[key]
+                          if (
+                            cur &&
+                            cur.width === node.naturalWidth &&
+                            cur.height === node.naturalHeight
+                          ) {
+                            return prev
+                          }
+                          return {
+                            ...prev,
+                            [key]: { width: node.naturalWidth, height: node.naturalHeight },
+                          }
+                        })
                       }
                     }}
-                    onLoad={() => setReadyFloors((prev) => ({ ...prev, [layer.floor]: true }))}
+                    onLoad={(event) => {
+                      const node = event.currentTarget
+                      setReadyFloors((prev) => ({ ...prev, [layer.floor]: true }))
+                      if (node.naturalWidth > 0 && node.naturalHeight > 0) {
+                        const key = layer.url.split('?')[0]
+                        setMeasuredImageSize((prev) => {
+                          const cur = prev[key]
+                          if (
+                            cur &&
+                            cur.width === node.naturalWidth &&
+                            cur.height === node.naturalHeight
+                          ) {
+                            return prev
+                          }
+                          return {
+                            ...prev,
+                            [key]: { width: node.naturalWidth, height: node.naturalHeight },
+                          }
+                        })
+                      }
+                    }}
                     onError={() => handleImageError(layer.floor, layer.url)}
                     className={cn(
-                      'absolute inset-0 h-full w-full object-fill',
+                      'absolute inset-0 h-full w-full object-cover',
                       active ? 'opacity-100' : 'opacity-0',
                     )}
                     style={{
@@ -1285,17 +1401,17 @@ export function TourFloorPlan({
 
       <div
         className={cn(
-          'pointer-events-auto flex h-full min-h-0 w-[4.1rem] shrink-0 flex-col items-stretch gap-2 self-stretch sm:w-[4.6rem]',
-          landscapeFill ? 'py-1 pr-1' : 'py-2 pr-2 sm:gap-2.5 sm:py-3 sm:pr-3',
-          '[@media(max-height:520px)]:w-[3.7rem] [@media(max-height:520px)]:gap-1.5 [@media(max-height:520px)]:py-1 [@media(max-height:520px)]:pr-1',
+          'pointer-events-none absolute inset-y-0 right-0 z-30 flex h-full min-h-0 w-[3.15rem] flex-col items-stretch self-stretch sm:w-[3.35rem]',
+          landscapeFill ? 'py-1 pr-1' : 'py-2 pr-1.5 sm:gap-2 sm:py-3 sm:pr-2',
+          '[@media(max-height:520px)]:w-[2.85rem] [@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:py-1 [@media(max-height:520px)]:pr-1',
         )}
       >
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="pointer-events-auto flex min-h-0 flex-1 flex-col">
           <div
             className={cn(
-              'flex h-full min-h-0 flex-1 flex-col justify-between gap-1 overflow-y-auto overscroll-contain rounded-xl bg-white/92 p-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.18)]',
-              'sm:gap-1.5 sm:p-2',
-              '[@media(max-height:520px)]:gap-0.5 [@media(max-height:520px)]:rounded-lg [@media(max-height:520px)]:p-1',
+              'flex h-full min-h-0 flex-1 flex-col justify-between gap-0.5 overflow-y-auto overscroll-contain rounded-lg bg-white/90 p-1 shadow-[0_8px_24px_rgba(15,23,42,0.18)] backdrop-blur-sm',
+              'sm:gap-1 sm:p-1.5',
+              '[@media(max-height:520px)]:gap-0.5 [@media(max-height:520px)]:rounded-md [@media(max-height:520px)]:p-0.5',
             )}
             style={{ contain: 'layout paint', WebkitOverflowScrolling: 'touch' }}
             onWheel={(event) => event.stopPropagation()}
@@ -1304,18 +1420,22 @@ export function TourFloorPlan({
             {FLOOR_PLAN_FLOORS.map((item) => {
               const active = item === floor
               const short = floorPlanLevelShort(item)
+              const isTerraza = item === 7
               return (
                 <button
                   key={item}
                   type="button"
                   onClick={() => onFloorChange(item)}
                   className={cn(
-                    'flex w-full min-h-[1.85rem] flex-1 items-center justify-center rounded-lg px-1.5 text-[12px] font-semibold tracking-wide',
-                    'sm:min-h-[2.1rem] sm:px-2 sm:text-[13px]',
-                    '[@media(max-height:520px)]:min-h-[1.55rem] [@media(max-height:520px)]:text-[11px]',
+                    'flex w-full min-h-[1.7rem] flex-1 items-center justify-center rounded-md px-0.5 font-semibold tracking-wide',
+                    isTerraza
+                      ? 'text-[9px] leading-tight sm:text-[10px]'
+                      : 'text-[11px] sm:text-[12px]',
+                    'sm:min-h-[1.9rem]',
+                    '[@media(max-height:520px)]:min-h-[1.4rem] [@media(max-height:520px)]:text-[10px]',
                     active
                       ? 'bg-[#1a2744] text-white shadow-sm'
-                      : 'bg-white text-[#3a4050] hover:bg-[#eef1f6]',
+                      : 'bg-white/80 text-[#3a4050] hover:bg-[#eef1f6]',
                   )}
                   aria-pressed={active}
                   aria-label={t(floorPlanLevelLabel(item))}
@@ -1328,7 +1448,9 @@ export function TourFloorPlan({
           </div>
         </div>
         {railTrailing ? (
-          <div className="flex shrink-0 flex-col items-center gap-1.5">{t(railTrailing)}</div>
+          <div className="pointer-events-auto flex shrink-0 flex-col items-center gap-1.5">
+            {railTrailing}
+          </div>
         ) : null}
         {SITE.whatsapp && whatsappHref ? (
           <a
@@ -1336,7 +1458,7 @@ export function TourFloorPlan({
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => onWhatsAppClick?.()}
-            className="tour-whatsapp-btn tour-glass mx-auto shrink-0"
+            className="tour-whatsapp-btn tour-glass pointer-events-auto mx-auto shrink-0"
             aria-label={t("Consultar por WhatsApp")}
             title={t("Consultar por WhatsApp")}
           >

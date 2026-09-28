@@ -14,7 +14,7 @@ export type FloorPlanVariant = '2d' | '3d'
 
 export type FloorPlanVariantMedia = {
   imageUrl: string | null
-  /** HTML interactivo (reemplaza la imagen 3D cuando existe). */
+  /** Legado: HTML interactivo 3D. Las subidas nuevas son solo imagen → WebP lossless. */
   htmlUrl?: string | null
   imageWidth: number
   imageHeight: number

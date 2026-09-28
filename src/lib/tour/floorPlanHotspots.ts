@@ -23,13 +23,13 @@ export const FLOOR_PLAN_LEVELS: readonly FloorPlanLevel[] = [
   { id: -1, label: 'Subsuelo 1', shortLabel: 'S1', storageKey: 's1' },
   { id: -2, label: 'Subsuelo 2', shortLabel: 'S2', storageKey: 's2' },
   { id: 0, label: 'Planta baja', shortLabel: 'PB', storageKey: 'pb' },
-  { id: 1, label: 'Primera planta alta', shortLabel: '1', storageKey: '1' },
-  { id: 2, label: 'Segunda planta alta', shortLabel: '2', storageKey: '2' },
-  { id: 3, label: 'Tercera planta alta', shortLabel: '3', storageKey: '3' },
-  { id: 4, label: 'Cuarta planta alta', shortLabel: '4', storageKey: '4' },
-  { id: 5, label: 'Quinta planta alta', shortLabel: '5', storageKey: '5' },
-  { id: 6, label: 'Sexta planta alta', shortLabel: '6', storageKey: '6' },
-  { id: 7, label: 'Terraza', shortLabel: 'T', storageKey: 'terraza' },
+  { id: 1, label: 'Primera planta alta', shortLabel: '1º', storageKey: '1' },
+  { id: 2, label: 'Segunda planta alta', shortLabel: '2º', storageKey: '2' },
+  { id: 3, label: 'Tercera planta alta', shortLabel: '3º', storageKey: '3' },
+  { id: 4, label: 'Cuarta planta alta', shortLabel: '4º', storageKey: '4' },
+  { id: 5, label: 'Quinta planta alta', shortLabel: '5º', storageKey: '5' },
+  { id: 6, label: 'Sexta planta alta', shortLabel: '6º', storageKey: '6' },
+  { id: 7, label: 'Terraza', shortLabel: 'Terraza', storageKey: 'terraza' },
 ] as const
 
 export const FLOOR_PLAN_FLOORS = FLOOR_PLAN_LEVELS.map((level) => level.id)
