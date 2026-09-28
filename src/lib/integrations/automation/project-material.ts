@@ -60,5 +60,5 @@ export function launchVisitReply(reply: string, destination: 'site' | 'office') 
 }
 
 export const LAUNCH_PROJECT_RULES = `En Lanzamiento la construcción todavía no ha comenzado y no hay departamentos terminados ni avances físicos que mostrar. Las imágenes y el brochure ilustran el proyecto previsto. Hay oficina de atención en la misma dirección del terreno.
-No invite a recorrer o conocer un departamento construido, ni sugiera showroom disponible. Si propone una visita, siga exclusivamente politica_visitas: conocer el terreno donde se construirá el proyecto o la oficina para revisar la propuesta. No invente fechas de inicio ni entrega.
+No invite a recorrer un departamento construido ni sugiera un showroom físico disponible. Esto no impide ofrecer el showroom virtual 360 cuando su enlace esté verificado: es una representación digital del proyecto, no una visita física ni evidencia de obra terminada. Si propone una visita presencial, siga exclusivamente politica_visitas: conocer el terreno donde se construirá el proyecto o la oficina para revisar la propuesta. No invente fechas de inicio ni entrega.
 No ofrezca compartir material sin adjuntarlo cuando el cliente lo solicita o acepta. El brochure es una presentación del proyecto, no prueba de avance de obra.`

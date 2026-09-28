@@ -13,7 +13,9 @@ export function isCourtesyOnly(message: string) {
 }
 export function greetingForTurn(current: string, history: unknown, lastBotAt: unknown, at: string) {
   const match = current.trim().match(/^(hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas tardes\b|buenas noches\b|buenas\b)/i)
-  if (!match) return ''
+  const hasPreviousReply = (Array.isArray(history) ? history : []).map(object).some(r => ['bot', 'asesor'].includes(text(r.role)))
+    || Number.isFinite(Date.parse(text(lastBotAt)))
+  if (!match) return current.trim() && !hasPreviousReply && !isCourtesyOnly(current) ? 'Hola' : ''
   const previous = (Array.isArray(history) ? history : []).map(object)
     .filter(r => ['bot', 'asesor'].includes(text(r.role))).map(r => Date.parse(text(r.sent_at)))
   const last = Math.max(0, Date.parse(text(lastBotAt)) || 0, ...previous.filter(Number.isFinite))

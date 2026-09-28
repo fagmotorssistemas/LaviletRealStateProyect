@@ -3,6 +3,28 @@ import { describe, it } from 'node:test'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { acceptedUnitAlternative, continueUnitAlternative, unitAlternative } from './unit-alternatives'
+import { showroomRequest } from './virtual-showroom'
+
+describe('virtual showroom context',()=>{
+  it('interprets a correction without merging messages or inventing a new catalogue request',()=>{
+    const previous={role:'cliente',content:'Entonces como puedo ver los edificios?'}
+    const result=showroomRequest('Los departamentos perdon',[previous])
+    assert.equal(result?.kind,'visual_correction')
+    assert.equal(result?.current,'Los departamentos perdon')
+    assert.equal(result?.context,previous.content)
+    assert.equal(showroomRequest('Los departamentos perdon',[previous,{role:'bot',content:'Otra pregunta'}]),null)
+    assert.equal(showroomRequest('Los departamentos perdon',[{role:'cliente',content:'¿Qué precio tienen?'}]),null)
+    assert.equal(showroomRequest('No quiero ver los departamentos'),null)
+  })
+  it('offers a general representation for broad choices without choosing a unit',()=>{
+    const reference={explicit:false,allowGeneralTour:true,matches:[{id:'a',unit_number:'801',category:'departamento'},{id:'b',unit_number:'802',category:'departamento'}]}
+    const delivery=unitModelDelivery(reference,'Quiero ver el recorrido virtual',[])
+    assert.equal(delivery?.unit_id,null)
+    assert.equal(delivery?.url,unitTourUrl())
+    assert.match(delivery?.caption||'',/representación del proyecto/)
+    assert.equal(unitModelDelivery({...reference,hasUnitMention:true},'Quiero ver el recorrido virtual',[]),null)
+  })
+})
 
 const unit = {
   id: 'af29eae0-658d-432a-9ea0-eba48deb89ce',

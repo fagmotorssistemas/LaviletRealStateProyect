@@ -1264,6 +1264,34 @@ test('OpenAI billing errors retain a safe diagnostic code that the worker can re
   await assert.rejects(() => aiJson('Return JSON', {}), error => error.message === 'OPENAI_HTTP_429_CREDIT_BALANCE_EXHAUSTED')
 })
 
+test('a visual correction uses the general showroom without changing message batching',async t=>{
+  live(t)
+  const h=conversationHarness({history:[{role:'bot',content:'Aún no hay unidades terminadas.'},{role:'cliente',content:'Entonces como puedo ver los edificios?'}],
+    commercialResult:{reply:'Opciones disponibles.',audit:{source:'catalog_search'}},
+    catalog:[{id:'u801',unit_number:'801',category:'departamento',bedrooms:3},{id:'u802',unit_number:'802',category:'departamento',bedrooms:2}],
+    commercialInfo:{estado_proyecto:{stage:'not_started',enabledPlaces:['office']}},extracted:{preferred_category:'departamento'}})
+  h.rows[0].payload.text='Los departamentos perdon'
+  await h.process([h.rows[0]],async()=>{})
+  const sent=h.calls.find(c=>c.name==='patch').args[2]
+  assert.match(sent,/recorrido virtual 360/)
+  assert.match(sent,/https:\/\/www.lavilett.com\/tour/)
+  assert.doesNotMatch(sent,/Qué planta|edificios|801|802/)
+})
+
+test('construction status keeps the factual answer and offers a virtual alternative',async t=>{
+  live(t)
+  const h=conversationHarness({
+    commercialResult:{reply:'El proyecto está en Puertas del Sol. Aún no ha iniciado construcción.',audit:{source:'location'}},
+    commercialInfo:{estado_proyecto:{stage:'not_started',enabledPlaces:['office']}}})
+  h.rows[0].payload.text='¿Ya tienen algo terminado?'
+  await h.process([h.rows[0]],async()=>{})
+  const sent=h.calls.find(c=>c.name==='patch').args[2]
+  assert.match(sent,/Puertas del Sol/)
+  assert.match(sent,/no ha iniciado construcción/)
+  assert.match(sent,/recorrido virtual 360/)
+  assert.match(sent,/representación del proyecto/)
+})
+
 function conversationHarness(options = {}) {
   const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false, ...options.config }
   let escalationAttempted = false, escalationStored = options.proposals?.[0] || null

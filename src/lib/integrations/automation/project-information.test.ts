@@ -18,6 +18,19 @@ const info = (history: unknown[] = []) => ({
 })
 
 describe('project information conversation', () => {
+  it('greets the first substantive turn equally for AI and fallback without repeating it later', () => {
+    const at='2026-09-28T14:00:00Z'
+    const greeting=greetingForTurn('Quiero información',[],null,at)
+    assert.equal(greeting,'Hola')
+    for(const reply of ['La Vilet ofrece departamentos.','Hola. La Vilet ofrece departamentos.']) {
+      const result=naturalConversationReply(reply,'',greeting,at)
+      assert.match(result,/^Hola\./)
+      assert.equal((result.match(/Hola/g)||[]).length,1)
+    }
+    assert.equal(greetingForTurn('Quiero información',[{role:'bot',content:'Bienvenido'}],null,at),'')
+    assert.equal(greetingForTurn('Quiero información',[],at,at),'')
+    assert.equal(greetingForTurn('Gracias',[],null,at),'')
+  })
   it('uses interpreted project intent for a typo after a greeting', () => {
     const reply = projectInformationReply({ ...info([{ role: 'bot', content: 'Hola, ¿en qué podemos ayudarle?' }]),
       semantica_turno: { primary_intent: 'project_information', confidence: 'high', property: { operation: 'search' } } }, 'Quieor informacion', BROCHURE_URL)

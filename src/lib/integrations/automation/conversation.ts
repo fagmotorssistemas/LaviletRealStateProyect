@@ -21,6 +21,7 @@ import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
+import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
@@ -993,6 +994,29 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (delivery) {
       reply = appendUnitModel(reply, delivery)
       audit.unit_model = delivery
+    }
+  }
+  const visualContinuation = showroomRequest(current, context.historial)
+  const showroomEligible = !inbound.mediaFailed && !finalNotice && !handoffNotice
+    && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind)
+    && ['', 'catalog_search', 'catalog_select', 'catalog_reference', 'unit_model_request', 'commercial', 'location', 'project_overview', 'project_information_choice', 'visit_place_clarification'].includes(text(audit.source))
+  if (showroomEligible && (visualContinuation || asksConstructionStatus(current))) {
+    const info = await commercialContext(lead, context.historial)
+    const readiness = object(info.estado_proyecto)
+    const noPhysicalUnits = readiness.stage === 'not_started'
+      || Array.isArray(readiness.enabledPlaces) && !readiness.enabledPlaces.some(place => ['model', 'completed_unit'].includes(String(place)))
+    if (visualContinuation || noPhysicalUnits) {
+      const delivery = unitModelDelivery({ explicit: false, allowGeneralTour: true, hasUnitMention: visualContinuation ? propertyTurn.hasUnitMention === true : false, matches: visualContinuation
+        ? (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).map(object) : [] },
+      'Quiero ver el recorrido virtual', context.historial, previousSummary._unit_models_sent)
+      if (delivery) {
+        // A correction keeps the visualization goal; it is not a fresh request for a catalogue list.
+        const onlyVisualization = visualContinuation && interpretation.requests.length <= 1 && !/precio|financ|credito|ubicaci[oó]n|direcci[oó]n|agendar|reservar|dormitorio|habitaci[oó]n|baños?|superficie|metros|incluye|tiene/i.test(current)
+        if (onlyVisualization) reply = 'Puede conocer la distribución y los espacios mediante el showroom virtual.'
+        reply = appendUnitModel(reply, delivery)
+        audit = { ...audit, unit_model: delivery, showroom_continuation: { ...visualContinuation, reason: visualContinuation ? 'requested_visualization' : 'physical_units_unavailable' },
+          ...(onlyVisualization ? { source: 'virtual_showroom', coverage_complete: false } : {}) }
+      }
     }
   }
   const plannedResponse = responsePlan(reply, audit)

@@ -3,7 +3,7 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isUnitPhotoRequest, isUnitVisualRequest } from './unit-visual-request'
 
-export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention?: boolean; matches: Row[] }, current: string, history: unknown, sentUnitIds: unknown = []) {
+export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention?: boolean; matches: Row[]; allowGeneralTour?: boolean }, current: string, history: unknown, sentUnitIds: unknown = []) {
   const m = normalized(current)
   const asksModel = isUnitVisualRequest(current)
   // La negación debe referirse al material visual. Frases como «no necesito que
@@ -14,7 +14,7 @@ export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention
     || new RegExp(`\\bno\\s+me\\s+(?:interesa|sirve)\\b[^.!?\\n]{0,55}\\b${visual}\\b`).test(m)
     || new RegExp(`\\b${visual}\\b[^.!?\\n]{0,55}\\bno\\s+me\\s+(?:interesa|sirve)\\b`).test(m)
   if (declines || (!reference.explicit && !asksModel)) return null
-  if (reference.matches.length > 1 || (reference.hasUnitMention && reference.matches.length === 0)) return null
+  if ((reference.matches.length > 1 && !(asksModel && reference.allowGeneralTour && !reference.hasUnitMention)) || (reference.hasUnitMention && reference.matches.length === 0)) return null
   const candidate = reference.matches.length === 1 ? reference.matches[0] : null
   const unit = candidate && ['suite', 'departamento', 'penthouse'].includes(text(candidate.category))
     && candidate.is_published !== false && (!candidate.status || candidate.status === 'disponible')
@@ -32,10 +32,10 @@ export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention
   })
   if (alreadySent && !asksModel) return null
   if (!unit) return { unit_id: null, unit_number: null, url, model_available: true,
-    caption: `Aquí puede explorar el tour general de La Vilet: ${url}` }
+    caption: `Aquí puede explorar el recorrido virtual 360 de La Vilet: ${url}. Es una representación del proyecto, no un recorrido de obra terminada.` }
   const label = `${unit.category === 'suite' ? 'la suite' : unit.category === 'penthouse' ? 'el penthouse' : 'el departamento'} ${text(unit.unit_number)}`
   return { unit_id: text(unit.id), unit_number: text(unit.unit_number), url, model_available: true,
-    caption: `Aquí puede explorar ${label} en el tour de La Vilet: ${url}` }
+    caption: `Aquí puede explorar ${label} en el recorrido virtual 360 de La Vilet: ${url}. Es una representación del proyecto, no un recorrido de obra terminada.` }
 }
 
 export function appendUnitModel(reply: string, delivery: ReturnType<typeof unitModelDelivery>) {
