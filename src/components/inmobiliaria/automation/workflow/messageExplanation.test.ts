@@ -5,6 +5,14 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 
+test('route and fallback reasons explain decisions without misreading historical question counts',()=>{
+  assert.match(humanValue('current_request_overrides_pending_visit'),/consulta actual no pide una visita/)
+  assert.match(reviewDecision({status:'rejected_guard',issues:['question_count']}).causes.join(' '),/una sola pregunta/)
+  const item=step(1,'response_coverage',{status:'rejected_guard',fallback_validation:{passed:false,issues:['fallback_unanswered_request'],unanswered_requests:['¿Qué unidades tienen?']}})
+  assert.match(JSON.stringify(explainStep(execution([item]),item).coverageSections),/Validación de la respuesta de respaldo/)
+  assert.match(JSON.stringify(explainStep(execution([item]),item).coverageSections),/Qué unidades tienen/)
+})
+
 test('quantity evidence and final integrity explain acceptance versus unresolved references',()=>{
   const item=step(1,'response_coverage',{status:'checked',final_validation:{project_quantity_checks:[{fragment:'24 horas',context:'seguridad',outcome:'supported',evidence:[{subject:'Seguridad',text:'24h',source:'instalaciones.0'}]}]}})
   const sections=explainStep(execution([item]),item).coverageSections!

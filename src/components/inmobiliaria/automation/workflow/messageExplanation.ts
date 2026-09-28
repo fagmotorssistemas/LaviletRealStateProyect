@@ -22,6 +22,7 @@ const labels: Record<string, string> = {
   token_usage: 'Consumo de tokens de esta llamada', input_tokens: 'Tokens de entrada', output_tokens: 'Tokens de salida', total_tokens: 'Tokens totales', cached_input_tokens: 'Tokens de entrada en caché',
   semantic_review: 'Afirmaciones y evidencia revisadas', opening_decision: 'Apertura decidida por el sistema', query_transition: 'Cambio de filtros de la consulta',
   message: 'Mensaje utilizado', original_message: 'Mensaje original', property_message: 'Parte inmobiliaria',
+  allowed: 'Permite continuar la ruta de visitas', current_domains: 'Temas de la solicitud actual', visit_intent: 'Intención de visita',
   scope: 'Alcance', uncertain: 'Interpretación incierta', method: 'Método', confidence: 'Confianza', primary_intent: 'Intención principal',
   operation: 'Operación', property_category: 'Categoría', property_group: 'Grupo', filters: 'Filtros', selector: 'Criterio', query_scope: 'Conjunto consultado',
   query: 'Consulta', catalog_query: 'Consulta', before: 'Antes', after: 'Después', previous_filters: 'Filtros anteriores', effective_filters: 'Filtros efectivos',
@@ -84,6 +85,10 @@ const values: Record<string, string> = {
   writing: 'Redacción', review: 'Revisión', extraction: 'Interpretación', structured_result_received: 'Resultado estructurado recibido',
   catalog_compare: 'Comparación del catálogo', catalog_search: 'Búsqueda del catálogo', catalog_rank: 'Ordenación del catálogo', catalog_select: 'Selección de unidad', catalog_details: 'Detalles de unidad',
   numbers_changed: 'Cifras no conservadas o no permitidas', links_changed: 'Enlaces cambiados', unsupported_fact: 'Dato sin respaldo',
+  question_count: 'Límite de preguntas. En registros antiguos también podía significar que la plantilla no tenía pregunta y la IA añadió una',
+  operational_question_added: 'Se añadió una pregunta a una plantilla operativa sin revisión de su propósito',
+  fallback_unanswered_request: 'La respuesta de respaldo omite una solicitud del cliente y no se conserva como respuesta válida',
+  current_request_overrides_pending_visit: 'La consulta actual no pide una visita; una coordinación anterior no puede sustituirla',
   eq: 'igual a', gt: 'mayor que', gte: 'mayor o igual que', lt: 'menor que', lte: 'menor o igual que', between: 'entre límites',
   numeric_relation_not_in_reply: 'La comparación registrada por el revisor no corresponde al límite u operador escrito en el mensaje',
   catalog_endpoint_mismatch: 'El máximo o mínimo anunciado no coincide con el extremo verificado de ese grupo del catálogo',
@@ -211,6 +216,11 @@ function coverageSections(output: Row): ExplanationSection[] {
         : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
   return [
     ...transformationSections(output),
+    ...(Object.keys(row(output.fallback_validation)).length ? [{ title: 'Validación de la respuesta de respaldo', description: 'El respaldo también debe tener datos verificados y atender la consulta. Una omisión informada se contrasta con la cobertura del catálogo.', facts: [
+      { label: 'Resultado', value: row(output.fallback_validation).passed === true ? 'Superó los controles registrados del respaldo.' : 'El respaldo original no superó los controles y fue sustituido.' },
+      { label: 'Motivos', value: humanValue(row(output.fallback_validation).issues) || 'Sin controles fallidos registrados.' },
+      { label: 'Solicitudes omitidas', value: humanValue(row(output.fallback_validation).unanswered_requests) || 'Ninguna registrada.' },
+    ] }] : []),
     ...(rows(row(output.final_validation).project_quantity_checks).length ? [{ title: 'Afirmaciones y evidencia de cantidades', description: 'Se compara sujeto, dimensión y valor. Una referencia no resuelta no equivale a una afirmación falsa.', facts: rows(row(output.final_validation).project_quantity_checks).map(check => ({
       label: str(check.fragment), value: `${check.outcome === 'supported' ? 'Respaldada' : check.outcome === 'contradicted' ? 'Contradicha por los datos' : 'Referencia sin resolver'}. ${str(check.context)}. Evidencia: ${rows(check.evidence).map(f => `${str(f.subject)}: ${str(f.text)} [${str(f.source)}]`).join('; ') || 'No identificada'}`,
     })) }] : []),
@@ -313,7 +323,8 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const safeHref = /^\/inmobiliaria\/automatizacion(?:\/|$)/.test(href) && !href.includes('\\') && !href.includes('..') ? href : null
   const reason = str(decision.reason) || str(input.reason) || str(output.reason)
   const linkedActions = execution.steps.filter(item => item.key === 'advisor_handoff' && Number(decisionRecord(item).caused_by_step) === step.order)
-  const summary = step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`
+  const summary = step.key === 'route_consistency' ? humanValue(output.reason)
+    : step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`
     : step.key === 'message_delivery' && output.action === 'accepted' ? 'Kommo aceptó iniciar Salesbot. Esto no confirma entrega ni lectura en WhatsApp.'
       : step.key === 'advisor_handoff' ? 'Este paso registra el intento de derivación y su resultado; el motivo debe estar respaldado por su propio registro.'
         : step.key === 'response_coverage' && output.status === 'invalid_coverage'

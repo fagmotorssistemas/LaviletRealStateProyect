@@ -14,7 +14,7 @@ import { aiJson } from './ai'
 import { object, text, type Row } from './data'
 import { commercialMemory, experienceContext, residentialContinuationIssues, RESIDENTIAL_CONTINUITY_RULES, turnWritingRules } from './commercial-experience'
 import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
-import { assessMissingFacts, coverageFactKeys } from './coverage-evidence'
+import { assessMissingFacts, catalogCoversFragment, coverageFactKeys } from './coverage-evidence'
 import { traceText } from './trace-summary'
 import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
 import { decidedOpening, applyDecidedOpening } from './response-openings'
@@ -190,8 +190,10 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   const numericReply = withoutSupportedQuantities(reply, quantities.supportedSpans)
   const contract = finalWriterContract(source, input.audit)
   if (contract.decisiones_protegidas) {
-    issues.push(...operationalCopyIssues(source, reply, { ...input.audit, current_message: input.current }))
-    if (contract.pregunta_siguiente && !reply.includes(contract.pregunta_siguiente)) issues.push('protected_question_changed')
+    // Quantity evidence and the declared question purpose are checked below and
+    // by semantic review; template equality is not evidence of truth.
+    issues.push(...operationalCopyIssues(source, reply, { ...input.audit, evidence_review: input.audit?.semantic_review_enabled === true, current_message: input.current }))
+    if (input.audit?.semantic_review_enabled !== true && contract.pregunta_siguiente && !reply.includes(contract.pregunta_siguiente)) issues.push('protected_question_changed')
   }
   if (isVisitCopy(input.audit ?? {})) issues.push(...visitCopyIssues(source, reply))
   issues.push(...residentialContinuationIssues(reply, input.current, { ...input.verified, historial: input.history }))
@@ -326,12 +328,17 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const unresolved = assessed.unresolved
     let reply = input.baseReply || (originalBase.trim() && input.current.trim() ? 'Para orientarle mejor, ¿qué opciones le gustaría revisar?' : '')
     const fallbackCheck = validateCatalogReply(reply, input.audit || {})
-    const fallbackIssues = [...(!fallbackCheck.valid ? [fallbackCheck.reason] : []), ...validateProjectQuantities(reply, sharedEvidence.project_facts).issues, ...(input.validateReply?.(reply) || [])]
+    const uncoveredBase = requests.filter(request => request.base_status === 'unanswered'
+      && !catalogCoversFragment(request.fragment, request.fact_key, input.audit))
+    const fallbackIssues = [...(!fallbackCheck.valid ? [fallbackCheck.reason] : []), ...validateProjectQuantities(reply, sharedEvidence.project_facts).issues, ...(input.validateReply?.(reply) || []),
+      ...(uncoveredBase.length ? ['fallback_unanswered_request'] : [])]
     // A deterministic base is not exempt from the same factual checks.
-    if (fallbackIssues.length) reply = 'No puedo confirmar esos datos con la información verificada disponible.'
+    if (fallbackIssues.length) reply = uncoveredBase.length
+      ? 'No he podido verificar una respuesta completa a su consulta.'
+      : 'No puedo confirmar esos datos con la información verificada disponible.'
     return { reply, changed: reply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
       audit: { text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: finalWriterContract(input.baseReply, input.audit), price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
-        fallback_validation: { passed: !fallbackIssues.length, issues: fallbackIssues, details: fallbackCheck.details || [] },
+        fallback_validation: { passed: !fallbackIssues.length, issues: fallbackIssues, details: fallbackCheck.details || [], unanswered_requests: uncoveredBase.map(request => request.fragment) },
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments,
         needs_advisor: unresolved.length > 0, unresolved, draft_rejected: true, independent_review: reviewMissing.length > 0 || status === 'rejected_review',
         base_preview: traceText(originalBase, 1500), proposed_preview: traceText(proposedReply, 1500), final_preview: traceText(reply, 1500) } }

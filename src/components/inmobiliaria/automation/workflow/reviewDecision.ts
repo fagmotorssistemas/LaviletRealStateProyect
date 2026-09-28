@@ -36,6 +36,9 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     return `${location}: control ${text(error.code) || 'no identificado'}.${quote}`
   })
   if (!details.length) for (const issue of issues) {
+    if (issue === 'question_count') { details.push('Falló el límite de preguntas. En registros antiguos también podía rechazarse una sola pregunta porque la plantilla base no contenía ninguna. Compare el borrador y la base.'); continue }
+    if (issue === 'operational_question_added') { details.push('La IA añadió una pregunta a una plantilla operativa sin revisión de su propósito.'); continue }
+    if (issue === 'fallback_unanswered_request') { details.push('El respaldo omite una solicitud actual y no se conserva como respuesta válida.'); continue }
     details.push(issue.startsWith('review_check_failed:') ? checks[issue.slice('review_check_failed:'.length)] || issue
       : issue === 'semantic_claims_unsupported_or_invalid' ? 'Una afirmación carece de respaldo o su ficha no cumple el contrato. Consulte las afirmaciones contrastadas.' : issue)
   }
@@ -44,6 +47,9 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
   }
   const eligibility = row(review.repair_eligibility)
   const descriptions: Record<string, string> = {
+    question_count: 'Falló la restricción de preguntas. En ejecuciones antiguas también se rechazaba una sola pregunta si la plantilla base no tenía ninguna.',
+    operational_question_added: 'Se añadió una pregunta operativa sin una revisión de su propósito.',
+    fallback_unanswered_request: 'El respaldo omite una solicitud actual; no debe enviarse como si la hubiera contestado.',
     invalid_unit_fact: 'Referencias, campos o valores de la ficha no pudieron asociarse con la evidencia del turno.',
     review_fragment_not_in_reply: 'El revisor entregó citas que no aparecen literalmente en el borrador.',
     catalog_value_mismatch: 'Los valores declarados no coinciden con los datos verificados.',

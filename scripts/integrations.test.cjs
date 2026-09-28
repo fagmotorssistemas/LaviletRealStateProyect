@@ -2825,6 +2825,21 @@ test('dialogue v2 records contract and extractor revision even when inference fa
   assert.equal(h.calls.some(call => ['launch', 'register_outbound_message'].includes(call.name)), false)
 })
 
+test('commercial availability overrides a collecting visit and an unrelated visit classifier', async t => {
+  live(t)
+  const current='entiendo, bueno a mi lo que me interesa es algo grande y espacioso para mi familia, de preferencia algo de 5 o 6 dormitorios, tiene algo disponible?'
+  const h=conversationHarness({captureTrace:true,visitDraft:{status:'collecting'},proposals:[offeredVisitOptions()],intent:'counterproposal',
+    catalog:dialogueReplayCatalog,realCommercial:true,commercialAi:deterministicOnly,commercialInfo:{...priceInfo(),catalogo:dialogueReplayCatalog},
+    extracted:{turn_semantics:extractedProperty(current,{group:'residential',operation:'search',query_scope:'catalog',filters:{bedrooms_any:[5,6]}}),
+      visit_intent:{kind:'none',confidence:'high',evidence:current},requests:[{domain:'property',request:current,evidence:current,confidence:'high'}]}})
+  h.rows[0].payload.text=current
+  await h.process([h.rows[0]],async()=>{})
+  assert.equal(h.calls.some(call=>['lv_collect_visit_intake','lv_apply_client_visit_intent'].includes(call.name)),false)
+  const sent=h.calls.find(call=>call.name==='register_outbound_message').args.p_content
+  assert.match(sent,/dormitorios/)
+  assert.doesNotMatch(sent,/horario de atención|fecha y hora/)
+})
+
 test('dialogue v2 visit classifier cannot revoke tracking without the common evidenced opt-out', async t => {
   live(t)
   const h = conversationHarness({ proposals: [offeredVisitOptions()], intent: 'opt_out', extracted: { opt_out: false } })

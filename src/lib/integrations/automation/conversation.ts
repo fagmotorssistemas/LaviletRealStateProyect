@@ -22,6 +22,7 @@ import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
+import { visitRoutePermission } from './route-consistency'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
@@ -499,6 +500,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   extracted.financing_partner = financeInput.partner
   const collectingVisit = visitDraft?.status === 'collecting'
   const semanticVisit = object(extracted.visit_intent)
+  const visitPermission = visitRoutePermission(interpretation.requests, turnSemantics, semanticVisit)
+  trace.add('route_consistency', 'Comprobar ruta frente a la solicitud actual', 'decision', 'route-consistency.ts', 'succeeded', {}, visitPermission)
   const semanticVisitRequest = semanticVisit.kind === 'request_visit' && !hasUnrelatedAppointmentTarget(current)
   // A semantic acceptance is actionable only while a durable visit draft is
   // already collecting details. This prevents a bare "sí" from starting a
@@ -508,7 +511,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const explicitVisitRequest = explicitlyRequestsVisit(current)
   const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta))
   const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
-  const canRequestVisit = !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
+  const canRequestVisit = visitPermission.allowed && !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
     && (!isCourtesyOnly(current) || semanticVisitAcceptance || invitationAccepted)
     && (visitSignal || collectingVisit)
   if (canRequestVisit && visitSignal) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
@@ -778,7 +781,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reply = await transferToAdvisor('coordinación inmobiliaria mezclada con otra gestión; verificar únicamente la visita al proyecto', { rule_id: 'visit.mixed_scope', origin: 'operational', caused_by_step: semanticStep })
     audit = { source: 'mixed_visit_handoff' }
   }
-  if (!reply && !greeting && !modelOnly && proposals.length) {
+  if (!reply && !greeting && !modelOnly && proposals.length && visitPermission.allowed) {
     await guard()
     const visitIntentStep = trace.start('visit_intent', 'Interpretar respuesta de visita', 'ai', 'conversation.ts · visitIntentPrompt', {
       message: traceText(current), proposals_available: proposals.length,

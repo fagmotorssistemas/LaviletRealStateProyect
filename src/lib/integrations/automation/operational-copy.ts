@@ -21,9 +21,10 @@ export function operationalCopyIssues(base: string, draft: string, context: Row 
   if(financingCollectionIssues(draft,context,text(context.current_message))) issues.push('financing_collection_padding')
   if (isVisitCopy(context)) issues.push(...visitCopyIssues(base, draft))
   if (!draft.trim() || draft.length > 1200) issues.push('length')
-  if ((draft.match(/\?/g) || []).length > 1 || ((base.match(/\?/g) || []).length === 0 && draft.includes('?'))) issues.push('question_count')
+  if ((draft.match(/\?/g) || []).length > 1) issues.push('question_count')
+  if (!context.evidence_review && !base.includes('?') && draft.includes('?')) issues.push('operational_question_added')
   if (!same(urls(base), urls(draft))) issues.push('links_changed')
-  if (!same(numbers(base), numbers(draft))) issues.push('numbers_changed')
+  if (!context.evidence_review && !same(numbers(base), numbers(draft))) issues.push('numbers_changed')
   const terms = ['Banco Pichincha', 'Cooperativa JEP', 'JEP', 'Pichincha', 'Agmen', 'La Vilet',
     ...(Array.isArray(context.protected_terms) ? context.protected_terms.filter((v): v is string => typeof v === 'string') : [])]
   for (const term of terms) if (source.includes(normalized(term)) && !value.includes(normalized(term))) issues.push('name_omitted')

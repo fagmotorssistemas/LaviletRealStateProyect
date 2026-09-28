@@ -17,6 +17,35 @@ const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
 
+test('pending visit routing yields to current evidenced commercial requests, but keeps mixed requests', () => {
+  const { visitRoutePermission } = require('../src/lib/integrations/automation/route-consistency.ts')
+  for (const domain of ['property', 'financing', 'project']) {
+    const requests=[{domain,confidence:'high'}]
+    assert.equal(visitRoutePermission(requests, {}, {kind:'none',confidence:'high'}).allowed,false)
+    assert.equal(visitRoutePermission([...requests,{domain:'visit',confidence:'high'}], {}, {kind:'request_visit',confidence:'high'}).allowed,true)
+  }
+  assert.equal(visitRoutePermission([], {}, {kind:'accept_visit_preference',confidence:'high'}).allowed,true)
+})
+
+test('evidence-reviewed operational copy may ask one purposeful question and add verified facts', () => {
+  const base='Atendemos de 09:00 a 18:00.'
+  const draft=base+' ¿Qué día le conviene?'
+  assert.equal(operationalCopyIssues(base,draft,{evidence_review:true}).includes('question_count'),false)
+  assert.equal(operationalCopyIssues(base,draft,{}).includes('operational_question_added'),true)
+  assert.equal(operationalCopyIssues(base,draft+' ¿Mañana?',{evidence_review:true}).includes('question_count'),true)
+  assert.equal(turnCompletenessIssues({current:'¿Cuándo puedo ir?',baseReply:base,verified:{},audit:{source:'visit_intake',semantic_review_enabled:true}},draft,noQuestion).includes('question_without_purpose'),true)
+})
+
+test('a fallback with an explicitly unanswered request cannot be marked valid', async () => {
+  const current='¿Cuántos dormitorios tiene?'
+  const candidate={reply:'Tiene 999 dormitorios.',requests:[covered(current,'unanswered')],question:noQuestion}
+  const result=await completeTurnReply({current,baseReply:'Nuestro horario de atención es de lunes a viernes.',verified:{}},model(candidate,candidate).generate)
+  assert.equal(result.audit.fallback_validation.passed,false)
+  assert.ok(result.audit.fallback_validation.issues.includes('fallback_unanswered_request'))
+  assert.doesNotMatch(result.reply,/lunes a viernes/)
+  assert.equal(result.needsAdvisor,false)
+})
+
 test('project quantities use subject evidence rather than an isolated numeric allowlist',async()=>{
   const current='Quiero información'
   const reply='El proyecto cuenta con sistemas de seguridad 24 horas.'
