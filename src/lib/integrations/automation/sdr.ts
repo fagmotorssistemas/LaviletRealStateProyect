@@ -14,6 +14,7 @@ import { commercialEngagement, passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules, variedReplyOpening } from './response-openings'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
 import { acceptedPriceOption, asksUnitPrice, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
+import { TURN_INTENT_RULES } from './turn-intent'
 import { priceFinancingReply } from './financing'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
@@ -95,7 +96,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   // Explicit project information wins over an inferred or remembered catalogue query.
   const overview = projectInformationReply(info, current, BROCHURE_URL)
   if (overview) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }
-  info = { ...info, catalogue_price_requested: asksUnitPrice(current, info.alcance_negocio === 'property') }
+  info = { ...info, catalogue_price_requested: object(info.contrato_turno).objective === 'ask_price' || asksUnitPrice(current, info.alcance_negocio === 'property') }
   if (!text(object(info.referencia_unidad).reason)) {
     const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
     info = { ...info, referencia_unidad: reference, property_context: reference.context }
@@ -120,9 +121,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     reply: text(resolvedReference.clarification),
     audit: { source: 'property_reference_clarification', fallback: false, reference_reason: resolvedReference.reason },
   }
-  const acceptedOption = acceptedPriceOption(info, current, summary)
+  const acceptedOption = info.catalogue_price_requested ? null : acceptedPriceOption(info, current, summary)
   if (acceptedOption) return acceptedOption
-  const alternativeJourney = continueUnitAlternative(info, current)
+  const alternativeJourney = info.catalogue_price_requested ? null : continueUnitAlternative(info, current)
   if (alternativeJourney) {
     const journeyUnits = alternativeJourney.units?.length ? alternativeJourney.units
       : alternativeJourney.unit ? [alternativeJourney.unit] : []
@@ -141,7 +142,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
       },
     }
   }
-  const acceptedAlternative = acceptedUnitAlternative(info, current)
+  const acceptedAlternative = info.catalogue_price_requested ? null : acceptedUnitAlternative(info, current)
   if (acceptedAlternative) return {
     reply: acceptedAlternative.reply,
     audit: {
@@ -154,7 +155,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   const locationBudget = commercialLocationBudgetRecommendation(info, current)
   if (locationBudget) return { reply: locationBudget, audit: { source: 'commercial_location_budget', fallback: false } }
-  const selection = propertySelectionReply(info, current)
+  const selection = info.catalogue_price_requested ? null : propertySelectionReply(info, current)
   if (selection) return { ...selection, audit: { ...selection.audit,
     ...(selection.audit.source === 'property_unit_selected' && Array.isArray(resolvedReference.matches)
       ? { selected_unit_ids: resolvedReference.matches.map(unit => object(unit).id) } : {}),
@@ -217,7 +218,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
   const input = { ...experienceContext(info, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
-  const rules = NATURAL_CONVERSATION_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
+  const rules = NATURAL_CONVERSATION_RULES + '\n' + TURN_INTENT_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
     + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
     + (info.estado_proyecto ? '\n' + readinessRules(info.estado_proyecto as ProjectReadiness) : info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')

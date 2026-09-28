@@ -89,6 +89,8 @@ Un lead puede estar al mismo tiempo en **Oportunidad**, **Tibio** y con **nutric
 
 La revisión de selección explícita, enlaces 360 y validación numérica está documentada en [Selección y validación unificada — 26 de septiembre](./seleccion-validacion-unificada-20260926.md), con archivos, líneas y pruebas.
 
+La corrección de alcance, consulta de precios y continuidad entre capas está documentada en [Objetivo compartido del turno — 28 de septiembre](./contrato-intencion-20260928.md), con decisiones, archivos, líneas y pruebas.
+
 La pantalla de Workflow es de solo lectura. Contiene mapas para:
 
 - recorrido principal;

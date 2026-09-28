@@ -146,3 +146,107 @@ test('generic price followup quotes only offered units, grouped by category and 
  assert.equal(partial.ranges[0].complete,false);
  assert.match(partial.reply,/con precio publicado/);
 });
+
+test('a first price question quotes the authorized available catalogue range without inventing a category', () => {
+  const input = info({ alcance_negocio: 'property', lead: {}, property_context: {}, historial: [], catalogo: [
+    { id: 's101', unit_number: '101', category: 'suite', published_commercial_price: 100000, is_published: true, status: 'disponible' },
+    ...catalog,
+    { id: 'l101', unit_number: 'LC01', category: 'local', published_commercial_price: 70000, is_published: true, status: 'disponible' },
+    { id: 'hidden', category: 'suite', published_commercial_price: 1, is_published: false },
+    { id: 'sold', category: 'penthouse', published_commercial_price: 9000000, status: 'vendido' },
+    { id: 'parking', category: 'parqueadero', published_commercial_price: 15000 },
+  ] })
+  const quote = unitPriceQuote(input, 'Precio', {})
+  assert.equal(quote.quoted, true)
+  assert.match(quote.reply, /inmuebles disponibles.*70[.,]000.*550[.,]000/)
+  assert.doesNotMatch(quote.reply, /departamentos|suite|penthouse|local|15[.,]000|9[.,]000[.,]000/)
+  assert.deepEqual(quote.ranges, [{ category: 'inmueble', bedrooms: 0, min: 70000, max: 550000, complete: true }])
+  assert.deepEqual(verifiedPriceReplyIssues(quote.reply, input, 'Precio', quote), [])
+  assert.deepEqual(priceReplyIssues(quote.reply, input, 'Precio'), [])
+  assert.ok(verifiedPriceReplyIssues(quote.reply.replace('70.000', '60.000'), input, 'Precio', quote).includes('unsupported_fact'))
+  const explicit = unitPriceQuote(input, 'Precio de los departamentos de 3 dormitorios', {})
+  assert.deepEqual(explicit.prices, [250000, 270000, 310000])
+})
+
+test('general prices preserve authorization, missing-price disclosure and catalogue scope', () => {
+  const input = info({ alcance_negocio: 'property', lead: {}, property_context: {}, historial: [] })
+  const forbidden = unitPriceQuote({ ...input, politica_comercial: { precios_autorizados: false } }, 'Precio', {})
+  assert.equal(forbidden.quoted, false)
+  assert.doesNotMatch(forbidden.reply, /\$/)
+  const missing = unitPriceQuote({ ...input, catalogo: catalog.map(unit => ({ ...unit, published_commercial_price: null })) }, 'Precio', {})
+  assert.equal(missing.quoted, false)
+  assert.equal(missing.needsAdvisor, undefined)
+  assert.match(missing.reply, /No tengo un rango/)
+  assert.doesNotMatch(missing.reply, /\$/)
+  const partialInput = { ...input, catalogo: catalog.map(unit => unit.id === 'u602' ? { ...unit, published_commercial_price: null } : unit) }
+  const partial = unitPriceQuote(partialInput, 'Precio', {})
+  assert.match(partial.reply, /con precio publicado/)
+  assert.equal(partial.ranges[0].complete, false)
+  assert.equal(partial.ranges[0].max, 310000)
+  assert.deepEqual(verifiedPriceReplyIssues(partial.reply, partialInput, 'Precio', partial), [])
+  const limited = unitPriceQuote({ ...input, semantica_turno: { property: { excluded_categories: ['penthouse'], group: 'residential' } } }, 'Precio', {})
+  assert.equal(limited.ranges[0].max, 310000)
+  assert.doesNotMatch(limited.reply, /550[.,]000/)
+  assert.equal(unitPriceQuote({ ...input, alcance_negocio: 'out_of_scope' }, 'Precio', {}).quoted, false)
+})
+
+test('the shared price objective answers a category clarification using its original text', () => {
+  const input = info({ alcance_negocio: 'property', lead: {}, property_context: {}, historial: [],
+    contrato_turno: { objective: 'ask_price' }, semantica_turno: { primary_intent: 'ask_price', property: { category: 'departamento' } } })
+  const original = 'Sobre departamentos por favor'
+  const quote = unitPriceQuote(input, original, {})
+  assert.equal(quote.quoted, true)
+  assert.deepEqual(quote.prices, [210000, 250000, 270000, 310000])
+  assert.equal(original, 'Sobre departamentos por favor')
+  assert.deepEqual(verifiedPriceReplyIssues(quote.reply, input, original, quote), [])
+  for (const current of ['Precio del crédito', 'Costo de parqueadero', 'Precio de la alícuota', 'Cuánto cuesta el alquiler', 'Sobre el crédito', 'El parqueadero por favor', 'De la alícuota']) {
+    assert.equal(unitPriceQuote(input, current, {}), null, current)
+  }
+  assert.equal(unitPriceQuote({ ...input, alcance_negocio: 'out_of_scope' }, original, {}), null)
+  assert.equal(unitPriceQuote({ ...input, contrato_turno: { objective: 'select_property' } }, original, {}), null)
+})
+
+test('inherited price requests execute the same resolved floor, bedroom and area filters as the catalogue', () => {
+  const units = [
+    { id: 's201', unit_number: '201', category: 'suite', bedrooms: 1, floor_number: 2, area_internal_m2: 60, published_commercial_price: 150000 },
+    { id: 's301', unit_number: '301', category: 'suite', bedrooms: 1, floor_number: 3, area_internal_m2: 60, published_commercial_price: 180000 },
+    { id: 'd202', unit_number: '202', category: 'departamento', bedrooms: 2, floor_number: 2, area_internal_m2: 90, published_commercial_price: 210000 },
+    { id: 'd203', unit_number: '203', category: 'departamento', bedrooms: 3, floor_number: 2, area_internal_m2: 120, published_commercial_price: 270000 },
+  ]
+  const input = info({ alcance_negocio: 'property', lead: {}, property_context: {}, historial: [], catalogo: units,
+    contrato_turno: { objective: 'ask_price' } })
+  for (const [current, category, filters, expected] of [
+    ['En segunda planta', 'suite', { floor_number: 2 }, ['s201']],
+    ['De dos dormitorios', 'departamento', { bedrooms: 2 }, ['d202']],
+    ['Con al menos 100 metros', 'departamento', { min_area_m2: 100 }, ['d203']],
+    ['De dos o tres dormitorios', 'departamento', { bedrooms_any: [2, 3] }, ['d202', 'd203']],
+  ]) {
+    const query = { category, group: 'residential', filters, operation: 'search', scope: 'catalog' }
+    const context = { ...input, property_context: { query }, referencia_unidad: { reason: 'catalog_search', explicit: false, query, matches: [] },
+      semantica_turno: { property: { category, filters, operation: 'search', confidence: 'high' } } }
+    const quote = unitPriceQuote(context, current, {})
+    assert.equal(quote.quoted, true, current)
+    assert.deepEqual(quote.units.map(unit => unit.id), expected, current)
+    assert.deepEqual(verifiedPriceReplyIssues(quote.reply, context, current, quote), [], current)
+  }
+  const unavailableQuery = { category: 'departamento', filters: { floor_number: 7, bedrooms: 3 }, operation: 'search', scope: 'catalog' }
+  const missing = unitPriceQuote({ ...input, referencia_unidad: { query: unavailableQuery, explicit: false, reason: 'catalog_no_match', matches: [] }, property_context: { query: unavailableQuery } }, 'En séptima planta', {})
+  assert.equal(missing.quoted, false)
+  assert.equal(missing.needsAdvisor, undefined)
+  assert.match(missing.reply, /No encuentro inmuebles disponibles que coincidan/)
+  assert.doesNotMatch(missing.reply, /\$/)
+})
+
+test('a fresh category price query replaces legacy filters while equivalent explicit unit codes outrank search constraints', () => {
+  const suite = { id: 's201', unit_number: '201', category: 'suite', bedrooms: 1, floor_number: 2, area_internal_m2: 60, published_commercial_price: 150000 }
+  const local = { id: 'l05', unit_number: 'LC-05', category: 'local', floor_number: 0, area_internal_m2: 70, published_commercial_price: 200000 }
+  const input = info({ alcance_negocio: 'property', catalogo: [suite, local, ...catalog], lead: {}, historial: [],
+    property_context: { query: { category: 'penthouse', operation: 'search', filters: { min_area_m2: 140, floor_number: 6 } } } })
+  assert.deepEqual(unitPriceQuote(input, 'Precio de suites', {}).prices, [150000])
+  for (const current of ['Precio del LC05', 'Precio del local 5', 'Precio del local LC-05']) {
+    const quote = unitPriceQuote(input, current, {})
+    assert.equal(quote.quoted, true, current)
+    assert.deepEqual(quote.units.map(unit => unit.id), ['l05'], current)
+    assert.deepEqual(quote.prices, [200000], current)
+  }
+})

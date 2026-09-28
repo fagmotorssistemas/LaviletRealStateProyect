@@ -35,6 +35,56 @@ function introductionFixture() {
   return { current, plan, input, candidate, review }
 }
 
+test('writer and reviewer share the price objective while allowing natural prose and a profile question', async () => {
+  const current = 'Precio'
+  const contract = { version: 'turn-intent-v1', objective: 'ask_price', required_facts: ['price'] }
+  const baseReply = `Los precios parten de $100.000 USD. ${PROFILE_INVITATION}`
+  const reply = `Hola. Con gusto: los precios parten de $100.000 USD. ${PROFILE_INVITATION}`
+  const question = { text: PROFILE_INVITATION, purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia', next_decision: 'Compartir brochure y orientar la consulta' }
+  const generate = model({ reply, requests: [covered(current)], question }, approved)
+  const result = await completeTurnReply({ current, baseReply,
+    audit: { resolved_turn_intent: contract }, verified: { respuesta_precio_verificada: 'Desde $100.000 USD.' } }, generate.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, reply)
+  assert.equal(generate.calls.length, 2)
+  for (const call of generate.calls) {
+    assert.deepEqual(call[1].contrato_turno, contract)
+    assert.match(call[0], /CONTRATO COMPARTIDO DEL TURNO/)
+  }
+  assert.deepEqual(result.audit.resolved_turn_intent, contract)
+})
+
+test('a writer cannot replace a requested available price with a catalogue description', async () => {
+  const current = 'sobre suites'
+  const baseReply = 'Las suites parten de $100.000 USD.'
+  const contract = { version: 'turn-intent-v1', objective: 'ask_price', required_facts: ['price'] }
+  const candidate = { reply: 'Tenemos suites de un dormitorio.', requests: [covered(current)], question: noQuestion }
+  const result = await completeTurnReply({ current, baseReply,
+    audit: { semantic_review_enabled: true, resolved_turn_intent: contract },
+    verified: { respuesta_precio_verificada: baseReply } }, model(candidate, candidate).generate)
+  assert.equal(result.audit.status, 'rejected_guard')
+  assert.ok(result.audit.issues.includes('turn_price_unanswered'))
+  assert.equal(result.reply, baseReply)
+  assert.equal(result.audit.fallback_validation.passed, true)
+  assert.equal(result.needsAdvisor, false)
+})
+
+test('fallback is held to the same price objective without inventing a missing price', async () => {
+  const input = { current: 'Precio', baseReply: 'Tenemos suites de un dormitorio.',
+    audit: { resolved_turn_intent: { objective: 'ask_price', required_facts: ['price'] } },
+    verified: { respuesta_precio_verificada: 'Desde $100.000 USD.' } }
+  const unavailable = async () => { throw new Error('test service unavailable') }
+  const result = await completeTurnReply(input, unavailable)
+  assert.equal(result.audit.fallback_validation.passed, false)
+  assert.ok(result.audit.fallback_validation.issues.includes('turn_price_unanswered'))
+  assert.notEqual(result.reply, input.baseReply)
+  assert.equal(result.needsAdvisor, false)
+  const noPrices = await completeTurnReply({ ...input, baseReply: 'No hay un rango publicado; necesito conocer la categoría.',
+    verified: {} }, unavailable)
+  assert.equal(noPrices.audit.fallback_validation.passed, true)
+  assert.equal(noPrices.reply, 'No hay un rango publicado; necesito conocer la categoría.')
+})
+
 test('the real writer keeps the initial residence invitation, purpose and deferred brochure', async () => {
   const { plan, input, candidate, review } = introductionFixture()
   assert.equal(plan.audit.profile_introduction.stage, 'request')

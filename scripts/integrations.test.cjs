@@ -165,13 +165,13 @@ test('out-of-scope replies introduce the brand once, including invalid model fal
   const { validateBusinessScope, classifyBusinessScope } = load('src/lib/integrations/automation/business-scope.ts', {
     './ai': { aiJson: async (_rules, input) => {
       assert.equal(input.marca_ya_presentada, true)
-      return { kind: 'out_of_scope', property_fragments: [], reply: 'Entiendo la confusión. Somos La Vilet, un proyecto inmobiliario y no gestionamos pedidos de comida.' }
+      return { kind: 'out_of_scope', property_fragments: [], outside_subject: 'comida', outside_source: 'current', reply: 'Entiendo la confusión. Somos La Vilet, un proyecto inmobiliario y no gestionamos pedidos de comida.' }
     } },
   })
-  const row = { kind: 'out_of_scope', property_fragments: [], reply: 'Entiendo la confusión. Somos La Vilet, un proyecto inmobiliario y no gestionamos pedidos de comida.' }
+  const row = { kind: 'out_of_scope', property_fragments: [], outside_subject: 'comida', outside_source: 'current', reply: 'Entiendo la confusión. Somos La Vilet, un proyecto inmobiliario y no gestionamos pedidos de comida.' }
   assert.match(validateBusinessScope(row, 'Envíeme comida').reply, /La Vilet/)
   assert.doesNotMatch(validateBusinessScope(row, 'Envíeme comida', true).reply, /La Vilet/)
-  assert.doesNotMatch(validateBusinessScope({ ...row, reply: 'Ya reservé su taxi.' }, 'Envíeme taxi', true).reply, /La Vilet|reservé/)
+  assert.doesNotMatch(validateBusinessScope({ ...row, outside_subject: 'taxi', reply: 'Ya reservé su taxi.' }, 'Envíeme taxi', true).reply, /La Vilet|reservé/)
   assert.doesNotMatch((await classifyBusinessScope('Envíeme comida', [], true)).reply, /La Vilet/)
 })
 
@@ -2515,6 +2515,74 @@ test('project overview takes priority over a broad catalogue interpretation thro
     const decision = h.calls.find(call => call.name === 'execution_trace').args.find(step => step.step_key === 'dialogue_decision')
     assert.equal(decision.output_summary.source, 'project_overview')
   }
+})
+
+test('a bare first price request reaches the writer with verified prices and the introductory profile question', async t => {
+  live(t)
+  const current = 'Precio'
+  const catalog = dialogueReplayCatalog.filter(unit => ['210', '502', '605'].includes(unit.unit_number)).map(unit => ({
+    ...unit, published_commercial_price: unit.category === 'suite' ? 250000 : unit.category === 'penthouse' ? 550000 : 310000,
+  }))
+  const { validateBusinessScope } = require('../src/lib/integrations/automation/business-scope.ts')
+  const businessScope = validateBusinessScope({ kind: 'out_of_scope', property_fragments: [], outside_subject: '', outside_source: 'none', reply: 'No queda claro a qué servicio se refiere.' }, current)
+  const h = conversationHarness({ catalog, commercialInfo: { ...priceInfo(), catalogo: catalog }, realCommercial: true,
+    commercialAi: deterministicOnly, captureTrace: true, businessScope,
+    extracted: { turn_semantics: extractedProperty(current, { operation: 'none' }, 'ask_price'),
+      requests: [{ request: 'Consultar precios', domain: 'property', evidence: current, confidence: 'high' }] } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_tool_calls.source, 'unit_price')
+  assert.match(sent.p_content, /250[.,]000.*550[.,]000/s)
+  assert.match(sent.p_content, /brochure digital completo con los planos y brindarle una guía personalizada/)
+  assert.match(sent.p_content, /su nombre.*reside actualmente/s)
+  assert.doesNotMatch(sent.p_content, /no gestionamos|qué producto|brochure-la-vilet-v5\.pdf|m² interiores|Qué planta/i)
+  const writer = h.calls.find(call => call.name === 'completeTurnReply').args
+  assert.equal(writer.current, current)
+  assert.equal(writer.verified.contrato_turno.objective, 'ask_price')
+  assert.deepEqual(writer.verified.contrato_turno.required_facts, ['price'])
+  assert.match(writer.verified.respuesta_precio_verificada, /250[.,]000.*550[.,]000/s)
+  assert.ok(writer.validateReply('El precio es $1 USD.').includes('unsupported_price_rewrite'))
+  const summary = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+  assert.equal(summary._turn_intent.continuation_goal, 'ask_price')
+  assert.equal(summary._lead_introduction.status, 'pending')
+  assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake'].includes(call.name)), false)
+})
+
+test('a category clarification preserves the preceding price objective and does not return a catalogue of measurements', async t => {
+  live(t)
+  const catalog = dialogueReplayCatalog.filter(unit => ['210', '502'].includes(unit.unit_number)).map(unit => ({
+    ...unit, published_commercial_price: unit.category === 'suite' ? 250000 : 310000,
+  }))
+  const commercialInfo = { ...priceInfo(), catalogo: catalog }
+  const first = conversationHarness({ catalog, commercialInfo, realCommercial: true, commercialAi: deterministicOnly,
+    businessScope: { kind: 'property', property_message: 'Precio', reply: '', uncertain: false },
+    extracted: { turn_semantics: extractedProperty('Precio', { operation: 'none' }, 'ask_price'),
+      requests: [{ request: 'Consultar precios', domain: 'property', evidence: 'Precio', confidence: 'high' }] } })
+  first.rows[0].payload.text = 'Precio'
+  await first.process([first.rows[0]], async () => {})
+  const previous = first.calls.find(call => call.name === 'register_outbound_message').args.p_content
+  const summary = JSON.parse(first.calls.find(call => call.name === 'update:conversations').args.summary)
+  const current = 'sobre suites por favor'
+  const history = [{ role: 'cliente', content: 'Precio' }, { role: 'bot', content: previous }]
+  const next = conversationHarness({ catalog, commercialInfo: { ...commercialInfo, historial: history }, realCommercial: true,
+    commercialAi: deterministicOnly, captureTrace: true, history, summary,
+    extracted: { turn_semantics: extractedProperty(current, { category: 'suite', operation: 'search' }),
+      requests: [{ request: 'Consultar el precio de suites', domain: 'property', evidence: current, confidence: 'high' }] } })
+  next.rows[0].payload.text = current
+  await next.process([next.rows[0]], async () => {})
+  const sent = next.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_tool_calls.source, 'unit_price')
+  assert.match(sent.p_content, /suite 210.*250[.,]000/s)
+  assert.doesNotMatch(sent.p_content, /310[.,]000|m² interiores|Qué planta|qué suite|qué departamento/i)
+  assert.match(sent.p_content, /brochure-la-vilet-v5\.pdf/)
+  const writer = next.calls.find(call => call.name === 'completeTurnReply').args
+  assert.equal(writer.current, current)
+  assert.equal(writer.verified.contrato_turno.objective, 'ask_price')
+  assert.equal(writer.verified.contrato_turno.interpretation_source, 'clarification_of_price_request')
+  assert.equal(writer.verified.contrato_turno.subject.category, 'suite')
+  assert.match(writer.verified.respuesta_precio_verificada, /250[.,]000/)
+  assert.equal(next.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake'].includes(call.name)), false)
 })
 
 test('introductory profile is persisted with evidence and brochure is released on a partial answer', async t => {

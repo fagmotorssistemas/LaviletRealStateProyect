@@ -9,21 +9,24 @@ import { purchasePriceQuestion, salesSubject } from './sales-subject'
 import { hasAffordabilityConcern } from './financing'
 import { asksForHouse } from './product-fit'
 import { unitAlternative } from './unit-alternatives'
+import { catalogQuery, filterCatalog } from './catalog-dialogue'
+import { propertyFiltersFromText } from './turn-semantics'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
+function unitPurchaseClause(clause: string) {
+  const m = normalized(clause)
+  const financeOnly = /\b(?:credito|financiamiento|hipoteca)\b/.test(m)
+    && !/\b(?:suites?|departamentos?|viviendas?|locales?|inmuebles?|propiedades?|\d{3})\b/.test(m)
+    && !/\b(?:no (?:quiero|necesito|deseo)|sin) (?:financiamiento|credito|hipoteca)\b/.test(m)
+  return !financeOnly
+    && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(m)
+}
 export function asksUnitPrice(value: string, propertyScope = false) {
   if (!purchasePriceQuestion(value) || (!propertyScope && salesSubject(value).subject === 'vehicle')) return false
   // One WhatsApp turn can include several messages/questions. A separate question
   // about a loan, parking or fees must not erase the requested apartment price.
   const clauses = value.split(/[¿?\n;!]+|\.\s+|\s+(?:y|adem[aá]s|tambi[eé]n|pero)\s+(?=(?:cu[aá]nt|qu[eé]\b|c[oó]mo\b|d[oó]nde\b|tengo\b|hay\b|tienen\b|necesito\b|aceptan\b))/i)
-  return clauses.some(clause => {
-    const m = normalized(clause)
-    const financeOnly = /\b(?:credito|financiamiento|hipoteca)\b/.test(m)
-      && !/\b(?:suites?|departamentos?|viviendas?|locales?|inmuebles?|propiedades?|\d{3})\b/.test(m)
-      && !/\b(?:no (?:quiero|necesito|deseo)|sin) (?:financiamiento|credito|hipoteca)\b/.test(m)
-    return purchasePriceQuestion(clause) && !financeOnly
-      && !/garant|asegur|subir|plusval|valoriz|reventa|revender|alicuota|mantenimiento|cuota|prestamo|costo del credito|\b(?:interes|tasas?|alquiler|arriendo|renta|parqueadero|bodega)\b/.test(m)
-  })
+  return clauses.some(clause => purchasePriceQuestion(clause) && unitPurchaseClause(clause))
 }
 
 // Preserve the stated amount; a low budget is an opportunity to offer guidance,
@@ -74,6 +77,15 @@ const moneyValue = (unit: Row) => {
 }
 const ids = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : []
 
+// A category-only clarification can complete an earlier price question. Consume
+// the reconciled turn contract without rewriting the client's actual message.
+function currentPriceGoal(info: Row, current: string) {
+  const scope = ['property', 'mixed'].includes(text(info.alcance_negocio))
+  if (asksUnitPrice(current, scope)) return true
+  if (!scope || purchasePriceQuestion(current) || !unitPurchaseClause(current)) return false
+  return object(info.contrato_turno).objective === 'ask_price'
+}
+
 // References identify units, never their prices. Hydrate every reference from the
 // current catalog, including after a summary, screenshot or semantic extraction.
 function priceSelection(info: Row, current: string, summary: Row) {
@@ -85,22 +97,45 @@ function priceSelection(info: Row, current: string, summary: Row) {
   const referenceUnits = hydrate(rows(reference.matches).map(unit => unit.id))
   const comparisonIds = ids(propertyContext.comparison_ids)
   const topic = salesSubject(current, info.historial)
-  const semanticCategory = text(object(object(info.semantica_turno).property).category)
-  const category = ['local', 'suite', 'penthouse', 'departamento'].includes(semanticCategory) ? semanticCategory
-    : /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite'
+  const semanticProperty = object(object(info.semantica_turno).property)
+  const semanticCategory = text(semanticProperty.category)
+  const literalCategory = /\blocal(?:es)?\b/.test(m) ? 'local' : /\bsuites?\b/.test(m) ? 'suite'
     : /\bpenthouses?\b/.test(m) ? 'penthouse' : /\bdepart[ae]?mentos?\b/.test(m) ? 'departamento'
     : /\bviviendas?\b/.test(m) || topic.acceptedRedirect ? 'vivienda' : ''
+  const category = ['local', 'suite', 'penthouse', 'departamento'].includes(semanticCategory) ? semanticCategory : literalCategory
   const matchesCategory = (unit: Row, value: string) => value === 'vivienda' ? ['suite', 'departamento', 'penthouse'].includes(text(unit.category)) : unit.category === value
-  const bedroomWords: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 }
-  const bedroomMatch = m.match(/\b(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:dormitorios?|habitaciones?|cuartos?)\b/)
-  const bedrooms = bedroomMatch ? Number(bedroomWords[bedroomMatch[1]] || bedroomMatch[1]) : 0
-  const explicit = reference.hasUnitMention === true || resolved.hasUnitMention
+  const sharedQuery = object(reference.query || propertyContext.query)
+  const resolvedQuery = Object.keys(object(reference.query)).length > 0
+  // A fresh, explicit category price question defines a new scope. A short
+  // clarification instead retains the interpreter's normalized query filters.
+  const freshCategoryQuery = !resolvedQuery && !!literalCategory && asksUnitPrice(current, true)
+  const currentFilters = propertyFiltersFromText(current, text(object(propertyContext.pending_question).id))
+  const semanticFilters = object(semanticProperty.filters)
+  const filters = { ...(freshCategoryQuery ? {} : object(sharedQuery.filters)),
+    ...Object.fromEntries(Object.entries(semanticFilters).filter(([, value]) => value !== null && value !== undefined)),
+    ...Object.fromEntries(Object.entries(currentFilters).filter(([, value]) => value !== null && value !== undefined)) }
+  if (currentFilters.bedrooms !== null || semanticFilters.bedrooms != null && !(Array.isArray(semanticFilters.bedrooms_any) && semanticFilters.bedrooms_any.length > 1)) delete filters.bedrooms_any
+  else if (Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length > 1) filters.bedrooms = null
+  const query = catalogQuery(resolvedQuery ? reference.query : { ...sharedQuery,
+    category: category === 'vivienda' ? null : category || sharedQuery.category,
+    group: category === 'vivienda' ? 'residential' : category ? category === 'local' ? 'commercial' : 'residential' : semanticProperty.group || sharedQuery.group,
+    scope: freshCategoryQuery ? 'catalog' : semanticProperty.query_scope || sharedQuery.scope, filters })
+  const hasFilters = Object.entries(query.filters).some(([key, value]) => key !== 'bedrooms_required' && value !== null && (!Array.isArray(value) || value.length > 0))
+  const bedrooms = query.filters.bedrooms || 0
+  const explicit = resolvedQuery ? reference.explicit === true : reference.hasUnitMention === true || resolved.hasUnitMention
   const offeredIds = ids(propertyContext.offered_ids)
-  let selected: Row[], contextual = false, offeredRange = false
+  const queryScopeIds = query.scope === 'offered' ? offeredIds : query.scope === 'comparison' ? comparisonIds
+    : query.scope === 'selected' ? ids(propertyContext.selected_ids) : undefined
+  const excluded = ids(semanticProperty.excluded_categories)
+  const queryUnits = () => filterCatalog(catalog.filter(unit => ['suite', 'departamento', 'penthouse', 'local'].includes(text(unit.category))
+    && !excluded.includes(text(unit.category))), query, queryScopeIds)
+  let selected: Row[], contextual = false, offeredRange = false, generalRange = false, filteredQuery = false
   // A category explicitly requested in this turn supersedes remembered units.
   // Literal unit codes still take precedence (including ambiguous codes).
-  if (category && !resolved.hasUnitMention) {
-    selected = catalog.filter(unit => matchesCategory(unit, category) && (!bedrooms || Number(unit.bedrooms) === bedrooms))
+  if (hasFilters && !explicit) {
+    selected = queryUnits(); filteredQuery = true
+  } else if (category && !explicit) {
+    selected = queryUnits()
   } else if (!explicit && !bedrooms && !comparisonIds.length && !ids(propertyContext.selected_ids).length
     && !ids(propertyContext.focused_ids).length && offeredIds.length && asksUnitPrice(current, true)
     && !/\b(?:ese|esa|aquel|aquella)\b/.test(m)) {
@@ -132,8 +167,20 @@ function priceSelection(info: Row, current: string, summary: Row) {
     const preferred = topic.category || text(object(info.lead).preferred_category)
     const preferredBedrooms = preferred === 'local' ? 0 : Number(object(info.lead).preferred_bedrooms)
     selected = remembered.length ? remembered : preferred ? catalog.filter(unit => matchesCategory(unit, preferred) && (!preferredBedrooms || Number(unit.bedrooms) === preferredBedrooms)) : []
+    if (!selected.length && !remembered.length && !preferred && !savedIds.length
+      && !ids(propertyContext.selected_ids).length && !ids(propertyContext.focused_ids).length
+      && ['property', 'mixed'].includes(text(info.alcance_negocio))) {
+      const property = object(object(info.semantica_turno).property)
+      const excluded = ids(property.excluded_categories)
+      selected = catalog.filter(unit => ['suite', 'departamento', 'penthouse', 'local'].includes(text(unit.category))
+        && !excluded.includes(text(unit.category))
+        && (property.group !== 'residential' || unit.category !== 'local')
+        && (property.group !== 'commercial' || unit.category === 'local'))
+      generalRange = true
+    }
   }
-  return { selected, category, bedrooms, explicit, contextual, offeredRange, needsClarification: false }
+  const constrainedBeyondBedrooms = query.filters.floor_number !== null || query.filters.min_area_m2 !== null || query.filters.max_area_m2 !== null || !!query.filters.bedrooms_any?.length
+  return { selected, category, bedrooms, explicit, contextual, offeredRange, generalRange, filteredQuery, constrainedBeyondBedrooms, needsClarification: false }
 }
 
 function comparisonFacts(units: Row[], contextual: boolean) {
@@ -147,7 +194,7 @@ function comparisonFacts(units: Row[], contextual: boolean) {
 type PriceQuote = { reply: string; quoted: boolean; needsAdvisor?: boolean; financingOffer?: string; units?: Row[]; prices?: number[]; ranges?: { category: string; bedrooms: number; min: number; max: number; complete: boolean }[]; comparison?: { ids: string[]; difference: number } }
 export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQuote | null {
   if (asksForHouse(current)) return null
-  if (!asksUnitPrice(current, ['property', 'mixed'].includes(text(info.alcance_negocio)))) return null
+  if (!currentPriceGoal(info, current)) return null
   const policy = object(info.politica_comercial), m = normalized(current)
   if (policy.precios_autorizados !== true) return {
     reply: '', quoted: false, needsAdvisor: true,
@@ -157,7 +204,12 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
   if (selection.needsClarification) return null
   const { category, bedrooms, explicit, contextual } = selection
   const selected = selection.selected.filter(availableUnit)
-  if (!selected.length && !category && !bedrooms && !explicit && !selection.selected.length) return { reply: '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false }
+  if (!selected.length && selection.filteredQuery && (!bedrooms || selection.constrainedBeyondBedrooms)) return {
+    reply: 'No encuentro inmuebles disponibles que coincidan con esas características para cotizarle. ¿Le gustaría revisar otras opciones?', quoted: false,
+  }
+  if (!selected.length && !category && !bedrooms && !explicit && !selection.selected.length) return {
+    reply: selection.generalRange ? 'No tengo un rango de precios disponible para compartirle en este momento. ¿De qué tipo de inmueble le gustaría consultar el valor?' : '¿De qué suite, departamento o local le gustaría conocer el precio?', quoted: false,
+  }
   if (!selected.length && bedrooms && !explicit) {
     const recommendation=unitAlternative(info,current,statedBudget(current))
     if(recommendation)return {reply:recommendation.reply,quoted:false}
@@ -165,18 +217,25 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
     if (alternatives.length) return { reply: `No encuentro opciones de ${bedrooms} dormitorios en nuestro catálogo disponible. Tenemos opciones de ${alternatives.join(' o ')} dormitorios. ¿Le gustaría revisar alguna de ellas?`, quoted: false }
   }
   const priced = selected.filter(unit => moneyValue(unit) !== null)
-  if (!priced.length) return { reply: '', quoted: false, needsAdvisor: true }
+  if (!priced.length) return selection.generalRange
+    ? { reply: 'No tengo un rango de precios disponible para compartirle en este momento. ¿De qué tipo de inmueble le gustaría consultar el valor?', quoted: false }
+    : { reply: '', quoted: false, needsAdvisor: true }
   const money = (value: unknown) => '$' + Number(value).toLocaleString('es-EC', { maximumFractionDigits: 2 })
   const unitName = (unit: Row) => `${unit.category === 'local' ? 'local' : unit.category === 'suite' ? 'suite' : unit.category === 'penthouse' ? 'penthouse' : 'departamento'} ${text(unit.unit_number)}`
   const approximate = policy.precios_aproximados === true
-  const ranges = selection.offeredRange && selected.length > 1 ? [...new Set(selected.map(u => `${u.category}:${Number(u.bedrooms) || 0}`))].map(key => {
+  const ranges = selection.generalRange ? [{ category: 'inmueble', bedrooms: 0,
+    min: Math.min(...priced.map(unit => moneyValue(unit)!)), max: Math.max(...priced.map(unit => moneyValue(unit)!)), complete: priced.length === selected.length }]
+    : selection.offeredRange && selected.length > 1 ? [...new Set(selected.map(u => `${u.category}:${Number(u.bedrooms) || 0}`))].map(key => {
     const group = selected.filter(u => `${u.category}:${Number(u.bedrooms) || 0}` === key)
     const values = group.map(moneyValue).filter((v): v is number => v !== null)
     return { category: text(group[0].category), bedrooms: Number(group[0].bedrooms) || 0,
       min: Math.min(...values), max: Math.max(...values), complete: values.length === group.length }
   }).filter(r => Number.isFinite(r.min)) : undefined
   let reply: string
-  if (ranges?.length) {
+  if (selection.generalRange && ranges?.length) {
+    const range = ranges[0]
+    reply = `Los precios de los inmuebles disponibles${range.complete ? '' : ' con precio publicado'} ${range.min === range.max ? `parten de ${money(range.min)}` : `van desde ${money(range.min)} hasta ${money(range.max)}`} USD, según el tipo de inmueble y la unidad.`
+  } else if (ranges?.length) {
     reply = 'De las opciones que acabamos de revisar: ' + ranges.map(r => {
       const label = ({ departamento: 'departamentos', penthouse: 'penthouses', suite: 'suites', local: 'locales' } as Record<string, string>)[r.category] || r.category
       return `${label}${r.bedrooms ? ` de ${r.bedrooms} dormitorios` : ''}${r.complete ? '' : ' con precio publicado'}: ${r.min === r.max ? money(r.min) : `desde ${money(r.min)} hasta ${money(r.max)}`} USD`
@@ -289,6 +348,7 @@ Solo informe precios de catálogo autorizados: nunca reutilice un precio recorda
 En Lanzamiento, si precios_aproximados es true, identifique el valor como aproximado y explique brevemente que es referencial de lanzamiento y puede cambiar.
 En Preventa informe el precio sin esa aclaración. No invente descuentos, precios, cuotas ni notificaciones futuras.
 Si hay respuesta_precio_verificada, incluya esos datos y resuelva también las otras consultas; no vuelva a pedir la unidad ya identificada.
+Un rango general de inmuebles puede reunir categorías distintas: no lo presente como el precio de departamentos, suites u otra categoría específica. Si faltan precios de algunas unidades, conserve la aclaración de que el rango corresponde a las opciones con precio publicado.
 Si se comparan unidades concretas y el cliente pregunta «¿y en precio?», conserve esa comparación: informe cada precio verificado y la diferencia calculada. No sustituya las unidades por el rango de toda una categoría. Un importe calculado como diferencia no es el precio de ninguna unidad.
 Hable al cliente con naturalidad. Nunca diga «precio registrado», «precio autorizado», «registrado en el sistema» ni explique cómo almacenamos los precios. Diga el valor o el rango de las opciones de su interés.
 Si el cliente dice «tengo 100 dólares» o un presupuesto inferior al precio, puede ofrecer orientación sobre financiamiento sin interrogarlo por la cifra. Respete el monto literal: no lo multiplique por mil ni asegure que alcanza para una entrada o que se aprobará un crédito.
@@ -301,7 +361,7 @@ export function priceReplyIssues(reply: string, info: Row, current = '', expecte
     || !/aprob|garanti|asegur/.test(normalized(current)) && /aprobacion depende|entidad evalua cada solicitud/.test(m)
   const discloses = /(?:\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares))/i.test(reply) && /precio|valor|cuesta|costo|desde|opciones/.test(m)
   if (!discloses) return styleIssues ? ['style'] : []
-  const disclosureRequested = asksUnitPrice(current, true) || statedBudget(current) !== null || hasAffordabilityConcern(current)
+  const disclosureRequested = currentPriceGoal(info, current) || statedBudget(current) !== null || hasAffordabilityConcern(current)
     || /\bno (?:se|estoy segur[oa]|tengo claro|tengo idea)\b.*\b(?:presupuesto|dinero|invertir|gastar|pagar)\b/.test(normalized(current))
     || /\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)\b.*\b(?:suite|departamento|local|unidad)\s*(?:numero\s*)?\d{1,4}\b/.test(normalized(current))
   if (policy.precios_autorizados !== true) return ['unsupported_fact']

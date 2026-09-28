@@ -53,6 +53,53 @@ test('commercial continuation explains the recorded objective selection question
   assert.equal(old.some(section=>section.title==='Objetivo y continuación comercial'),false)
 })
 
+test('shared turn intent explains the actual objective reference evidence and scope reconciliation', () => {
+  const contract = { version: 'turn-intent-v1', objective: 'ask_price', required_facts: ['price'],
+    interpretation_source: 'current_turn', continuation_goal: 'ask_price', subject: { category: null, unit_numbers: [], filters: {} },
+    needs_reference: true, scope: { kind: 'property', reason: 'outside_subject_not_grounded', outside_evidence: null },
+    pending_question: null, profile_pending: true }
+  const item = step(3, 'turn_intent', contract)
+  const result = explainStep(execution([item]), item)
+  assert.equal(result.title, 'Objetivo compartido del turno')
+  assert.match(result.summary, /Consulta de precio/)
+  assert.match(result.reason, /no tenía evidencia de otro negocio/)
+  assert.equal(result.found.find(f => f.label === 'Falta precisar categoría o unidad')?.value, 'Sí')
+  assert.match(result.found.find(f => f.label === 'Datos que debe responder')!.value, /Precio respaldado/)
+  assert.equal(result.found.find(f => f.label === 'Categoría de referencia')?.value, 'No se registró una categoría.')
+  assert.equal(result.found.find(f => f.label === 'Captura inicial de nombre y residencia pendiente')?.value, 'Sí')
+  const review = step(5, 'response_coverage', { status: 'checked', resolved_turn_intent: contract })
+  const section = explainStep(execution([item, review]), review).coverageSections!.find(s => s.title === result.title)!
+  assert.deepEqual(section.facts, result.found.filter(f => section.facts.some(recorded => recorded.label === f.label)))
+  assert.match(section.description, /no autoriza por sí sola una cita/)
+})
+
+test('a category clarification shows the retained price objective without claiming a chosen unit', () => {
+  const item = step(2, 'turn_intent', { version: 'turn-intent-v1', objective: 'ask_price', required_facts: ['price'],
+    interpretation_source: 'clarification_of_price_request', continuation_goal: 'ask_price',
+    subject: { category: 'suite', unit_numbers: ['001', '202'], filters: { bedrooms: 1 } },
+    scope: { kind: 'property' }, needs_reference: false, profile_pending: false,
+    pending_question: { question: '¿En qué ciudad reside?' } })
+  const result = explainStep(execution([item]), item)
+  assert.match(result.found.find(f => f.label === 'Origen del objetivo')!.value, /consulta de precio anterior/)
+  assert.equal(result.found.find(f => f.label === 'Unidades de referencia')?.value, '001, 202')
+  assert.match(result.found.find(f => f.label === 'Filtros conservados')!.value, /Dormitorios: 1/)
+  assert.equal(result.found.find(f => f.label === 'Pregunta pendiente registrada')?.value, '¿En qué ciudad reside?')
+  assert.equal(result.found.some(f => f.label === 'Motivo de conciliación'), false)
+  assert.match(humanValue('turn_price_unanswered'), /omitió el precio solicitado/)
+})
+
+test('unrelated scope evidence remains explicit and old reviews receive no inferred turn contract', () => {
+  const current = step(2, 'turn_intent', { version: 'turn-intent-v1', objective: 'out_of_scope',
+    scope: { kind: 'out_of_scope', outside_evidence: { fragment: 'reparar mi bicicleta', source: 'history' } } })
+  const result = explainStep(execution([current]), current)
+  assert.equal(result.found.find(f => f.label === 'Asunto ajeno citado')?.value, 'reparar mi bicicleta')
+  assert.equal(result.found.find(f => f.label === 'Origen de la evidencia')?.value, 'Mensaje anterior del lead')
+  for (const recorded of [undefined, {}, { objective: 'ask_price' }]) {
+    const old = step(1, 'response_coverage', { status: 'checked', resolved_turn_intent: recorded })
+    assert.equal(explainStep(execution([old, current]), old).coverageSections!.some(s => s.title === 'Objetivo compartido del turno'), false)
+  }
+})
+
 test('review diagnostics group repeated causes while retaining individual received and expected values', () => {
   const detail={code:'catalog_value_mismatch',unit_id:'p',field:'bedrooms',received:5,expected:3}
   const decision=reviewDecision({status:'rejected_review',semantic_review:{validation_details:[detail,detail,detail]}})

@@ -97,6 +97,13 @@ const values: Record<string, string> = {
   lead_profile_categories_premature: 'La presentación inicial enumeró categorías antes de entregar el brochure',
   lead_profile_brochure_premature: 'Se adjuntó el brochure antes del intercambio previsto',
   lead_profile_brochure_missing: 'Falta el brochure que debía entregarse en este turno',
+  outside_subject_not_grounded: 'La exclusión como consulta ajena no tenía evidencia de otro negocio en el mensaje del lead. Se conservó la consulta inmobiliaria.',
+  clarification_of_price_request: 'La categoría o unidad aclara una consulta de precio anterior; se conserva el objetivo de responder ese precio',
+  current_turn: 'Interpretación del mensaje actual',
+  price: 'Precio respaldado por el catálogo',
+  turn_price_unanswered: 'La respuesta omitió el precio solicitado aunque había un importe verificado disponible',
+  project_information: 'Presentar información del proyecto', select_property: 'Buscar o elegir un inmueble', answer_previous: 'Responder una pregunta pendiente',
+  clarify_scope: 'Aclarar el alcance de la consulta',
   eq: 'igual a', gt: 'mayor que', gte: 'mayor o igual que', lt: 'menor que', lte: 'menor o igual que', between: 'entre límites',
   numeric_relation_not_in_reply: 'La comparación registrada por el revisor no corresponde al límite u operador escrito en el mensaje',
   catalog_endpoint_mismatch: 'El máximo o mínimo anunciado no coincide con el extremo verificado de ese grupo del catálogo',
@@ -126,6 +133,7 @@ const ruleLabels: Record<string, string> = {
 const titles: Record<string, string> = {
   execution_version: 'Versión y lote', message_received: 'Mensaje recibido', response_permission: 'Permiso para responder', commercial_context: 'Contexto de la conversación',
   scope_classification: 'Alcance de la consulta', decision_context: 'Datos disponibles', semantic_extraction: 'Interpretación del mensaje', catalog_resolution: 'Búsqueda y referencias',
+  turn_intent: 'Objetivo compartido del turno',
   dialogue_decision: 'Decisión de respuesta', response_coverage: 'Revisión de la respuesta', advisor_handoff: 'Derivación al asesor',
   route_selected: 'Ruta aplicada', response_validation: 'Validación final', message_delivery: 'Envío a Kommo', state_persisted: 'Memoria y seguimientos',
   execution_exit: 'Resultado de la ejecución', execution_failed: 'Interrupción', visit_coordination: 'Coordinación de visita', visit_intent: 'Decisión sobre la visita', visit_result: 'Resultado de la visita',
@@ -195,6 +203,34 @@ function queryDescription(value: unknown, snapshots: CatalogSnapshot[]) {
 }
 
 const fact = (label: string, value: string): ExplanationFact => ({ label, value })
+function turnIntentSections(value: unknown, snapshots: CatalogSnapshot[] = []): ExplanationSection[] {
+  const contract = row(value)
+  if (contract.version !== 'turn-intent-v1') return []
+  const subject = row(contract.subject), scope = row(contract.scope), outside = row(scope.outside_evidence)
+  const pending = row(contract.pending_question)
+  const unitNumbers = Array.isArray(subject.unit_numbers) ? subject.unit_numbers.filter(value => typeof value === 'string' || typeof value === 'number').map(String) : []
+  return [{
+    title: 'Objetivo compartido del turno',
+    description: 'Es la interpretación registrada que comparten la ruta, la redacción y la revisión. Una consulta de precio no autoriza por sí sola una cita ni una revisión financiera. Este registro no acredita el envío de la respuesta.',
+    facts: [
+      fact('Objetivo actual', humanValue(contract.objective)),
+      fact('Origen del objetivo', humanValue(contract.interpretation_source)),
+      fact('Categoría de referencia', subject.category ? humanValue(subject.category) : 'No se registró una categoría.'),
+      fact('Unidades de referencia', unitNumbers.length ? unitNumbers.join(', ') : 'No se registró una unidad concreta.'),
+      fact('Filtros conservados', humanValue(subject.filters, snapshots, 'filters')),
+      fact('Datos que debe responder', Array.isArray(contract.required_facts) && !contract.required_facts.length
+        ? 'El contrato no enumeró datos obligatorios adicionales.' : humanValue(contract.required_facts)),
+      ...(has(contract, 'needs_reference') ? [fact('Falta precisar categoría o unidad', humanValue(contract.needs_reference))] : []),
+      fact('Alcance resuelto', humanValue(scope.kind)),
+      ...(scope.reason ? [fact('Motivo de conciliación', humanValue(scope.reason))] : []),
+      ...(outside.fragment ? [fact('Asunto ajeno citado', str(outside.fragment)),
+        fact('Origen de la evidencia', outside.source === 'current' ? 'Mensaje actual del lead' : outside.source === 'history' ? 'Mensaje anterior del lead' : 'No registrado')] : []),
+      fact('Objetivo que continúa', contract.continuation_goal ? humanValue(contract.continuation_goal) : 'No se registró un objetivo pendiente para el siguiente intercambio.'),
+      fact('Pregunta pendiente registrada', str(pending.question) || str(pending.text) || 'No se registró el texto de una pregunta pendiente.'),
+      ...(has(contract, 'profile_pending') ? [fact('Captura inicial de nombre y residencia pendiente', humanValue(contract.profile_pending))] : []),
+    ],
+  }]
+}
 function transformationSections(output: Row): ExplanationSection[] {
   if (!Array.isArray(output.text_transformations)) return []
   const changes = rows(output.text_transformations)
@@ -223,6 +259,7 @@ function coverageSections(output: Row): ExplanationSection[] {
       : status ? `Resultado registrado: ${humanValue(status)}. Consulte la respuesta conservada y los controles.`
         : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
   return [
+    ...turnIntentSections(output.resolved_turn_intent),
     ...transformationSections(output),
     ...(Object.keys(row(output.fallback_validation)).length ? [{ title: 'Validación de la respuesta de respaldo', description: 'El respaldo también debe tener datos verificados y atender la consulta. Una omisión informada se contrasta con la cobertura del catálogo.', facts: [
       { label: 'Resultado', value: row(output.fallback_validation).passed === true ? 'Superó los controles registrados del respaldo.' : 'El respaldo original no superó los controles y fue sustituido.' },
@@ -286,6 +323,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   const found = Object.entries(output).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query', 'coverage_locked'].includes(key))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
+  if (step.key === 'turn_intent') found.push(...turnIntentSections(output, snapshots).flatMap(section => section.facts))
   const query = output.catalog_query || output.query || input.catalog_query || input.query
   const queryText = queryDescription(query, snapshots)
   if (step.key === 'catalog_resolution') {
@@ -330,8 +368,11 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const href = str(setting.href)
   const safeHref = /^\/inmobiliaria\/automatizacion(?:\/|$)/.test(href) && !href.includes('\\') && !href.includes('..') ? href : null
   const reason = str(decision.reason) || str(input.reason) || str(output.reason)
+    || (step.key === 'turn_intent' ? str(row(output.scope).reason) : '')
   const linkedActions = execution.steps.filter(item => item.key === 'advisor_handoff' && Number(decisionRecord(item).caused_by_step) === step.order)
-  const summary = step.key === 'route_consistency' ? humanValue(output.reason)
+  const summary = step.key === 'turn_intent' && output.version === 'turn-intent-v1'
+    ? `Objetivo registrado: ${humanValue(output.objective)}. ${humanValue(output.interpretation_source)}.`
+    : step.key === 'route_consistency' ? humanValue(output.reason)
     : step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`
     : step.key === 'message_delivery' && output.action === 'accepted' ? 'Kommo aceptó iniciar Salesbot. Esto no confirma entrega ni lectura en WhatsApp.'
       : step.key === 'advisor_handoff' ? 'Este paso registra el intento de derivación y su resultado; el motivo debe estar respaldado por su propio registro.'

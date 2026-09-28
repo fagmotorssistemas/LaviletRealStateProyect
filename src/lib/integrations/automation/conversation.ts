@@ -24,6 +24,7 @@ import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
 import { leadIntroductionTurn } from './lead-introduction'
+import { resolveTurnIntent } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
@@ -348,7 +349,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   })
   if (!inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)) {
     businessScope = financeContinuation || isProjectInformationRequest(current) ? {kind:'property',property_message:current,reply:'',uncertain:false}
-      : await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true)
+      : await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true, object(previousSummary._turn_intent).scope)
     if (businessScope.kind === 'out_of_scope') {
       reply = businessScope.reply
       audit = { source: 'business_out_of_scope', business_scope: businessScope.kind }
@@ -359,6 +360,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   trace.finish(scopeStep, 'succeeded', {
     scope: businessScope.kind,
+    reason: businessScope.reason || null,
+    outside_evidence: businessScope.outside_evidence || null,
     uncertain: businessScope.uncertain,
     greeting,
     courtesy: isCourtesyOnly(current),
@@ -477,6 +480,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain ? '' : current,
   }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
   const { extracted, semantics: turnSemantics } = interpretation
+  const classifiedScope = businessScope.kind
+  const turnIntent = resolveTurnIntent({ current, history: context.historial, semantics: turnSemantics, requests: interpretation.requests,
+    scope: businessScope, previous: previousSummary._turn_intent, pendingQuestion,
+    profilePending: object(previousSummary._lead_introduction).status === 'pending' })
+  if (object(turnIntent.scope).kind === 'property' && businessScope.kind === 'neutral') businessScope = { kind: 'property', property_message: current, reply: '', uncertain: false }
+  if (turnIntent.objective === 'ask_price') turnSemantics.primary_intent = 'ask_price'
+  trace.add('turn_intent', 'Resolver objetivo compartido del turno', 'decision', 'turn-intent.ts', 'succeeded',
+    { classifier_scope: classifiedScope, extractor_intent: interpretation.diagnostic.primary_intent }, turnIntent)
   turnSemantics.requests = interpretation.requests
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: process.env.OPENAI_MODEL,
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
@@ -494,6 +505,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   propertyTurn = reference
   currentSemantics = turnSemantics
   summary = { ...rememberInterpretedTurn(previousSummary, originalTurn, extracted),
+    _turn_intent: turnIntent,
     _unit_reference: minimalTurn ? previousSummary._unit_reference || {} : reference.memory,
     _property_context: minimalTurn ? previousPropertyContext : reference.context }
   const declaredProfile = object(extracted.lead_profile)
@@ -536,7 +548,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     && (visitSignal || collectingVisit)
   if (canRequestVisit && visitSignal) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
   if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
-  const priceTurn = asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
+  const priceTurn = turnIntent.required_facts.includes('price') || asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
     && ['full_name', 'residence_city', 'residence_country'].some(key => text(declaredProfile[key]))
     && !/precio|financ|cr[eé]dito|cuota|visita|agend|reserv|dormitorio|departamento|suite|penthouse|local/i.test(current)
@@ -944,7 +956,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       } else if (visitRequested) {
         await guard()
         const visitInfo = await commercialContext(lead, context.historial)
-        const quote = priceTurn ? unitPriceQuote({ ...visitInfo, alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
+        const quote = priceTurn ? unitPriceQuote({ ...visitInfo, contrato_turno: turnIntent, alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
         if (quote?.needsAdvisor) {
           reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita', { rule_id: 'price.unverified_for_visit', origin: 'catalog', caused_by_step: catalogStep })
           audit = { source: 'price_and_visit_handoff' }
@@ -981,6 +993,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       else {
         const model = reference.needsClarification ? null : unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
         const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, propuestas: proposals,
+          contrato_turno: turnIntent,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
           referencia_unidad:reference, property_context: reference.context, semantica_turno: turnSemantics, archivos_no_leidos:inbound.mediaErrors,
           modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true, modelo_especifico_disponible: model.model_available, texto_de_entrega: model.caption } : null }
@@ -1070,7 +1083,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let reviewedText = ''
   let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
   const catalogBaseReply = audit.verified_catalog === true ? reply : ''
-  audit = { ...audit, response_plan: plannedResponse, turn_contract: CONVERSATION_CONTRACT_VERSION,
+  audit = { ...audit, response_plan: plannedResponse, turn_contract: CONVERSATION_CONTRACT_VERSION, resolved_turn_intent: turnIntent,
     interpretation: interpretation.diagnostic, writer_greeting: turnGreeting }
   const commercialPromptRoute = !text(audit.source) || ['commercial', 'verified_information_gap'].includes(text(audit.source))
   const dialogueStep = trace.add('dialogue_decision', 'Decidir la respuesta y la siguiente pregunta', 'decision', 'conversation.ts · catalog-dialogue.ts', 'succeeded',
@@ -1094,6 +1107,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
+      contrato_turno: turnIntent,
       perfil_lead: summary._lead_profile,
       solicitudes_interpretadas: interpretation.requests,
       ...(audit.verified_catalog === true ? { catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
@@ -1123,7 +1137,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
         reviewedText = reply
         reviewFinalContent = candidate => completeTurnReply({ current, history: context.historial, baseReply: candidate,
-          verified: { ...info, avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
+          verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [], avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
           audit: { ...audit, semantic_review_enabled: true },
           validateReply: value => [
             ...(quote?.quoted === true && priceReplyIssues(value, info, current, quote.prices).includes('unsupported_fact') ? ['unsupported_price_rewrite'] : []),
@@ -1156,6 +1170,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
+      resolved_turn_intent: turnIntent,
       commercial_continuation: reviewed.audit.commercial_continuation,
       text_transformations: reviewed.audit.text_transformations,
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
