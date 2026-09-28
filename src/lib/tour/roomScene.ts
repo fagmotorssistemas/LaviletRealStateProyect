@@ -1,5 +1,5 @@
 import type { TourLightMode, TourRoomScene } from '@/types/tour'
-import { tourDisplayUrl, type TourWidth } from '@/lib/tour/pickTourWidth'
+import { publicAssetVersion, tourDisplayUrl, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { roomsShareSlot, roomSlugAliases, isExcludedTourSpace } from '@/lib/tour/tourRooms'
 
 export const TOUR_SCENE_LIGHTS: { slug: TourLightMode; label: string }[] = [
@@ -31,13 +31,20 @@ export function roomSceneFileName(
   return `${base}.${safeExt}`
 }
 
+/** Cada subida lleva un id nuevo en el nombre para no reutilizar la URL cacheada. */
+export function withSceneRevision(fileName: string, revision = Date.now()) {
+  const ext = (fileName.match(/\.([^.]+)$/)?.[1] || 'webp').toLowerCase()
+  const base = fileName.replace(/\.[^.]+$/, '').replace(/-r\d+$/i, '')
+  return `${base}-r${revision}.${ext}`
+}
+
 export function parseRoomSceneFileName(fileName: string): {
   room: string
   finish: string | null
   light: TourLightMode | null
   width: 2048 | 4096 | 8192 | null
 } | null {
-  let base = fileName.replace(/\.[^.]+$/, '')
+  let base = fileName.replace(/\.[^.]+$/, '').replace(/-r\d+$/i, '')
   let width: 2048 | 4096 | 8192 | null = null
   const widthMatch = base.match(/_(2048|4096|8192)$/i)
   if (widthMatch) {
@@ -185,6 +192,18 @@ export function pickRoomScene(
   )
 }
 
+function preferSceneFile(
+  currentUrl: string | undefined,
+  currentName: string | undefined,
+  nextUrl: string,
+  nextName: string,
+) {
+  const currentVersion = publicAssetVersion(currentUrl)
+  const nextVersion = publicAssetVersion(nextUrl)
+  if (nextVersion !== currentVersion) return nextVersion > currentVersion
+  return sceneFilePreference(nextName) >= sceneFilePreference(currentName || '')
+}
+
 /** Prioriza WebP (convertido) sobre PNG/JPG pesados del mismo ambiente. */
 function sceneFilePreference(fileName: string): number {
   const ext = (fileName.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
@@ -202,7 +221,7 @@ export function buildRoomScenes(
   for (const item of assets) {
     if (!fileMatchesRoom(item.file_name, room)) continue
     const parsed = parseRoomSceneFileName(item.file_name)
-    const finish = parsed?.finish ?? null
+    const finish = canonicalFinishSlug(parsed?.finish ?? null)
     const light = parsed?.light ?? 'dia'
     const key = sceneToken(finish, light)
     const current =
@@ -211,38 +230,54 @@ export function buildRoomScenes(
         key,
         finish,
         light,
-        url: item.url,
-        file_name: item.file_name,
+        url: '',
+        file_name: '',
         widths: {},
       } satisfies TourRoomScene)
     const width = parsed?.width
     if (width) {
-      current.widths = { ...current.widths, [String(width)]: item.url }
-      if (width === 4096) {
-        current.url = item.url
-        current.file_name = item.file_name
+      const slot = String(width) as '2048' | '4096' | '8192'
+      const existing = current.widths?.[slot]
+      if (!existing || publicAssetVersion(item.url) >= publicAssetVersion(existing)) {
+        current.widths = { ...current.widths, [slot]: item.url }
       }
-    } else {
-      const preferNew =
-        !current.file_name ||
-        sceneFilePreference(item.file_name) >= sceneFilePreference(current.file_name)
-      if (preferNew) {
-        current.url = item.url
-        current.file_name = item.file_name
-      }
-      if (room === 'tour-360' && preferNew) {
+    } else if (
+      !current.file_name ||
+      preferSceneFile(current.url, current.file_name, item.url, item.file_name)
+    ) {
+      current.url = item.url
+      current.file_name = item.file_name
+      current.finish = finish
+      if (room === 'tour-360') {
         current.widths = { ...current.widths, '4096': item.url }
       }
     }
     groups.set(key, current)
   }
-  return [...groups.values()].map((scene) => ({
-    ...scene,
-    url: tourDisplayUrl(scene.url),
-    widths: Object.fromEntries(
-      Object.entries(scene.widths ?? {}).map(([key, value]) => [key, value ? tourDisplayUrl(value) : value]),
-    ),
-  }))
+  return [...groups.values()].map((scene) => {
+    const baseVersion = publicAssetVersion(scene.url)
+    const widths = Object.fromEntries(
+      Object.entries(scene.widths ?? {})
+        .filter(([, value]) => {
+          if (!value) return false
+          const version = publicAssetVersion(value)
+          if (baseVersion && version && version + 1500 < baseVersion) return false
+          return true
+        })
+        .map(([key, value]) => [key, value ? tourDisplayUrl(value) : value]),
+    )
+    const url =
+      scene.url ||
+      widths['8192'] ||
+      widths['4096'] ||
+      widths['2048'] ||
+      ''
+    return {
+      ...scene,
+      url: url ? tourDisplayUrl(url) : url,
+      widths,
+    }
+  })
 }
 
 export function pickSceneUrl(
@@ -252,11 +287,19 @@ export function pickSceneUrl(
   if (!scene) return null
   const widths = scene.widths ?? {}
   const prefer = width ?? 8192
-  if (prefer >= 8192 && widths['8192']) return tourDisplayUrl(widths['8192'])
-  if (prefer >= 4096 && (widths['4096'] || widths['8192'])) {
-    return tourDisplayUrl(widths['4096'] ?? widths['8192']!)
+  const baseVersion = publicAssetVersion(scene.url)
+  const usable = (url?: string) => {
+    if (!url) return false
+    const version = publicAssetVersion(url)
+    if (baseVersion && version && version + 1500 < baseVersion) return false
+    return true
   }
-  if (widths['2048']) return tourDisplayUrl(widths['2048'])
+  if (prefer >= 8192 && usable(widths['8192'])) return tourDisplayUrl(widths['8192']!)
+  if (prefer >= 4096 && (usable(widths['4096']) || usable(widths['8192']))) {
+    const url = usable(widths['4096']) ? widths['4096']! : widths['8192']!
+    return tourDisplayUrl(url)
+  }
+  if (usable(widths['2048'])) return tourDisplayUrl(widths['2048']!)
   if (scene.url) return tourDisplayUrl(scene.url)
   return null
 }

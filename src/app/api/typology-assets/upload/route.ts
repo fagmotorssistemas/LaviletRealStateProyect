@@ -9,7 +9,7 @@ import {
   typologyAssetStoragePath,
 } from '@/lib/typology-assets'
 import { isTourRoomSlug, isVistaRoomSlug, tourRoomFileName } from '@/lib/tour/tourRooms'
-import { roomSceneFileName } from '@/lib/tour/roomScene'
+import { fileMatchesScene, roomSceneFileName, withSceneRevision } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import {
   deleteTypologyAsset,
@@ -104,7 +104,7 @@ async function handleUpload(request: Request) {
   const planoVariantRaw = String(form.get('plano_variant') ?? '').trim().toLowerCase()
   const planoVariant = planoVariantRaw === '2d' || planoVariantRaw === '3d' ? planoVariantRaw : null
   let fileName = sceneKey
-    ? roomSceneFileName(sceneKey, undefined, sourceExt)
+    ? withSceneRevision(roomSceneFileName(sceneKey, undefined, sourceExt))
     : kindRaw === 'ambiente'
       ? tourRoomFileName(room, sourceExt)
       : typologyAssetFileName(fileNameHint)
@@ -188,14 +188,15 @@ async function handleUpload(request: Request) {
     // Si había un .webp con pérdida (u otra extensión) de la misma escena, lo limpiamos
     // para que el showroom no siga sirviendo la versión vieja.
     if (sceneKey) {
-      const stem = `${sceneKey.room}_${sceneKey.finish ? `${sceneKey.finish}_` : ''}${sceneKey.light}`
       const all = await listTypologyAssets(admin, typologyCode)
-      const stale = all.filter((row) => {
-        if (row.id === asset.id) return false
-        if (row.kind !== persistKind) return false
-        const base = row.file_name.replace(/\.[^.]+$/, '').replace(/_(2048|4096|8192)$/i, '')
-        return base === stem
-      })
+      const stale = all.filter(
+        (row) =>
+          row.id !== asset.id &&
+          row.kind === persistKind &&
+          fileMatchesScene(row.file_name, sceneKey.room, sceneKey.finish, sceneKey.light, {
+            exactRoom: true,
+          }),
+      )
       for (const row of stale) {
         try {
           await deleteTypologyAsset(admin, row.id)

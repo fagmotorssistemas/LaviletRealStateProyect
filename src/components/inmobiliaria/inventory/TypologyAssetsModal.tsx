@@ -548,10 +548,14 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   }
 
   const findSlotAsset = (room: string, finish: string | null, light: TourLightMode) => {
-    // Un archivo → una celda: ambiente exacto (no dormitorio ↔ dormitorio-1) y acabado de la celda.
-    const exact = assets.find((row) =>
+    const matches = assets.filter((row) =>
       fileMatchesScene(row.file_name, room, finish, light, { exactRoom: true }),
     )
+    const exact = matches.sort((a, b) => {
+      const av = Date.parse(a.created_at ?? '') || 0
+      const bv = Date.parse(b.created_at ?? '') || 0
+      return bv - av
+    })[0]
     if (exact) return exact
     // Galería (vista-*): no reutilizar fotos del 360/ambiente sin prefijo.
     if (isVistaRoomSlug(room)) return undefined
@@ -723,6 +727,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                               {asset ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
+                                  key={`${asset.id}-${asset.created_at}`}
                                   src={asset.public_url}
                                   alt={`${item.label} ${combo.label}`}
                                   className="h-full w-full object-cover"
@@ -818,6 +823,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                               {asset ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
+                                  key={`${asset.id}-${asset.created_at}`}
                                   src={asset.public_url}
                                   alt={`${item.label} ${combo.label}`}
                                   className="h-full w-full object-cover"

@@ -4,7 +4,7 @@ import {
   typologyAssetStoragePath,
 } from '@/lib/typology-assets'
 import { isTourRoomSlug, isVistaRoomSlug, tourRoomFileName } from '@/lib/tour/tourRooms'
-import { roomSceneFileName } from '@/lib/tour/roomScene'
+import { roomSceneFileName, withSceneRevision } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import type { TypologyAssetKind } from '@/types/inmobiliaria'
 
@@ -97,7 +97,7 @@ export function resolveTypologyUploadMeta(input: {
   const planoVariant = planoVariantRaw === '2d' || planoVariantRaw === '3d' ? planoVariantRaw : null
 
   let fileName = sceneKey
-    ? roomSceneFileName(sceneKey, undefined, sourceExt)
+    ? withSceneRevision(roomSceneFileName(sceneKey, undefined, sourceExt))
     : kindRaw === 'ambiente'
       ? tourRoomFileName(room, sourceExt)
       : typologyAssetFileName(fileNameHint)

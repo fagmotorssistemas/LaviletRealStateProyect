@@ -578,44 +578,46 @@ export function TourFloorPlan({
   const planAspect = `${planAspectSize.width} / ${planAspectSize.height}`
 
   /**
-   * 3D: “cover” — llena el stage sin barras negras ni deformar (recorta bordes).
-   * 2D: “contain” — muestra el plano completo dentro del marco.
+   * 3D: borde a borde, proporción real. El sobrante se recorta, no queda centrado con franjas.
+   * 2D: el plano entero dentro del marco.
    */
   const planFrameStyle = useMemo(() => {
     const aspect = planAspectSize.width / Math.max(1, planAspectSize.height)
     const { width: stageW, height: stageH } = stageSize
-    const cover = planVariant === '3d'
 
     if (stageW <= 0 || stageH <= 0) {
-      return cover
-        ? { aspectRatio: planAspect, width: '100%' as const, height: '100%' as const }
-        : {
-            aspectRatio: planAspect,
-            width: '100%' as const,
-            height: 'auto' as const,
-            maxHeight: '100%' as const,
-          }
+      return {
+        aspectRatio: planAspect,
+        width: '100%' as const,
+        height: 'auto' as const,
+        maxHeight: '100%' as const,
+      }
     }
 
-    const stageAspect = stageW / stageH
-    const stageWider = stageAspect > aspect
-
-    if (cover) {
-      // Cover: anclar a la dimensión que llena el stage; la otra sobresale y se recorta.
-      return stageWider
-        ? {
-            aspectRatio: planAspect,
-            width: '100%' as const,
-            height: 'auto' as const,
-          }
-        : {
-            aspectRatio: planAspect,
-            height: '100%' as const,
-            width: 'auto' as const,
-          }
+    const stageWider = stageW / stageH > aspect
+    if (planVariant === '3d') {
+      const nudgeX = 55
+      let frameW = stageWider ? stageW : Math.round(stageH * aspect)
+      let frameH = stageWider ? Math.round(frameW / aspect) : stageH
+      if (frameW < stageW + nudgeX * 2) {
+        frameW = stageW + nudgeX * 2
+        frameH = Math.round(frameW / aspect)
+      }
+      const overflowX = Math.max(0, frameW - stageW)
+      const shiftX = Math.min(nudgeX, Math.floor(overflowX / 2))
+      const overflowY = Math.max(0, frameH - stageH)
+      const lift = Math.min(Math.round(frameH * 0.055), Math.floor(overflowY / 2))
+      return {
+        width: frameW,
+        height: frameH,
+        flexShrink: 0,
+        transform:
+          shiftX > 0 || lift > 0
+            ? `translate(${-shiftX}px, ${-lift}px)`
+            : undefined,
+      }
     }
 
-    // Contain: anclar a la dimensión que cabe entera.
     return stageWider
       ? {
           aspectRatio: planAspect,
@@ -1134,7 +1136,7 @@ export function TourFloorPlan({
                     }}
                     onError={() => handleImageError(layer.floor, layer.url)}
                     className={cn(
-                      'absolute inset-0 h-full w-full object-cover',
+                      'absolute inset-0 h-full w-full object-contain',
                       active ? 'opacity-100' : 'opacity-0',
                     )}
                     style={{

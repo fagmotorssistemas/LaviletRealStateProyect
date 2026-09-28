@@ -21,6 +21,27 @@ export function readScreenPx(): number {
   return css * (window.devicePixelRatio || 1)
 }
 
+/** `?v=` de created_at. 0 si la URL no trae versión. */
+export function publicAssetVersion(url: string | null | undefined): number {
+  if (!url) return 0
+  try {
+    const value = new URL(url, 'https://local.invalid').searchParams.get('v')
+    if (!value) return 0
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  } catch {
+    return 0
+  }
+}
+
+function variantIsCurrent(url: string | undefined, baseUrl: string | undefined) {
+  if (!url) return false
+  const base = publicAssetVersion(baseUrl)
+  const variant = publicAssetVersion(url)
+  if (!base || !variant) return true
+  return variant + 1500 >= base
+}
+
 /** Devuelve el archivo subido, sin recorte ni recompresión de Supabase. */
 export function tourDisplayUrl(publicUrl: string, _width?: TourWidth): string {
   try {
@@ -90,11 +111,14 @@ export function pickCatalogPanoUrl(
     pano.scenes?.find((item) => item.finish === wantedFinish && item.light === 'dia') ??
     pano.scenes?.[0]
   const variants = scene?.widths ?? pano.variants ?? {}
-  if (width >= 8192 && variants['8192']) return tourDisplayUrl(variants['8192'])
-  if (width >= 4096 && variants['4096']) return tourDisplayUrl(variants['4096'])
-  if (variants['2048']) return tourDisplayUrl(variants['2048'])
-  if (variants['4096']) return tourDisplayUrl(variants['4096'])
-  if (variants['8192']) return tourDisplayUrl(variants['8192'])
-  const fallback = scene?.url ?? pano.url
-  return fallback ? tourDisplayUrl(fallback) : null
+  const baseUrl = scene?.url ?? pano.url
+  if (width >= 8192 && variantIsCurrent(variants['8192'], baseUrl)) return tourDisplayUrl(variants['8192']!)
+  if (width >= 4096 && (variantIsCurrent(variants['4096'], baseUrl) || variantIsCurrent(variants['8192'], baseUrl))) {
+    const url = variantIsCurrent(variants['4096'], baseUrl) ? variants['4096']! : variants['8192']!
+    return tourDisplayUrl(url)
+  }
+  if (variantIsCurrent(variants['2048'], baseUrl)) return tourDisplayUrl(variants['2048']!)
+  if (variantIsCurrent(variants['4096'], baseUrl)) return tourDisplayUrl(variants['4096']!)
+  if (variantIsCurrent(variants['8192'], baseUrl)) return tourDisplayUrl(variants['8192']!)
+  return baseUrl ? tourDisplayUrl(baseUrl) : null
 }

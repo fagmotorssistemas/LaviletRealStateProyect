@@ -1,5 +1,5 @@
 import { TYPOLOGY_ASSETS_BUCKET, typologyAssetStoragePath } from '@/lib/typology-assets'
-import { roomSceneFileName } from '@/lib/tour/roomScene'
+import { fileMatchesScene, roomSceneFileName, withSceneRevision } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import type { TypologyAssetKind } from '@/types/inmobiliaria'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -46,6 +46,17 @@ export async function convertUploadedSceneToWebp(
   }
 
   const sourceBuffer = Buffer.from(await blob.arrayBuffer())
+  const sourceRow = await findTypologyAssetByKey(
+    admin,
+    input.typologyCode,
+    input.persistKind,
+    input.uploadedFileName,
+  )
+  const sourceStamp = sourceRow?.created_at ?? null
+  if (!sourceRow || !sourceStamp) {
+    throw Object.assign(new Error('La subida ya no está disponible para convertir'), { status: 409 })
+  }
+
   const sharpMod = await import('sharp')
   const sharp = sharpMod.default
   if (typeof sharp !== 'function') {
@@ -59,8 +70,23 @@ export async function convertUploadedSceneToWebp(
       ? await sharp(sourceBuffer, SHARP_OPTS).rotate().webp({ lossless: true, effort: 4 }).toBuffer()
       : await sharp(sourceBuffer, SHARP_OPTS).rotate().webp({ quality: 90, effort: 4 }).toBuffer()
 
-  const webpFileName = roomSceneFileName(input.sceneKey, undefined, 'webp')
+  const revision = Date.now()
+  const webpFileName = withSceneRevision(roomSceneFileName(input.sceneKey, undefined, 'webp'), revision)
   const webpPath = typologyAssetStoragePath(input.typologyCode, input.persistKind, webpFileName)
+
+  const stillSource = await findTypologyAssetByKey(
+    admin,
+    input.typologyCode,
+    input.persistKind,
+    input.uploadedFileName,
+  )
+  if (!stillSource || stillSource.created_at !== sourceStamp) {
+    console.info('[typology-assets] webp convert skipped, source replaced', {
+      typologyCode: input.typologyCode,
+      from: input.uploadedFileName,
+    })
+    return stillSource ?? sourceRow
+  }
 
   const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(webpPath, webpBuffer, {
     upsert: true,
@@ -71,9 +97,9 @@ export async function convertUploadedSceneToWebp(
     throw Object.assign(new Error(upErr.message || 'No se pudo guardar el WebP'), { status: 500 })
   }
 
-  // Variante 8192 solo si el original alcanza 8K (sin upscale), solo en 360 lossless.
+  let wroteHi = false
   if (input.mode === 'lossless' && meta.width && meta.width >= 8192) {
-    const hiName = roomSceneFileName(input.sceneKey, 8192, 'webp')
+    const hiName = withSceneRevision(roomSceneFileName(input.sceneKey, 8192, 'webp'), revision)
     const hiPath = typologyAssetStoragePath(input.typologyCode, input.persistKind, hiName)
     const hiBuffer = await sharp(sourceBuffer, SHARP_OPTS)
       .rotate()
@@ -104,6 +130,7 @@ export async function convertUploadedSceneToWebp(
         storage_path: hiPath,
       })
     }
+    wroteHi = true
   }
 
   // Si el original no era el .webp definitivo, borrar el archivo fuente.
@@ -134,14 +161,17 @@ export async function convertUploadedSceneToWebp(
   }
 
   // Limpiar otras extensiones / tamaños viejos de la misma escena (excepto _8192 recién creado).
-  const stem = `${input.sceneKey.room}_${input.sceneKey.finish ? `${input.sceneKey.finish}_` : ''}${input.sceneKey.light}`
   const all = await listTypologyAssets(admin, input.typologyCode)
-  const keepNames = new Set([webpFileName, roomSceneFileName(input.sceneKey, 8192, 'webp')])
+  const keepNames = new Set([webpFileName])
+  if (wroteHi) {
+    keepNames.add(withSceneRevision(roomSceneFileName(input.sceneKey, 8192, 'webp'), revision))
+  }
   const stale = all.filter((row) => {
-    if (keepNames.has(row.file_name)) return false
+    if (keepNames.has(row.file_name) || row.id === asset.id) return false
     if (row.kind !== input.persistKind) return false
-    const base = row.file_name.replace(/\.[^.]+$/, '').replace(/_(2048|4096|8192)$/i, '')
-    return base === stem
+    return fileMatchesScene(row.file_name, input.sceneKey.room, input.sceneKey.finish, input.sceneKey.light, {
+      exactRoom: true,
+    })
   })
   for (const row of stale) {
     try {

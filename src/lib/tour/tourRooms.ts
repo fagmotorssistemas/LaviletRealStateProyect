@@ -87,8 +87,13 @@ function slugifySpace(value: string) {
 
 /** Ambientes que no se muestran ni se cargan (sin fotos / fuera de producto). */
 export function isExcludedTourSpace(value: string) {
-  const key = slugifySpace(value)
-  return key === 'bodega' || key.startsWith('bodega-')
+  const key = slugifySpace(value).replace(/^vista-/, '')
+  return (
+    key === 'bodega' ||
+    key.startsWith('bodega-') ||
+    key === 'despensa' ||
+    key.startsWith('despensa-')
+  )
 }
 
 export function sanitizeTourSpaces(spaces: string[] | null | undefined): string[] {
@@ -96,10 +101,18 @@ export function sanitizeTourSpaces(spaces: string[] | null | undefined): string[
   return spaces.filter((item) => typeof item === 'string' && item.trim() && !isExcludedTourSpace(item))
 }
 
-/** Archivos de tipología que no deben entrar al tour/galería (ej. bodega_*). */
+/** Archivos de tipología que no deben entrar al tour/galería (ej. bodega_*, despensa_*). */
 export function isExcludedTourAssetFile(fileName: string) {
-  const base = fileName.replace(/\.[^.]+$/, '').toLowerCase()
-  return base === 'bodega' || base.startsWith('bodega_') || base.startsWith('bodega-')
+  const base = fileName.replace(/\.[^.]+$/, '').toLowerCase().replace(/-r\d+$/i, '')
+  return (
+    base === 'bodega' ||
+    base.startsWith('bodega_') ||
+    base.startsWith('bodega-') ||
+    base === 'despensa' ||
+    base.startsWith('despensa_') ||
+    base.startsWith('despensa-') ||
+    base.startsWith('vista-despensa')
+  )
 }
 
 function mapSpace(raw: string): TourRoomDef | null {
@@ -135,7 +148,7 @@ export function buildTourRooms(spec: TourRoomSpec): TourRoomDef[] {
   }
 
   for (const slug of SPACE_ORDER) {
-    if (slug === 'lavado' || slug === 'despensa' || slug === 'terraza' || slug === 'balcon') {
+    if (slug === 'lavado' || slug === 'terraza' || slug === 'balcon') {
       continue
     }
     const item = fromSpaces.get(slug)
@@ -146,7 +159,7 @@ export function buildTourRooms(spec: TourRoomSpec): TourRoomDef[] {
   for (const item of numbered('bano-completo', 'Baño completo', spec.bathrooms_full ?? 0)) add(item)
   for (const item of numbered('bano-social', 'Baño social', spec.bathrooms_half ?? 0)) add(item)
 
-  for (const slug of ['lavado', 'despensa', 'terraza', 'balcon'] as const) {
+  for (const slug of ['lavado', 'terraza', 'balcon'] as const) {
     const item = fromSpaces.get(slug)
     if (item) add(item)
   }
