@@ -165,8 +165,8 @@ describe('tour links in the conversation automation', () => {
 
     assert.equal(selected?.phase, 'review_unit')
     assert.equal(selected?.unit?.id, apartment202.id)
-    assert.match(selected?.reply ?? '', /presupuesto total aproximado/i)
-    assert.match(selected?.reply ?? '', /monto disponible inicialmente/i)
+    assert.match(selected?.reply ?? '', /presupuesto aproximado.*para la compra/i)
+    assert.equal(selected?.reply.match(/¿/g)?.length, 1)
     assert.doesNotMatch(selected?.reply ?? '', /asesor/i)
 
     const delivery = unitModelDelivery(
@@ -202,7 +202,7 @@ describe('tour links in the conversation automation', () => {
     assert.match(accepted?.reply ?? '', /https:\/\/www\.lavilett\.com\/tour\?unidad=602/)
   })
 
-  it('does not ask for the budget again when it is already known', () => {
+  it('clarifies an existing amount without asking for the amount again or offering other units', () => {
     const result = continueUnitAlternative({
       catalogo: [apartment202, penthouse602],
       conversacion: { datos_conocidos: { presupuesto: 180000 } },
@@ -213,8 +213,9 @@ describe('tour links in the conversation automation', () => {
       referencia_unidad: { matches: [penthouse602], explicit: true },
     }, 'Quiero conocer el 602')
 
-    assert.match(result?.reply ?? '', /comparemos esta opci.n con otra/i)
-    assert.doesNotMatch(result?.reply ?? '', /presupuesto total|monto disponible inicialmente/i)
+    assert.match(result?.reply ?? '', /monto corresponde.*presupuesto total.*entrada/i)
+    assert.doesNotMatch(result?.reply ?? '', /comparemos.*otra/i)
+    assert.doesNotMatch(result?.reply ?? '', /qué presupuesto aproximado|con qué monto/i)
   })
 
   it('sends the recommended unit tour when the lead accepts the alternative in a full sentence', () => {

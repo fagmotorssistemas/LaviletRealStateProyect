@@ -4,6 +4,7 @@ import { statedBudget } from './price-reply'
 import { normalized } from './sdr-rules'
 import { semanticBudgetStatus } from './turn-semantics'
 import { catalogDialogueReply } from './catalog-dialogue'
+import { tourContinuation } from './tour-continuation'
 
 type PropertyCategory = 'suite' | 'departamento' | 'penthouse' | 'local'
 
@@ -292,24 +293,14 @@ function selectedUnitReply(info: Row, unit: Row, current: string) {
   const pricesAllowed = object(info.politica_comercial).precios_autorizados === true
   const price = pricesAllowed && Number(unit.published_commercial_price) > 0 ? Number(unit.published_commercial_price) : null
   const approximate = object(info.politica_comercial).precios_aproximados === true
-  const budget = budgetFromInfo(info, current)
-  const deferred = budgetWasDeferred(info, current)
   let reply = `Perfecto. ${category === 'suite' ? 'La' : 'El'} ${label} ${text(unit.unit_number)} está ${location ? `en ${location}` : 'disponible'}`
   if (price) reply += ` y su valor${approximate ? ' referencial de lanzamiento' : ''} es de ${money(price)}.`
   else reply += '.'
   if (category !== 'local' && /^\d{3,4}$/.test(text(unit.unit_number))) {
     reply += ` Puede explorar${category === 'suite' ? 'la' : 'lo'} en el recorrido virtual: ${unitTourUrl(text(unit.unit_number))}`
   }
-  if (!price) return reply
-  if (budget !== null && budget < price) {
-    reply += ` Considerando los ${money(budget)} que tiene disponibles, quedaría una diferencia de ${money(price - budget)}. Si esta es la unidad que desea considerar, podemos revisar alternativas de financiamiento para esa diferencia. ¿Le gustaría avanzar con esa revisión?`
-  } else if (budget !== null) {
-    reply += ` Esta opción se encuentra dentro del presupuesto que indicó. ¿Le gustaría continuar con esta unidad o compararla con otra?`
-  } else if (deferred) {
-    reply += ' Como todavía está definiendo su presupuesto, podemos revisar alternativas de financiamiento sobre esta unidad cuando lo desee. ¿Le gustaría evaluar esa posibilidad?'
-  } else {
-    reply += ' ¿Con qué presupuesto aproximado cuenta para evaluar esta opción y determinar si necesitaría financiamiento?'
-  }
+  const continuation = tourContinuation(info, unit, current)
+  if (continuation.reply) reply += ' ' + continuation.reply
   return reply
 }
 

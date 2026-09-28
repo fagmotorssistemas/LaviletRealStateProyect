@@ -1,5 +1,11 @@
 # Leads, temperatura y seguimiento
 
+## Nombre y residencia del lead
+
+La captura inicial distingue el lugar declarado de la residencia actual. «Soy de Cuenca» conserva Cuenca y motiva una confirmación; «soy de Cuenca, pero vivo en Guayaquil» registra Guayaquil como residencia sin repetir la pregunta. El nombre recibido se reconoce con «Mucho gusto» una vez y los datos se conservan con evidencia en la memoria de la conversación.
+
+La implementación, sus estados, pruebas y líneas modificadas están descritos en [Perfil y confirmación de residencia](./perfil-residencia-confirmacion-20260928.md). Su estado es local pendiente de despliegue; no modifica la pertenencia de los leads al proyecto ni las reglas SQL de puntuación.
+
 ## Etapa comercial del lead
 
 Los valores internos actuales tienen nombres heredados:

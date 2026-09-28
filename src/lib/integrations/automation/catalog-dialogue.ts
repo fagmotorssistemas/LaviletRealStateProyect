@@ -363,7 +363,10 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   }
   if (query.operation === 'compare') {
     const comparison = compareCatalog(units)
-    return respond(comparisonReply(units, comparison), { comparison_unit_ids: unitIds(units), offered_unit_ids: unitIds(units), catalog_comparison: comparison,
+    const next = '¿Cuál de estas opciones le gustaría conocer más a detalle?'
+    return respond(`${comparisonReply(units, comparison)} ${next}`, { comparison_unit_ids: unitIds(units), offered_unit_ids: unitIds(units), catalog_comparison: comparison,
+      pending_question: question('unit_choice', 'choose_unit', next),
+      progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(units), reason: 'comparison_answered_before_selection' },
       catalog_coverage: { ...object(baseAudit.catalog_coverage), required_dimensions: ['bedrooms', 'area_internal_m2', 'area_exterior_m2', 'floor_number'] } })
   }
   if (query.operation === 'search' && !query.category && Object.keys(object(context.original_query)).length
@@ -385,7 +388,8 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   if (query.operation === 'details' || query.operation === 'select') {
     if (units.length !== 1 || reference.needsClarification === true) {
       const next = '¿Cuál de estas opciones le gustaría conocer?'
-      return respond(`${groupedCharacteristics(units)}\n${floorComparison(units)} ${next}`, { offered_unit_ids: unitIds(units), pending_question: question('unit_choice', 'choose_unit', next) })
+      return respond(`${groupedCharacteristics(units)}\n${floorComparison(units)} ${next}`, { offered_unit_ids: unitIds(units), pending_question: question('unit_choice', 'choose_unit', next),
+        progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(units), criteria: query.filters, reason: 'details_require_unit_choice' } })
     }
     const unit = units[0], url = unitTourUrl(text(unit.unit_number))
     const spaces = sanitizeTourSpaces(Array.isArray(unit.spaces) ? unit.spaces : []).slice(0, 8).map(value => text(value).toLocaleLowerCase('es'))
@@ -405,10 +409,13 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const floors = [...new Map([...units].filter(unit => finite(unit.floor_number) !== null)
     .sort((a, b) => Number(a.floor_number) - Number(b.floor_number))
     .map(unit => [Number(unit.floor_number), text(unit.floor) || `planta ${unit.floor_number}`])).values()]
-  if (categoryOnly && floors.length > 1) {
+  const choosingChangedCategory = object(context.preference_transition).active === true && query.category && query.filters.floor_number === null
+  if ((categoryOnly || choosingChangedCategory) && floors.length > 1) {
     const next = '¿Qué planta prefiere?'
-    return respond(`${groupedCharacteristics(units)}\n${floorComparison(units)} ${next}`,
-      { offered_unit_ids: unitIds(units), pending_question: question('property_floor', 'choose_floor', next) })
+    const body = choosingChangedCategory ? `Tenemos ${join(categorySummary(units))} en ${join(floors)}.` : `${groupedCharacteristics(units)}\n${floorComparison(units)}`
+    return respond(`${body} ${next}`,
+      { offered_unit_ids: unitIds(units), pending_question: question('property_floor', 'choose_floor', next),
+        ...(choosingChangedCategory ? { progressive_selection: { stage: 'choose_floor', question: next, candidate_ids: unitIds(units), criteria: query.filters, reason: 'category_selected_choose_floor', client_requested_change: true } } : {}) })
   }
   const shown = units.slice(0, 8)
   const next = shown.length === 1 ? `¿Le gustaría ver los detalles de ${label(shown[0])}?` : '¿Cuál de estas opciones le gustaría conocer?'
@@ -416,5 +423,6 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     : `${label(shown[0])}${details(shown[0]) ? ` (${details(shown[0])})` : ''}.`
   return respond(`${choices}${units.length > shown.length ? ` Hay ${units.length} opciones que cumplen esos criterios; estas son las primeras ${shown.length}.` : ''} ${next}`,
     { offered_unit_ids: unitIds(shown), focused_unit_ids: shown.length === 1 ? unitIds(shown) : [],
+      ...(object(context.preference_transition).active === true ? { progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(shown), criteria: query.filters, reason: 'floor_selected_choose_unit', client_requested_change: true } } : {}),
       pending_question: question('unit_choice', shown.length === 1 ? 'show_unit_details' : 'choose_unit', next, shown.length === 1 ? shown : [], shown) })
 }

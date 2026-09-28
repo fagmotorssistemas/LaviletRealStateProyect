@@ -1,7 +1,9 @@
 import { object, text, type Row } from './data'
 import { isGreetingOnly, normalized } from './sdr-rules'
-import { isCourtesyOnly } from './conversation-style'
+import { conversationalFirstName, isCourtesyOnly } from './conversation-style'
 import { BROCHURE_URL } from './project-material'
+import { mergeLeadProfile } from './lead-profile'
+import { commercialContinuationSources } from './response-plan'
 
 export const PROFILE_INVITATION = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
 const BROCHURE_PURPOSE = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, '
@@ -55,14 +57,49 @@ function explicitBrochure(current: string) {
   return /brochure|brochur|folleto|\bpdf\b/.test(value) && !/\bno\b.{0,25}(?:quiero|necesito|envie|mande|brochure|folleto)/.test(value)
 }
 function concreteRequest(current: string) {
-  return /precio|cuesta|cuestan|vale|valor|financ|credito|cuota|departamento|departmento|suite|penthouse|local|inver|vivir|dormitorio|habitacion|cuarto|visita|agend|reserv|ubicacion|direccion|constru|terminad|entrega|plano|modelo|recorrido|brochure|folleto|piscina|gimnasio|terraza|parqueader|area|metros|tamano|ampli|grande|espacio|opciones|informacion/.test(normalized(current))
+  return /precio|cuesta|cuestan|vale|valor|presupuesto|monto|dispongo|financ|credito|cuota|departamento|departmento|suite|penthouse|local|inver|vivir|dormitorio|habitacion|cuarto|visita|agend|reserv|ubicacion|direccion|constru|terminad|entrega|plano|modelo|recorrido|brochure|folleto|piscina|gimnasio|terraza|parqueader|area|metros|tamano|ampli|grande|espacio|opciones|informacion/.test(normalized(current))
+}
+export function isProfileOnlyTurn(current: string, extractedRaw: unknown) {
+  const extracted = object(extractedRaw), semantics = object(extracted.turn_semantics)
+  const currentCommercialIntent = ['ask_price', 'ask_financing', 'discuss_budget', 'request_visit', 'select_property', 'project_information'].includes(text(semantics.primary_intent))
+    && semantics.confidence === 'high'
+  const budget = object(semantics.budget)
+  return !currentCommercialIntent && !(budget.confidence === 'high' && budget.status !== 'not_discussed')
+    && !concreteRequest(current) && (hasProfileAnswer(extracted.lead_profile) || declinedProfile(current))
 }
 function declinedProfile(current: string) {
   return /(?:no quiero|no deseo|prefiero no|no voy a|no le voy a).{0,35}(?:dar|decir|compartir|nombre|datos|resido|vivo)|(?:no importa|no es necesario).{0,20}(?:nombre|donde|datos)/.test(normalized(current))
 }
 function knownProfile(input: LeadIntroductionInput) {
-  const incoming = Object.fromEntries(Object.entries(object(object(input.extracted).lead_profile)).filter(([, value]) => typeof value === 'string' && value.trim()))
-  return { ...object(object(input.summary)._lead_profile), ...object(input.profile), ...incoming }
+  return mergeLeadProfile({ ...object(object(input.summary)._lead_profile), ...object(input.profile) }, object(object(input.extracted).lead_profile))
+}
+
+export function hasProfileAnswer(raw: unknown) {
+  const profile = object(raw)
+  return ['full_name', 'residence_city', 'residence_country'].some(key => text(profile[key]).trim())
+    || Object.keys(object(profile.declared_location)).length > 0 || Object.keys(object(profile.residence_confirmation)).length > 0
+}
+
+function nameAcknowledgement(profile: Row, prior: Row) {
+  const name = conversationalFirstName(text(profile.full_name))
+  return name && normalized(name) !== normalized(text(prior.acknowledged_name))
+    ? `Mucho gusto, ${name[0].toLocaleUpperCase('es') + name.slice(1)}.` : ''
+}
+
+function questionPurpose(missing: string[]) {
+  return missing.length === 2 ? 'collect_profile' : missing[0] === 'full_name' ? 'collect_name' : 'collect_residence'
+}
+
+/** Persist the referent of the question actually sent, including paraphrases. */
+export function leadProfilePendingQuestion(reply: string, auditRaw: unknown): Row {
+  const plan = object(object(auditRaw).profile_introduction)
+  const purpose = text(plan.question_purpose)
+  if (!purpose || purpose === 'none' || leadIntroductionIssues(reply, auditRaw).some(issue => /question|confirmation/.test(issue))) return {}
+  const question = reply.match(/¿[^¿?]+\?/g)?.at(-1) || ''
+  if (!question) return {}
+  const id = purpose === 'confirm_residence' ? 'lead_residence_confirmation'
+    : purpose === 'collect_profile' ? 'lead_profile' : purpose === 'collect_name' ? 'lead_profile_name' : 'lead_profile_residence'
+  return { id, act: 'profile', question, ...(purpose === 'confirm_residence' ? { residence_candidate: object(plan.candidate) } : {}) }
 }
 function catalogFor(input: LeadIntroductionInput) {
   return rows(input.catalog || object(input.projectInfo).catalogo || object(object(input.audit).catalog_results).units)
@@ -101,49 +138,77 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const summary = object(input.summary), prior = object(summary._lead_introduction), audit = object(input.audit)
   const extracted = object(input.extracted), profile = knownProfile(input), missing = missingFields(profile)
   const unchanged = { reply: input.reply, state: prior, audit, applied: false, brochureDeferred: false }
-  if (!input.current.trim() || isGreetingOnly(input.current) || isCourtesyOnly(input.current)) return unchanged
-  if (['complete', 'skipped'].includes(text(prior.status))) return unchanged
   const currentProfile = object(extracted.lead_profile)
-  const suppliedProfile = ['full_name', 'residence_city', 'residence_country'].some(field => text(currentProfile[field]).trim())
-  const pending = prior.status === 'pending', onlyProfile = pending && !concreteRequest(input.current)
-    && (suppliedProfile || declinedProfile(input.current))
-  const excluded = !['', 'commercial', 'project_overview', 'project_information_choice', 'catalog_search', 'catalog_select',
+  const suppliedProfile = hasProfileAnswer(currentProfile)
+  if (!input.current.trim() || (!suppliedProfile && (isGreetingOnly(input.current) || isCourtesyOnly(input.current)))) return unchanged
+  const acknowledgement = nameAcknowledgement(profile, prior)
+  const suppliedCandidate = Boolean(object(currentProfile.residence_candidate).city || object(currentProfile.residence_candidate).country)
+    && profile.residence_status === 'pending_confirmation'
+  const resumed = ['complete', 'skipped'].includes(text(prior.status)) && suppliedCandidate
+  const acknowledgeOnly = () => {
+    if (!acknowledgement || !text(currentProfile.full_name)) return unchanged
+    return { ...unchanged, applied: true, reply: join(acknowledgement, input.reply),
+      audit: { ...audit, profile_introduction: { profile_state: profile, question_purpose: 'none', name_acknowledgement: acknowledgement } } }
+  }
+  if (['complete', 'skipped'].includes(text(prior.status)) && !resumed) return acknowledgeOnly()
+  const pending = prior.status === 'pending' || resumed, onlyProfile = pending && isProfileOnlyTurn(input.current, extracted)
+  const excluded = !commercialContinuationSources.has(text(audit.source)) && !['', 'commercial', 'project_overview', 'project_information_choice', 'catalog_search', 'catalog_select',
     'catalog_reference', 'unit_price', 'location', 'unit_model_request', 'virtual_showroom', 'brochure', 'price_option_unavailable'].includes(text(audit.source))
-  if ((excluded && !onlyProfile) || (!pending && hasEarlierConversation(input.history, input.current))) return unchanged
+  if ((excluded && !onlyProfile) || (!pending && hasEarlierConversation(input.history, input.current))) return acknowledgeOnly()
   const url = input.brochureUrl || BROCHURE_URL
   const category = categoryFor(input), overview = generalInformation(input.current, audit, extracted)
-  if (!pending && !overview && !category && !concreteRequest(input.current) && !explicitBrochure(input.current)) return unchanged
+  if (!pending && !overview && !category && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
   const base = withoutBrochure(input.reply, url)
-  const deliver = pending || explicitBrochure(input.current) || missing.length === 0 || declinedProfile(input.current)
+  const deliver = pending || suppliedProfile || explicitBrochure(input.current) || missing.length === 0 || declinedProfile(input.current)
   const deliverBrochure = deliver && (prior.brochure_sent !== true || explicitBrochure(input.current))
   const brochure = deliverBrochure ? `Aquí tiene el brochure digital completo del proyecto: ${url}` : ''
-  let question = '', result = '', reminderCount = Number(prior.reminder_count) || 0
+  const candidate = object(profile.residence_candidate)
+  const candidatePlace = [text(candidate.city), text(candidate.country)].filter(Boolean).join(', ')
+  const needsConfirmation = profile.residence_status === 'pending_confirmation' && Boolean(candidatePlace)
+  let question = '', purpose = 'none', result = '', reminderCount = Number(prior.reminder_count) || 0
   let state: Row
   if (!deliver) {
     question = profileQuestion(missing, false)
+    purpose = questionPurpose(missing)
     result = join(overview ? PROJECT_INTRODUCTION : categoryIntroduction(input, category) || withoutLastQuestion(base), question)
-    state = { version: 1, status: 'pending', reminder_count: 0, brochure_sent: false,
+    state = { version: 2, status: 'pending', reminder_count: 0, brochure_sent: false,
       category, continuation_reply: commercialContinuation(input, category, overview) }
   } else {
     const continuation = text(prior.continuation_reply) || commercialContinuation(input, category, overview)
-    const remind = onlyProfile && missing.length > 0 && !declinedProfile(input.current) && reminderCount < 1
-    if (remind) { question = profileQuestion(missing, true); reminderCount += 1 }
+    // Clarifying a supplied place is progress, not a second generic reminder.
+    // Persist a separate limit so an evasive answer cannot cause an endless loop.
+    const priorCandidate = object(prior.confirmation_candidate)
+    const sameCandidate = normalized([text(priorCandidate.city), text(priorCandidate.country)].filter(Boolean).join(', ')) === normalized(candidatePlace)
+    const confirm = needsConfirmation && suppliedProfile && !(prior.confirmation_asked === true && sameCandidate)
+    const denial = object(currentProfile.residence_confirmation).decision === 'deny'
+    const remind = !declinedProfile(input.current) && (confirm || onlyProfile && missing.length > 0 && (reminderCount < 1 || denial && prior.denial_followup_asked !== true))
+    if (remind) {
+      if (confirm) { question = `Entiendo que es de ${candidatePlace}. ¿Es también su lugar de residencia actual?`; purpose = 'confirm_residence' }
+      else { question = profileQuestion(missing, true); purpose = questionPurpose(missing); reminderCount += 1 }
+    }
     const contextual = onlyProfile ? '' : overview && !pending ? PROJECT_INTRODUCTION : base
-    result = join(contextual, brochure, remind ? question : onlyProfile || overview ? continuation : '')
-    state = { ...prior, version: 1, status: remind ? 'pending' : 'complete', reminder_count: reminderCount,
-      brochure_sent: true, category: text(prior.category) || category, continuation_reply: continuation }
+    result = join(remind ? withoutLastQuestion(contextual) : contextual, brochure, remind ? question : onlyProfile || overview ? continuation : '')
+    state = { ...prior, version: 2, status: remind ? 'pending' : 'complete', reminder_count: reminderCount,
+      brochure_sent: true, category: text(prior.category) || category, continuation_reply: continuation,
+      ...(confirm ? { confirmation_asked: true, confirmation_candidate: candidate } : {}),
+      ...(denial && remind ? { denial_followup_asked: true } : {}) }
   }
+  result = join(acknowledgement, result)
   const stage = !deliver ? 'request' : question ? 'reminder' : 'deliver'
   return { reply: result, state, applied: true, brochureDeferred: !deliver,
     audit: { ...audit, brochure_sent: deliverBrochure || prior.brochure_sent === true, profile_introduction: { stage, question, brochure_deferred: !deliver,
       brochure_required: deliverBrochure, brochure_url: url, generic_introduction: overview && !deliver,
       missing_fields: missing, reminder_count: reminderCount, residence_meaning: 'current_residence',
-      reason: pending ? 'continue_opening_profile_exchange' : 'first_substantive_project_contact' } } }
+      profile_state: profile, question_purpose: purpose, candidate: needsConfirmation ? { ...candidate } : null,
+      name_acknowledgement: acknowledgement || null,
+      reason: needsConfirmation ? 'declared_place_requires_current_residence_confirmation' : pending ? 'continue_opening_profile_exchange' : 'first_substantive_project_contact' } } }
 }
 
 export const LEAD_INTRODUCTION_RULES = `
 APERTURA Y PERFIL DEL LEAD
-- Siga estado_operativo.profile_introduction: primero responda la consulta concreta; después pida solamente los datos faltantes que indica question. Conserve esa pregunta y su propósito de brochure más guía personalizada cuando se solicita por primera vez. La ubicación solicitada es dónde reside actualmente, nunca desde dónde escribe ni el lugar donde quiere comprar.
+- Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después formule una sola pregunta con question_purpose. Puede reformularla conservando los datos faltantes y el propósito de brochure más guía personalizada; no se exige copiar toda la frase. La ubicación solicitada es dónde reside actualmente, nunca desde dónde escribe ni el lugar donde quiere comprar.
+- declared_location conserva el lugar declarado; residence_candidate es una posibilidad pendiente, NO residencia confirmada. Con question_purpose=confirm_residence reconozca el lugar candidato y pregunte si es su residencia actual, sin pedir nuevamente una ciudad desde cero. «Soy de X» merece esta aclaración aunque responda a una pregunta de residencia. Si ya hay residencia confirmada en profile_state, no vuelva a preguntarla. Una ciudad de origen distinta puede conservarse sin contradecir la residencia actual.
+- Si name_acknowledgement tiene contenido, incluya «Mucho gusto, Nombre» usando ese nombre verificado, una sola vez. Es un reconocimiento del nombre recién declarado, no una cortesía opcional ni un saludo que deba suprimirse. No añada saludos adicionales.
 - Si generic_introduction=true, presente brevemente La Vilet y su ubicación sin enumerar suites, departamentos, penthouses ni locales. Esa presentación de opciones corresponde a la continuación después de los datos. No añada una segunda pregunta comercial.
 - Si brochure_deferred=true, no adjunte todavía el brochure: se prometió para el siguiente intercambio. Si brochure_required=true, conserve el enlace verificado. Una petición directa del brochure se atiende sin exigir datos.
 - Responder datos de perfil no inicia una visita, no autoriza financiamiento y no cambia las preferencias comerciales. No repita datos ya conocidos ni insista cuando no responde. La residencia no implica requisitos financieros, nacionalidad, elegibilidad ni disponibilidad distintos.
@@ -153,7 +218,31 @@ export function leadIntroductionIssues(reply: string, auditRaw: unknown) {
   const plan = object(object(auditRaw).profile_introduction)
   if (!Object.keys(plan).length) return []
   const issues: string[] = [], question = text(plan.question)
-  if (question && !reply.includes(question)) issues.push('lead_profile_question_changed')
+  const value = normalized(reply), purpose = text(plan.question_purpose)
+  const questions = [...reply.matchAll(/¿([^¿?]+)\?/g)].map(match => normalized(match[1]))
+  const asksName = questions.some(q => /nombre|como (?:se llama|le llam)/.test(q))
+  const asksResidence = questions.some(q => /resid|\bviv[ea]|viviendo/.test(q))
+  if (question && !purpose && !reply.includes(question)) issues.push('lead_profile_question_changed') // Historical audit compatibility.
+  if (purpose === 'confirm_residence') {
+    const candidate = object(plan.candidate)
+    const placeMentioned = [text(candidate.city), text(candidate.country)].filter(Boolean).every(place => value.includes(normalized(place)))
+    if (!asksResidence || !placeMentioned) issues.push('lead_profile_confirmation_omitted')
+    else if (questions.some(q => /(?:en que|que|cual) (?:ciudad|pais|lugar)|donde (?:reside|vive)/.test(q))) issues.push('lead_profile_question_purpose_changed')
+  } else if (['collect_profile', 'collect_name', 'collect_residence'].includes(purpose)) {
+    if ((purpose !== 'collect_residence' && !asksName) || (purpose !== 'collect_name' && !asksResidence)) issues.push('lead_profile_question_purpose_changed')
+    if (!/brochure|folleto/.test(value) || !/guia personalizada|orienta\w* (?:de forma )?personalizada/.test(value)) issues.push('lead_profile_question_purpose_changed')
+  }
+  const acknowledgement = normalized(text(plan.name_acknowledgement))
+  if (acknowledgement && !value.includes(acknowledgement)) issues.push('lead_profile_name_acknowledgement_missing')
+  if (object(plan.profile_state).residence_status !== 'confirmed') {
+    const statements = normalized(reply.replace(/¿[^¿?]*\?/g, ''))
+    const candidate = object(plan.candidate || object(plan.profile_state).residence_candidate)
+    const places = [text(candidate.city), text(candidate.country)].filter(Boolean)
+    if (places.some(place => {
+      const escaped = normalized(place).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return new RegExp(`\\b(?:vive|reside|viviendo|su residencia (?:actual )?(?:es|esta))\\s+(?:actualmente\\s+)?(?:en\\s+)?${escaped}\\b`).test(statements)
+    })) issues.push('lead_profile_unconfirmed_residence')
+  }
   if (plan.generic_introduction === true && /\b(?:suites?|departamentos?|penthouses?|locales? comerciales?)\b/.test(normalized(reply))) issues.push('lead_profile_categories_premature')
   if (plan.brochure_deferred === true && reply.includes(text(plan.brochure_url) || BROCHURE_URL)) issues.push('lead_profile_brochure_premature')
   if (plan.brochure_required === true && !reply.includes(text(plan.brochure_url) || BROCHURE_URL)) issues.push('lead_profile_brochure_missing')

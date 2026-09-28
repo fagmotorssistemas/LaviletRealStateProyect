@@ -4,6 +4,7 @@ import { normalizeEvents, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRAC
 import { normalizeTurnSemantics, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_SCHEMA } from './turn-semantics'
 import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
+import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
 
 export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v2'
 
@@ -34,6 +35,9 @@ export const TURN_EXTRACTION_SCHEMA = closedObject({
   full_name: nullableString,
   residence_city: nullableString,
   residence_country: nullableString,
+  declared_location: nullableObject({ city: nullableString, country: nullableString,
+    kind: { type: 'string', enum: ['origin', 'temporary', 'unspecified'] }, evidence: { type: 'string' } }),
+  residence_confirmation: nullableObject({ decision: { type: 'string', enum: ['confirm', 'deny'] }, evidence: { type: 'string' }, confidence }),
   profile_evidence: closedObject({ full_name: nullableString, residence_city: nullableString, residence_country: nullableString }),
   applicant_type: { type: ['string', 'null'], enum: ['empleado', 'independiente', null] },
   national_id: nullableString,
@@ -66,48 +70,6 @@ export type TurnInterpretation = {
 const evidenceMatches = (evidence: string, current: string) => evidence.length > 0 && evidence.length <= 500
   && current.normalize('NFKC').toLowerCase().includes(evidence.normalize('NFKC').toLowerCase())
 
-/** Profile values are declarations, never guesses from a phone, project location or origin. */
-function evidencedProfile(raw: Row, current: string, input: Row): Row {
-  const evidence = object(raw.profile_evidence), pending = object(input.pregunta_pendiente)
-  const profile = object(input.perfil_inicial)
-  const pendingText = normalized(text(pending.question || pending.text))
-  const pendingId = text(pending.id)
-  const missing = Array.isArray(profile.missing) ? profile.missing : []
-  const awaitsName = (profile.awaiting === true && missing.includes('full_name'))
-    || ['lead_profile', 'lead_profile_name'].includes(pendingId) || /\b(?:su nombre|que nombre|como (?:se llama|le (?:llamamos|llame)))\b/.test(pendingText)
-  const awaitsResidence = (profile.awaiting === true && missing.some(key => ['residence_city', 'residence_country'].includes(text(key))))
-    || ['lead_profile', 'lead_profile_residence'].includes(pendingId) || /\b(?:vive|viven|reside|residen|residencia)\b/.test(pendingText)
-  const values: Row = { full_name: null, residence_city: null, residence_country: null }
-  const acceptedEvidence: Row = { full_name: null, residence_city: null, residence_country: null }
-  for (const key of Object.keys(values)) {
-    const value = text(raw[key]).trim(), quote = text(evidence[key]).trim()
-    if (!value || value.length > 150 || !evidenceMatches(quote, current)) continue
-    const normalizedValue = normalized(value), fragment = normalized(quote)
-    // Keep declared labels. Geographic canonicalization must not invent an undeclared country.
-    if (!normalizedValue || !` ${fragment} `.includes(` ${normalizedValue} `)) continue
-    if (key === 'full_name') {
-      if (/\bno (?:me llamo|soy)\b/.test(fragment)) continue
-      if (!awaitsName && !/\b(?:me llamo|mi nombre es|soy|digame|llameme|puede llamarme)\b/.test(fragment)) continue
-    } else {
-      const clauses = fragment.split(/\b(?:pero|aunque|sin embargo)\b/)
-      const declared = clauses.some(clause => {
-        if (/\b(?:no|ya no) (?:vivo|vivimos|resido|residimos)\b/.test(clause)) return false
-        const residence = clause.match(/\b(?:vivo|vivimos|resido|residimos|estoy viviendo|estamos viviendo|mi residencia (?:es|esta)|mi domicilio (?:es|esta)|estoy radicad[oa])\b(.*)/)
-        return !!residence && ` ${residence[1]} `.includes(` ${normalizedValue} `)
-      })
-      // A short location answer can resolve the pending residence question, but nationality,
-      // birthplace, a travel location or the project address cannot stand in for residence.
-      const message = normalized(current)
-      const originOrTemporary = /\b(?:soy de|somos de|naci|nacido|nacida|nacionalidad|origen|escribo desde|estoy en|de viaje|vacaciones|proyecto|edificio|vivia|residia|vivire|residire|quiero vivir|planeo vivir)\b/.test(message)
-      const hasResidenceStatement = /\b(?:vivo|vivimos|resido|residimos|viviendo|residencia|domicilio|radicad[oa])\b/.test(message)
-      if (!declared && !(awaitsResidence && !originOrTemporary && !hasResidenceStatement)) continue
-    }
-    values[key] = value
-    acceptedEvidence[key] = quote
-  }
-  return { ...values, evidence: acceptedEvidence }
-}
-
 /** Model flags require current evidence; legacy outputs only use explicit requests. */
 function evidencedActions(raw: Row, current: string) {
   const evidence = object(raw.action_evidence), message = normalized(current)
@@ -132,7 +94,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   if (method === 'model') {
     const prompt = await dependencies.activePrompt('extractor_eventos')
     const instructions = prompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n'
-      + VISIT_INTENT_EXTRACTION_RULES + '\n' + TURN_SEMANTIC_EXTRACTION_RULES + `
+      + VISIT_INTENT_EXTRACTION_RULES + '\n' + TURN_SEMANTIC_EXTRACTION_RULES + '\n' + LEAD_PROFILE_EXTRACTION_RULES + `
 Contrato ${CONVERSATION_CONTRACT_VERSION}. Devuelva todos los campos del esquema; null significa desconocido.
 Enumere en requests TODAS las solicitudes actuales, incluidas dudas adicionales, correcciones, peticiones de asesor y no recibir más mensajes. Cada evidence debe ser literal del mensaje actual. No rellene solicitudes del historial.
 Si el mensaje corrige un sustantivo anterior («los departamentos, perdón»), conserve el propósito de la solicitud que corrige: «cómo puedo verlos» sigue siendo visualización, no una nueva búsqueda por categoría. Use el historial para resolver el sentido, pero cite solo el texto actual como evidencia. No afirme pluralidad de edificios por repetir una expresión corregida del cliente.
@@ -157,7 +119,7 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
   actions.opt_out = evidencedActions(raw, readable).opt_out
   if (actions.opt_out) actions.tracking_consent = false
   Object.assign(extracted, actions)
-  const leadProfile = evidencedProfile(raw, actionMessage, input)
+  const leadProfile = normalizeLeadProfile(raw, actionMessage, input)
   Object.assign(extracted, { residence_city: leadProfile.residence_city, residence_country: leadProfile.residence_country,
     lead_profile: leadProfile })
   // An unreadable reaction or a greeting must never inherit operational events from history.

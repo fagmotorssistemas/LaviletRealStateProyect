@@ -91,6 +91,10 @@ La revisión de selección explícita, enlaces 360 y validación numérica está
 
 La corrección de alcance, consulta de precios y continuidad entre capas está documentada en [Objetivo compartido del turno — 28 de septiembre](./contrato-intencion-20260928.md), con decisiones, archivos, líneas y pruebas.
 
+La conservación del lugar declarado, confirmación de residencia y reconocimiento del nombre está documentada en [Perfil y confirmación de residencia — 28 de septiembre](./perfil-residencia-confirmacion-20260928.md), con estados, controles, archivos, líneas y pruebas locales.
+
+La conservación de opciones de interés, cambios solicitados de dormitorios/precio y continuación del 360 está documentada en [Opciones progresivas — 28 de septiembre](./opciones-progresivas-20260928.md), con transiciones, controles, interfaz y mapa del código.
+
 La pantalla de Workflow es de solo lectura. Contiene mapas para:
 
 - recorrido principal;

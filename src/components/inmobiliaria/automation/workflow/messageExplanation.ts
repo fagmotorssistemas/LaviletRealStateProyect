@@ -54,6 +54,9 @@ const labels: Record<string, string> = {
   source: 'Ruta registrada', result: 'Resultado', task: 'Tarea del modelo', model: 'Modelo utilizado', prompt_revision: 'Versión de las instrucciones utilizadas', instructions_version: 'Versión de las instrucciones utilizadas', issues: 'Controles que rechazaron el borrador',
   price_evidence: 'Precios contrastados con el catálogo actual', price_usd: 'Precio verificado en USD', approximate: 'Precio aproximado', units: 'Unidades verificadas', repair_attempts: 'Intentos de reparación del mensaje o de su ficha interna',
   property_excluded_categories: 'Categorías descartadas', unit_number: 'Número de unidad',
+  progressive_selection: 'Avance entre las opciones de interés', post_tour_continuation: 'Continuación después del recorrido',
+  criteria: 'Criterios de las opciones', client_requested_change: 'Cambio solicitado por el cliente', preference_kind: 'Tipo de cambio solicitado',
+  bedrooms_any: 'Cantidades de dormitorios admitidas',
 }
 const values: Record<string, string> = {
   quantity_supported: 'Cantidad respaldada por su atributo y fuente',
@@ -97,6 +100,40 @@ const values: Record<string, string> = {
   lead_profile_categories_premature: 'La presentación inicial enumeró categorías antes de entregar el brochure',
   lead_profile_brochure_premature: 'Se adjuntó el brochure antes del intercambio previsto',
   lead_profile_brochure_missing: 'Falta el brochure que debía entregarse en este turno',
+  lead_profile_confirmation_omitted: 'Se omitió confirmar si el lugar declarado es la residencia actual',
+  lead_profile_question_purpose_changed: 'La pregunta cambió el dato que debía recoger o confirmar',
+  lead_profile_unconfirmed_residence: 'Se presentó como residencia confirmada un lugar que aún necesita confirmación',
+  lead_profile_name_acknowledgement_missing: 'Falta el saludo «Mucho gusto» con el nombre recibido por primera vez',
+  commercial_next_question_missing: 'Se omitió la pregunta que permite avanzar entre las opciones de interés',
+  commercial_next_question_changed: 'La pregunta cambió el propósito del siguiente paso antes de completar la elección',
+  offer_details: 'Invitar a conocer los detalles de las opciones cotizadas', confirm_bedrooms: 'Confirmar si se mantiene la cantidad de dormitorios',
+  choose_bedrooms: 'Precisar la cantidad de dormitorios', no_matching_options: 'Aclarar requisitos porque no hay opciones coincidentes',
+  fewer_bedrooms: 'Buscar menos dormitorios', cheaper: 'Buscar un precio menor',
+  explain_current_quoted_options: 'Se cotizaron las opciones que cumplen el interés actual; corresponde ofrecer sus detalles',
+  comparison_answered_before_selection: 'Se atendió la comparación; corresponde que el cliente elija una unidad',
+  preference_options: 'Alternativas según el cambio solicitado',
+  explore_quoted_options: 'Explorar las opciones cotizadas antes de elegir una unidad',
+  details_require_unit_choice: 'Hay varias opciones de interés; corresponde elegir una para conocer sus detalles',
+  category_selected_choose_floor: 'La categoría ya está elegida; corresponde elegir entre las plantas disponibles',
+  floor_selected_choose_unit: 'La planta ya está elegida; corresponde elegir una de sus unidades',
+  requested_fewer_bedrooms: 'El cliente pidió reducir la cantidad de dormitorios',
+  requested_cheaper_options: 'El cliente pidió buscar opciones más económicas',
+  confirmed_cheaper_bedrooms: 'El cliente confirmó los dormitorios que desea mantener al buscar un precio menor',
+  accepted_bedroom_confirmation: 'El cliente confirmó los dormitorios que desea mantener al buscar un precio menor',
+  cheaper_requires_bedrooms_confirmation: 'Falta confirmar si la búsqueda más económica mantiene los dormitorios',
+  fewer_requires_bedroom_count: 'Falta una cantidad de referencia para buscar menos dormitorios',
+  fewer_bedrooms_requires_count: 'Falta una cantidad de referencia para buscar menos dormitorios',
+  cheaper_requires_bedroom_count: 'Falta indicar cuántos dormitorios se desean en la búsqueda más económica',
+  bedroom_confirmation_declined: 'No se confirmó mantener los dormitorios; corresponde preguntar cuántos desea',
+  budget_missing: 'Falta conocer el presupuesto previsto para la compra',
+  initial_capital_amount_missing: 'Se conoce que dispone de una entrada, pero falta su monto',
+  budget_kind_missing: 'Se conoce un monto, pero falta distinguir presupuesto total de entrada',
+  budget_declined: 'El cliente prefirió no indicar su presupuesto; se continúa con sus dudas sobre la unidad',
+  budget_deferred: 'El cliente aún no definió su presupuesto; se continúa sin repetir la pregunta',
+  budget_already_known: 'El presupuesto ya se conoce; se continúa con los detalles de la unidad',
+  financing_information_available: 'Se puede ofrecer información financiera para la unidad elegida según el presupuesto conocido',
+  financing_already_started: 'La orientación financiera ya comenzó; no se repite la invitación',
+  requested_action_pending: 'La solicitud actual de visita o financiamiento tiene prioridad sobre otra pregunta comercial',
   outside_subject_not_grounded: 'La exclusión como consulta ajena no tenía evidencia de otro negocio en el mensaje del lead. Se conservó la consulta inmobiliaria.',
   clarification_of_price_request: 'La categoría o unidad aclara una consulta de precio anterior; se conserva el objetivo de responder ese precio',
   current_turn: 'Interpretación del mensaje actual',
@@ -134,6 +171,7 @@ const titles: Record<string, string> = {
   execution_version: 'Versión y lote', message_received: 'Mensaje recibido', response_permission: 'Permiso para responder', commercial_context: 'Contexto de la conversación',
   scope_classification: 'Alcance de la consulta', decision_context: 'Datos disponibles', semantic_extraction: 'Interpretación del mensaje', catalog_resolution: 'Búsqueda y referencias',
   turn_intent: 'Objetivo compartido del turno',
+  lead_profile_resolution: 'Nombre y residencia interpretados', lead_introduction: 'Presentación y datos del lead',
   dialogue_decision: 'Decisión de respuesta', response_coverage: 'Revisión de la respuesta', advisor_handoff: 'Derivación al asesor',
   route_selected: 'Ruta aplicada', response_validation: 'Validación final', message_delivery: 'Envío a Kommo', state_persisted: 'Memoria y seguimientos',
   execution_exit: 'Resultado de la ejecución', execution_failed: 'Interrupción', visit_coordination: 'Coordinación de visita', visit_intent: 'Decisión sobre la visita', visit_result: 'Resultado de la visita',
@@ -203,6 +241,46 @@ function queryDescription(value: unknown, snapshots: CatalogSnapshot[]) {
 }
 
 const fact = (label: string, value: string): ExplanationFact => ({ label, value })
+function leadProfileSections(value: unknown, introductionValue: unknown = {}): ExplanationSection[] {
+  const profile = row(value), introduction = row(introductionValue)
+  const hasProfile = ['full_name', 'declared_location', 'residence_candidate', 'residence_city', 'residence_country', 'residence_status'].some(key => has(profile, key))
+  if (!hasProfile) return []
+  const declared = row(profile.declared_location), recordedCandidate = row(introduction.candidate)
+  const candidate = Object.keys(recordedCandidate).length ? recordedCandidate : row(profile.residence_candidate)
+  const sources = row(profile.sources)
+  const place = (value: Row) => [str(value.city), str(value.country)].filter(Boolean).join(', ')
+  const evidence = (value: unknown) => str(value) || str(row(value).evidence)
+  const residence = [str(profile.residence_city), str(profile.residence_country)].filter(Boolean).join(', ')
+  const states: Record<string, string> = {
+    unknown: 'Residencia desconocida', pending_confirmation: 'Residencia pendiente de confirmación',
+    confirmed: 'Residencia confirmada', declined: 'El lead no desea indicar su residencia',
+  }
+  const purposes: Record<string, string> = {
+    collect_profile: 'Recoger nombre y residencia para personalizar la guía',
+    confirm_residence: 'Confirmar si el lugar declarado es la residencia actual',
+    collect_residence: 'Recoger la residencia actual', collect_name: 'Recoger el nombre', none: 'No se requiere una pregunta de perfil',
+  }
+  const placeKinds: Record<string, string> = { origin: 'Lugar de origen declarado', temporary: 'Ubicación temporal declarada', residence: 'Residencia declarada', unspecified: 'Lugar declarado sin significado confirmado' }
+  return [{
+    title: 'Datos de perfil y confirmación',
+    description: 'Este estado conserva lo que el lead declaró y distingue su lugar declarado de su residencia actual. Una ubicación pendiente no equivale a residencia confirmada. Solo se muestran los datos registrados en este paso.',
+    facts: [
+      fact('Nombre recibido', str(profile.full_name) || 'No registrado.'),
+      ...(evidence(sources.full_name) ? [fact('Evidencia del nombre', evidence(sources.full_name))] : []),
+      fact('Lugar declarado', place(declared) || 'No registrado.'),
+      ...(declared.kind ? [fact('Significado del lugar declarado', placeKinds[str(declared.kind)] || 'No se registró un significado reconocido.')] : []),
+      ...(str(declared.evidence) ? [fact('Evidencia del lugar declarado', str(declared.evidence))] : []),
+      fact('Estado de residencia', states[str(profile.residence_status)] || 'No se registró el estado; no se deduce de los lugares mencionados.'),
+      fact('Residencia actual registrada', residence || 'No registrada.'),
+      ...(['residence_city', 'residence_country'].flatMap(key => evidence(sources[key]) ? [fact(key === 'residence_city' ? 'Evidencia de ciudad de residencia' : 'Evidencia de país de residencia', evidence(sources[key]))] : [])),
+      ...(place(candidate) ? [fact('Lugar que necesita confirmación', place(candidate))] : []),
+      ...(str(candidate.evidence) ? [fact('Evidencia que motiva la confirmación', str(candidate.evidence))] : []),
+      ...(has(introduction, 'question_purpose') ? [fact('Propósito de la pregunta de perfil', purposes[str(introduction.question_purpose)] || 'Propósito no reconocido en este registro.')] : []),
+      ...(str(introduction.question) ? [fact('Pregunta de perfil preparada', str(introduction.question))] : []),
+      ...(str(introduction.name_acknowledgement) ? [fact('Presentación con el nombre recibido', str(introduction.name_acknowledgement))] : []),
+    ],
+  }]
+}
 function turnIntentSections(value: unknown, snapshots: CatalogSnapshot[] = []): ExplanationSection[] {
   const contract = row(value)
   if (contract.version !== 'turn-intent-v1') return []
@@ -244,7 +322,43 @@ function transformationSections(output: Row): ExplanationSection[] {
   ]) }]
 }
 
-function coverageSections(output: Row): ExplanationSection[] {
+function progressiveSelectionSections(output: Row, snapshots: CatalogSnapshot[]): ExplanationSection[] {
+  const plan = row(output.progressive_selection), tour = row(output.post_tour_continuation), budget = row(tour.budget)
+  const budgetStates: Record<string, string> = {
+    not_discussed: 'Presupuesto todavía no consultado', unknown: 'El cliente aún no tiene un presupuesto definido',
+    amount: 'Monto conocido, pendiente de distinguir total o entrada', maximum_total: 'Presupuesto total para la compra',
+    initial_capital: 'Dinero disponible para la entrada', sufficient_for_selected_unit: 'El cliente declaró que puede cubrir la unidad elegida',
+    insufficient_for_selected_unit: 'El cliente declaró que su presupuesto no cubre la unidad elegida',
+    declines_to_disclose: 'El cliente prefirió no indicar el presupuesto',
+  }
+  const budgetSources: Record<string, string> = { none: 'No hay una declaración registrada', lead_budget: 'Presupuesto guardado del lead',
+    qualification: 'Datos de calificación', history: 'Declaración del cliente en el historial', current_message: 'Mensaje actual del cliente',
+    turn_semantics: 'Interpretación del turno', commercial_memory: 'Memoria comercial' }
+  return [
+    ...(Object.keys(plan).length ? [{ title: 'Opciones de interés y siguiente paso',
+      description: 'Explica el paso preparado en esta ejecución. Ofrecer detalles o comparar opciones no equivale a elegir una unidad. La elección corresponde al cliente; esta sección no acredita el envío.',
+      facts: [
+        fact('Paso previsto', str(plan.stage) ? humanValue(plan.stage) : 'No se registró el paso.'),
+        fact('Criterios utilizados', has(plan, 'criteria') ? humanValue(plan.criteria, snapshots, 'filters') : 'No se registraron criterios en este paso.'),
+        fact('Opciones de referencia', Array.isArray(plan.candidate_ids) ? humanValue(plan.candidate_ids, snapshots, 'candidate_ids') : 'No se registró el conjunto de opciones.'),
+        fact('Pregunta siguiente preparada', str(plan.question) || 'No se registró una pregunta.'),
+        fact('Motivo del siguiente paso', str(plan.reason) ? humanValue(plan.reason) : 'No se registró el motivo; no se deduce del mensaje.'),
+        fact('¿El cliente pidió cambiar la búsqueda?', typeof plan.client_requested_change === 'boolean' ? humanValue(plan.client_requested_change) : 'No quedó registrado; no se deduce de las opciones mostradas.'),
+        ...(str(plan.preference_kind) ? [fact('Cambio solicitado', humanValue(plan.preference_kind))] : []),
+      ] }] : []),
+    ...(Object.keys(tour).length ? [{ title: 'Continuación después del recorrido 360',
+      description: 'La pregunta se prepara según el presupuesto conocido y la solicitud actual. Este plan no confirma el envío del recorrido, la aprobación de un crédito ni una cita.',
+      facts: [
+        fact('Pregunta después del recorrido', str(tour.question) || (has(tour, 'question') ? 'No se preparó otra pregunta en este paso.' : 'No se registró la pregunta.')),
+        fact('Motivo de la continuación', str(tour.reason) ? humanValue(tour.reason) : 'No se registró el motivo.'),
+        fact('Estado del presupuesto', budgetStates[str(budget.status)] || 'No se registró un estado reconocido; no se deduce del monto.'),
+        ...(typeof budget.amount === 'number' && Number.isFinite(budget.amount) ? [fact('Monto de referencia', `$${humanValue(budget.amount)} USD`)] : []),
+        ...(str(budget.source) ? [fact('Origen del dato de presupuesto', budgetSources[str(budget.source)] || humanValue(budget.source))] : []),
+      ] }] : []),
+  ]
+}
+
+function coverageSections(output: Row, snapshots: CatalogSnapshot[]): ExplanationSection[] {
   const continuation = row(output.commercial_continuation)
   const question = row(continuation.question)
   const checks = row(continuation.checks)
@@ -260,6 +374,8 @@ function coverageSections(output: Row): ExplanationSection[] {
         : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
   return [
     ...turnIntentSections(output.resolved_turn_intent),
+    ...leadProfileSections(row(output.profile_introduction).profile_state, output.profile_introduction),
+    ...progressiveSelectionSections(output, snapshots),
     ...transformationSections(output),
     ...(Object.keys(row(output.fallback_validation)).length ? [{ title: 'Validación de la respuesta de respaldo', description: 'El respaldo también debe tener datos verificados y atender la consulta. Una omisión informada se contrasta con la cobertura del catálogo.', facts: [
       { label: 'Resultado', value: row(output.fallback_validation).passed === true ? 'Superó los controles registrados del respaldo.' : 'El respaldo original no superó los controles y fue sustituido.' },
@@ -324,6 +440,8 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const found = Object.entries(output).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query', 'coverage_locked'].includes(key))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   if (step.key === 'turn_intent') found.push(...turnIntentSections(output, snapshots).flatMap(section => section.facts))
+  if (step.key === 'lead_profile_resolution') found.push(...leadProfileSections(output.profile, output).flatMap(section => section.facts))
+  if (step.key === 'lead_introduction') found.push(...leadProfileSections(row(output.profile_introduction).profile_state, output.profile_introduction).flatMap(section => section.facts))
   const query = output.catalog_query || output.query || input.catalog_query || input.query
   const queryText = queryDescription(query, snapshots)
   if (step.key === 'catalog_resolution') {
@@ -372,6 +490,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const linkedActions = execution.steps.filter(item => item.key === 'advisor_handoff' && Number(decisionRecord(item).caused_by_step) === step.order)
   const summary = step.key === 'turn_intent' && output.version === 'turn-intent-v1'
     ? `Objetivo registrado: ${humanValue(output.objective)}. ${humanValue(output.interpretation_source)}.`
+    : step.key === 'lead_profile_resolution' ? 'Se conservaron los datos declarados y se resolvió si la residencia está confirmada o necesita una aclaración. Este paso no acredita el envío de la pregunta.'
     : step.key === 'route_consistency' ? humanValue(output.reason)
     : step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`
     : step.key === 'message_delivery' && output.action === 'accepted' ? 'Kommo aceptó iniciar Salesbot. Esto no confirma entrega ni lectura en WhatsApp.'
@@ -381,7 +500,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
         : step.key === 'response_coverage' ? 'Se revisó si la respuesta atiende las solicitudes del mensaje. Los estados registrados permiten revisar esa decisión.'
           : 'Entradas y resultados conservados para este paso de la ejecución.'
   return {
-    coverageSections: step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output)] : step.key === 'response_validation' ? transformationSections(output) : null,
+    coverageSections: step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output, snapshots)] : step.key === 'response_validation' ? transformationSections(output) : null,
     title: stepTitle(step), summary, used, found, units, cause, missingCause: hasCause && !cause, linkedActions,
     origin: str(decision.origin) ? decision.origin === 'catalog' ? 'Consulta calculada del catálogo' : humanValue(decision.origin) : 'Origen no registrado en este paso.',
     reason: reason ? humanValue(reason) : 'No se guardó un motivo específico. No se deduce de los pasos cercanos.',

@@ -726,7 +726,8 @@ test('yes to viewing a unit after a financing mention never starts qualification
   await h.process([h.rows[0]], async () => {})
   const sent = h.calls.find(c => c.name === 'patch').args[2]
   assert.match(sent, /502.*100 m².*sala, cocina/)
-  assert.doesNotMatch(sent, /cédula|revisión|asesor|visita|¿/)
+  assert.doesNotMatch(sent, /cédula|revisión|asesor|visita/)
+  assert.match(sent, /¿Qué presupuesto aproximado tiene previsto para la compra\?/)
   assert.equal(h.calls.some(c => ['process_financing_message_v2', 'lv_collect_visit_intake', 'handoff_lead'].includes(c.name)), false)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
 })
@@ -2463,6 +2464,164 @@ const checkedBaseCoverage = async input => require('../src/lib/integrations/auto
     purpose: /¿/.test(input.baseReply) ? 'choose_property' : 'none', missing_datum: /¿/.test(input.baseReply) ? 'opción de interés' : '',
     next_decision: /¿/.test(input.baseReply) ? 'mostrar detalles de esa opción' : '' } }))
 
+const progressiveReplayCatalog = [
+  ...[601, 602, 603, 604, 605, 606].map(number => ({ id: `progressive-${number}`, unit_number: String(number), category: 'penthouse',
+    bedrooms: [602, 605].includes(number) ? 3 : 2, bathrooms_full: number === 605 ? 3 : 2,
+    floor_number: 6, floor: 'Sexta Planta Alta', area_internal_m2: number === 602 ? 142.09 : number === 605 ? 140.53 : 110,
+    area_exterior_m2: number === 602 ? 25.3 : number === 605 ? 23.01 : 20, published_commercial_price: [602, 605].includes(number) ? 550000 : 400000,
+    is_published: true, status: 'disponible' })),
+  ...[202, 302, 304, 404].map(number => ({ id: `progressive-${number}`, unit_number: String(number), category: 'departamento',
+    bedrooms: [202, 302].includes(number) ? 3 : 2, bathrooms_full: 2, floor_number: Math.floor(number / 100),
+    floor: { 2: 'Segunda Planta Alta', 3: 'Tercera Planta Alta', 4: 'Cuarta Planta Alta' }[Math.floor(number / 100)],
+    area_internal_m2: [202, 302].includes(number) ? 120.83 : 109.69, area_exterior_m2: 27.03,
+    published_commercial_price: [202, 302].includes(number) ? 300000 : 250000, is_published: true, status: 'disponible' })),
+  { id: 'progressive-203', unit_number: '203', category: 'suite', bedrooms: 1, bathrooms_full: 1, floor_number: 2,
+    floor: 'Segunda Planta Alta', area_internal_m2: 60.57, area_exterior_m2: 10.34, published_commercial_price: 200000, is_published: true, status: 'disponible' },
+]
+const progressiveReplaySummary = () => ({ _lead_introduction: { status: 'complete' }, _property_context: {
+  version: 2, offered_ids: ['progressive-602', 'progressive-605'], selected_ids: [],
+  query: { group: 'residential', category: 'penthouse', operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } },
+} })
+
+const checkedProgressiveCoverage = input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input,
+  async (...args) => {
+    if (args.at(-1) === 'review') return { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
+      operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [],
+      claims: [{ fragment: input.baseReply, subject: 'opciones verificadas', polarity: 'affirmation', verdict: 'supported', evidence: 'catalogo', evidence_source: 'verified_context' }] }
+    const question = input.baseReply.match(/¿[^?]+\?/g)?.at(-1) || ''
+    return { reply: input.baseReply, requests: [{ fragment: input.current, intent: 'Atender la consulta actual sobre inmuebles', request_type: 'general_information',
+      base_status: 'answered', status: 'answered', evidence: input.baseReply, fact_key: null }],
+      question: { text: question, purpose: question ? input.audit.post_tour_continuation ? 'clarify_request' : 'choose_property' : 'none',
+        missing_datum: question ? input.audit.post_tour_continuation ? 'Presupuesto o detalle de la opción seleccionada' : 'Opción de interés' : '',
+        next_decision: question ? 'Continuar según la respuesta del lead' : '' } }
+  })
+
+function progressiveReplay(initial = {}) {
+  let summary = initial.summary || progressiveReplaySummary(), lead = { preferred_category: 'penthouse', preferred_bedrooms: 3, ...initial.lead }
+  let history = initial.history || [{ role: 'cliente', content: 'Me interesan los penthouses de tres dormitorios' },
+    { role: 'bot', content: 'Tenemos los penthouses 602 y 605 de tres dormitorios. ¿Qué le gustaría conocer?' }]
+  return {
+    async turn(current, property = {}, intent = 'select_property') {
+      const semantics = extractedProperty(current, property, intent)
+      if (intent === 'answer_previous' && summary._pending_question?.id) semantics.answer_to_previous = {
+        question_id: summary._pending_question.id, kind: 'affirmative', evidence: current, confidence: 'high',
+      }
+      const info = { ...priceInfo(), catalogo: progressiveReplayCatalog, lead, historial: history,
+        conversacion: { datos_conocidos: { presupuesto_texto: lead.behavior_signals?.sdr?.presupuesto_texto || null } },
+        financiamiento: { partners: [], current: {} }, politica_visitas: { allowSuggestions: false, launchDestination: 'office' } }
+      const h = conversationHarness({ catalog: progressiveReplayCatalog, commercialInfo: info, realCommercial: true,
+        commercialAi: deterministicOnly, captureTrace: true, turnComplete: checkedProgressiveCoverage, financeContext: info.financiamiento,
+        history, summary, lead, extracted: { events: intent === 'ask_price' ? ['asked_price'] : [], turn_semantics: semantics } })
+      h.rows[0].payload.text = current
+      const result = await h.process([h.rows[0]], async () => {})
+      const sent = h.calls.find(call => call.name === 'register_outbound_message')?.args
+      assert.equal(result.action, 'accepted', current)
+      assert.ok(sent, current)
+      assert.equal(sent.p_tool_calls.turn_completeness.status, 'checked', `${current}: ${JSON.stringify(sent.p_tool_calls.turn_completeness.validation_details || [])}`)
+      assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2'].includes(call.name)), false, current)
+      summary = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+      history = [...history, { role: 'cliente', content: current }, { role: 'bot', content: sent.p_content }]
+      lead = structuredClone(h.lead)
+      return { sent, summary, history, lead, calls: h.calls }
+    },
+  }
+}
+
+test('progressive dialogue prices and compares only the requested penthouses before a concrete selection and one tour', async t => {
+  live(t)
+  const replay = progressiveReplay()
+  const quote = await replay.turn('Entiendo, ¿cuál es el precio de los penthouse?', { category: 'penthouse', operation: 'search', reference_kind: 'followup' }, 'ask_price')
+  assert.match(quote.sent.p_content, /penthouses de 3 dormitorios.*602.*605/is)
+  assert.match(quote.sent.p_content, /sexta planta alta/i)
+  assert.match(quote.sent.p_content, /550[.,]000.*cada uno/i)
+  assert.match(quote.sent.p_content, /más detalles de alguna de estas opciones/i)
+  assert.doesNotMatch(quote.sent.p_content, /601|603|604|606|suite|departamento|tour\?|presupuesto|financiamiento/i)
+  assert.equal(quote.sent.p_tool_calls.progressive_selection.stage, 'offer_details')
+  assert.deepEqual(quote.summary._property_context.selected_ids, [])
+  const acceptedDetails = await progressiveReplay({ summary: quote.summary, history: quote.history, lead: quote.lead })
+    .turn('Sí está bien', { operation: 'select', reference_kind: 'followup' }, 'answer_previous')
+  assert.doesNotMatch(acceptedDetails.sent.p_content, /tour\?/)
+  assert.deepEqual(acceptedDetails.summary._property_context.selected_ids, [])
+  assert.equal(acceptedDetails.summary._pending_question.act, 'choose_unit')
+
+  const comparison = await replay.turn('Sí está bien, ¿y cuál es la diferencia?', { operation: 'compare', reference_kind: 'comparison', query_scope: 'comparison' }, 'answer_previous')
+  assert.match(comparison.sent.p_content, /602.*142[.,]09.*605.*140[.,]53/is)
+  assert.match(comparison.sent.p_content, /2 baños.*3 baños/is)
+  assert.match(comparison.sent.p_content, /¿.*cuál.*\?/i)
+  assert.doesNotMatch(comparison.sent.p_content, /601|603|604|606|tour\?|presupuesto|financiamiento/i)
+  assert.deepEqual(comparison.summary._property_context.selected_ids, [])
+  assert.equal(comparison.summary._pending_question.act, 'choose_unit')
+
+  for (const knownBudget of ['missing', 'maximum_total', 'amount']) {
+    const selected = progressiveReplay({ summary: comparison.summary, history: comparison.history, lead: {
+      ...comparison.lead, ...(knownBudget !== 'missing' ? { behavior_signals: { sdr: {
+        presupuesto_texto: knownBudget === 'maximum_total' ? 'Mi presupuesto total es de 600 mil dólares' : 'Cuento con 70 mil dólares',
+      } } } : {}),
+    } })
+    const result = await selected.turn('El 605 por favor', { category: 'penthouse', operation: 'select', reference_kind: 'explicit', unit_numbers: ['605'], query_scope: 'offered' })
+    assert.equal((result.sent.p_content.match(/https:\/\/www\.lavilett\.com\/tour\?unidad=605/g) || []).length, 1)
+    assert.doesNotMatch(result.sent.p_content, /tour\?unidad=602|otras opciones|compararla con otra/i)
+    assert.deepEqual(result.summary._property_context.selected_ids, ['progressive-605'])
+    assert.equal((result.sent.p_content.match(/\?/g) || []).length, 2, 'one URL query marker and one commercial question')
+    if (knownBudget === 'maximum_total') {
+      assert.doesNotMatch(result.sent.p_content, /¿[^?]*(?:presupuesto|entrada)/i)
+      assert.equal(result.sent.p_tool_calls.post_tour_continuation.budget.status, 'maximum_total')
+    } else if (knownBudget === 'amount') {
+      assert.match(result.sent.p_content, /¿Ese monto corresponde a su presupuesto total para la compra o al dinero disponible para la entrada\?/)
+      assert.equal(result.summary._pending_question.id, 'budget_kind')
+      assert.equal(result.sent.p_tool_calls.post_tour_continuation.budget.amount, 70000)
+    } else {
+      assert.match(result.sent.p_content, /¿Qué presupuesto aproximado tiene previsto para la compra\?/)
+      assert.equal(result.summary._pending_question.id, 'budget_amount')
+    }
+  }
+})
+
+test('progressive dialogue changes the bedroom requirement only on request then asks category floor and unit in order', async t => {
+  live(t)
+  const replay = progressiveReplay()
+  const fewer = await replay.turn('Mejor quiero algo con menos cuartos', { category: null, operation: 'search', query_scope: 'catalog' })
+  assert.match(fewer.sent.p_content, /departamentos de 2 dormitorios.*penthouses de 2 dormitorios.*suites de 1 dormitorio/is)
+  assert.doesNotMatch(fewer.sent.p_content, /3 dormitorios|602|605|tour\?|más económicas|más baratos/i)
+  assert.match(fewer.sent.p_content, /¿Con cuál de estas opciones le gustaría continuar\?/)
+  assert.equal(fewer.summary._pending_question.act, 'choose_category')
+
+  const apartments = await replay.turn('Prefiero los departamentos', { category: 'departamento', operation: 'search', query_scope: 'offered' })
+  assert.match(apartments.sent.p_content, /tercera.*cuarta/is)
+  assert.match(apartments.sent.p_content, /¿[^?]*planta[^?]*\?/i)
+  assert.doesNotMatch(apartments.sent.p_content, /3 dormitorios|602|605|tour\?/i)
+  assert.equal(apartments.summary._pending_question.act, 'choose_floor')
+  assert.deepEqual(apartments.summary._property_context.selected_ids, [])
+
+  const floor = await replay.turn('La cuarta planta', { category: 'departamento', operation: 'search', filters: { floor_number: 4 }, query_scope: 'offered' })
+  assert.match(floor.sent.p_content, /404/)
+  assert.doesNotMatch(floor.sent.p_content, /304|tour\?/)
+  assert.deepEqual(floor.summary._property_context.selected_ids, [])
+  const selection = await replay.turn('El 404 por favor', { operation: 'select', reference_kind: 'explicit', unit_numbers: ['404'], query_scope: 'offered' })
+  assert.match(selection.sent.p_content, /tour\?unidad=404/)
+  assert.deepEqual(selection.summary._property_context.selected_ids, ['progressive-404'])
+})
+
+test('progressive dialogue clarifies an unspecified cheaper request and preserves three bedrooms when accepted', async t => {
+  live(t)
+  const replay = progressiveReplay()
+  const cheaper = await replay.turn('Quiero algo más barato', { operation: 'search', query_scope: 'catalog' })
+  assert.match(cheaper.sent.p_content, /¿Desea que mantengamos los 3 dormitorios al buscar opciones más económicas\?/)
+  assert.doesNotMatch(cheaper.sent.p_content, /suite|departamento|601|tour\?/i)
+  assert.equal(cheaper.summary._pending_question.act, 'confirm_bedrooms')
+  const accept = await replay.turn('Sí, está bien', { operation: 'none', reference_kind: 'followup' }, 'answer_previous')
+  assert.match(accept.sent.p_content, /opciones más económicas.*departamentos de 3 dormitorios/is)
+  assert.doesNotMatch(accept.sent.p_content, /2 dormitorios|suite|penthouse|tour\?/i)
+  const units = accept.sent.p_tool_calls.catalog_results.units
+  assert.ok(units.length > 0)
+  assert.ok(units.every(unit => unit.category === 'departamento' && unit.bedrooms === 3 && unit.published_commercial_price < 550000))
+  assert.equal(accept.summary._pending_question.act, 'explore_alternatives')
+  const departments = await replay.turn('Sí por favor', { operation: 'none', reference_kind: 'followup' }, 'answer_previous')
+  assert.match(departments.sent.p_content, /segunda.*tercera/is)
+  assert.match(departments.sent.p_content, /¿[^?]*planta[^?]*\?/i)
+  assert.equal(departments.summary._pending_question.act, 'choose_floor')
+})
+
 test('explicit 605 choice shares its state, catalogue facts and tour through the real final reviewer', async t => {
   live(t)
   for (const current of ['el 605 por favor', 'pero si ya le dije la 605']) {
@@ -2619,6 +2778,113 @@ test('introductory profile is persisted with evidence and brochure is released o
   assert.equal(last._lead_profile.full_name,'Juan')
   assert.equal(last._lead_introduction.status,'complete')
   assert.match(third.calls.find(call=>call.name==='register_outbound_message').args.p_content,/alguna de estas opciones/)
+})
+
+test('a declared origin is confirmed through the shared profile and actual sent question before becoming residence', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_PROFILE_REPLAY') })
+  const catalog = dialogueReplayCatalog, commercialInfo = { ...priceInfo(), catalogo: catalog }
+  const first = conversationHarness({ catalog, commercialInfo, realCommercial: true, commercialAi: deterministicOnly,
+    extracted: { turn_semantics: extractedProperty('Quiero información', { operation: 'none' }) } })
+  first.rows[0].payload.text = 'Quiero información'
+  await first.process([first.rows[0]], async () => {})
+  const opening = first.calls.find(c => c.name === 'register_outbound_message').args.p_content
+  const initialSummary = JSON.parse(first.calls.find(c => c.name === 'update:conversations').args.summary)
+  assert.equal(initialSummary._pending_question.id, 'lead_profile')
+  const current = 'claro, carlos y soy de cuenca'
+  const modelCalls = []
+  const paraphrase = 'Entiendo que es de Cuenca. ¿Actualmente reside allí?'
+  const second = conversationHarness({ catalog, commercialInfo, realCommercial: true, commercialAi: deterministicOnly,
+    captureTrace: true, summary: initialSummary, history: [{ role: 'cliente', content: 'Quiero información' }, { role: 'bot', content: opening }],
+    extracted: { full_name: 'Carlos', residence_city: null, residence_country: null,
+      profile_evidence: { full_name: 'carlos', residence_city: null, residence_country: null },
+      declared_location: { city: 'Cuenca', country: null, kind: 'origin', evidence: 'soy de cuenca' },
+      turn_semantics: { ...extractedProperty(current, { operation: 'none' }, 'answer_previous'),
+        answer_to_previous: { question_id: 'lead_profile', kind: 'value', evidence: current, confidence: 'high' } } },
+    turnComplete: input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input, async (...args) => {
+      modelCalls.push(args)
+      const reply = input.baseReply.replace('Entiendo que es de Cuenca. ¿Es también su lugar de residencia actual?', paraphrase)
+      if (args.at(-1) === 'review') return { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
+        operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [],
+        claims: [{ fragment: reply, subject: 'Nombre declarado y residencia por confirmar', polarity: 'affirmation', verdict: 'supported',
+          evidence: 'Perfil normalizado y pregunta de confirmación del lugar declarado', evidence_source: 'verified_context' }] }
+      return { reply, requests: [{ fragment: current, intent: 'Responder a los datos declarados', request_type: 'action', base_status: 'answered', status: 'answered', evidence: input.baseReply }],
+        question: { text: '¿Actualmente reside allí?', purpose: 'collect_lead_profile', missing_datum: 'Confirmar si Cuenca es su residencia actual', next_decision: 'Confirmar la residencia y continuar la consulta comercial' } }
+    }) })
+  second.rows[0].payload.text = current
+  await second.process([second.rows[0]], async () => {})
+  const sent = second.calls.find(c => c.name === 'register_outbound_message').args
+  assert.equal(sent.p_tool_calls.turn_completeness.status, 'checked')
+  assert.match(sent.p_content, /Mucho gusto, Carlos/)
+  assert.match(sent.p_content, /brochure-la-vilet-v5\.pdf/)
+  assert.ok(sent.p_content.includes(paraphrase))
+  assert.doesNotMatch(sent.p_content, /en qué ciudad o país reside|indicarnos su nombre/)
+  const saved = JSON.parse(second.calls.find(c => c.name === 'update:conversations').args.summary)
+  assert.equal(saved._lead_profile.declared_location.city, 'Cuenca')
+  assert.equal(saved._lead_profile.residence_city, undefined)
+  assert.equal(saved._lead_profile.residence_status, 'pending_confirmation')
+  assert.equal(saved._pending_question.id, 'lead_residence_confirmation')
+  assert.equal(saved._pending_question.question, '¿Actualmente reside allí?')
+  assert.deepEqual(saved._pending_question.residence_candidate, { city: 'Cuenca', country: null, evidence: 'soy de cuenca' })
+  assert.equal(saved._lead_introduction.acknowledged_name, 'Carlos')
+  assert.ok(modelCalls.some(args => args.at(-1) === 'writing'))
+  assert.ok(modelCalls.some(args => args.at(-1) === 'review'))
+  for (const call of modelCalls) {
+    assert.equal(call[1].estado_operativo.profile_introduction.question_purpose, 'confirm_residence')
+    assert.equal(call[1].estado_operativo.profile_introduction.profile_state.residence_status, 'pending_confirmation')
+    assert.equal(call[1].estado_operativo.profile_introduction.profile_state.declared_location.city, 'Cuenca')
+    assert.match(call[0], /APERTURA Y PERFIL DEL LEAD/)
+  }
+  const trace = second.calls.find(c => c.name === 'execution_trace').args
+  assert.equal(trace.find(s => s.step_key === 'lead_profile_resolution').output_summary.profile.residence_status, 'pending_confirmation')
+  assert.equal(trace.find(s => s.step_key === 'response_coverage').output_summary.profile_introduction.question_purpose, 'confirm_residence')
+
+  for (const [answer, city, decision, declaration] of [
+    ['sí', 'Cuenca', 'confirm', {}],
+    ['No, vivo en Guayaquil', 'Guayaquil', 'deny', { residence_city: 'Guayaquil', profile_evidence: { residence_city: 'vivo en Guayaquil' } }],
+  ]) {
+    const third = conversationHarness({ catalog, commercialInfo, realCommercial: true, commercialAi: deterministicOnly,
+      summary: saved, history: [{ role: 'cliente', content: current }, { role: 'bot', content: sent.p_content }],
+      extracted: { ...declaration,
+        residence_confirmation: { decision, evidence: decision === 'confirm' ? 'sí' : 'No', confidence: 'high' },
+        turn_semantics: { ...extractedProperty(answer, { operation: 'none' }, 'answer_previous'),
+          answer_to_previous: { question_id: 'lead_residence_confirmation', kind: decision === 'confirm' ? 'affirmative' : 'negative', evidence: answer, confidence: 'high' } } } })
+    third.rows[0].payload.text = answer
+    await third.process([third.rows[0]], async () => {})
+    const last = JSON.parse(third.calls.find(c => c.name === 'update:conversations').args.summary)
+    assert.equal(last._lead_profile.residence_city, city, answer)
+    assert.equal(last._lead_profile.residence_status, 'confirmed', answer)
+    assert.equal(last._lead_profile.declared_location.city, 'Cuenca', answer)
+    assert.equal(last._lead_profile.residence_candidate, null, answer)
+    assert.equal(last._lead_introduction.status, 'complete', answer)
+    assert.equal(last._lead_introduction.acknowledged_name, 'Carlos', answer)
+    const response = third.calls.find(c => c.name === 'register_outbound_message').args.p_content
+    assert.match(response, /alguna de estas opciones/, answer)
+    assert.doesNotMatch(response, /Mucho gusto|reside actualmente|residencia actual|reside allí|brochure-la-vilet-v5\.pdf/, answer)
+    assert.equal(third.calls.some(c => ['process_financing_message_v2', 'lv_collect_visit_intake', 'lv_apply_client_visit_intent', 'handoff_lead'].includes(c.name)), false, answer)
+    const extraction = third.calls.find(c => c.name === 'ai' && c.args.prompt.startsWith('extractor_eventos')).args.input
+    assert.equal(extraction.pregunta_pendiente.id, 'lead_residence_confirmation', answer)
+    assert.equal(extraction.pregunta_pendiente.residence_candidate.city, 'Cuenca', answer)
+  }
+})
+
+test('failed profile delivery never persists the name acknowledgement or a confirmation question as sent', async t => {
+  live(t)
+  const opening = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
+  const initial = { _lead_introduction: { status: 'pending', brochure_sent: false, reminder_count: 0 },
+    _pending_question: { id: 'lead_profile', act: 'profile', question: opening } }
+  const current = 'claro, carlos y soy de cuenca'
+  const failed = conversationHarness({ sendFails: true, summary: initial, history: [{ role: 'bot', content: opening }],
+    extracted: { full_name: 'Carlos', profile_evidence: { full_name: 'carlos' },
+      declared_location: { city: 'Cuenca', country: null, kind: 'origin', evidence: 'soy de cuenca' },
+      turn_semantics: extractedProperty(current, { operation: 'none' }, 'answer_previous') } })
+  failed.rows[0].payload.text = current
+  await assert.rejects(() => failed.process([failed.rows[0]], async () => {}), /KOMMO_UNAVAILABLE/)
+  assert.match(failed.calls.find(c => c.name === 'patch').args[2], /Mucho gusto, Carlos/)
+  assert.equal(failed.calls.some(c => ['update:conversations', 'register_outbound_message'].includes(c.name)), false)
+  assert.equal(failed.calls.some(c => c.name === 'update:leads' && c.args.name), false)
+  assert.equal(initial._lead_introduction.acknowledged_name, undefined)
+  assert.equal(initial._pending_question.id, 'lead_profile')
 })
 
 test('commercial overview precedes even a remembered catalogue selection, but specific requests retain their route', async () => {

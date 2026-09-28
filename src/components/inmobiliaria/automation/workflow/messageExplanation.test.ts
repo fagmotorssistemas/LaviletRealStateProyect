@@ -53,6 +53,154 @@ test('commercial continuation explains the recorded objective selection question
   assert.equal(old.some(section=>section.title==='Objetivo y continuación comercial'),false)
 })
 
+test('progressive selection explains the quoted filter and next decision without treating offered units as chosen', () => {
+  const catalogue = step(1, 'catalog_resolution', { catalog_snapshot: [
+    { id: 'p602', unit_number: '602', category: 'penthouse' }, { id: 'p605', unit_number: '605', category: 'penthouse' },
+  ] })
+  const review = step(2, 'response_coverage', { status: 'checked', progressive_selection: {
+    stage: 'offer_details', question: '¿Le gustaría obtener más detalles de alguna de estas opciones?',
+    candidate_ids: ['p602', 'p605'], criteria: { category: 'penthouse', bedrooms: 3 }, reason: 'explain_current_quoted_options',
+  } })
+  const section = explainStep(execution([catalogue, review]), review).coverageSections!.find(s => s.title === 'Opciones de interés y siguiente paso')!
+  assert.match(section.description, /no equivale a elegir una unidad/)
+  assert.match(section.facts.find(f => f.label === 'Paso previsto')!.value, /opciones cotizadas/)
+  assert.equal(section.facts.find(f => f.label === 'Opciones de referencia')!.value, 'penthouse 602, penthouse 605')
+  assert.match(section.facts.find(f => f.label === 'Criterios utilizados')!.value, /Dormitorios: 3/)
+  assert.match(section.facts.find(f => f.label === 'Motivo del siguiente paso')!.value, /cumplen el interés actual/)
+  assert.match(section.facts.find(f => f.label === '¿El cliente pidió cambiar la búsqueda?')!.value, /No quedó registrado/)
+})
+
+test('requested preference changes and completed comparisons explain different next steps', () => {
+  for (const [stage, reason, expected] of [
+    ['choose_unit', 'comparison_answered_before_selection', /cliente elija una unidad/],
+    ['choose_category', 'requested_fewer_bedrooms', /reducir la cantidad de dormitorios/],
+    ['confirm_bedrooms', 'cheaper_requires_bedrooms_confirmation', /mantiene los dormitorios/],
+  ]) {
+    const item = step(1, 'response_coverage', { status: 'checked', progressive_selection: {
+      stage, reason, criteria: { bedrooms_any: [1, 2] }, candidate_ids: [], question: 'Pregunta registrada',
+      ...(stage === 'choose_category' ? { client_requested_change: true, preference_kind: 'fewer_bedrooms' } : {}),
+    } })
+    const section = explainStep(execution([item]), item).coverageSections!.find(s => s.title === 'Opciones de interés y siguiente paso')!
+    assert.match(section.facts.find(f => f.label === 'Motivo del siguiente paso')!.value, expected)
+    assert.equal(section.facts.find(f => f.label === 'Pregunta siguiente preparada')!.value, 'Pregunta registrada')
+    if (stage === 'choose_category') {
+      assert.equal(section.facts.find(f => f.label === '¿El cliente pidió cambiar la búsqueda?')!.value, 'Sí')
+      assert.equal(section.facts.find(f => f.label === 'Cambio solicitado')!.value, 'Buscar menos dormitorios')
+    }
+  }
+})
+
+test('post-tour continuation distinguishes missing budget, ambiguous amount and a declared entry without asserting delivery', () => {
+  for (const [status, amount, reason, expected] of [
+    ['not_discussed', null, 'budget_missing', /todavía no consultado/],
+    ['amount', 70000, 'budget_kind_missing', /distinguir total o entrada/],
+    ['initial_capital', 70000, 'financing_information_available', /disponible para la entrada/],
+    ['declines_to_disclose', null, 'budget_declined', /prefirió no indicar/],
+  ] as const) {
+    const item = step(1, 'response_coverage', { status: 'checked', post_tour_continuation: {
+      question: 'Pregunta según el presupuesto', reason, budget: { status, amount, source: 'history' },
+    } })
+    const section = explainStep(execution([item]), item).coverageSections!.find(s => s.title === 'Continuación después del recorrido 360')!
+    assert.match(section.description, /no confirma el envío del recorrido/)
+    assert.match(section.facts.find(f => f.label === 'Estado del presupuesto')!.value, expected)
+    assert.equal(section.facts.find(f => f.label === 'Origen del dato de presupuesto')!.value, 'Declaración del cliente en el historial')
+    assert.equal(section.facts.some(f => f.label === 'Monto de referencia'), amount !== null)
+  }
+})
+
+test('continuation explanations never borrow future plans or infer a budget kind from an amount', () => {
+  const future = step(3, 'response_coverage', { progressive_selection: { stage: 'offer_details' }, post_tour_continuation: { budget: { status: 'maximum_total', amount: 70000 } } })
+  for (const recorded of [undefined, {}]) {
+    const old = step(1, 'response_coverage', { status: 'checked', progressive_selection: recorded, post_tour_continuation: recorded })
+    const sections = explainStep(execution([old, future]), old).coverageSections!
+    assert.equal(sections.some(s => s.title === 'Opciones de interés y siguiente paso' || s.title === 'Continuación después del recorrido 360'), false)
+  }
+  const incomplete = step(2, 'response_coverage', { post_tour_continuation: { budget: { amount: 70000 } } })
+  const section = explainStep(execution([incomplete]), incomplete).coverageSections!.find(s => s.title === 'Continuación después del recorrido 360')!
+  assert.match(section.facts.find(f => f.label === 'Estado del presupuesto')!.value, /no se deduce del monto/)
+  for (const code of ['commercial_next_question_missing', 'commercial_next_question_changed']) {
+    assert.doesNotMatch(humanValue(code), /commercial_next/)
+    for (const output of [{ status: 'rejected_guard', issues: [code] }, { status: 'rejected_review', semantic_review: { validation_details: [{ code }] } }]) {
+      const banner = reviewDecision(output)
+      assert.equal(banner.tone, 'rejected')
+      assert.match(banner.causes.join(' '), /pregunta/)
+      assert.doesNotMatch(banner.causes.join(' '), /commercial_next/)
+    }
+  }
+})
+
+test('profile resolution distinguishes a declared place from unconfirmed residence and exposes only profile evidence', () => {
+  const item = step(2, 'lead_profile_resolution', { profile: {
+    full_name: 'Carlos', residence_city: null, residence_country: null, residence_status: 'pending_confirmation',
+    declared_location: { city: 'Cuenca', country: null, kind: 'origin', evidence: 'soy de Cuenca' },
+    residence_candidate: { city: 'Cuenca', country: null, evidence: 'soy de Cuenca' },
+    sources: { full_name: { evidence: 'Carlos', internal_payload: 'PRIVATE-SOURCE' }, unrelated: 'PRIVATE-EXTRA' },
+    private_payload: 'PRIVATE-PAYLOAD',
+  }, candidate: { city: 'Cuenca', evidence: 'soy de Cuenca' }, question_purpose: 'confirm_residence', question: '¿Es también su lugar de residencia actual?' })
+  const result = explainStep(execution([item]), item)
+  assert.equal(result.title, 'Nombre y residencia interpretados')
+  assert.equal(result.found.find(f => f.label === 'Lugar declarado')?.value, 'Cuenca')
+  assert.equal(result.found.find(f => f.label === 'Residencia actual registrada')?.value, 'No registrada.')
+  assert.equal(result.found.find(f => f.label === 'Estado de residencia')?.value, 'Residencia pendiente de confirmación')
+  assert.equal(result.found.find(f => f.label === 'Evidencia que motiva la confirmación')?.value, 'soy de Cuenca')
+  assert.match(result.found.find(f => f.label === 'Propósito de la pregunta de perfil')!.value, /Confirmar si el lugar declarado/)
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE-/)
+})
+
+test('a confirmed residence stays distinct from origin and displays the recorded residence evidence', () => {
+  const item = step(2, 'lead_profile_resolution', { profile: { full_name: 'Carlos', residence_status: 'confirmed',
+    declared_location: { city: 'Cuenca', kind: 'origin', evidence: 'soy de Cuenca' },
+    residence_city: 'Guayaquil', residence_country: null, residence_candidate: null,
+    sources: { residence_city: { evidence: 'vivo en Guayaquil' } },
+  } })
+  const result = explainStep(execution([item]), item)
+  assert.equal(result.found.find(f => f.label === 'Lugar declarado')?.value, 'Cuenca')
+  assert.equal(result.found.find(f => f.label === 'Residencia actual registrada')?.value, 'Guayaquil')
+  assert.equal(result.found.find(f => f.label === 'Evidencia de ciudad de residencia')?.value, 'vivo en Guayaquil')
+  assert.equal(result.found.some(f => f.label === 'Lugar que necesita confirmación'), false)
+})
+
+test('introduction and review explain the profile question and first name acknowledgement from their own snapshots', () => {
+  const profile_introduction = { profile_state: { full_name: 'Carlos', residence_status: 'pending_confirmation', residence_candidate: { city: 'Cuenca', evidence: 'soy de Cuenca' } },
+    candidate: { city: 'Cuenca', evidence: 'soy de Cuenca' }, question_purpose: 'confirm_residence',
+    question: 'Entiendo que es de Cuenca. ¿Es también su lugar de residencia actual?', name_acknowledgement: 'Mucho gusto, Carlos.' }
+  const introduction = step(3, 'lead_introduction', { profile_introduction })
+  const review = step(4, 'response_coverage', { status: 'checked', profile_introduction })
+  for (const item of [introduction, review]) {
+    const result = explainStep(execution([introduction, review]), item)
+    const facts = item.key === 'lead_introduction' ? result.found : result.coverageSections!.find(s => s.title === 'Datos de perfil y confirmación')!.facts
+    assert.equal(facts.find(f => f.label === 'Presentación con el nombre recibido')?.value, 'Mucho gusto, Carlos.')
+    assert.equal(facts.find(f => f.label === 'Pregunta de perfil preparada')?.value, profile_introduction.question)
+    assert.equal(facts.find(f => f.label === 'Lugar que necesita confirmación')?.value, 'Cuenca')
+  }
+  const limited = step(5, 'lead_introduction', { profile_introduction: { ...profile_introduction, candidate: '[resumen limitado]' } })
+  assert.equal(explainStep(execution([limited]), limited).found.find(f => f.label === 'Lugar que necesita confirmación')?.value, 'Cuenca')
+})
+
+test('historical reviews never borrow profile state from another step or infer confirmation from a city', () => {
+  const newer = step(3, 'lead_profile_resolution', { profile: { residence_city: 'Cuenca', residence_status: 'confirmed' } })
+  for (const profile_introduction of [undefined, {}, { stage: 'initial' }]) {
+    const old = step(1, 'response_coverage', { status: 'checked', profile_introduction })
+    assert.equal(explainStep(execution([old, newer]), old).coverageSections!.some(s => s.title === 'Datos de perfil y confirmación'), false)
+  }
+  const partial = step(2, 'lead_profile_resolution', { profile: { residence_city: 'Cuenca' } })
+  assert.match(explainStep(execution([partial]), partial).found.find(f => f.label === 'Estado de residencia')!.value, /No se registró el estado/)
+})
+
+test('profile guard reasons explain which purpose or confirmation was lost', () => {
+  assert.match(humanValue('lead_profile_confirmation_omitted'), /omitió confirmar/)
+  assert.match(humanValue('lead_profile_question_purpose_changed'), /dato que debía recoger o confirmar/)
+  assert.match(humanValue('lead_profile_unconfirmed_residence'), /aún necesita confirmación/)
+  assert.match(humanValue('lead_profile_name_acknowledgement_missing'), /Mucho gusto.*primera vez/)
+  for (const code of ['lead_profile_confirmation_omitted', 'lead_profile_question_purpose_changed', 'lead_profile_unconfirmed_residence', 'lead_profile_name_acknowledgement_missing']) {
+    const banner = reviewDecision({ status: 'rejected_guard', issues: [code] })
+    assert.equal(banner.tone, 'rejected')
+    assert.match(banner.causes[0], new RegExp(humanValue(code)))
+    assert.doesNotMatch(banner.causes[0], /lead_profile_/)
+    assert.doesNotMatch(reviewDecision({ status: 'rejected_review', semantic_review: { validation_details: [{ code }] } }).causes[0], /lead_profile_/)
+  }
+})
+
 test('shared turn intent explains the actual objective reference evidence and scope reconciliation', () => {
   const contract = { version: 'turn-intent-v1', objective: 'ask_price', required_facts: ['price'],
     interpretation_source: 'current_turn', continuation_goal: 'ask_price', subject: { category: null, unit_numbers: [], filters: {} },

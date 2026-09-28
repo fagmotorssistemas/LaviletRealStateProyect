@@ -19,6 +19,131 @@ const catalog = [
 const apartments = [{role:'bot',content:'El departamento 202 está en la segunda planta y el 302 en la tercera. Ambos tienen 3 dormitorios.'}]
 const penthouses = [{role:'bot',content:'Estas son las opciones: el penthouse 602 (142,09 m²); el penthouse 605 (140,53 m²). ¿Cuál de estas opciones le gustaría conocer?'}]
 
+const alternativeCatalog = [...catalog,
+  { id: 'p601', unit_number: '601', category: 'penthouse', bedrooms: 2, floor_number: 6 },
+  { id: 'a304', unit_number: '304', category: 'departamento', bedrooms: 2, floor_number: 3 },
+  { id: 'a404', unit_number: '404', category: 'departamento', bedrooms: 2, floor_number: 4 },
+  { id: 's301', unit_number: '301', category: 'suite', bedrooms: 1, floor_number: 3 },
+  { id: 'retired', unit_number: '101', category: 'suite', bedrooms: 1, status: 'vendido' },
+]
+
+test('fewer bedrooms releases the prior requirement across residential categories without choosing a replacement', () => {
+  const saved = { selected_ids: ['u605'], offered_ids: ['u602', 'u605'], query: { group: 'residential', category: 'penthouse', filters: { bedrooms: 3, bedrooms_required: true } } }
+  const current = 'mejor quiero algo con menos cuartos'
+  const result = resolvePropertyTurn(alternativeCatalog, current, { _property_context: saved }, [], semantics(current, { category: 'penthouse', operation: 'search', filters: { bedrooms: 3 } }))
+  assert.equal(result.reason, 'requested_fewer_bedrooms')
+  assert.equal(result.query.category, null)
+  assert.deepEqual(result.query.filters.bedrooms_any.sort(), [1, 2])
+  assert.deepEqual(result.matches.map(unit => unit.id), ['p601', 'a304', 'a404', 's301'])
+  assert.deepEqual(result.context.selected_ids, ['u605'])
+  assert.equal(result.context.query_transition.before.filters.bedrooms, 3)
+  assert.equal(result.context.query_transition.after.filters.bedrooms_required, null)
+})
+
+test('fewer bedroom interpretation works for other prior counts and exact requests exclude one bedroom suites', () => {
+  const saved = { selected_ids: ['u605'], query: { group: 'residential', category: 'penthouse' } }
+  const current = 'quiero algo de 2 cuartos'
+  const exact = resolvePropertyTurn(alternativeCatalog, current, { _property_context: saved }, [], semantics(current, { operation: 'search', filters: { bedrooms: 2 } }))
+  assert.equal(exact.query.filters.bedrooms, 2)
+  assert.ok(exact.matches.length > 0 && exact.matches.every(unit => unit.bedrooms === 2))
+  const fewer = resolvePropertyTurn(alternativeCatalog, 'prefiero menos dormitorios', { _property_context: { query: { group: 'residential', filters: { bedrooms: 4 } } } }, [], {})
+  assert.ok(fewer.matches.some(unit => unit.bedrooms === 3))
+  const unknown = resolvePropertyTurn(alternativeCatalog, 'prefiero menos dormitorios', { _property_context: { query: { group: 'residential' } } }, [], {})
+  assert.equal(unknown.reason, 'fewer_requires_bedroom_count')
+  assert.equal(unknown.needsClarification, true)
+})
+
+test('a simultaneous lower price and fewer bedroom request retains both constraints', () => {
+  const saved = { selected_ids: ['u605'], query: { group: 'residential', category: 'penthouse', filters: { bedrooms: 3 } } }
+  for (const current of ['algo más económico de 2 cuartos', 'más barato con menos dormitorios']) {
+    const result = resolvePropertyTurn(alternativeCatalog, current, { _property_context: saved }, [], semantics(current, { operation: 'search', filters: { bedrooms: 2 } }))
+    assert.equal(result.reason, 'requested_cheaper_options', current)
+    assert.equal(result.context.preference_transition.kind, 'cheaper', current)
+    assert.equal(result.context.preference_transition.fewer_bedrooms, true, current)
+    assert.equal(result.needsClarification, false, current)
+    assert.deepEqual(result.context.preference_transition.source_selected_ids, ['u605'], current)
+    assert.ok(result.matches.length > 0 && result.matches.every(unit => unit.bedrooms < 3), current)
+    if (current.includes('2 cuartos')) {
+      assert.equal(result.query.filters.bedrooms, 2)
+      assert.ok(result.matches.every(unit => unit.bedrooms === 2))
+    } else assert.deepEqual(result.query.filters.bedrooms_any.sort(), [1, 2])
+  }
+  const unknown = resolvePropertyTurn(alternativeCatalog, 'más barato con menos dormitorios', { _property_context: { query: { group: 'residential' } } }, [], {})
+  assert.equal(unknown.reason, 'cheaper_requires_bedroom_count')
+  assert.equal(unknown.needsClarification, true)
+  assert.deepEqual(unknown.matches, [])
+})
+
+test('cheaper without a new bedroom count asks to preserve it and yes applies only the verified proposed candidates', () => {
+  const previous = { selected_ids: ['u605'], offered_ids: ['u602', 'u605'], query: { group: 'residential', category: 'penthouse', filters: { bedrooms: 3 } } }
+  const current = 'tiene algo más económico?'
+  const asked = resolvePropertyTurn(alternativeCatalog, current, { _property_context: previous }, [], semantics(current, { operation: 'rank', selector: 'cheapest' }))
+  assert.equal(asked.reason, 'cheaper_requires_bedrooms_confirmation')
+  assert.equal(asked.query.filters.bedrooms, 3)
+  assert.deepEqual(asked.context.selected_ids, ['u605'])
+  const pending = { id: 'property_bedrooms', act: 'confirm_bedrooms', question: asked.clarification,
+    candidate_ids: ['u202', 'u302'], proposed_query: { group: 'residential', category: null, filters: { bedrooms: 3 }, scope: 'offered' } }
+  const state = rememberPropertyReply(alternativeCatalog, asked.context, asked.clarification, { pending_question: pending })
+  const accepted = resolvePropertyTurn(alternativeCatalog, 'sí', { _property_context: state }, [], {})
+  assert.equal(accepted.reason, 'accepted_bedroom_confirmation')
+  assert.equal(accepted.context.query_transition.reason, 'accepted_bedroom_confirmation')
+  assert.deepEqual(accepted.matches.map(unit => unit.id), ['u202', 'u302'])
+  assert.equal(accepted.query.filters.bedrooms, 3)
+  assert.deepEqual(accepted.context.selected_ids, ['u605'])
+  const explicitCount = resolvePropertyTurn(alternativeCatalog, 'sí, de 3 dormitorios', { _property_context: state }, [], {})
+  assert.deepEqual(explicitCount.matches.map(unit => unit.id), ['u202', 'u302'])
+  const denied = resolvePropertyTurn(alternativeCatalog, 'no', { _property_context: state }, [], {})
+  assert.equal(denied.reason, 'bedroom_confirmation_declined')
+  assert.equal(denied.query.filters.bedrooms, 3)
+  assert.deepEqual(denied.matches, [])
+  const countQuestion = '¿Cuántos dormitorios le gustaría que tenga la vivienda?'
+  const awaitingCount = rememberPropertyReply(alternativeCatalog, denied.context, countQuestion, {
+    pending_question: { id: 'property_bedrooms', act: 'other', question: countQuestion } })
+  const newCount = resolvePropertyTurn(alternativeCatalog, '2 dormitorios', { _property_context: awaitingCount }, [], {})
+  assert.equal(newCount.reason, 'requested_cheaper_options')
+  assert.equal(newCount.context.preference_transition.kind, 'cheaper')
+  assert.equal(newCount.query.filters.bedrooms, 2)
+  assert.deepEqual(newCount.context.preference_transition.source_selected_ids, ['u605'])
+  assert.ok(newCount.matches.length > 0 && newCount.matches.every(unit => unit.bedrooms === 2))
+})
+
+test('category then floor refine the offered alternative set and selecting one replaces the prior unit', () => {
+  const current = 'quiero menos cuartos'
+  const first = resolvePropertyTurn(alternativeCatalog, current, { _property_context: { selected_ids: ['u605'], query: { category: 'penthouse', group: 'residential' } } }, [], {})
+  let state = rememberPropertyReply(alternativeCatalog, first.context, 'Tenemos otras categorías. ¿Con cuál desea continuar?', {
+    offered_unit_ids: first.matches.map(unit => unit.id), catalog_query: { ...first.query, scope: 'offered' },
+    pending_question: { id: 'property_category', act: 'choose_category', candidate_ids: first.matches.map(unit => unit.id) } })
+  const apartments = resolvePropertyTurn(alternativeCatalog, 'los departamentos', { _property_context: state }, [], semantics('los departamentos', { category: 'departamento', operation: 'search' }))
+  assert.deepEqual(apartments.matches.map(unit => unit.id), ['a304', 'a404'])
+  assert.deepEqual(apartments.context.selected_ids, ['u605'])
+  state = rememberPropertyReply(alternativeCatalog, apartments.context, '¿Qué planta prefiere?', {
+    offered_unit_ids: ['a304', 'a404'], catalog_query: apartments.query,
+    pending_question: { id: 'property_floor', act: 'choose_floor', candidate_ids: ['a304', 'a404'] } })
+  const floor = resolvePropertyTurn(alternativeCatalog, 'la tercera', { _property_context: state }, [], {})
+  assert.deepEqual(floor.matches.map(unit => unit.id), ['a304'])
+  assert.deepEqual(floor.context.selected_ids, ['u605'])
+  state = rememberPropertyReply(alternativeCatalog, floor.context, 'Departamento 304. ¿Le interesa?', {
+    offered_unit_ids: ['a304'], catalog_query: floor.query,
+    pending_question: { id: 'unit_choice', act: 'choose_unit', candidate_ids: ['a304'] } })
+  const chosen = resolvePropertyTurn(alternativeCatalog, 'el 304 por favor', { _property_context: state }, [], {})
+  assert.deepEqual(chosen.context.selected_ids, ['a304'])
+  assert.deepEqual(chosen.context.preference_transition, {})
+})
+
+test('accepting quoted details preserves the full set and asking its differences compares without selecting', () => {
+  const pending = { id: 'unit_choice', act: 'explore_quoted_options', question: '¿Le gustaría obtener más detalles de alguna de estas opciones?', candidate_ids: ['u602', 'u605'] }
+  const state = { query: { group: 'residential', category: 'penthouse', filters: { bedrooms: 3 } }, offered_ids: ['u602', 'u605'], pending_question: pending }
+  const details = resolvePropertyTurn(catalog, 'si está bien', { _property_context: state }, [], {})
+  assert.equal(details.reason, 'accepted_quoted_options')
+  assert.deepEqual(details.matches.map(unit => unit.id), ['u602', 'u605'])
+  assert.deepEqual(details.context.selected_ids, [])
+  const comparison = resolvePropertyTurn(catalog, 'si está bien y cuál es la diferencia?', { _property_context: state }, [], {})
+  assert.equal(comparison.reason, 'comparison_followup')
+  assert.equal(comparison.query.operation, 'compare')
+  assert.deepEqual(comparison.context.comparison_ids, ['u602', 'u605'])
+  assert.deepEqual(comparison.context.selected_ids, [])
+})
+
 test('explicit choices resolve once before inherited filters and affirmative question branches', () => {
   const { unitModelDelivery } = require('../src/lib/integrations/automation/unit-model.ts')
   for (const current of ['el 605 por favor', 'pero si ya le dije la 605', 'prefiero el 605']) {

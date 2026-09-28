@@ -13,6 +13,10 @@ export const questionIds = [
   'property_area',
   'unit_choice',
   'purchase_timing',
+  'lead_profile',
+  'lead_profile_name',
+  'lead_profile_residence',
+  'lead_residence_confirmation',
 ] as const
 
 export type PendingQuestionId = typeof questionIds[number]
@@ -31,7 +35,8 @@ const referenceKinds = new Set(['none', 'explicit', 'relative', 'comparison', 'f
 const unitSelectors = new Set(['largest', 'smallest', 'cheapest', 'most_expensive', 'first', 'last'])
 const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'none'])
 const queryScopes = new Set(['catalog', 'offered', 'comparison', 'selected'])
-const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'choose_category', 'choose_floor', 'explore_alternatives', 'budget', 'visit', 'other'])
+const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'budget', 'visit', 'profile', 'other'])
+const profileQuestionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation'])
 
 export type PropertyFilters = { floor_number: number | null; bedrooms: number | null; bedrooms_any?: number[]; bedrooms_required: boolean | null; min_area_m2: number | null; max_area_m2: number | null }
 export const emptyPropertyFilters = (): PropertyFilters => ({ floor_number: null, bedrooms: null, bedrooms_required: null, min_area_m2: null, max_area_m2: null })
@@ -104,12 +109,41 @@ export function propertyFiltersFromText(current: string, pendingId = ''): Proper
   return normalizedPropertyFilters(filters)
 }
 
+/** A request to change options is distinct from ranking the options already shown. */
+export function propertyPreferenceChange(current: string, previousQuery: unknown): Row {
+  const value = normalized(current)
+  const previous = normalizedPropertyFilters(object(previousQuery).filters)
+  const previousBedrooms = previous.bedrooms ?? (previous.bedrooms_any?.length ? Math.min(...previous.bedrooms_any) : null)
+  const bedrooms = propertyFiltersFromText(current).bedrooms
+  const fewer = /\b(?:menos|menor cantidad de|menor numero de)\s+(?:dormitorios?|habitaciones?|cuartos?)\b/.test(value)
+    && !/\bno\s+(?:quiero|deseo|acepto|busco|necesito)\s+(?:algo\s+con\s+)?menos\b|\bmenos\s+(?:dormitorios?|habitaciones?|cuartos?)\s+no\b/.test(value)
+  const cheaper = /\b(?:mas\s+(?:economic[oa]s?|barat[oa]s?|accesibles?)|menor\s+precio|precio\s+mas\s+bajo)\b/.test(value)
+    && !/\b(?:cual(?:es)? (?:es|son)|que opcion es)\b/.test(value)
+    && !/^(?:(?:prefiero|quiero|elijo|escojo) )?(?:el|la) mas (?:barat[oa]|economic[oa])(?: de es[at][oa]s)?$/.test(value)
+    && !/\b(?:cual|cuales|la|el)\b[^.!?]{0,35}\b(?:mas\s+(?:economic[oa]s?|barat[oa]s?)|menor\s+precio)\b[^.!?]{0,20}\b(?:de es[at]as|entre es[at]as)\b/.test(value)
+    && !/\bno\s+(?:quiero|deseo|busco|necesito)\s+(?:algo\s+)?mas\s+(?:economic|barat)/.test(value)
+    && !/\bno\s+(?:algo\s+)?mas\s+(?:economic|barat|accesible)/.test(value)
+  const reducingCount = bedrooms !== null && previousBedrooms !== null && bedrooms < previousBedrooms
+  const fewerBedrooms = fewer || reducingCount
+  const kind = cheaper ? 'cheaper' : fewerBedrooms ? 'fewer_bedrooms' : null
+  return { kind, bedrooms, previous_bedrooms: previousBedrooms, fewer_bedrooms: fewerBedrooms,
+    requires_bedroom_confirmation: kind === 'cheaper' && bedrooms === null && !fewerBedrooms,
+    evidence: kind ? current.trim().slice(0, 240) : '' }
+}
+
 export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   const row = object(raw), id = text(row.id)
   if (!questionIds.includes(id as PendingQuestionId)) return {}
+  if (profileQuestionIds.has(id)) {
+    const candidate = object(row.residence_candidate)
+    const city = text(candidate.city).trim().slice(0, 160) || null, country = text(candidate.country).trim().slice(0, 160) || null
+    const evidence = text(candidate.evidence).trim().slice(0, 240)
+    return { id, act: 'profile', question: text(row.question).trim().slice(0, 500), target_ids: [], candidate_ids: [],
+      ...(id === 'lead_residence_confirmation' && (city || country) && evidence ? { residence_candidate: { city, country, evidence } } : {}) }
+  }
   const validIds = catalog ? new Set(catalog.map(unit => text(unit.id))) : null
   const ids = (value: unknown) => Array.isArray(value) ? [...new Set(value.map(text).filter(id => id && (!validIds || validIds.has(id))))] : []
-  const proposedQuery = row.act === 'explore_alternatives' ? normalizedPropertyQuery(row.proposed_query) : {}
+  const proposedQuery = ['explore_alternatives', 'confirm_bedrooms', 'choose_category', 'choose_floor'].includes(text(row.act)) ? normalizedPropertyQuery(row.proposed_query) : {}
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
     : id === 'property_category' ? 'choose_category' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
   question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: ids(row.candidate_ids),
@@ -123,7 +157,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
   "primary_evidence":"copia literal breve del mensaje actual",
   "confidence":"high|medium|low",
   "answer_to_previous":{
-    "question_id":"visit_invitation|visit_date_time|budget_amount|budget_kind|property_category|property_floor|property_bedrooms|property_area|unit_choice|purchase_timing|none",
+    "question_id":"visit_invitation|visit_date_time|budget_amount|budget_kind|property_category|property_floor|property_bedrooms|property_area|unit_choice|purchase_timing|lead_profile|lead_profile_name|lead_profile_residence|lead_residence_confirmation|none",
     "kind":"affirmative|negative|uncertain|value|none",
     "evidence":"copia literal breve del mensaje actual o cadena vacía",
     "confidence":"high|medium|low"
@@ -151,6 +185,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.
 Resuelva primero sobre QUÉ pide información. Una solicitud general tras solo saludos es primary_intent=project_information y property.operation=none, aunque tenga errores de escritura. Con una unidad o alternativas activas, «quiero información», «sí, envíeme detalles» o «¿y los precios?» continúan ese referente: use details, followup y el alcance correspondiente; no reinicie la presentación ni busque todo el catálogo. Una petición explícita de información general del proyecto cambia el tema. Si hay varias solicitudes, conserve todas; si el referente es ambiguo, no invente una unidad. Aceptar explorar alternativas no elimina la necesidad original, pero la búsqueda activa debe seguir las alternativas propuestas, no repetir el filtro sin resultados.
 answer_to_previous solo puede usar el question_id exacto recibido en pregunta_pendiente. Si no responde esa pregunta, use question_id=none y kind=none.
+Las preguntas lead_profile, lead_profile_name y lead_profile_residence recogen nombre y/o residencia; lead_residence_confirmation confirma si residence_candidate es la residencia actual. Una respuesta «sí» a esa confirmación es affirmative SOLO de lead_residence_confirmation, nunca acepta una visita, crédito o unidad. «No, vivo en otra ciudad» puede contestar negative y aportar la residencia explícita al perfil. El lugar candidato y su evidencia pertenecen al perfil, no al catálogo: nunca los convierta en unit_numbers, filtros o una propiedad seleccionada. Cuando no hay una pregunta de confirmación con candidato registrado, un «sí» aislado no declara una ciudad. Una respuesta al perfil puede además traer otra consulta; preserve ambas sin inventar autorización operativa.
 Una aceptación de una invitación a visita, incluso "sí está bien", es affirmative de visit_invitation. Una fecha u hora dada como respuesta es value de visit_date_time.
 En budget, unknown incluye dudas sobre cuánto puede gastar aunque haya errores ortográficos. sufficient_for_selected_unit significa que el cliente afirma que el precio de la unidad elegida sí se ajusta a su presupuesto; insufficient_for_selected_unit significa que afirma lo contrario. No convierta una simple aceptación, una cifra del precio citada por el bot ni una duda en una declaración de capacidad de pago.
 amount se completa solo con una cifra expresada por el cliente en el mensaje actual. No copie cifras del historial.
@@ -163,6 +198,8 @@ Si admite varias cantidades de dormitorios, conserve todas en bedrooms_any y bed
 query_scope=catalog para buscar o consultar máximos sin lista concreta, offered para «de esas opciones», comparison para la comparación activa, selected para la elegida. Preserve null si no aplica. La memoria conserva filtros previos; no los extraiga otra vez como declaraciones nuevas.
 pregunta_pendiente.act, target_ids y candidate_ids expresan el foco real. «Sí prefiero esa opción» tras ofrecer detalles del 502 acepta esa oferta sobre 502 aunque antes se mencionara 504; es referencia followup, no explicit. No convierta aceptar detalles o un recorrido en visita, compra o reserva.
 Si pregunta_pendiente.act=explore_alternatives, una aceptación permite explorar proposed_query, no elige una unidad ni reemplaza el requisito original. El sistema aplicará esa consulta; no vuelva a extraer dormitorios del historial ni transforme el sí en select. Elegir una categoría (por ejemplo, departamentos entre alternativas residenciales) refina la búsqueda sin borrar dormitorios, planta o superficie ya establecidos. Un sí a una elección entre varias categorías o unidades no identifica una de ellas.
+Si pregunta_pendiente.act=explore_quoted_options, aceptar ver detalles continúa con candidate_ids y operation=details; no selecciona una unidad ni repite la consulta de precio anterior. Si además pregunta la diferencia, operation=compare. Si act=confirm_bedrooms, un sí conserva esa cantidad al explorar opciones más económicas; un no no autoriza una cantidad distinta inventada.
+Un pedido explícito de menos dormitorios cambia ese requisito aunque antes fuese indispensable. Si no indica una cantidad nueva, no invente bedrooms=2 ni mantenga el número anterior: el catálogo determinará qué cantidades menores existen y el lead elegirá. Si pide exactamente dos dormitorios, conserve dos y no ofrezca suites de uno. Pedir algo más económico sin mencionar dormitorios no autoriza reducirlos: primero se confirma si desea mantener la cantidad conocida. Buscar alternativas es distinto de preguntar cuál de las opciones mostradas es la más económica.
 property.reference_kind: explicit si identifica una unidad; comparison si compara varias; relative para "el más grande", "la primera", "el más barato"; followup para continuar una consulta sobre unidades previas ("¿y en precio?"). En relative seleccione selector=largest|smallest|cheapest|most_expensive|first|last según corresponda. Use las opciones que el bot REALMENTE acaba de mostrar, no otra categoría guardada anteriormente. Un empate no permite elegir una unidad.
 unit_numbers contiene solo códigos del catálogo realmente referidos. En explicit deben aparecer en el mensaje actual; en comparison/followup pueden proceder de la comparación activa del contexto. Nunca convierta precios, áreas, horas o pisos en números de unidad. En relative no invente un código: el sistema resuelve selector contra las opciones mostradas. Una pregunta "¿y en precio?" tras comparar 202 y 302 se refiere a AMBAS unidades, no a todo el catálogo.
 Use confidence=high solo cuando la evidencia literal y el contexto produzcan una única interpretación. No invente intención, unidad, presupuesto ni aceptación.
@@ -187,7 +224,10 @@ export function pendingQuestionFromReply(reply: string): Row {
   const question = lastQuestion(reply)
   const value = normalized(question)
   let id: PendingQuestionId | null = null
-  if (/visita|cita|recibirle|visitarnos|conocer el proyecto/.test(value)
+  const asksName = /\b(?:su nombre|tu nombre|como (?:se llama|te llamas)|con (?:que|cual) nombre|con quien (?:tenemos|tengo) el gusto)\b/.test(value)
+  const asksResidence = /\b(?:resid(?:e|es|en|ir|encia)|viv(?:e|es|en|ir))\b/.test(value)
+  if (/[?¿]/.test(question) && (asksName || asksResidence)) id = asksName && asksResidence ? 'lead_profile' : asksName ? 'lead_profile_name' : 'lead_profile_residence'
+  else if (/visita|cita|recibirle|visitarnos|conocer el proyecto/.test(value)
     && /que dia|cual dia|fecha|que hora|horario|cuando/.test(value)) id = 'visit_date_time'
   else if (/visita|cita|visitarnos|conocer el proyecto|conocerlo en persona/.test(value)
     && /gustaria|desea|quiere|coordin|agend|animaria/.test(value)) id = 'visit_invitation'
@@ -241,6 +281,11 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     : category ? 'residential' : propertyConfident && ['residential', 'commercial'].includes(text(property.group)) ? text(property.group) : null
   const lexicalFilters = propertyFiltersFromText(current, pendingId)
   const semanticFilters = propertyConfident ? normalizedPropertyFilters(property.filters) : emptyPropertyFilters()
+  const preferenceChange = propertyPreferenceChange(current, {})
+  if (preferenceChange.fewer_bedrooms === true && lexicalFilters.bedrooms === null) {
+    semanticFilters.bedrooms = null; semanticFilters.bedrooms_required = false; delete semanticFilters.bedrooms_any
+    if (category && !mentionedCategories.includes(category)) { category = null; normalizationIssues.push('fewer_bedrooms_does_not_choose_category') }
+  }
   if (semanticFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true) {
     semanticFilters.bedrooms_required = null
     normalizationIssues.push('bedrooms_requirement_without_explicit_evidence')

@@ -32,6 +32,7 @@ import { commercialLocationBudgetRecommendation } from './commercial-location-re
 import { propertySelectionReply } from './property-selection'
 import { resolvePropertyTurn } from './property-context'
 import { catalogDialogueReply } from './catalog-dialogue'
+import { preferenceOptionsReply } from './progressive-options'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -101,6 +102,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
     info = { ...info, referencia_unidad: reference, property_context: reference.context }
   }
+  const preferenceAnswer = preferenceOptionsReply(info)
+  if (preferenceAnswer) return preferenceAnswer
   const catalogueAnswer = catalogDialogueReply(info, current)
   if (catalogueAnswer) return catalogueAnswer
   const clarification=recommendationClarification(info,current)
@@ -178,7 +181,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     if (unresolvedCommercialReply(completed.reply)) return { reply: completed.reply, audit: { ...audit, requires_advisor: true, handoff_reason: 'consulta sin respuesta verificada' } }
     if (completed.missing.length) return { reply: completed.reply, audit: { ...audit, requires_advisor: true,
       handoff_reason: 'resolver las consultas pendientes: ' + completed.missing.join(', '), unanswered_topics: completed.missing } }
-    let answer = plan.action !== 'discover' ? completed.reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || completed.reply : completed.reply
+    let answer = plan.action !== 'discover' && !quote?.followUp ? completed.reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || completed.reply : completed.reply
     if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
     const shareMaterial = attachBrochure || plan.action === 'share_brochure'
     if (shareMaterial && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure para que pueda explorar la propuesta${info.modo_comercial === 'lanzamiento' ? '; las imágenes ilustran cómo está previsto el proyecto' : ''}: ${BROCHURE_URL}`
@@ -195,7 +198,11 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
       verified_price_only: quote.quoted === true && turnAnswers.topics.every(topic => ['price', 'options'].includes(topic)),
       passive_sales: commercialEngagement(current, info.historial, summary._sales_memory).passive,
       ...(quote.comparison ? { price_comparison: quote.comparison } : {}),
-      ...(quote.units?.length ? { comparison_unit_ids: quote.units.length > 1 ? quote.units.map(unit => unit.id) : [],
+      ...(quote.followUp ? { offered_unit_ids: quote.followUp.candidate_ids,
+        pending_question: { id: 'unit_choice', act: 'explore_quoted_options', question: quote.followUp.question, candidate_ids: quote.followUp.candidate_ids, target_ids: [] },
+        progressive_selection: { stage: 'offer_details', question: quote.followUp.question, candidate_ids: quote.followUp.candidate_ids,
+          criteria: { category: quote.followUp.category, bedrooms: quote.followUp.bedrooms }, reason: 'explain_current_quoted_options' } } : {}),
+      ...(quote.units?.length ? { comparison_unit_ids: !quote.followUp && quote.units.length > 1 ? quote.units.map(unit => unit.id) : [],
         unit_reference: { ids: quote.units.map(unit => unit.id), numbers: quote.units.map(unit => unit.unit_number) } } : {}),
       approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
   }

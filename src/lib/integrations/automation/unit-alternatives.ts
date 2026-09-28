@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { preferredPropertyCategory } from './property-selection'
+import { tourContinuation } from './tour-continuation'
 
 export const UNIT_ALTERNATIVE_RULES = `
 ALTERNATIVAS DE INMUEBLES, EN TODOS LOS TONOS Y FLUJOS:
@@ -41,15 +42,7 @@ const unitDetails = (unit: Row) => [
   text(unit.floor).trim(),
 ].filter(Boolean).join(', ')
 
-const nextUnitQuestion = (info: Row) => {
-  const known = object(object(info.conversacion).datos_conocidos)
-  const deferred = object(info.memoria_comercial).deferred_fields
-  const budgetDeferred = Array.isArray(deferred) && deferred.includes('presupuesto')
-  if (known.presupuesto || text(known.presupuesto_texto).trim() || budgetDeferred) {
-    return '¿Desea que comparemos esta opción con otra de la misma categoría?'
-  }
-  return 'Para afinar la recomendación, ¿tiene un presupuesto total aproximado o un monto disponible inicialmente para la entrada?'
-}
+const nextUnitQuestion = (info: Row) => tourContinuation(info).reply
 
 const positiveAnswer = (message: string) => /^(?:si|si por favor|si esta bien|si me parece bien|claro|de acuerdo|esta bien|me parece bien|perfecto|bueno|a ver|revisemos|veamos)(?: gracias)?$/.test(message)
 

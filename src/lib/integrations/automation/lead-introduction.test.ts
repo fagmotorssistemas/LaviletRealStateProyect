@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { leadIntroductionIssues, leadIntroductionTurn, PROFILE_INVITATION, type LeadIntroductionInput } from './lead-introduction'
+import { leadIntroductionIssues, leadIntroductionTurn, leadProfilePendingQuestion, PROFILE_INVITATION, type LeadIntroductionInput } from './lead-introduction'
 import { BROCHURE_URL } from './project-material'
 
 const catalog = [
@@ -19,6 +19,10 @@ const pending = (overrides: Partial<LeadIntroductionInput> = {}) => input({
   extracted: { lead_profile: { full_name: 'Juan' } },
   reply: '¿Qué planta prefiere?', audit: { source: 'catalog_search' }, ...overrides,
 })
+
+const originProfile = (name = 'Carlos', city = 'Cuenca') => ({ full_name: name,
+  declared_location: { city, country: null, kind: 'origin', evidence: `soy de ${city}` },
+  residence_candidate: { city, country: null, evidence: `soy de ${city}` }, residence_status: 'pending_confirmation' })
 
 describe('progressive lead introduction', () => {
   it('waits after a greeting and starts on the first substantive request after greeting', () => {
@@ -127,11 +131,80 @@ describe('progressive lead introduction', () => {
   it('validates the opening purpose, residence wording, category timing and brochure delivery', () => {
     const turn = begin()
     assert.deepEqual(leadIntroductionIssues(turn.reply, turn.audit), [])
-    assert.ok(leadIntroductionIssues(turn.reply.replace('reside actualmente', 'nos escribe'), turn.audit).includes('lead_profile_question_changed'))
+    assert.ok(leadIntroductionIssues(turn.reply.replace('reside actualmente', 'nos escribe'), turn.audit).includes('lead_profile_question_purpose_changed'))
     assert.ok(leadIntroductionIssues(turn.reply + ' Tenemos departamentos.', turn.audit).includes('lead_profile_categories_premature'))
     assert.ok(leadIntroductionIssues(turn.reply + BROCHURE_URL, turn.audit).includes('lead_profile_brochure_premature'))
     const delivered = leadIntroductionTurn(pending())
     assert.deepEqual(leadIntroductionIssues(delivered.reply, delivered.audit), [])
     assert.ok(leadIntroductionIssues(delivered.reply.replace(BROCHURE_URL, ''), delivered.audit).includes('lead_profile_brochure_missing'))
+  })
+
+  it('keeps any declared place as a candidate and confirms it instead of asking from scratch', () => {
+    for (const [name, city] of [['Carlos', 'Cuenca'], ['Ana', 'Loja'], ['Lucía', 'Buenos Aires']]) {
+      const turn = leadIntroductionTurn(pending({ current: `claro, ${name} y soy de ${city}`,
+        extracted: { lead_profile: originProfile(name, city) } }))
+      assert.match(turn.reply, new RegExp(`Mucho gusto, ${name}\\.`))
+      assert.ok(turn.reply.includes(BROCHURE_URL))
+      assert.ok(turn.reply.includes(`Entiendo que es de ${city}. ¿Es también su lugar de residencia actual?`))
+      assert.doesNotMatch(turn.reply, /en qué ciudad|su nombre|Qué planta/)
+      assert.deepEqual(leadIntroductionIssues(turn.reply, turn.audit), [])
+      const question = leadProfilePendingQuestion(turn.reply, turn.audit)
+      assert.equal(question.id, 'lead_residence_confirmation')
+      assert.equal((question.residence_candidate as { city: string }).city, city)
+    }
+  })
+
+  it('confirms a supplied place on the first substantive message and when it arrives later', () => {
+    for (const summary of [{}, { _lead_introduction: { status: 'complete', brochure_sent: true } }]) {
+      const turn = leadIntroductionTurn(input({ current: 'Soy Ana y soy de Loja, me interesan los departamentos', summary,
+        extracted: { lead_profile: originProfile('Ana', 'Loja'), preferred_category: 'departamento' },
+        reply: 'Tenemos departamentos de 2 y 3 dormitorios. ¿Qué planta prefiere?', audit: { source: 'catalog_search' } }))
+      assert.match(turn.reply, /departamentos de 2 y 3 dormitorios/)
+      assert.match(turn.reply, /Mucho gusto, Ana/)
+      assert.match(turn.reply, /Entiendo que es de Loja.*residencia actual/s)
+      assert.doesNotMatch(turn.reply, /Qué planta|en qué ciudad/)
+      assert.equal((turn.reply.match(/\?/g) || []).length, 1)
+    }
+  })
+
+  it('does not repeat a name acknowledgement or question a confirmed residence despite retained origin', () => {
+    const turn = leadIntroductionTurn(pending({ current: 'Sí, vivo en Guayaquil',
+      summary: { _lead_introduction: { ...begin().state, acknowledged_name: 'Carlos', brochure_sent: true }, _lead_profile: originProfile() },
+      extracted: { lead_profile: { residence_city: 'Guayaquil', residence_status: 'confirmed' } } }))
+    assert.doesNotMatch(turn.reply, /Mucho gusto|Cuenca|residencia actual|reside actualmente|https:/)
+    assert.equal(turn.state.status, 'complete')
+    assert.match(turn.reply, /información de alguna de estas opciones/)
+  })
+
+  it('accepts confirmation paraphrases with the same purpose and rejects a false assertion', () => {
+    const turn = leadIntroductionTurn(pending({ current: 'Carlos, soy de Cuenca', extracted: { lead_profile: originProfile() } }))
+    const reply = `Mucho gusto, Carlos. Le comparto el brochure: ${BROCHURE_URL}\nEntiendo que es de Cuenca. ¿Actualmente vive allí?`
+    assert.deepEqual(leadIntroductionIssues(reply, turn.audit), [])
+    assert.equal(leadProfilePendingQuestion(reply, turn.audit).question, '¿Actualmente vive allí?')
+    assert.ok(leadIntroductionIssues(reply.replace('Entiendo que es de', 'Como vive en'), turn.audit).includes('lead_profile_unconfirmed_residence'))
+    assert.ok(leadIntroductionIssues(reply.replace('¿Actualmente vive allí?', '¿En qué ciudad reside actualmente?'), turn.audit).includes('lead_profile_question_purpose_changed'))
+    assert.ok(leadIntroductionIssues(reply.replace('Mucho gusto, Carlos.', ''), turn.audit).includes('lead_profile_name_acknowledgement_missing'))
+    assert.ok(leadIntroductionIssues(reply.replace('Cuenca', 'Quito'), turn.audit).includes('lead_profile_confirmation_omitted'))
+  })
+
+  it('retains a parallel budget answer and first-name acknowledgement on specialized routes', () => {
+    const turn = leadIntroductionTurn(pending({ current: 'Soy Carlos, soy de Cuenca y mi presupuesto es 70 mil',
+      extracted: { lead_profile: originProfile(), turn_semantics: { primary_intent: 'discuss_budget', confidence: 'high' } },
+      reply: 'Podemos revisar las opciones disponibles según su presupuesto. ¿Qué tipo de vivienda le interesa?', audit: { source: 'property_budget_deferred' } }))
+    assert.match(turn.reply, /revisar las opciones disponibles según su presupuesto/)
+    assert.match(turn.reply, /Entiendo que es de Cuenca/)
+    assert.equal((turn.reply.match(/\?/g) || []).length, 1)
+    const specialized = leadIntroductionTurn(pending({ current: 'Me llamo Carlos, quiero una visita',
+      extracted: { lead_profile: { full_name: 'Carlos' } }, audit: { source: 'visit_intake' }, reply: '¿Qué día desea visitarnos?' }))
+    assert.equal(specialized.reply, 'Mucho gusto, Carlos.\n\n¿Qué día desea visitarnos?')
+  })
+
+  it('does not repeatedly confirm a candidate after an evasive response or demand refused data', () => {
+    const turn = leadIntroductionTurn(pending({ current: 'Carlos, soy de Cuenca', extracted: { lead_profile: originProfile() } }))
+    for (const current of ['Prefiero no dar mis datos', '¿Qué precio tienen las suites?']) {
+      const next = leadIntroductionTurn(pending({ current, summary: { _lead_introduction: turn.state, _lead_profile: originProfile() },
+        extracted: {}, reply: 'Las suites tienen precios referenciales desde $100.000.', audit: { source: 'unit_price' } }))
+      assert.doesNotMatch(next.reply, /residencia|reside|soy de|Entiendo que es/)
+    }
   })
 })

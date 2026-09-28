@@ -115,7 +115,7 @@ test('premature categories are repaired and a removed profile purpose is blocked
     question: { ...candidate.question, text: shortQuestion } }
   const blocked = await completeTurnReply(input, model(missingPurpose, missingPurpose).generate)
   assert.equal(blocked.audit.status, 'rejected_guard')
-  assert.ok(blocked.audit.issues.includes('lead_profile_question_changed'))
+  assert.ok(blocked.audit.issues.includes('lead_profile_question_purpose_changed'))
   assert.ok(blocked.reply.includes(PROFILE_INVITATION))
   assert.equal(blocked.needsAdvisor, false)
 
@@ -158,6 +158,37 @@ test('the real writer delivers the verified brochure and resumes a purposeful co
   assert.ok(blocked.audit.issues.includes('links_changed'))
   assert.ok(blocked.reply.includes(BROCHURE_URL))
   assert.doesNotMatch(blocked.reply, /example\.invalid/)
+})
+
+test('writer and independent reviewer share a declared location without treating it as confirmed residence', async () => {
+  const { plan: opening } = introductionFixture()
+  const current = 'claro, Carlos y soy de Cuenca'
+  const profile = { full_name: 'Carlos', residence_status: 'pending_confirmation',
+    declared_location: { city: 'Cuenca', kind: 'origin', evidence: 'soy de Cuenca' },
+    residence_candidate: { city: 'Cuenca', country: null, evidence: 'soy de Cuenca' } }
+  const plan = leadIntroductionTurn({ current, summary: { _lead_introduction: opening.state },
+    extracted: { lead_profile: profile }, reply: '', audit: { source: 'commercial' } })
+  const reply = `Mucho gusto, Carlos. Aquí tiene el brochure digital completo del proyecto: ${BROCHURE_URL}\nEntiendo que es de Cuenca. ¿Actualmente vive allí?`
+  const candidate = { reply, requests: [covered(current)], question: { text: '¿Actualmente vive allí?', purpose: 'collect_lead_profile',
+    missing_datum: 'Confirmar si Cuenca es su residencia actual', next_decision: 'Completar el perfil de residencia y continuar la orientación' } }
+  const generate = model(candidate, approved)
+  const result = await completeTurnReply({ current, baseReply: plan.reply, audit: plan.audit,
+    verified: { perfil_lead: profile, brochure_url: BROCHURE_URL } }, generate.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, reply)
+  assert.equal(result.needsAdvisor, false)
+  assert.equal(generate.calls.length, 2)
+  for (const call of generate.calls) {
+    assert.equal(call[1].estado_operativo.profile_introduction.profile_state.residence_status, 'pending_confirmation')
+    assert.equal(call[1].estado_operativo.profile_introduction.candidate.city, 'Cuenca')
+    assert.match(call[0], /NO residencia confirmada/)
+  }
+  const falseClaim = { ...candidate, reply: reply.replace('Entiendo que es de Cuenca', 'Como vive en Cuenca') }
+  const rejected = await completeTurnReply({ current, baseReply: plan.reply, audit: plan.audit,
+    verified: { perfil_lead: profile, brochure_url: BROCHURE_URL } }, model(falseClaim, falseClaim).generate)
+  assert.equal(rejected.audit.status, 'rejected_guard')
+  assert.ok(rejected.audit.issues.includes('lead_profile_unconfirmed_residence'))
+  assert.equal(rejected.needsAdvisor, false)
 })
 
 test('pending visit routing yields to current evidenced commercial requests, but keeps mixed requests', () => {
@@ -753,13 +784,16 @@ function comparisonTurn(current = 'y cual es la diferencia entre cada uno?') {
     { id: 'u304', unit_number: '304', category: 'departamento', bedrooms: 2, bathrooms_full: 2, area_internal_m2: 109.69, area_exterior_m2: 34.59, floor_number: 3 },
   ]
   const planned = catalogDialogueReply({ catalogo, referencia_unidad: { query: { group: 'residential', category: 'departamento', operation: 'compare' } } })
-  return { current, baseReply: planned.reply, verified: { catalogo }, audit: planned.audit }
+  const question = { text: planned.audit.progressive_selection.question, purpose: 'choose_property',
+    missing_datum: 'La unidad que el cliente desea conocer mejor', next_decision: 'Mostrar detalles de la unidad que el cliente elija' }
+  return { current, baseReply: planned.reply, verified: { catalogo }, audit: planned.audit, question }
 }
 
 test('a complete catalogue comparison contradicts an erroneous missing-fact claim without a handoff', async () => {
   const input = comparisonTurn()
-  const mock = model({ reply: input.baseReply, requests: [{ ...covered(input.current, 'missing_fact', 'missing_fact'), fact_key: 'catalog_comparison' }], question: noQuestion })
+  const mock = model({ reply: input.baseReply, requests: [{ ...covered(input.current, 'missing_fact', 'missing_fact'), fact_key: 'catalog_comparison' }], question: input.question })
   const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'checked')
   assert.equal(result.needsAdvisor, false)
   assert.deepEqual(result.unresolved, [])
   assert.equal(result.audit.handoff_assessments[0].outcome, 'answered_by_catalog')
@@ -769,11 +803,12 @@ test('catalogue coverage never hides an additional missing pet policy', async ()
   const comparison = 'cual es la diferencia entre cada uno?'
   const missing = 'Aceptan mascotas?'
   const input = comparisonTurn(comparison + ' ' + missing)
-  const mock = model({ reply: input.baseReply + ' La política de mascotas debe verificarse.', requests: [
+  const mock = model({ reply: input.baseReply.replace(input.question.text, `La política de mascotas debe verificarse. ${input.question.text}`), requests: [
     { ...covered(comparison, 'missing_fact', 'missing_fact'), fact_key: 'catalog_comparison' },
     { ...covered(missing, 'missing_fact', 'missing_fact'), fact_key: 'policy' },
-  ], question: noQuestion }, { ...approved, missing_fact_fragments: [missing] })
+  ], question: input.question }, { ...approved, missing_fact_fragments: [missing] })
   const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'checked')
   assert.equal(result.needsAdvisor, true)
   assert.deepEqual(result.unresolved, [missing])
   assert.deepEqual(result.audit.missing_fact_fragments, [missing])
@@ -781,7 +816,7 @@ test('catalogue coverage never hides an additional missing pet policy', async ()
 
 test('a rejected rewrite cannot turn an unanswered fact into a request for an advisor', async () => {
   const input = comparisonTurn()
-  const mock = model({ reply: input.baseReply + ' Tiene 999 m² interiores.', requests: [covered(input.current, 'unanswered', 'missing_fact')], question: noQuestion })
+  const mock = model({ reply: input.baseReply + ' Tiene 999 m² interiores.', requests: [covered(input.current, 'unanswered', 'missing_fact')], question: input.question })
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.reply, input.baseReply)
   assert.equal(result.audit.status, 'rejected_guard')
@@ -791,7 +826,7 @@ test('a rejected rewrite cannot turn an unanswered fact into a request for an ad
 
 test('independent reviewer fragments are recorded and checked against catalogue evidence', async () => {
   const input = comparisonTurn()
-  const mock = model({ reply: 'Estas son las diferencias. ' + input.baseReply, requests: [covered(input.current)], question: noQuestion },
+  const mock = model({ reply: 'Estas son las diferencias. ' + input.baseReply, requests: [covered(input.current)], question: input.question },
     { ...approved, missing_fact_fragments: [input.current] })
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.needsAdvisor, false)
@@ -827,7 +862,7 @@ test('an unchanged answer with an omitted request still receives independent cov
   const comparison = 'cual es la diferencia entre cada uno?'
   const missing = 'Aceptan mascotas?'
   const input = comparisonTurn(comparison + ' ' + missing)
-  const mock = model({ reply: input.baseReply, requests: [covered(comparison)], question: noQuestion },
+  const mock = model({ reply: input.baseReply, requests: [covered(comparison)], question: input.question },
     { ...approved, all_requests_considered: false, missing_fact_fragments: [missing] })
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(mock.calls.length, 3)
@@ -836,6 +871,34 @@ test('an unchanged answer with an omitted request still receives independent cov
   assert.equal(result.needsAdvisor, true)
   assert.deepEqual(result.unresolved, [missing])
   assert.equal(result.audit.status, 'rejected_review')
+})
+
+test('commercial next questions permit a paraphrase of the intended decision and reject omission or a different goal', async () => {
+  const input = comparisonTurn()
+  const paraphrase = '¿Cuál de estos departamentos desea que revisemos con más detalle?'
+  const natural = input.baseReply.replace(input.question.text, paraphrase)
+  const candidate = { reply: natural, requests: [covered(input.current)], question: { ...input.question, text: paraphrase } }
+  const mock = model(candidate, approved)
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, natural)
+  assert.equal(result.audit.question.text, paraphrase)
+  assert.equal(result.audit.question.purpose, 'choose_property')
+  assert.equal(result.needsAdvisor, false)
+  assert.equal(mock.calls.length, 2)
+  for (const [reply, question, issue] of [
+    [input.baseReply.replace(input.question.text, '').trim(), noQuestion, 'commercial_next_question_missing'],
+    [input.baseReply.replace(input.question.text, '¿Qué presupuesto tiene previsto para la compra?'),
+      { text: '¿Qué presupuesto tiene previsto para la compra?', purpose: 'collect_financing_required', missing_datum: 'Presupuesto total', next_decision: 'Iniciar revisión financiera' }, 'commercial_next_question_changed'],
+  ]) {
+    const invalid = { reply, requests: [covered(input.current)], question }
+    const rejected = await completeTurnReply(input, model(invalid, invalid).generate)
+    assert.equal(rejected.audit.status, 'rejected_guard', issue)
+    assert.ok(rejected.audit.issues.includes(issue), JSON.stringify(rejected.audit))
+    assert.equal(rejected.reply, input.baseReply, issue)
+    assert.equal(rejected.needsAdvisor, false, issue)
+    assert.equal(rejected.audit.fallback_validation.passed, true, issue)
+  }
 })
 
 test('catalogue evidence cannot answer attributes or comparisons of an absent unit', () => {

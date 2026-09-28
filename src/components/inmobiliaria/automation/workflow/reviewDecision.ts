@@ -4,6 +4,14 @@ const text = (v: unknown) => typeof v === 'string' ? v : ''
 const list = (v: unknown): Row[] => Array.isArray(v) ? v.map(row) : []
 const fields: Record<string, string> = { bedrooms: 'dormitorios', bathrooms_full: 'baños completos', area_internal_m2: 'superficie interior', area_exterior_m2: 'superficie exterior', floor_number: 'planta', published_commercial_price: 'precio publicado' }
 const checks: Record<string, string> = { all_requests_considered: 'No se confirmó que atendiera todas las solicitudes.', answers_supported: 'No se confirmó el respaldo de las respuestas.', answered_content_preserved: 'No se confirmó que conservara la información necesaria.', operational_goal_preserved: 'No se confirmó que respetara el objetivo del turno.', question_has_purpose: 'No se confirmó la utilidad de la pregunta final.' }
+const profileChecks: Record<string, string> = {
+  lead_profile_confirmation_omitted: 'Se omitió confirmar si el lugar declarado es la residencia actual.',
+  lead_profile_question_purpose_changed: 'La pregunta cambió el dato que debía recoger o confirmar.',
+  lead_profile_unconfirmed_residence: 'Se presentó como residencia confirmada un lugar que aún necesita confirmación.',
+  lead_profile_name_acknowledgement_missing: 'Falta el saludo «Mucho gusto» con el nombre recibido por primera vez.',
+  commercial_next_question_missing: 'Se omitió la pregunta que permite avanzar entre las opciones de interés.',
+  commercial_next_question_changed: 'La pregunta cambió el propósito del siguiente paso antes de completar la elección.',
+}
 
 export function reviewDecision(output: Row, catalog: Row[] = []) {
   const status = text(output.status), review = row(output.semantic_review)
@@ -36,6 +44,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     return `${location}: control ${text(error.code) || 'no identificado'}.${quote}`
   })
   if (!details.length) for (const issue of issues) {
+    if (profileChecks[issue]) { details.push(profileChecks[issue]); continue }
     if (issue === 'question_count') { details.push('Falló el límite de preguntas. En registros antiguos también podía rechazarse una sola pregunta porque la plantilla base no contenía ninguna. Compare el borrador y la base.'); continue }
     if (issue === 'operational_question_added') { details.push('La IA añadió una pregunta a una plantilla operativa sin revisión de su propósito.'); continue }
     if (issue === 'fallback_unanswered_request') { details.push('El respaldo omite una solicitud actual y no se conserva como respuesta válida.'); continue }
@@ -47,6 +56,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
   }
   const eligibility = row(review.repair_eligibility)
   const descriptions: Record<string, string> = {
+    ...profileChecks,
     question_count: 'Falló la restricción de preguntas. En ejecuciones antiguas también se rechazaba una sola pregunta si la plantilla base no tenía ninguna.',
     operational_question_added: 'Se añadió una pregunta operativa sin una revisión de su propósito.',
     fallback_unanswered_request: 'El respaldo omite una solicitud actual; no debe enviarse como si la hubiera contestado.',

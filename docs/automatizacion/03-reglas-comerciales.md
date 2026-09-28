@@ -60,6 +60,8 @@ La recomendación que combina ubicación, capital inicial y financiamiento está
 
 ## Materiales y tour
 
+La revisión local del 28/09 incorpora el [recorrido progresivo de opciones](./opciones-progresivas-20260928.md): precio y detalles de las opciones de interés, comparación si el cliente la pide, elección explícita y 360 individual. Los cambios hacia menor precio o menos dormitorios nacen de la solicitud del cliente. Las rutas de unidad individual comparten la continuación según presupuesto, respetando datos ya conocidos o que el cliente prefiera aplazar.
+
 - El brochure oficial es `https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf`.
 - Una solicitud de fotos, recorrido, 3D o tour debe entregar un enlace web; no adjuntar imágenes individuales del inventario.
 - Si existe una unidad residencial inequívoca, el formato local pendiente es:

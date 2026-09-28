@@ -18,12 +18,15 @@ import { applyWhatsappAdsConsentFromClientMessage, evaluateWaLeadSubmittedForCur
 import { resolveRecentUnitOfferText } from '@/lib/meta/waLeadSubmittedOfferContext'
 import { isUnitOfferContext } from '@/lib/meta/waLeadSubmittedEligibility'
 import type { Guard } from './visits'
-import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
+import { isGreetingOnly, normalized, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
-import { leadIntroductionTurn } from './lead-introduction'
+import { isProfileOnlyTurn, leadIntroductionTurn, leadProfilePendingQuestion } from './lead-introduction'
+import { mergeLeadProfile } from './lead-profile'
+import { progressivePendingQuestion } from './progressive-options'
+import { tourContinuation } from './tour-continuation'
 import { resolveTurnIntent } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
@@ -509,22 +512,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _unit_reference: minimalTurn ? previousSummary._unit_reference || {} : reference.memory,
     _property_context: minimalTurn ? previousPropertyContext : reference.context }
   const declaredProfile = object(extracted.lead_profile)
-  const profile = { ...object(previousSummary._lead_profile) }
-  const profileSources = { ...object(profile.sources) }
-  // A new residence declaration must not combine a new city with an old country
-  // (or a new country with an old city) without fresh evidence for both.
-  for (const [field, counterpart] of [['residence_city', 'residence_country'], ['residence_country', 'residence_city']]) {
-    if (text(declaredProfile[field]) && text(profile[field]) && text(declaredProfile[field]) !== text(profile[field]) && !text(declaredProfile[counterpart])) {
-      delete profile[counterpart]
-      delete profileSources[counterpart]
-    }
-  }
-  for (const key of ['full_name', 'residence_city', 'residence_country']) {
-    if (!text(declaredProfile[key])) continue
-    profile[key] = text(declaredProfile[key])
-    profileSources[key] = { source: 'lead_declaration', evidence: text(object(declaredProfile.evidence)[key]), message_id: activeLast.externalId, declared_at: activeLast.sentAt }
-  }
-  summary._lead_profile = { ...profile, sources: profileSources }
+  summary._lead_profile = mergeLeadProfile(previousSummary._lead_profile, declaredProfile,
+    { message_id: activeLast.externalId, declared_at: activeLast.sentAt })
+  trace.add('lead_profile_resolution', 'Interpretar los datos del lead', 'decision', 'lead-profile.ts', 'succeeded', {},
+    { profile: summary._lead_profile, decisions: object(summary._lead_profile).diagnostics })
   extracted.turn_semantics = turnSemantics
   if(financeContinuation) Object.assign(extracted,financeContinuation)
   const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
@@ -550,8 +541,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
   const priceTurn = turnIntent.required_facts.includes('price') || asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
-    && ['full_name', 'residence_city', 'residence_country'].some(key => text(declaredProfile[key]))
-    && !/precio|financ|cr[eé]dito|cuota|visita|agend|reserv|dormitorio|departamento|suite|penthouse|local/i.test(current)
+    && isProfileOnlyTurn(current, { ...extracted, turn_semantics: turnSemantics })
   const financeTurn = financeInput.consent === true || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
   if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
   if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
@@ -1069,6 +1059,20 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       }
     }
   }
+  // All commercial paths that delivered one unit's tour use the same next step.
+  const deliveredTour = object(audit.unit_model)
+  if (text(deliveredTour.unit_number) && text(deliveredTour.url) && reply.includes(text(deliveredTour.url))
+    && !finalNotice && !handoffNotice && !/^(?:visit|financing|advisor|price_and_visit)/.test(text(audit.source))) {
+    const info = { ...await commercialContext(lead, context.historial), historial: context.historial,
+      semantica_turno: turnSemantics, financiamiento: finance, memoria_comercial: memory }
+    const unit = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object).find(row => text(row.unit_number) === text(deliveredTour.unit_number)) || {}
+    const next = tourContinuation(info, unit, current)
+    if (next.reply) {
+      if (!reply.trim().endsWith(next.reply)) reply = reply.replace(/\s*¿[^¿?]+\?\s*$/, '').trim() + '\n\n' + next.reply
+      audit = { ...audit, post_tour_continuation: next, pending_question: next.pending_question }
+      delete audit.progressive_selection
+    }
+  }
   if (!audit.profile_introduction) {
     const introduction = leadIntroductionTurn({ current, history: context.historial, summary: { ...previousSummary, _lead_profile: summary._lead_profile },
       extracted, reply, audit, catalog: turnCatalog })
@@ -1171,6 +1175,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
       resolved_turn_intent: turnIntent,
+      profile_introduction: audit.profile_introduction,
+      progressive_selection: audit.progressive_selection, post_tour_continuation: audit.post_tour_continuation,
       commercial_continuation: reviewed.audit.commercial_continuation,
       text_transformations: reviewed.audit.text_transformations,
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
@@ -1263,11 +1269,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.delivery_integrity = { changed_content: false, status: 'approved_content_preserved', approved_text: reviewedText, final_text: reply,
       confirmed_notice_added: Boolean(handoffNotice && reply.includes(handoffNotice)) }
   }
+  const profilePending = leadProfilePendingQuestion(reply, audit)
+  const progressivePending = progressivePendingQuestion(reply, audit)
   const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
   // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
   const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
     ? declaredPending : pendingQuestionFromReply(reply)
-  audit.pending_question = reply.includes('?') ? replyPending : {}
+  audit.pending_question = reply.includes('?') ? Object.keys(profilePending).length ? normalizedPendingQuestion(profilePending)
+    : Object.keys(progressivePending).length ? normalizedPendingQuestion(progressivePending, turnCatalog) : replyPending : {}
   if (!reply.trim() || reply.length > 3000) throw new Error('EMPTY_OR_LONG_REPLY')
   trace.finish(validationStep, 'succeeded', {
     delivery_integrity: audit.delivery_integrity || null,
@@ -1327,6 +1336,21 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   })
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
   const sentModelId = text(object(audit.unit_model).unit_id)
+  const introductionState = object(summary._lead_introduction)
+  const acknowledgement = text(object(audit.profile_introduction).name_acknowledgement)
+  const previousIntroduction = object(previousSummary._lead_introduction)
+  const deliveredProfileQuestion = text(object(audit.pending_question).id)
+  // Mark the introduction only after the actual message was accepted for delivery.
+  // A rejected/omitted question cannot leave a confirmation pending in memory.
+  if (audit.profile_introduction) summary._lead_introduction = { ...introductionState,
+    status: deliveredProfileQuestion.startsWith('lead_') ? 'pending' : 'complete',
+    brochure_sent: previousIntroduction.brochure_sent === true || reply.includes(text(object(audit.profile_introduction).brochure_url) || BROCHURE_URL),
+    reminder_count: deliveredProfileQuestion.startsWith('lead_') ? introductionState.reminder_count || 0 : previousIntroduction.reminder_count || 0,
+    confirmation_asked: deliveredProfileQuestion === 'lead_residence_confirmation' || previousIntroduction.confirmation_asked === true,
+    confirmation_candidate: deliveredProfileQuestion === 'lead_residence_confirmation'
+      ? object(audit.pending_question).residence_candidate : previousIntroduction.confirmation_candidate || null,
+    ...(acknowledgement && normalized(reply).includes(normalized(acknowledgement))
+      ? { acknowledged_name: text(object(summary._lead_profile).full_name).trim().split(/\s+/)[0] } : {}) }
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: rememberCommercialReply(memory, reply),
     _pending_requests: [],
     _last_operational_step: ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'financing_question' || audit.source === 'budget_financing_guidance') && /(?:iniciar|iniciemos|revisión|revisemos)/i.test(reply) && /\?/.test(reply)

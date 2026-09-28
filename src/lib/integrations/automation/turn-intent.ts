@@ -21,6 +21,7 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const answersPropertyReference = answer.kind === 'value' && answer.question_id === pending.id
     && ['property_category', 'unit_choice', 'property_floor', 'property_bedrooms', 'property_area'].includes(text(pending.id))
   const inheritedPrice = inScope && !explicitPrice && categoryAnswer
+    && pending.act !== 'explore_quoted_options'
     && (previous.continuation_goal === 'ask_price' || historicalPrice)
     && (input.semantics.primary_intent === 'select_property' || answersPropertyReference || requestsPrice)
   const objective = !inScope ? input.scope.uncertain ? 'clarify_scope' : text(input.scope.kind)

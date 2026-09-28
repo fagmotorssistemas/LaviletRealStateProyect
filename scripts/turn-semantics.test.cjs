@@ -2,7 +2,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 require('./test-typescript.cjs')
-const { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromReply, TURN_SEMANTICS_SCHEMA } = require('../src/lib/integrations/automation/turn-semantics.ts')
+const { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromReply, propertyPreferenceChange, TURN_SEMANTICS_SCHEMA } = require('../src/lib/integrations/automation/turn-semantics.ts')
 
 function extract(current, property, pending = {}, answer = {}) {
   return normalizeTurnSemantics({ turn_semantics: {
@@ -11,6 +11,47 @@ function extract(current, property, pending = {}, answer = {}) {
     answer_to_previous: { ...answer, evidence: current, confidence: 'high' },
   } }, current, pending)
 }
+
+test('preference changes distinguish explicit fewer bedrooms from unqualified cheaper requests and rankings', () => {
+  const prior = { filters: { bedrooms: 3 } }
+  for (const current of ['quiero menos cuartos', 'prefiero algo con menos dormitorios', 'algo de dos habitaciones']) {
+    assert.equal(propertyPreferenceChange(current, prior).kind, 'fewer_bedrooms', current)
+  }
+  assert.equal(propertyPreferenceChange('algo más económico', prior).requires_bedroom_confirmation, true)
+  const explicit = propertyPreferenceChange('opciones más baratas de 3 cuartos', prior)
+  assert.equal(explicit.kind, 'cheaper')
+  assert.equal(explicit.bedrooms, 3)
+  assert.equal(explicit.requires_bedroom_confirmation, false)
+  for (const current of ['no quiero menos cuartos', 'no necesito algo más económico', 'no más barato', 'no másbarato', 'cuál es el más barato de estos?', 'cuál es el más económico?', 'prefiero el más barato', 'el más económico']) {
+    assert.equal(propertyPreferenceChange(current, prior).kind, null, current)
+  }
+  for (const current of ['algo más económico de 2 cuartos', 'más barato con menos dormitorios']) {
+    const both = propertyPreferenceChange(current, prior)
+    assert.equal(both.kind, 'cheaper', current)
+    assert.equal(both.fewer_bedrooms, true, current)
+    assert.equal(both.requires_bedroom_confirmation, false, current)
+  }
+})
+
+test('generic fewer bedrooms never adopts an invented exact count or an unmentioned category', () => {
+  const result = extract('prefiero menos cuartos', { category: 'penthouse', operation: 'search', filters: { bedrooms: 2 } })
+  assert.equal(result.property.filters.bedrooms, null)
+  assert.equal(result.property.category, null)
+  assert.equal(result.property.operation, 'search')
+  const exact = extract('quiero departamentos de 2 cuartos', { category: 'departamento', operation: 'search', filters: { bedrooms: 2 } })
+  assert.equal(exact.property.filters.bedrooms, 2)
+  assert.equal(exact.property.category, 'departamento')
+})
+
+test('quoted details and bedroom confirmation preserve their distinct durable question actions', () => {
+  assert.equal(normalizedPendingQuestion({ id: 'unit_choice', act: 'explore_quoted_options', candidate_ids: ['a', 'b'] }).act, 'explore_quoted_options')
+  const pending = normalizedPendingQuestion({ id: 'property_bedrooms', act: 'confirm_bedrooms', candidate_ids: ['a'],
+    proposed_query: { group: 'residential', filters: { bedrooms: 4 }, scope: 'offered' } })
+  assert.equal(pending.act, 'confirm_bedrooms')
+  assert.equal(pending.proposed_query.filters.bedrooms, 4)
+  assert.equal(pending.proposed_query.scope, 'offered')
+  assert.equal(extract('sí', {}, pending, { question_id: 'property_bedrooms', kind: 'affirmative' }).answer_to_previous.question_id, 'property_bedrooms')
+})
 
 test('five bedrooms are not mandatory merely because the model asserts they are', () => {
   for (const current of ['Me interesa una vivienda, tiene opciones de 5 habitaciones?', 'Es que si me serviría con 5 dormitorios.']) {
@@ -76,6 +117,58 @@ test('durable pending metadata preserves the question action and validates targe
   assert.equal(pendingQuestionFromReply('¿Desea que le presente más detalles sobre el departamento 502, que es la opción más grande de la quinta planta?').id, 'unit_choice')
 })
 
+test('profile confirmation keeps its declared place separate from catalogue candidate IDs', () => {
+  const pending = normalizedPendingQuestion({ id: 'lead_residence_confirmation', act: 'visit',
+    question: 'Entiendo que es de Cuenca. ¿Es también su lugar de residencia actual?',
+    residence_candidate: { city: 'Cuenca', country: null, evidence: 'soy de Cuenca', unit_id: 'u502' },
+    target_ids: ['u502'], candidate_ids: ['u502'], proposed_query: { category: 'departamento' },
+  }, [{ id: 'u502' }])
+  assert.equal(pending.act, 'profile')
+  assert.deepEqual(pending.target_ids, [])
+  assert.deepEqual(pending.candidate_ids, [])
+  assert.deepEqual(pending.residence_candidate, { city: 'Cuenca', country: null, evidence: 'soy de Cuenca' })
+  assert.equal(pending.proposed_query, undefined)
+  for (const id of ['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'unit_choice']) {
+    assert.equal(normalizedPendingQuestion({ ...pending, id }).residence_candidate, undefined)
+  }
+  assert.equal(normalizedPendingQuestion({ ...pending, residence_candidate: { city: 'Cuenca' } }).residence_candidate, undefined)
+})
+
+test('a yes to residence confirmation answers only the recorded profile question without authorizing a visit or property choice', () => {
+  const pending = { id: 'lead_residence_confirmation', residence_candidate: { city: 'Cuenca', country: null, evidence: 'soy de Cuenca' } }
+  const semantics = question_id => normalizeTurnSemantics({ turn_semantics: {
+    primary_intent: 'answer_previous', primary_evidence: 'sí', confidence: 'high',
+    answer_to_previous: { question_id, kind: 'affirmative', evidence: 'sí', confidence: 'high' },
+    property: { operation: 'none', reference_kind: 'none', unit_numbers: [], evidence: '', confidence: 'low' },
+  } }, 'sí', pending)
+  const result = semantics('lead_residence_confirmation')
+  assert.equal(result.answer_to_previous.question_id, 'lead_residence_confirmation')
+  assert.equal(result.answer_to_previous.kind, 'affirmative')
+  assert.equal(result.primary_intent, 'answer_previous')
+  assert.equal(result.property.operation, 'none')
+  assert.deepEqual(result.property.unit_numbers, [])
+  for (const other of ['lead_profile', 'visit_invitation', 'unit_choice', 'none']) {
+    assert.equal(semantics(other).answer_to_previous.question_id, null)
+  }
+})
+
+test('legacy reply parsing recognizes generic profile questions without inventing a confirmation place', () => {
+  for (const [reply, expected] of [
+    ['Para compartirle el brochure y una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?', 'lead_profile'],
+    ['¿Con qué nombre tengo el gusto de comunicarme?', 'lead_profile_name'],
+    ['¿En qué ciudad o país vive actualmente?', 'lead_profile_residence'],
+    ['Entiendo que es de Cuenca. ¿Es también su lugar de residencia actual?', 'lead_profile_residence'],
+  ]) {
+    const question = pendingQuestionFromReply(reply)
+    assert.equal(question.id, expected, reply)
+    assert.equal(question.act, 'profile')
+    assert.equal(question.residence_candidate, undefined)
+  }
+  assert.equal(pendingQuestionFromReply('Su nombre y residencia fueron registrados.').id, undefined)
+  const ids = TURN_SEMANTICS_SCHEMA.properties.answer_to_previous.properties.question_id.enum
+  for (const id of ['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation']) assert.ok(ids.includes(id))
+})
+
 test('the strict extraction schema requires every field and forbids unexpected keys recursively', () => {
   function check(schema) {
     if (schema.type === 'object') {
@@ -100,7 +193,8 @@ test('alternative proposals retain verified search constraints without carrying 
   assert.equal(pending.proposed_query.filters.floor_number, null)
   assert.equal(pending.proposed_query.requested_visit, undefined)
   assert.equal(extract('sí está bien', { operation: 'none' }, pending, { question_id: 'property_category', kind: 'affirmative' }).answer_to_previous.kind, 'affirmative')
-  assert.equal(normalizedPendingQuestion({ ...pending, act: 'choose_category' }).proposed_query, undefined)
+  assert.equal(normalizedPendingQuestion({ ...pending, act: 'choose_category' }).proposed_query.filters.bedrooms, 3)
+  assert.equal(normalizedPendingQuestion({ ...pending, act: 'choose_unit' }).proposed_query, undefined)
 })
 
 test('choosing a category searches within it while choosing a concrete unit still selects it', () => {

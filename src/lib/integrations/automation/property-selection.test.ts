@@ -98,7 +98,7 @@ describe('property selection journey', () => {
     assert.match(result?.reply || '', /Segunda Planta Alta \(USD 250\.000\)/i)
   })
 
-  it('shows the chosen unit, its tour and the gap against the known budget', () => {
+  it('shows the chosen unit, its tour and financing information when its price exceeds the declared total', () => {
     const reference = resolveCatalogReference([suite001, suite210], 'Me interesa la 210')
     assert.equal(reference.matches[0]?.id, suite210.id)
     const info = baseInfo({
@@ -109,8 +109,9 @@ describe('property selection journey', () => {
 
     assert.match(result?.reply || '', /suite 210/i)
     assert.match(result?.reply || '', /tour\?unidad=210/i)
-    assert.match(result?.reply || '', /diferencia de USD 150\.000/i)
-    assert.match(result?.reply || '', /avanzar con esa revisión/i)
+    assert.match(result?.reply || '', /supera el presupuesto total/i)
+    assert.match(result?.reply || '', /conocer las opciones de financiamiento para esta unidad/i)
+    assert.doesNotMatch(result?.reply || '', /presupuesto aproximado|comparemos.*otra|iniciar.*revisión/i)
   })
 
   it('acknowledges that the selected unit fits without repeating its price', () => {
@@ -193,6 +194,6 @@ describe('budget and price timing', () => {
 
   it('rejects unsolicited prices in a generated category-choice reply', () => {
     const issues = priceReplyIssues('Las opciones tienen un valor referencial de lanzamiento desde $210.000.', baseInfo({ lead: { preferred_category: 'suite' } }), 'Prefiero una suite')
-    assert.deepEqual(issues, ['style'])
+    assert.deepEqual(issues, ['unsupported_fact'])
   })
 })

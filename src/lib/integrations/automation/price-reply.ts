@@ -9,7 +9,7 @@ import { purchasePriceQuestion, salesSubject } from './sales-subject'
 import { hasAffordabilityConcern } from './financing'
 import { asksForHouse } from './product-fit'
 import { unitAlternative } from './unit-alternatives'
-import { catalogQuery, filterCatalog } from './catalog-dialogue'
+import { catalogQuery, filterCatalog, validateCatalogReply } from './catalog-dialogue'
 import { propertyFiltersFromText } from './turn-semantics'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
@@ -189,9 +189,51 @@ function comparisonFacts(units: Row[], contextual: boolean) {
   return { ids: units.map(unit => text(unit.id)), difference: Math.abs(Math.round(first * 100) - Math.round(second * 100)) / 100 }
 }
 
+const quotedOptionsQuestion = '¿Le gustaría obtener más detalles de alguna de estas opciones?'
+const joinOptions = (values: string[]) => values.length < 2 ? values[0] || '' : `${values.slice(0, -1).join(', ')} y ${values.at(-1)}`
+
+function sharedQuoteFloor(units: Row[]) {
+  const labels = units.map(unit => text(unit.floor).trim())
+  if (labels.every(label => label && normalized(label) === normalized(labels[0]))) return labels[0].toLocaleLowerCase('es')
+  const numbers = units.map(unit => unit.floor_number === null || unit.floor_number === undefined || unit.floor_number === '' ? null : Number(unit.floor_number))
+  if (!numbers.every(value => value !== null && Number.isFinite(value) && value === numbers[0])) return ''
+  // A floor number is enough to state its number, but not to invent the
+  // building's named floor (for example, "sexta planta alta").
+  return `planta ${numbers[0]}`
+}
+
+function focusedPriceDescription(units: Row[], approximate: boolean, history: unknown) {
+  const category = text(units[0].category), feminine = category === 'suite'
+  const label = ({ departamento: 'departamentos', penthouse: 'penthouses', suite: 'suites', local: 'locales comerciales' } as Record<string, string>)[category]
+  const bedrooms = [...new Set(units.map(unit => Number(unit.bedrooms)))].sort((a, b) => a - b)
+  const bedroomLabel = category !== 'local' && bedrooms.every(value => Number.isInteger(value) && value > 0)
+    ? ` de ${joinOptions(bedrooms.map(String))} ${bedrooms.length === 1 && bedrooms[0] === 1 ? 'dormitorio' : 'dormitorios'}` : ''
+  const subject = `${feminine ? 'Las' : 'Los'} ${label}${bedroomLabel}`
+  const floor = sharedQuoteFloor(units)
+  const floorPhrase = floor ? `ubicad${feminine ? 'as' : 'os'} en ${/^la\s/i.test(floor) ? '' : 'la '}${floor}` : ''
+  const money = (value: number) => '$' + value.toLocaleString('es-EC', { maximumFractionDigits: 2 })
+  const values = units.map(unit => moneyValue(unit)!), minimum = Math.min(...values), maximum = Math.max(...values)
+  const numbers = units.map(unit => text(unit.unit_number))
+  const compactNamedSet = units.length <= 3 && numbers.every(Boolean)
+  const namedSubject = compactNamedSet ? `${subject} son ${joinOptions(numbers.map(number => `${feminine ? 'la' : 'el'} ${number}`))}` : subject
+  const location = floorPhrase ? compactNamedSet ? `, ${units.length === 2 ? feminine ? 'ambas' : 'ambos' : feminine ? 'todas' : 'todos'} ${floorPhrase}` : ` están ${floorPhrase}` : ''
+  const launchQualifier = approximate ? variant([' referencial de lanzamiento', ' aproximado de lanzamiento', ' referencial durante el lanzamiento'], history) : ''
+  const launchNote = approximate ? ' ' + variant(['Son valores referenciales de lanzamiento y pueden cambiar.',
+    'Por ahora son valores aproximados de lanzamiento, sujetos a cambios.',
+    'Estamos en lanzamiento, por lo que estos valores son referenciales y pueden variar.'], history) : ''
+  if (minimum === maximum) {
+    const prefix = compactNamedSet || floorPhrase ? `${namedSubject}${location}, con un valor` : `${subject} tienen un valor`
+    return `${prefix}${launchQualifier} de ${money(minimum)} USD cada un${feminine ? 'a' : 'o'}${approximate ? ', sujeto a cambios' : ''}.`
+  }
+  const introduction = compactNamedSet || floorPhrase ? `${namedSubject}${location}. ` : ''
+  if (compactNamedSet) return introduction + units.map(unit => `El precio ${feminine ? 'de la suite' : `del ${category}`} ${text(unit.unit_number)} es de ${money(moneyValue(unit)!)} USD.`).join(' ')
+    + launchNote
+  return `${introduction}${introduction ? 'Sus valores van' : `${subject} tienen valores que van`} desde ${money(minimum)} hasta ${money(maximum)} USD.${launchNote}`
+}
+
 // Price facts always come from this turn's authorized catalog. A media reference or
 // conversation summary identifies a unit but never authorizes disclosing its price.
-type PriceQuote = { reply: string; quoted: boolean; needsAdvisor?: boolean; financingOffer?: string; units?: Row[]; prices?: number[]; ranges?: { category: string; bedrooms: number; min: number; max: number; complete: boolean }[]; comparison?: { ids: string[]; difference: number } }
+type PriceQuote = { reply: string; quoted: boolean; needsAdvisor?: boolean; financingOffer?: string; units?: Row[]; prices?: number[]; ranges?: { category: string; bedrooms: number; min: number; max: number; complete: boolean }[]; comparison?: { ids: string[]; difference: number }; followUp?: { question: string; purpose: 'explore_quoted_options'; candidate_ids: string[]; category: string; bedrooms: number | null } }
 export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQuote | null {
   if (asksForHouse(current)) return null
   if (!currentPriceGoal(info, current)) return null
@@ -231,8 +273,17 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
     return { category: text(group[0].category), bedrooms: Number(group[0].bedrooms) || 0,
       min: Math.min(...values), max: Math.max(...values), complete: values.length === group.length }
   }).filter(r => Number.isFinite(r.min)) : undefined
+  const comparison = ranges ? null : comparisonFacts(selection.selected, contextual)
+  // Explain the current interest, not the rest of the inventory. A quote for
+  // several options is an invitation to explore, never an implicit selection.
+  const focused = !selection.generalRange && !explicit && !comparison && priced.length > 1 && priced.length === selected.length
+    && priced.every(unit => unit.category === priced[0].category)
+  const commonBedrooms = focused && priced.every(unit => Number(unit.bedrooms) > 0 && Number(unit.bedrooms) === Number(priced[0].bedrooms)) ? Number(priced[0].bedrooms) : null
+  const followUp = focused ? { question: quotedOptionsQuestion, purpose: 'explore_quoted_options' as const,
+    candidate_ids: priced.map(unit => text(unit.id)), category: text(priced[0].category), bedrooms: commonBedrooms } : undefined
   let reply: string
-  if (selection.generalRange && ranges?.length) {
+  if (focused) reply = focusedPriceDescription(priced, approximate, info.historial)
+  else if (selection.generalRange && ranges?.length) {
     const range = ranges[0]
     reply = `Los precios de los inmuebles disponibles${range.complete ? '' : ' con precio publicado'} ${range.min === range.max ? `parten de ${money(range.min)}` : `van desde ${money(range.min)} hasta ${money(range.max)}`} USD, según el tipo de inmueble y la unidad.`
   } else if (ranges?.length) {
@@ -259,9 +310,8 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
     const intro = variant([subject, count ? `Para ${count} dormitorios, los valores` : 'Para estas opciones, los valores', 'En estas opciones, los precios'], info.historial)
     reply = `${intro} ${min === max ? `parten de ${money(min)}` : `van de ${money(min)} a ${money(max)}`} USD.`
   }
-  const comparison = ranges ? null : comparisonFacts(selection.selected, contextual)
   if (comparison) reply += comparison.difference === 0 ? ' Ambas opciones tienen el mismo precio.' : ` La diferencia es de ${money(comparison.difference)} USD.`
-  if (approximate) reply += ' ' + variant([
+  if (approximate && !focused) reply += ' ' + variant([
     'Son valores referenciales de lanzamiento y pueden cambiar.',
     'Por ahora son valores aproximados de lanzamiento, sujetos a cambios.',
     'Estamos en lanzamiento, por lo que estos valores son referenciales y pueden variar.',
@@ -287,7 +337,7 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
       `Para el financiamiento trabajamos con ${partners.join(' o ')}; podemos orientarle durante el proceso.`,
     ], info.historial)
   }
-  return { reply: reply + (financingOffer ? ' ' + financingOffer : ''), financingOffer, quoted: true, units: priced, prices: priced.map(unit => moneyValue(unit)!), ...(ranges ? { ranges } : {}), ...(comparison ? { comparison } : {}) }
+  return { reply: reply + (financingOffer ? ' ' + financingOffer : '') + (followUp ? ' ' + followUp.question : ''), financingOffer, quoted: true, units: priced, prices: priced.map(unit => moneyValue(unit)!), ...(ranges ? { ranges } : {}), ...(comparison ? { comparison } : {}), ...(followUp ? { followUp } : {}) }
 }
 
 export function acceptedPriceOption(info: Row, current: string, summary: Row) {
@@ -312,14 +362,60 @@ export function priceEvidence(quote: PriceQuote, info: Row) {
   return {
     source: 'catalogo.published_commercial_price',
     approximate: object(info.politica_comercial).precios_aproximados === true,
-    units: (quote.units || []).map(unit => ({ id: unit.id, unit_number: unit.unit_number, category: unit.category, price_usd: moneyValue(unit) })),
+    units: (quote.units || []).map(unit => ({ id: unit.id, unit_number: unit.unit_number, category: unit.category,
+      bedrooms: unit.bedrooms ?? null, floor: unit.floor ?? null, floor_number: unit.floor_number ?? null, price_usd: moneyValue(unit) })),
     comparison: quote.comparison || null,
     ranges: quote.ranges || [],
+    follow_up: quote.followUp || null,
   }
+}
+
+function quotedGroupIssues(reply: string, units: Row[]) {
+  if (!units.length) return []
+  const issues: string[] = [], numberKey = (value: unknown) => Number(text(value).replace(/\D/g, ''))
+  const catalogUnits: Row[] = units.map(unit => ({ ...unit, floor_number: unit.floor_number == null || unit.floor_number === ''
+    ? propertyFiltersFromText(text(unit.floor)).floor_number : Number(unit.floor_number) }))
+  const catalogAudit = { verified_catalog: true, catalog_results: { units: catalogUnits } }
+  const validateFacts = (value: string) => {
+    const check = validateCatalogReply(value, catalogAudit)
+    if (!check.valid) issues.push(['catalog_unit_mismatch', 'catalog_category_mismatch'].includes(check.reason || '') ? 'price_unit_outside_query' : check.reason || 'unsupported_fact')
+  }
+  validateFacts(reply)
+  let previousGroup: Row[] = []
+  const clauses = reply.replace(/https?:\/\/\S+/g, '').replace(/¿[^?]*\?/g, '')
+    .split(/(?<!\d)\.\s+|(?<=\d)\.(?!\d)\s+|[;\n]+/)
+  for (const clause of clauses) {
+    const m = normalized(clause)
+    const named = [...m.matchAll(/\b(departamentos?|apartamentos?|suites?|penthouses?|local(?:es)?(?: comerciales?)?|unidades?)\s+(?:numeros?\s*)?((?:lc[- ]?)?\d{1,4}(?:\s*(?:,|y|e)\s*(?:(?:el|la)\s+)?(?:lc[- ]?)?\d{1,4})*)\b/g)]
+    const implicit = [...m.matchAll(/\b(?:el|la|los|las)\s+((?:lc[- ]?)?\d{3,4}(?:\s*(?:,|y|e)\s*(?:(?:el|la)\s+)?(?:lc[- ]?)?\d{3,4})*)\b/g)]
+    const references = [...named.map(match => ({ category: match[1].startsWith('apartamento') ? 'departamento'
+      : match[1].startsWith('local') ? 'local' : match[1].startsWith('unidad') ? null : match[1].replace(/s$/, ''), codes: match[2] })),
+    ...implicit.filter(match => !named.some(other => (match.index || 0) >= (other.index || 0)
+      && (match.index || 0) < (other.index || 0) + other[0].length)).map(match => ({ category: null, codes: match[1] }))]
+    const referenced = [...new Map(references.flatMap(reference => (reference.codes.match(/(?:lc[- ]?)?\d+/g) || [])
+      .flatMap(code => catalogUnits.filter(unit => numberKey(unit.unit_number) === numberKey(code)
+        && (!reference.category || unit.category === reference.category)))).map(unit => [unit.id, unit])).values()]
+    const sharedSubject = /\b(?:ambos|ambas|cada un[oa]|los dos|las dos|todos|todas|estan ubicad|se encuentran|se ubican)\b/.test(m)
+    const group = referenced.length ? referenced : sharedSubject ? previousGroup.length > 1 ? previousGroup : catalogUnits : []
+    if (referenced.length) previousGroup = referenced
+    // A second sentence may use "ambos" instead of repeating unit numbers.
+    // Bind that assertion to the same quoted set before checking its attributes.
+    if (!referenced.length && sharedSubject && group.length > 1) validateFacts(`Unidades ${joinOptions(group.map(unit => text(unit.unit_number)))}: ${clause}`)
+    if (!group.length || /\bdiferencia\b/.test(m)) continue
+    const amounts = [...clause.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)].map(match => {
+      try { return parseCommercialPrice((match[1] || match[2]).replace(/[.,]$/, '')) } catch { return null }
+    })
+    if (/\brespectivamente\b/.test(m) && amounts.length === group.length) {
+      if (group.some((unit, index) => amounts[index] !== moneyValue(unit))) issues.push('price_unit_mismatch')
+    } else if (amounts.length === 1 && !/\b(?:desde|hasta|rango|entre|a partir)\b/.test(m)
+      && group.some(unit => moneyValue(unit) !== amounts[0])) issues.push('price_unit_mismatch')
+  }
+  return issues
 }
 
 export function verifiedPriceReplyIssues(reply: string, info: Row, current: string, quote: PriceQuote): string[] {
   const issues = priceReplyIssues(reply, info, current, quote.prices).filter(issue => issue !== 'style')
+  issues.push(...quotedGroupIssues(reply, quote.units || []))
   const amounts = [...reply.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)].map(match => {
     try { return parseCommercialPrice((match[1] || match[2]).replace(/[.,]$/, '')) } catch { return null }
   })
@@ -334,6 +430,9 @@ export function verifiedPriceReplyIssues(reply: string, info: Row, current: stri
     const unit = quote.units?.find(unit => normalized(text(unit.category)) === normalized(mention[1]) && normalized(text(unit.unit_number)) === normalized(mention[2]))
     if (!unit) { issues.push('price_unit_outside_query'); continue }
     const clause = reply.slice((mention.index || 0) + mention[0].length, mentions[index + 1]?.index).split(/[;\n]|(?<=[.!?])\s/)[0]
+    // Collective ordered prices are already checked as a group above; do not
+    // attach every listed amount to the last singular unit mention.
+    if (/\brespectivamente\b/.test(normalized(clause))) continue
     for (const amount of clause.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)) {
       try {
         if (parseCommercialPrice((amount[1] || amount[2]).replace(/[.,]$/, '')) !== moneyValue(unit)) issues.push('price_unit_mismatch')
@@ -348,6 +447,7 @@ Solo informe precios de catálogo autorizados: nunca reutilice un precio recorda
 En Lanzamiento, si precios_aproximados es true, identifique el valor como aproximado y explique brevemente que es referencial de lanzamiento y puede cambiar.
 En Preventa informe el precio sin esa aclaración. No invente descuentos, precios, cuotas ni notificaciones futuras.
 Si hay respuesta_precio_verificada, incluya esos datos y resuelva también las otras consultas; no vuelva a pedir la unidad ya identificada.
+Si la cotización reúne varias opciones del interés actual, explique qué dormitorios tienen y la planta compartida cuando esté verificada. Conserve la invitación a conocer más detalles de esas opciones. No agregue alternativas más económicas o con menos dormitorios si el cliente no las pidió. La aceptación de esa invitación no selecciona ninguna unidad; espere su elección antes de enviar un recorrido de una unidad específica.
 Un rango general de inmuebles puede reunir categorías distintas: no lo presente como el precio de departamentos, suites u otra categoría específica. Si faltan precios de algunas unidades, conserve la aclaración de que el rango corresponde a las opciones con precio publicado.
 Si se comparan unidades concretas y el cliente pregunta «¿y en precio?», conserve esa comparación: informe cada precio verificado y la diferencia calculada. No sustituya las unidades por el rango de toda una categoría. Un importe calculado como diferencia no es el precio de ninguna unidad.
 Hable al cliente con naturalidad. Nunca diga «precio registrado», «precio autorizado», «registrado en el sistema» ni explique cómo almacenamos los precios. Diga el valor o el rango de las opciones de su interés.

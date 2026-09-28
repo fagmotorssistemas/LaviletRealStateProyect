@@ -5,6 +5,7 @@ require('./test-typescript.cjs')
 const { interpretConversationTurn, rememberInterpretedTurn, TURN_EXTRACTION_SCHEMA, CONVERSATION_CONTRACT_VERSION } = require('../src/lib/integrations/automation/turn-interpretation.ts')
 const { TURN_SEMANTICS_SCHEMA } = require('../src/lib/integrations/automation/turn-semantics.ts')
 const { unreadMediaMarker } = require('../src/lib/integrations/automation/media-format.ts')
+const { mergeLeadProfile } = require('../src/lib/integrations/automation/lead-profile.ts')
 
 test('the entire extraction schema is closed recursively, including nullable objects and semantics', () => {
   function check(schema) {
@@ -181,13 +182,209 @@ test('profile extraction separates residence from origin and never infers a coun
   })
   const result = await run({ full_name: 'Carlos', residence_city: 'Madrid', residence_country: 'España',
     profile_evidence: { full_name: 'Soy Carlos', residence_city: 'vivo en Madrid', residence_country: 'vivo en Madrid' } })
-  assert.deepEqual(result.extracted.lead_profile, { full_name: 'Carlos', residence_city: 'Madrid', residence_country: null,
-    evidence: { full_name: 'Soy Carlos', residence_city: 'vivo en Madrid', residence_country: null } })
+  assert.equal(result.extracted.lead_profile.full_name, 'Carlos')
+  assert.deepEqual(result.extracted.lead_profile.evidence, { full_name: 'Soy Carlos', residence_city: 'vivo en Madrid', residence_country: null })
+  assert.equal(result.extracted.lead_profile.residence_status, 'confirmed')
   assert.equal(result.extracted.residence_city, 'Madrid')
   assert.equal(result.extracted.residence_country, null)
   assert.doesNotMatch(JSON.stringify(result.diagnostic), /Carlos|Madrid|España/)
   const mistakenOrigin = await run({ residence_city: 'Loja', profile_evidence: { residence_city: current } })
   assert.equal(mistakenOrigin.extracted.residence_city, null)
+})
+
+const profileTurn = (current, raw, input = {}) => interpretConversationTurn({ mensaje_actual: current, ...input }, {
+  activePrompt: async () => 'Prompt', aiJson: async () => raw,
+})
+const confirmationInput = (city = 'Cuenca', country = null) => ({
+  perfil_inicial: { residence_status: 'pending_confirmation', residence_candidate: { city, country, evidence: `Soy de ${city || country}` } },
+  pregunta_pendiente: { id: 'lead_residence_confirmation', residence_candidate: { city, country, evidence: `Soy de ${city || country}` } },
+})
+const metadata = { message_id: 'm2', declared_at: '2026-09-28T15:00:00Z' }
+
+test('origin is retained for contextual confirmation instead of being lost or accepted as residence', async () => {
+  for (const city of ['Cuenca', 'São Paulo', 'Łódź', '北京']) {
+    const current = `Claro, Carlos y soy de ${city}`
+    const result = await profileTurn(current, { full_name: 'Carlos', residence_city: city,
+      profile_evidence: { full_name: current, residence_city: `soy de ${city}` } }, {
+      perfil_inicial: { awaiting: true, missing: ['full_name', 'residence_city', 'residence_country'] },
+      pregunta_pendiente: { id: 'lead_profile' },
+    })
+    const profile = result.extracted.lead_profile
+    assert.equal(profile.full_name, 'Carlos')
+    assert.equal(profile.residence_city, null)
+    assert.equal(profile.declared_location.city, city)
+    assert.equal(profile.declared_location.kind, 'origin')
+    assert.equal(profile.residence_candidate.city, city)
+    assert.equal(profile.residence_status, 'pending_confirmation')
+  }
+})
+
+test('explicit current residence wins while an independently declared origin is retained', async () => {
+  const current = 'Soy de Cuenca pero vivo en Guayaquil'
+  const result = await profileTurn(current, { residence_city: 'Guayaquil', profile_evidence: { residence_city: 'vivo en Guayaquil' },
+    declared_location: { city: 'Cuenca', country: null, kind: 'origin', evidence: 'Soy de Cuenca' } }, confirmationInput())
+  const profile = mergeLeadProfile(confirmationInput().perfil_inicial, result.extracted.lead_profile, metadata)
+  assert.equal(profile.residence_city, 'Guayaquil')
+  assert.equal(profile.residence_status, 'confirmed')
+  assert.equal(profile.residence_candidate, null)
+  assert.equal(profile.declared_location.city, 'Cuenca')
+  assert.equal(profile.sources.residence_city.evidence, 'vivo en Guayaquil')
+})
+
+test('temporary places are preserved without becoming residence candidates', async () => {
+  const current = 'Estoy en Madrid de vacaciones'
+  const result = await profileTurn(current, { residence_city: 'Madrid', profile_evidence: { residence_city: current },
+    declared_location: { city: 'Madrid', country: null, kind: 'temporary', evidence: current } }, {
+    pregunta_pendiente: { id: 'lead_profile_residence' },
+  })
+  assert.equal(result.extracted.lead_profile.declared_location.city, 'Madrid')
+  assert.equal(result.extracted.lead_profile.residence_candidate, null)
+  assert.equal(result.extracted.residence_city, null)
+})
+
+test('positive and negative answers resolve only the specific pending candidate', async () => {
+  const yes = await profileTurn('Sí, así es', { residence_confirmation: { decision: 'confirm', evidence: 'Sí, así es', confidence: 'high' } }, confirmationInput())
+  assert.equal(yes.extracted.residence_city, 'Cuenca')
+  assert.equal(yes.extracted.residence_country, null)
+  const accepted = mergeLeadProfile(confirmationInput().perfil_inicial, yes.extracted.lead_profile, metadata)
+  assert.equal(accepted.residence_status, 'confirmed')
+  assert.equal(accepted.sources.residence_city.source, 'lead_confirmation')
+  assert.equal(accepted.sources.residence_city.evidence, 'Sí, así es')
+  const no = await profileTurn('No', { residence_confirmation: { decision: 'deny', evidence: 'No', confidence: 'high' } }, confirmationInput())
+  const denied = mergeLeadProfile(confirmationInput().perfil_inicial, no.extracted.lead_profile, metadata)
+  assert.equal(denied.residence_status, 'unknown')
+  assert.equal(denied.residence_candidate, null)
+  assert.equal(denied.rejected_residence_candidate.city, 'Cuenca')
+})
+
+test('a residence correction overrides a yes prefix or denial and cannot retain stale country', async () => {
+  const current = 'Sí, soy de Cuenca, pero vivo en Guayaquil'
+  const result = await profileTurn(current, { residence_city: 'Guayaquil', profile_evidence: { residence_city: 'vivo en Guayaquil' },
+    residence_confirmation: { decision: 'confirm', evidence: 'Sí', confidence: 'high' } }, confirmationInput())
+  assert.equal(result.extracted.residence_city, 'Guayaquil')
+  const changed = mergeLeadProfile({ residence_city: 'Madrid', residence_country: 'España', residence_status: 'confirmed' }, result.extracted.lead_profile, metadata)
+  assert.equal(changed.residence_city, 'Guayaquil')
+  assert.equal(changed.residence_country, undefined)
+  assert.equal(changed.residence_candidate, null)
+})
+
+test('confirmation cannot be invented from history, medium confidence, a different question or mismatched target', async () => {
+  for (const input of [
+    {},
+    { ...confirmationInput(), pregunta_pendiente: { id: 'visit_permission', residence_candidate: { city: 'Cuenca', country: null } } },
+    { ...confirmationInput(), pregunta_pendiente: { id: 'lead_residence_confirmation', residence_candidate: { city: 'Loja', country: null } } },
+  ]) {
+    const result = await profileTurn('Sí', { residence_confirmation: { decision: 'confirm', evidence: 'Sí', confidence: 'high' } }, input)
+    assert.equal(result.extracted.residence_city, null)
+  }
+  for (const [current, evidence, confidence] of [['Quiero el precio', 'Sí', 'high'], ['Sí', 'Sí', 'medium'], ['Sí, pero no vivo ahí', 'Sí', 'high']]) {
+    const result = await profileTurn(current, { residence_confirmation: { decision: 'confirm', evidence, confidence } }, confirmationInput())
+    assert.equal(result.extracted.residence_city, null)
+  }
+})
+
+test('pending origin survives unrelated turns and does not replace an already confirmed residence', async () => {
+  const pending = confirmationInput().perfil_inicial
+  const unrelated = (await profileTurn('¿Qué precio tienen?', {})).extracted.lead_profile
+  assert.equal(mergeLeadProfile(pending, unrelated, metadata).residence_candidate.city, 'Cuenca')
+  const origin = (await profileTurn('Soy de Cuenca', { declared_location: { city: 'Cuenca', country: null, kind: 'origin', evidence: 'Soy de Cuenca' } })).extracted.lead_profile
+  const merged = mergeLeadProfile({ residence_city: 'Madrid', residence_status: 'confirmed' }, origin, metadata)
+  assert.equal(merged.residence_city, 'Madrid')
+  assert.equal(merged.residence_status, 'confirmed')
+  assert.equal(merged.declared_location.city, 'Cuenca')
+  assert.equal(merged.residence_candidate, undefined)
+})
+
+test('geographic declarations require typed current evidence and do not accept project facts or old homes', async () => {
+  for (const [current, value, kind] of [
+    ['El proyecto está en Cuenca', 'Cuenca', 'origin'],
+    ['Soy de Cuenca, pero vivo en Guayaquil', 'Guayaquil', 'origin'],
+    ['Quiero el precio', 'Madrid', 'origin'],
+  ]) {
+    const result = await profileTurn(current, { declared_location: { city: value, country: null, kind, evidence: current } })
+    assert.equal(result.extracted.lead_profile.declared_location, null)
+  }
+  for (const [current, value] of [['Vivo en Quito, no en Madrid', 'Madrid'], ['Vivo en Quito. Antes vivía en Madrid', 'Madrid'], ['Si vivo en Madrid el precio cambia?', 'Madrid']]) {
+    const result = await profileTurn(current, { residence_city: value, profile_evidence: { residence_city: current } })
+    assert.equal(result.extracted.residence_city, null)
+  }
+})
+
+test('profile names and places support accents and non-Latin labels without inventing countries', async () => {
+  for (const [name, city] of [['José María', 'São Paulo'], ['李明', '北京'], ['Zoë', 'Łódź']]) {
+    const current = `Me llamo ${name} y vivo en ${city}`
+    const result = await profileTurn(current, { full_name: name, residence_city: city,
+      profile_evidence: { full_name: `Me llamo ${name}`, residence_city: `vivo en ${city}` } })
+    assert.equal(result.extracted.lead_profile.full_name, name)
+    assert.equal(result.extracted.residence_city, city)
+    assert.equal(result.extracted.residence_country, null)
+  }
+})
+
+test('declining residence collection does not discard known name or fabricate a location', async () => {
+  const result = await profileTurn('Prefiero no compartir dónde vivo', {}, { pregunta_pendiente: { id: 'lead_profile_residence' } })
+  const merged = mergeLeadProfile({ full_name: 'Carlos', ...confirmationInput().perfil_inicial }, result.extracted.lead_profile, metadata)
+  assert.equal(merged.residence_status, 'declined')
+  assert.equal(merged.full_name, 'Carlos')
+  assert.equal(merged.residence_candidate, null)
+})
+
+test('affirmative sí residence declarations survive while conditional si stays unconfirmed', async () => {
+  for (const current of ['Sí vivo en Quito', 'Sí, vivo en Quito']) {
+    const result = await profileTurn(current, { residence_city: 'Quito', profile_evidence: { residence_city: current } })
+    assert.equal(result.extracted.residence_city, 'Quito')
+  }
+  const origin = await profileTurn('Sí soy de Cuenca', { declared_location: { city: 'Cuenca', country: null, kind: 'origin', evidence: 'Sí soy de Cuenca' } })
+  assert.equal(origin.extracted.lead_profile.residence_candidate.city, 'Cuenca')
+  const conditional = await profileTurn('Si vivo en Quito, ¿puedo visitar?', { residence_city: 'Quito', profile_evidence: { residence_city: 'vivo en Quito' } })
+  assert.equal(conditional.extracted.residence_city, null)
+})
+
+test('confirmed explicit residence records declaration provenance even when a yes prefix was extracted', async () => {
+  const current = 'Claro, Carlos y soy de Cuenca pero vivo en Guayaquil'
+  const result = await profileTurn(current, { full_name: 'Carlos', residence_city: 'Guayaquil',
+    profile_evidence: { full_name: current, residence_city: 'vivo en Guayaquil' },
+    declared_location: { city: 'Cuenca', country: null, kind: 'origin', evidence: 'soy de Cuenca' },
+    residence_confirmation: { decision: 'confirm', evidence: 'Claro', confidence: 'high' } }, {
+    ...confirmationInput(), perfil_inicial: { ...confirmationInput().perfil_inicial, awaiting: true, missing: ['full_name'] },
+  })
+  const merged = mergeLeadProfile({}, result.extracted.lead_profile, metadata)
+  assert.equal(merged.full_name, 'Carlos')
+  assert.equal(merged.residence_city, 'Guayaquil')
+  assert.equal(merged.declared_location.city, 'Cuenca')
+  assert.equal(merged.sources.residence_city.source, 'lead_declaration')
+  assert.equal(merged.sources.residence_city.evidence, 'vivo en Guayaquil')
+})
+
+test('unrelated answer semantics cannot confirm residence and a changed origin changes the candidate', async () => {
+  const wrongAnswer = await profileTurn('Sí, envíeme el brochure', {
+    residence_confirmation: { decision: 'confirm', evidence: 'Sí', confidence: 'high' },
+    turn_semantics: { answer_to_previous: { question_id: 'none', kind: 'none', confidence: 'low' } },
+  }, confirmationInput())
+  assert.equal(wrongAnswer.extracted.residence_city, null)
+  const changed = await profileTurn('Sí, soy de Loja', {
+    residence_confirmation: { decision: 'confirm', evidence: 'Sí', confidence: 'high' },
+    declared_location: { city: 'Loja', country: null, kind: 'origin', evidence: 'soy de Loja' },
+  }, confirmationInput())
+  assert.equal(changed.extracted.residence_city, null)
+  assert.equal(changed.extracted.lead_profile.residence_candidate.city, 'Loja')
+})
+
+test('pure profile planning keeps saved evidence timestamps and only-country confirmations do not infer cities', async () => {
+  const input = confirmationInput(null, 'Ecuador')
+  const result = await profileTurn('Sí', { residence_confirmation: { decision: 'confirm', evidence: 'Sí', confidence: 'high' } }, input)
+  const stored = mergeLeadProfile(input.perfil_inicial, result.extracted.lead_profile, metadata)
+  const planned = mergeLeadProfile(stored, result.extracted.lead_profile)
+  assert.equal(planned.residence_city, undefined)
+  assert.equal(planned.residence_country, 'Ecuador')
+  assert.equal(planned.residence_status, 'confirmed')
+  assert.deepEqual(planned.sources.residence_country, stored.sources.residence_country)
+  assert.equal(planned.residence_confirmation.message_id, 'm2')
+  const unrelated = (await profileTurn('¿Cuál es el precio?', {}, { perfil_inicial: { ...planned, awaiting: true, missing: ['residence_city'] } })).extracted.lead_profile
+  const continued = mergeLeadProfile(planned, unrelated, { message_id: 'm3' })
+  assert.equal(continued.residence_status, 'confirmed')
+  assert.equal(continued.residence_country, 'Ecuador')
+  assert.equal(continued.residence_city, undefined)
 })
 
 test('short profile answers need the pending question and retain existing financing name data', async () => {
