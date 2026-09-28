@@ -122,7 +122,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const resolvedReference = object(info.referencia_unidad)
   if (resolvedReference.needsClarification === true) return {
     reply: text(resolvedReference.clarification),
-    audit: { source: 'property_reference_clarification', fallback: false, reference_reason: resolvedReference.reason },
+    audit: { source: 'property_reference_clarification', fallback: false, reference_reason: resolvedReference.reason,
+      catalog_query: resolvedReference.query, reference_resolution: object(resolvedReference.context).reference_resolution,
+      filter_resolution: object(resolvedReference.context).filter_resolution },
   }
   const acceptedOption = info.catalogue_price_requested ? null : acceptedPriceOption(info, current, summary)
   if (acceptedOption) return acceptedOption

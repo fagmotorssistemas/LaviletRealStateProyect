@@ -5,6 +5,19 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 
+test('comparison audit separates inherited characteristics from current constraints and shows resolved referents', () => {
+  const item = step(1, 'response_coverage', { status: 'checked',
+    catalog_results: { units: [{ id: 'unit-a', unit_number: '801', category: 'departamento' }, { id: 'unit-b', unit_number: '803', category: 'departamento' }] },
+    filter_resolution: { current: { floor_number: null }, inherited: { floor_number: 6 }, evidence: {} },
+    reference_resolution: { source: 'pending_question', requested_ids: ['unit-a', 'unit-b'], resolved_ids: ['unit-a', 'unit-b'], status: 'resolved' } })
+  const body = JSON.stringify(explainStep(execution([item]), item).coverageSections)
+  assert.match(body, /Restricciones del mensaje actual/)
+  assert.match(body, /Características heredadas, sin nueva restricción/)
+  assert.match(body, /Unidades de la consulta actual/)
+  assert.match(body, /departamento 801/)
+  assert.match(body, /departamento 803/)
+})
+
 test('route and fallback reasons explain decisions without misreading historical question counts',()=>{
   assert.match(humanValue('current_request_overrides_pending_visit'),/consulta actual no pide una visita/)
   assert.match(reviewDecision({status:'rejected_guard',issues:['question_count']}).causes.join(' '),/una sola pregunta/)

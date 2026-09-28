@@ -21,6 +21,8 @@ const UUID = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i
 const labels: Record<string, string> = {
   token_usage: 'Consumo de tokens de esta llamada', input_tokens: 'Tokens de entrada', output_tokens: 'Tokens de salida', total_tokens: 'Tokens totales', cached_input_tokens: 'Tokens de entrada en caché',
   semantic_review: 'Afirmaciones y evidencia revisadas', opening_decision: 'Apertura decidida por el sistema', query_transition: 'Cambio de filtros de la consulta',
+  filter_resolution: 'Origen de los filtros', reference_resolution: 'Unidades de la consulta actual', inherited: 'Heredados del contexto',
+  requested_ids: 'Unidades referidas', resolved_ids: 'Unidades identificadas', missing_ids: 'Unidades sin resolver',
   message: 'Mensaje utilizado', original_message: 'Mensaje original', property_message: 'Parte inmobiliaria',
   allowed: 'Permite continuar la ruta de visitas', current_domains: 'Temas de la solicitud actual', visit_intent: 'Intención de visita',
   profile_introduction: 'Presentación y captura inicial', stage: 'Etapa', missing_fields: 'Datos pendientes',
@@ -59,6 +61,10 @@ const labels: Record<string, string> = {
   bedrooms_any: 'Cantidades de dormitorios admitidas',
 }
 const values: Record<string, string> = {
+  contextual_property_followup: 'La consulta continúa sobre las unidades ya identificadas',
+  context_reference_requires_clarification: 'Falta identificar todas las unidades de la consulta; esto no demuestra falta de disponibilidad',
+  unresolved_reference_is_not_unavailability: 'La respuesta afirma que no hay disponibilidad cuando lo pendiente es identificar las unidades',
+  resolved: 'Identificado', pending_question: 'Pregunta pendiente', pending_target: 'Unidad de la pregunta pendiente', explicit_reference: 'Referencia explícita',
   quantity_supported: 'Cantidad respaldada por su atributo y fuente',
   quantity_reference_unresolved: 'No se pudo identificar una referencia de evidencia para la cantidad',
   quantity_evidence_conflict: 'Las fuentes identificadas contienen cantidades diferentes',
@@ -410,6 +416,12 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
     { title: 'Decisiones y evidencia', description: 'El sistema conserva las aperturas elegidas y controla las repeticiones; una apertura vacía permite cortesía opcional. La revisión semántica contrasta las afirmaciones y el código comprueba sus referencias y valores.', facts: [
       { label: 'Apertura', value: output.opening_decision ? humanValue(output.opening_decision) : 'No registrada' },
       { label: 'Cambio de filtros', value: output.query_transition && Object.keys(row(output.query_transition)).length ? humanValue(output.query_transition) : 'No se registró un cambio de alcance.' },
+      ...(Object.keys(row(output.filter_resolution)).length ? [
+        { label: 'Restricciones del mensaje actual', value: humanValue(row(output.filter_resolution).current, snapshots, 'filters') },
+        { label: 'Características heredadas, sin nueva restricción', value: Object.keys(row(row(output.filter_resolution).inherited)).length ? humanValue(row(output.filter_resolution).inherited) : 'Ninguna registrada.' },
+        { label: 'Evidencia de las restricciones', value: humanValue(row(output.filter_resolution).evidence) },
+      ] : []),
+      ...(Object.keys(row(output.reference_resolution)).length ? [{ label: 'Unidades de la consulta actual', value: humanValue(output.reference_resolution, snapshots) }] : []),
       { label: 'Afirmaciones contrastadas', value: output.semantic_review ? humanValue(output.semantic_review) : 'Este registro no incluye revisión por afirmaciones.' },
     ] },
     { title: 'Intento de reparación', description: 'Indica si se pidió a la IA corregir un resultado inválido antes de conservar o descartar su propuesta.', facts: attempts.length ? attempts.map((attempt, index) => ({

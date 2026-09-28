@@ -2,7 +2,8 @@ import { finalWriterContract, FINAL_WRITER_RULES, COMMERCIAL_CONTINUATION_RULES,
 import { leadIntroductionIssues, LEAD_INTRODUCTION_RULES } from './lead-introduction'
 import { progressiveQuestionIssues, PROGRESSIVE_OPTIONS_RULES } from './progressive-options'
 import { TURN_INTENT_RULES, turnIntentIssues } from './turn-intent'
-import { validateCatalogReply } from './catalog-dialogue'
+import { isCategoryOverview, validateCatalogReply } from './catalog-dialogue'
+import { unverifiedReply } from './delivery-integrity'
 import { projectQuantityEvidence, validateProjectQuantities, withoutSupportedQuantities } from './project-quantities'
 import { NUMERIC_RELATION_RULES } from './semantic-review'
 import { turnEvidence, normalizeReviewReferences, replyReferences } from './turn-evidence'
@@ -344,12 +345,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ...turnIntentIssues(reply, turnIntent, input.verified.respuesta_precio_verificada),
       ...(uncoveredBase.length ? ['fallback_unanswered_request'] : [])]
     // A deterministic base is not exempt from the same factual checks.
-    if (fallbackIssues.length) reply = uncoveredBase.length
-      ? 'No he podido verificar una respuesta completa a su consulta.'
-      : 'No puedo confirmar esos datos con la información verificada disponible.'
+    if (fallbackIssues.length) reply = unverifiedReply(input.audit || {})
     return { reply, changed: reply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
       audit: { resolved_turn_intent: turnIntent, text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: finalWriterContract(input.baseReply, input.audit), price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
-        fallback_validation: { passed: !fallbackIssues.length, issues: fallbackIssues, details: fallbackCheck.details || [], unanswered_requests: uncoveredBase.map(request => request.fragment) },
+        fallback_validation: { passed: !fallbackIssues.length, issues: fallbackIssues, details: fallbackCheck.details || [], unanswered_requests: uncoveredBase.map(request => request.fragment),
+          ...(fallbackIssues.length ? { recovery: 'unverified_reply', rejected_preview: traceText(input.baseReply, 1500) } : {}) },
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments,
         needs_advisor: unresolved.length > 0, unresolved, draft_rejected: true, independent_review: reviewMissing.length > 0 || status === 'rejected_review',
         base_preview: traceText(originalBase, 1500), proposed_preview: traceText(proposedReply, 1500), final_preview: traceText(reply, 1500) } }
@@ -372,7 +372,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ? '\nLa respuesta_base proviene de una consulta ejecutada sobre el catálogo. Puede reorganizarla y agrupar opciones equivalentes para explicar diferencias con claridad. Preserve relaciones entre unidades, categorías y medidas; no repita una ficha por unidad si basta explicar grupos y plantas. Mantenga el referente conversacional y respete las decisiones protegidas del contrato; si no están protegidas, puede elegir una pregunta útil distinta. Añada respuestas a otras solicitudes actuales; no convierta máximos en selección ni mezcle otros dormitorios en los rangos. catalog_comparison y catalog_coverage indican qué dimensiones están respondidas; no derive por desconocer diferencias no solicitadas. Use solo cifras verificadas y agregaciones calculadas en evidencia_turno.groups.'
       : turnWritingRules(input.current, memory)
     if (input.audit?.semantic_review_enabled === true && !context.contrato_redaccion.decisiones_protegidas) writingRules += '\nLas cifras de opciones secundarias de respuesta_base no son obligatorias si no responden a la consulta actual. Redacte frases naturales y priorice la respuesta solicitada. No infiera mayor precio por superficie ni exclusividad. Preserve enlaces requeridos, acciones confirmadas y datos necesarios; no invente el resultado de una consulta ausente.'
-    if (object(input.audit?.alternative_presentation).kind === 'category_overview') writingRules += '\nEsta respuesta presenta alternativas por categoría antes de elegir una. Conserve las superficies máximas verificadas de cada categoría y su cantidad de dormitorios. No la convierta en una lista de códigos de unidades, fichas, baños, superficies exteriores o plantas. Conserve el propósito de la pregunta pendiente: aceptar explorar alternativas o elegir la categoría que desea revisar primero. No añada categorías descartadas ni vuelva a opciones de menos dormitorios que las alternativas propuestas.'
+    if (isCategoryOverview(input.audit || {})) writingRules += '\nEsta respuesta presenta alternativas por categoría antes de elegir una. Conserve las superficies máximas verificadas de cada categoría y su cantidad de dormitorios. No la convierta en una lista de códigos de unidades, fichas, baños, superficies exteriores o plantas. Conserve el propósito de la pregunta pendiente: aceptar explorar alternativas o elegir la categoría que desea revisar primero. No añada categorías descartadas ni vuelva a opciones de menos dormitorios que las alternativas propuestas.'
     if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use esta respuesta_base actualizada, no los precios antiguos del historial. Conserve moneda y condiciones de lanzamiento, incluyendo que pueden cambiar.'
       + (input.audit?.progressive_selection ? ' Mantenga el propósito de la pregunta indicado en progressive_selection; puede reformularla.'
         : ' La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.')

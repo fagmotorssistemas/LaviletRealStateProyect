@@ -12,6 +12,21 @@ function extract(current, property, pending = {}, answer = {}) {
   } }, current, pending)
 }
 
+test('per-field evidence separates current constraints from repeated historical characteristics', () => {
+  const inherited = extract('qué cambia entre estas opciones?', { operation: 'compare', reference_kind: 'comparison',
+    filters: { bedrooms: 3, floor_number: 6 }, filter_evidence: { bedrooms: '', floor_number: 'sexta planta' } })
+  assert.equal(inherited.property.filters.bedrooms, null)
+  assert.equal(inherited.property.filters.floor_number, null)
+  assert.ok(inherited.normalization_issues.includes('property_filter_without_current_evidence:floor_number'))
+  const current = 'compare solo las que superen cien metros cuadrados'
+  const interpreted = extract(current, { operation: 'compare', reference_kind: 'comparison', filters: { min_area_m2: 100 },
+    filter_evidence: { min_area_m2: 'superen cien metros cuadrados' } })
+  assert.equal(interpreted.property.filters.min_area_m2, 100)
+  assert.equal(interpreted.property.filter_evidence.min_area_m2, 'superen cien metros cuadrados')
+  const explicit = extract('quiero 2 cuartos', { operation: 'search', filters: {}, filter_evidence: {} })
+  assert.equal(explicit.property.filters.bedrooms, 2)
+})
+
 test('preference changes distinguish explicit fewer bedrooms from unqualified cheaper requests and rankings', () => {
   const prior = { filters: { bedrooms: 3 } }
   for (const current of ['quiero menos cuartos', 'prefiero algo con menos dormitorios', 'algo de dos habitaciones']) {

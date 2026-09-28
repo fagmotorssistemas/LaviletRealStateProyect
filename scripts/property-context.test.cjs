@@ -17,6 +17,77 @@ const catalog = [
   { id:'u605',unit_number:'605',category:'penthouse',floor:'Sexta planta alta',floor_number:6,bedrooms:3,area_internal_m2:140.53,published_commercial_price:540000 },
 ]
 const apartments = [{role:'bot',content:'El departamento 202 está en la segunda planta y el 302 en la tercera. Ambos tienen 3 dormitorios.'}]
+
+test('contextual comparisons resolve arbitrary offered units even when the extractor repeats their attributes', () => {
+  for (const [category, numbers, bedrooms, floor] of [
+    ['penthouse', ['602', '605'], 3, 6], ['departamento', ['801', '803'], 2, 8], ['suite', ['901', '903'], 1, 9], ['local', ['LC-11', 'LC-12'], 0, 0],
+  ]) for (const current of ['pero y cual es la diferencia entre estos dos?', '¿Qué cambia de una opción a la otra?', 'Compáreme las alternativas que vimos']) {
+    const units = numbers.map((number, i) => ({ id: `id-${number}`, unit_number: number, category, bedrooms, floor_number: floor, area_internal_m2: 80 + i }))
+    const saved = { offered_ids: units.map(unit => unit.id), comparison_ids: [], query: { category, filters: { bedrooms } },
+      pending_question: { id: 'unit_choice', act: 'explore_quoted_options', candidate_ids: units.map(unit => unit.id), target_ids: [] } }
+    const result = resolvePropertyTurn(units, current, { _property_context: saved }, [], semantics(current,
+      { category, operation: 'compare', reference_kind: 'comparison', query_scope: 'comparison', unit_numbers: numbers, filters: { bedrooms, floor_number: floor, bedrooms_required: false } }))
+    assert.equal(result.reason, 'comparison_followup', current)
+    assert.deepEqual(result.context.comparison_ids, units.map(unit => unit.id))
+    assert.equal(result.query.filters.bedrooms, bedrooms)
+    assert.equal(result.context.filter_resolution.current.bedrooms, null)
+    assert.equal(result.query.filters.floor_number, null)
+    assert.equal(result.context.filter_resolution.inherited.floor_number, floor)
+    assert.equal(result.context.reference_resolution.source, 'pending_question')
+    const reply = catalogDialogueReply({ catalogo: units, referencia_unidad: result, property_context: result.context })
+    assert.equal(reply.audit.catalog_coverage.status, 'answered')
+    assert.equal(reply.audit.alternative_presentation, undefined)
+    assert.doesNotMatch(reply.reply, /no contamos|alternativas disponibles/i)
+    assert.match(reply.reply, /¿/)
+  }
+})
+
+test('new current constraints refine a comparison without expanding or silently dropping missing referents', () => {
+  const units = [...catalog, { ...catalog[0], id: 'u402', unit_number: '402', floor_number: 4 }]
+  const saved = { offered_ids: ['u202', 'u302', 'u402'], query: { category: 'departamento', filters: { bedrooms: 3 } } }
+  const current = 'compare los de la planta 3'
+  const result = resolvePropertyTurn(units, current, { _property_context: saved }, [], semantics(current,
+    { category: 'departamento', operation: 'compare', reference_kind: 'comparison', query_scope: 'offered', filters: { floor_number: 3 } }))
+  assert.equal(result.query.filters.floor_number, 3)
+  assert.deepEqual(result.matches.map(unit => unit.id), ['u302'])
+  assert.equal(result.needsClarification, true)
+  for (const offered of [[], ['u202', 'deleted-unit'], ['u202']]) {
+    const unresolved = resolvePropertyTurn(units, 'compare esas opciones', { _property_context: { offered_ids: offered } }, [],
+      semantics('compare esas opciones', { operation: 'compare', reference_kind: 'comparison', query_scope: 'comparison' }))
+    assert.equal(unresolved.needsClarification, true)
+    const response = catalogDialogueReply({ catalogo: units, referencia_unidad: unresolved, property_context: unresolved.context })
+    assert.equal(response.audit.catalog_coverage.status, 'clarification')
+    assert.doesNotMatch(response.reply, /no contamos|disponibles|no hay/i)
+  }
+})
+
+test('contextual details and rankings preserve subjects without treating inherited attributes as new searches', () => {
+  const saved = { selected_ids: ['u605'], offered_ids: ['u602', 'u605'], query: { category: 'penthouse', filters: { bedrooms: 3 } } }
+  const details = resolvePropertyTurn(catalog, 'cuénteme más de esa opción', { _property_context: saved }, [],
+    semantics('cuénteme más de esa opción', { operation: 'details', category: 'penthouse', reference_kind: 'followup', query_scope: 'selected', filters: { bedrooms: 3, floor_number: 6 } }))
+  assert.deepEqual(details.matches.map(unit => unit.id), ['u605'])
+  assert.equal(details.query.operation, 'details')
+  const ranked = resolvePropertyTurn(catalog, 'cuál es el más amplio de estos?', { _property_context: saved }, [],
+    semantics('cuál es el más amplio de estos?', { operation: 'rank', selector: 'largest', reference_kind: 'relative', query_scope: 'offered', filters: { bedrooms: 3, floor_number: 6 } }))
+  const answer = catalogDialogueReply({ catalogo: catalog, referencia_unidad: ranked, property_context: ranked.context })
+  assert.deepEqual(answer.audit.catalog_ranking.unit_ids, ['u602'])
+  assert.deepEqual(ranked.context.selected_ids, ['u605'])
+})
+
+test('new searches do not inherit a previous reference failure and semantic refinements override old bedroom sets', () => {
+  const current = 'compare solo los de dos habitaciones'
+  const saved = { offered_ids: ['u202', 'u302', 'a304', 'a404'], query: { group: 'residential', filters: { bedrooms_any: [2, 3] } } }
+  const ref = resolvePropertyTurn(alternativeCatalog, current, { _property_context: saved }, [], semantics(current,
+    { operation: 'compare', reference_kind: 'comparison', query_scope: 'offered', filters: { bedrooms: 2 }, filter_evidence: { bedrooms: 'dos habitaciones' } }))
+  assert.deepEqual(ref.matches.map(unit => unit.id), ['a304', 'a404'])
+  assert.equal(ref.query.filters.bedrooms, 2)
+  const search = resolvePropertyTurn(catalog, 'departamentos de 8 dormitorios', { _property_context: { reference_resolution: { status: 'clarification' } } }, [],
+    semantics('departamentos de 8 dormitorios', { category: 'departamento', operation: 'search', query_scope: 'catalog', filters: { bedrooms: 8 } }))
+  assert.equal(search.context.reference_resolution.status, undefined)
+  const response = catalogDialogueReply({ catalogo: catalog, referencia_unidad: search, property_context: search.context })
+  assert.equal(response.audit.catalog_coverage.status, 'no_results')
+  assert.match(response.reply, /no contamos/)
+})
 const penthouses = [{role:'bot',content:'Estas son las opciones: el penthouse 602 (142,09 m²); el penthouse 605 (140,53 m²). ¿Cuál de estas opciones le gustaría conocer?'}]
 
 const alternativeCatalog = [...catalog,

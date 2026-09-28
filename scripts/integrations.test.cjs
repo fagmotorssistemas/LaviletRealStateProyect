@@ -2510,7 +2510,7 @@ function progressiveReplay(initial = {}) {
         conversacion: { datos_conocidos: { presupuesto_texto: lead.behavior_signals?.sdr?.presupuesto_texto || null } },
         financiamiento: { partners: [], current: {} }, politica_visitas: { allowSuggestions: false, launchDestination: 'office' } }
       const h = conversationHarness({ catalog: progressiveReplayCatalog, commercialInfo: info, realCommercial: true,
-        commercialAi: deterministicOnly, captureTrace: true, turnComplete: checkedProgressiveCoverage, financeContext: info.financiamiento,
+        commercialAi: deterministicOnly, captureTrace: true, turnComplete: initial.turnComplete || checkedProgressiveCoverage, financeContext: info.financiamiento,
         history, summary, lead, extracted: { events: intent === 'ask_price' ? ['asked_price'] : [], turn_semantics: semantics } })
       h.rows[0].payload.text = current
       const result = await h.process([h.rows[0]], async () => {})
@@ -2526,6 +2526,52 @@ function progressiveReplay(initial = {}) {
     },
   }
 }
+
+test('a quoted comparison keeps the AI draft through delivery despite repeated contextual filters', async t => {
+  live(t)
+  const replay = progressiveReplay()
+  const quote = await replay.turn('cuál es el precio de los penthouse?', { category: 'penthouse', operation: 'search', reference_kind: 'followup' }, 'ask_price')
+  const draft = 'La diferencia principal entre los penthouses 602 y 605, ambos de 3 dormitorios en la sexta planta alta, está en los baños y el tamaño de sus áreas. El penthouse 602 cuenta con 2 baños completos, 142,09 m² interiores y 25,3 m² de área exterior. El penthouse 605 dispone de 3 baños completos, 140,53 m² interiores y 23,01 m² de área exterior. ¿Cuál de estas opciones le gustaría conocer más a detalle?'
+  const current = 'pero y cual es la diferencia entre estos dos?'
+  const turnComplete = input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input, async (...args) => {
+    if (args.at(-1) === 'review') return { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
+      operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [],
+      claims: [{ fragment: draft, subject: 'Comparación de las unidades ofrecidas', polarity: 'affirmation', verdict: 'supported', evidence: 'catalog_results', evidence_source: 'verified_context' }] }
+    return { reply: draft, requests: [{ fragment: current, intent: 'Comparar las unidades ofrecidas', request_type: 'general_information', base_status: 'answered', status: 'answered', evidence: 'catalog_comparison', fact_key: 'catalog_comparison' }],
+      question: { text: draft.match(/¿[^?]+\?/)[0], purpose: 'choose_property', missing_datum: 'Unidad de interés', next_decision: 'Mostrar sus detalles y recorrido' } }
+  })
+  const result = await progressiveReplay({ ...quote, turnComplete }).turn(current, {
+    category: 'penthouse', operation: 'compare', reference_kind: 'comparison', unit_numbers: ['602', '605'], query_scope: 'comparison', filters: { bedrooms: 3, floor_number: 6 },
+  }, 'project_information')
+  assert.equal(result.sent.p_content, draft)
+  assert.equal(result.sent.p_tool_calls.turn_completeness.status, 'checked')
+  assert.deepEqual(result.summary._property_context.comparison_ids, ['progressive-602', 'progressive-605'])
+  assert.equal(result.sent.p_tool_calls.alternative_presentation, undefined)
+})
+
+test('invalid fallback never reappears at the boundary or final catalogue guard', async t => {
+  live(t)
+  const current = 'qué cambia entre esas opciones?'
+  const units = progressiveReplayCatalog.filter(unit => ['602', '605'].includes(unit.unit_number))
+  for (const requiredOverview of [false, true]) {
+    const badBase = 'Actualmente no contamos con penthouses disponibles de 3 dormitorios. Penthouses de 3 dormitorios, con hasta 142,09 m² interiores. ¿Le gustaría revisar alternativas?'
+    const h = conversationHarness({ catalog: units, captureTrace: true,
+      commercialInfo: { ...priceInfo(), catalogo: units },
+      commercialResult: { reply: badBase, audit: { source: 'catalog_compare', verified_catalog: true,
+        catalog_results: { units: [], complete: true }, alternative_results: { units },
+        ...(requiredOverview ? { alternative_presentation: { kind: 'category_overview', groups: [{ max_area_internal_m2: 142.09 }] } } : {}) } },
+      turnComplete: { reply: 'No he podido verificar una respuesta completa a su consulta.', changed: true, needsAdvisor: false, unresolved: [],
+        audit: { status: 'rejected_guard', fallback_validation: { passed: false, issues: ['fallback_unanswered_request'] } } } })
+    h.rows[0].payload.text = current
+    const result = await h.process([h.rows[0]], async () => {})
+    assert.equal(result.action, 'accepted')
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.doesNotMatch(sent.p_content, /no contamos|142|alternativas/i)
+    assert.match(sent.p_content, /No he podido verificar/)
+    assert.equal(sent.p_tool_calls.turn_completeness.retained_verified_reply, false)
+    assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
+  }
+})
 
 test('progressive dialogue prices and compares only the requested penthouses before a concrete selection and one tour', async t => {
   live(t)

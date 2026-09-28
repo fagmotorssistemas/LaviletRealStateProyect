@@ -1,6 +1,6 @@
 import { currentTopicReply } from './current-topic'
 import { withHandoffNotice } from './handoff-copy'
-import { requiresContentReview } from './delivery-integrity'
+import { requiresContentReview, unverifiedReply } from './delivery-integrity'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { visitTruthReply } from './visit-copy'
 import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
@@ -71,7 +71,7 @@ import { commercialTurnTopics } from './multi-topic-turn'
 import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
 import { withAIExecutionTrace } from './ai-execution-trace'
-import { assessMissingFacts } from './coverage-evidence'
+import { assessMissingFacts, catalogCoversFragment } from './coverage-evidence'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out","visit_preference":null}.
@@ -568,6 +568,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   trace.finish(catalogStep, 'succeeded', {
     reference_reason: reference.reason, needs_clarification: reference.needsClarification,
     candidate_unit_ids: reference.matches.map(unit => unit.id), query: object(object(reference).query),
+    filter_resolution: object(reference.context).filter_resolution, reference_resolution: object(reference.context).reference_resolution,
     catalog_snapshot: catalogSnapshot(reference.matches),
     decision: decisionRecord({ rule_id: 'property.resolve_query', origin: 'memory', caused_by_step: semanticStep,
       reason: text(reference.reason), before: { query: object(previousPropertyContext.query) }, after: { query: object(object(reference).query) },
@@ -1135,7 +1136,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
     const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
     const catalogValidation = validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence })
-    if (!invalidPrice && catalogValidation.valid) {
+    if (object(reviewed.audit.fallback_validation).passed === false) {
+      // The fallback already failed coverage or factual validation. Presentation
+      // obligations cannot restore that rejected base at this boundary.
+      reply = unverifiedReply(audit)
+      reviewed.audit = { ...reviewed.audit, retained_verified_reply: false, final_preview: traceText(reply, 1500) }
+    } else if (!invalidPrice && catalogValidation.valid) {
       if(!financingCollectionIssues(reviewed.reply,audit,current)) reply = reviewed.reply
       audit.semantic_review = semanticEvidence
       if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
@@ -1153,10 +1159,18 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       // Reject the rewrite, not the conversation. A valid catalogue quote does
       // not become an information gap because an AI draft changed its prices.
       // Keep genuine missing facts flagged by the review (e.g. an unknown fee).
+      const baseCheck = validateCatalogReply(reply, audit)
+      const unansweredBase = (Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests : []).map(object)
+        .some(request => request.base_status === 'unanswered' && !catalogCoversFragment(text(request.fragment), text(request.fact_key), audit))
+      const baseAccepted = baseCheck.valid && !unansweredBase
+      const rejectedBase = reply
+      if (!baseAccepted) reply = unverifiedReply(audit)
       reviewed.audit = { ...reviewed.audit, status: invalidPrice ? 'rejected_price_guard' : 'rejected_catalog_guard',
         final_validation: { passed: false, boundary_integrity_failure: true, issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason], details: catalogValidation.details || [] },
         candidate_requests: reviewed.audit.requests, requests: [],
-        issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: true, final_preview: traceText(reply, 1500) }
+        issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: baseAccepted,
+        ...(!baseAccepted ? { fallback_validation: { passed: false, issues: [baseCheck.reason, unansweredBase ? 'fallback_unanswered_request' : null].filter(Boolean),
+          recovery: 'unverified_reply', rejected_preview: traceText(rejectedBase, 1500) } } : {}), final_preview: traceText(reply, 1500) }
       const originalGaps = (Array.isArray(reviewed.audit.candidate_requests) ? reviewed.audit.candidate_requests : []).map(object)
         .filter(request => request.base_status === 'missing_fact').map(request => text(request.fragment)).filter(Boolean)
       originalGaps.push(...(Array.isArray(reviewed.audit.missing_fact_fragments) ? reviewed.audit.missing_fact_fragments : [])
@@ -1185,6 +1199,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       fallback_validation: reviewed.audit.fallback_validation,
       repair_attempts: reviewed.audit.repair_attempts,
       semantic_review: reviewed.audit.semantic_review, opening_decision: reviewed.audit.opening_decision, query_transition: audit.query_transition,
+      filter_resolution: audit.filter_resolution, reference_resolution: audit.reference_resolution,
       missing_fact_fragments: reviewed.audit.missing_fact_fragments, handoff_assessments: reviewed.audit.handoff_assessments,
       unresolved: reviewed.unresolved, needs_advisor: reviewed.needsAdvisor || needsCommercialHandoff,
       base_preview: reviewed.audit.base_preview, proposed_preview: reviewed.audit.proposed_preview,
@@ -1247,11 +1262,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   // The last prose transformation is checked too, before any external send.
   const finalCatalogValidation = validateCatalogReply(reply, audit)
   if (!finalCatalogValidation.valid && catalogBaseReply) {
-    reply = naturalConversationReply(withOpening(catalogBaseReply), text(lead.name), turnGreeting, activeLast.sentAt)
+    const fallbackAllowed = object(object(audit.turn_completeness).fallback_validation).passed !== false
+      && validateCatalogReply(catalogBaseReply, audit).valid
+    reply = naturalConversationReply(withOpening(fallbackAllowed ? catalogBaseReply : unverifiedReply(audit)), text(lead.name), turnGreeting, activeLast.sentAt)
     if (locationRequestKind(current)) reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
     if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
     if (handoffNotice && !reply.includes(handoffNotice)) reply = withHandoffNotice(reply, handoffNotice)
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
+    if (!fallbackAllowed) audit.fallback_recovery = { status: 'invalid_base_not_restored', issue: finalCatalogValidation.reason }
   }
   if (reviewedText && reviewFinalContent && requiresContentReview(reviewedText, reply, handoffNotice)) {
     const step = trace.start('final_content_review', 'Revisar contenido modificado antes del envío', 'decision', 'delivery-integrity.ts', {

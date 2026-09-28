@@ -3,6 +3,7 @@ import { normalized } from './sdr-rules'
 import { informationSubject } from './information-context'
 import { bedroomOptionsFromText } from './bedroom-options'
 import { resolveCatalogReference } from './catalog-reference'
+import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText, propertyPreferenceChange } from './turn-semantics'
 
 const available = (units: Row[]) => units.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
@@ -73,6 +74,7 @@ function relativeSelector(current: string) {
 export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryRaw: unknown, history: unknown, semantics: unknown) {
   const catalog = available(catalogRaw), summary = object(summaryRaw), semantic = object(object(semantics).property)
   const context = propertyContext(catalog, summary._property_context, history)
+  context.reference_resolution = {}
   const base = resolveCatalogReference(catalog, current, summary._unit_reference, history)
   const m = normalized(current)
   const pending = normalizedPendingQuestion(Object.keys(object(summary._pending_question)).length ? summary._pending_question : context.pending_question)
@@ -136,8 +138,31 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   if (bedroomChoices.length > 1) { lexicalFilters.bedrooms = null; lexicalFilters.bedrooms_any = bedroomChoices }
   const currentFilters = normalizedPropertyFilters(semantic.filters)
   if (currentFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true) currentFilters.bedrooms_required = null
+  const targetsSelected = semantic.query_scope === 'selected' && semantic.operation !== 'compare'
+  const referenceSource = targetsSelected && ids(context.selected_ids).length ? 'selected'
+    : targetsSelected && ids(pending.target_ids).length ? 'pending_target' : ids(pending.candidate_ids).length ? 'pending_question'
+    : ids(context.comparison_ids).length ? 'comparison' : ids(context.offered_ids).length ? 'offered' : 'selected'
+  const referenceTargets = ids(referenceSource === 'pending_question' ? pending.candidate_ids : referenceSource === 'pending_target' ? pending.target_ids
+    : referenceSource === 'comparison' ? context.comparison_ids : referenceSource === 'offered' ? context.offered_ids : context.selected_ids)
+  const referencedUnits = fromIds(referenceTargets)
+  const contextualOperation = ['compare', 'details', 'rank'].includes(text(semantic.operation))
+    && (['comparison', 'followup', 'relative'].includes(text(semantic.reference_kind))
+      || ['comparison', 'offered', 'selected'].includes(text(semantic.query_scope)))
+  const inheritedFilters: Row = {}
+  if (contextualOperation) for (const [key, value] of Object.entries(currentFilters)) {
+    if (value === null || object(lexicalFilters)[key] != null || text(object(semantic.filter_evidence)[key])) continue
+    const sameAsQuery = JSON.stringify(object(previousQuery.filters)[key]) === JSON.stringify(value)
+    const describesTargets = referencedUnits.length > 0 && referencedUnits.length === referenceTargets.length
+      && key !== 'bedrooms_required' && filterCatalog(referencedUnits, catalogQuery({ filters: { [key]: value } })).length === referencedUnits.length
+    if (sameAsQuery || describesTargets || key === 'bedrooms_required' && value === false) {
+      inheritedFilters[key] = value
+      if (key === 'bedrooms_any') delete currentFilters.bedrooms_any
+      else Object.assign(currentFilters, { [key]: null })
+    }
+  }
   const suppliedFilters = { ...currentFilters, ...Object.fromEntries(Object.entries(lexicalFilters).filter(([, value]) => value !== null)) }
-  const hasCurrentFilters = Object.values(suppliedFilters).some(value => value !== null)
+  const hasCurrentFilters = Object.entries(suppliedFilters).some(([key, value]) => key !== 'bedrooms_required' && value !== null && (!Array.isArray(value) || value.length > 0))
+  context.filter_resolution = { current: suppliedFilters, inherited: inheritedFilters, evidence: object(semantic.filter_evidence) }
   const group = confirmsSet ? text(previousQuery.group) : text(semantic.group) || (category === 'local' ? 'commercial' : category ? 'residential' : '')
   const broadResidential = group === 'residential' && !category && /\bviviendas?|residencial|(?:algo|opciones?|espacio) para vivir\b/.test(m)
   const previousCategory = text(previousQuery.category || context.preference_category)
@@ -185,6 +210,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       query.group = matches.every(unit => unit.category === 'local') ? 'commercial'
         : matches.every(unit => ['suite', 'departamento', 'penthouse'].includes(text(unit.category))) ? 'residential' : null
       query.filters = emptyPropertyFilters(); query.scope = query.operation === 'compare' ? 'comparison' : 'selected'
+      context.reference_resolution = { source: 'explicit_reference', requested_ids: unitIds(matches), resolved_ids: unitIds(matches), status: 'resolved' }
     }
     return {
     ...base, matches, explicit, reason, needsClarification, query,
@@ -319,12 +345,41 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // yes or an earlier chosen unit can redirect it to a single option.
   const asksComparison = (/\b(?:diferencias?|comparar|compare|comparacion)\b/.test(m) || semanticValid && semantic.operation === 'compare')
     && !/\b(?:no (?:quiero|deseo|necesito)|sin)\b[^.!?]{0,30}\bcompar|\bno me importan?\b[^.!?]{0,20}\bdiferencias?/.test(m)
-  const comparisonTargets = fromIds(ids(pending.candidate_ids).length ? pending.candidate_ids
-    : ids(context.comparison_ids).length ? context.comparison_ids : context.offered_ids)
-  if (asksComparison && comparisonTargets.length > 1 && (!category || comparisonTargets.every(unit => unit.category === category)) && !hasCurrentFilters) {
-    query.operation = 'compare'; query.scope = 'comparison'; query.selector = null
-    context.comparison_ids = unitIds(comparisonTargets)
-    return result(comparisonTargets, 'comparison_followup')
+  const continuesSet = asksComparison || contextualOperation && ['details', 'rank'].includes(operation)
+  if (continuesSet && referenceTargets.length && (['comparison', 'offered', 'selected'].includes(text(query.scope))
+    || !hasCurrentFilters && (!category || referencedUnits.every(unit => unit.category === category)))) {
+    // Resolve the subject first. Only this turn's new constraints refine that
+    // set; prior search filters must not erase an already offered alternative.
+    query.operation = asksComparison ? 'compare' : operation
+    query.scope = asksComparison ? 'comparison' : 'offered'
+    const compatiblePrior = Object.fromEntries(Object.entries(normalizedPropertyFilters(previousQuery.filters)).filter(([key, value]) => value !== null
+      && key !== 'bedrooms_required' && referencedUnits.length > 0
+      && filterCatalog(referencedUnits, catalogQuery({ filters: { [key]: value } })).length === referencedUnits.length))
+    const scopedFilters: Row = { ...compatiblePrior,
+      ...Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null)) }
+    if (suppliedFilters.bedrooms !== null) delete scopedFilters.bedrooms_any
+    query.filters = normalizedPropertyFilters(scopedFilters)
+    if (!category) query.category = referencedUnits.length && referencedUnits.every(unit => unit.category === referencedUnits[0].category) ? referencedUnits[0].category : null
+    if (asksComparison) query.selector = null
+    const matches = filterCatalog(referencedUnits, catalogQuery(query)).filter(unit => !excluded.includes(text(unit.category)))
+    const incomplete = referencedUnits.length !== referenceTargets.length
+    const needsClarification = incomplete || !matches.length || asksComparison && matches.length < 2
+    context.reference_resolution = { source: referenceSource, requested_ids: referenceTargets, resolved_ids: unitIds(matches),
+      missing_ids: referenceTargets.filter(id => !referencedUnits.some(unit => text(unit.id) === id)),
+      status: needsClarification ? 'clarification' : 'resolved' }
+    if (asksComparison) context.comparison_ids = unitIds(matches)
+    else context.offered_ids = unitIds(matches)
+    return { ...result(matches, needsClarification ? 'context_reference_requires_clarification'
+      : asksComparison ? 'comparison_followup' : 'contextual_property_followup', false, needsClarification),
+      ...(needsClarification ? { clarification: asksComparison
+        ? 'Para comparar las opciones correctas, ¿qué unidades le gustaría que revisemos?'
+        : 'Para revisar la opción correcta, ¿qué unidad le gustaría conocer?' } : {}) }
+  }
+  if (asksComparison && ['comparison', 'offered', 'selected'].includes(text(query.scope))) {
+    query.operation = 'compare'; query.scope = 'comparison'; context.comparison_ids = []
+    context.reference_resolution = { source: referenceSource, requested_ids: referenceTargets, resolved_ids: [], status: 'clarification' }
+    return { ...result([], 'context_reference_requires_clarification', false, true),
+      clarification: '¿Qué unidades le gustaría que comparemos?' }
   }
   // A literal answer to the offered choice outranks an inconsistent AI search.
   // Do not promote mentions in comparisons, prices, refusals or mixed requests.

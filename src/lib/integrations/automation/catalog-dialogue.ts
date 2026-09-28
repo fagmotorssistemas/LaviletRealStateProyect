@@ -95,15 +95,23 @@ export function compareCatalog(units: Row[]) {
     groups, differences, known_fields }
 }
 
+/** Overview restrictions apply to a search presentation, never a comparison or details. */
+export function isCategoryOverview(audit: Row): boolean {
+  const operation = text(object(audit.catalog_query).operation)
+  return object(audit.alternative_presentation).kind === 'category_overview' && (!operation || operation === 'search')
+}
+
 /** Check factual relationships in rewritten copy against the exact query result.
  * A number occurring elsewhere in the project does not authorize attaching it
  * to this category, bedroom count or unit. Non-catalogue questions remain free
  * to be completed by the normal coverage stage. */
 export function validateCatalogReply(reply: string, audit: Row): { valid: boolean; reason?: string; details?: Row[] } {
+  if (object(audit.reference_resolution).status === 'clarification'
+    && /\bno (?:contamos|tenemos|hay|disponemos)\b/i.test(reply)) return { valid: false, reason: 'unresolved_reference_is_not_unavailability' }
   if (audit.verified_catalog !== true) return { valid: true }
   const requiredTour = text(object(audit.unit_model).url)
   if (requiredTour && !reply.includes(requiredTour)) return { valid: false, reason: 'unit_tour_omitted' }
-  if (object(audit.alternative_presentation).kind === 'category_overview'
+  if (isCategoryOverview(audit)
     && /\b(?:departamentos?|penthouses?|suites?|unidades?)\s+\d{2,4}\b/i.test(reply)) return { valid: false, reason: 'alternative_unit_list_premature' }
   const pending = object(audit.pending_question)
   if (ids(pending.target_ids).length && text(pending.question) && !reply.includes(text(pending.question))) return { valid: false, reason: 'catalog_pending_question_changed' }
@@ -120,7 +128,7 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
     return last >= 0 && clean.length - last <= 3
       ? Number(clean.slice(0, last).replace(/[.,]/g, '') + '.' + clean.slice(last + 1)) : Number(clean.replace(/[.,]/g, ''))
   }
-  const requiredAreas = rows(object(audit.alternative_presentation).groups)
+  const requiredAreas = (isCategoryOverview(audit) ? rows(object(audit.alternative_presentation).groups) : [])
     .map(group => measurement(group.max_area_internal_m2)).filter(value => value !== null)
   const writtenAreas = [...reply.matchAll(/(\d[\d.,]*)\s*m[²2]/g)].map(match => decimal(match[1]))
   if (requiredAreas.some(area => !writtenAreas.some(value => Math.abs(value - area) < 0.005))) return { valid: false, reason: 'alternative_area_omitted' }
@@ -292,13 +300,20 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   if (query.scope === 'offered') scopedIds = ids(context.offered_ids)
   if (query.scope === 'comparison') scopedIds = ids(context.comparison_ids)
   if (query.scope === 'selected') scopedIds = ids(context.selected_ids).length ? ids(context.selected_ids) : focus
-  if (['details', 'select'].includes(query.operation)) scopedIds = reference.explicit === true && referenceIds.length ? referenceIds
+  if (['details', 'select'].includes(query.operation)) scopedIds = (reference.explicit === true || object(context.reference_resolution).status === 'resolved') && referenceIds.length ? referenceIds
     : focus.length ? focus : referenceIds.length ? referenceIds : scopedIds
-  if (query.operation === 'compare' && referenceIds.length > 1) scopedIds = referenceIds
+  if (query.operation === 'compare') {
+    if (referenceIds.length) scopedIds = referenceIds
+    else if (!scopedIds?.length && query.scope !== 'catalog') scopedIds = ids(pending.candidate_ids).length
+      ? ids(pending.candidate_ids) : ids(context.offered_ids)
+  }
   const candidates = filterCatalog(catalog, query, scopedIds)
   const excluded = ids(semantic.excluded_categories)
   const units = candidates.filter(unit => !excluded.includes(text(unit.category)))
-  const baseAudit: Row = { query_transition: object(context.query_transition), source: `catalog_${query.operation}`, verified_catalog: true, catalog_query: query,
+  const availableIds = new Set(unitIds(filterCatalog(catalog, catalogQuery({}))))
+  const missingIds = (scopedIds || []).filter(id => !availableIds.has(id))
+  const baseAudit: Row = { query_transition: object(context.query_transition), filter_resolution: object(context.filter_resolution),
+    reference_resolution: object(context.reference_resolution), source: `catalog_${query.operation}`, verified_catalog: true, catalog_query: query,
     catalog_results: { unit_ids: unitIds(units), units: units.map(facts), complete: true, unknown_unit_ids: [] },
     covered_requests: [`catalog_${query.operation}`], coverage_complete: false,
     offered_unit_ids: [], focused_unit_ids: [], selected_unit_ids: [],
@@ -307,6 +322,18 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     pending_question: { id: 'none', act: 'other', question: '', target_ids: [], candidate_ids: [] } }
   const respond = (reply: string, audit: Row = {}) => ({ reply, audit: { ...baseAudit, ...audit } })
   const question = (id: string, act: string, value: string, targets: Row[] = [], candidatesForQuestion = units) => ({ id, act, question: value, target_ids: unitIds(targets), candidate_ids: unitIds(candidatesForQuestion) })
+  if ((query.operation === 'compare' && (units.length < 2 || missingIds.length > 0 || reference.needsClarification === true))
+    || ['details', 'select'].includes(query.operation) && (!units.length || missingIds.length > 0)) {
+    const next = text(reference.clarification) || (query.operation === 'compare'
+      ? '¿Qué unidades le gustaría que comparemos?' : '¿Qué unidad le gustaría conocer?')
+    return respond(next, {
+      reference_resolution: { ...object(context.reference_resolution), status: 'clarification', requested_ids: scopedIds || [], resolved_ids: unitIds(units), missing_ids: missingIds },
+      catalog_results: { ...object(baseAudit.catalog_results), complete: false, unknown_unit_ids: missingIds },
+      catalog_coverage: { operation: query.operation, status: 'clarification', result_unit_ids: unitIds(units), known_fields: [] },
+      covered_requests: [], pending_question: question('unit_choice', 'choose_unit', next),
+      progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(units), reason: 'reference_requires_clarification' },
+    })
+  }
   if (!units.length) {
     const subject = query.category ? plural[query.category] : query.group === 'commercial' ? 'locales comerciales' : 'viviendas'
     const conditions = [query.filters.bedrooms_any?.length ? `de ${query.filters.bedrooms_any.join(' o ')} dormitorios` : query.filters.bedrooms !== null ? `de ${query.filters.bedrooms} dormitorios` : '', query.filters.floor_number !== null ? `en la planta ${query.filters.floor_number}` : ''].filter(Boolean).join(' ')

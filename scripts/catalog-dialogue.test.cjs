@@ -20,6 +20,32 @@ const catalogue = [
   unit('602', 'penthouse', 3, 142.09, 70, 6),
 ]
 
+test('a comparison contract ignores stale overview formatting while still rejecting false facts', () => {
+  const compared = catalogDialogueReply(info(query('compare', { category: 'departamento', filters: { bedrooms: 3 } })))
+  const staleAudit = { ...compared.audit, alternative_presentation: { kind: 'category_overview', groups: [{ max_area_internal_m2: 999 }] } }
+  const reply = 'Los departamentos 202 y 302 tienen 3 dormitorios y 120,83 m² interiores. ¿Cuál prefiere?'
+  assert.equal(validateCatalogReply(reply, staleAudit).valid, true)
+  assert.equal(validateCatalogReply(reply.replace('120,83', '999'), staleAudit).valid, false)
+  assert.equal(validateCatalogReply(reply.replace('202', '999'), staleAudit).valid, false)
+  const overview = { ...staleAudit, catalog_query: query('search') }
+  assert.equal(validateCatalogReply(reply, overview).reason, 'alternative_unit_list_premature')
+})
+
+test('unresolved scoped comparisons clarify rather than assert that the catalogue has no availability', () => {
+  for (const comparison_ids of [[], ['unit-202'], ['unit-202', 'gone']]) {
+    const response = catalogDialogueReply(info(query('compare', { scope: 'comparison' }), { property_context: { comparison_ids } }))
+    assert.equal(response.audit.catalog_coverage.status, 'clarification')
+    assert.equal(response.audit.catalog_results.complete, false)
+    assert.doesNotMatch(response.reply, /no contamos|no hay|alternativas disponibles/i)
+    assert.equal(response.audit.alternative_presentation, undefined)
+    assert.equal(validateCatalogReply('No contamos con departamentos disponibles.', response.audit).reason, 'unresolved_reference_is_not_unavailability')
+  }
+  const response = catalogDialogueReply(info(query('compare', { scope: 'comparison' }),
+    { property_context: { comparison_ids: [], pending_question: { candidate_ids: ['unit-202', 'unit-302'] } } }))
+  assert.equal(response.audit.catalog_coverage.status, 'answered')
+  assert.deepEqual(response.audit.comparison_unit_ids, ['unit-202', 'unit-302'])
+})
+
 test('inclusive bounds and catalogue endpoints retain their different meanings', () => {
   const {relationBefore}=require('../src/lib/integrations/automation/numeric-relations.ts')
   for(const prefix of ['hasta ', 'llegan hasta ', 'un máximo de ', 'como máximo ', 'no más de ']) assert.equal(relationBefore(prefix),'lte')

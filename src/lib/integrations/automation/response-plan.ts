@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { isCategoryOverview } from './catalog-dialogue'
 
 export const commercialContinuationSources = new Set([
   'property_unit_selected', 'property_budget_deferred', 'property_budget_confirmed',
@@ -54,7 +55,8 @@ export function finalWriterContract(baseReply: string, audit: Row = {}) {
     cifras_obligatorias: audit.semantic_review_enabled === true && !plan.locked ? [] : plan.required_numbers, enlaces_obligatorios: plan.required_links,
     pregunta_siguiente: plan.next_question,
     pregunta_pendiente: object(audit.pending_question),
-    presentacion: object(audit.alternative_presentation),
+    presentacion: isCategoryOverview(audit) ? object(audit.alternative_presentation)
+      : { kind: text(object(audit.catalog_query).operation) || 'commercial' },
     accion: text(audit.action) || null,
     saludo: { responsable: 'sistema', texto: text(audit.writer_greeting) || null },
   }

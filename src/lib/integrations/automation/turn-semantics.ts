@@ -55,6 +55,7 @@ export const TURN_SEMANTICS_SCHEMA = strictObject({
     reference_kind: enumSchema(referenceKinds), unit_numbers: { type: 'array', items: { type: 'string' } },
     selector: nullableEnumSchema(unitSelectors), query_scope: nullableEnumSchema(queryScopes),
     filters: strictObject({ floor_number: { type: ['integer', 'null'] }, bedrooms: { type: ['integer', 'null'] }, bedrooms_any: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 30 } }, bedrooms_required: { type: ['boolean', 'null'] }, min_area_m2: { type: ['number', 'null'] }, max_area_m2: { type: ['number', 'null'] } }),
+    filter_evidence: strictObject(Object.fromEntries(['floor_number', 'bedrooms', 'bedrooms_any', 'bedrooms_required', 'min_area_m2', 'max_area_m2'].map(key => [key, { type: 'string' }]))),
     evidence: { type: 'string' }, confidence: confidenceSchema,
   }),
   budget: strictObject({ status: enumSchema(budgetStatuses), amount: { type: ['number', 'null'] }, evidence: { type: 'string' }, confidence: confidenceSchema }),
@@ -172,6 +173,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
     "selector":null,
     "query_scope":null,
     "filters":{"floor_number":null,"bedrooms":null,"bedrooms_any":[],"bedrooms_required":null,"min_area_m2":null,"max_area_m2":null},
+    "filter_evidence":{"floor_number":"","bedrooms":"","bedrooms_any":"","bedrooms_required":"","min_area_m2":"","max_area_m2":""},
     "evidence":"copia literal breve del mensaje actual o cadena vacía",
     "confidence":"high|medium|low"
   },
@@ -183,6 +185,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
   }
 }.
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.
+En property.filters declare únicamente restricciones expresadas en el mensaje ACTUAL y copie en filter_evidence la frase literal que sustenta cada campo; deje vacío el resto. Las características de unidades ya ofrecidas pertenecen al contexto, no son filtros nuevos. Para comparar, pedir detalles o clasificar esas opciones, use operation, reference_kind, query_scope y unit_numbers; no repita sus dormitorios, planta o áreas como restricciones actuales. Una nueva restricción sí puede refinar el conjunto referido y necesita su propia evidencia, aunque esté expresada de forma natural y sin cifras.
 Resuelva primero sobre QUÉ pide información. Una solicitud general tras solo saludos es primary_intent=project_information y property.operation=none, aunque tenga errores de escritura. Con una unidad o alternativas activas, «quiero información», «sí, envíeme detalles» o «¿y los precios?» continúan ese referente: use details, followup y el alcance correspondiente; no reinicie la presentación ni busque todo el catálogo. Una petición explícita de información general del proyecto cambia el tema. Si hay varias solicitudes, conserve todas; si el referente es ambiguo, no invente una unidad. Aceptar explorar alternativas no elimina la necesidad original, pero la búsqueda activa debe seguir las alternativas propuestas, no repetir el filtro sin resultados.
 answer_to_previous solo puede usar el question_id exacto recibido en pregunta_pendiente. Si no responde esa pregunta, use question_id=none y kind=none.
 Las preguntas lead_profile, lead_profile_name y lead_profile_residence recogen nombre y/o residencia; lead_residence_confirmation confirma si residence_candidate es la residencia actual. Una respuesta «sí» a esa confirmación es affirmative SOLO de lead_residence_confirmation, nunca acepta una visita, crédito o unidad. «No, vivo en otra ciudad» puede contestar negative y aportar la residencia explícita al perfil. El lugar candidato y su evidencia pertenecen al perfil, no al catálogo: nunca los convierta en unit_numbers, filtros o una propiedad seleccionada. Cuando no hay una pregunta de confirmación con candidato registrado, un «sí» aislado no declara una ciudad. Una respuesta al perfil puede además traer otra consulta; preserve ambas sin inventar autorización operativa.
@@ -281,6 +284,19 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     : category ? 'residential' : propertyConfident && ['residential', 'commercial'].includes(text(property.group)) ? text(property.group) : null
   const lexicalFilters = propertyFiltersFromText(current, pendingId)
   const semanticFilters = propertyConfident ? normalizedPropertyFilters(property.filters) : emptyPropertyFilters()
+  const filterEvidence = Object.fromEntries(Object.keys(object(property.filter_evidence))
+    .map(key => [key, propertyConfident ? literalEvidence(object(property.filter_evidence)[key], current) : '']))
+  // Legacy extractions have no per-field evidence. New extractions cannot turn
+  // historical attributes into current constraints merely by repeating them.
+  if (property.filter_evidence !== undefined) {
+    for (const key of Object.keys(semanticFilters) as (keyof PropertyFilters)[]) {
+      if (semanticFilters[key] != null && !filterEvidence[key]) {
+        delete semanticFilters[key]
+        normalizationIssues.push(`property_filter_without_current_evidence:${key}`)
+      }
+    }
+    Object.assign(semanticFilters, normalizedPropertyFilters(semanticFilters))
+  }
   const preferenceChange = propertyPreferenceChange(current, {})
   if (preferenceChange.fewer_bedrooms === true && lexicalFilters.bedrooms === null) {
     semanticFilters.bedrooms = null; semanticFilters.bedrooms_required = false; delete semanticFilters.bedrooms_any
@@ -324,6 +340,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     confidence: primaryIntent === 'other' ? 'low' : 'high',
     property: {
       group, category, excluded_categories: excluded, operation, filters, query_scope: queryScope,
+      ...(property.filter_evidence !== undefined ? { filter_evidence: filterEvidence } : {}),
       reference_kind: propertyConfident && referenceKinds.has(text(property.reference_kind)) ? text(property.reference_kind) : 'none',
       unit_numbers: propertyConfident && Array.isArray(property.unit_numbers)
         ? [...new Set(property.unit_numbers.map(text).filter(value => /^(?:LC-?)?\d{1,4}$/i.test(value)))].slice(0, 12) : [],
