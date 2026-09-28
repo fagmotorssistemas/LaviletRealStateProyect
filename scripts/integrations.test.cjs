@@ -2507,13 +2507,50 @@ test('project overview takes priority over a broad catalogue interpretation thro
     const sent = h.calls.find(call => call.name === 'register_outbound_message').args
     assert.equal(sent.p_tool_calls.source, 'project_overview', current)
     assert.match(sent.p_content, /Puertas del Sol, Cuenca/)
-    assert.match(sent.p_content, /piscina, gimnasio y jardines/)
-    assert.match(sent.p_content, /brochure-la-vilet-v5\.pdf/)
+    assert.match(sent.p_content, /brochure digital completo con los planos y brindarle una guía personalizada/)
+    assert.match(sent.p_content, /reside actualmente/)
+    assert.doesNotMatch(sent.p_content, /brochure-la-vilet-v5\.pdf|suites|departamentos|penthouses|locales comerciales/)
     assert.doesNotMatch(sent.p_content, /Qué tipo de (?:propiedad|vivienda) le gustaría conocer/)
     assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
     const decision = h.calls.find(call => call.name === 'execution_trace').args.find(step => step.step_key === 'dialogue_decision')
     assert.equal(decision.output_summary.source, 'project_overview')
   }
+})
+
+test('introductory profile is persisted with evidence and brochure is released on a partial answer', async t => {
+  live(t)
+  const first=conversationHarness({catalog:dialogueReplayCatalog,commercialInfo:{...priceInfo(),catalogo:dialogueReplayCatalog},realCommercial:true,commercialAi:deterministicOnly,
+    extracted:{turn_semantics:extractedProperty('Quiero información',{operation:'none'})}})
+  first.rows[0].payload.text='Quiero información'
+  await first.process([first.rows[0]],async()=>{})
+  const sent=first.calls.find(call=>call.name==='register_outbound_message').args.p_content
+  const summary=JSON.parse(first.calls.find(call=>call.name==='update:conversations').args.summary)
+  assert.equal(summary._lead_introduction.status,'pending')
+  assert.doesNotMatch(sent,/brochure-la-vilet-v5.pdf/)
+  const second=conversationHarness({summary,history:[{role:'cliente',content:'Quiero información'},{role:'bot',content:sent}],
+    extracted:{full_name:'Juan',profile_evidence:{full_name:'Me llamo Juan',residence_city:null,residence_country:null}},
+    commercialResult:{reply:'¿Qué tipo de propiedad le interesa?',audit:{source:'commercial'}}})
+  second.rows[0].payload.text='Me llamo Juan'
+  await second.process([second.rows[0]],async()=>{})
+  const answer=second.calls.find(call=>call.name==='register_outbound_message').args.p_content
+  const saved=JSON.parse(second.calls.find(call=>call.name==='update:conversations').args.summary)
+  assert.match(answer,/brochure-la-vilet-v5.pdf/)
+  assert.match(answer,/guía personalizada.*reside actualmente/s)
+  assert.doesNotMatch(answer,/indicarnos su nombre/)
+  assert.equal(saved._lead_profile.full_name,'Juan')
+  assert.equal(saved._lead_profile.sources.full_name.evidence,'Me llamo Juan')
+  assert.equal(second.calls.find(call=>call.name==='update:leads').args.name,'Juan')
+  assert.equal(second.calls.some(call=>call.name==='process_financing_message_v2'),false)
+  const third=conversationHarness({summary:saved,history:[{role:'bot',content:answer}],
+    extracted:{residence_city:'Cuenca',residence_country:null,profile_evidence:{full_name:null,residence_city:'Vivo en Cuenca',residence_country:null}}})
+  third.rows[0].payload.text='Vivo en Cuenca'
+  await third.process([third.rows[0]],async()=>{})
+  const last=JSON.parse(third.calls.find(call=>call.name==='update:conversations').args.summary)
+  assert.equal(last._lead_profile.residence_city,'Cuenca')
+  assert.equal(last._lead_profile.residence_country,undefined)
+  assert.equal(last._lead_profile.full_name,'Juan')
+  assert.equal(last._lead_introduction.status,'complete')
+  assert.match(third.calls.find(call=>call.name==='register_outbound_message').args.p_content,/alguna de estas opciones/)
 })
 
 test('commercial overview precedes even a remembered catalogue selection, but specific requests retain their route', async () => {
@@ -2884,7 +2921,7 @@ test('dialogue v2 cannot strip a condition from an extracted visit acceptance', 
 test('dialogue v2 retains a focused question when a requested map follows it', async t => {
   live(t)
   const question = '¿Le gustaría ver los detalles del departamento 502?'
-  const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), proyecto: { address: 'Puertas del Sol, Cuenca' }, ubicacion: 'https://maps.google.com/?q=Cuenca' },
+  const h = conversationHarness({ summary: { _lead_introduction: { status: 'complete' } }, catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), proyecto: { address: 'Puertas del Sol, Cuenca' }, ubicacion: 'https://maps.google.com/?q=Cuenca' },
     commercialResult: { reply: 'El departamento 502 tiene 3 dormitorios. ' + question,
       audit: { source: 'catalog_search', verified_catalog: true, catalog_results: { units: dialogueReplayCatalog.filter(unit => unit.unit_number === '502') },
         offered_unit_ids: ['depto-502'], focused_unit_ids: ['depto-502'], pending_question: { id: 'unit_choice', act: 'show_unit_details', question, target_ids: ['depto-502'], candidate_ids: ['depto-502'] } } } })

@@ -32,6 +32,9 @@ export const TURN_EXTRACTION_SCHEMA = closedObject({
   financing_consent: { type: ['boolean', 'null'] },
   financing_partner: nullableString,
   full_name: nullableString,
+  residence_city: nullableString,
+  residence_country: nullableString,
+  profile_evidence: closedObject({ full_name: nullableString, residence_city: nullableString, residence_country: nullableString }),
   applicant_type: { type: ['string', 'null'], enum: ['empleado', 'independiente', null] },
   national_id: nullableString,
   employment_stability_months: nullableNumber,
@@ -62,6 +65,48 @@ export type TurnInterpretation = {
 
 const evidenceMatches = (evidence: string, current: string) => evidence.length > 0 && evidence.length <= 500
   && current.normalize('NFKC').toLowerCase().includes(evidence.normalize('NFKC').toLowerCase())
+
+/** Profile values are declarations, never guesses from a phone, project location or origin. */
+function evidencedProfile(raw: Row, current: string, input: Row): Row {
+  const evidence = object(raw.profile_evidence), pending = object(input.pregunta_pendiente)
+  const profile = object(input.perfil_inicial)
+  const pendingText = normalized(text(pending.question || pending.text))
+  const pendingId = text(pending.id)
+  const missing = Array.isArray(profile.missing) ? profile.missing : []
+  const awaitsName = (profile.awaiting === true && missing.includes('full_name'))
+    || ['lead_profile', 'lead_profile_name'].includes(pendingId) || /\b(?:su nombre|que nombre|como (?:se llama|le (?:llamamos|llame)))\b/.test(pendingText)
+  const awaitsResidence = (profile.awaiting === true && missing.some(key => ['residence_city', 'residence_country'].includes(text(key))))
+    || ['lead_profile', 'lead_profile_residence'].includes(pendingId) || /\b(?:vive|viven|reside|residen|residencia)\b/.test(pendingText)
+  const values: Row = { full_name: null, residence_city: null, residence_country: null }
+  const acceptedEvidence: Row = { full_name: null, residence_city: null, residence_country: null }
+  for (const key of Object.keys(values)) {
+    const value = text(raw[key]).trim(), quote = text(evidence[key]).trim()
+    if (!value || value.length > 150 || !evidenceMatches(quote, current)) continue
+    const normalizedValue = normalized(value), fragment = normalized(quote)
+    // Keep declared labels. Geographic canonicalization must not invent an undeclared country.
+    if (!normalizedValue || !` ${fragment} `.includes(` ${normalizedValue} `)) continue
+    if (key === 'full_name') {
+      if (/\bno (?:me llamo|soy)\b/.test(fragment)) continue
+      if (!awaitsName && !/\b(?:me llamo|mi nombre es|soy|digame|llameme|puede llamarme)\b/.test(fragment)) continue
+    } else {
+      const clauses = fragment.split(/\b(?:pero|aunque|sin embargo)\b/)
+      const declared = clauses.some(clause => {
+        if (/\b(?:no|ya no) (?:vivo|vivimos|resido|residimos)\b/.test(clause)) return false
+        const residence = clause.match(/\b(?:vivo|vivimos|resido|residimos|estoy viviendo|estamos viviendo|mi residencia (?:es|esta)|mi domicilio (?:es|esta)|estoy radicad[oa])\b(.*)/)
+        return !!residence && ` ${residence[1]} `.includes(` ${normalizedValue} `)
+      })
+      // A short location answer can resolve the pending residence question, but nationality,
+      // birthplace, a travel location or the project address cannot stand in for residence.
+      const message = normalized(current)
+      const originOrTemporary = /\b(?:soy de|somos de|naci|nacido|nacida|nacionalidad|origen|escribo desde|estoy en|de viaje|vacaciones|proyecto|edificio|vivia|residia|vivire|residire|quiero vivir|planeo vivir)\b/.test(message)
+      const hasResidenceStatement = /\b(?:vivo|vivimos|resido|residimos|viviendo|residencia|domicilio|radicad[oa])\b/.test(message)
+      if (!declared && !(awaitsResidence && !originOrTemporary && !hasResidenceStatement)) continue
+    }
+    values[key] = value
+    acceptedEvidence[key] = quote
+  }
+  return { ...values, evidence: acceptedEvidence }
+}
 
 /** Model flags require current evidence; legacy outputs only use explicit requests. */
 function evidencedActions(raw: Row, current: string) {
@@ -94,6 +139,8 @@ Si el mensaje corrige un sustantivo anterior («los departamentos, perdón»), c
 Separe las solicitudes independientes y asigne domain: property para catálogo, precios, características y datos del proyecto; visit para coordinar, aceptar, cambiar, cancelar o consultar una visita inmobiliaria; financing para consulta o revisión financiera; advisor para atención humana explícita; tracking para alta/baja de mensajes; courtesy para agradecimientos, despedidas y cortesía sin consulta nueva; other para temas ajenos o sin dominio resoluble. «Sí, confirmo la cita; además, ¿admiten mascotas?» contiene una solicitud visit y otra property. «Sí, confirmo la cita, muchas gracias» contiene una aceptación visit y cortesía courtesy, sin nueva consulta comercial. No absorba consultas adicionales dentro de visit ni clasifique una cita ajena al proyecto como visita inmobiliaria. El dominio describe la solicitud, nunca acredita una acción realizada.
 mensaje_accion contiene solo la parte inmobiliaria autorizada por el clasificador de alcance. Las declaraciones, visitas, financiamiento y solicitudes de asesor requieren evidencia en mensaje_accion. Una baja de mensajes (opt_out) es global y puede proceder de mensaje_actual completo. No derive al equipo inmobiliario una solicitud de asesor de otro negocio.
 Para requested_advisor, opt_out y consent_granted copie en action_evidence el fragmento literal ACTUAL que autoriza esa acción, o null. Una pregunta de precio, un brochure, aceptar detalles y un agradecimiento no solicitan asesor ni conceden seguimiento. El historial no autoriza una acción nueva.
+full_name sirve también para el nombre con que el lead desea ser llamado; no exija apellidos para la presentación comercial ni invente un nombre desde el contacto de WhatsApp. En profile_evidence.full_name cite la presentación literal actual, o la respuesta a la pregunta pendiente de nombre. Mantenga separado el requisito posterior de nombre completo para financiamiento.
+residence_city y residence_country describen dónde VIVE actualmente el lead, no desde dónde escribe, su nacionalidad, su origen ni dónde desea comprar. Extraiga solo una declaración actual explícita de vivir/residir o una respuesta directa a una pregunta pendiente de residencia en perfil_inicial/pregunta_pendiente. Cite cada declaración completa en profile_evidence; el valor debe aparecer en ese fragmento actual. "Soy de Loja, pero vivo en Madrid" declara Madrid como residencia, no Loja. "Nueva York" no declara un país: residence_country permanece null; "vivo en España" no declara ciudad. No infiera desde teléfono, dirección del proyecto, WhatsApp, historial ni geografía. Una ubicación temporal o "escribo desde" no acredita residencia. Conserve null si no se declaró, si se niega a indicarlo o si solo pregunta otra cosa. Nombre y residencia son datos de perfil, no una elección inmobiliaria ni una solicitud de visita.
 La pregunta pendiente puede contener target_ids y candidate_ids: la aceptación responde al acto y al referente de esa pregunta; no acepta otra acción ni una reserva.
 Una pregunta nueva sobre dormitorios o tamaño NO es una respuesta negativa al presupuesto por comenzar con "no". "Vivienda" indica el grupo residencial, no elige departamentos frente a suites ni declara un presupuesto.
 El historial puede identificar una referencia implícita; diferencie esa referencia de un código expresado literalmente. Consultar el máximo o las opciones de una planta no significa elegir ni reservar una unidad.
@@ -109,6 +156,9 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
   actions.opt_out = evidencedActions(raw, readable).opt_out
   if (actions.opt_out) actions.tracking_consent = false
   Object.assign(extracted, actions)
+  const leadProfile = evidencedProfile(raw, actionMessage, input)
+  Object.assign(extracted, { residence_city: leadProfile.residence_city, residence_country: leadProfile.residence_country,
+    lead_profile: leadProfile })
   // An unreadable reaction or a greeting must never inherit operational events from history.
   if (method !== 'model') extracted.events = []
   const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)

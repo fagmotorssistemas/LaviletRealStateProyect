@@ -173,3 +173,65 @@ test('mixed scope limits advisor evidence to the property fragment while opt-out
   assert.equal(result.extracted.tracking_consent, false)
   assert.deepEqual(result.requests.map(request => request.domain), ['other', 'property', 'tracking'])
 })
+
+test('profile extraction separates residence from origin and never infers a country from a city', async () => {
+  const current = 'Soy Carlos, soy de Loja pero vivo en Madrid'
+  const run = raw => interpretConversationTurn({ mensaje_actual: current }, {
+    activePrompt: async () => 'Prompt', aiJson: async () => raw,
+  })
+  const result = await run({ full_name: 'Carlos', residence_city: 'Madrid', residence_country: 'España',
+    profile_evidence: { full_name: 'Soy Carlos', residence_city: 'vivo en Madrid', residence_country: 'vivo en Madrid' } })
+  assert.deepEqual(result.extracted.lead_profile, { full_name: 'Carlos', residence_city: 'Madrid', residence_country: null,
+    evidence: { full_name: 'Soy Carlos', residence_city: 'vivo en Madrid', residence_country: null } })
+  assert.equal(result.extracted.residence_city, 'Madrid')
+  assert.equal(result.extracted.residence_country, null)
+  assert.doesNotMatch(JSON.stringify(result.diagnostic), /Carlos|Madrid|España/)
+  const mistakenOrigin = await run({ residence_city: 'Loja', profile_evidence: { residence_city: current } })
+  assert.equal(mistakenOrigin.extracted.residence_city, null)
+})
+
+test('short profile answers need the pending question and retain existing financing name data', async () => {
+  const run = (current, raw, input = {}) => interpretConversationTurn({ mensaje_actual: current, ...input }, {
+    activePrompt: async () => 'Prompt', aiJson: async () => raw,
+  })
+  const raw = { residence_city: 'Cuenca', profile_evidence: { residence_city: 'Cuenca' } }
+  assert.equal((await run('Cuenca', raw)).extracted.residence_city, null)
+  const residence = await run('Cuenca', raw, { perfil_inicial: { awaiting: true, missing: ['residence_city', 'residence_country'] } })
+  assert.equal(residence.extracted.residence_city, 'Cuenca')
+  assert.equal(residence.extracted.residence_country, null)
+  const name = await run('Juan', { full_name: 'Juan', profile_evidence: { full_name: 'Juan' } }, {
+    pregunta_pendiente: { id: 'lead_profile_name', question: '¿Con qué nombre tengo el gusto?' },
+  })
+  assert.equal(name.extracted.lead_profile.full_name, 'Juan')
+  assert.equal(name.extracted.full_name, 'Juan')
+  const financing = await run('Juan Pérez', { full_name: 'Juan Pérez' })
+  assert.equal(financing.extracted.full_name, 'Juan Pérez')
+  assert.equal(financing.extracted.lead_profile.full_name, null)
+})
+
+test('profile evidence cannot come from stale history, contact origin, project location or a declined residence', async () => {
+  const cases = [
+    ['Quiero el precio', 'Madrid', 'vivo en Madrid'],
+    ['Escribo desde Madrid', 'Madrid', 'Escribo desde Madrid'],
+    ['Escribo desde Madrid', 'Madrid', 'Madrid'],
+    ['El proyecto está en Cuenca', 'Cuenca', 'El proyecto está en Cuenca'],
+    ['Soy de Loja', 'Loja', 'Soy de Loja'],
+    ['Estoy en Madrid de vacaciones', 'Madrid', 'Estoy en Madrid de vacaciones'],
+    ['Ya no vivo en Madrid', 'Madrid', 'Ya no vivo en Madrid'],
+    ['Antes vivía en Madrid', 'Madrid', 'Madrid'],
+    ['Quiero vivir en Madrid', 'Madrid', 'Madrid'],
+  ]
+  for (const [current, city, evidence] of cases) {
+    const result = await interpretConversationTurn({ mensaje_actual: current,
+      pregunta_pendiente: { id: 'lead_profile_residence' }, historial: [{ role: 'cliente', content: 'vivo en Madrid' }] }, {
+      activePrompt: async () => 'Prompt', aiJson: async () => ({ residence_city: city, profile_evidence: { residence_city: evidence } }),
+    })
+    assert.equal(result.extracted.residence_city, null, current)
+  }
+  const country = await interpretConversationTurn({ mensaje_actual: 'Vivo en Estados Unidos' }, {
+    activePrompt: async () => 'Prompt', aiJson: async () => ({ residence_country: 'Estados Unidos',
+      profile_evidence: { residence_country: 'Vivo en Estados Unidos' } }),
+  })
+  assert.equal(country.extracted.residence_city, null)
+  assert.equal(country.extracted.residence_country, 'Estados Unidos')
+})

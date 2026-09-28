@@ -13,9 +13,102 @@ require('./test-typescript.cjs')
 const { completeTurnReply, turnCompletenessIssues, safeRentalCreditBase } = require('../src/lib/integrations/automation/turn-completeness.ts')
 const { protectedSentences } = require('../src/lib/integrations/automation/turn-completeness.ts')
 const { operationalCopyIssues } = require('../src/lib/integrations/automation/operational-copy.ts')
+const { leadIntroductionTurn, PROFILE_INVITATION } = require('../src/lib/integrations/automation/lead-introduction.ts')
+const { BROCHURE_URL } = require('../src/lib/integrations/automation/project-material.ts')
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
+
+function introductionFixture() {
+  const current = 'Quiero información'
+  const plan = leadIntroductionTurn({ current,
+    reply: `La Vilet reúne suites, departamentos y locales comerciales. Aquí tiene el brochure: ${BROCHURE_URL} ¿Qué opción le interesa?`,
+    audit: { source: 'project_overview', semantic_review_enabled: true },
+    extracted: { turn_semantics: { primary_intent: 'project_information' } },
+  })
+  const question = { text: PROFILE_INVITATION, purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia actual', next_decision: 'Entregar el brochure y continuar la consulta comercial' }
+  const input = { current, baseReply: plan.reply, audit: plan.audit,
+    verified: { brochure_url: BROCHURE_URL, project: 'La Vilet, proyecto inmobiliario ubicado en Puertas del Sol, Cuenca, con privacidad y comodidad.' } }
+  const candidate = { reply: plan.reply, requests: [covered(current)], question }
+  const review = { ...approved, claims: [{ fragment: plan.reply, subject: 'Presentación verificada y solicitud de perfil', polarity: 'affirmation',
+    verdict: 'supported', evidence: 'Información del proyecto y plan de presentación', evidence_source: 'verified_context' }] }
+  return { current, plan, input, candidate, review }
+}
+
+test('the real writer keeps the initial residence invitation, purpose and deferred brochure', async () => {
+  const { plan, input, candidate, review } = introductionFixture()
+  assert.equal(plan.audit.profile_introduction.stage, 'request')
+  const mock = model(candidate, review)
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.ok(result.reply.includes(PROFILE_INVITATION))
+  assert.doesNotMatch(result.reply, /suites|departamentos|penthouses|locales comerciales/)
+  assert.equal(result.reply.includes(BROCHURE_URL), false)
+  assert.equal(result.audit.question.purpose, 'collect_lead_profile')
+  assert.match(mock.calls[0][0], /APERTURA Y PERFIL DEL LEAD/)
+  assert.equal(mock.calls[0][1].estado_operativo.profile_introduction.brochure_deferred, true)
+  assert.equal(result.audit.repair_attempts.length, 0)
+})
+
+test('premature categories are repaired and a removed profile purpose is blocked by the real writer pipeline', async () => {
+  const { input, candidate, review } = introductionFixture()
+  const premature = { ...candidate, reply: `Tenemos suites, departamentos, penthouses y locales comerciales. ${PROFILE_INVITATION}` }
+  const repaired = await completeTurnReply(input, model(premature, candidate, review).generate)
+  assert.equal(repaired.audit.status, 'checked')
+  assert.equal(repaired.audit.repair_attempts.length, 1)
+  assert.ok(repaired.audit.repair_attempts[0].issues.includes('lead_profile_categories_premature'))
+  assert.ok(repaired.reply.includes(PROFILE_INVITATION))
+  assert.doesNotMatch(repaired.reply, /suites|departamentos|penthouses|locales comerciales/)
+
+  const shortQuestion = '¿Podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
+  const missingPurpose = { ...candidate, reply: `La Vilet está en Puertas del Sol, Cuenca. ${shortQuestion}`,
+    question: { ...candidate.question, text: shortQuestion } }
+  const blocked = await completeTurnReply(input, model(missingPurpose, missingPurpose).generate)
+  assert.equal(blocked.audit.status, 'rejected_guard')
+  assert.ok(blocked.audit.issues.includes('lead_profile_question_changed'))
+  assert.ok(blocked.reply.includes(PROFILE_INVITATION))
+  assert.equal(blocked.needsAdvisor, false)
+
+  const prematureBrochure = { ...candidate, reply: candidate.reply + '\n' + BROCHURE_URL }
+  const deferred = await completeTurnReply(input, model(prematureBrochure, prematureBrochure).generate)
+  assert.equal(deferred.audit.status, 'rejected_guard')
+  assert.ok(deferred.audit.issues.includes('lead_profile_brochure_premature'))
+  assert.equal(deferred.reply.includes(BROCHURE_URL), false)
+})
+
+test('the real writer delivers the verified brochure and resumes a purposeful commercial question after profile data', async () => {
+  const { plan: opening } = introductionFixture()
+  const current = 'Soy Carlos y vivo en Madrid'
+  const plan = leadIntroductionTurn({ current, summary: { _lead_introduction: opening.state },
+    extracted: { lead_profile: { full_name: 'Carlos', residence_city: 'Madrid' } },
+    reply: 'Gracias por la información.', audit: { source: 'commercial', semantic_review_enabled: true } })
+  assert.equal(plan.audit.profile_introduction.stage, 'deliver')
+  const question = { text: '¿Le gustaría que le compartamos información de alguna de estas opciones?',
+    purpose: 'choose_property', missing_datum: 'Tipo de inmueble de interés', next_decision: 'Presentar las opciones de la categoría elegida' }
+  const candidate = { reply: plan.reply, requests: [covered(current)], question }
+  const review = { ...approved, claims: [{ fragment: plan.reply, subject: 'Brochure y categorías del proyecto', polarity: 'affirmation', verdict: 'supported',
+    evidence: 'Brochure oficial y opciones registradas del proyecto', evidence_source: 'verified_context' }] }
+  const input = { current, baseReply: plan.reply, audit: plan.audit,
+    verified: { brochure_url: BROCHURE_URL, project: 'La Vilet reúne suites, departamentos, penthouses y locales comerciales.' } }
+  const result = await completeTurnReply(input, model(candidate, review).generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.ok(result.reply.includes(BROCHURE_URL))
+  assert.ok(result.reply.includes(question.text))
+  assert.doesNotMatch(result.reply, /podría indicarnos|desde dónde|desde qué ciudad/)
+  assert.equal(result.audit.question.purpose, 'choose_property')
+  assert.equal(result.needsAdvisor, false)
+  const missingBrochure = { ...candidate, reply: plan.reply.replace(BROCHURE_URL, '') }
+  const repaired = await completeTurnReply(input, model(missingBrochure, candidate, review).generate)
+  assert.equal(repaired.audit.status, 'checked')
+  assert.ok(repaired.audit.repair_attempts[0].issues.includes('lead_profile_brochure_missing'))
+  assert.ok(repaired.reply.includes(BROCHURE_URL))
+  const forgedLink = { ...candidate, reply: plan.reply.replace(BROCHURE_URL, 'https://example.invalid/brochure.pdf') }
+  const blocked = await completeTurnReply(input, model(forgedLink).generate)
+  assert.equal(blocked.audit.status, 'rejected_guard')
+  assert.ok(blocked.audit.issues.includes('links_changed'))
+  assert.ok(blocked.reply.includes(BROCHURE_URL))
+  assert.doesNotMatch(blocked.reply, /example\.invalid/)
+})
 
 test('pending visit routing yields to current evidenced commercial requests, but keeps mixed requests', () => {
   const { visitRoutePermission } = require('../src/lib/integrations/automation/route-consistency.ts')

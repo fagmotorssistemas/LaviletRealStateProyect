@@ -23,6 +23,7 @@ import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
+import { leadIntroductionTurn } from './lead-introduction'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
@@ -465,6 +466,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     : pendingQuestionFromReply(lastResponse)
   const interpretation = await interpretConversationTurn({
     resumen: previousSummary, historial: context.historial,
+    perfil_inicial: { ...object(previousSummary._lead_profile), awaiting: object(previousSummary._lead_introduction).status === 'pending',
+      missing: ['full_name', 'residence_city', 'residence_country'].filter(key => !text(object(previousSummary._lead_profile)[key])) },
     historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-8) : [],
     tema_actual: salesSubject(current, context.historial), alcance_negocio: businessScope.kind,
     ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion,
@@ -493,6 +496,23 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   summary = { ...rememberInterpretedTurn(previousSummary, originalTurn, extracted),
     _unit_reference: minimalTurn ? previousSummary._unit_reference || {} : reference.memory,
     _property_context: minimalTurn ? previousPropertyContext : reference.context }
+  const declaredProfile = object(extracted.lead_profile)
+  const profile = { ...object(previousSummary._lead_profile) }
+  const profileSources = { ...object(profile.sources) }
+  // A new residence declaration must not combine a new city with an old country
+  // (or a new country with an old city) without fresh evidence for both.
+  for (const [field, counterpart] of [['residence_city', 'residence_country'], ['residence_country', 'residence_city']]) {
+    if (text(declaredProfile[field]) && text(profile[field]) && text(declaredProfile[field]) !== text(profile[field]) && !text(declaredProfile[counterpart])) {
+      delete profile[counterpart]
+      delete profileSources[counterpart]
+    }
+  }
+  for (const key of ['full_name', 'residence_city', 'residence_country']) {
+    if (!text(declaredProfile[key])) continue
+    profile[key] = text(declaredProfile[key])
+    profileSources[key] = { source: 'lead_declaration', evidence: text(object(declaredProfile.evidence)[key]), message_id: activeLast.externalId, declared_at: activeLast.sentAt }
+  }
+  summary._lead_profile = { ...profile, sources: profileSources }
   extracted.turn_semantics = turnSemantics
   if(financeContinuation) Object.assign(extracted,financeContinuation)
   const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
@@ -517,7 +537,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (canRequestVisit && visitSignal) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
   if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
   const priceTurn = asksUnitPrice(current, ['property', 'mixed'].includes(businessScope.kind))
-  const financeTurn = financeInput.consent === true || (!priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
+  const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
+    && ['full_name', 'residence_city', 'residence_country'].some(key => text(declaredProfile[key]))
+    && !/precio|financ|cr[eé]dito|cuota|visita|agend|reserv|dormitorio|departamento|suite|penthouse|local/i.test(current)
+  const financeTurn = financeInput.consent === true || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
   if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
   if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
   trace.finish(semanticStep, 'succeeded', {
@@ -679,6 +702,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
 
   // General information is about the project even when extraction also assigns
   // a property group/search. Keep operational actions ahead of this presentation.
+  if (!reply && answeringIntroduction && !operationalTurn && !inbound.mediaFailed && !businessScope.uncertain
+    && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
+    const continuation = leadIntroductionTurn({ current, history: context.historial,
+      summary: { ...previousSummary, _lead_profile: summary._lead_profile }, extracted, reply: '', audit: { source: 'commercial' }, catalog: turnCatalog })
+    if (continuation.applied) {
+      reply = continuation.reply
+      audit = continuation.audit
+      summary._lead_introduction = continuation.state
+      trace.add('lead_introduction', 'Presentación y datos del lead', 'decision', 'lead-introduction.ts', 'succeeded', {}, continuation.audit)
+    }
+  }
   if (!reply && !inbound.mediaFailed && !operationalTurn && (isProjectInformationRequest(current) || turnSemantics.primary_intent === 'project_information')) {
     const info = { ...await commercialContext(lead, context.historial), semantica_turno: turnSemantics, property_context: reference.context }
     reply = projectInformationReply(info, current, BROCHURE_URL)
@@ -1022,6 +1056,16 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       }
     }
   }
+  if (!audit.profile_introduction) {
+    const introduction = leadIntroductionTurn({ current, history: context.historial, summary: { ...previousSummary, _lead_profile: summary._lead_profile },
+      extracted, reply, audit, catalog: turnCatalog })
+    if (!finalNotice && !handoffNotice && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
+      reply = introduction.reply
+      audit = { ...audit, ...introduction.audit }
+      summary._lead_introduction = introduction.state
+      if (introduction.applied) trace.add('lead_introduction', 'Presentación y datos del lead', 'decision', 'lead-introduction.ts', 'succeeded', {}, introduction.audit)
+    }
+  }
   const plannedResponse = responsePlan(reply, audit)
   let reviewedText = ''
   let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
@@ -1050,6 +1094,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
+      perfil_lead: summary._lead_profile,
       solicitudes_interpretadas: interpretation.requests,
       ...(audit.verified_catalog === true ? { catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
@@ -1281,6 +1326,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _brand_introduced: previousSummary._brand_introduced === true || /la\s*vilet/i.test(reply) || (Array.isArray(context.historial) ? context.historial.map(object) : []).some(row => ['bot', 'asesor'].includes(text(row.role)) && /la\s*vilet/i.test(text(row.content))),
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }
   const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)
+  if (text(declaredProfile.full_name) && text(declaredProfile.full_name) !== text(lead.name)) {
+    const { error } = await db().from('leads').update({ name: text(declaredProfile.full_name) }).match(scope).eq('id', text(lead.id))
+    trace.add('lead_profile_saved', 'Guardar nombre declarado', 'action', 'conversation.ts', error ? 'failed' : 'succeeded', {},
+      { name_saved: !error, residence_saved_in_conversation: !memoryError }, error ? 'LEAD_DECLARED_NAME_SAVE_FAILED' : undefined)
+  }
   // A scheduling failure must not mark an already accepted reply as uncertain.
   let nutrition: Row
   try { nutrition = businessScope.kind === 'out_of_scope' || businessScope.uncertain ? { scheduled: false, reason: 'outside_property_conversation' } : await scheduleNutrition24h(text(lead.id), conversationId, activeLast.externalId) }

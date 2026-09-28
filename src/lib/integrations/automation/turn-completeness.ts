@@ -1,4 +1,5 @@
 import { finalWriterContract, FINAL_WRITER_RULES, COMMERCIAL_CONTINUATION_RULES, commercialContinuationSources } from './response-plan'
+import { leadIntroductionIssues, LEAD_INTRODUCTION_RULES } from './lead-introduction'
 import { validateCatalogReply } from './catalog-dialogue'
 import { projectQuantityEvidence, validateProjectQuantities, withoutSupportedQuantities } from './project-quantities'
 import { NUMERIC_RELATION_RULES } from './semantic-review'
@@ -45,7 +46,7 @@ type Coverage = { fragment: string; intent: string; request_type: string; base_s
 type Question = { text: string; purpose: string; missing_datum: string; next_decision: string }
 const states: CoverageState[] = ['answered', 'unanswered', 'clarification', 'outside_scope', 'missing_fact']
 const requestTypes = ['specific_fact', 'general_information', 'action', 'clarification', 'courtesy', 'outside_scope']
-const purposes = ['none', 'clarify_request', 'choose_property', 'choose_financing_partner', 'collect_financing_required', 'coordinate_visit', 'offer_advisor', 'offer_verified_material', 'permission_to_continue']
+const purposes = ['none', 'clarify_request', 'collect_lead_profile', 'choose_property', 'choose_financing_partner', 'collect_financing_required', 'coordinate_visit', 'offer_advisor', 'offer_verified_material', 'permission_to_continue']
 const field = { type: 'string' }
 const coverageSchema: Row = {
   type: 'object', additionalProperties: false,
@@ -184,6 +185,7 @@ function queryConstraintNumbers(audit: Row = {}): string[] {
 
 export function turnCompletenessIssues(input: TurnCompletenessInput, reply: string, question: Question): string[] {
   const issues: string[] = [], source = input.baseReply, facts = verifiedText(input.verified)
+  issues.push(...leadIntroductionIssues(reply, input.audit || {}))
   const projectFacts = projectQuantityEvidence(input.verified)
   const quantities = validateProjectQuantities(reply, projectFacts)
   issues.push(...quantities.issues)
@@ -284,7 +286,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     ? unitPriceQuote(input.verified, input.current, {}) : null
   const groundedPrice = verifiedQuote?.quoted === true && !!verifiedQuote.units?.length
   const evidence = groundedPrice ? priceEvidence(verifiedQuote!, input.verified) : null
-  if (groundedPrice) input = { ...input, baseReply: [verifiedQuote!.reply, ...urls(originalBase).filter(url => !verifiedQuote!.reply.includes(url))].join(' '), preserveOperationalQuestion: false,
+  if (groundedPrice) input = { ...input, baseReply: input.audit?.profile_introduction ? originalBase : [verifiedQuote!.reply, ...urls(originalBase).filter(url => !verifiedQuote!.reply.includes(url))].join(' '), preserveOperationalQuestion: false,
     audit: { ...input.audit, price_evidence: evidence, price_grounded: true } }
   const safeBase = safeRentalCreditBase(input.baseReply, input.current, input.verified)
   input = { ...input, baseReply: currentTopicReply(safeBase.reply,input.current) }
@@ -363,6 +365,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (input.audit?.semantic_review_enabled === true && !context.contrato_redaccion.decisiones_protegidas) writingRules += '\nLas cifras de opciones secundarias de respuesta_base no son obligatorias si no responden a la consulta actual. Redacte frases naturales y priorice la respuesta solicitada. No infiera mayor precio por superficie ni exclusividad. Preserve enlaces requeridos, acciones confirmadas y datos necesarios; no invente el resultado de una consulta ausente.'
     if (object(input.audit?.alternative_presentation).kind === 'category_overview') writingRules += '\nEsta respuesta presenta alternativas por categoría antes de elegir una. Conserve las superficies máximas verificadas de cada categoría y su cantidad de dormitorios. No la convierta en una lista de códigos de unidades, fichas, baños, superficies exteriores o plantas. Conserve el propósito de la pregunta pendiente: aceptar explorar alternativas o elegir la categoría que desea revisar primero. No añada categorías descartadas ni vuelva a opciones de menos dormitorios que las alternativas propuestas.'
     if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use esta respuesta_base actualizada, no los precios antiguos del historial. Conserve moneda y condiciones de lanzamiento, incluyendo que pueden cambiar. La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.'
+    if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
     for (let attempt = 0; attempt < 2; attempt++) {
     const candidate = await generate(COVERAGE_RULES + '\n' + FINAL_WRITER_RULES + RESIDENTIAL_CONTINUITY_RULES + writingRules + '\n' + passiveSalesRules(engagement) + visitRules,
       { ...context, ...(attempt ? { reparacion: {
