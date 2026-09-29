@@ -180,6 +180,29 @@ test('failed recovery separates generation failures from an uncertain fallback l
   }
 })
 
+test('a failure before the reply write does not block the next message for this contact', async () => {
+  const { PreReplySendError } = require('../src/lib/integrations/automation/delivery-phase.ts')
+  const h = workerHarness({ failure: new PreReplySendError(Error('PROCESSING_FAILED')) })
+  await h.runAutomation()
+  const finish = h.calls.find(c => c.name === 'lv_app_finish').args
+  assert.equal(finish.p_status, 'cancelled')
+  assert.equal(finish.p_result.delivery_status, 'not_sent')
+  assert.equal(finish.p_result.recovery, 'pre_reply_failure')
+  assert.equal(finish.p_result.requires_review, true)
+})
+
+test('an uncertain recovery send remains blocked even if generation failed before the original reply write', async () => {
+  const { PreReplySendError } = require('../src/lib/integrations/automation/delivery-phase.ts')
+  const { OpenAIRequestError } = require('../src/lib/integrations/automation/openai-request.ts')
+  const { GenerationRecoveryError } = require('../src/lib/integrations/automation/generation-recovery.ts')
+  const h = workerHarness({ failure: new PreReplySendError(new OpenAIRequestError(503, true, 3)),
+    recoveryFailure: new GenerationRecoveryError(Error('RECOVERY_FAILED'), true) })
+  await h.runAutomation()
+  const finish = h.calls.find(c => c.name === 'lv_app_finish').args
+  assert.equal(finish.p_status, 'uncertain')
+  assert.equal(finish.p_result.delivery_status, undefined)
+})
+
 test('generation incidents have their own label; legacy uncertain events cannot be blindly dismissed', async () => {
   const h = databaseHarness([event('legacy', 'uncertain', { reason: 'OPENAI_HTTP_503', requires_review: true }),
     event('new', 'cancelled', { reason: 'HANDOFF_FAILED', generation_error: 'OPENAI_HTTP_503', delivery_status: 'generation_failed', requires_review: true })])

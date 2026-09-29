@@ -8,6 +8,7 @@ import { catalogSnapshots, conversationGroups, explainStep, humanValue, statusLa
 import { reviewDecision } from './reviewDecision'
 import styles from './MessageTraceView.module.css'
 import { promptContextParts } from './promptContext'
+import { executionCost } from './executionCost'
 
 export function MessageTraceView() {
   const [executions, setExecutions] = useState<WorkflowExecution[]>([])
@@ -63,6 +64,7 @@ export function MessageTraceView() {
   const batch = group?.batches.find(item => item.id === batchId || item.members.some(member => member.id === batchId)) || group?.batches[0]
   const execution = batch?.execution
   const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
+  const cost = useMemo(() => executionCost(steps), [steps])
   const step = steps.find(item => item.order === stepOrder) || steps.find(item => item.key === 'dialogue_decision') || steps[0]
   const explanation = execution && step ? explainStep(execution, step) : null
   const processing = execution && ['pending', 'processing'].includes(execution.status)
@@ -152,6 +154,15 @@ export function MessageTraceView() {
               <details className={styles.technical}><summary>Ver detalles técnicos de este paso</summary><pre>{JSON.stringify({ order: step.order, key: step.key, source: step.source, status: step.status, durationMs: step.durationMs, input: step.input, output: step.output, errorCode: step.errorCode }, null, 2)}</pre></details>
             </section>}
           </>}
+          {steps.length > 0 && <section className={styles.costSummary} aria-label="Consumo de IA de esta ejecución">
+            <h4>Consumo de IA de este mensaje</h4>
+            {cost.calls ? <>
+              <p><strong>{cost.totalTokens.toLocaleString('es-EC')} tokens registrados</strong> · {cost.inputTokens.toLocaleString('es-EC')} de entrada ({cost.cachedInputTokens.toLocaleString('es-EC')} en caché) · {cost.outputTokens.toLocaleString('es-EC')} de salida.</p>
+              <p><strong>Costo estimado: {cost.pricedCalls ? new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(cost.estimatedUsd) : 'No disponible'}</strong> · {cost.pricedCalls} de {cost.calls} llamadas con modelo, uso y tarifa conocidos.</p>
+              {!cost.complete && <p>El total es parcial: alguna llamada no registró consumo o no tiene una tarifa reconocida.</p>}
+              <small>Estimación de las llamadas registradas con tarifas de OpenAI del {cost.priceVersion}; no es el importe facturado. No incluye transcripción de audio, voz ni servicios externos.</small>
+            </> : <p>Esta ejecución no registró llamadas al modelo de texto. La transcripción de audio y otros servicios no se miden aquí.</p>}
+          </section>}
           <details className={styles.technical}><summary>Identidad, versiones y alcance del registro</summary><p>Son resúmenes declarados por el sistema, no una captura completa de cada consulta o de todo lo recibido por el modelo.</p><pre>{JSON.stringify({ eventIds: batch?.members.map(item => item.id), conversationId: execution.conversationId || null, batchId: execution.batchId || null, batchEventIds: execution.batchEventIds || [], traceSource: execution.traceSource, traceWarning: execution.traceWarning, stopReason: execution.stopReason, versions: execution.versions }, null, 2)}</pre></details>
         </div>
       </div>}

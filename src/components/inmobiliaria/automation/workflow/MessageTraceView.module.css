@@ -38,6 +38,10 @@
 .messageContent { margin-top: 14px; }
 .messageContent blockquote { margin: 8px 0; padding: 12px 14px; border-left: 3px solid #91a880; background: #f5f8f0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .outcome { font-size: 12px; color: #506344; margin: 10px 0 16px; }
+.costSummary { margin-top: 18px; padding: 16px 18px; border: 1px solid #d8e1d0; border-radius: 8px; background: #f6f9f2; color: #344139; }
+.costSummary h4 { margin: 0 0 8px; font-size: 15px; }
+.costSummary p { margin: 6px 0; font-size: 13px; }
+.costSummary small { display: block; margin-top: 9px; color: #61705c; font-size: 11px; }
 .steps { list-style: none; margin: 18px 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .steps li { min-width: 0; }
 .steps button { display: flex; height: 100%; width: 100%; min-height: 64px; align-items: center; gap: 9px; padding: 10px; border: 1px solid #dce3d6; border-radius: 6px; color: #344139; background: white; text-align: left; }

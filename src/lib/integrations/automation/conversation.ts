@@ -71,6 +71,7 @@ import { commercialTurnTopics } from './multi-topic-turn'
 import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
 import { withAIExecutionTrace } from './ai-execution-trace'
+import { PreReplySendError } from './delivery-phase'
 import { assessMissingFacts, catalogCoversFragment } from './coverage-evidence'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
@@ -144,20 +145,21 @@ async function register(events: Inbound[], guard: Guard) {
 
 export async function processConversation(rows: Row[], guard: Guard) {
   const trace = traceForEvents(rows)
+  const delivery = { replyWriteAttempted: false }
   try {
-    const result = await withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace)))
+    const result = await withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)))
     trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
       ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
       { action: result.action, reason: object(result).reason || result.action })
     return result
   } catch (error) {
     trace.failOpenSteps(error)
-    throw error
+    throw delivery.replyWriteAttempted ? error : new PreReplySendError(error)
   } finally {
     await trace.flush()
   }
 }
-async function processConversationWithTone(rows: Row[], guard: Guard, trace: AutomationExecutionTrace) {
+async function processConversationWithTone(rows: Row[], guard: Guard, trace: AutomationExecutionTrace, delivery: { replyWriteAttempted: boolean }) {
   assertLive()
   const events = rows.map(row => inboundFromRow(row.payload)).sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.externalId.localeCompare(b.externalId))
   const last = events[events.length - 1]
@@ -1395,6 +1397,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const { count, error } = await db().from('lv_outbox').select('id', { count: 'exact', head: true })
     .match(scope).eq('lead_id', lead.id).in('status', ['claimed', 'uncertain'])
   if (error || count) throw new Error('UNRESOLVED_VISIT_SEND')
+  delivery.replyWriteAttempted = true
   await setKommoField(last.kommoId, 457014, reply)
   if (!await authorized()) {
     trace.finish(deliveryStep, 'paused', { action: 'paused_before_salesbot', reason: 'AUTHORIZATION_CHANGED' })
