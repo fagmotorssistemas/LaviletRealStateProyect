@@ -22,7 +22,7 @@ export const questionIds = [
 export type PendingQuestionId = typeof questionIds[number]
 
 const primaryIntents = new Set([
-  'request_visit', 'answer_previous', 'select_property', 'ask_price', 'discuss_budget',
+  'request_visit', 'request_reservation', 'ask_reservation', 'answer_previous', 'select_property', 'ask_price', 'discuss_budget',
   'ask_financing', 'project_information', 'other',
 ])
 const answerKinds = new Set(['affirmative', 'negative', 'uncertain', 'value', 'none'])
@@ -37,6 +37,7 @@ const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'n
 const queryScopes = new Set(['catalog', 'offered', 'comparison', 'selected'])
 const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'budget', 'visit', 'profile', 'other'])
 const profileQuestionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation'])
+const reservationKinds = new Set(['request', 'information', 'declined', 'none'])
 
 export type PropertyFilters = { floor_number: number | null; bedrooms: number | null; bedrooms_any?: number[]; bedrooms_required: boolean | null; min_area_m2: number | null; max_area_m2: number | null }
 export const emptyPropertyFilters = (): PropertyFilters => ({ floor_number: null, bedrooms: null, bedrooms_required: null, min_area_m2: null, max_area_m2: null })
@@ -49,6 +50,8 @@ const confidenceSchema = enumSchema(['high', 'medium', 'low'])
 export const TURN_SEMANTICS_SCHEMA = strictObject({
   primary_intent: enumSchema(primaryIntents), primary_evidence: { type: 'string' }, confidence: confidenceSchema,
   answer_to_previous: strictObject({ question_id: enumSchema([...questionIds, 'none']), kind: enumSchema(answerKinds), evidence: { type: 'string' }, confidence: confidenceSchema }),
+  reservation: strictObject({ kind: enumSchema(reservationKinds), evidence: { type: 'string' },
+    unit_numbers: { type: 'array', items: { type: 'string' } }, confidence: confidenceSchema }),
   property: strictObject({
     group: nullableEnumSchema(['residential', 'commercial']), category: nullableEnumSchema(propertyCategories),
     excluded_categories: { type: 'array', items: enumSchema(propertyCategories) }, operation: enumSchema(operations),
@@ -154,13 +157,19 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
 export const TURN_SEMANTIC_EXTRACTION_RULES = `
 Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
 {
-  "primary_intent":"request_visit|answer_previous|select_property|ask_price|discuss_budget|ask_financing|project_information|other",
+  "primary_intent":"request_visit|request_reservation|ask_reservation|answer_previous|select_property|ask_price|discuss_budget|ask_financing|project_information|other",
   "primary_evidence":"copia literal breve del mensaje actual",
   "confidence":"high|medium|low",
   "answer_to_previous":{
     "question_id":"visit_invitation|visit_date_time|budget_amount|budget_kind|property_category|property_floor|property_bedrooms|property_area|unit_choice|purchase_timing|lead_profile|lead_profile_name|lead_profile_residence|lead_residence_confirmation|none",
     "kind":"affirmative|negative|uncertain|value|none",
     "evidence":"copia literal breve del mensaje actual o cadena vacía",
+    "confidence":"high|medium|low"
+  },
+  "reservation":{
+    "kind":"request|information|declined|none",
+    "evidence":"copia literal breve del mensaje actual o cadena vacía",
+    "unit_numbers":[],
     "confidence":"high|medium|low"
   },
   "property":{
@@ -185,6 +194,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
   }
 }.
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.
+reservation distingue la intención de iniciar la separación/reserva (request), consultar condiciones o requisitos sin iniciar (information), rechazar o posponer ese proceso (declined) y ausencia de esa intención (none). «Quiero separar el 605», «ayúdeme a iniciar la reserva de esa unidad» y sus errores evidentes de escritura son request; «¿cuánto se paga para reservar?» o «¿cómo funciona la separación?» son information. «Por ahora no, entonces quiero separar el departamento 605» responde negativamente a la propuesta anterior y pide una reserva NUEVA: conserve answer_to_previous y use primary_intent=request_reservation, reservation.kind=request. La unidad mencionada identifica el objeto de la reserva, no convierte el turno en una nueva presentación ni en un recorrido. Copie evidencia literal de la petición completa, incluidas negaciones, condiciones y correcciones relevantes; no cite solo el verbo de una frase negada. Una reserva hipotética o condicionada no satisfecha no inicia el trámite. primary_intent=ask_reservation para information. El evento asked_reservation sirve para puntuar interés, nunca demuestra por sí solo que desea iniciar ahora. unit_numbers conserva los códigos realmente referidos y el catálogo comprobará su existencia; en referencias como «esa» puede usar una unidad inequívoca del contexto, nunca elegir entre varias. Solicitar el proceso requiere atención del asesor; no afirma disponibilidad, pago, reserva confirmada, cita, consentimiento financiero ni asesor asignado. No convierta la aceptación de detalles, una cifra de precio, un «sí» sin pregunta de reserva ni el historial en una solicitud nueva.
 En property.filters declare únicamente restricciones expresadas en el mensaje ACTUAL y copie en filter_evidence la frase literal que sustenta cada campo; deje vacío el resto. Las características de unidades ya ofrecidas pertenecen al contexto, no son filtros nuevos. Para comparar, pedir detalles o clasificar esas opciones, use operation, reference_kind, query_scope y unit_numbers; no repita sus dormitorios, planta o áreas como restricciones actuales. Una nueva restricción sí puede refinar el conjunto referido y necesita su propia evidencia, aunque esté expresada de forma natural y sin cifras.
 Resuelva primero sobre QUÉ pide información. Una solicitud general tras solo saludos es primary_intent=project_information y property.operation=none, aunque tenga errores de escritura. Con una unidad o alternativas activas, «quiero información», «sí, envíeme detalles» o «¿y los precios?» continúan ese referente: use details, followup y el alcance correspondiente; no reinicie la presentación ni busque todo el catálogo. Una petición explícita de información general del proyecto cambia el tema. Si hay varias solicitudes, conserve todas; si el referente es ambiguo, no invente una unidad. Aceptar explorar alternativas no elimina la necesidad original, pero la búsqueda activa debe seguir las alternativas propuestas, no repetir el filtro sin resultados.
 answer_to_previous solo puede usar el question_id exacto recibido en pregunta_pendiente. Si no responde esa pregunta, use question_id=none y kind=none.
@@ -212,6 +222,17 @@ function literalEvidence(value: unknown, current: string) {
   const evidence = text(value).trim()
   if (!evidence || evidence.length > 240) return ''
   return normalized(current).includes(normalized(evidence)) ? evidence : ''
+}
+
+/** Current, typed model evidence authorizes a request to start; catalogue and execution validate the result separately. */
+export function normalizedReservation(raw: unknown, current: string): Row {
+  const reservation = object(raw)
+  const evidence = literalEvidence(reservation.evidence, current)
+  const valid = reservation.confidence === 'high' && !!evidence && reservationKinds.has(text(reservation.kind)) && reservation.kind !== 'none'
+  return valid ? { kind: text(reservation.kind), evidence, confidence: 'high',
+    unit_numbers: Array.isArray(reservation.unit_numbers)
+      ? [...new Set(reservation.unit_numbers.map(text).filter(code => /^(?:LC-?)?\d{1,4}$/i.test(code)))].slice(0, 12) : [],
+  } : { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' }
 }
 
 function lastQuestion(reply: string) {
@@ -250,8 +271,16 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const pending = normalizedPendingQuestion(pendingRaw)
   const pendingId = questionIds.includes(text(pending.id) as PendingQuestionId) ? text(pending.id) : ''
   const primaryEvidence = literalEvidence(data.primary_evidence, current)
-  const primaryIntent = data.confidence === 'high' && primaryEvidence && primaryIntents.has(text(data.primary_intent))
+  const extractedPrimaryIntent = data.confidence === 'high' && primaryEvidence && primaryIntents.has(text(data.primary_intent))
     ? text(data.primary_intent) : 'other'
+  const reservation = normalizedReservation(data.reservation, current)
+  const reservationIntent = reservation.kind === 'request' ? 'request_reservation' : reservation.kind === 'information' ? 'ask_reservation' : null
+  const primaryIntent = reservationIntent || (['request_reservation', 'ask_reservation'].includes(extractedPrimaryIntent) ? 'other' : extractedPrimaryIntent)
+  const decisions: Row[] = []
+  if (reservationIntent && reservationIntent !== extractedPrimaryIntent) decisions.push({ code: 'current_reservation_takes_priority',
+    extractor_intent: extractedPrimaryIntent, canonical_intent: reservationIntent, source: 'reservation', evidence: reservation.evidence })
+  if (!reservationIntent && ['request_reservation', 'ask_reservation'].includes(extractedPrimaryIntent)) decisions.push({ code: 'reservation_intent_without_current_action_evidence',
+    extractor_intent: extractedPrimaryIntent, canonical_intent: primaryIntent, source: 'reservation' })
 
   const answer = object(data.answer_to_previous)
   const answerEvidence = literalEvidence(answer.evidence, current)
@@ -302,12 +331,20 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     semanticFilters.bedrooms = null; semanticFilters.bedrooms_required = false; delete semanticFilters.bedrooms_any
     if (category && !mentionedCategories.includes(category)) { category = null; normalizationIssues.push('fewer_bedrooms_does_not_choose_category') }
   }
-  if (semanticFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true) {
+  if (semanticFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true && !filterEvidence.bedrooms_required) {
     semanticFilters.bedrooms_required = null
     normalizationIssues.push('bedrooms_requirement_without_explicit_evidence')
   }
-  const filters: PropertyFilters = { ...semanticFilters, ...Object.fromEntries(Object.entries(lexicalFilters).filter(([, value]) => value !== null)) }
-  if (lexicalFilters.bedrooms !== null && !semanticFilters.bedrooms_any?.includes(lexicalFilters.bedrooms)) delete filters.bedrooms_any
+  const filters: PropertyFilters = { ...semanticFilters }
+  for (const [key, lexicalValue] of Object.entries(lexicalFilters)) {
+    if (lexicalValue === null) continue
+    const field = key as keyof PropertyFilters, semanticValue = semanticFilters[field]
+    const groundedSemanticValue = propertyConfident && !!filterEvidence[field] && semanticValue != null
+    if (groundedSemanticValue) {
+      if (JSON.stringify(semanticValue) !== JSON.stringify(lexicalValue)) normalizationIssues.push(`extractor_filter_precedes_keywords:${field}`)
+    } else Object.assign(filters, { [field]: lexicalValue })
+  }
+  if (filters.bedrooms !== null && !semanticFilters.bedrooms_any?.includes(filters.bedrooms)) delete filters.bedrooms_any
   else if (filters.bedrooms_any?.length) filters.bedrooms = null
   const hasFilters = Object.values(filters).some(value => value !== null)
   if (hasFilters && pendingId.startsWith('budget') && /habit|dormitor|cuarto|planta|piso|opciones/.test(value)) {
@@ -317,10 +354,12 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const asksRanking = /\b(?:cual|cuales|que|cuanto)\b.*\b(?:mas grande|mas amplio|mayor|mas pequen|mas barat|mas economic|menor)/.test(value)
   const asksDetails = /\b(?:detalles|distribucion|que (?:tiene|incluye|ofrece))\b/.test(value)
   let operation = propertyConfident && operations.has(text(property.operation)) ? text(property.operation) : 'none'
-  if (asksRanking) operation = 'rank'
-  else if (hasFilters && !['compare', 'details'].includes(operation)) operation = 'search'
-  else if (genericResidential) operation = 'search'
-  else if (operation === 'none' && propertyConfident) {
+  const explicitOperation = propertyConfident && operations.has(text(property.operation)) && property.operation !== 'none'
+  if (explicitOperation) {
+    if (asksRanking && operation !== 'rank') normalizationIssues.push('extractor_operation_precedes_ranking_keywords')
+  } else if (asksRanking) operation = 'rank'
+  else if (hasFilters || genericResidential) operation = 'search'
+  else if (propertyConfident) {
     if (property.reference_kind === 'comparison') operation = 'compare'
     else if (asksDetails) operation = 'details'
     else if (category && property.reference_kind !== 'relative' && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) operation = 'search'
@@ -330,14 +369,19 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
     operation = 'search'; normalizationIssues.push('category_choice_refines_search')
   }
+  if (genericResidential && operation === 'select' && !selector && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
+    operation = 'search'; normalizationIssues.push('generic_group_does_not_select_unit')
+  }
   const queryScope = propertyConfident && queryScopes.has(text(property.query_scope)) ? text(property.query_scope)
     : operation === 'rank' && /\b(?:de es[at]as|entre es[at]as|de las (?:que|opciones))\b/.test(value) ? 'offered'
       : operation === 'rank' || operation === 'search' ? 'catalog' : null
 
   return {
     primary_intent: primaryIntent,
-    primary_evidence: primaryIntent === 'other' ? null : primaryEvidence,
+    primary_evidence: primaryIntent === 'other' ? null : reservationIntent ? reservation.evidence : primaryEvidence,
     confidence: primaryIntent === 'other' ? 'low' : 'high',
+    reservation,
+    interpretation: { extractor_primary_intent: extractedPrimaryIntent, canonical_primary_intent: primaryIntent, decisions },
     property: {
       group, category, excluded_categories: excluded, operation, filters, query_scope: queryScope,
       ...(property.filter_evidence !== undefined ? { filter_evidence: filterEvidence } : {}),

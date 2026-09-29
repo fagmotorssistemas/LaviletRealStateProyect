@@ -784,15 +784,25 @@ test('project explanations keep a natural generated opening without forcing Clar
   assert.equal(result.reply, answer)
 })
 
-test('a style rejection of a project overview still answers using known project facts', async () => {
-  const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
-    activePrompt: async () => '', draftReply: async () => 'Una explicación demasiado larga. '.repeat(40),
-    aiJson: async () => ({ aprobada: false, motivos: ['style'] }),
-  } })
-  const result = await commercialReply({ proyecto: { name: 'La Vilet' }, posicionamiento_proyecto: { concept: 'Vivir en Puertas del Sol' } }, 'Quisiera saber más sobre el proyecto', {}, async () => {})
-  assert.match(result.reply, /La Vilet.*Puertas del Sol/)
-  assert.doesNotMatch(result.reply, /imprecisa|asesor/)
-  assert.equal(result.audit.fallback, true)
+test('a supported overview survives style feedback while an unanswered overview uses verified facts', async () => {
+  const supported = 'La Vilet combina viviendas y locales comerciales en Puertas del Sol, Cuenca. Puede revisar las alternativas según el uso que busca.'
+  for (const answered of [true, false]) {
+    let drafts = 0, reviews = 0
+    const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
+      activePrompt: async () => '', draftReply: async () => { drafts += 1; return answered ? supported : '¿Cuál es su presupuesto para comprar?' },
+      aiJson: async () => { reviews += 1; return { aprobada: false, motivos: answered ? ['style'] : ['style', 'ignored_question'], requiere_asesor: false } },
+    } })
+    const result = await commercialReply({ proyecto: { name: 'La Vilet', description: supported }, posicionamiento_proyecto: { concept: 'Vivir en Puertas del Sol' } }, 'Quisiera saber más sobre el proyecto', {}, async () => {})
+    assert.match(result.reply, /La Vilet.*Puertas del Sol/)
+    assert.doesNotMatch(result.reply, /imprecisa|asesor/)
+    assert.equal(result.audit.fallback, !answered)
+    assert.equal(drafts, answered ? 1 : 2)
+    assert.equal(reviews, answered ? 1 : 2)
+    if (answered) {
+      assert.equal(result.reply, supported)
+      assert.ok(result.audit.editorial_observations.includes('style'))
+    } else assert.ok(result.audit.review_reasons.includes('ignored_question'))
+  }
 })
 
 test('price actions require administrator authorization before querying any project', async () => {
@@ -1351,6 +1361,16 @@ function conversationHarness(options = {}) {
       rpc: async (name, args) => {
         calls.push({ name, args })
         if (name === 'register_inbound_message') return { lead_id: 'lead', conversation_id: 'conv', is_duplicate: options.duplicate === true }
+        if (name === 'lv_evaluate_message_interest_v2') return { source_message_id: args.p_source_message_id,
+          recognized_events: args.p_events, handoff_required: args.p_events.includes('asked_reservation'), decision_source: 'stored' }
+        if (name === 'lv_request_reservation_handoff') {
+          if (options.reservationFailure) throw Error(options.reservationFailure)
+          lead.handoff_status = options.reservationStatus || 'assigned'
+          lead.assigned_to = lead.handoff_status === 'queued' ? null : lead.assigned_to || 'advisor'
+          return { request_id: 'reservation-request', lead_id: lead.id, source_message_id: args.p_source_message_id,
+            unit_ids: args.p_unit_ids, request_status: 'requested', handoff_status: lead.handoff_status,
+            assigned_to: lead.assigned_to, assignment_mode: 'rotated', replayed: false, ...options.reservationReceipt }
+        }
         if (name === 'lv_app_conversation_context') return { propuestas: options.proposals || [], historial: options.history || [], mensaje_actual_at: new Date().toISOString() }
         if (name === 'lv_app_visit_preference') return options.slot || {}
         if (name === 'lv_apply_client_visit_intent') return options.applied || { action: 'reply', request_id: 'request', mensaje: 'Texto anterior que debe sustituirse' }
@@ -1388,6 +1408,94 @@ function conversationHarness(options = {}) {
     name: 'Cliente de prueba', sentAt: new Date(Date.now() - 1000).toISOString(), origin: 'waba', media: null } }))
   return { calls, rows, process: mod.processConversation, lead }
 }
+
+test('reservation requests prioritize a verified advisor action over selecting a unit and repeating its tour', async t => {
+  live(t)
+  for (const [code, category, handoffStatus] of [['605', 'penthouse', 'assigned'], ['202', 'departamento', 'queued'], ['002', 'suite', 'acknowledged']]) {
+    const describedCategory = code === '605' ? 'departametno' : category
+    const current = `por el momento no, entonces quiero serparar el ${describedCategory} ${code}`
+    const catalog = [{ id: `unit-${code}`, unit_number: code, category, status: 'disponible', is_published: true }]
+    const h = conversationHarness({ catalog, captureTrace: true, reservationStatus: handoffStatus,
+      summary: { _lead_introduction: { status: 'complete' } },
+      history: [{ role: 'bot', content: '¿Le interesa revisar financiamiento?' }],
+      extracted: { events: ['asked_reservation'], turn_semantics: {
+        primary_intent: 'answer_previous', primary_evidence: current, confidence: 'high',
+        reservation: { kind: 'request', evidence: `quiero serparar el ${describedCategory} ${code}`, unit_numbers: [code], confidence: 'high' },
+        property: { operation: 'select', category, unit_numbers: [code], evidence: current, confidence: 'high' },
+      } } })
+    h.rows[0].payload.text = current
+    h.rows[1].payload.text = 'Gracias'
+    await h.process(h.rows, async () => {})
+    const call = h.calls.find(call => call.name === 'lv_request_reservation_handoff')
+    assert.equal(call.args.p_source_message_id, 'one')
+    assert.deepEqual(call.args.p_unit_ids, [`unit-${code}`])
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.equal(sent.p_tool_calls.source, 'reservation_handoff')
+    assert.equal(sent.p_tool_calls.resolved_turn_intent.objective, 'request_reservation')
+    assert.equal(sent.p_tool_calls.reservation.handoff_status, handoffStatus)
+    assert.match(sent.p_content, /solicitud de reserva/)
+    assert.doesNotMatch(sent.p_content, /https:|recorrido|¿Qué le gustaría revisar|unidad queda reservada/)
+    assert.equal(h.lead.bot_enabled, true)
+    assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake'].includes(call.name)), false)
+    const writer = h.calls.find(call => call.name === 'completeTurnReply').args
+    assert.equal(writer.verified.estado_operativo.reservation.handoff_verified, true)
+    assert.equal(writer.verified.contrato_turno.requested_action, 'reservation_handoff')
+    assert.equal(sent.p_tool_calls.interest_decision.handoff_required, true)
+  }
+})
+
+test('reservation information and a declined reservation never execute the reservation action', async t => {
+  live(t)
+  for (const [kind, current] of [['information', '¿Cómo funciona la reserva?'], ['declined', 'No quiero reservar todavía']]) {
+    const h = conversationHarness({ extracted: { events: ['asked_reservation'], turn_semantics: {
+      primary_intent: 'other', primary_evidence: current, confidence: 'high',
+      reservation: { kind, evidence: current, unit_numbers: [], confidence: 'high' },
+    } } })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.some(call => call.name === 'lv_request_reservation_handoff'), false)
+    if (kind === 'information') assert.equal(h.calls.find(call => call.name === 'register_outbound_message').args.p_tool_calls.source, 'reservation_information')
+    else assert.equal(h.calls.find(call => call.name === 'lv_evaluate_message_interest_v2').args.p_events.includes('asked_reservation'), false)
+  }
+})
+
+test('failed or inconsistent reservation receipts cannot produce a confirmed action or send', async t => {
+  live(t)
+  for (const failure of [{ reservationFailure: 'RPC_LV_REQUEST_RESERVATION_HANDOFF_FAILED' }, { reservationReceipt: { assigned_to: 'other-advisor' } }]) {
+    const current = 'Quiero reservar'
+    const h = conversationHarness({ ...failure, extracted: { turn_semantics: {
+      primary_intent: 'request_reservation', primary_evidence: current, confidence: 'high',
+      reservation: { kind: 'request', evidence: current, unit_numbers: [], confidence: 'high' },
+    } } })
+    h.rows[0].payload.text = current
+    await assert.rejects(h.process([h.rows[0]], async () => {}), /RESERVATION/)
+    assert.equal(h.calls.some(call => call.name === 'launch' || call.name === 'register_outbound_message'), false)
+  }
+})
+
+test('an independently approved reservation draft reaches the transport without template wording or links appended', async t => {
+  live(t)
+  const current = 'Quiero separar el 605'
+  const draft = 'Su solicitud para iniciar la reserva del penthouse 605 quedó registrada. Un asesor tiene asignada su atención y continuará con usted el proceso.'
+  const h = conversationHarness({ catalog: [{ id: 'p605', category: 'penthouse', unit_number: '605', is_published: true }],
+    summary: { _lead_introduction: { status: 'complete' } }, history: [{ role: 'bot', content: '¿Desea continuar?' }],
+    extracted: { turn_semantics: { primary_intent: 'request_reservation', primary_evidence: current, confidence: 'high',
+      reservation: { kind: 'request', evidence: current, unit_numbers: ['605'], confidence: 'high' } } },
+    turnComplete: input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input, async (...args) => {
+      if (args.at(-1) === 'review') return { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
+        operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [],
+        claims: [{ fragment: draft, subject: '605', polarity: 'affirmation', verdict: 'supported', evidence: 'estado_operativo.reservation', evidence_source: 'verified_context' }] }
+      return { reply: draft, requests: [{ fragment: current, intent: 'Solicitar reserva', request_type: 'action', base_status: 'answered', status: 'answered', evidence: draft, fact_key: null }],
+        question: { text: '', purpose: 'none', missing_datum: '', next_decision: '' } }
+    }) })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_content, draft)
+  assert.equal(sent.p_tool_calls.turn_completeness.status, 'checked')
+  assert.equal(sent.p_tool_calls.turn_completeness.operational_action_verified, true)
+  assert.equal(h.calls.find(call => call.name === 'patch' && call.args[1] === 457014).args[2], draft)
+})
 
 test('room synonyms and common apartment spelling select the requested catalogue prices', () => {
   const { unitPriceQuote } = require('../src/lib/integrations/automation/price-reply.ts')
@@ -2000,7 +2108,7 @@ test('discovery uses known facts and never asks bedroom count for commercial pro
   assert.equal(sdrRules.isGreetingOnly('Hola, quiero saber el precio'), false)
 })
 
-test('a rejected draft is rewritten and reviewed before it can be sent', async () => {
+test('a repeated greeting is an editorial observation without discarding the reviewed commercial wording', async () => {
   let drafts = 0, reviews = 0
   const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
     activePrompt: async name => name,
@@ -2008,9 +2116,32 @@ test('a rejected draft is rewritten and reviewed before it can be sent', async (
     aiJson: async () => ({ aprobada: ++reviews > 1, motivos: reviews === 1 ? ['repeated_greeting'] : [] }),
   } })
   const result = await commercialReply({ conversacion: { ya_saludamos: true } }, 'Quiero algo comercial', {}, async () => {})
-  assert.equal(drafts, 2); assert.equal(reviews, 2)
+  assert.equal(drafts, 1); assert.equal(reviews, 1)
   assert.equal(result.audit.fallback, false)
-  assert.doesNotMatch(result.reply, /Hola/)
+  assert.match(result.reply, /Hola de nuevo/)
+  assert.deepEqual(result.audit.editorial_observations, ['repeated_greeting'])
+})
+
+test('editorial suggestions cannot waive commercial facts and cannot force an early rewrite', async () => {
+  for (const unsupported of [false, true]) {
+    let drafts = 0
+    const safe = 'Tenemos opciones comerciales. ¿Qué actividad le interesa? ¿Qué espacio necesita?'
+    const { commercialReply } = load('src/lib/integrations/automation/sdr.ts', { './ai': {
+      activePrompt: async () => '',
+      draftReply: async () => { drafts += 1; return unsupported ? 'La rentabilidad garantizada es una ventaja.' : safe },
+      aiJson: async () => ({ aprobada: false, motivos: ['style'], requiere_asesor: false }),
+    } })
+    const result = await commercialReply({ conversacion: {} }, 'Quiero algo comercial', {}, async () => {})
+    assert.equal(drafts, unsupported ? 2 : 1)
+    if (unsupported) {
+      assert.equal(result.audit.fallback, true)
+      assert.doesNotMatch(result.reply, /rentabilidad garantizada/)
+    } else {
+      assert.equal(result.reply, safe)
+      assert.equal(result.audit.fallback, false)
+      assert.ok(result.audit.editorial_observations.includes('style'))
+    }
+  }
 })
 
 test('two rejected drafts offer clarification without copying claims or an unrelated form question', async () => {
@@ -2135,17 +2266,24 @@ test('benefit memory survives a summary rewrite and history truncation, but neve
   assert.equal(failed.calls.filter(c=>c.name==='update:conversations').length,0)
 })
 
-test('a client unable to choose size gets actual examples, not the same question after rejected drafts',async()=>{
-  const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{
-    activePrompt:async name=>name,draftReply:async()=> '¿Qué tamaño aproximado tiene en mente para el local?',
-    aiJson:async()=>({aprobada:true,motivos:[]}),
-  }})
-  const result=await commercialReply({lead:{preferred_category:'local'},historial:[{role:'bot',content:'¿Qué tamaño busca?'}],catalogo:[
-    {unit_number:'LC-03',category:'local',area_internal_m2:52.16},{unit_number:'LC-02',category:'local',area_internal_m2:95.37}],
-    siguiente_pregunta:{question:'¿Qué tamaño busca?'}},'No tengo idea, ¿de qué tamaño son?',{},async()=>{})
-  assert.equal(result.audit.fallback,true)
-  assert.match(result.reply,/52[.,]16.*95[.,]37/)
-  assert.doesNotMatch(result.reply,/qué tamaño.*(?:busca|mente)/i)
+test('a size question requires verified examples and cannot be replaced by discovery already declined',async()=>{
+  const examples='Puede comparar locales de 52,16 m² y 95,37 m² interiores para identificar qué espacio se adapta a su actividad.'
+  for (const answered of [true, false]) {
+    let reviews=0
+    const {commercialReply}=load('src/lib/integrations/automation/sdr.ts',{'./ai':{
+      activePrompt:async name=>name,draftReply:async()=> answered ? examples : '¿Qué tamaño aproximado tiene en mente para el local?',
+      aiJson:async()=> { reviews+=1; return {aprobada:answered,motivos:answered?[]:['ignored_question','repeated_question'],requiere_asesor:false} },
+    }})
+    const result=await commercialReply({lead:{preferred_category:'local'},historial:[{role:'bot',content:'¿Qué tamaño busca?'}],catalogo:[
+      {unit_number:'LC-03',category:'local',area_internal_m2:52.16},{unit_number:'LC-02',category:'local',area_internal_m2:95.37}],
+      siguiente_pregunta:{question:'¿Qué tamaño busca?'}},'No tengo idea, ¿de qué tamaño son?',{},async()=>{})
+    assert.equal(result.audit.fallback,!answered)
+    assert.match(result.reply,/52[.,]16.*95[.,]37/)
+    assert.doesNotMatch(result.reply,/qué tamaño.*(?:busca|mente)/i)
+    assert.equal(reviews,answered?1:2)
+    if(answered) assert.equal(result.reply,examples)
+    else assert.ok(result.audit.review_reasons.includes('ignored_question'))
+  }
 })
 
 test('memory distinguishes explaining a requested benefit from repeating a sales pitch',()=>{
@@ -2998,7 +3136,7 @@ test('dialogue v2 replays the reported housing conversation with durable filters
     lead = structuredClone(h.lead)
   }
   assert.deepEqual(summary._property_context.selected_ids, ['depto-502'])
-  assert.equal(summary._turn_contract, 'lavilet-dialogue-v2')
+  assert.equal(summary._turn_contract, 'lavilet-dialogue-v3')
 })
 
 test('dialogue v2 accepts the focused 502 after mentioning 502 and 504, including legacy conversations', async t => {
@@ -3236,7 +3374,7 @@ test('dialogue v2 records contract and extractor revision even when inference fa
   await assert.rejects(h.process([h.rows[0]], async () => {}), /OPENAI_INCOMPLETE/)
   const steps = h.calls.find(call => call.name === 'execution_trace').args
   const version = steps.find(step => step.step_key === 'execution_version').output_summary
-  assert.equal(version.contract_version, 'lavilet-dialogue-v2')
+  assert.equal(version.contract_version, 'lavilet-dialogue-v3')
   assert.match(version.prompt_versions.extractor_eventos, /^[a-f0-9]{16}$/)
   assert.equal(steps.find(step => step.step_key === 'semantic_extraction').status, 'failed')
   assert.equal(h.calls.some(call => ['launch', 'register_outbound_message'].includes(call.name)), false)
@@ -3313,7 +3451,7 @@ test('dialogue v2 retains a focused question when a requested map follows it', a
   assert.deepEqual(saved._pending_question.target_ids, ['depto-502'])
 })
 
-test('dialogue v2 recorded 502 choice and detail acceptance deliver the showroom despite inconsistent extraction', async t => {
+test('an approved unit answer is no longer replaced just because the template contained a tour', async t => {
   live(t)
   for (const acceptance of [false, true]) {
     const current = acceptance ? 'si envieme los detalles' : 'revisemos la opcion 502 entocnes'
@@ -3324,16 +3462,17 @@ test('dialogue v2 recorded 502 choice and detail acceptance deliver the showroom
       offered_ids: pending.candidate_ids, focused_ids: pending.target_ids, pending_question: pending } }
     const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog },
       realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, summary, history: [{ role: 'bot', content: question }],
-      extracted: { turn_semantics: extractedProperty(current, { operation: 'search', reference_kind: acceptance ? 'followup' : 'explicit',
+      extracted: { turn_semantics: extractedProperty(current, { operation: 'select', reference_kind: acceptance ? 'followup' : 'explicit',
         unit_numbers: acceptance ? [] : ['502'], category: 'departamento', filters: { bedrooms: 3, floor_number: 5 }, query_scope: 'offered' }) },
-      // Simulate a writer dropping the attachment: final validation must retain the verified base.
-      turnComplete: async input => ({ ...await checkedBaseCoverage(input), reply: 'El departamento 502 tiene 3 dormitorios.', changed: true }) })
+      // The commercial suggestion to send a tour is not itself a user request for that URL.
+      turnComplete: { reply: 'El departamento 502 tiene 3 dormitorios.', changed: true, needsAdvisor: false, unresolved: [],
+        audit: { status: 'checked', final_validation: { passed: true } } } })
     h.rows[0].payload.text = current
     await h.process([h.rows[0]], async () => {})
     const sent = h.calls.find(call => call.name === 'register_outbound_message').args
-    assert.match(sent.p_content, /tour\?unidad=502/)
+    assert.match(sent.p_content, /El departamento 502 tiene 3 dormitorios/)
     assert.doesNotMatch(sent.p_content, /brochure|gustaría ver los detalles/i)
-    assert.equal(sent.p_tool_calls.turn_completeness.status, 'rejected_catalog_guard')
+    assert.equal(sent.p_tool_calls.turn_completeness.status, 'checked')
   }
 })
 

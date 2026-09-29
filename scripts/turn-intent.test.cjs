@@ -102,3 +102,74 @@ test('price omissions are checked against available verified values, never inven
   assert.deepEqual(turnIntentIssues('Necesito conocer la unidad.', contract, 'No hay precios publicados.'), [])
   assert.deepEqual(turnIntentIssues('Tenemos suites.', {}, 'Desde $100.000 USD.'), [])
 })
+
+test('a grounded reservation is canonical over a negative previous answer and preserves simultaneous price and financing requests', () => {
+  const current = 'Por ahora no. Quiero separar el 402 y saber el precio y si hay financiamiento'
+  const result = resolveTurnIntent({ current, scope, previous,
+    semantics: { ...category('departamento', ['402']), primary_intent: 'answer_previous',
+      answer_to_previous: { question_id: 'budget_amount', kind: 'negative', confidence: 'high' },
+      reservation: { kind: 'request', evidence: 'Quiero separar el 402', confidence: 'high', unit_numbers: ['402'] } },
+    requests: [request('Solicitar separación del 402', 'advisor'), request('Consultar el precio de la unidad'), request('Consultar financiamiento', 'financing')],
+  })
+  assert.equal(result.objective, 'request_reservation')
+  assert.equal(result.requested_action, 'reservation_handoff')
+  assert.equal(result.interpretation_source, 'current_reservation')
+  assert.equal(result.continuation_goal, null)
+  assert.deepEqual(result.subject.unit_numbers, ['402'])
+  assert.deepEqual(result.required_facts, ['price'])
+  assert.equal(result.requests.length, 3)
+  assert.ok(result.interpretation.decisions.some(item => item.code === 'current_reservation_takes_priority'))
+})
+
+test('reservation information, refusal, stale evidence and unapproved scope do not request a handoff', () => {
+  for (const [current, kind, evidence, expected] of [
+    ['¿Cuánto se paga para reservar?', 'information', '¿Cuánto se paga para reservar?', 'ask_reservation'],
+    ['No quiero reservar todavía', 'declined', 'No quiero reservar todavía', 'answer_previous'],
+    ['Quiero el brochure', 'request', 'quiero separar el 402', 'answer_previous'],
+  ]) {
+    const result = resolveTurnIntent({ current, scope, semantics: { primary_intent: 'answer_previous', confidence: 'high',
+      reservation: { kind, evidence, unit_numbers: [], confidence: 'high' } }, requests: [] })
+    assert.equal(result.objective, expected, current)
+    assert.equal(result.requested_action, null, current)
+  }
+  for (const decision of [{ kind: 'out_of_scope' }, { kind: 'mixed', uncertain: true }]) {
+    const result = resolveTurnIntent({ current: 'Quiero reservar mi vuelo', scope: decision, semantics: { primary_intent: 'request_reservation', confidence: 'high',
+      reservation: { kind: 'request', evidence: 'Quiero reservar mi vuelo', confidence: 'high', unit_numbers: [] } }, requests: [] })
+    assert.notEqual(result.objective, 'request_reservation')
+    assert.equal(result.requested_action, null)
+    assert.ok(result.interpretation.decisions.some(item => item.code === 'reservation_outside_authorized_scope'))
+  }
+})
+
+test('the current high confidence extractor objective wins over independent price keywords across intents', () => {
+  for (const [primary_intent, current] of [
+    ['request_visit', 'Ya conozco el precio, quiero visitar la oficina'],
+    ['ask_financing', 'Ese precio me sirve, quisiera hablar del financiamiento'],
+    ['project_information', 'El precio lo vemos después, primero dónde está ubicado'],
+    ['discuss_budget', 'Ese precio supera mi presupuesto actual'],
+  ]) {
+    const result = resolveTurnIntent({ current, scope, previous, semantics: { primary_intent, confidence: 'high' }, requests: [] })
+    assert.equal(result.objective, primary_intent, current)
+    assert.deepEqual(result.required_facts, [], current)
+    assert.equal(result.interpretation_source, 'extractor')
+  }
+  const conflict = resolveTurnIntent({ current: '¿Cuál es el precio? Primero quiero una visita', scope,
+    semantics: { primary_intent: 'request_visit', confidence: 'high' }, requests: [request('Consultar precio'), request('Solicitar visita', 'visit')] })
+  assert.equal(conflict.objective, 'request_visit')
+  assert.ok(conflict.interpretation.decisions.some(item => item.code === 'extractor_intent_precedes_price_keywords'))
+  assert.deepEqual(conflict.required_facts, ['price'])
+  assert.equal(resolveTurnIntent({ current: 'precio', scope, semantics: { primary_intent: 'other', confidence: 'low' }, requests: [] }).objective, 'ask_price')
+})
+
+test('a legacy neutral turn with an explicit property price question still retains that required fact alongside a visit', () => {
+  const current = '¿Cuánto vale el local 05?\n¿Puedo hacer una visita?'
+  const result = resolveTurnIntent({ current, scope: { kind: 'neutral', uncertain: false }, semantics: { primary_intent: 'other', confidence: 'low' }, requests: [] })
+  assert.equal(result.objective, 'ask_price')
+  assert.equal(result.scope.kind, 'property')
+  assert.deepEqual(result.required_facts, ['price'])
+  assert.equal(result.interpretation_source, 'lexical_fallback')
+  assert.ok(result.interpretation.decisions.some(item => item.code === 'neutral_scope_property_price_fallback'))
+  for (const scope of [{ kind: 'out_of_scope' }, { kind: 'neutral', uncertain: true }]) {
+    assert.deepEqual(resolveTurnIntent({ current, scope, semantics: { primary_intent: 'other', confidence: 'low' }, requests: [] }).required_facts, [])
+  }
+})

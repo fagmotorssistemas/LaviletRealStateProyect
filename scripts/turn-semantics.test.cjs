@@ -91,8 +91,8 @@ test('general housing interest cannot silently become an apartment category', ()
   }
 })
 
-test('ranking asks for information and does not inherit an erroneous select intent', () => {
-  const result = extract('cual es la opcion mas grande?', { operation: 'select', reference_kind: 'relative', selector: 'largest' })
+test('ranking uses the extractor operation and does not turn into selecting a unit', () => {
+  const result = extract('cual es la opcion mas grande?', { operation: 'rank', reference_kind: 'relative', selector: 'largest' })
   assert.equal(result.property.operation, 'rank')
   assert.equal(result.property.query_scope, 'catalog')
 })
@@ -218,4 +218,77 @@ test('choosing a category searches within it while choosing a concrete unit stil
   assert.ok(category.normalization_issues.includes('category_choice_refines_search'))
   assert.equal(extract('Prefiero el departamento 202', { category: 'departamento', operation: 'select', reference_kind: 'explicit', unit_numbers: ['202'] }).property.operation, 'select')
   assert.equal(extract('Prefiero el departamento más grande de esos', { category: 'departamento', operation: 'select', reference_kind: 'relative', selector: 'largest' }).property.operation, 'select')
+})
+
+test('incidental ranking keywords cannot overwrite a current model details operation', () => {
+  const current = 'Ya sé cuál es la más grande, ahora quiero detalles de esa opción'
+  const result = extract(current, { operation: 'details', reference_kind: 'followup', query_scope: 'selected' })
+  assert.equal(result.property.operation, 'details')
+  assert.equal(result.property.query_scope, 'selected')
+  assert.ok(result.normalization_issues.includes('extractor_operation_precedes_ranking_keywords'))
+})
+
+test('a current reservation request takes priority without losing a negative answer to the previous proposal', () => {
+  const current = 'por el momento no, entonces quiero separar el departametno 605}'
+  const result = normalizeTurnSemantics({ turn_semantics: {
+    primary_intent: 'answer_previous', primary_evidence: 'por el momento no', confidence: 'high',
+    answer_to_previous: { question_id: 'budget_amount', kind: 'negative', evidence: 'por el momento no', confidence: 'high' },
+    reservation: { kind: 'request', evidence: 'quiero separar el departametno 605', unit_numbers: ['605'], confidence: 'high' },
+    property: { operation: 'select', reference_kind: 'explicit', unit_numbers: ['605'], evidence: 'departametno 605', confidence: 'high' },
+  } }, current, { id: 'budget_amount' })
+  assert.equal(result.primary_intent, 'request_reservation')
+  assert.equal(result.primary_evidence, 'quiero separar el departametno 605')
+  assert.equal(result.answer_to_previous.kind, 'negative')
+  assert.equal(result.reservation.kind, 'request')
+  assert.deepEqual(result.reservation.unit_numbers, ['605'])
+  assert.equal(result.interpretation.extractor_primary_intent, 'answer_previous')
+  assert.equal(result.interpretation.canonical_primary_intent, 'request_reservation')
+  assert.ok(result.interpretation.decisions.some(item => item.code === 'current_reservation_takes_priority'))
+})
+
+test('reservation information, refusal, missing evidence and legacy scoring events never authorize initiation', () => {
+  const cases = [
+    { current: '¿Qué requisitos necesito para reservar?', kind: 'information', expected: 'information', primary: 'ask_reservation' },
+    { current: 'Por ahora no quiero reservar', kind: 'declined', expected: 'declined', primary: 'answer_previous' },
+    { current: 'Quiero ver el recorrido', kind: 'request', evidence: 'quiero reservar', expected: 'none', primary: 'answer_previous' },
+    { current: 'Tal vez lo reserve', kind: 'request', confidence: 'medium', expected: 'none', primary: 'answer_previous' },
+  ]
+  for (const item of cases) {
+    const result = normalizeTurnSemantics({ events: ['asked_reservation'], turn_semantics: {
+      primary_intent: 'answer_previous', primary_evidence: item.current, confidence: 'high',
+      reservation: { kind: item.kind, evidence: item.evidence || item.current, confidence: item.confidence || 'high', unit_numbers: [] },
+    } }, item.current, {})
+    assert.equal(result.reservation.kind, item.expected, item.current)
+    assert.equal(result.primary_intent, item.primary, item.current)
+  }
+  const unsupported = normalizeTurnSemantics({ events: ['asked_reservation'], turn_semantics: {
+    primary_intent: 'request_reservation', primary_evidence: 'sí', confidence: 'high',
+  } }, 'sí', { id: 'unit_choice', act: 'show_unit_details' })
+  assert.equal(unsupported.primary_intent, 'other')
+  assert.equal(unsupported.reservation.kind, 'none')
+  assert.ok(unsupported.interpretation.decisions.some(item => item.code === 'reservation_intent_without_current_action_evidence'))
+})
+
+test('reservation evidence is action scoped and model references remain catalogue candidates, not confirmed units', () => {
+  const reservation = { kind: 'request', evidence: 'quiero separar el LC-02', unit_numbers: ['LC-02', 'LC-02', 'https://example.test', '605'], confidence: 'high' }
+  const semantics = { primary_intent: 'request_reservation', primary_evidence: reservation.evidence, confidence: 'high', reservation }
+  const accepted = normalizeTurnSemantics({ turn_semantics: semantics }, reservation.evidence, {})
+  assert.deepEqual(accepted.reservation.unit_numbers, ['LC-02', '605'])
+  assert.equal(accepted.reservation.confirmed, undefined)
+  const scoped = normalizeTurnSemantics({ turn_semantics: semantics }, '¿Cuál es el precio del departamento?', {})
+  assert.equal(scoped.reservation.kind, 'none')
+  assert.equal(scoped.primary_intent, 'other')
+})
+
+test('grounded extractor filters prevail over the first number found by a lexical fallback', () => {
+  const current = 'Ya no quiero 3 cuartos, prefiero 2 dormitorios'
+  const result = extract(current, { operation: 'search', category: 'departamento', filters: { bedrooms: 2 },
+    filter_evidence: { bedrooms: 'prefiero 2 dormitorios' } })
+  assert.equal(result.property.filters.bedrooms, 2)
+  assert.ok(result.normalization_issues.includes('extractor_filter_precedes_keywords:bedrooms'))
+  const mandatory = extract('La habitación adicional es una condición para decidirme', { operation: 'search',
+    filters: { bedrooms: 3, bedrooms_required: true }, filter_evidence: {
+      bedrooms: 'La habitación adicional', bedrooms_required: 'es una condición para decidirme',
+    } })
+  assert.equal(mandatory.property.filters.bedrooms_required, true)
 })

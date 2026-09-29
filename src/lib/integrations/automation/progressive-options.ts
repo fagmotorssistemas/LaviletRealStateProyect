@@ -76,12 +76,13 @@ export function preferenceOptionsReply(info: Row): { reply: string; audit: Row }
 export const PROGRESSIVE_OPTIONS_RULES = `CONTINUIDAD DE LAS OPCIONES SOLICITADAS:
 estado_operativo.progressive_selection expresa el próximo paso y las opciones pertinentes. Explique por qué cumplen los requisitos conocidos (por ejemplo, los dormitorios) con datos verificados; no suponga que el cliente conoce los filtros internos. No amplíe categorías, dormitorios ni precios por iniciativa del bot. Ofrezca cambios solo si el cliente los pide; pedir menos dormitorios modifica ese requisito, aunque no mencione precio. Pedir más barato sin cantidad requiere aclarar si conserva los dormitorios, no reducirlos automáticamente. Un cambio de dormitorios no prueba que el precio sea menor.
 Atienda primero la consulta actual. Tras cotizar varias opciones, invite a conocer detalles; tras compararlas, pregunte cuál desea conocer mejor. Un sí a ver opciones no elige una unidad. Cuando el cliente identifica una unidad, comparta su recorrido verificado. No envíe recorridos de varias unidades para una comparación ni cambie una selección al mostrar alternativas.
-Si progressive_selection contiene question, conserve su PROPÓSITO en una única pregunta, no su texto literal: invite a detalles, a elegir categoría/planta/unidad o a aclarar dormitorios según stage. No sustituya esa pregunta por presupuesto, visita o financiamiento antes de la selección. El revisor debe comprobar esa misma decisión.
+Si progressive_selection contiene question, úsela como propuesta de continuación: invite a detalles, a elegir categoría/planta/unidad o a aclarar dormitorios según stage cuando siga siendo pertinente. La solicitud actual interpretada prevalece: si pide reservar, financiamiento o una visita, responda esa solicitud sin repetir una pregunta comercial anterior. El revisor comprueba la pertinencia y el propósito, no el texto ni el número de preguntas.
 Después de un recorrido individual siga post_tour_continuation: pregunte presupuesto solo si falta, aclare total frente a entrada solo si es ambiguo y respete un presupuesto conocido o aplazado. No añada otra pregunta comercial si ya existe una solicitud operativa o de perfil prioritaria.`
 
 const finalQuestion = (reply: string) => (reply.replace(/https?:\/\/\S+/g, '').match(/¿[^¿?]+\?|[^.!?\n]+\?/g)?.at(-1) || '').trim()
 
-export function progressiveQuestionIssues(reply: string, audit: Row, purpose?: string) {
+/** A recommendation for the writer/reviewer, never a deterministic rejection. */
+export function progressiveQuestionObservations(reply: string, audit: Row, purpose?: string) {
   const plan = object(audit.progressive_selection)
   if (!text(plan.question || object(audit.post_tour_continuation).question) || audit.profile_introduction) return []
   if (!finalQuestion(reply)) return ['commercial_next_question_missing']
@@ -94,7 +95,10 @@ export function progressiveQuestionIssues(reply: string, audit: Row, purpose?: s
 
 /** Keep the authorized referent when the writer changes only the question's wording. */
 export function progressivePendingQuestion(reply: string, audit: Row): Row {
-  if (audit.profile_introduction || progressiveQuestionIssues(reply, audit).length) return {}
+  // Do not attach the old selection act to a differently purposed question.
+  // Its content can still be accepted by semantic review for the current goal.
+  const writtenQuestion = object(object(audit.turn_completeness).question)
+  if (audit.profile_introduction || progressiveQuestionObservations(reply, audit, text(writtenQuestion.purpose)).length) return {}
   const plan = object(audit.progressive_selection), tour = object(audit.post_tour_continuation)
   if (!text(plan.question) && !text(tour.question)) return {}
   const question = finalQuestion(reply)

@@ -6,7 +6,7 @@ import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
 
-export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v2'
+export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v3'
 
 const nullableString = { type: ['string', 'null'] }
 const nullableNumber = { type: ['number', 'null'] }
@@ -100,6 +100,7 @@ Enumere en requests TODAS las solicitudes actuales, incluidas dudas adicionales,
 Si el mensaje corrige un sustantivo anterior («los departamentos, perdón»), conserve el propósito de la solicitud que corrige: «cómo puedo verlos» sigue siendo visualización, no una nueva búsqueda por categoría. Use el historial para resolver el sentido, pero cite solo el texto actual como evidencia. No afirme pluralidad de edificios por repetir una expresión corregida del cliente.
 resumen._turn_intent conserva el objetivo del turno previo. Si el lead aclara la categoría o unidad de una consulta de precio («Precio» → «sobre suites»), interprete la petición como precio de esa categoría, no solo listado de características. En requests describa ese sentido y cite como evidence únicamente el fragmento actual. Un objetivo previo no prevalece sobre un cambio de tema explícito, ni autoriza acciones. Dar nombre o residencia tampoco declara interés en una categoría.
 Separe las solicitudes independientes y asigne domain: property para catálogo, precios, características y datos del proyecto; visit para coordinar, aceptar, cambiar, cancelar o consultar una visita inmobiliaria; financing para consulta o revisión financiera; advisor para atención humana explícita; tracking para alta/baja de mensajes; courtesy para agradecimientos, despedidas y cortesía sin consulta nueva; other para temas ajenos o sin dominio resoluble. «Sí, confirmo la cita; además, ¿admiten mascotas?» contiene una solicitud visit y otra property. «Sí, confirmo la cita, muchas gracias» contiene una aceptación visit y cortesía courtesy, sin nueva consulta comercial. No absorba consultas adicionales dentro de visit ni clasifique una cita ajena al proyecto como visita inmobiliaria. El dominio describe la solicitud, nunca acredita una acción realizada.
+Una petición de iniciar separación o reserva pertenece a advisor y se describe también en turn_semantics.reservation.kind=request; una consulta sobre requisitos, monto o proceso pertenece a property y kind=information. Conserve preguntas simultáneas de precio, financiamiento y cualquier otra consulta en requests aunque la reserva sea el objetivo principal. asked_reservation es un evento de interés compatible con ambas situaciones y nunca reemplaza esa distinción. Una negativa parcial no elimina una petición posterior del mismo mensaje.
 mensaje_accion contiene solo la parte inmobiliaria autorizada por el clasificador de alcance. Las declaraciones, visitas, financiamiento y solicitudes de asesor requieren evidencia en mensaje_accion. Una baja de mensajes (opt_out) es global y puede proceder de mensaje_actual completo. No derive al equipo inmobiliario una solicitud de asesor de otro negocio.
 Para requested_advisor, opt_out y consent_granted copie en action_evidence el fragmento literal ACTUAL que autoriza esa acción, o null. Una pregunta de precio, un brochure, aceptar detalles y un agradecimiento no solicitan asesor ni conceden seguimiento. El historial no autoriza una acción nueva.
 full_name sirve también para el nombre con que el lead desea ser llamado; no exija apellidos para la presentación comercial ni invente un nombre desde el contacto de WhatsApp. En profile_evidence.full_name cite la presentación literal actual, o la respuesta a la pregunta pendiente de nombre. Mantenga separado el requisito posterior de nombre completo para financiamiento.
@@ -125,6 +126,12 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
   // An unreadable reaction or a greeting must never inherit operational events from history.
   if (method !== 'model') extracted.events = []
   const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)
+  // The model may omit the scoring event while explicitly identifying the
+  // request. Typed, current intent can add interest; the event never authorizes
+  // the operational action in the opposite direction.
+  if (['request', 'information'].includes(text(object(semantics.reservation).kind))) {
+    extracted.events = [...new Set([...(Array.isArray(extracted.events) ? extracted.events : []), 'asked_reservation'])]
+  }
   const requests = (Array.isArray(raw.requests) ? raw.requests : []).map(object)
     .filter(request => text(request.request).trim() && evidenceMatches(text(request.evidence), readable))
     .slice(0, 12).map(request => ({ request: text(request.request).slice(0, 500),
@@ -135,6 +142,8 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
     diagnostic: {
       contract_version: CONVERSATION_CONTRACT_VERSION, method,
       primary_intent: semantics.primary_intent, confidence: semantics.confidence,
+      interpretation: semantics.interpretation,
+      reservation: semantics.reservation,
       property_group: property.group || null, property_category: property.category || null,
       operation: property.operation || null, filters: object(property.filters),
       reference_kind: property.reference_kind || null, selector: property.selector || null,

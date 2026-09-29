@@ -109,12 +109,6 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
   if (object(audit.reference_resolution).status === 'clarification'
     && /\bno (?:contamos|tenemos|hay|disponemos)\b/i.test(reply)) return { valid: false, reason: 'unresolved_reference_is_not_unavailability' }
   if (audit.verified_catalog !== true) return { valid: true }
-  const requiredTour = text(object(audit.unit_model).url)
-  if (requiredTour && !reply.includes(requiredTour)) return { valid: false, reason: 'unit_tour_omitted' }
-  if (isCategoryOverview(audit)
-    && /\b(?:departamentos?|penthouses?|suites?|unidades?)\s+\d{2,4}\b/i.test(reply)) return { valid: false, reason: 'alternative_unit_list_premature' }
-  const pending = object(audit.pending_question)
-  if (ids(pending.target_ids).length && text(pending.question) && !reply.includes(text(pending.question))) return { valid: false, reason: 'catalog_pending_question_changed' }
   const verified = [...new Map([...rows(object(audit.catalog_results).units), ...rows(object(audit.alternative_results).units)].map(unit => [unit.id, unit])).values()]
   if (!verified.length) return { valid: true }
   const review = object(audit.semantic_review)
@@ -122,16 +116,6 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
   const reviewFacts = review.status === 'checked' && !factualValueIssues(review.factual_values, reply, [...verified, ...groups]).length
     ? rows(review.factual_values) : []
   const comparable = (value: string) => value.replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const decimal = (value: string) => {
-    const clean = value.replace(/[.,]$/, '')
-    const last = Math.max(clean.lastIndexOf('.'), clean.lastIndexOf(','))
-    return last >= 0 && clean.length - last <= 3
-      ? Number(clean.slice(0, last).replace(/[.,]/g, '') + '.' + clean.slice(last + 1)) : Number(clean.replace(/[.,]/g, ''))
-  }
-  const requiredAreas = (isCategoryOverview(audit) ? rows(object(audit.alternative_presentation).groups) : [])
-    .map(group => measurement(group.max_area_internal_m2)).filter(value => value !== null)
-  const writtenAreas = [...reply.matchAll(/(\d[\d.,]*)\s*m[²2]/g)].map(match => decimal(match[1]))
-  if (requiredAreas.some(area => !writtenAreas.some(value => Math.abs(value - area) < 0.005))) return { valid: false, reason: 'alternative_area_omitted' }
   const words: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 }
   const factualReply = reviewedCatalogDenials(reply, audit).reduce((body, fragment) => body.replace(fragment, ''), reply)
   const raw = factualReply.replace(/https?:\/\/\S+/g, '').replace(/¿[^?]*\?/g, '').replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -283,7 +267,7 @@ function comparisonReply(units: Row[], comparison: ReturnType<typeof compareCata
 export function catalogDialogueReply(info: Row, _current = ''): { reply: string; audit: Row } | null {
   void _current // Text is interpreted once, before this deterministic catalogue query.
   if (info.catalogue_price_requested === true) return null // Keep the existing authorized-price quote and affordability policy.
-  if (['ask_price', 'request_visit', 'ask_financing'].includes(text(object(info.semantica_turno).primary_intent))) return null
+  if (['ask_price', 'request_visit', 'ask_financing', 'request_reservation', 'ask_reservation'].includes(text(object(info.semantica_turno).primary_intent))) return null
   const reference = object(info.referencia_unidad), context = object(info.property_context || reference.context)
   const semantic = object(object(info.semantica_turno).property)
   const raw = object(reference.query || context.query || (semantic.confidence === 'high' ? semantic : {}))

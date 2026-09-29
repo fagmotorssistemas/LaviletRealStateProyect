@@ -2,6 +2,7 @@ type Summary = Record<string, unknown>
 
 const internalIdKey = /^(?:id|batch_id|batch_event_ids|event_id|event_ids|conversation_id|lead_id|unit_id|unit_ids|candidate_unit_ids|selected_unit_ids|result_unit_ids|reference_unit_ids|target_ids|candidate_ids|focused_ids|offered_ids|comparison_ids)$/
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const replyTextKey = /^(?:(?:base|proposed|final|approved|candidate|response|rejected)_preview|(?:approved|candidate|final)_text|before|after)$/
 
 const privateKey = /^(?:.*_)?(?:authorization|password|secret|token|api_key|access_token|refresh_token|phone|telefono|mobile|email|correo|cedula|dni|identificacion|national_id|full_name|ruc|job_title|employment_stability_months|account_number|numero_cuenta|salary|salario|sueldo|income|ingresos|employer|empleador|financial_documents|personal_data)$/i
 
@@ -31,7 +32,7 @@ export function sanitizeTraceSummary(value: unknown): Summary {
     if (typeof input === 'number') return Number.isFinite(input) ? input : null
     // Opaque database IDs link the actual execution and its catalogue results.
     // Preserve only exact UUIDs in these fields; arbitrary text still needs redaction.
-    if (typeof input === 'string') return internalIdKey.test(key) && uuid.test(input) ? input : traceText(input, 1500)
+    if (typeof input === 'string') return internalIdKey.test(key) && uuid.test(input) ? input : traceText(input, replyTextKey.test(key) ? 3000 : 1500)
     if (!input || typeof input !== 'object') return null
     if (depth >= 6 || seen.has(input)) return '[resumen limitado]'
     seen.add(input)

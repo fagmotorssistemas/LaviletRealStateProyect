@@ -148,7 +148,7 @@ test('a simultaneous lower price and fewer bedroom request retains both constrai
 test('cheaper without a new bedroom count asks to preserve it and yes applies only the verified proposed candidates', () => {
   const previous = { selected_ids: ['u605'], offered_ids: ['u602', 'u605'], query: { group: 'residential', category: 'penthouse', filters: { bedrooms: 3 } } }
   const current = 'tiene algo más económico?'
-  const asked = resolvePropertyTurn(alternativeCatalog, current, { _property_context: previous }, [], semantics(current, { operation: 'rank', selector: 'cheapest' }))
+  const asked = resolvePropertyTurn(alternativeCatalog, current, { _property_context: previous }, [], semantics(current, { operation: 'search' }))
   assert.equal(asked.reason, 'cheaper_requires_bedrooms_confirmation')
   assert.equal(asked.query.filters.bedrooms, 3)
   assert.deepEqual(asked.context.selected_ids, ['u605'])
@@ -267,7 +267,7 @@ test('legacy alternative choice recovers the active search without erasing the o
 test('generic information continues the selected unit instead of searching the full catalogue', () => {
   const current = 'quiero informacion'
   const result = resolvePropertyTurn(catalog, current, { _property_context: { selected_ids: ['u602'], query: { category: 'penthouse' } } }, [],
-    { primary_intent: 'project_information', confidence: 'high', property: { operation: 'search', confidence: 'high' } })
+    semantics(current, { operation: 'details', reference_kind: 'followup', query_scope: 'selected' }))
   assert.equal(result.query.operation, 'details')
   assert.deepEqual(result.matches.map(unit => unit.id), ['u602'])
 })
@@ -618,4 +618,44 @@ test('an explicit comparison replaces an older search category without becoming 
   assert.equal(reference.query.scope, 'comparison')
   assert.deepEqual(reference.context.selected_ids, [])
   assert.deepEqual(reference.context.comparison_ids, ['u202', 'u302'])
+})
+
+test('extractor operations survive incidental ranking, comparison and generic information wording', () => {
+  const state = { selected_ids: ['u605'], offered_ids: ['u602', 'u605'], query: { category: 'penthouse', filters: { bedrooms: 3 } } }
+  for (const current of ['Ya sé cuál es la más grande, ahora quiero detalles de esa opción', 'Ya vi la diferencia, cuénteme más de la elegida']) {
+    const ref = resolvePropertyTurn(catalog, current, { _property_context: state }, [], semantics(current,
+      { operation: 'details', reference_kind: 'followup', query_scope: 'selected' }))
+    assert.equal(ref.query.operation, 'details', current)
+    assert.deepEqual(ref.matches.map(unit => unit.id), ['u605'])
+    assert.equal(ref.context.operation_resolution.source, 'extractor')
+    assert.equal(ref.context.operation_resolution.applied, 'details')
+  }
+  const current = 'quiero información de las opciones nuevamente'
+  const search = resolvePropertyTurn(catalog, current, { _property_context: state }, [], semantics(current,
+    { operation: 'search', category: 'penthouse', query_scope: 'catalog' }))
+  assert.equal(search.query.operation, 'search')
+  assert.equal(search.query.scope, 'catalog')
+  const comparison = resolvePropertyTurn(catalog, 'quiero información', { _property_context: state }, [], semantics('quiero información',
+    { operation: 'compare', reference_kind: 'comparison', query_scope: 'offered', unit_numbers: ['602', '605'] }))
+  assert.equal(comparison.query.operation, 'compare')
+  assert.deepEqual(comparison.matches.map(unit => unit.id), ['u602', 'u605'])
+})
+
+test('a model rank over explicit units is not silently changed into a comparison or a new selection', () => {
+  const current = 'entre el 602 y el 605, cuál es el más grande?'
+  const ref = resolvePropertyTurn(catalog, current, {}, [], semantics(current,
+    { operation: 'rank', reference_kind: 'comparison', unit_numbers: ['602', '605'], selector: 'largest', query_scope: 'offered' }))
+  assert.equal(ref.query.operation, 'rank')
+  assert.deepEqual(ref.context.selected_ids, [])
+  const response = catalogDialogueReply({ catalogo: catalog, referencia_unidad: ref, property_context: ref.context }, current)
+  assert.deepEqual(response.audit.catalog_ranking.unit_ids, ['u602'])
+})
+
+test('the normalized current filter is not replaced a second time by a stale number mentioned in the same message', () => {
+  const current = 'Ya no quiero 3 cuartos, prefiero 2 dormitorios'
+  const ref = resolvePropertyTurn(alternativeCatalog, current, {}, [], semantics(current, { operation: 'search', category: 'departamento',
+    filters: { bedrooms: 2 }, filter_evidence: { bedrooms: 'prefiero 2 dormitorios' } }))
+  assert.equal(ref.query.filters.bedrooms, 2)
+  assert.deepEqual(ref.matches.map(unit => unit.id), ['a304', 'a404'])
+  assert.equal(ref.context.filter_resolution.ignored_lexical_filters.bedrooms, 3)
 })

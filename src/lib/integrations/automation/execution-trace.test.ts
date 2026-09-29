@@ -5,6 +5,15 @@ import { sanitizeTraceSummary, traceText } from './trace-summary'
 import { beginModelTrace, withAIExecutionTrace, recordDraftDecision } from './ai-execution-trace'
 import { decisionRecord, catalogSnapshot } from './decision-record'
 
+test('response audit preserves drafts up to the transport limit without exposing credentials', () => {
+  const draft = 'Información verificada. '.repeat(110)
+  const stored = sanitizeTraceSummary({ proposed_preview: draft, final_text: draft, other_summary: draft })
+  assert.equal(stored.proposed_preview, draft.trim())
+  assert.equal(stored.final_text, draft.trim())
+  assert.equal(String(stored.other_summary).length, 1500)
+  assert.doesNotMatch(String(sanitizeTraceSummary({ proposed_preview: 'Bearer secretvalue ' + draft }).proposed_preview), /secretvalue/)
+})
+
 const event = { id: '00000000-0000-4000-8000-000000000001' }
 
 test('draft rejection preserves evaluated text and separates code objections from AI approval', async () => {

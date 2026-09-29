@@ -42,14 +42,25 @@ test('an explicit amenity follow-up is still answered even after presenting the 
   const history = [...info.historial, { role: 'bot', content: 'El proyecto contempla piscina y gimnasio.' }]
   assert.deepEqual(experienceIssues('El proyecto contempla piscina y gimnasio.', 'Y la piscina y el gimnasio?', { ...info, historial: history }, commercialMemory(null, history)), [])
 })
-test('the final reviewer cannot reintroduce a benefits paragraph into a short preference response', async () => {
+test('presentation wording is observable while semantic coverage and purpose still decide acceptance', async () => {
   const baseReply = 'Tenemos departamentos de 2 o 3 dormitorios.'
-  const result = await completeTurnReply({ current: 'Para vivir', history: info.historial, verified: info, baseReply }, async () => ({
+  const candidate = {
     reply: baseReply + ' Están pensados para su comodidad y una vida tranquila en Puertas del Sol.',
     requests: [{ fragment: 'Para vivir', intent: 'Uso propio', request_type: 'general_information', base_status: 'answered', status: 'answered', evidence: baseReply }],
     question: { text: '', purpose: 'none', missing_datum: '', next_decision: '' },
-  }))
-  assert.equal(result.reply, baseReply)
-  assert.equal(result.needsAdvisor, false)
-  assert.ok(result.audit.issues.includes('repeated_presentation'))
+  }
+  for (const goalPreserved of [true, false]) {
+    let calls = 0
+    const review = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
+      operational_goal_preserved: goalPreserved, question_has_purpose: true, missing_fact_fragments: [] }
+    const result = await completeTurnReply({ current: 'Para vivir', history: info.historial,
+      verified: { ...info, proyecto: { description: 'Viviendas pensadas para la comodidad en el sector residencial Puertas del Sol.' } }, baseReply },
+    async () => ++calls % 2 ? candidate : review)
+    assert.equal(result.reply, goalPreserved ? candidate.reply : baseReply)
+    assert.equal(result.needsAdvisor, false)
+    assert.ok(result.audit.editorial_observations.includes('repeated_presentation'))
+    assert.equal(result.audit.status, goalPreserved ? 'checked' : 'rejected_review')
+    assert.equal(calls, goalPreserved ? 2 : 4)
+    if (!goalPreserved) assert.ok(result.audit.issues.includes('review_check_failed:operational_goal_preserved'))
+  }
 })

@@ -1,5 +1,7 @@
 # Automatización de La Vilet: referencia canónica
 
+**Cambio local del 29/09/2026:** [Interpretación compartida, solicitud de reserva y libertad de redacción](interpretacion-reserva-y-redaccion-20260929.md). Requiere las dos migraciones indicadas antes del despliegue del ejecutor.
+
 **Actualización del 26/09/2026:** [Validación con evidencia compartida](validacion-evidencia-compartida-20260925.md), incorporada en `22ad84f`, y [auditoría de casos pendientes, visibilidad de mensajes y caché](auditoria-visibilidad-cache-20260926.md).
 
 **Revisión:** 22 de septiembre de 2026. El motor conversacional v2 y el Workflow base están versionados en `c1149bb`. La vista **Por mensaje**, su nueva instrumentación y las correcciones de continuidad descritas en el documento 11 son cambios locales pendientes de despliegue; no se ha verificado su funcionamiento en producción.

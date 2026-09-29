@@ -54,7 +54,7 @@ test('readable text accompanying a failed attachment is interpreted once with a 
   assert.equal(calls[0].name, 'extractor_eventos')
   assert.equal(calls[1].input.mensaje_actual, current)
   assert.equal(calls[1].schema, TURN_EXTRACTION_SCHEMA)
-  assert.match(calls[1].instructions, /lavilet-dialogue-v2/)
+  assert.match(calls[1].instructions, /lavilet-dialogue-v3/)
   assert.equal(result.semantics.property.filters.floor_number, 5)
   assert.equal(result.semantics.property.operation, 'search')
   assert.equal(result.diagnostic.filters.floor_number, 5)
@@ -431,4 +431,53 @@ test('profile evidence cannot come from stale history, contact origin, project l
   })
   assert.equal(country.extracted.residence_city, null)
   assert.equal(country.extracted.residence_country, 'Estados Unidos')
+})
+
+test('one extraction preserves reservation, prior refusal and simultaneous questions with canonical diagnostics', async () => {
+  const current = 'Por ahora no, quiero separar el departametno 605. ¿Y qué documentos necesito?'
+  const result = await interpretConversationTurn({ mensaje_actual: current, pregunta_pendiente: { id: 'budget_amount' } }, {
+    activePrompt: async () => 'Prompt', aiJson: async (rules, _input, schema) => {
+      assert.ok(schema.properties.turn_semantics.required.includes('reservation'))
+      assert.match(rules, /asked_reservation.*nunca reemplaza esa distinción/)
+      return { events: [], requests: [
+        { domain: 'advisor', request: 'Iniciar la separación del 605', evidence: 'quiero separar el departametno 605', confidence: 'high' },
+        { domain: 'property', request: 'Documentos necesarios', evidence: '¿Y qué documentos necesito?', confidence: 'high' },
+      ], turn_semantics: {
+        primary_intent: 'answer_previous', primary_evidence: 'Por ahora no', confidence: 'high',
+        answer_to_previous: { question_id: 'budget_amount', kind: 'negative', evidence: 'Por ahora no', confidence: 'high' },
+        reservation: { kind: 'request', evidence: 'quiero separar el departametno 605', unit_numbers: ['605'], confidence: 'high' },
+        property: { operation: 'select', reference_kind: 'explicit', unit_numbers: ['605'], evidence: 'departametno 605', confidence: 'high' },
+      } }
+    },
+  })
+  assert.equal(result.semantics.primary_intent, 'request_reservation')
+  assert.equal(result.semantics.answer_to_previous.kind, 'negative')
+  assert.equal(result.semantics.reservation.kind, 'request')
+  assert.ok(result.extracted.events.includes('asked_reservation'))
+  assert.equal(result.extracted.requested_advisor, false)
+  assert.equal(result.requests.length, 2)
+  assert.equal(result.diagnostic.reservation.kind, 'request')
+  assert.equal(result.diagnostic.interpretation.extractor_primary_intent, 'answer_previous')
+})
+
+test('an old reservation event alone is scoring evidence and cannot manufacture an operational request', async () => {
+  const result = await interpretConversationTurn({ mensaje_actual: '¿Cuánto se paga para reservar?' }, {
+    activePrompt: async () => 'Prompt', aiJson: async () => ({ events: ['asked_reservation'] }),
+  })
+  assert.equal(result.semantics.reservation.kind, 'none')
+  assert.equal(result.extracted.requested_advisor, false)
+  assert.notEqual(result.semantics.primary_intent, 'request_reservation')
+})
+
+test('reservation outside the authorized action fragment cannot start the real estate process', async () => {
+  const current = 'Quiero reservar un vuelo; además, ¿dónde está La Vilet?'
+  const result = await interpretConversationTurn({ mensaje_actual: current, mensaje_accion: '¿dónde está La Vilet?' }, {
+    activePrompt: async () => 'Prompt', aiJson: async () => ({ turn_semantics: {
+      primary_intent: 'request_reservation', primary_evidence: 'Quiero reservar un vuelo', confidence: 'high',
+      reservation: { kind: 'request', evidence: 'Quiero reservar un vuelo', unit_numbers: [], confidence: 'high' },
+    } }),
+  })
+  assert.equal(result.semantics.reservation.kind, 'none')
+  assert.equal(result.semantics.primary_intent, 'other')
+  assert.ok(!result.extracted.events.includes('asked_reservation'))
 })

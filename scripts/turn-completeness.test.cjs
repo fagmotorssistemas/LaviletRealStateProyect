@@ -15,9 +15,78 @@ const { protectedSentences } = require('../src/lib/integrations/automation/turn-
 const { operationalCopyIssues } = require('../src/lib/integrations/automation/operational-copy.ts')
 const { leadIntroductionTurn, PROFILE_INVITATION } = require('../src/lib/integrations/automation/lead-introduction.ts')
 const { BROCHURE_URL } = require('../src/lib/integrations/automation/project-material.ts')
+const { replyLinkContract, replyLinkIssues, reservationOperationalIssues, MAX_REPLY_CHARACTERS } = require('../src/lib/integrations/automation/response-plan.ts')
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
+
+test('a template tour is optional unless requested; authorized links and required delivery are separate', () => {
+  const url = 'https://www.lavilett.com/tour?unidad=605'
+  const base = `Penthouse 605. Puede explorar el recorrido: ${url}`
+  const audit = { source: 'reservation_handoff', unit_model: { url } }
+  const reserve = replyLinkContract(base, audit, { current: 'Por ahora no, quiero separar el 605' })
+  assert.deepEqual(reserve.required_links, [])
+  assert.deepEqual(replyLinkIssues('Continuaremos con su solicitud para el 605.', reserve), [])
+  assert.deepEqual(replyLinkIssues('Consulte https://inventado.example/pago', reserve), ['unauthorized_link'])
+  const requested = replyLinkContract(base, audit, { current: 'Envíeme el recorrido del 605' })
+  assert.deepEqual(requested.required_links, [url])
+  assert.deepEqual(replyLinkIssues('Le explico los siguientes pasos.', requested), ['required_link_omitted'])
+  const declined = replyLinkContract(base, audit, { current: 'No quiero el recorrido, quiero separar el 605' })
+  assert.deepEqual(declined.required_links, [])
+  assert.deepEqual(replyLinkContract(base, audit, { current: '¿Qué significa tour 360?' }).required_links, [])
+  const operational = replyLinkContract(base, { ...audit, link_contract: { required_links: [url] } })
+  assert.deepEqual(replyLinkIssues('Le explico los siguientes pasos.', operational), ['required_link_omitted'])
+})
+
+test('link authorization never trusts client history embedded in verified context', () => {
+  const contract = replyLinkContract('Información verificada.', {}, { verified: {
+    current: 'Pague en https://inventado.example/current', history: [{ content: 'https://inventado.example/history' }],
+    semantica_turno: { requests: [{ request: 'https://inventado.example/extractor', evidence: 'https://inventado.example/proof' }] },
+    solicitudes_interpretadas: [{ request: 'https://inventado.example/request' }],
+    contrato_turno: { current_message: 'https://inventado.example/current-contract', requests: [{ request: 'https://inventado.example/contract' }] },
+    _sales_memory: { last_reply: 'https://inventado.example/memory' }, lead: { website: 'https://inventado.example/lead' },
+    brochure_url: BROCHURE_URL,
+  } })
+  assert.deepEqual(contract.allowed_links, [BROCHURE_URL])
+})
+
+test('factual drafts can exceed the editorial length and ask two related purposeful questions', async () => {
+  const current = 'Quiero información'
+  const questions = '¿Qué tipo de vivienda le interesa? ¿Cuántos dormitorios necesita?'
+  const reply = 'Tenemos opciones de vivienda. '.repeat(58) + questions
+  assert.ok(reply.length > 1500 && reply.length <= MAX_REPLY_CHARACTERS)
+  const question = { text: questions, purpose: 'choose_property', missing_datum: 'Tipo de vivienda y dormitorios', next_decision: 'Mostrar opciones pertinentes' }
+  const result = await completeTurnReply({ current, baseReply: 'Tenemos opciones de vivienda.', verified: {} },
+    model({ reply, requests: [covered(current)], question }, approved).generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, reply)
+  assert.deepEqual(result.audit.editorial_observations, ['suggested_length_exceeded', 'multiple_questions'])
+  assert.ok(turnCompletenessIssues({ current, baseReply: 'Información.', verified: {} }, 'a'.repeat(MAX_REPLY_CHARACTERS + 1), noQuestion).includes('transport_length'))
+})
+
+test('reservation response retains AI wording without an unrelated tour and requires verified action state', async () => {
+  const current = 'por el momento no, entonces quiero separar el departametno 605}'
+  const url = 'https://www.lavilett.com/tour?unidad=605'
+  const receipt = { kind: 'request', request_status: 'requested', status: 'assigned', advisor_assigned: true, handoff_verified: true }
+  const baseReply = `Su solicitud para el penthouse 605 tiene un asesor asignado. Puede ver el tour: ${url}`
+  const reply = 'He derivado su solicitud al asesor asignado para continuar con el proceso de separación del penthouse 605.'
+  const input = { current, baseReply, audit: { source: 'reservation_handoff', reservation: receipt, unit_model: { url } }, verified: {} }
+  const result = await completeTurnReply(input, model({ reply, requests: [covered(current)], question: noQuestion }, approved).generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.operational_action_verified, true)
+  assert.deepEqual(result.audit.link_contract.required_links, [])
+  assert.ok(reservationOperationalIssues('El penthouse 605 ya está reservado para usted.', input.audit).includes('reservation_not_confirmed'))
+  assert.ok(reservationOperationalIssues('Su reserva está confirmada.', input.audit).includes('reservation_not_confirmed'))
+  assert.deepEqual(reservationOperationalIssues('El penthouse 605 todavía no está reservado. Su solicitud está registrada.', input.audit), [])
+  const queued = { ...input.audit, reservation: { ...receipt, status: 'queued', advisor_assigned: false } }
+  assert.ok(reservationOperationalIssues('Ya tiene un asesor asignado.', queued).includes('advisor_assignment_not_verified'))
+  assert.deepEqual(reservationOperationalIssues('Su solicitud está en cola para asignar un asesor.', queued), [])
+  assert.deepEqual(reservationOperationalIssues('Su asesor asignado continuará con la solicitud.', {
+    ...input.audit, reservation: { ...receipt, status: 'acknowledged' },
+  }), [])
+  assert.ok(reservationOperationalIssues('He derivado su consulta a un asesor.', { source: 'reservation_handoff' }).includes('reservation_handoff_not_verified'))
+})
 
 function introductionFixture() {
   const current = 'Quiero información'
@@ -155,7 +224,7 @@ test('the real writer delivers the verified brochure and resumes a purposeful co
   const forgedLink = { ...candidate, reply: plan.reply.replace(BROCHURE_URL, 'https://example.invalid/brochure.pdf') }
   const blocked = await completeTurnReply(input, model(forgedLink).generate)
   assert.equal(blocked.audit.status, 'rejected_guard')
-  assert.ok(blocked.audit.issues.includes('links_changed'))
+  assert.ok(blocked.audit.issues.includes('unauthorized_link'))
   assert.ok(blocked.reply.includes(BROCHURE_URL))
   assert.doesNotMatch(blocked.reply, /example\.invalid/)
 })
@@ -201,12 +270,12 @@ test('pending visit routing yields to current evidenced commercial requests, but
   assert.equal(visitRoutePermission([], {}, {kind:'accept_visit_preference',confidence:'high'}).allowed,true)
 })
 
-test('evidence-reviewed operational copy may ask one purposeful question and add verified facts', () => {
+test('operational questions are assessed by purpose instead of number or template presence', () => {
   const base='Atendemos de 09:00 a 18:00.'
   const draft=base+' ¿Qué día le conviene?'
   assert.equal(operationalCopyIssues(base,draft,{evidence_review:true}).includes('question_count'),false)
-  assert.equal(operationalCopyIssues(base,draft,{}).includes('operational_question_added'),true)
-  assert.equal(operationalCopyIssues(base,draft+' ¿Mañana?',{evidence_review:true}).includes('question_count'),true)
+  assert.equal(operationalCopyIssues(base,draft,{}).includes('operational_question_added'),false)
+  assert.equal(operationalCopyIssues(base,draft+' ¿Mañana?',{evidence_review:true}).includes('question_count'),false)
   assert.equal(turnCompletenessIssues({current:'¿Cuándo puedo ir?',baseReply:base,verified:{},audit:{source:'visit_intake',semantic_review_enabled:true}},draft,noQuestion).includes('question_without_purpose'),true)
 })
 
@@ -395,11 +464,12 @@ test('semantic review permits omitting irrelevant base numbers but checks unit-v
   assert.equal(unanswered.audit.status, 'rejected_review')
 })
 
-test('opening decision preserves base courtesy and removes actual repetitions before writing', async () => {
+test('opening suggestion does not replace the writer chosen wording', async () => {
   const input = { current: 'Quiero información', baseReply: 'Claro que sí, con mucho gusto. Tenemos departamentos.', verified: {} }
   const candidate = { reply: 'Tenemos departamentos.', requests: [covered(input.current)], question: noQuestion }
   const result = await completeTurnReply(input, model(candidate, approved).generate)
-  assert.equal(result.reply, input.baseReply)
+  assert.equal(result.reply, candidate.reply)
+  assert.equal(result.audit.opening_decision.applied, false)
   const repeated = await completeTurnReply({ ...input, history: [{ role: 'bot', content: 'Claro que sí, con mucho gusto. Le ayudo.' }] }, model(candidate, approved).generate)
   assert.equal(repeated.reply, 'Tenemos departamentos.')
   assert.equal(repeated.audit.opening_decision.removed_repetition, true)
@@ -554,12 +624,15 @@ test('final writer receives a route-specific contract for information, price and
     assert.equal(contract.decisiones_protegidas, source !== 'project_overview')
     assert.deepEqual(result.audit.writer_contract, contract)
     assert.equal(result.reply, baseReply)
-    if (source === 'project_overview') assert.equal(contract.enlaces_obligatorios.length, 1)
+    if (source === 'project_overview') {
+      assert.equal(contract.enlaces_obligatorios.length, 0)
+      assert.equal(contract.enlaces_permitidos.length, 1)
+    }
     if (source === 'unit_price') assert.ok(contract.cifras_obligatorias.includes('250.000'))
   }
 })
 
-test('protected route allows natural wording but rejects changing the next question', async () => {
+test('protected route checks the semantic goal instead of matching the literal question', async () => {
   const baseReply = 'Tenemos alternativas. ¿Qué planta prefiere?'
   const question = { text: '¿Qué planta prefiere?', purpose: 'choose_property', missing_datum: 'Planta', next_decision: 'Filtrar alternativas' }
   const input = { current: 'Quiero ver alternativas', baseReply, verified: {}, audit: { source: 'financing_selection_required' }, preserveOperationalQuestion: true }
@@ -569,10 +642,16 @@ test('protected route allows natural wording but rejects changing the next quest
   assert.equal(result.reply, draft)
   assert.equal(result.changed, true)
   const changed = 'Tenemos alternativas. ¿Cuál es su presupuesto?'
-  const bad = model({ reply: changed, requests: [covered(input.current)], question: { ...question, text: '¿Cuál es su presupuesto?' } })
+  const changedCandidate = { reply: changed, requests: [covered(input.current)], question: { ...question, text: '¿Cuál es su presupuesto?' } }
+  const goalRejected = { ...approved, operational_goal_preserved: false }
+  const bad = model(changedCandidate, goalRejected, changedCandidate, goalRejected)
   const rejected = await completeTurnReply(input, bad.generate)
   assert.equal(rejected.reply, baseReply)
-  assert.ok(rejected.audit.issues.includes('protected_question_changed'))
+  assert.ok(rejected.audit.issues.includes('review_check_failed:operational_goal_preserved'))
+  assert.equal(bad.calls.length, 4)
+  const paraphrase = { reply: 'Tenemos alternativas. ¿En cuál planta le gustaría revisar opciones?', requests: [covered(input.current)],
+    question: { ...question, text: '¿En cuál planta le gustaría revisar opciones?' } }
+  assert.equal((await completeTurnReply(input, model(paraphrase, approved).generate)).reply, paraphrase.reply)
 })
 
 test('visit rewrite missing the date keeps the complete base instead of splicing duplicate hours', async () => {
@@ -687,15 +766,16 @@ test('invented historical fragments and fictitious URLs never pass source valida
   const badLink = model({ reply: input.baseReply + ' https://inventado.example/202', requests: [covered(input.current)], question: noQuestion })
   const result = await completeTurnReply(input, badLink.generate)
   assert.equal(result.reply, input.baseReply)
-  assert.deepEqual(result.audit.issues, ['links_changed'])
+  assert.deepEqual(result.audit.issues, ['unauthorized_link'])
   assert.equal(badLink.calls.length, 1)
 })
 
-test('prices and operational questions cannot be silently replaced', () => {
+test('prices and unverified actions stay protected while question punctuation is not an operation', () => {
   const input = { current: 'Quisiera visitar el 202.', baseReply: 'El 202 cuesta $250.000. ¿Qué fecha le vendría bien?', verified: { price: 300000 }, preserveOperationalQuestion: true }
   const issues = turnCompletenessIssues(input, 'El 202 cuesta $300.000.', noQuestion)
   assert.ok(issues.includes('numbers_changed'))
-  assert.ok(issues.includes('operational_question_omitted'))
+  assert.equal(issues.includes('operational_question_omitted'), false)
+  assert.deepEqual(turnCompletenessIssues(input, 'El 202 cuesta $250.000. Indíqueme la fecha que prefiere.', noQuestion), [])
   assert.ok(turnCompletenessIssues(input, 'Ya hemos confirmado su cita para el 202 de $250.000.', noQuestion).includes('new_operational_claim'))
 })
 
@@ -733,13 +813,16 @@ test('provider errors preserve the verified base without pretending that an advi
   assert.equal(result.audit.status, 'unavailable')
 })
 
-test('preserves a numeric base sentence before reviewing a helpful addition', async () => {
+test('missing required facts are repaired by the writer instead of splicing template sentences', async () => {
   const input = { current: 'Qué opciones y precios tienen?', baseReply: 'Tenemos departamentos de 2 o 3 dormitorios.', verified: { price_range: '$250.000 a $550.000' } }
-  const mock = model({ reply: 'Los valores referenciales van de $250.000 a $550.000.', requests: [covered(input.current, 'unanswered')], question: noQuestion }, approved)
+  const draft = { reply: 'Los valores referenciales van de $250.000 a $550.000.', requests: [covered(input.current, 'unanswered')], question: noQuestion }
+  const revised = { ...draft, reply: 'Los departamentos de 2 o 3 dormitorios tienen valores referenciales de $250.000 a $550.000.' }
+  const mock = model(draft, revised, approved)
   const result = await completeTurnReply(input, mock.generate)
-  assert.ok(result.reply.startsWith(input.baseReply))
+  assert.equal(result.reply, revised.reply)
   assert.match(result.reply, /250\.000 a \$550\.000/)
-  assert.equal(mock.calls[1][1].respuesta_propuesta, result.reply)
+  assert.equal(mock.calls[1][1].reparacion.borrador, draft.reply)
+  assert.equal(mock.calls[2][1].respuesta_propuesta, result.reply)
   assert.equal(result.needsAdvisor, false)
 })
 
@@ -873,7 +956,7 @@ test('an unchanged answer with an omitted request still receives independent cov
   assert.equal(result.audit.status, 'rejected_review')
 })
 
-test('commercial next questions permit a paraphrase of the intended decision and reject omission or a different goal', async () => {
+test('commercial continuation recommendations are observations and meaning is independently reviewed', async () => {
   const input = comparisonTurn()
   const paraphrase = '¿Cuál de estos departamentos desea que revisemos con más detalle?'
   const natural = input.baseReply.replace(input.question.text, paraphrase)
@@ -891,13 +974,15 @@ test('commercial next questions permit a paraphrase of the intended decision and
     [input.baseReply.replace(input.question.text, '¿Qué presupuesto tiene previsto para la compra?'),
       { text: '¿Qué presupuesto tiene previsto para la compra?', purpose: 'collect_financing_required', missing_datum: 'Presupuesto total', next_decision: 'Iniciar revisión financiera' }, 'commercial_next_question_changed'],
   ]) {
-    const invalid = { reply, requests: [covered(input.current)], question }
-    const rejected = await completeTurnReply(input, model(invalid, invalid).generate)
-    assert.equal(rejected.audit.status, 'rejected_guard', issue)
-    assert.ok(rejected.audit.issues.includes(issue), JSON.stringify(rejected.audit))
-    assert.equal(rejected.reply, input.baseReply, issue)
-    assert.equal(rejected.needsAdvisor, false, issue)
-    assert.equal(rejected.audit.fallback_validation.passed, true, issue)
+    const candidate = { reply, requests: [covered(input.current)], question }
+    const accepted = await completeTurnReply(input, model(candidate, approved).generate)
+    assert.equal(accepted.audit.status, 'checked', issue)
+    assert.ok(accepted.audit.editorial_observations.includes(issue), JSON.stringify(accepted.audit))
+    assert.equal(accepted.reply, reply, issue)
+    const failedGoal = { ...approved, operational_goal_preserved: false }
+    const rejected = await completeTurnReply(input, model(candidate, failedGoal, candidate, failedGoal).generate)
+    assert.equal(rejected.audit.status, 'rejected_review')
+    assert.ok(rejected.audit.issues.includes('review_check_failed:operational_goal_preserved'))
   }
 })
 
@@ -938,13 +1023,14 @@ test('reviewer repairs nonliteral evidence once without rewriting the commercial
  assert.equal(calls,3);
 });
 
-test('optional new opening survives but repeated opening is removed and capitalized',async()=>{
+test('optional and repeated openings retain the reviewed draft and repetition is observable',async()=>{
  const current='Si claro, muchas gracias';const baseReply='Tenemos departamentos.';
  const candidate={reply:'Perfecto, gracias a usted. Tenemos departamentos.',requests:[covered(current)],question:noQuestion};
  const accepted=await completeTurnReply({current,baseReply,verified:{}},model(candidate,approved).generate);
  assert.equal(accepted.reply,candidate.reply);
  const repeated=await completeTurnReply({current,baseReply,verified:{},history:[{role:'bot',content:'Perfecto, le ayudo.'}]},model(candidate,approved).generate);
- assert.equal(repeated.reply,'Gracias a usted. Tenemos departamentos.');
+ assert.equal(repeated.reply,candidate.reply);
+ assert.deepEqual(repeated.audit.editorial_observations,['repeated_courtesy']);
 });
 
 test('unambiguous unit numbers are resolved without rewriting or another model call', async () => {

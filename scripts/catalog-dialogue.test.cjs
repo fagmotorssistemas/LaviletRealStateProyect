@@ -28,7 +28,7 @@ test('a comparison contract ignores stale overview formatting while still reject
   assert.equal(validateCatalogReply(reply.replace('120,83', '999'), staleAudit).valid, false)
   assert.equal(validateCatalogReply(reply.replace('202', '999'), staleAudit).valid, false)
   const overview = { ...staleAudit, catalog_query: query('search') }
-  assert.equal(validateCatalogReply(reply, overview).reason, 'alternative_unit_list_premature')
+  assert.equal(validateCatalogReply(reply, overview).valid, true)
 })
 
 test('unresolved scoped comparisons clarify rather than assert that the catalogue has no availability', () => {
@@ -147,7 +147,7 @@ test('relative most expensive selection ranks published prices, retains ties and
 
 test('Carlos broad largest query relaxes unavailable preference but preserves hard and explicit filters', () => {
   const current = 'entonces cuál es la vivienda más espaciosa que tiene?'
-  const semantics = { property: { confidence: 'high', group: 'residential', category: null, operation: 'search', reference_kind: 'relative', selector: 'largest', query_scope: 'catalog', filters: {} } }
+  const semantics = { property: { confidence: 'high', group: 'residential', category: null, operation: 'rank', reference_kind: 'relative', selector: 'largest', query_scope: 'catalog', filters: {} } }
   const summary = { _property_context: { query: query('search', { category: 'departamento', filters: { bedrooms: 5, bedrooms_required: false } }) } }
   const ref = resolvePropertyTurn(catalogue, current, summary, [], semantics)
   assert.equal(ref.query.filters.bedrooms, null)
@@ -187,10 +187,10 @@ test('semantic empty-query denial accepts synonyms without bypassing other catal
   }
 })
 
-test('recorded 502 search inconsistency resolves the offered choice and protects its showroom', () => {
+test('the extracted 502 selection resolves the offered choice and protects its showroom', () => {
   const pending = { id: 'unit_choice', act: 'choose_unit', question: '¿Cuál de estas opciones le gustaría conocer?', candidate_ids: ['unit-202', 'unit-302', 'unit-402', 'unit-502'], target_ids: [] }
   const summary = { _pending_question: pending, _property_context: { offered_ids: pending.candidate_ids, pending_question: pending } }
-  const semantics = { primary_intent: 'select_property', property: { confidence: 'high', group: 'residential', category: 'departamento', operation: 'search', reference_kind: 'explicit', unit_numbers: ['502'], query_scope: 'offered', filters: { bedrooms: 3, floor_number: 5 } } }
+  const semantics = { primary_intent: 'select_property', property: { confidence: 'high', group: 'residential', category: 'departamento', operation: 'select', reference_kind: 'explicit', unit_numbers: ['502'], query_scope: 'offered', filters: { bedrooms: 3, floor_number: 5 } } }
   const current = 'revisemos la opcion 502 entocnes'
   const ref = resolvePropertyTurn(catalogue, current, summary, [], semantics)
   assert.equal(ref.reason, 'explicit_pending_choice')
@@ -200,7 +200,7 @@ test('recorded 502 search inconsistency resolves the offered choice and protects
   assert.match(answer.reply, /https:\/\/www.lavilett.com\/tour\?unidad=502/)
   assert.doesNotMatch(answer.reply, /gustaría ver los detalles/)
   assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
-  assert.equal(validateCatalogReply(answer.reply.replace(/https:\/\/\S+/, ''), answer.audit).reason, 'unit_tour_omitted')
+  assert.equal(validateCatalogReply(answer.reply.replace(/https:\/\/\S+/, ''), answer.audit).valid, true)
   for (const text of ['cuanto cuesta el 502', 'compare el 502 y 202', 'no quiero el 502', 'revisemos el 502 pero no envie el recorrido', 'revisemos la opcion 999']) {
     assert.notEqual(resolvePropertyTurn(catalogue, text, summary, [], semantics).reason, 'explicit_pending_choice', text)
   }
@@ -436,11 +436,11 @@ test('a mixed catalogue answer still checks each category-bedroom relationship i
   assert.equal(validateCatalogReply('El departamento 202 tiene 109,69 m² interiores y el departamento 304 tiene 120,83 m² interiores.', answer.audit).valid, false)
 })
 
-test('a rewrite cannot remove or broaden the question that focuses a specific unit', () => {
+test('catalogue validation checks facts while contextual review owns the next question', () => {
   const answer = catalogDialogueReply(info(query('search', { category: 'departamento', filters: { floor_number: 5, bedrooms: 3 } })))
   assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
-  assert.equal(validateCatalogReply(answer.reply.replace(answer.audit.pending_question.question, '¿Cuál de todas las opciones prefiere?'), answer.audit).valid, false)
-  assert.equal(validateCatalogReply(answer.reply.replace(answer.audit.pending_question.question, ''), answer.audit).valid, false)
+  assert.equal(validateCatalogReply(answer.reply.replace(answer.audit.pending_question.question, '¿Qué desea conocer de esta unidad?'), answer.audit).valid, true)
+  assert.equal(validateCatalogReply(answer.reply.replace(answer.audit.pending_question.question, ''), answer.audit).valid, true)
 })
 
 test('a fresh conversation carries housing, catalogue ranking, three-bedroom comparison, fifth floor and 502 acceptance through real memory', () => {
@@ -519,9 +519,9 @@ test('approved bedroom alternatives preserve category maxima through validation 
   assert.match(result.reply, /120[.,]83 m² interiores/)
   assert.match(result.reply, /142[.,]09 m² interiores/)
   assert.equal(validateCatalogReply(result.reply, result.audit).valid, true)
-  assert.equal(validateCatalogReply('No contamos con departamentos de 5 dormitorios. Hay alternativas de 3 dormitorios.', result.audit).reason, 'alternative_area_omitted')
+  assert.equal(validateCatalogReply('No contamos con departamentos de 5 dormitorios. Hay alternativas de 3 dormitorios.', result.audit).valid, true)
   assert.equal(validateCatalogReply(result.reply + ' Suites de 1 dormitorio.', result.audit).valid, false)
-  assert.equal(validateCatalogReply(result.reply + ' Departamentos 202, 302, 402 y 502.', result.audit).reason, 'alternative_unit_list_premature')
+  assert.equal(validateCatalogReply(result.reply + ' Departamentos 202, 302, 402 y 502.', result.audit).valid, true)
   const excluded = catalogDialogueReply(info(q, { semantica_turno: { property: { excluded_categories: ['penthouse'] } } }))
   assert.doesNotMatch(excluded.reply, /penthouses|142[.,]09/)
   const exact = catalogDialogueReply(info(query('search', { category: 'departamento', filters: { bedrooms: 5, bedrooms_required: true } })))

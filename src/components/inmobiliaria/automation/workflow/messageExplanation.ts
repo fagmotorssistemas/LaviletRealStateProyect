@@ -61,6 +61,21 @@ const labels: Record<string, string> = {
   bedrooms_any: 'Cantidades de dormitorios admitidas',
 }
 const values: Record<string, string> = {
+  request_reservation: 'Solicitar el inicio de una reserva con un asesor', ask_reservation: 'Consultar los requisitos o pasos de una reserva',
+  reservation_handoff: 'Solicitar reserva y tramitar atención con un asesor', reservation_information: 'Información del proceso de reserva',
+  current_reservation: 'Solicitud de reserva interpretada en el mensaje actual', extractor: 'Interpretación del extractor', lexical_fallback: 'Interpretación de respaldo por texto',
+  current_reservation_takes_priority: 'La solicitud actual de reserva prevalece sobre la selección de unidad o la respuesta a la pregunta anterior',
+  reservation_intent_without_current_action_evidence: 'No se confirmó evidencia de una solicitud actual de reserva; no autoriza iniciar el trámite',
+  extractor_intent_precedes_price_keywords: 'Se conserva la intención del extractor aunque el texto incluya palabras relacionadas con precio',
+  property_reference_answers_pending_price: 'La referencia de inmueble completa una pregunta de precio pendiente',
+  reservation_outside_authorized_scope: 'La reserva no se ejecuta porque el turno está fuera del alcance autorizado',
+  suggested_length_exceeded: 'La respuesta supera la extensión recomendada', multiple_questions: 'La respuesta contiene varias preguntas',
+  repeated_courtesy: 'La apertura de cortesía se parece a una reciente',
+  unauthorized_link: 'La respuesta contiene un enlace sin autorización en la evidencia de este turno',
+  required_link_omitted: 'La respuesta omitió un enlace que debía entregar según la solicitud actual',
+  reservation_not_confirmed: 'La respuesta afirma una reserva de inventario que no está confirmada',
+  advisor_assignment_not_verified: 'La respuesta afirma una asignación de asesor que no está comprobada',
+  reservation_handoff_not_verified: 'La respuesta afirma un trámite de reserva o derivación que no está comprobado',
   contextual_property_followup: 'La consulta continúa sobre las unidades ya identificadas',
   context_reference_requires_clarification: 'Falta identificar todas las unidades de la consulta; esto no demuestra falta de disponibilidad',
   unresolved_reference_is_not_unavailability: 'La respuesta afirma que no hay disponibilidad cuando lo pendiente es identificar las unidades',
@@ -176,7 +191,7 @@ const ruleLabels: Record<string, string> = {
 const titles: Record<string, string> = {
   execution_version: 'Versión y lote', message_received: 'Mensaje recibido', response_permission: 'Permiso para responder', commercial_context: 'Contexto de la conversación',
   scope_classification: 'Alcance de la consulta', decision_context: 'Datos disponibles', semantic_extraction: 'Interpretación del mensaje', catalog_resolution: 'Búsqueda y referencias',
-  turn_intent: 'Objetivo compartido del turno',
+  turn_intent: 'Objetivo compartido del turno', interest_evaluation: 'Interés y recomendación de traspaso',
   lead_profile_resolution: 'Nombre y residencia interpretados', lead_introduction: 'Presentación y datos del lead',
   dialogue_decision: 'Decisión de respuesta', response_coverage: 'Revisión de la respuesta', advisor_handoff: 'Derivación al asesor',
   route_selected: 'Ruta aplicada', response_validation: 'Validación final', message_delivery: 'Envío a Kommo', state_persisted: 'Memoria y seguimientos',
@@ -289,7 +304,7 @@ function leadProfileSections(value: unknown, introductionValue: unknown = {}): E
 }
 function turnIntentSections(value: unknown, snapshots: CatalogSnapshot[] = []): ExplanationSection[] {
   const contract = row(value)
-  if (contract.version !== 'turn-intent-v1') return []
+  if (!['turn-intent-v1', 'turn-intent-v2'].includes(str(contract.version))) return []
   const subject = row(contract.subject), scope = row(contract.scope), outside = row(scope.outside_evidence)
   const pending = row(contract.pending_question)
   const unitNumbers = Array.isArray(subject.unit_numbers) ? subject.unit_numbers.filter(value => typeof value === 'string' || typeof value === 'number').map(String) : []
@@ -299,6 +314,7 @@ function turnIntentSections(value: unknown, snapshots: CatalogSnapshot[] = []): 
     facts: [
       fact('Objetivo actual', humanValue(contract.objective)),
       fact('Origen del objetivo', humanValue(contract.interpretation_source)),
+      ...(contract.requested_action ? [fact('Acción solicitada', humanValue(contract.requested_action))] : []),
       fact('Categoría de referencia', subject.category ? humanValue(subject.category) : 'No se registró una categoría.'),
       fact('Unidades de referencia', unitNumbers.length ? unitNumbers.join(', ') : 'No se registró una unidad concreta.'),
       fact('Filtros conservados', humanValue(subject.filters, snapshots, 'filters')),
@@ -314,6 +330,82 @@ function turnIntentSections(value: unknown, snapshots: CatalogSnapshot[] = []): 
       ...(has(contract, 'profile_pending') ? [fact('Captura inicial de nombre y residencia pendiente', humanValue(contract.profile_pending))] : []),
     ],
   }]
+}
+
+function interpretationSections(value: unknown): ExplanationSection[] {
+  const diagnostic = row(value)
+  const interpretation = has(diagnostic, 'extractor_primary_intent') ? diagnostic : row(diagnostic.interpretation)
+  if (!Object.keys(interpretation).length) return []
+  const decisions = rows(interpretation.decisions)
+  return [{ title: 'Interpretación del extractor y objetivo aplicado',
+    description: 'Muestra lo que interpretó el extractor y la decisión compartida con la ruta, el redactor y la revisión. La interpretación identifica una solicitud; la acción se acredita con su resultado operativo.',
+    facts: [
+      fact('Intención interpretada por el extractor', humanValue(interpretation.extractor_primary_intent)),
+      fact('Intención aplicada en este turno', humanValue(interpretation.canonical_primary_intent)),
+      ...(diagnostic.confidence ? [fact('Confianza registrada', humanValue(diagnostic.confidence))] : []),
+      ...(decisions.length ? decisions.map(decision => fact('Motivo de conciliación', [
+        humanValue(decision.code),
+        ...(decision.extractor_intent ? [`Interpretada: ${humanValue(decision.extractor_intent)}`] : []),
+        ...(decision.canonical_intent ? [`Aplicada: ${humanValue(decision.canonical_intent)}`] : []),
+        ...(str(decision.evidence) ? [`Evidencia: ${str(decision.evidence)}`] : []),
+      ].join('. '))) : [fact('Conciliaciones registradas', 'No se registraron cambios de prioridad o conciliaciones en esta interpretación.')]),
+    ] }]
+}
+
+function reservationSections(value: unknown, snapshots: CatalogSnapshot[] = [], writingVerified?: unknown): ExplanationSection[] {
+  const reservation = row(value)
+  if (!Object.keys(reservation).length || reservation.kind === 'none' && !reservation.request_id) return []
+  const status = str(reservation.handoff_status || reservation.status)
+  const verified = reservation.handoff_verified === true && reservation.request_status === 'requested' && Boolean(reservation.request_id)
+  const assigned = verified && ['assigned', 'acknowledged'].includes(status) && Boolean(reservation.assigned_to)
+  const queued = verified && status === 'queued' && !reservation.assigned_to
+  const numbers = Array.isArray(reservation.unit_numbers) ? reservation.unit_numbers.filter(item => typeof item === 'string' || typeof item === 'number').map(String) : []
+  const modes: Record<string, string> = { reused: 'Se conservó al asesor activo que ya tenía el lead', rotated: 'Se asignó un asesor según la rotación del proyecto', queued: 'La solicitud quedó pendiente de asignación' }
+  return [{ title: 'Solicitud de reserva y atención del asesor',
+    description: 'Iniciar una solicitud de reserva tramita la atención comercial. Este registro no confirma que se haya separado el inmueble, recibido un pago o enviado el mensaje al lead.',
+    facts: [
+      fact('Solicitud interpretada', reservation.kind === 'information' ? 'Consultar requisitos o pasos; no iniciar la reserva' : reservation.kind === 'request' || reservation.request_status === 'requested' ? 'Solicitar que un asesor continúe el proceso de reserva' : 'No se registró el tipo de solicitud.'),
+      ...(str(reservation.evidence) ? [fact('Evidencia del mensaje', str(reservation.evidence))] : []),
+      fact('Unidades de la solicitud', Array.isArray(reservation.unit_ids) && reservation.unit_ids.length ? humanValue(reservation.unit_ids, snapshots, 'unit_ids')
+        : numbers.length ? numbers.join(', ') : 'No se identificó una unidad concreta.'),
+      ...(Array.isArray(reservation.unresolved_unit_numbers) && reservation.unresolved_unit_numbers.length ? [fact('Números de unidad por aclarar', reservation.unresolved_unit_numbers.map(String).join(', '))] : []),
+      fact('Traspaso comprobado', assigned ? 'Hay un asesor asignado a esta atención.' : queued ? 'La solicitud está en cola; todavía no hay asesor asignado.'
+        : reservation.handoff_verified === false ? 'No se acreditó un traspaso en este paso.' : 'Falta evidencia suficiente para confirmar el resultado del traspaso.'),
+      ...(str(reservation.assignment_mode) ? [fact('Cómo se resolvió la asignación', modes[str(reservation.assignment_mode)] || 'Modo de asignación no reconocido en este registro.')] : []),
+      ...(has(reservation, 'replayed') ? [fact('Reutilización de la solicitud', reservation.replayed === true ? 'Se consultó la solicitud ya registrada; no se volvió a asignar por este reintento.' : 'Se registró una nueva solicitud para este mensaje.')] : []),
+      ...(reservation.request_status === 'requested' || reservation.inventory_reserved === false ? [fact('Reserva del inmueble', 'Este paso registra una solicitud; no reserva inventario ni confirma la separación.')] : []),
+      ...(typeof writingVerified === 'boolean' ? [fact('Redacción contrastada con la acción', writingVerified ? 'La revisión confirmó que el mensaje respeta el resultado operativo registrado.' : 'Este registro no acredita que la redacción haya superado esa comprobación.')] : []),
+    ] }]
+}
+
+function editorialSections(output: Row): ExplanationSection[] {
+  const links = row(output.link_contract)
+  const showLinks = has(links, 'allowed_links') || has(links, 'required_links')
+  const urls = (value: unknown) => Array.isArray(value) ? value.filter(item => typeof item === 'string').join('\n') || 'Ninguno registrado.' : 'No se registró esta lista.'
+  return [
+    ...(Array.isArray(output.editorial_observations) ? [{ title: 'Observaciones de redacción',
+      description: 'Son sugerencias de estilo y continuidad. Por sí solas no rechazan el borrador ni sustituyen los controles de hechos y acciones.',
+      facts: output.editorial_observations.length ? output.editorial_observations.filter(item => typeof item === 'string').map(item => fact('Observación informativa', humanValue(item)))
+        : [fact('Observaciones registradas', 'No se registraron sugerencias editoriales en este paso.')],
+    }] : []),
+    ...(showLinks ? [{ title: 'Enlaces permitidos y requeridos',
+      description: 'Un enlace permitido puede usarse, pero su presencia en una plantilla no obliga a repetirlo. Los enlaces requeridos responden a la solicitud actual o a una entrega comprometida.',
+      facts: [fact('Enlaces permitidos', urls(links.allowed_links)), fact('Enlaces requeridos en este turno', urls(links.required_links))],
+    }] : []),
+  ]
+}
+
+function interestDecisionFacts(output: Row): ExplanationFact[] {
+  const sources: Record<string, string> = { apply_lead_events: 'Resultado conservado del motor de puntaje', no_new_signals: 'Evaluación sin nuevas señales comerciales', historical_snapshot: 'Reconstrucción desde la evidencia y las reglas originales, sin volver a puntuar', legacy_without_receipt: 'Registro anterior sin resultado de decisión disponible' }
+  return [
+    fact('Señales de interés reconocidas', humanValue(output.recognized_events)),
+    fact('Puntaje de esta evaluación', humanValue(output.temperature_score)),
+    fact('Temperatura registrada', humanValue(output.temperature)),
+    fact('¿El puntaje recomienda traspaso?', typeof output.handoff_required === 'boolean' ? humanValue(output.handoff_required) : 'El registro no conserva esa decisión.'),
+    fact('Motivo de la recomendación', str(output.handoff_reason) || 'Sin motivo de traspaso registrado.'),
+    fact('Origen de la decisión', sources[str(output.decision_source)] || 'No registrado.'),
+    fact('Acción ejecutada por este paso', output.action_executed === false ? 'Ninguna asignación. La recomendación se registra; la atención del asesor se comprueba en el paso de derivación.' : 'No se registró si este paso ejecutó una acción.'),
+  ]
 }
 function transformationSections(output: Row): ExplanationSection[] {
   if (!Array.isArray(output.text_transformations)) return []
@@ -380,6 +472,9 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
         : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
   return [
     ...turnIntentSections(output.resolved_turn_intent),
+    ...interpretationSections(row(output.resolved_turn_intent).interpretation || output.interpretation),
+    ...reservationSections(output.reservation, snapshots, output.operational_action_verified),
+    ...editorialSections(output),
     ...leadProfileSections(row(output.profile_introduction).profile_state, output.profile_introduction),
     ...progressiveSelectionSections(output, snapshots),
     ...transformationSections(output),
@@ -451,7 +546,12 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   const found = Object.entries(output).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query', 'coverage_locked'].includes(key))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
-  if (step.key === 'turn_intent') found.push(...turnIntentSections(output, snapshots).flatMap(section => section.facts))
+  if (step.key === 'turn_intent') found.push(...turnIntentSections(output, snapshots).flatMap(section => section.facts), ...interpretationSections(output.interpretation).flatMap(section => section.facts))
+  if (step.key === 'semantic_extraction') found.push(...interpretationSections(output).flatMap(section => section.facts))
+  if (step.key === 'advisor_handoff' && (output.requested_action === 'reservation_handoff' || output.request_status === 'requested')) {
+    found.push(...reservationSections({ ...input, ...output }, snapshots).flatMap(section => section.facts))
+  }
+  if (step.key === 'interest_evaluation') found.push(...interestDecisionFacts(output))
   if (step.key === 'lead_profile_resolution') found.push(...leadProfileSections(output.profile, output).flatMap(section => section.facts))
   if (step.key === 'lead_introduction') found.push(...leadProfileSections(row(output.profile_introduction).profile_state, output.profile_introduction).flatMap(section => section.facts))
   const query = output.catalog_query || output.query || input.catalog_query || input.query
@@ -500,8 +600,9 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const reason = str(decision.reason) || str(input.reason) || str(output.reason)
     || (step.key === 'turn_intent' ? str(row(output.scope).reason) : '')
   const linkedActions = execution.steps.filter(item => item.key === 'advisor_handoff' && Number(decisionRecord(item).caused_by_step) === step.order)
-  const summary = step.key === 'turn_intent' && output.version === 'turn-intent-v1'
+  const summary = step.key === 'turn_intent' && ['turn-intent-v1', 'turn-intent-v2'].includes(str(output.version))
     ? `Objetivo registrado: ${humanValue(output.objective)}. ${humanValue(output.interpretation_source)}.`
+    : step.key === 'interest_evaluation' ? 'El motor de puntaje registró una recomendación comercial. Este paso no acredita la asignación de un asesor ni la reserva del inmueble.'
     : step.key === 'lead_profile_resolution' ? 'Se conservaron los datos declarados y se resolvió si la residencia está confirmada o necesita una aclaración. Este paso no acredita el envío de la pregunta.'
     : step.key === 'route_consistency' ? humanValue(output.reason)
     : step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`

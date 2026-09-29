@@ -5,6 +5,81 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 
+test('shared intent v2 exposes extractor priority and current reservation without hiding the objective', () => {
+  const contract = { version: 'turn-intent-v2', objective: 'request_reservation', interpretation_source: 'current_reservation',
+    requested_action: 'reservation_handoff', subject: { unit_numbers: ['807'] }, scope: { kind: 'property' },
+    interpretation: { extractor_primary_intent: 'answer_previous', canonical_primary_intent: 'request_reservation',
+      decisions: [{ code: 'current_reservation_takes_priority', extractor_intent: 'answer_previous', canonical_intent: 'request_reservation', evidence: 'quiero separar el 807' }] } }
+  const intent = step(1, 'turn_intent', contract)
+  const review = step(2, 'response_coverage', { status: 'checked', resolved_turn_intent: contract })
+  const first = explainStep(execution([intent, review]), intent)
+  assert.match(first.summary, /Solicitar el inicio de una reserva/)
+  assert.equal(first.found.find(f => f.label === 'Unidades de referencia')?.value, '807')
+  const sections = explainStep(execution([intent, review]), review).coverageSections!
+  const interpretation = sections.find(section => section.title === 'Interpretación del extractor y objetivo aplicado')!
+  assert.match(interpretation.facts.find(f => f.label === 'Intención interpretada por el extractor')!.value, /pregunta pendiente/)
+  assert.match(interpretation.facts.find(f => f.label === 'Intención aplicada en este turno')!.value, /reserva/)
+  assert.match(interpretation.facts.find(f => f.label === 'Motivo de conciliación')!.value, /prevalece.*quiero separar el 807/)
+  const legacy = step(3, 'response_coverage', { status: 'checked' })
+  const future = step(4, 'response_coverage', { status: 'checked', resolved_turn_intent: contract })
+  assert.equal(explainStep(execution([legacy, future]), legacy).coverageSections!.some(section => section.title === interpretation.title), false)
+})
+
+test('reservation receipt distinguishes verified assignment, queue and information from inventory reservation', () => {
+  const catalog = step(1, 'catalog_resolution', { catalog_snapshot: [{ id: 'u807', unit_number: '807', category: 'departamento' }] })
+  for (const state of ['assigned', 'acknowledged', 'queued']) {
+    const receipt = { kind: 'request', evidence: 'quiero separar el 807', request_id: 'receipt-1', request_status: 'requested',
+      unit_ids: ['u807'], handoff_status: state, handoff_verified: true, assigned_to: state === 'queued' ? null : 'advisor-id',
+      assignment_mode: state === 'queued' ? 'queued' : 'reused', inventory_reserved: false, replayed: true }
+    const action = step(2, 'advisor_handoff', { ...receipt, requested_action: 'reservation_handoff' })
+    const review = step(3, 'response_coverage', { status: 'checked', reservation: receipt, operational_action_verified: true })
+    const actionFacts = explainStep(execution([catalog, action, review]), action).found
+    const section = explainStep(execution([catalog, action, review]), review).coverageSections!.find(s => s.title === 'Solicitud de reserva y atención del asesor')!
+    for (const facts of [actionFacts, section.facts]) {
+      assert.equal(facts.find(f => f.label === 'Unidades de la solicitud')?.value, 'departamento 807')
+      assert.match(facts.find(f => f.label === 'Traspaso comprobado')!.value, state === 'queued' ? /cola; todavía no hay asesor/ : /asesor asignado/)
+      assert.match(facts.find(f => f.label === 'Reserva del inmueble')!.value, /no reserva inventario/)
+      assert.match(facts.find(f => f.label === 'Reutilización de la solicitud')!.value, /no se volvió a asignar/)
+    }
+    assert.match(section.facts.find(f => f.label === 'Redacción contrastada con la acción')!.value, /respeta el resultado operativo/)
+  }
+  const inquiry = step(4, 'response_coverage', { status: 'checked', reservation: { kind: 'information', handoff_verified: false } })
+  const inquiryFacts = explainStep(execution([inquiry]), inquiry).coverageSections!.find(s => s.title === 'Solicitud de reserva y atención del asesor')!.facts
+  assert.match(inquiryFacts.find(f => f.label === 'Solicitud interpretada')!.value, /no iniciar la reserva/)
+  assert.match(inquiryFacts.find(f => f.label === 'Traspaso comprobado')!.value, /No se acreditó/)
+  const incomplete = step(5, 'advisor_handoff', { requested_action: 'reservation_handoff', handoff_status: 'assigned' })
+  assert.match(explainStep(execution([incomplete]), incomplete).found.find(f => f.label === 'Traspaso comprobado')!.value, /Falta evidencia/)
+})
+
+test('editorial observations are informational while required links remain distinct from allowed links', () => {
+  const item = step(1, 'response_coverage', { status: 'checked', issues: [], editorial_observations: ['multiple_questions', 'commercial_next_question_missing'],
+    link_contract: { allowed_links: ['https://example.com/tour_807'], required_links: [] } })
+  const sections = explainStep(execution([item]), item).coverageSections!
+  const editorial = sections.find(section => section.title === 'Observaciones de redacción')!
+  assert.match(editorial.description, /no rechazan el borrador/)
+  assert.match(editorial.facts[0].value, /varias preguntas/)
+  const links = sections.find(section => section.title === 'Enlaces permitidos y requeridos')!
+  assert.equal(links.facts[0].value, 'https://example.com/tour_807')
+  assert.equal(links.facts[1].value, 'Ninguno registrado.')
+  assert.equal(reviewDecision(item.output).tone, 'accepted')
+  assert.deepEqual(reviewDecision(item.output).causes, [])
+  for (const issue of ['unauthorized_link', 'required_link_omitted', 'reservation_not_confirmed', 'advisor_assignment_not_verified']) {
+    const decision = reviewDecision({ status: 'rejected_guard', issues: [issue] })
+    assert.equal(decision.tone, 'rejected')
+    assert.doesNotMatch(decision.causes.join(' '), /_/) // Plain explanation, not just an internal rule code.
+  }
+})
+
+test('scoring recommendation does not assert that an advisor was actually assigned', () => {
+  const item = step(1, 'interest_evaluation', { handoff_required: true, handoff_reason: 'pregunto como reservar',
+    temperature_score: 80, temperature: 'caliente', recognized_events: ['asked_reservation'], decision_source: 'apply_lead_events', action_executed: false })
+  const explanation = explainStep(execution([item]), item)
+  assert.equal(explanation.title, 'Interés y recomendación de traspaso')
+  assert.match(explanation.summary, /no acredita la asignación/)
+  assert.equal(explanation.found.find(f => f.label === '¿El puntaje recomienda traspaso?')?.value, 'Sí')
+  assert.match(explanation.found.find(f => f.label === 'Acción ejecutada por este paso')!.value, /Ninguna asignación/)
+})
+
 test('comparison audit separates inherited characteristics from current constraints and shows resolved referents', () => {
   const item = step(1, 'response_coverage', { status: 'checked',
     catalog_results: { units: [{ id: 'unit-a', unit_number: '801', category: 'departamento' }, { id: 'unit-b', unit_number: '803', category: 'departamento' }] },

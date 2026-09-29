@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { preferenceOptionsReply, progressivePendingQuestion, progressiveQuestionIssues } from './progressive-options'
+import { preferenceOptionsReply, progressivePendingQuestion, progressiveQuestionObservations } from './progressive-options'
 import { catalogDialogueReply, validateCatalogReply } from './catalog-dialogue'
 
 const catalog = [
@@ -66,14 +66,14 @@ test('validated paraphrases keep the offered IDs and quoted-details action', () 
   const audit = { pending_question: { id: 'unit_choice', act: 'explore_quoted_options', candidate_ids: ['p1', 'p2'], question: '¿Le gustaría obtener más detalles de alguna de estas opciones?' },
     progressive_selection: { stage: 'offer_details', question: '¿Le gustaría obtener más detalles de alguna de estas opciones?' } }
   const reply = 'Penthouses de 3 dormitorios: 801 y 802. ¿Desea conocerlos con más detalle?'
-  assert.deepEqual(progressiveQuestionIssues(reply, audit, 'offer_verified_material'), [])
+  assert.deepEqual(progressiveQuestionObservations(reply, audit, 'offer_verified_material'), [])
   assert.deepEqual(progressivePendingQuestion(reply, audit), { ...audit.pending_question, question: '¿Desea conocerlos con más detalle?' })
-  assert.deepEqual(progressiveQuestionIssues('Información de las opciones.', audit), ['commercial_next_question_missing'])
-  assert.deepEqual(progressiveQuestionIssues('Opciones verificadas. ¿Quiere agendar una visita?', audit), ['commercial_next_question_changed'])
-  assert.deepEqual(progressiveQuestionIssues('Opciones verificadas. Quiere agendar una visita?', audit), ['commercial_next_question_changed'])
+  assert.deepEqual(progressiveQuestionObservations('Información de las opciones.', audit), ['commercial_next_question_missing'])
+  assert.deepEqual(progressiveQuestionObservations('Opciones verificadas. ¿Quiere agendar una visita?', audit), ['commercial_next_question_changed'])
+  assert.deepEqual(progressiveQuestionObservations('Opciones verificadas. Quiere agendar una visita?', audit), ['commercial_next_question_changed'])
   assert.deepEqual(progressivePendingQuestion('Penthouses de 3 dormitorios: 801 y 802. Desea conocerlos con más detalle?', audit), {
     ...audit.pending_question, question: 'Desea conocerlos con más detalle?' })
-  assert.deepEqual(progressiveQuestionIssues('¿Cuál de estas opciones le gustaría visitar virtualmente?', audit, 'choose_property'), [])
+  assert.deepEqual(progressiveQuestionObservations('¿Cuál de estas opciones le gustaría visitar virtualmente?', audit, 'choose_property'), [])
 })
 
 test('accepting the cheaper category advances after bedroom confirmation instead of offering it again', () => {
@@ -107,7 +107,7 @@ test('a tour URL query marker cannot replace the planned post-tour commercial qu
   const question = '¿Qué presupuesto aproximado tiene previsto para la compra?'
   const audit = { post_tour_continuation: { question }, pending_question: { id: 'budget_amount', question, act: 'budget' } }
   const tour = 'Aquí tiene el recorrido https://www.lavilett.com/tour?unidad=801'
-  assert.deepEqual(progressiveQuestionIssues(tour, audit), ['commercial_next_question_missing'])
+  assert.deepEqual(progressiveQuestionObservations(tour, audit), ['commercial_next_question_missing'])
   assert.deepEqual(progressivePendingQuestion(tour, audit), {})
   assert.deepEqual(progressivePendingQuestion(tour + '\n' + question, audit), audit.pending_question)
 })

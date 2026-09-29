@@ -11,7 +11,8 @@ import { fabricatedActionRequest, mediaClarificationReply } from './clarificatio
 import { unitModelRequestReply } from './unit-model'
 import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
 import { commercialEngagement, passiveSalesCopy } from './commercial-engagement'
-import { openingWritingRules, variedReplyOpening } from './response-openings'
+import { openingWritingRules } from './response-openings'
+import { MAX_REPLY_CHARACTERS } from './response-plan'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
 import { acceptedPriceOption, asksUnitPrice, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
 import { TURN_INTENT_RULES } from './turn-intent'
@@ -183,11 +184,11 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     if (unresolvedCommercialReply(completed.reply)) return { reply: completed.reply, audit: { ...audit, requires_advisor: true, handoff_reason: 'consulta sin respuesta verificada' } }
     if (completed.missing.length) return { reply: completed.reply, audit: { ...audit, requires_advisor: true,
       handoff_reason: 'resolver las consultas pendientes: ' + completed.missing.join(', '), unanswered_topics: completed.missing } }
-    let answer = plan.action !== 'discover' && !quote?.followUp ? completed.reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || completed.reply : completed.reply
+    let answer = !audit.ai_draft_preserved && plan.action !== 'discover' && !quote?.followUp ? completed.reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || completed.reply : completed.reply
     if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
     const shareMaterial = attachBrochure || plan.action === 'share_brochure'
     if (shareMaterial && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure para que pueda explorar la propuesta${info.modo_comercial === 'lanzamiento' ? '; las imágenes ilustran cómo está previsto el proyecto' : ''}: ${BROCHURE_URL}`
-    answer += plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''
+    answer += !audit.ai_draft_preserved && plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''
     return { reply: withVisitLocation(answer, info, !!locationRequestKind(current)), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }
   }
   const mediaExplanation = mediaClarificationReply(current)
@@ -234,30 +235,37 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'
-    + '\nEl campo modelo_3d indica que el sistema añadirá el enlace al tour en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Responda en menos de 850 caracteres sin ofrecer enviarlo después, pedir permiso ni inventar otro enlace: el sistema añade texto_de_entrega. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
+    + '\nEl campo modelo_3d indica que el sistema añadirá el enlace al tour en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Procure brevedad sin omitir solicitudes. No ofrezca enviarlo después ni invente otro enlace: el sistema añade texto_de_entrega. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
+    + `\nLas indicaciones de tono, longitud sugerida, saludo, cantidad de preguntas y continuación comercial son recomendaciones editoriales: no rechace una respuesta por variar esas formas. El límite técnico de entrega es ${MAX_REPLY_CHARACTERS} caracteres. Compruebe los hechos, las acciones autorizadas, la selección y la cobertura de la solicitud actual. Una pregunta tiene que ser pertinente y útil; no depende de copiar la propuesta del guion.`
   const reasons: string[] = []
-  let reply = variedReplyOpening(await draftReply(prompt + rules, input), info.historial)
+  const editorialCodes = new Set(['style', 'repeated_greeting', 'repeated_question', 'missing_next_step'])
+  let reply = await draftReply(prompt + rules, input)
   // One bounded rewrite; rejected drafts never reach Kommo.
   for (let attempt = 0; attempt < 2; attempt++) {
     await guard()
     const review = await aiJson(reviewer + rules + '\nDevuelva además requiere_asesor=true SOLO si una pregunta inmobiliaria concreta no puede resolverse con los hechos del contexto y debe verificarla el equipo. No lo active por estilo, una preferencia aún sin elegir, preguntas sobre otros negocios, ni enlaces o agenda que el sistema adjunta/procesa. Tampoco por falta de una fecha de entrega: puede explicar que aún no se ha definido. Si hay datos suficientes, corrija el borrador en vez de derivar.', { ...input, respuesta: reply }, reviewSchema, undefined, undefined, undefined, 'review')
     if (review.requiere_asesor === true) return { reply: '', audit: { source: 'verified_information_gap', requires_advisor: true, handoff_reason: 'consulta inmobiliaria que requiere información del equipo', fallback: false } }
-    const issues = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan), ...priceReplyIssues(reply, info, current, quote?.prices), ...commercialCoverageIssues(reply, turnAnswers.topics)]
+    const observations = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan), ...priceReplyIssues(reply, info, current, quote?.prices), ...commercialCoverageIssues(reply, turnAnswers.topics)]
+    const issues = observations.filter(issue => !editorialCodes.has(issue))
+    if (!reply.trim()) issues.push('empty_reply')
+    if (reply.length > MAX_REPLY_CHARACTERS) issues.push('transport_length')
+    if (/soy (?:su|tu|el|la) asesor|mi nombre es/i.test(reply)) issues.push('unsupported_action')
     if (quote?.quoted && !/\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares)/i.test(reply)) issues.push('ignored_question')
-    if (quote?.quoted && !quote.financingOffer && !mentionsFinancing(current) && mentionsFinancing(reply)) issues.push('repeated_question')
-    if (reply.trim() === text(object(info.conversacion).ultima_respuesta).trim() && !/rep[ií]t|repita|otra vez|no entend[ií]/i.test(current)) issues.push('repeated_question')
+    if (quote?.quoted && !quote.financingOffer && !mentionsFinancing(current) && mentionsFinancing(reply)) observations.push('repeated_question')
+    if (reply.trim() === text(object(info.conversacion).ultima_respuesta).trim() && !/rep[ií]t|repita|otra vez|no entend[ií]/i.test(current)) observations.push('repeated_question')
     const reviewIssues = Array.isArray(review.motivos) ? review.motivos.map(text) : []
-    const onlyStyle = attempt > 0 && reply.length <= 900 && reviewIssues.length > 0 && reviewIssues.every(reason => ['style', 'missing_next_step'].includes(reason)) && issues.every(reason => reason === 'style')
+    const onlyStyle = reviewIssues.length > 0 && reviewIssues.every(reason => editorialCodes.has(reason))
     const unsolicitedOffer = passiveSalesCopy(reply, current, plan.engagement) !== reply
     if (unsolicitedOffer) issues.push('unsolicited_sales_offer')
-    const approved = (review.aprobada === true && !issues.length) || (onlyStyle && !unsolicitedOffer)
+    const approved = !issues.length && (review.aprobada === true || onlyStyle)
     recordDraftDecision(reply, attempt, approved, review, issues)
-    if (approved) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ...(onlyStyle ? { style_review_only: true } : {}) })
-    reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number])) as string[] : []))
+    if (approved) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ai_draft_preserved: true,
+      editorial_observations: [...new Set([...observations, ...reviewIssues].filter(issue => editorialCodes.has(issue)))], ...(onlyStyle ? { style_review_only: true } : {}) })
+    reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number]) && !editorialCodes.has(text(v))) as string[] : []))
     if (!attempt) {
       await guard()
-      reply = variedReplyOpening(await draftReply(prompt + rules, { ...input, borrador_rechazado: reply, correcciones_requeridas: reasons,
-        tarea: 'Reescriba en lenguaje sencillo y breve. Resuelva la consulta actual; no repita beneficios ni preguntas sobre datos que el cliente no sabe. Una pregunta útil es opcional, sin inventar hechos.' }), info.historial)
+      reply = await draftReply(prompt + rules, { ...input, borrador_rechazado: reply, correcciones_requeridas: reasons,
+        tarea: 'Corrija los hechos, acciones o solicitudes pendientes indicados y conserve el resto de la redacción. Una pregunta útil es opcional, sin inventar hechos.' })
     }
   }
   return finish(quote?.reply || salesTopicReply(info, current) || commercialFallback(info, current, memory), { rewritten: true, review_reasons: [...new Set(reasons)], fallback: true })

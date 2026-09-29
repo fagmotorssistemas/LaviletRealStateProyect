@@ -5,6 +5,11 @@ const list = (v: unknown): Row[] => Array.isArray(v) ? v.map(row) : []
 const fields: Record<string, string> = { bedrooms: 'dormitorios', bathrooms_full: 'baños completos', area_internal_m2: 'superficie interior', area_exterior_m2: 'superficie exterior', floor_number: 'planta', published_commercial_price: 'precio publicado' }
 const checks: Record<string, string> = { all_requests_considered: 'No se confirmó que atendiera todas las solicitudes.', answers_supported: 'No se confirmó el respaldo de las respuestas.', answered_content_preserved: 'No se confirmó que conservara la información necesaria.', operational_goal_preserved: 'No se confirmó que respetara el objetivo del turno.', question_has_purpose: 'No se confirmó la utilidad de la pregunta final.' }
 const profileChecks: Record<string, string> = {
+  unauthorized_link: 'El borrador incluye un enlace que no está autorizado por la evidencia del turno.',
+  required_link_omitted: 'El borrador omitió un enlace que debía entregar por la solicitud actual o una entrega comprometida.',
+  reservation_not_confirmed: 'El borrador afirmó una reserva de inventario sin confirmación; registrar la solicitud no separa el inmueble.',
+  advisor_assignment_not_verified: 'El borrador afirmó una asignación de asesor que no está comprobada.',
+  reservation_handoff_not_verified: 'El borrador afirmó un trámite o derivación de reserva que no está comprobado.',
   lead_profile_confirmation_omitted: 'Se omitió confirmar si el lugar declarado es la residencia actual.',
   lead_profile_question_purpose_changed: 'La pregunta cambió el dato que debía recoger o confirmar.',
   lead_profile_unconfirmed_residence: 'Se presentó como residencia confirmada un lugar que aún necesita confirmación.',

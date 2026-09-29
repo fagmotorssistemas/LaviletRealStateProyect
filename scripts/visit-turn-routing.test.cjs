@@ -32,7 +32,18 @@ test('final visit guard protects commercial paths from physical-tour and unrecor
   assert.doesNotMatch(pending,/ha quedado registrada|Pronto recibirá/)
   assert.match(pending,/no puedo confirmar/)
   assert.equal(visitTruthReply('Su solicitud ha quedado registrada para revisión.',info,{registration_verified:true},[],protectedSentences),'Su solicitud ha quedado registrada para revisión.')
-  assert.ok(visitCopyIssues('Revisaremos disponibilidad.','El sábado es una opción dentro de nuestro horario de atención.').includes('administrative_visit_copy'))
+  assert.deepEqual(visitCopyIssues('Revisaremos disponibilidad.','El sábado es una opción dentro de nuestro horario de atención.'), [])
+})
+
+test('reservation registration remains a reservation and cannot prove an unregistered visit', () => {
+  const reply = 'Su solicitud para iniciar la reserva del penthouse 605 quedó registrada. Un asesor tiene asignada su atención y continuará con usted el proceso.'
+  const info = { modo_comercial: 'lanzamiento', politica_visitas: { launchDestination: 'office' } }
+  const audit = { source: 'reservation_handoff', reservation: { handoff_verified: true, request_status: 'requested' } }
+  assert.equal(visitTruthReply(reply, info, audit, [], protectedSentences), reply)
+  const mixed = visitTruthReply(reply + ' Su solicitud de visita quedó registrada.', info, audit, [], protectedSentences)
+  assert.ok(mixed.startsWith(reply))
+  assert.doesNotMatch(mixed, /Su solicitud de visita quedó registrada/)
+  assert.match(mixed, /Todavía no puedo confirmar que su solicitud de visita/)
 })
 
 test('conversational visit requests respect context, refusals and verified receipts', () => {
