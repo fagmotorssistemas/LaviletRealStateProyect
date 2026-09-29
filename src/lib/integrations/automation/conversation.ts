@@ -1312,6 +1312,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       fallback_validation: reviewed.audit.fallback_validation,
       recovery: reviewed.audit.recovery,
       repair_attempts: reviewed.audit.repair_attempts,
+      repair_budget: reviewed.audit.repair_budget,
       semantic_review: reviewed.audit.semantic_review, opening_decision: reviewed.audit.opening_decision, query_transition: audit.query_transition,
       filter_resolution: audit.filter_resolution, reference_resolution: audit.reference_resolution,
       missing_fact_fragments: reviewed.audit.missing_fact_fragments, handoff_assessments: reviewed.audit.handoff_assessments,

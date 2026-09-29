@@ -7,7 +7,7 @@ export const reviewIssuesSchema = { type: 'array', maxItems: 12, items: { type: 
     source: { type: 'string', enum: ['current_request', 'draft'] }, fragment: { type: 'string' }, reason: { type: 'string' } },
   required: ['check', 'kind', 'source', 'fragment', 'reason'] } }
 
-export const REVIEW_CHECK_RULES = `Revise la pertinencia y los hechos, no la semejanza con una respuesta base. answered_content_preserved significa coherencia de la respuesta actual; su nombre es histórico y NO exige preservar contenido de una base. Para cada control false incluya en review_issues un defecto concreto con check, kind=content, source=current_request o draft, fragment literal de esa fuente y reason que explique el problema. Una petición actual no atendida usa current_request; una afirmación incorrecta usa draft. No invente omisiones de solicitudes antiguas. Diferencias de estilo, orden, longitud sugerida, no enumerar unidades secundarias o no copiar una pregunta son observaciones kind=editorial, no motivos de rechazo. No pedir un dato innecesario es válido. Si no hay defectos reales, marque los controles true y review_issues=[]. Los defectos de su propia ficha deben corregirse en la ficha, no atribuirse al texto del cliente.`
+export const REVIEW_CHECK_RULES = `Revise la pertinencia y los hechos, no la semejanza con una respuesta base. answered_content_preserved significa coherencia de la respuesta actual; su nombre es histórico y NO exige preservar contenido de una base. Para cada control false incluya en review_issues un defecto concreto con check, kind=content, fragment y reason que explique el problema. En fragment seleccione obligatoriamente un ID S1, S2... de oraciones_borrador o R1 del mensaje actual referenciado; no copie ni reformule el texto y no indique source: el sistema obtiene la fuente del ID. Una petición actual no atendida usa R1; una afirmación incorrecta del borrador usa su ID S. El ID solo identifica el texto y su fuente; explique el defecto real en reason, pues seleccionar una referencia existente no demuestra un error. No invente omisiones de solicitudes antiguas. Diferencias de estilo, orden, longitud sugerida, no enumerar unidades secundarias o no copiar una pregunta son observaciones kind=editorial, no motivos de rechazo. No pedir un dato innecesario es válido. Si no hay defectos reales, marque los controles true y review_issues=[]. Los defectos de su propia ficha deben corregirse en la ficha, no atribuirse al texto del cliente.`
 
 /** False flags must explain an actual defect, rather than silently vetoing prose. */
 export function checkReviewDecision(review: Row, current: string, reply: string) {
@@ -27,7 +27,7 @@ export function checkReviewDecision(review: Row, current: string, reply: string)
   const details = review.review_issues.map(object)
   for (const detail of details) {
     const source = detail.source === 'current_request' ? current : detail.source === 'draft' ? reply : ''
-    if (!reviewChecks.includes(detail.check as typeof reviewChecks[number]) || !['content', 'editorial'].includes(text(detail.kind))
+    if (detail.invalid_sentence_reference === true || !reviewChecks.includes(detail.check as typeof reviewChecks[number]) || !['content', 'editorial'].includes(text(detail.kind))
       || !text(detail.fragment).trim() || !source.includes(text(detail.fragment)) || !text(detail.reason).trim()) {
       issues.push({ code: 'invalid_review_issue_reference', kind: 'review_metadata', check: detail.check, fragment: detail.fragment })
       continue

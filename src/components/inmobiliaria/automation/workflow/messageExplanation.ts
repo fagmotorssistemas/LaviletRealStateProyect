@@ -1,5 +1,5 @@
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
-import { reviewDecision } from './reviewDecision'
+import { repairBudgetFacts, repairTargetLabel, reviewDecision } from './reviewDecision'
 
 type Row = Record<string, unknown>
 export type ExplanationFact = { label: string; value: string }
@@ -120,7 +120,9 @@ const values: Record<string, string> = {
   lead_profile_question_changed: 'Se omitió o cambió la solicitud de datos con su explicación de brochure y guía personalizada',
   lead_profile_question_missing: 'El sistema detectó que falta la pregunta de datos exigida en esta etapa comercial',
   invalid_review_question_metadata: 'La ficha de la pregunta elaborada por el revisor está incompleta o cita una solicitud incorrecta; corresponde reparar la ficha',
-  lead_profile_categories_premature: 'La presentación inicial enumeró categorías antes de entregar el brochure',
+  invalid_opening_stage_review: 'La ficha del revisor no permite comprobar si la presentación respeta la etapa inicial; corresponde reparar la ficha',
+  lead_profile_categories_premature: 'La presentación inicial introdujo tipos de inmuebles antes de la etapa permitida, aunque use otras palabras',
+  repair_call_failed: 'La llamada para reparar no terminó correctamente',
   lead_profile_brochure_premature: 'Se adjuntó el brochure antes del intercambio previsto',
   lead_profile_brochure_missing: 'Falta el brochure que debía entregarse en este turno',
   lead_profile_confirmation_omitted: 'Se omitió confirmar si el lugar declarado es la residencia actual',
@@ -524,9 +526,13 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
       ...(Object.keys(row(output.reference_resolution)).length ? [{ label: 'Unidades de la consulta actual', value: humanValue(output.reference_resolution, snapshots) }] : []),
       { label: 'Afirmaciones contrastadas', value: output.semantic_review ? humanValue(output.semantic_review) : 'Este registro no incluye revisión por afirmaciones.' },
     ] },
-    { title: 'Intento de reparación', description: 'Indica si se pidió a la IA corregir un resultado inválido antes de conservar o descartar su propuesta.', facts: attempts.length ? attempts.map((attempt, index) => ({
-      label: `Intento ${index + 1}${attempt.target === 'review_metadata' ? ' · Reparación de la ficha del revisor, conservando el mensaje' : ''}`, value: `Error inicial: ${humanValue(attempt.status)}. Controles: ${humanValue(attempt.issues)}. Resultado final: ${attempt.final_status ? humanValue(attempt.final_status) : 'No registrado; consulte el resultado general de este paso.'}`,
-    })) : [{ label: 'Reparaciones registradas', value: 'No se registró ningún intento de reparación en esta ejecución.' }] },
+    { title: 'Intento de reparación', description: 'Distingue la corrección del mensaje comercial de la reparación de una ficha interna. Los límites se muestran solo cuando quedaron registrados; no se deduce el destino de intentos históricos.', facts: [
+      ...(attempts.length ? attempts.map((attempt, index) => ({
+        label: `Intento ${index + 1} · ${repairTargetLabel(attempt.target)}`, value: `Error inicial: ${humanValue(attempt.status)}. Controles: ${humanValue(attempt.issues)}. Resultado final: ${attempt.final_status ? humanValue(attempt.final_status) : 'No registrado; consulte el resultado general de este paso.'}${attempt.failure ? ` Fallo de la reparación: ${humanValue(attempt.failure)}.` : ''}`,
+      })) : [{ label: 'Reparaciones registradas', value: 'No se registró ningún intento de reparación en esta ejecución.' }]),
+      { label: 'Resumen de reparaciones', value: decision.repair },
+      ...repairBudgetFacts(output),
+    ] },
     { title: 'Solicitudes del cliente atendidas', description: 'La revisión de cobertura comprueba qué pidió el cliente y si la respuesta atiende cada solicitud. Una lista vacía no certifica que todo esté resuelto.', facts: [
       { label: 'Alcance de la revisión', value: invalid ? 'La lista interna no pudo validarse. La revisión de contenido no se completó.' : checked ? 'Revisión completada en este paso.' : 'No hay una revisión aprobada registrada. Las clasificaciones siguientes, si existen, no acreditan cobertura completa.' },
       ...(invalid || !requests.length ? [{ label: 'Solicitudes', value: invalid ? 'Lista rechazada; no hay solicitudes validadas que mostrar.' : 'No se conservó una lista de solicitudes en este registro.' }] : requests.map((request, index) => ({ label: `Solicitud ${index + 1}`, value: `Cliente: ${str(request.fragment) || 'Fragmento no registrado'}. Estado propuesto: ${humanValue(request.status)}. Respaldo indicado: ${str(request.evidence) || 'No registrado'}` }))),

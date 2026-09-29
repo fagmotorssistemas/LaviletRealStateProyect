@@ -487,6 +487,57 @@ test('reviewer metadata rejection exposes the literal fragment and bounded repai
   assert.match(reviewDecision({semantic_review:{validation_details:[detail]}}).details[0], /Texto tomado de la base/)
   assert.match(sections[3].facts[0].label, /conservando el mensaje/)
 })
+
+test('repairs identify commercial content and both metadata owners with independent recorded budgets', () => {
+  const output = { status: 'checked', repair_attempts: [
+    { target: 'commercial_draft', status: 'rejected_guard', issues: ['lead_profile_categories_premature'], final_status: 'checked' },
+    { target: 'review_metadata', status: 'invalid_review_metadata', issues: ['invalid_opening_stage_review'], final_status: 'checked' },
+  ], repair_budget: { writer: { limit: 1, used: 1 }, review_metadata: { limit: 1, used: 1 } } }
+  const item = step(1, 'response_coverage', output)
+  const section = explainStep(execution([item]), item).coverageSections!.find(section => section.title === 'Intento de reparación')!
+  assert.match(section.facts[0].label, /mensaje comercial por el redactor/)
+  assert.match(section.facts[1].label, /ficha del revisor, conservando el mensaje/)
+  assert.match(section.facts[2].value, /1 para el mensaje comercial; 1 para la ficha del revisor/)
+  assert.match(section.facts.find(fact => fact.label === 'Intentos disponibles para el redactor')!.value, /1 utilizado\(s\) de 1/)
+  assert.match(section.facts.find(fact => fact.label === 'Intentos disponibles para la ficha del revisor')!.value, /1 utilizado\(s\) de 1/)
+  const writer = step(2, 'response_coverage', { status: 'invalid_coverage', repair_attempts: [
+    { target: 'writer_metadata', status: 'invalid_coverage', failure: 'repair_call_failed' },
+  ] })
+  const writerSection = explainStep(execution([writer]), writer).coverageSections!.find(section => section.title === 'Intento de reparación')!
+  assert.match(writerSection.facts[0].label, /ficha del redactor, conservando el mensaje/)
+  assert.match(writerSection.facts[0].value, /Fallo de la reparación: La llamada para reparar no terminó correctamente/)
+  assert.match(reviewDecision(writer.output).repair, /1 para la ficha del redactor/)
+})
+
+test('historical shared repair limit explains why reviewer metadata was not retried without inventing owners', () => {
+  const output = { status: 'rejected_review', repair_attempts: [{ target: 'commercial_draft', status: 'rejected_guard' }],
+    semantic_review: { repair_eligibility: { eligible: true, budget_available: false } } }
+  const decision = reviewDecision(output)
+  assert.match(decision.repair, /1 para el mensaje comercial/)
+  assert.match(decision.repair, /No se intentó reparar la ficha del revisor.*sistema registró/)
+  assert.doesNotMatch(decision.repair, /generación|modelo falló|1 para la ficha del revisor/)
+  const historical = { ...output, repair_attempts: [{ status: 'invalid_coverage' }] }
+  assert.match(reviewDecision(historical).repair, /destino no conservado/)
+  assert.doesNotMatch(reviewDecision(historical).repair, /No se intentó reparar la ficha del revisor|para el mensaje comercial/)
+  const item = step(1, 'response_coverage', historical)
+  const section = explainStep(execution([item]), item).coverageSections!.find(section => section.title === 'Intento de reparación')!
+  assert.match(section.facts[0].label, /Destino de la reparación no conservado/)
+  assert.equal(section.facts.some(fact => fact.label.startsWith('Intentos disponibles')), false)
+  const absent = reviewDecision({ status: 'rejected_review', semantic_review: { repair_eligibility: { budget_available: false } } })
+  assert.match(absent.repair, /no quedaba un intento disponible/)
+  assert.doesNotMatch(absent.repair, /no conserva un motivo/)
+})
+
+test('opening-stage errors distinguish semantic commercial violation from an incomplete reviewer record', () => {
+  const commercial = reviewDecision({ status: 'rejected_guard', issues: ['lead_profile_categories_premature'] })
+  assert.match(commercial.causes.join(' '), /tipos de inmuebles.*otras palabras/)
+  const metadata = reviewDecision({ status: 'rejected_review', issues: ['invalid_review_metadata'],
+    semantic_review: { validation_details: [{ code: 'invalid_opening_stage_review', kind: 'review_metadata' }] } })
+  assert.equal(metadata.tone, 'metadata')
+  assert.match(metadata.details[0], /ficha del revisor.*etapa inicial/)
+  assert.match(metadata.causes[0], /corresponde reparar la ficha/)
+  assert.match(humanValue('invalid_opening_stage_review'), /ficha del revisor/)
+})
 const execution = (steps: WorkflowExecutionStep[], extra: Partial<WorkflowExecution> = {}): WorkflowExecution => ({ id: 'event-a', workflowId: 'overview', path: [], status: 'completed', action: 'accepted', outcome: 'Kommo aceptó el envío', occurredAt: '', leadName: 'Consulta', message: 'Compare estas opciones', traceAvailable: true, steps, ...extra })
 
 test('a comparison explains unlocked coverage without inventing a handoff reason', () => {

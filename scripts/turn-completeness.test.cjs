@@ -108,7 +108,7 @@ function introductionFixture() {
   const input = { current, baseReply: plan.reply, audit: plan.audit,
     verified: { brochure_url: BROCHURE_URL, project: 'La Vilet, proyecto inmobiliario ubicado en Puertas del Sol, Cuenca, con privacidad y comodidad.' } }
   const candidate = { reply: plan.reply, requests: [covered(current)], question }
-  const review = { ...approved, claims: [{ fragment: plan.reply, subject: 'Presentación verificada y solicitud de perfil', polarity: 'affirmation',
+  const review = { ...approved, opening_property_type_sentence_ids: [], claims: [{ fragment: plan.reply, subject: 'Presentación verificada y solicitud de perfil', polarity: 'affirmation',
     verdict: 'supported', evidence: 'Información del proyecto y plan de presentación', evidence_source: 'verified_context' }] }
   return { current, plan, input, candidate, review }
 }
@@ -1261,10 +1261,11 @@ test('metadata repair cannot hide a wrong price, omit an endpoint or erase claim
   const repaired={...approved,claims:scenario==='missing_claim'?[]:[validClaim],factual_values:[scenario==='missing_endpoint'
    ?{fragment:'S1',unit_id:'group:context:all:min',field:'published_commercial_price',value:145000,upper_value:null,operator:'gte'}
    :{fragment:'S1',unit_id:'group:context:all:range',field:'published_commercial_price',value:145000,upper_value:upper,operator:'between'}]};
-  const mock=model({reply,requests:[covered(current)],question:noQuestion},first,repaired);
+  const mock=model({reply,requests:[covered(current)],question:noQuestion},first,repaired,
+    ...(scenario==='wrong_price'?[new Error('writer correction unavailable')]:[]));
   const result=await completeTurnReply({current,baseReply,verified:{catalogo:units},audit:{semantic_review_enabled:true}},mock.generate);
   assert.equal(result.audit.status,'rejected_review',scenario+JSON.stringify(result.audit));
-  assert.equal(mock.calls.length,3,scenario);assertPending(result,baseReply,reply);
+  assert.equal(mock.calls.length,scenario==='wrong_price'?4:3,scenario);assertPending(result,baseReply,reply);
   assert.equal(result.audit.repair_attempts[0].target,'review_metadata');
   assert.ok(result.audit.semantic_review.validation_details.some(issue=>issue.code===({wrong_price:'catalog_range_mismatch',missing_endpoint:'review_repair_omitted_facts',missing_claim:'review_repair_omitted_claims'})[scenario]));
  }

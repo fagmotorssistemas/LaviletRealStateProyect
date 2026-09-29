@@ -33,7 +33,7 @@ function profileInput() {
 const covered = (fragment, changes = {}) => ({ fragment, intent: 'Responder la consulta actual', request_type: 'general_information',
   status: 'answered', evidence: 'Atiende la consulta y avanza según los datos pendientes.', fact_key: null, ...changes })
 const draft = (reply = goodReply, question = writerProfileQuestion) => ({ reply, requests: [covered(current)], question })
-const review = (question = profileQuestion, changes = {}) => ({ ...approved, question, ...changes })
+const review = (question = profileQuestion, changes = {}) => ({ ...approved, question, opening_property_type_sentence_ids: [], ...changes })
 function sequence(...answers) {
   const calls = []
   return { calls, generate: async (...args) => {
@@ -60,6 +60,9 @@ test('question text is code-owned: old copied casing or paraphrases do not rejec
     assert.ok(mock.calls[1][2].required.includes('question'))
     assert.deepEqual(mock.calls[1][2].properties.question.required, ['purpose', 'missing_datum', 'next_decision', 'clarifies'])
     assert.equal(mock.calls[1][1].pregunta.text, actualQuestion)
+    assert.deepEqual(mock.calls[1][1].referencias_solicitud, [{ id: 'R1', text: current }])
+    assert.deepEqual(mock.calls[1][2].properties.review_issues.items.properties.fragment.enum, ['S1', 'S2', 'R1'])
+    assert.equal(mock.calls[1][2].properties.review_issues.items.properties.source, undefined)
   }
 })
 
@@ -85,6 +88,94 @@ test('direct writer callers cannot promote a CRM name when the conversation prof
   assert.equal(mock.calls[0][1].contexto_verificado.lead.name, null)
   assert.equal(mock.calls[0][1].contexto_verificado.perfil_lead.name_status, 'unconfirmed')
   assert.doesNotMatch(result.reply, /Carlos/)
+})
+
+test('an empty next decision is derived only from the verified profile stage without rewriting the question', async () => {
+  const mock = sequence(draft(goodReply, { ...writerProfileQuestion, next_decision: '' }), review({ ...profileQuestion, next_decision: '' }))
+  const result = await completeTurnReply(profileInput(), mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, goodReply)
+  assert.match(result.audit.question.next_decision, /Entregar el brochure/)
+  assert.equal(result.audit.semantic_review.question_metadata.next_decision_source, 'verified_profile_stage')
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(result.needsAdvisor, false)
+})
+
+test('an unspecified next decision outside a verified stage stays empty and does not veto useful prose or authorize action', async () => {
+  const reply = '¿Qué distribución prefiere conocer?'
+  const question = { purpose: 'choose_property', missing_datum: 'Distribución preferida', next_decision: '' }
+  const mock = sequence({ reply, question, requests: [covered(current)] }, review({ ...question, clarifies: [] }))
+  const result = await completeTurnReply({ current, baseReply: reply, verified: {} }, mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.question.next_decision, '')
+  assert.equal(result.audit.semantic_review.question_metadata.next_decision_source, 'not_specified')
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(result.needsAdvisor, false)
+  assert.equal(result.audit.operational_action_verified, false)
+})
+
+test('a commercial opening repair does not spend the independent reviewer metadata repair', async () => {
+  const input = profileInput()
+  input.audit.semantic_review_enabled = true
+  input.verified.proyecto = { description: project }
+  const premature = `Tenemos suites y departamentos. ${goodReply}`
+  const question = { ...profileQuestion, next_decision: '' }
+  const reviewed = (fragment) => (_rules, context) => review(question, { factual_values: [], claims: [{ fragment,
+    subject: 'Ubicación del proyecto', polarity: 'affirmation', claim_kind: 'project_fact', verdict: 'supported',
+    evidence: 'Ubicación verificada del proyecto', evidence_source: 'verified_context',
+    evidence_ids: [context.evidencia_afirmaciones.find(item => item.path === 'contexto_verificado.proyecto').id] }] })
+  for (const repaired of [true, false]) {
+    const badFragment = 'La Vilet se encuentra ubicada en Puertas del Sol, Cuenca.'
+    const mock = sequence(draft(premature), draft(goodReply, question), reviewed(badFragment), reviewed(repaired ? 'S1' : badFragment))
+    const result = await completeTurnReply(input, mock.generate)
+    assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'writing', 'review', 'review'])
+    assert.deepEqual(result.audit.repair_attempts.map(attempt => attempt.target), ['commercial_draft', 'review_metadata'])
+    assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 1 }, review_metadata: { limit: 1, used: 1 } })
+    assert.equal(mock.calls[2][1].respuesta_propuesta, goodReply)
+    assert.equal(mock.calls[3][1].respuesta_propuesta, goodReply)
+    assert.deepEqual(mock.calls[2][2].properties.claims.items.properties.fragment.enum, ['S1', 'S2'])
+    assert.deepEqual(mock.calls[3][2].properties.claims.items.properties.fragment.enum, ['S1', 'S2'])
+    assert.equal(result.audit.status, repaired ? 'checked' : 'rejected_review', JSON.stringify(result.audit))
+    assert.equal(result.needsAdvisor, false)
+    if (repaired) {
+      assert.equal(result.reply, goodReply)
+      assert.equal(result.audit.semantic_review.claims[0].fragment, project)
+      assert.equal(result.audit.semantic_review.question_metadata.next_decision_source, 'verified_profile_stage')
+    } else assert.equal(result.audit.recovery.pending, true)
+  }
+})
+
+test('a reviewer metadata repair does not consume the writer correction of a semantic opening violation', async () => {
+  const input = profileInput()
+  const premature = `${project} Ofrecemos espacios para residir y para actividades comerciales. Para compartirle el brochure y brindarle una guía personalizada, ${actualQuestion}`
+  const invalid = { ...review(), question: undefined }
+  const stageViolation = review(profileQuestion, { opening_property_type_sentence_ids: ['S2'] })
+  const mock = sequence(draft(premature), invalid, stageViolation, draft(), review())
+  const result = await completeTurnReply(input, mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, goodReply)
+  assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review', 'review', 'writing', 'review'])
+  assert.deepEqual(result.audit.repair_attempts.map(attempt => attempt.target), ['review_metadata', 'commercial_draft'])
+  assert.equal(result.audit.repair_attempts[1].issues[0].code, 'lead_profile_categories_premature')
+  assert.equal(mock.calls[1][1].respuesta_propuesta, mock.calls[2][1].respuesta_propuesta)
+  assert.deepEqual(mock.calls[2][2].properties.opening_property_type_sentence_ids.items.enum, ['S1', 'S2', 'S3'])
+  assert.deepEqual(mock.calls[4][2].properties.opening_property_type_sentence_ids.items.enum, ['S1', 'S2'])
+})
+
+test('the explicit opening assessment rejects premature property types even when other review flags approve them', async () => {
+  const premature = `${project} Ofrecemos unidades residenciales modernas y espacios comerciales. Para compartirle el brochure y brindarle una guía personalizada, ${actualQuestion}`
+  const stageViolation = review(profileQuestion, { opening_property_type_sentence_ids: ['S2'] })
+  const mock = sequence(draft(premature), stageViolation, draft(premature), stageViolation)
+  const result = await completeTurnReply(profileInput(), mock.generate)
+  assert.equal(result.audit.status, 'rejected_review')
+  assert.ok(result.audit.issues.includes('lead_profile_categories_premature'))
+  assert.equal(result.audit.commercial_continuation.checks.operational_goal_preserved, false)
+  assert.equal(result.audit.recovery.pending, true)
+  assert.equal(result.audit.repair_budget.writer.used, 1)
+  assert.equal(result.audit.repair_budget.review_metadata.used, 0)
+  assert.equal(result.needsAdvisor, false)
+  assert.equal(mock.calls.length, 4)
 })
 
 test('invalid canonical reviewer question repairs only the review and preserves the exact draft', async () => {

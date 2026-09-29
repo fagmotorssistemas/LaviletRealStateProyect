@@ -76,6 +76,39 @@ export function replyReferences(reply: string) {
     .map((value, index) => ({ id: `S${index + 1}`, text: value }))
 }
 
+/** The live reviewer selects a code-owned sentence instead of copying its prose.
+ * Historical snapshots can still contain literal fragments; their readers and
+ * validators retain that representation after reference normalization. */
+export function sentenceReferenceReviewSchema(schema: Row, reply: string, current = ''): Row {
+  const ids = replyReferences(reply).map(sentence => sentence.id)
+  const properties = { ...object(schema.properties) }
+  for (const key of ['claims', 'factual_values']) {
+    const list = object(properties[key])
+    if (!Object.keys(list).length) continue
+    const item = object(list.items)
+    properties[key] = { ...list, ...(!ids.length ? { maxItems: 0 } : {}), items: {
+      ...item, properties: { ...object(item.properties), fragment: ids.length
+        ? { type: 'string', enum: ids }
+        : { type: 'string', maxLength: 0 } },
+    } }
+  }
+  const issueList = object(properties.review_issues)
+  if (Object.keys(issueList).length) {
+    const idsForIssues = [...ids, ...(current.trim() ? ['R1'] : [])]
+    const item = object(issueList.items)
+    const itemProperties = { ...object(item.properties) }
+    // The chosen reference establishes provenance. Asking the model to repeat
+    // it in another field can contradict a perfectly valid selected reference.
+    delete itemProperties.source
+    itemProperties.fragment = idsForIssues.length ? { type: 'string', enum: idsForIssues } : { type: 'string', maxLength: 0 }
+    properties.review_issues = { ...issueList, ...(!idsForIssues.length ? { maxItems: 0 } : {}), items: {
+      ...item, properties: itemProperties,
+      required: (Array.isArray(item.required) ? item.required : []).filter(key => key !== 'source'),
+    } }
+  }
+  return { ...schema, properties }
+}
+
 /** Code-owned provenance. Drafts, base copy, remembered messages and model
  * interpretations are deliberately not eligible project/operational sources. */
 export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, current = ''): Row[] {
@@ -135,11 +168,15 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
 }
 
 /** Resolve only references that identify one sentence of the actual draft. Never change a value. */
-export function normalizeReviewReferences(review: Row, units: Row[], reply: string) {
+export function normalizeReviewReferences(review: Row, units: Row[], reply: string, current = '') {
   const corrections: Row[] = []
   const sentences = replyReferences(reply)
   const resolveFragment = (item: Row): Row => {
     let sentence = sentences.find(sentence => sentence.id === item.fragment)
+    // An unknown explicit ID is not prose and must not fall through to numeric
+    // recovery (for example S99 against a sentence containing the number 99).
+    if (!sentence && /^[SR]\d+$/.test(text(item.fragment)))
+      return { ...item, invalid_sentence_reference: true }
     if (!sentence && /\.{3}|…/.test(text(item.fragment))) {
       const parts = text(item.fragment).split(/\.{3}|…/).map(part => part.trim()).filter(Boolean)
       if (parts.length >= 2 && parts.every(part => part.length >= 4)) {
@@ -187,6 +224,23 @@ export function normalizeReviewReferences(review: Row, units: Row[], reply: stri
     }
     return fact
   }) : review.factual_values
+  const reviewIssues = Array.isArray(review.review_issues) ? review.review_issues.map(raw => {
+    const issue = object(raw), fragment = text(issue.fragment)
+    const sentence = sentences.find(sentence => sentence.id === fragment)
+    if (sentence) {
+      corrections.push({ code: 'sentence_reference_resolved', from: sentence.id })
+      return { ...issue, fragment: sentence.text, source: 'draft' }
+    }
+    if (fragment === 'R1' && current.trim()) {
+      corrections.push({ code: 'current_request_reference_resolved', from: 'R1' })
+      return { ...issue, fragment: current, source: 'current_request' }
+    }
+    if (/^[SR]\d+$/.test(fragment)) return { ...issue, invalid_sentence_reference: true }
+    // Keep previously recorded literal fragments and sources readable. Live
+    // schemas only permit the IDs above, with provenance assigned by code.
+    return { ...issue }
+  }) : review.review_issues
   return { review: { ...review, factual_values: facts,
-    claims: Array.isArray(review.claims) ? review.claims.map(raw => resolveFragment(object(raw))) : review.claims }, corrections }
+    claims: Array.isArray(review.claims) ? review.claims.map(raw => resolveFragment(object(raw))) : review.claims,
+    ...(reviewIssues !== undefined ? { review_issues: reviewIssues } : {}) }, corrections }
 }

@@ -14,10 +14,29 @@ const profileChecks: Record<string, string> = {
   lead_profile_question_purpose_changed: 'La pregunta cambió el dato que debía recoger o confirmar.',
   lead_profile_question_missing: 'El sistema detectó que falta la pregunta de datos exigida en esta etapa comercial.',
   invalid_review_question_metadata: 'La ficha de la pregunta del revisor necesita reparación; esto no demuestra un error en el mensaje.',
+  invalid_opening_stage_review: 'La ficha del revisor no permite comprobar que la presentación respete la etapa inicial; corresponde reparar la ficha.',
+  lead_profile_categories_premature: 'La presentación inicial introdujo tipos de inmuebles antes de la etapa permitida, aunque los describa con otras palabras.',
   lead_profile_unconfirmed_residence: 'Se presentó como residencia confirmada un lugar que aún necesita confirmación.',
   lead_profile_name_acknowledgement_missing: 'Falta el saludo «Mucho gusto» con el nombre recibido por primera vez.',
   commercial_next_question_missing: 'Se omitió la pregunta que permite avanzar entre las opciones de interés.',
   commercial_next_question_changed: 'La pregunta cambió el propósito del siguiente paso antes de completar la elección.',
+}
+
+export function repairTargetLabel(target: unknown) {
+  return target === 'commercial_draft' ? 'Corrección del mensaje comercial por el redactor'
+    : target === 'writer_metadata' ? 'Reparación de la ficha del redactor, conservando el mensaje'
+      : target === 'review_metadata' ? 'Reparación de la ficha del revisor, conservando el mensaje'
+        : 'Destino de la reparación no conservado en el registro'
+}
+
+export function repairBudgetFacts(output: Row) {
+  const budget = row(output.repair_budget)
+  return [['writer', 'Intentos disponibles para el redactor'], ['review_metadata', 'Intentos disponibles para la ficha del revisor']].flatMap(([key, label]) => {
+    const entry = row(budget[key])
+    return typeof entry.limit === 'number' && Number.isInteger(entry.limit) && entry.limit >= 0
+      && typeof entry.used === 'number' && Number.isInteger(entry.used) && entry.used >= 0
+      ? [{ label, value: `${entry.used} utilizado(s) de ${entry.limit} permitido(s).` }] : []
+  })
 }
 
 export function reviewDecision(output: Row, catalog: Row[] = []) {
@@ -56,6 +75,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     if (error.code === 'unexplained_review_failure') return `El revisor rechazó «${text(error.check)}» sin identificar un defecto concreto. Se requiere corregir la ficha, no demuestra que el texto comercial sea incorrecto.`
     if (error.code === 'claim_source_not_verified') return `${location}: la fuente citada no respalda el tipo de afirmación o no pertenece a la evidencia de esta ejecución.${quote}`
     if (error.code === 'catalog_value_mismatch') return `${location}: para "${ref}", ${field} recibido: ${String(error.received)}; catálogo: ${error.expected == null ? 'sin dato verificado' : String(error.expected)}.${quote}`
+    if (profileChecks[text(error.code)]) return `${profileChecks[text(error.code)]}${quote}`
     return `${location}: control ${text(error.code) || 'no identificado'}.${quote}`
   })
   if (!details.length) for (const issue of issues) {
@@ -95,12 +115,24 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     ...corrections.map(correction => `${text(correction.code)}${text(correction.from) ? `: «${text(correction.from)}»` : ''}${text(correction.to) ? ` → «${text(correction.to)}»` : ''}.`),
   ] : []
   if (!causes.length) causes.push(...details)
-  const repair = attempts.length ? `Hubo ${attempts.length} intento(s) registrado(s). Consulte su resultado en Intento de reparación.`
+  const repairCounts = [
+    ['commercial_draft', 'para el mensaje comercial'], ['writer_metadata', 'para la ficha del redactor'], ['review_metadata', 'para la ficha del revisor'],
+  ].flatMap(([target, label]) => {
+    const count = attempts.filter(attempt => attempt.target === target).length
+    return count ? [`${count} ${label}`] : []
+  })
+  const unknownTargets = attempts.filter(attempt => !['commercial_draft', 'writer_metadata', 'review_metadata'].includes(text(attempt.target))).length
+  if (unknownTargets) repairCounts.push(`${unknownTargets} con destino no conservado en el registro`)
+  const reviewerNotAttempted = eligibility.budget_available === false && !attempts.some(attempt => attempt.target === 'review_metadata')
+    ? unknownTargets ? ' El registro indica que no quedaba un intento disponible para la ficha del revisor; no permite identificar el destino de todos los intentos anteriores.'
+      : ' No se intentó reparar la ficha del revisor: el sistema registró que no quedaba un intento disponible para esa reparación.' : ''
+  const repair = (attempts.length ? `Se registraron ${attempts.length} intento(s): ${repairCounts.join('; ')}. Consulte su resultado en Intento de reparación.`
+    : eligibility.budget_available === false ? 'No hay intentos de reparación registrados.'
     : eligibility.policy === 'review_metadata_v2' && eligibility.reason === 'data_or_evidence_error' ? 'La política distingue errores internos de discrepancias de datos. No se registró un intento; consulte la evidencia y el resultado final.'
     : eligibility.reason === 'error_not_supported_by_repair_policy' ? 'No se intentó reparar: el error no está admitido por la política registrada. Esa política solo repara citas no literales del revisor; no referencias de unidades, campos ni valores.'
       : eligibility.reason === 'claims_not_supported' ? 'No se intentó reparar: no se confirmó el respaldo de las afirmaciones, requisito de la reparación de citas.'
         : status === 'checked' ? 'No hubo intentos registrados; la propuesta quedó aprobada en este paso.'
           : errors.some(error => error.code === 'invalid_unit_fact') ? 'No hay intentos registrados. Este registro histórico no conserva la política que se ejecutó; no se atribuye a la política actual.'
-            : 'No hay intentos registrados. Este registro no conserva un motivo específico para no reparar.'
+            : 'No hay intentos registrados. Este registro no conserva un motivo específico para no reparar.') + reviewerNotAttempted
   return { tone, title, explanation, details, causes, repair, resolvedDetails, recoveryPending }
 }

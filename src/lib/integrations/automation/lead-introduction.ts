@@ -216,10 +216,11 @@ export const LEAD_INTRODUCTION_RULES = `
 APERTURA Y PERFIL DEL LEAD
 - Esta secuencia es una regla comercial obligatoria y prevalece sobre las sugerencias generales de presentación, libertad editorial o cierre sin pregunta. El sistema decide la etapa y los datos pendientes; el redactor elige cómo expresarlos y el revisor comprueba su significado en el mensaje real.
 - Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después formule una sola pregunta con question_purpose. Puede reformularla conservando los datos faltantes y el propósito de brochure más guía personalizada; no se exige copiar toda la frase. La ubicación solicitada es dónde reside actualmente, nunca desde dónde escribe ni el lugar donde quiere comprar.
-- full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si missing_fields incluye full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden los datos pendientes, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla. Si falta un dato obligatorio en la pregunta, señale el defecto real en operational_goal_preserved con la pregunta del borrador como fragmento.
+- full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si missing_fields incluye full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden los datos pendientes, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla. Si falta un dato obligatorio en la pregunta, señale el defecto real en operational_goal_preserved usando como fragment el ID de la oración que contiene la pregunta.
 - declared_location conserva el lugar declarado; residence_candidate es una posibilidad pendiente, NO residencia confirmada. Con question_purpose=confirm_residence reconozca el lugar candidato y pregunte si es su residencia actual, sin pedir nuevamente una ciudad desde cero. «Soy de X» merece esta aclaración aunque responda a una pregunta de residencia. Si ya hay residencia confirmada en profile_state, no vuelva a preguntarla. Una ciudad de origen distinta puede conservarse sin contradecir la residencia actual.
 - Si name_acknowledgement tiene contenido, incluya «Mucho gusto, Nombre» usando ese nombre verificado, una sola vez. Es un reconocimiento del nombre recién declarado, no una cortesía opcional ni un saludo que deba suprimirse. No añada saludos adicionales.
-- Si generic_introduction=true, presente brevemente La Vilet y su ubicación sin enumerar suites, departamentos, penthouses ni locales. Esa presentación de opciones corresponde a la continuación después de los datos. No añada una segunda pregunta comercial.
+- Si generic_introduction=true, presente brevemente La Vilet y su ubicación, y solicite los datos pendientes. Puede describir de forma breve el sector donde se ubica con información verificada; por ejemplo, que Puertas del Sol es una zona residencial describe la ubicación, no los tipos de inmuebles en venta. Todavía no presente los tipos de inmuebles que ofrece el proyecto, ni describa su combinación o usos residenciales/comerciales. La restricción es de significado: sustituir suites, departamentos, penthouses o locales por expresiones como «unidades residenciales y espacios comerciales» sigue adelantando las opciones. Esa presentación corresponde a la continuación después de los datos. No añada una segunda pregunta comercial. Las recomendaciones generales de explicar el concepto o la comodidad del proyecto no autorizan adelantar esta etapa.
+- REVISOR: cuando generic_introduction=true, haga primero la comprobación de apertura. Lea cada oración de oraciones_borrador y pregúntese si explica qué tipos de espacios ofrece el proyecto al cliente. Si lo hace, seleccione su ID en opening_property_type_sentence_ids, aunque use una descripción general y no nombres de categorías. «Ofrecemos unidades residenciales modernas y espacios comerciales» SÍ presenta tipos; «La Vilet está en Puertas del Sol, Cuenca, un sector residencial consolidado» NO los presenta. Use [] solo si ninguna oración presenta esa oferta. Que los tipos sean reales, que la presentación sea breve o que después pida los datos no permite omitir sus IDs. Registre este hallazgo EXCLUSIVAMENTE en opening_property_type_sentence_ids: el sistema aplicará su efecto comercial. No duplique este motivo en operational_goal_preserved ni en review_issues, y no cambie claims a unsupported por estar fuera de etapa; revise su verdad factual por separado. operational_goal_preserved sigue comprobando los demás objetivos, como los datos pendientes o las acciones. Fuera de esta etapa no aplique la restricción de tipos.
 - Si brochure_deferred=true, no adjunte todavía el brochure: se prometió para el siguiente intercambio. Si brochure_required=true, conserve el enlace verificado. Una petición directa del brochure se atiende sin exigir datos.
 - Responder datos de perfil no inicia una visita, no autoriza financiamiento y no cambia las preferencias comerciales. No repita datos ya conocidos ni insista cuando no responde. La residencia no implica requisitos financieros, nacionalidad, elegibilidad ni disponibilidad distintos.
 - No invente acabados, terrazas privadas para todas las unidades, superioridad de plusvalía ni visitas a obra. Mantenga la evidencia y los controles del proyecto.`
@@ -250,12 +251,39 @@ export function leadIntroductionIssues(reply: string, auditRaw: unknown) {
   return issues
 }
 
+/** A separate semantic decision keeps the stage rule visible to the reviewer.
+ * The system resolves IDs against the actual draft; it does not guess synonyms.
+ */
+export function leadIntroductionReviewSchema(auditRaw: unknown, referencesRaw: unknown): { properties: Row; required: string[] } {
+  if (object(object(auditRaw).profile_introduction).generic_introduction !== true) return { properties: {}, required: [] }
+  const ids = rows(referencesRaw).map(row => text(row.id)).filter(Boolean)
+  return { properties: { opening_property_type_sentence_ids: { type: 'array', maxItems: ids.length,
+    description: 'CONTROL DE APERTURA ACTIVO. Seleccione los IDs de todas las oraciones que expliquen qué tipos de inmuebles ofrece el proyecto, también descripciones de usos residenciales/comerciales sin nombres de categorías. Presentar unidades residenciales y espacios comerciales sí cuenta. Ubicación, bienvenida y describir el sector como residencial no presentan tipos de inmuebles y no cuentan. Use [] únicamente si no presenta tipos. La veracidad de la oferta y pedir los datos después no eximen este control. Esta es la única salida para señalar tipos prematuros: no duplique ese motivo en operational_goal_preserved, review_issues o claims; el sistema aplicará la decisión comercial.',
+    items: { type: 'string', ...(ids.length ? { enum: ids } : {}) } } }, required: ['opening_property_type_sentence_ids'] }
+}
+
+export function leadIntroductionReviewIssues(reviewRaw: unknown, auditRaw: unknown, referencesRaw: unknown): Row[] {
+  if (object(object(auditRaw).profile_introduction).generic_introduction !== true) return []
+  const ids = object(reviewRaw).opening_property_type_sentence_ids
+  const references = new Map(rows(referencesRaw).map(row => [text(row.id), text(row.text)]))
+  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !references.has(id))) {
+    return [{ code: 'invalid_opening_stage_review', kind: 'review_metadata', owner: 'system', repair_owner: 'reviewer',
+      field: 'opening_property_type_sentence_ids',
+      instruction: 'Revise la apertura del mismo borrador. Seleccione únicamente IDs de oraciones_borrador que introduzcan tipos de inmuebles o sus usos mediante nombres o paráfrasis; use [] si no hay ninguna. No reescriba el mensaje.' }]
+  }
+  return [...new Set(ids)].map(id => ({ code: 'lead_profile_categories_premature', kind: 'commercial_content',
+    check: 'operational_goal_preserved', source: 'draft', sentence_id: id, fragment: references.get(id),
+    owner: 'reviewer', validation_owner: 'system', repair_owner: 'writer',
+    reason: 'La oración presenta tipos de inmuebles antes de la etapa prevista para ofrecer opciones.',
+    instruction: 'Retire la presentación de tipos de inmuebles, también sus paráfrasis. Conserve una presentación breve del proyecto y su ubicación, y la pregunta de los datos pendientes.' }))
+}
+
 /** Concrete instructions for a commercial repair, separate from metadata repair. */
 export function leadIntroductionRepairs(issues: string[], auditRaw: unknown): Row[] {
   const plan = object(object(auditRaw).profile_introduction)
   if (!Object.keys(plan).length) return []
   const instructions: Record<string, string> = {
-    lead_profile_categories_premature: 'Elimine la enumeración de suites, departamentos, penthouses y locales de esta presentación inicial. Presente brevemente el proyecto y su ubicación; conserve la pregunta de los datos pendientes. La presentación de opciones corresponde al siguiente intercambio.',
+    lead_profile_categories_premature: 'Elimine la enumeración y cualquier presentación de tipos de inmuebles de esta apertura, también si usa sinónimos o describe sus usos. No basta con cambiar suites, departamentos, penthouses y locales por «unidades residenciales y espacios comerciales». Presente brevemente el proyecto y su ubicación; conserve la pregunta de los datos pendientes. La presentación de opciones corresponde al siguiente intercambio.',
     lead_profile_question_missing: 'Incluya la pregunta de perfil exigida por la etapa, solicitando solamente los datos pendientes y explicando el propósito de brochure y guía personalizada. Para confirm_residence confirme el lugar candidato, sin pedir otra ciudad desde cero.',
     lead_profile_name_acknowledgement_missing: 'Incluya el reconocimiento name_acknowledgement del nombre declarado, una sola vez.',
     lead_profile_unconfirmed_residence: 'No afirme como residencia el lugar de origen o estancia temporal. Confirme si el candidato es su residencia actual.',

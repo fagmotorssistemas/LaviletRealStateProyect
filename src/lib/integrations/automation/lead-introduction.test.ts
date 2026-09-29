@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { leadIntroductionIssues, leadIntroductionTurn, leadProfilePendingQuestion, PROFILE_INVITATION, type LeadIntroductionInput } from './lead-introduction'
+import { leadIntroductionIssues, leadIntroductionReviewIssues, leadIntroductionReviewSchema, leadIntroductionRepairs,
+  leadIntroductionTurn, leadProfilePendingQuestion, PROFILE_INVITATION, type LeadIntroductionInput } from './lead-introduction'
 import { BROCHURE_URL } from './project-material'
 
 const catalog = [
@@ -14,6 +15,71 @@ const input = (overrides: Partial<LeadIntroductionInput> = {}): LeadIntroduction
   current: 'Quiero información', history: [], summary: {}, extracted: {}, catalog,
   reply: `La Vilet reúne suites, departamentos y locales. Aquí está el brochure: ${BROCHURE_URL}\n¿Le gustaría conocer alguna de estas opciones?`,
   audit: { source: 'project_overview' }, ...overrides,
+})
+
+describe('semantic opening stage review', () => {
+  const audit = { profile_introduction: { generic_introduction: true } }
+  const references = [
+    { id: 'S1', text: 'La Vilet está ubicada en Puertas del Sol, Cuenca.' },
+    { id: 'S2', text: 'Cuenta con unidades residenciales modernas y espacios comerciales.' },
+    { id: 'S3', text: 'Para enviarle el brochure y brindarle una guía personalizada, ¿cuál es su nombre y dónde reside actualmente?' },
+  ]
+
+  it('requires an explicit decision limited to IDs of this draft when the opening stage is active', () => {
+    const schema = leadIntroductionReviewSchema(audit, references)
+    assert.deepEqual(schema.required, ['opening_property_type_sentence_ids'])
+    const field = schema.properties.opening_property_type_sentence_ids as { items: { enum: string[] }; maxItems: number }
+    assert.deepEqual(field.items.enum, ['S1', 'S2', 'S3'])
+    assert.equal(field.maxItems, 3)
+  })
+
+  it('makes the reviewer category finding binding even if the general operational check says true', () => {
+    const review = { operational_goal_preserved: true, opening_property_type_sentence_ids: ['S2'] }
+    const issues = leadIntroductionReviewIssues(review, audit, references)
+    assert.equal(issues.length, 1)
+    assert.equal(issues[0].kind, 'commercial_content')
+    assert.equal(issues[0].code, 'lead_profile_categories_premature')
+    assert.equal(issues[0].sentence_id, 'S2')
+    assert.equal(issues[0].fragment, references[1].text)
+    assert.equal(issues[0].owner, 'reviewer')
+    assert.equal(issues[0].validation_owner, 'system')
+    assert.equal(issues[0].repair_owner, 'writer')
+    // No growing synonym list: the reviewer supplies the semantic finding.
+    assert.deepEqual(leadIntroductionIssues(references.map(row => row.text).join(' '), audit), [])
+  })
+
+  it('accepts a clean opening when the reviewer explicitly finds no premature property types', () => {
+    assert.deepEqual(leadIntroductionReviewIssues({ opening_property_type_sentence_ids: [] }, audit,
+      references.filter(row => row.id !== 'S2')), [])
+  })
+
+  it('repairs a missing or invalid reviewer decision as metadata without accusing the prose', () => {
+    for (const review of [{}, { opening_property_type_sentence_ids: 'S2' },
+      { opening_property_type_sentence_ids: ['S99'] }, { opening_property_type_sentence_ids: [null] }]) {
+      const issues = leadIntroductionReviewIssues(review, audit, references)
+      assert.equal(issues.length, 1)
+      assert.equal(issues[0].kind, 'review_metadata')
+      assert.equal(issues[0].code, 'invalid_opening_stage_review')
+      assert.equal(issues[0].repair_owner, 'reviewer')
+      assert.match(String(issues[0].instruction), /No reescriba el mensaje/)
+    }
+  })
+
+  it('does not restrict category-specific answers or the continuation after collecting profile data', () => {
+    for (const otherAudit of [{}, { profile_introduction: { generic_introduction: false, stage: 'deliver' } }]) {
+      assert.deepEqual(leadIntroductionReviewSchema(otherAudit, references), { properties: {}, required: [] })
+      assert.deepEqual(leadIntroductionReviewIssues({ opening_property_type_sentence_ids: ['S2'] }, otherAudit, references), [])
+      assert.deepEqual(leadIntroductionReviewIssues({}, otherAudit, references), [])
+    }
+  })
+
+  it('repair instructions remove the premature meaning rather than substitute property category names', () => {
+    const [repair] = leadIntroductionRepairs(['lead_profile_categories_premature'], audit)
+    assert.equal(repair.target, 'commercial_draft')
+    assert.match(String(repair.instruction), /No basta con cambiar/)
+    assert.match(String(repair.instruction), /tipos de inmuebles/)
+    assert.match(String(repair.instruction), /conserve la pregunta de los datos pendientes/)
+  })
 })
 const begin = () => leadIntroductionTurn(input())
 const pending = (overrides: Partial<LeadIntroductionInput> = {}) => input({
