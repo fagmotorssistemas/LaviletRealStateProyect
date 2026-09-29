@@ -11,7 +11,7 @@ Module._load = function(id, parent, main) {
 require('./test-typescript.cjs')
 const { residentialContinuity, residentialContinuationIssues, commercialMemory, experienceIssues, commercialFallback } = require('../src/lib/integrations/automation/commercial-experience.ts')
 const { completeTurnReply } = require('../src/lib/integrations/automation/turn-completeness.ts')
-const info = { lead: { preferred_category: 'departamento' }, catalogo: [{ category: 'departamento', bedrooms: 2 }, { category: 'departamento', bedrooms: 3 }, { category: 'suite', bedrooms: 1 }],
+const info = { lead: { preferred_category: 'departamento' }, catalogo: [{ id: 'd201', unit_number: '201', category: 'departamento', bedrooms: 2 }, { id: 'd202', unit_number: '202', category: 'departamento', bedrooms: 3 }, { id: 's203', unit_number: '203', category: 'suite', bedrooms: 1 }],
   historial: [{ role: 'cliente', content: 'Recomiéndeme un departamento' }, { role: 'bot', content: 'La Vilet ofrece tranquilidad, seguridad y comodidad. Tenemos departamentos de 2 y 3 dormitorios. ¿Es para vivir o invertir?' }] }
 
 test('a spontaneous request for an apartment does not mean the lead already knows about suites', () => {
@@ -56,7 +56,13 @@ test('presentation wording is observable while semantic coverage and purpose sti
     const result = await completeTurnReply({ current: 'Para vivir', history: info.historial,
       verified: { ...info, proyecto: { description: 'Viviendas pensadas para la comodidad en el sector residencial Puertas del Sol.' } }, baseReply },
     async () => ++calls % 2 ? candidate : review)
-    assert.equal(result.reply, goalPreserved ? candidate.reply : baseReply)
+    if (goalPreserved) assert.equal(result.reply, candidate.reply)
+    else {
+      assert.equal(result.audit.recovery.pending, true)
+      assert.equal(result.audit.recovery.base_used, false)
+      assert.notEqual(result.reply, baseReply)
+      assert.match(result.reply, /pendiente/)
+    }
     assert.equal(result.needsAdvisor, false)
     assert.ok(result.audit.editorial_observations.includes('repeated_presentation'))
     assert.equal(result.audit.status, goalPreserved ? 'checked' : 'rejected_review')

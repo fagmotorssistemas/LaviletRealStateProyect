@@ -20,15 +20,18 @@ const profileChecks: Record<string, string> = {
 
 export function reviewDecision(output: Row, catalog: Row[] = []) {
   const status = text(output.status), review = row(output.semantic_review)
+  const recovery = row(output.recovery || row(output.turn_completeness).recovery)
+  const recoveryPending = recovery.version === 'turn-recovery-v1' && recovery.pending === true
   const errors = list(review.validation_details), attempts = list(output.repair_attempts)
   const issues = Array.isArray(output.issues) ? output.issues.map(text) : []
   const quantityChecks = list(row(output.final_validation).project_quantity_checks)
   const rejected = output.draft_rejected === true || /^(rejected|invalid)/.test(status)
   const metadata = rejected && (status === 'invalid_coverage' || issues.includes('invalid_review_metadata'))
   const tone = status === 'checked' ? 'accepted' : metadata ? 'metadata' : rejected ? 'rejected' : 'unknown'
-  const title = tone === 'accepted' ? 'Propuesta aprobada en este paso' : metadata ? 'Propuesta descartada · Falló la ficha interna'
+  const title = recoveryPending ? 'Propuesta sin aprobar · Recuperación pendiente' : tone === 'accepted' ? 'Propuesta aprobada en este paso' : metadata ? 'Propuesta descartada · Falló la ficha interna'
     : rejected ? 'Propuesta descartada · Falló una validación' : 'Decisión sobre el borrador sin confirmar'
-  const explanation = tone === 'accepted' ? 'Los controles de este paso aprobaron la propuesta. El envío definitivo se verifica en Envío a Kommo.'
+  const explanation = recoveryPending ? 'La propuesta no superó la revisión y la respuesta base no se autorizó como reemplazo. La consulta quedó pendiente de recuperación; el texto preparado y su envío se comprueban en los pasos posteriores.'
+    : tone === 'accepted' ? 'Los controles de este paso aprobaron la propuesta. El envío definitivo se verifica en Envío a Kommo.'
     : metadata ? 'El sistema no pudo validar la información interna que acompaña al texto. Conservó la respuesta de respaldo; esto no demuestra por sí solo que la redacción comercial fuera incorrecta.'
       : rejected ? 'La propuesta no superó los controles registrados. Se conservó la respuesta de respaldo.' : 'Este registro no permite confirmar la aceptación o el descarte.'
   const details = errors.map(error => {
@@ -45,6 +48,11 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
       return `${location}: referencia interna, campo o valor inválido. Referencia recibida: "${ref}"; ${field}: ${String(error.received)}. Este registro antiguo no distingue cuál de esas comprobaciones falló.${quote}`
     }
     if (error.code === 'review_fragment_not_in_reply') return `${location}: el fragmento de respaldo no aparece literalmente en el borrador. Falló la cita del revisor, no necesariamente el dato comercial.${quote}`
+    if (error.code === 'numeric_relation_not_in_reply') return `${location}: el valor que el revisor intentó comprobar no está expresado en ese fragmento. Falló la ficha de revisión.${quote}`
+    if (error.code === 'numeric_field_not_in_reply') return `${location}: la cifra del fragmento describe otro dato; no acredita ${field}. Falló la asociación de la ficha del revisor.${quote}`
+    if (text(error.code).startsWith('review_check_failed:')) return `${checks[text(error.check)] || 'Se detectó un problema de contenido'} ${text(error.reason)}${quote}`
+    if (error.code === 'unexplained_review_failure') return `El revisor rechazó «${text(error.check)}» sin identificar un defecto concreto. Se requiere corregir la ficha, no demuestra que el texto comercial sea incorrecto.`
+    if (error.code === 'claim_source_not_verified') return `${location}: la fuente citada no respalda el tipo de afirmación o no pertenece a la evidencia de esta ejecución.${quote}`
     if (error.code === 'catalog_value_mismatch') return `${location}: para "${ref}", ${field} recibido: ${String(error.received)}; catálogo: ${error.expected == null ? 'sin dato verificado' : String(error.expected)}.${quote}`
     return `${location}: control ${text(error.code) || 'no identificado'}.${quote}`
   })
@@ -67,13 +75,23 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     fallback_unanswered_request: 'El respaldo omite una solicitud actual; no debe enviarse como si la hubiera contestado.',
     invalid_unit_fact: 'Referencias, campos o valores de la ficha no pudieron asociarse con la evidencia del turno.',
     review_fragment_not_in_reply: 'El revisor entregó citas que no aparecen literalmente en el borrador.',
+    claim_fragment_not_in_reply: 'El revisor incluyó una afirmación que no aparece en el borrador.',
+    numeric_relation_not_in_reply: 'El revisor atribuyó al fragmento un valor que el texto no expresa.',
+    numeric_field_not_in_reply: 'El revisor asoció una cifra con un atributo distinto del expresado.',
+    claim_source_not_verified: 'La ficha citó fuentes ausentes o de un tipo incorrecto para la afirmación.',
+    unexplained_review_failure: 'El revisor emitió un rechazo sin explicar un defecto concreto del contenido.',
+    invalid_review_issue_reference: 'La explicación del rechazo no se vinculó correctamente al mensaje actual o al borrador.',
+    guidance_contains_factual_assertion: 'La ficha debe separar la orientación general de los datos que necesitan evidencia.',
     catalog_value_mismatch: 'Los valores declarados no coinciden con los datos verificados.',
     conflicting_evidence: 'El sistema preparó datos contradictorios para una misma unidad.',
     review_repair_omitted_facts: 'La reparación omitió relaciones que debía conservar.',
   }
   const causes = [...new Set(errors.map(error => text(error.code)))].map(code => `${descriptions[code] || code} (${errors.filter(error => error.code === code).length} comprobaciones afectadas).`)
   const corrections = list(review.reference_corrections)
-  if (!errors.length && corrections.length) causes.push(`Se resolvieron ${corrections.length} referencias internas sin cambiar el texto comercial ni sus valores.`)
+  const resolvedDetails = corrections.length ? [
+    `Se resolvieron ${corrections.length} referencias internas sin cambiar el texto comercial ni sus valores. Estas correcciones no son causas de rechazo.`,
+    ...corrections.map(correction => `${text(correction.code)}${text(correction.from) ? `: «${text(correction.from)}»` : ''}${text(correction.to) ? ` → «${text(correction.to)}»` : ''}.`),
+  ] : []
   if (!causes.length) causes.push(...details)
   const repair = attempts.length ? `Hubo ${attempts.length} intento(s) registrado(s). Consulte su resultado en Intento de reparación.`
     : eligibility.policy === 'review_metadata_v2' && eligibility.reason === 'data_or_evidence_error' ? 'La política distingue errores internos de discrepancias de datos. No se registró un intento; consulte la evidencia y el resultado final.'
@@ -82,5 +100,5 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
         : status === 'checked' ? 'No hubo intentos registrados; la propuesta quedó aprobada en este paso.'
           : errors.some(error => error.code === 'invalid_unit_fact') ? 'No hay intentos registrados. Este registro histórico no conserva la política que se ejecutó; no se atribuye a la política actual.'
             : 'No hay intentos registrados. Este registro no conserva un motivo específico para no reparar.'
-  return { tone, title, explanation, details, causes, repair }
+  return { tone, title, explanation, details, causes, repair, resolvedDetails, recoveryPending }
 }

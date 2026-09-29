@@ -12,6 +12,80 @@ function extract(current, property, pending = {}, answer = {}) {
   } }, current, pending)
 }
 
+function quantitiesTurn(current, quantities, property = {}, pending = {}) {
+  return normalizeTurnSemantics({ turn_semantics: {
+    primary_intent: 'select_property', primary_evidence: current, confidence: 'high', housing_quantities: quantities,
+    property: { operation: 'search', ...property, evidence: current, confidence: 'high' },
+  } }, current, pending)
+}
+
+const quantity = (dimension, values, evidence, role = 'context', count_basis = 'total') =>
+  ({ dimension, values, role, count_basis, evidence, confidence: 'high' })
+
+test('household counts never become bedroom filters, including the speaker when explicitly excluded', () => {
+  const current = 'es para mi y para mi familia, busco algo para unas 5 sin contar conmigo'
+  const result = quantitiesTurn(current, [quantity('people', [5], 'para unas 5 sin contar conmigo', 'context', 'excluding_speaker')],
+    { filters: { bedrooms: 5, bedrooms_required: true }, filter_evidence: { bedrooms: 'para unas 5 sin contar conmigo', bedrooms_required: current } })
+  assert.equal(result.household.occupants, 6)
+  assert.equal(result.property.filters.bedrooms, null)
+  assert.equal(result.property.filters.bedrooms_required, null)
+  assert.ok(result.normalization_issues.includes('bedroom_filter_without_bedroom_requirement'))
+  const explicit = 'Somos cinco personas en mi familia'
+  assert.equal(quantitiesTurn(explicit, [quantity('people', [5], explicit)]).household.occupants, 5)
+})
+
+test('people and bedroom requirements remain independent even with identical or competing numbers', () => {
+  for (const [current, people, bedrooms] of [['Somos seis y busco tres cuartos', 6, 3], ['Somos tres y necesitamos tres habitaciones', 3, 3]]) {
+    const result = quantitiesTurn(current, [quantity('people', [people], current), quantity('bedrooms', [bedrooms], current, 'requirement')],
+      { filters: { bedrooms }, filter_evidence: { bedrooms: current } })
+    assert.equal(result.household.occupants, people)
+    assert.equal(result.property.filters.bedrooms, bedrooms)
+  }
+  const current = 'Necesito cinco dormitorios'
+  const result = quantitiesTurn(current, [quantity('bedrooms', [5], current, 'requirement')],
+    { filters: { bedrooms: 5 }, filter_evidence: { bedrooms: current } })
+  assert.equal(result.property.filters.bedrooms, 5)
+  assert.equal(result.household, null)
+  const alternatives = 'Busco cinco o seis dormitorios'
+  assert.deepEqual(quantitiesTurn(alternatives, [quantity('bedrooms', [5, 6], alternatives, 'requirement')],
+    { filters: { bedrooms_any: [5, 6] }, filter_evidence: { bedrooms_any: alternatives } }).property.filters.bedrooms_any, [5, 6])
+})
+
+test('evaluating room suitability keeps the offered reference without manufacturing a new bedroom requirement', () => {
+  const current = '¿Me alcanzarán 3 dormitorios para una familia de 6?'
+  const pending = { id: 'unit_choice', act: 'explore_quoted_options', candidate_ids: ['u602', 'u605'], proposed_query: { filters: { bedrooms: 3 } } }
+  const result = quantitiesTurn(current, [quantity('bedrooms', [3], '3 dormitorios', 'evaluation'), quantity('people', [6], 'familia de 6')],
+    { operation: 'details', reference_kind: 'followup', query_scope: 'offered', filters: { bedrooms: 3 }, filter_evidence: { bedrooms: '3 dormitorios' } }, pending)
+  assert.equal(result.household.occupants, 6)
+  assert.equal(result.property.filters.bedrooms, null)
+  assert.equal(result.property.operation, 'details')
+  assert.equal(result.property.reference_kind, 'followup')
+  assert.equal(result.property.query_scope, 'offered')
+  assert.equal(result.answer_to_previous.question_id, null)
+})
+
+test('unclear quantities and ungrounded claims stay unknown instead of generating room filters', () => {
+  for (const [current, quantities] of [
+    ['Somos varios', [quantity('people', [], 'Somos varios', 'context', 'unspecified')]],
+    ['Busco algo para cinco', [quantity('unknown', [5], 'para cinco', 'unknown', 'unspecified')]],
+    ['Somos cuatro', [quantity('bedrooms', [5], 'necesito cinco dormitorios', 'requirement')]],
+    ['Somos cuatro', [{ ...quantity('bedrooms', [5], 'Somos cuatro', 'requirement'), confidence: 'low' }]],
+  ]) {
+    const result = quantitiesTurn(current, quantities, { filters: { bedrooms: 5 }, filter_evidence: { bedrooms: current } })
+    assert.equal(result.property.filters.bedrooms, null, current)
+    assert.equal(result.household, null, current)
+  }
+  const current = 'somos cuatro o cinco'
+  assert.equal(quantitiesTurn(current, [quantity('people', [4, 5], current)]).household, null)
+})
+
+test('a contextual bedroom answer remains valid without lexical room words', () => {
+  const current = 'tres'
+  const result = quantitiesTurn(current, [quantity('bedrooms', [3], current, 'requirement')],
+    { filters: { bedrooms: 3 }, filter_evidence: { bedrooms: current } }, { id: 'property_bedrooms', question: '¿Cuántos dormitorios necesita?' })
+  assert.equal(result.property.filters.bedrooms, 3)
+})
+
 test('per-field evidence separates current constraints from repeated historical characteristics', () => {
   const inherited = extract('qué cambia entre estas opciones?', { operation: 'compare', reference_kind: 'comparison',
     filters: { bedrooms: 3, floor_number: 6 }, filter_evidence: { bedrooms: '', floor_number: 'sexta planta' } })

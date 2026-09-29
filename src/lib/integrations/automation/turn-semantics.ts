@@ -45,10 +45,16 @@ const enumSchema = (values: Iterable<string>) => ({ type: 'string', enum: [...va
 const nullableEnumSchema = (values: Iterable<string>) => ({ type: ['string', 'null'], enum: [...values, null] })
 const strictObject = (properties: Record<string, unknown>) => ({ type: 'object', additionalProperties: false, properties, required: Object.keys(properties) })
 const confidenceSchema = enumSchema(['high', 'medium', 'low'])
+const housingQuantityDimensions = new Set(['people', 'bedrooms', 'unknown'])
+const housingQuantityRoles = new Set(['requirement', 'evaluation', 'context', 'unknown'])
+const housingQuantityBases = new Set(['total', 'excluding_speaker', 'unspecified'])
 
 /** The complete strict schema for the turn_semantics property of an extraction. */
 export const TURN_SEMANTICS_SCHEMA = strictObject({
   primary_intent: enumSchema(primaryIntents), primary_evidence: { type: 'string' }, confidence: confidenceSchema,
+  housing_quantities: { type: 'array', items: strictObject({ dimension: enumSchema(housingQuantityDimensions),
+    values: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 1000 } },
+    role: enumSchema(housingQuantityRoles), count_basis: enumSchema(housingQuantityBases), evidence: { type: 'string' }, confidence: confidenceSchema }) },
   answer_to_previous: strictObject({ question_id: enumSchema([...questionIds, 'none']), kind: enumSchema(answerKinds), evidence: { type: 'string' }, confidence: confidenceSchema }),
   reservation: strictObject({ kind: enumSchema(reservationKinds), evidence: { type: 'string' },
     unit_numbers: { type: 'array', items: { type: 'string' } }, confidence: confidenceSchema }),
@@ -114,11 +120,11 @@ export function propertyFiltersFromText(current: string, pendingId = ''): Proper
 }
 
 /** A request to change options is distinct from ranking the options already shown. */
-export function propertyPreferenceChange(current: string, previousQuery: unknown): Row {
+export function propertyPreferenceChange(current: string, previousQuery: unknown, semantics?: unknown): Row {
   const value = normalized(current)
   const previous = normalizedPropertyFilters(object(previousQuery).filters)
   const previousBedrooms = previous.bedrooms ?? (previous.bedrooms_any?.length ? Math.min(...previous.bedrooms_any) : null)
-  const bedrooms = propertyFiltersFromText(current).bedrooms
+  const bedrooms = propertyFiltersWithQuantityMeaning(propertyFiltersFromText(current), semantics).bedrooms
   const fewer = /\b(?:menos|menor cantidad de|menor numero de)\s+(?:dormitorios?|habitaciones?|cuartos?)\b/.test(value)
     && !/\bno\s+(?:quiero|deseo|acepto|busco|necesito)\s+(?:algo\s+con\s+)?menos\b|\bmenos\s+(?:dormitorios?|habitaciones?|cuartos?)\s+no\b/.test(value)
   const cheaper = /\b(?:mas\s+(?:economic[oa]s?|barat[oa]s?|accesibles?)|menor\s+precio|precio\s+mas\s+bajo)\b/.test(value)
@@ -160,6 +166,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
   "primary_intent":"request_visit|request_reservation|ask_reservation|answer_previous|select_property|ask_price|discuss_budget|ask_financing|project_information|other",
   "primary_evidence":"copia literal breve del mensaje actual",
   "confidence":"high|medium|low",
+  "housing_quantities":[{"dimension":"people|bedrooms|unknown","values":[],"role":"requirement|evaluation|context|unknown","count_basis":"total|excluding_speaker|unspecified","evidence":"copia literal actual","confidence":"high|medium|low"}],
   "answer_to_previous":{
     "question_id":"visit_invitation|visit_date_time|budget_amount|budget_kind|property_category|property_floor|property_bedrooms|property_area|unit_choice|purchase_timing|lead_profile|lead_profile_name|lead_profile_residence|lead_residence_confirmation|none",
     "kind":"affirmative|negative|uncertain|value|none",
@@ -196,6 +203,8 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.
 reservation distingue la intención de iniciar la separación/reserva (request), consultar condiciones o requisitos sin iniciar (information), rechazar o posponer ese proceso (declined) y ausencia de esa intención (none). «Quiero separar el 605», «ayúdeme a iniciar la reserva de esa unidad» y sus errores evidentes de escritura son request; «¿cuánto se paga para reservar?» o «¿cómo funciona la separación?» son information. «Por ahora no, entonces quiero separar el departamento 605» responde negativamente a la propuesta anterior y pide una reserva NUEVA: conserve answer_to_previous y use primary_intent=request_reservation, reservation.kind=request. La unidad mencionada identifica el objeto de la reserva, no convierte el turno en una nueva presentación ni en un recorrido. Copie evidencia literal de la petición completa, incluidas negaciones, condiciones y correcciones relevantes; no cite solo el verbo de una frase negada. Una reserva hipotética o condicionada no satisfecha no inicia el trámite. primary_intent=ask_reservation para information. El evento asked_reservation sirve para puntuar interés, nunca demuestra por sí solo que desea iniciar ahora. unit_numbers conserva los códigos realmente referidos y el catálogo comprobará su existencia; en referencias como «esa» puede usar una unidad inequívoca del contexto, nunca elegir entre varias. Solicitar el proceso requiere atención del asesor; no afirma disponibilidad, pago, reserva confirmada, cita, consentimiento financiero ni asesor asignado. No convierta la aceptación de detalles, una cifra de precio, un «sí» sin pregunta de reserva ni el historial en una solicitud nueva.
 En property.filters declare únicamente restricciones expresadas en el mensaje ACTUAL y copie en filter_evidence la frase literal que sustenta cada campo; deje vacío el resto. Las características de unidades ya ofrecidas pertenecen al contexto, no son filtros nuevos. Para comparar, pedir detalles o clasificar esas opciones, use operation, reference_kind, query_scope y unit_numbers; no repita sus dormitorios, planta o áreas como restricciones actuales. Una nueva restricción sí puede refinar el conjunto referido y necesita su propia evidencia, aunque esté expresada de forma natural y sin cifras.
+Antes de fijar dormitorios, interprete el significado de cada cantidad relevante en housing_quantities. dimension=people cuenta ocupantes/familiares; bedrooms cuenta dormitorios; unknown conserva una cantidad cuyo objeto no se puede resolver. Nunca convierta personas en dormitorios ni deduzca cuartos por ocupante. values contiene las cantidades expresadas (también en palabras) y queda [] si no hay una cantidad conocida. Para personas use count_basis=total si la cifra incluye al hablante, excluding_speaker si explícitamente lo excluye, unspecified si no se sabe; el sistema suma uno únicamente en excluding_speaker. «Somos seis» es people [6] total; «es para mi familia, unas cinco sin contar conmigo» es people [5] excluding_speaker, NO bedrooms=5. «Somos varios» conserva people [] unspecified. Si hay una corrección, conserve la cantidad corregida con la evidencia que la distingue; no sume familiares o cifras que puedan solaparse.
+role=requirement expresa una restricción solicitada; evaluation pregunta si las opciones o su distribución sirven al cliente; context describe su situación sin imponer un filtro. Un número de dormitorios en property.filters debe corresponder a housing_quantities con dimension=bedrooms y role=requirement. «Somos seis y busco tres cuartos» separa people [6] context de bedrooms [3] requirement. «¿Alcanzarán tres dormitorios para una familia de seis?» separa bedrooms [3] evaluation y people [6] context: no introduce una nueva búsqueda, conserva las opciones ofrecidas con operation=details y reference_kind=followup cuando existan. Puede orientar sobre esas distribuciones sin volver a preguntar cuántos dormitorios quiere. Una respuesta numérica a la pregunta pendiente de dormitorios sí puede ser requirement aunque no repita el sustantivo. La evidencia debe conservar el contexto que distingue las cantidades, no solo una cifra aislada. No rellene cantidades a partir del historial. Use [] cuando este turno no declare ni evalúe cantidades de vivienda.
 Resuelva primero sobre QUÉ pide información. Una solicitud general tras solo saludos es primary_intent=project_information y property.operation=none, aunque tenga errores de escritura. Con una unidad o alternativas activas, «quiero información», «sí, envíeme detalles» o «¿y los precios?» continúan ese referente: use details, followup y el alcance correspondiente; no reinicie la presentación ni busque todo el catálogo. Una petición explícita de información general del proyecto cambia el tema. Si hay varias solicitudes, conserve todas; si el referente es ambiguo, no invente una unidad. Aceptar explorar alternativas no elimina la necesidad original, pero la búsqueda activa debe seguir las alternativas propuestas, no repetir el filtro sin resultados.
 answer_to_previous solo puede usar el question_id exacto recibido en pregunta_pendiente. Si no responde esa pregunta, use question_id=none y kind=none.
 Las preguntas lead_profile, lead_profile_name y lead_profile_residence recogen nombre y/o residencia; lead_residence_confirmation confirma si residence_candidate es la residencia actual. Una respuesta «sí» a esa confirmación es affirmative SOLO de lead_residence_confirmation, nunca acepta una visita, crédito o unidad. «No, vivo en otra ciudad» puede contestar negative y aportar la residencia explícita al perfil. El lugar candidato y su evidencia pertenecen al perfil, no al catálogo: nunca los convierta en unit_numbers, filtros o una propiedad seleccionada. Cuando no hay una pregunta de confirmación con candidato registrado, un «sí» aislado no declara una ciudad. Una respuesta al perfil puede además traer otra consulta; preserve ambas sin inventar autorización operativa.
@@ -222,6 +231,44 @@ function literalEvidence(value: unknown, current: string) {
   const evidence = text(value).trim()
   if (!evidence || evidence.length > 240) return ''
   return normalized(current).includes(normalized(evidence)) ? evidence : ''
+}
+
+/** The model owns the meaning of quantities; normalization only checks its typed,
+ * current evidence and keeps people and catalogue constraints in separate domains. */
+function normalizedHousingQuantities(raw: unknown, current: string): Row[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(object).flatMap(quantity => {
+    const evidence = literalEvidence(quantity.evidence, current)
+    if (quantity.confidence !== 'high' || !evidence || !housingQuantityDimensions.has(text(quantity.dimension))
+      || !housingQuantityRoles.has(text(quantity.role)) || !housingQuantityBases.has(text(quantity.count_basis))) return []
+    const values = Array.isArray(quantity.values)
+      ? [...new Set(quantity.values.filter(value => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 1000))] : []
+    return [{ dimension: quantity.dimension, values, role: quantity.role, count_basis: quantity.count_basis, evidence, confidence: 'high' }]
+  }).slice(0, 12)
+}
+
+function householdFromQuantities(quantities: Row[]): Row | null {
+  const people = quantities.filter(quantity => quantity.dimension === 'people' && quantity.role !== 'unknown')
+  const totals = people.filter(quantity => Array.isArray(quantity.values) && quantity.values.length === 1
+    && ['total', 'excluding_speaker'].includes(text(quantity.count_basis)))
+    .map(quantity => ({ occupants: Number((quantity.values as number[])[0]) + (quantity.count_basis === 'excluding_speaker' ? 1 : 0), evidence: quantity.evidence }))
+  const unique = [...new Set(totals.map(total => total.occupants))]
+  return unique.length === 1 ? { occupants: unique[0], evidence: totals.map(total => total.evidence).join('; '), confidence: 'high' } : null
+}
+
+/** Every consumer of current lexical filters must honor the same interpreted
+ * dimension; otherwise a second parser can recreate a rejected constraint. */
+export function propertyFiltersWithQuantityMeaning(rawFilters: unknown, semantics: unknown): PropertyFilters {
+  const filters = normalizedPropertyFilters(rawFilters), data = object(semantics)
+  if (!Object.hasOwn(data, 'housing_quantities')) return filters
+  const quantities = Array.isArray(data.housing_quantities) ? data.housing_quantities.map(object) : []
+  const requested = quantities.filter(quantity => quantity.dimension === 'bedrooms' && quantity.role === 'requirement' && quantity.confidence === 'high')
+    .flatMap(quantity => Array.isArray(quantity.values) ? quantity.values : [])
+  const values = filters.bedrooms_any?.length ? filters.bedrooms_any : filters.bedrooms !== null ? [filters.bedrooms] : []
+  if (values.some(value => !requested.includes(value))) {
+    filters.bedrooms = null; delete filters.bedrooms_any; filters.bedrooms_required = null
+  }
+  return filters
 }
 
 /** Current, typed model evidence authorizes a request to start; catalogue and execution validate the result separately. */
@@ -303,6 +350,8 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     ? text(property.category) : null
   const value = normalized(current)
   const normalizationIssues: string[] = []
+  const housingQuantities = normalizedHousingQuantities(data.housing_quantities, current)
+  const hasQuantityContract = Object.hasOwn(data, 'housing_quantities')
   const mentionedCategories = [...propertyCategories].filter(candidate => new RegExp(candidate === 'departamento'
     ? '\\b(?:departamentos?|departametnos?|departametos?|apartamentos?)\\b' : `\\b${candidate}s?\\b`).test(value))
   if (!propertyConfident && mentionedCategories.length === 1 && !/\b(?:no quiero|no prefiero|no me interesa|descarto)\b/.test(value)) category = mentionedCategories[0]
@@ -346,6 +395,17 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   }
   if (filters.bedrooms !== null && !semanticFilters.bedrooms_any?.includes(filters.bedrooms)) delete filters.bedrooms_any
   else if (filters.bedrooms_any?.length) filters.bedrooms = null
+  // A syntactically valid integer is insufficient: the same number may refer
+  // to people or evaluate existing options. Do not let the lexical fallback
+  // recreate a filter that the typed current interpretation does not support.
+  if (hasQuantityContract) {
+    const groundedFilters = propertyFiltersWithQuantityMeaning(filters, { housing_quantities: housingQuantities })
+    if (groundedFilters.bedrooms !== filters.bedrooms || JSON.stringify(groundedFilters.bedrooms_any) !== JSON.stringify(filters.bedrooms_any)) {
+      filters.bedrooms = null; delete filters.bedrooms_any; filters.bedrooms_required = null
+      filterEvidence.bedrooms = ''; filterEvidence.bedrooms_any = ''; filterEvidence.bedrooms_required = ''
+      normalizationIssues.push('bedroom_filter_without_bedroom_requirement')
+    }
+  }
   const hasFilters = Object.values(filters).some(value => value !== null)
   if (hasFilters && pendingId.startsWith('budget') && /habit|dormitor|cuarto|planta|piso|opciones/.test(value)) {
     answerQuestionId = ''; normalizationIssues.push('property_query_is_not_budget_answer')
@@ -381,6 +441,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     primary_evidence: primaryIntent === 'other' ? null : reservationIntent ? reservation.evidence : primaryEvidence,
     confidence: primaryIntent === 'other' ? 'low' : 'high',
     reservation,
+    ...(hasQuantityContract ? { housing_quantities: housingQuantities, household: householdFromQuantities(housingQuantities) } : {}),
     interpretation: { extractor_primary_intent: extractedPrimaryIntent, canonical_primary_intent: primaryIntent, decisions },
     property: {
       group, category, excluded_categories: excluded, operation, filters, query_scope: queryScope,

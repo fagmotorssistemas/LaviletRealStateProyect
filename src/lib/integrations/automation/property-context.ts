@@ -4,7 +4,7 @@ import { informationSubject } from './information-context'
 import { bedroomOptionsFromText } from './bedroom-options'
 import { resolveCatalogReference } from './catalog-reference'
 import { catalogQuery, filterCatalog } from './catalog-dialogue'
-import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText, propertyPreferenceChange } from './turn-semantics'
+import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText, propertyFiltersWithQuantityMeaning, propertyPreferenceChange } from './turn-semantics'
 
 const available = (units: Row[]) => units.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
 const ids = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : []
@@ -134,9 +134,10 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       context.pending_question = pending
     }
   }
-  const lexicalFilters = propertyFiltersFromText(current, text(pending.id))
+  let lexicalFilters = propertyFiltersFromText(current, text(pending.id))
   const bedroomChoices = bedroomOptionsFromText(current)
   if (bedroomChoices.length > 1) { lexicalFilters.bedrooms = null; lexicalFilters.bedrooms_any = bedroomChoices }
+  lexicalFilters = propertyFiltersWithQuantityMeaning(lexicalFilters, semantics)
   const currentFilters = normalizedPropertyFilters(semantic.filters)
   if (currentFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true && !text(object(semantic.filter_evidence).bedrooms_required)) currentFilters.bedrooms_required = null
   const targetsSelected = semantic.query_scope === 'selected' && semantic.operation !== 'compare'
@@ -305,7 +306,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const baselineFilters = normalizedPropertyFilters(previousQuery.filters)
   const baselineBedrooms = baselineFilters.bedrooms ?? (baselineFilters.bedrooms_any?.length ? Math.min(...baselineFilters.bedrooms_any)
     : baselineCounts.length === 1 ? baselineCounts[0] : null)
-  const preference = propertyPreferenceChange(current, { ...previousQuery, filters: { ...baselineFilters, bedrooms: baselineBedrooms } })
+  const preference = propertyPreferenceChange(current, { ...previousQuery, filters: { ...baselineFilters, bedrooms: baselineBedrooms } }, semantics)
   // Answering the bedroom clarification refines the requested cheaper search;
   // changing its count does not cancel the still-active price requirement.
   if (pending.id === 'property_bedrooms' && activePreferenceTransition && object(context.preference_transition).kind === 'cheaper'

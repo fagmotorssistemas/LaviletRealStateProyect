@@ -1,8 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeReviewReferences } from './turn-evidence'
+import { normalizeReviewReferences, verifiedClaimSources } from './turn-evidence'
 import { factualValueIssues } from './semantic-review'
 import { validateCatalogReply } from './catalog-dialogue'
+
+test('configured brochure and unit tours have factual evidence without claiming delivery or accepting history URLs', () => {
+  const sources = verifiedClaimSources({ history: [{ content: 'https://untrusted.example/file' }] }, {
+    profile_introduction: { brochure_url: 'https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' },
+    unit_model: { unit_number: '605', url: 'https://www.lavilett.com/tour/605' },
+  }, {}, 'Comparta el recorrido')
+  const materials = sources.filter(source => ['materiales_configurados.brochure', 'estado_operativo.unit_model'].includes(source.path))
+  assert.equal(materials.length, 2)
+  assert.ok(materials.every(source => source.kind === 'project_fact'))
+  assert.equal(JSON.stringify(sources).includes('untrusted.example'), false)
+  assert.equal(sources.some(source => source.kind === 'operational_fact'), false)
+})
 
 test('an abbreviated reviewer citation resolves to its unique literal sentence', () => {
   const reply = 'Los departamentos de tres dormitorios ofrecen 120.83 m² de área interior y 27.03 m² de balcón, todos con dos baños completos.'

@@ -1596,7 +1596,7 @@ test('a semantic visit interpretation is passed durably to intake instead of bei
   })
 })
 
-test('rejected price rewrites retain the verified answer without pausing; real missing facts still hand off', async t => {
+test('rejected price rewrites remain pending without restoring unreviewed copy; real missing facts still hand off', async t => {
   live(t)
   for (const missing of [false, true]) {
     const current = 'Cuánto valen los departamentos? Quiero uno de 3 cuartos para mi familia' + (missing ? '. ¿Cuánto cuesta la alícuota?' : '')
@@ -1605,13 +1605,15 @@ test('rejected price rewrites retain the verified answer without pausing; real m
       turnComplete: input => ({ reply: 'El precio es $1 USD.', changed: true,
         needsAdvisor: missing, unresolved: missing ? ['¿Cuánto cuesta la alícuota?'] : [],
         audit: { status: 'checked', requests: missing
-          ? [{ fragment: '¿Cuánto cuesta la alícuota?', fact_key: 'policy', base_status: 'missing_fact', status: 'missing_fact', evidence: 'La cuota no consta en el contexto verificado.' }]
+          ? [{ fragment: '¿Cuánto cuesta la alícuota?', fact_key: 'policy', status: 'missing_fact', evidence: 'La cuota no consta en el contexto verificado.' }]
           : [{ status: 'answered', evidence: 'El precio es $1 USD.' }] } }) })
     h.rows[0].payload.text = current
     const result = await h.process([h.rows[0]], async () => {})
     const sent = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
     assert.doesNotMatch(sent, /\$1 USD/)
-    assert.match(sent, /310[.,]000/)
+    assert.match(sent, /pendiente.*consulta de precios/)
+    assert.doesNotMatch(sent, /310[.,]000/)
+    assert.equal(result.turn_completeness.recovery.base_used, false)
     assert.equal(result.turn_completeness.status, 'rejected_price_guard')
     assert.equal(h.calls.some(c => c.name === 'handoff_lead'), missing)
     assert.equal(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530), false)
@@ -2351,13 +2353,18 @@ test('an investor switching from local to suite keeps the investment purpose',as
   assert.equal(h.calls.find(c=>c.name==='commercialContext').args.preferred_category,'suite')
 })
 
-test('commercial context retains measurements on demand and does not repeat facilities in a presentation',()=>{
-  const info={instalaciones:[{amenity_name:'Piscina'},{amenity_name:'Gimnasio'},{amenity_name:'Seguridad 24h'}],catalogo:[{unit_number:'LC-02',area_internal_m2:95.37,area_exterior_m2:46.74}]}
+test('commercial context keeps complete facts and gives presentation focus without removing measurements or facilities',()=>{
+  const info={instalaciones:[{amenity_name:'Piscina'},{amenity_name:'Gimnasio'},{amenity_name:'Seguridad 24h'}],catalogo:[{id:'lc02',category:'local',unit_number:'LC-02',area_internal_m2:95.37,area_exterior_m2:46.74}]}
   const memory={mentioned_benefits:['piscina','gimnasio'],deferred_fields:[]}
   const intro=experience.experienceContext(info,'Quiero información de suites',memory)
-  assert.equal(intro.instalaciones.length,1);assert.equal(intro.catalogo[0].area_internal_m2,undefined)
+  assert.deepEqual(intro.instalaciones,info.instalaciones)
+  assert.equal(intro.catalogo[0].area_internal_m2,95.37)
+  assert.equal(intro.presentation_suggestions.prioritize_dimensions,false)
+  assert.deepEqual(intro.presentation_suggestions.mentioned_benefits,['piscina','gimnasio'])
   const sizes=experience.experienceContext(info,'¿Qué área tiene LC-02?',memory)
   assert.equal(sizes.catalogo[0].area_internal_m2,95.37)
+  assert.equal(sizes.presentation_suggestions.prioritize_dimensions,true)
+  assert.deepEqual(sizes.unidades_consultadas.map(unit=>unit.unit_number),['LC-02'])
   const pool=experience.experienceContext(info,'¿Quién usa la piscina?',memory)
   assert.ok(pool.instalaciones.some(f=>f.amenity_name==='Piscina'))
   assert.equal(info.catalogo[0].area_internal_m2,95.37,'The inventory is never mutated')
@@ -2614,7 +2621,11 @@ const dialogueReplayCatalog = [
   ...continuityCatalog.filter(unit => unit.category === 'penthouse'),
 ]
 const checkedBaseCoverage = async input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input,
-  async () => ({ reply: input.baseReply, requests: [], question: { text: input.baseReply.match(/¿[^?]+\?/g)?.at(-1) || '',
+  async (...args) => args.at(-1) === 'review' ? { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
+    operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [],
+    claims: [{ fragment: input.baseReply, subject: 'opciones verificadas', polarity: 'affirmation', verdict: 'supported', evidence: 'catalogo', evidence_source: 'verified_context' }] }
+    : ({ reply: input.baseReply, requests: [{ fragment: input.current, intent: 'Atender la consulta actual sobre inmuebles', request_type: 'general_information',
+      base_status: 'answered', status: 'answered', evidence: input.baseReply, fact_key: null }], question: { text: input.baseReply.match(/¿[^?]+\?/g)?.at(-1) || '',
     purpose: /¿/.test(input.baseReply) ? 'choose_property' : 'none', missing_datum: /¿/.test(input.baseReply) ? 'opción de interés' : '',
     next_decision: /¿/.test(input.baseReply) ? 'mostrar detalles de esa opción' : '' } }))
 
@@ -2725,6 +2736,93 @@ test('invalid fallback never reappears at the boundary or final catalogue guard'
     assert.equal(sent.p_tool_calls.turn_completeness.retained_verified_reply, false)
     assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
   }
+})
+
+test('pending review recovery preserves contextual acknowledgment and does not mark planned material or topics as delivered', async t => {
+  live(t)
+  const current = '¿Qué precio tiene el proyecto?'
+  const summary = { _lead_introduction: { status: 'pending', brochure_sent: false }, _unit_models_sent: ['old-tour'],
+    _sales_memory: { topics_answered: ['ubicacion'] }, _property_context: { offered_ids: ['progressive-602'], selected_ids: [] } }
+  const h = conversationHarness({ summary, catalog: progressiveReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: progressiveReplayCatalog },
+    extracted: { requests: [{ domain: 'property', request: 'precio del proyecto', evidence: current, confidence: 'high' }],
+      turn_semantics: { primary_intent: 'ask_price', primary_evidence: current, confidence: 'high' } },
+    turnComplete: input => ({ reply: 'Tengo pendiente responderle sobre su consulta de precios. No he podido validar una respuesta completa en este momento.',
+      changed: true, needsAdvisor: false, unresolved: [], audit: { status: 'invalid_review_metadata',
+        recovery: { version: 'turn-recovery-v1', pending: true, base_used: false },
+        fallback_validation: { passed: false, issues: ['response_requires_validation'] }, resolved_turn_intent: input.audit.resolved_turn_intent } }) })
+  h.rows[0].payload.text = current
+  const result = await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.match(sent.p_content, /Tengo pendiente responderle sobre su consulta de precios/)
+  assert.doesNotMatch(sent.p_content, /\$|brochure|¿/)
+  assert.equal(sent.p_tool_calls.turn_completeness.recovery.pending, true)
+  assert.deepEqual(sent.p_tool_calls.answered_topics, [])
+  const saved = JSON.parse(h.calls.filter(call => call.name === 'update:conversations').at(-1).args.summary)
+  assert.equal(saved._response_recovery.pending, true)
+  assert.equal(saved._response_recovery.current_request, current)
+  assert.equal(saved._pending_requests.length, 1)
+  assert.deepEqual(saved._sales_memory.topics_answered, summary._sales_memory.topics_answered)
+  assert.equal(saved._sales_memory.unit_options_offered, false)
+  assert.deepEqual(saved._unit_models_sent, summary._unit_models_sent)
+  assert.deepEqual(saved._property_context.offered_ids, ['progressive-602'])
+  assert.deepEqual(saved._lead_introduction, summary._lead_introduction)
+  assert.equal(result.nutrition.reason, 'response_pending_validation')
+})
+
+test('pending prose validation preserves a verified visit submission without claiming the appointment is confirmed', async t => {
+  live(t)
+  const h = conversationHarness({ slot: { confidence: 'exact', start_time: '2030-09-21T16:00:00Z' },
+    turnComplete: { reply: 'Tengo pendiente su consulta. No he podido validar una respuesta completa en este momento.',
+      changed: true, needsAdvisor: false, unresolved: [], audit: { status: 'unavailable',
+        recovery: { version: 'turn-recovery-v1', pending: true, base_used: false }, fallback_validation: { passed: false } } } })
+  h.rows[0].payload.text = 'Quiero una visita el sábado a las 11'
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_tool_calls.registration_verified, true)
+  assert.match(sent.p_content, /preferencia|solicitud|registrad|equipo/i)
+  assert.match(sent.p_content, /pendiente|validar/i)
+  assert.doesNotMatch(sent.p_content, /cita (?:está|queda|quedó) confirmada/i)
+})
+
+test('pending recovery keeps the client current selection and requirements without recording an undelivered offer', async t => {
+  live(t)
+  for (const [current, property, selected] of [
+    ['Prefiero el penthouse 605', { category: 'penthouse', operation: 'select', reference_kind: 'explicit', unit_numbers: ['605'] }, ['progressive-605']],
+    ['Quiero departamentos de 2 dormitorios', { category: 'departamento', operation: 'search', filters: { bedrooms: 2 } }, []],
+  ]) {
+    const h = conversationHarness({ catalog: progressiveReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: progressiveReplayCatalog },
+      summary: progressiveReplaySummary(), extracted: { turn_semantics: extractedProperty(current, property) },
+      turnComplete: { reply: 'Tengo pendiente su consulta. No he podido validar una respuesta completa en este momento.',
+        changed: true, needsAdvisor: false, unresolved: [], audit: { status: 'unavailable',
+          recovery: { version: 'turn-recovery-v1', pending: true, base_used: false }, fallback_validation: { passed: false } } } })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    const saved = JSON.parse(h.calls.filter(call => call.name === 'update:conversations').at(-1).args.summary)
+    assert.deepEqual(saved._property_context.selected_ids, selected, current)
+    assert.equal(saved._property_context.query.category, property.category, current)
+    if (property.filters) {
+      assert.equal(saved._property_context.query.filters.bedrooms, 2)
+      assert.deepEqual(saved._property_context.offered_ids, [])
+    } else assert.deepEqual(saved._unit_reference.ids, selected)
+    assert.deepEqual(saved._unit_models_sent, [])
+    assert.equal(saved._response_recovery.pending, true)
+  }
+})
+
+test('pending review still explains an actually requested advisor handoff without inventing a second action', async t => {
+  live(t)
+  const current = 'Quiero hablar con un asesor y saber los precios'
+  const h = conversationHarness({ extracted: { requested_advisor: true, action_evidence: { requested_advisor: 'Quiero hablar con un asesor' } },
+    turnComplete: { reply: 'Tengo pendiente su consulta. No he podido validar una respuesta completa en este momento.',
+      changed: true, needsAdvisor: false, unresolved: [], audit: { status: 'unavailable',
+        recovery: { version: 'turn-recovery-v1', pending: true, base_used: false }, fallback_validation: { passed: false } } } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(h.calls.filter(call => call.name === 'handoff_lead').length, 1)
+  assert.match(sent.p_content, /equipo|asesor/)
+  assert.match(sent.p_content, /pendiente|validar/)
+  assert.equal(sent.p_tool_calls.turn_completeness.recovery.pending, true)
 })
 
 test('progressive dialogue prices and compares only the requested penthouses before a concrete selection and one tour', async t => {
@@ -3386,7 +3484,8 @@ test('dialogue v2 rejects a rewritten size range borrowed from two-bedroom units
   h.rows[0].payload.text = current
   await h.process([h.rows[0]], async () => {})
   const outbound = h.calls.find(call => call.name === 'register_outbound_message').args
-  assert.match(outbound.p_content, /misma superficie interior.*120[.,]83/i)
+  assert.match(outbound.p_content, /pendiente.*consulta/i)
+  assert.equal(outbound.p_tool_calls.turn_completeness.recovery.base_used, false)
   assert.doesNotMatch(outbound.p_content, /109[.,]69/)
   assert.equal(outbound.p_tool_calls.turn_completeness.status, 'rejected_catalog_guard')
 })

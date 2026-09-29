@@ -3,6 +3,103 @@ import { decimalNumber, endpointBefore, numericOperators, relationBefore, satisf
 
 const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number']
 
+const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+const numberWords: Record<string, number> = {
+  cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9,
+  diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19,
+  veinte: 20, veintiun: 21, veintiuno: 21, veintiuna: 21, veintidos: 22, veintitres: 23, veinticuatro: 24, veinticinco: 25,
+  veintiseis: 26, veintisiete: 27, veintiocho: 28, veintinueve: 29, treinta: 30, cuarenta: 40, cincuenta: 50,
+  sesenta: 60, setenta: 70, ochenta: 80, noventa: 90, cien: 100, ciento: 100, doscientos: 200, doscientas: 200,
+  trescientos: 300, trescientas: 300, cuatrocientos: 400, cuatrocientas: 400, quinientos: 500, quinientas: 500,
+  seiscientos: 600, seiscientas: 600, setecientos: 700, setecientas: 700, ochocientos: 800, ochocientas: 800,
+  novecientos: 900, novecientas: 900,
+}
+const ordinals: Record<string, number> = { primer: 1, primero: 1, primera: 1, segundo: 2, segunda: 2, tercer: 3, tercero: 3, tercera: 3,
+  cuarto: 4, cuarta: 4, quinto: 5, quinta: 5, sexto: 6, sexta: 6, septimo: 7, septima: 7, octavo: 8, octava: 8,
+  noveno: 9, novena: 9, decimo: 10, decima: 10 }
+
+/** Values actually written, with stable offsets into the original prose. The
+ * reviewer may use digits for a value expressed in words, without dictating copy. */
+export function numericMentions(value: string): Array<{ value: number; index: number; end: number; text: string }> {
+  const tokens = [...value.matchAll(/\d[\d.,]*|[a-záéíóúüñ]+/gi)]
+  const result: Array<{ value: number; index: number; end: number; text: string }> = []
+  for (let i = 0; i < tokens.length; i++) {
+    const word = normalized(tokens[i][0]), digit = /^\d/.test(word)
+    if (!digit && numberWords[word] == null && ordinals[word] == null && word !== 'mil') continue
+    const start = tokens[i].index!, ordinal = !digit && ordinals[word] != null && numberWords[word] == null
+    if (ordinal && !/^(?:planta|piso|nivel)$/.test(normalized(tokens[i + 1]?.[0] || ''))
+      && !/^(?:planta|piso|nivel)$/.test(normalized(tokens[i - 1]?.[0] || ''))) continue
+    let end = start + tokens[i][0].length, sum = 0, section = digit ? decimalNumber(word) : (numberWords[word] ?? ordinals[word] ?? 1000)
+    if (!ordinal) for (let j = i + 1; j < tokens.length; j++) {
+      if (/[.,]$/.test(tokens[j - 1][0]) || !/^\s+$/.test(value.slice(end, tokens[j].index))) break
+      const next = normalized(tokens[j][0])
+      if (next === 'coma' || next === 'punto') {
+        let decimals = '', decimalEnd = end, last = j
+        for (let k = j + 1; k < tokens.length; k++) {
+          if (!/^\s+$/.test(value.slice(tokens[k - 1].index! + tokens[k - 1][0].length, tokens[k].index))) break
+          const fractional = normalized(tokens[k][0])
+          if (/^\d+$/.test(fractional)) decimals += fractional
+          else if (numberWords[fractional] != null && numberWords[fractional] < 100) {
+            let part = numberWords[fractional]
+            if (part >= 20 && normalized(tokens[k + 1]?.[0] || '') === 'y'
+              && numberWords[normalized(tokens[k + 2]?.[0] || '')] < 10) {
+              part += numberWords[normalized(tokens[k + 2][0])]; k += 2
+            }
+            decimals += String(part)
+          } else break
+          decimalEnd = tokens[k].index! + tokens[k][0].length; last = k
+        }
+        if (decimals) { section += Number('0.' + decimals); end = decimalEnd; i = last }
+        break
+      }
+      if (next === 'y' && numberWords[normalized(tokens[j + 1]?.[0] || '')] != null && section % 100 >= 20
+        && numberWords[normalized(tokens[j + 1][0])] < 10) {
+        end = tokens[j].index! + tokens[j][0].length; i = j; continue
+      }
+      if (next === 'mil') section = (section || 1) * 1000
+      else if (next === 'millon' || next === 'millones') { sum += (section || 1) * 1_000_000; section = 0 }
+      else if (numberWords[next] != null && !/^\d/.test(tokens[j - 1][0])
+        && (section >= 100 || normalized(tokens[j - 1][0]) === 'y')) section += numberWords[next]
+      else break
+      end = tokens[j].index! + tokens[j][0].length; i = j
+    }
+    result.push({ value: sum + section, index: start, end, text: value.slice(start, end) })
+  }
+  return result
+}
+
+function numericExpressionPresent(fact: Row, fragment: string) {
+  const literals = numericMentions(fragment), matching = literals.filter(match => satisfiesNumeric(match.value, Number(fact.value)))
+  if (!matching.length) return false
+  const operator = fact.operator || 'eq'
+  if (operator === 'eq') return true
+  if (operator === 'between') return matching.some(lower => literals.some(upper => satisfiesNumeric(upper.value, Number(fact.upper_value))
+    && upper.index > lower.index
+    && /^(?:\s*(?:usd|dolares|m2|m²|metros cuadrados|\$|us\$|€|eur))?\s*(?:hasta|a|y|–|-)\s*(?:(?:usd|us\$|\$|€|eur)\s*)?$/.test(normalized(fragment.slice(lower.end, upper.index)))
+    && (/\b(?:entre|desde|de)\s*(?:(?:usd|us\$|\$|€|eur)\s*)?$/.test(normalized(fragment.slice(0, lower.index)))
+      || !/\by\b/.test(normalized(fragment.slice(lower.end, upper.index))))))
+  return matching.some(match => relationBefore(fragment.slice(0, match.index)) === operator)
+}
+
+/** Reject an explicit wrong dimension, not an unfamiliar way of writing a
+ * valid fact. An absent label stays with semantic review; people are not rooms. */
+function numericFieldContradictsText(fact: Row, fragment: string): boolean {
+  const value = normalized(fragment)
+  const mentions = numericMentions(fragment).filter(mention => mention.value === fact.value)
+  const dimensions = mentions.map(mention => {
+    const before = value.slice(0, mention.index), after = value.slice(mention.end)
+    if (/^\s*(?:personas|integrantes|miembros|hijos|hijas|habitantes|familiares|ocupantes|adultos|ninos|ninas)\b/.test(after)) return 'household'
+    if (/^\s*(?:dormitorios?|habitaciones?|cuartos?)\b/.test(after)) return 'bedrooms'
+    if (/^\s*banos?\b/.test(after)) return 'bathrooms_full'
+    if (/^\s*(?:planta|piso|nivel)\b/.test(after) || /\b(?:planta|piso|nivel)\s*$/.test(before)) return 'floor_number'
+    if (/(?:\$|\busd|\bdolares?)\s*$/.test(before) || /^\s*(?:usd|dolares?)\b/.test(after)) return 'published_commercial_price'
+    if (/^\s*(?:m²|m2|metros? cuadrados?)(?![a-z0-9])/.test(after)) return 'area'
+    return null
+  })
+  return dimensions.length > 0 && dimensions.every(dimension => dimension !== null
+    && dimension !== fact.field && !(dimension === 'area' && /^area_/.test(text(fact.field))))
+}
+
 /** Historical evidence from this event only, never today's catalogue. */
 export function reviewReferenceSnapshot(result: unknown): Row[] {
   const coverage = object(object(result).turn_completeness)
@@ -33,26 +130,21 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
   return value.flatMap((raw, index) => {
     const fact = object(raw), unit = units.find(unit => unit.id === fact.unit_id), field = text(fact.field)
     const detail = { index, fragment: text(fact.fragment), unit_id: fact.unit_id, field, received: fact.value }
+    const fragment = text(fact.fragment)
+    if (!fragment.trim() || !reply.includes(fragment))
+      return [{ ...detail, code: 'review_fragment_not_in_reply', kind: 'review_metadata' }]
     if (fact.operator !== 'between' && fact.upper_value != null)
       return [{ ...detail, code: 'unexpected_numeric_upper_bound', kind: 'review_metadata' }]
-    if (fact.operator && fact.operator !== 'eq') {
-      const fragment = text(fact.fragment).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-      const literals = [...fragment.matchAll(/\d[\d.,]*/g)]
-      const matching = literals.filter(match => decimalNumber(match[0]) === fact.value)
-      const expressed = fact.operator === 'between'
-        ? matching.some(lower => literals.some(upper => decimalNumber(upper[0]) === fact.upper_value && upper.index! > lower.index!
-          && /^(?:\s*(?:usd|dolares|m2|m²|metros cuadrados|\$|us\$|€|eur))?\s*(?:hasta|a|y|–|-)\s*(?:(?:usd|us\$|\$|€|eur)\s*)?$/.test(fragment.slice(lower.index! + lower[0].length, upper.index))
-          && (/\b(?:entre|desde|de)\s*(?:(?:usd|us\$|\$|€|eur)\s*)?$/.test(fragment.slice(0, lower.index))
-            || !/\by\b/.test(fragment.slice(lower.index! + lower[0].length, upper.index)))))
-        : matching.some(match => relationBefore(fragment.slice(0, match.index)) === fact.operator)
-      if (!matching.length || !expressed) return [{ ...detail, code: 'numeric_relation_not_in_reply', kind: 'review_metadata' }]
-    }
+    if (typeof fact.value === 'number' && Number.isFinite(fact.value) && !numericExpressionPresent(fact, fragment))
+      return [{ ...detail, code: 'numeric_relation_not_in_reply', kind: 'review_metadata' }]
     if (!unit || !factFields.includes(field) || typeof fact.value !== 'number' || !Number.isFinite(fact.value)) {
       const numbered = !unit ? units.filter(candidate => text(candidate.unit_number) === text(fact.unit_id)) : []
       return [{ ...detail, code: 'invalid_unit_fact', kind: 'review_metadata',
         reason: !unit ? 'unit_id_not_in_catalog' : !factFields.includes(field) ? 'unsupported_field' : 'invalid_numeric_value',
         ...(numbered.length === 1 ? { expected_unit_id: numbered[0].id, unit_number: numbered[0].unit_number } : {}) }]
     }
+    if (numericFieldContradictsText(fact, fragment))
+      return [{ ...detail, code: 'numeric_field_not_in_reply', kind: 'review_metadata' }]
     if (unit.aggregation === 'range') {
       const upper = object(unit.upper_values)[field]
       if (fact.operator !== 'between') return [{ ...detail, code: 'range_reference_requires_interval', kind: 'review_metadata' }]
@@ -63,13 +155,10 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
       return [{ ...detail, code: 'interval_requires_range_reference', kind: 'review_metadata' }]
     } else if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value))
       return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected: unit[field] ?? null }]
-    const fragment = text(fact.fragment)
-    const endpoint = [...fragment.matchAll(/\d[\d.,]*/g)].filter(match => decimalNumber(match[0]) === fact.value)
+    const endpoint = numericMentions(fragment).filter(match => match.value === fact.value)
       .map(match => endpointBefore(fragment.slice(0, match.index))).find(Boolean)
     if (endpoint && unit.aggregation && unit.aggregation !== 'range' && (unit.aggregation !== endpoint || !satisfiesNumeric(Number(unit[field]), fact.value as number)))
       return [{ ...detail, code: 'catalog_endpoint_mismatch', kind: 'catalog_data', expected: unit[field], aggregation: endpoint }]
-    if (!text(fact.fragment).trim() || !reply.includes(text(fact.fragment)))
-      return [{ ...detail, code: 'review_fragment_not_in_reply', kind: 'review_metadata' }]
     return []
   })
 }
@@ -77,19 +166,95 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
 
 export const claimSchema = { type: 'array', maxItems: 16, items: { type: 'object', additionalProperties: false, properties: {
   fragment: { type: 'string' }, subject: { type: 'string' }, polarity: { type: 'string', enum: ['affirmation', 'negation', 'uncertainty'] },
+  claim_kind: { type: 'string', enum: ['project_fact', 'operational_fact', 'lead_statement', 'contextual_guidance'] },
   verdict: { type: 'string', enum: ['supported', 'unsupported', 'contradicted'] },
-  evidence: { type: 'string' }, evidence_source: { type: 'string', enum: ['verified_context', 'catalog_no_results', 'none'] },
-}, required: ['fragment', 'subject', 'polarity', 'verdict', 'evidence', 'evidence_source'] } }
+  evidence: { type: 'string' }, evidence_source: { type: 'string', enum: ['verified_context', 'catalog_no_results', 'lead_declaration', 'contextual_reasoning', 'none'] },
+  evidence_ids: { type: 'array', maxItems: 16, items: { type: 'string' } },
+}, required: ['fragment', 'subject', 'polarity', 'claim_kind', 'verdict', 'evidence', 'evidence_source', 'evidence_ids'] } }
 
-export const CLAIM_RULES = `Además de revisar la cobertura, enumere en claims cada afirmación factual de respuesta_propuesta, con un fragmento literal (o el ID S1, S2... de oraciones_borrador cuando esté disponible), sujeto, polaridad y evidencia concreta. Use hasta 16 entradas, agrupe datos del mismo sujeto y mantenga cada explicación de evidencia por debajo de 160 caracteres. La cortesía y las preguntas no son hechos comerciales. No use el historial ni la propia respuesta como evidencia. supported requiere respaldo del contexto verificado; neutralidad o ausencia de contradicción NO bastan. Si no hay respaldo use unsupported. Una negación también necesita evidencia. catalog_no_results solo autoriza la afirmación de que no hubo coincidencias para EXACTAMENTE catalog_evidence.catalog_query; no autoriza decir que no hay propiedades en general ni negar otra categoría. Para esa fuente cite únicamente la oración negativa completa, sin incluir alternativas afirmativas. Distinga «no hay», «no solo hay» e incertidumbre. Compruebe que la respuesta conteste la pregunta actual, no solo que reproduzca la base. Devuelva claims=[] únicamente cuando no existan afirmaciones factuales.`
+export const CLAIM_RULES = `Revise únicamente lo que afirma respuesta_propuesta. El catálogo, el historial, el mensaje actual y la base NO son un inventario de afirmaciones a insertar en claims o factual_values. Una cifra existente en el catálogo que NO se expresa en el borrador NO se revisa. Antes de contrastar un dato compruebe que el fragmento lo dice realmente: una cortesía no afirma un precio.
+Enumere en claims las afirmaciones pertinentes con fragmento literal o ID S1, S2... de oraciones_borrador, sujeto, polaridad y claim_kind. Use hasta 16 entradas agrupando datos del mismo sujeto; evidence explica brevemente el respaldo, no copia fichas completas. La cortesía y las preguntas no requieren claims. Divida una oración mixta en fragmentos cuando combine datos del proyecto y orientación.
+claim_kind=project_fact: hechos atribuidos al inmueble/proyecto, cifras, disponibilidad, condiciones, prestaciones y políticas. Requieren evidence_ids de evidencia_afirmaciones con kind=project_fact. operational_fact: acciones, estados o resultados del proceso, requiere fuentes kind=operational_fact; intención no equivale a acción confirmada. lead_statement: una declaración del cliente, requiere fuentes kind=lead_statement; puede reconocer su familia o presupuesto sin convertirlos en dormitorios solicitados ni precio comercial. Para estos tres tipos supported necesita fuentes existentes y aplicables: las IDs no bastan si el contenido no respalda el significado. No invente IDs ni cite S1, respuesta_propuesta, historial o preguntas del cliente como fuente de hechos del proyecto o acciones.
+contextual_guidance: orientación razonable, posibilidades cotidianas y valoraciones condicionadas; por ejemplo, que la comodidad depende de cómo prefieran distribuirse o compartir habitaciones. Puede aprobarse SIN una fuente del catálogo, con evidence_source=contextual_reasoning y evidence_ids=[]; explique brevemente por qué es orientación y no una garantía. No exija estudios para una posibilidad cotidiana ni fuerce una pregunta de dormitorios si la inquietud se puede responder evaluando las opciones conocidas. Esto no autoriza inventar capacidad máxima, habitabilidad garantizada, redistribuciones constructivas, requisitos, rentabilidad, precios ni acciones. Si incluye un dato verificable del inmueble, revíselo por separado como project_fact; no lo esconda bajo contextual_guidance.
+Para hechos respaldados use evidence_source=verified_context; para declaraciones use lead_declaration. supported significa respaldo real o razonamiento contextual prudente, no solo ausencia de contradicción. Si un HECHO del borrador no tiene respaldo, use unsupported con evidence_source=none; no invente una fuente. Si una ficha previa inventó una afirmación ausente del texto, elimine esa fila al reparar la ficha sin modificar el borrador ni borrar sus afirmaciones reales.
+catalog_no_results requiere una fuente de evidencia_afirmaciones que represente la consulta completa vacía y solo autoriza negar coincidencias para EXACTAMENTE esa consulta, nunca todo el inventario ni otra categoría. Cite la oración negativa sin las alternativas afirmativas. Distinga «no hay», «no solo hay» e incertidumbre. Compruebe que la respuesta atienda la inquietud actual, sin exigir semejanza con la base.`
 
-export function reviewClaims(value: unknown, reply: string): { valid: boolean; claims: Row[]; issues: Row[] } {
+function guidanceNeedsFactualEvidence(fragment: string): boolean {
+  const value = normalized(fragment)
+  const explicitPrice = /(?:\$|\busd\b|\bdolares?\b|\bprecio\b|\bvalor\b|\bcuota\b)/.test(value) && numericMentions(fragment).length > 0
+  const assertedAction = /\b(?:ya|hemos|he|quedo|queda|esta)\s+(?:le\s+|se\s+)?(?:asignad[oa]|agendad[oa]|reservad[oa]|confirmad[oa]|registrad[oa]|enviad[oa]|derivad[oa]|aprobad[oa])\b/.test(value)
+    || /\b(?:asignamos|agendamos|reservamos|confirmamos|registramos|enviamos|derivamos|aprobamos)\b/.test(value)
+  const guarantee = /\b(?:garantiza\w*|garantizado|garantizada|asegurado|asegurada|capacidad maxima|aforo|habitabilidad)\b/.test(value)
+    && !/\b(?:no\s+(?:se\s+)?(?:puede\s+|podemos\s+)?(?:garantiz|asegur)|sin garantizar|no implica|no demuestra)\w*/.test(value)
+  const namedUnit = /\b(?:departamentos?|suites?|penthouses?|locales?|unidades?)\s+(?:numeros?\s*)?\d/.test(value)
+  const propertyAssertion = /\b(?:proyecto|edificio|departamentos?|suites?|penthouses?|locales?|unidades?)\b[^.!?;]{0,55}\b(?:tiene[n]?|cuenta[n]?|incluye[n]?|dispone[n]?|admite[n]?|permite[n]?|ofrece[n]?|garantiza[n]?|mide[n]?)\b/.test(value)
+    || /\b(?:contamos|disponemos|ofrecemos)\b[^.!?;]{0,45}\b(?:dormitorios?|habitaciones?|banos?|planta|piso|metros?)\b/.test(value)
+  const propertyMeasures = numericMentions(fragment).filter(mention => /^\s*(?:dormitorios?|habitaciones?|cuartos?|banos?|plantas?|pisos?|m2|m²|metros? cuadrados?)(?![a-z0-9])/.test(value.slice(mention.end))
+    || /\b(?:planta|piso)\s*$/.test(value.slice(0, mention.index)))
+  const propertyMeasure = propertyMeasures.length > 0
+  const attributedMeasure = propertyMeasures.some(mention =>
+    /\b(?:tiene[n]?|cuenta[n]? con|incluye[n]?|son|es|hay)\s*(?:de\s*)?$/.test(value.slice(0, mention.index)))
+  // A count in advice is not itself an inventory assertion. Support natural
+  // evaluations and hypothetical preferences in any position, not only "Si…".
+  const contextualEvaluation = /\b(?:podri\w*|pued[ae]n?|conviene|depende|evalu\w*|consider\w*|revis\w*|distribui\w*|compart\w*|organiz\w*)\b/.test(value)
+  const hypotheticalPreference = /\b(?:si|en caso de)\b[^.!?;]{0,80}\b(?:necesita\w*|prefier\w*|busca\w*|quisier\w*|desear\w*|desea\w*)\b/.test(value)
+  const concreteAvailability = /\b(?:disponible|disponibles|ofrecemos|tenemos|contamos|dispone|disponen)\b/.test(value)
+  const occupancyClaim = /\b(?:caben|alberga[n]?|admite[n]?|capacidad para|apto[s]? para|apta[s]? para)\b/.test(value)
+  const guidance = (contextualEvaluation || hypotheticalPreference) && !concreteAvailability && !occupancyClaim
+  return explicitPrice || assertedAction || guarantee || namedUnit || propertyAssertion || attributedMeasure || occupancyClaim || propertyMeasure && !guidance
+}
+
+/** Only independently accepted, source-free guidance may be omitted from
+ * catalogue assertion parsing. The actual reply is never edited for delivery. */
+export function reviewedContextualGuidance(reply: string, audit: Row): string[] {
+  const review = object(audit.semantic_review)
+  if (review.status !== 'checked') return []
+  return (Array.isArray(review.claims) ? review.claims.map(object) : []).filter(claim => {
+    const fragment = text(claim.fragment)
+    return claim.claim_kind === 'contextual_guidance' && claim.verdict === 'supported'
+      && claim.evidence_source === 'contextual_reasoning' && Array.isArray(claim.evidence_ids) && !claim.evidence_ids.length
+      && fragment.trim() && reply.includes(fragment) && !/https?:\/\//.test(fragment)
+      && !guidanceNeedsFactualEvidence(fragment)
+  }).map(claim => text(claim.fragment))
+}
+
+export function reviewClaims(value: unknown, reply: string, sources?: Row[]): { valid: boolean; claims: Row[]; issues: Row[] } {
   if (!Array.isArray(value) || value.length > 16)
     return { valid: false, claims: [], issues: [{ code: 'invalid_claim_list', kind: 'review_metadata' }] }
   const claims = value.map(object)
   const issues: Row[] = claims.flatMap((claim, index) => {
     const detail = { index, subject: text(claim.subject), fragment: text(claim.fragment) }
     const result: Row[] = []
+    if (sources) {
+      const fragment = text(claim.fragment), kind = text(claim.claim_kind), ids = claim.evidence_ids
+      // An invented/miscited assertion is a reviewer defect, not proof that the
+      // actual draft contains a false claim. Establish text provenance first.
+      if (!fragment.trim() || !reply.includes(fragment))
+        return [{ ...detail, code: 'claim_fragment_not_in_reply', kind: 'review_metadata' }]
+      if (!['project_fact', 'operational_fact', 'lead_statement', 'contextual_guidance'].includes(kind)
+        || !Array.isArray(ids) || ids.length > 16 || ids.some(id => typeof id !== 'string')
+        || !text(claim.subject).trim() || !text(claim.evidence).trim()
+        || !['affirmation', 'negation', 'uncertainty'].includes(text(claim.polarity)))
+        return [{ ...detail, code: 'invalid_claim_evidence_metadata', kind: 'review_metadata' }]
+      const referenced = ids.map(id => sources.find(source => source.id === id))
+      if (kind === 'contextual_guidance') {
+        if (claim.evidence_source !== 'contextual_reasoning' || ids.length)
+          result.push({ ...detail, code: 'invalid_guidance_evidence', kind: 'review_metadata' })
+        if (guidanceNeedsFactualEvidence(fragment))
+          result.push({ ...detail, code: 'guidance_contains_factual_assertion', kind: 'review_metadata' })
+      } else if (claim.verdict === 'supported') {
+        const expectedSource = kind === 'lead_statement' ? 'lead_declaration'
+          : claim.evidence_source === 'catalog_no_results' && kind === 'project_fact' ? 'catalog_no_results' : 'verified_context'
+        if (!ids.length || referenced.some(source => !source || source.kind !== kind)
+          || claim.evidence_source !== expectedSource
+          || claim.evidence_source === 'catalog_no_results' && referenced.some(source => source?.scope !== 'catalog_no_results'))
+          result.push({ ...detail, code: 'claim_source_not_verified', kind: 'review_metadata', evidence_ids: ids })
+      }
+      if (['unsupported', 'contradicted'].includes(text(claim.verdict)))
+        result.push({ ...detail, code: `claim_${claim.verdict}`, kind: 'commercial_content' })
+      else if (claim.verdict !== 'supported') result.push({ ...detail, code: 'invalid_claim_verdict', kind: 'review_metadata' })
+      return result
+    }
     // A malformed citation does not mean that the commercial statement is false.
     // Conversely, a negative verdict stays a content defect even with bad metadata.
     if (['unsupported', 'contradicted'].includes(text(claim.verdict)))
@@ -112,10 +277,9 @@ export function reviewClaims(value: unknown, reply: string): { valid: boolean; c
 export function reviewRepairCoverageIssues(previous: Row, repaired: Row, reply: string, catalog: Row[]): Row[] {
   const before = (Array.isArray(previous.factual_values) ? previous.factual_values : []).map(object)
   const after = (Array.isArray(repaired.factual_values) ? repaired.factual_values : []).map(object)
-  const written = [...reply.matchAll(/\d[\d.,]*/g)].map(match => decimalNumber(match[0]))
   const omitted = before.some(fact => {
     const reference = catalog.find(unit => unit.id === fact.unit_id)
-    const values = [fact.value, fact.upper_value].filter((value): value is number => typeof value === 'number' && written.includes(value))
+    const values = assertedRepairValues(fact, reply, reference, catalog)
     return values.some(value => !after.some(next => {
       const nextReference = catalog.find(unit => unit.id === next.unit_id)
       const sameSubject = !reference || next.unit_id === fact.unit_id
@@ -125,16 +289,44 @@ export function reviewRepairCoverageIssues(previous: Row, repaired: Row, reply: 
   })
   const claimsBefore = (Array.isArray(previous.claims) ? previous.claims : []).map(object)
   const claimsAfter = (Array.isArray(repaired.claims) ? repaired.claims : []).map(object)
-  // For citations that were already grounded, preserve coverage of that text.
-  // For broken citations no sentence can safely be guessed: require at least the
-  // same number of claims and let the fresh independent review establish evidence.
-  const omittedClaims = claimsAfter.length < claimsBefore.length || claimsBefore.some(claim => {
+  // Preserve actual assertions, not the size of a hallucinated review inventory.
+  // An entry absent from the draft may be removed in a fresh metadata review.
+  const omittedClaims = claimsBefore.some(claim => {
     const fragment = text(claim.fragment)
-    return fragment.trim() && reply.includes(fragment) && !claimsAfter.some(next =>
+    return claim.claim_kind !== 'contextual_guidance' && fragment.trim() && reply.includes(fragment) && !claimsAfter.some(next =>
       text(next.fragment).includes(fragment) || fragment.includes(text(next.fragment)) && text(next.fragment).trim())
   })
   return [...(omitted ? [{ code: 'review_repair_omitted_facts', kind: 'review_metadata' }] : []),
     ...(omittedClaims ? [{ code: 'review_repair_omitted_claims', kind: 'review_metadata' }] : [])]
+}
+
+/** An invalid reviewer row cannot make a number elsewhere in the message a
+ * permanent catalogue assertion. Preserve only its actual text/field/subject. */
+function assertedRepairValues(fact: Row, reply: string, reference: Row | undefined, catalog: Row[]): number[] {
+  const fragment = text(fact.fragment), field = text(fact.field)
+  const writtenRange = typeof fact.upper_value === 'number' && numericExpressionPresent({ ...fact, operator: 'between' }, fragment)
+  if (!fragment.trim() || !reply.includes(fragment) || !numericExpressionPresent(fact, fragment) && !writtenRange) return []
+  const value = normalized(fragment)
+  const named = [...value.matchAll(/\b(?:departamentos?|suites?|penthouses?|locales?|unidades?)\s+((?:\d{2,5})(?:\s*(?:,|y|e)\s*\d{2,5})*)/g)]
+    .flatMap(match => match[1].match(/\d+/g) || [])
+  if (reference && named.length) {
+    const subjects = Array.isArray(reference.member_ids) ? catalog.filter(unit => reference.member_ids && (reference.member_ids as unknown[]).includes(unit.id)) : [reference]
+    if (!subjects.some(unit => named.includes(text(unit.unit_number)))) return []
+  }
+  const mentions = numericMentions(fragment)
+  const candidates = mentions.filter(mention => mention.value === fact.value || writtenRange && mention.value === fact.upper_value)
+  const associated = candidates.some(mention => {
+    const before = value.slice(0, mention.index), after = value.slice(mention.end)
+    if (/^\s*(?:personas|integrantes|miembros|anos)\b/.test(after)) return false
+    if (field === 'published_commercial_price') return /(?:\$|usd|dolares?)\s*$/.test(before)
+      || /^\s*(?:usd|dolares?)\b/.test(after) || /\b(?:precio|valor|cuesta|cuestan|costo)\b[^.!?;\d]{0,35}$/.test(before)
+    const labels: Record<string, string> = { bedrooms: 'dormitorios?|habitaciones?|cuartos?', bathrooms_full: 'banos?',
+      floor_number: 'planta|piso|nivel', area_internal_m2: 'm²|m2|metros? cuadrados?', area_exterior_m2: 'm²|m2|metros? cuadrados?' }
+    const label = labels[field]
+    return !!label && (new RegExp(`^\\s*(?:(?:amplios?|completos?|de|area|superficie|interior|exterior)\\s+)*(?:${label})(?![a-z0-9])`).test(after)
+      || new RegExp(`(?:${label})\\s*(?:(?:es|son|de|tiene|tienen|hay|:)\\s*)?$`).test(before))
+  })
+  return associated ? [...new Set(candidates.map(mention => mention.value))] : []
 }
 
 /** Only a reviewed denial of this complete, empty query may bypass lexical checks.

@@ -18,6 +18,36 @@ const catalog = [
 ]
 const apartments = [{role:'bot',content:'El departamento 202 está en la segunda planta y el 302 en la tercera. Ambos tienen 3 dormitorios.'}]
 
+test('typed household and suitability quantities survive every downstream lexical parser without changing known bedroom preferences', () => {
+  const saved = { offered_ids: ['u602', 'u605'], selected_ids: [], query: { category: 'penthouse', filters: { bedrooms: 3 }, scope: 'offered' } }
+  const current = '¿Me alcanzarán 3 dormitorios para una familia de 6?'
+  const interpreted = normalizeTurnSemantics({ turn_semantics: {
+    primary_intent: 'select_property', primary_evidence: current, confidence: 'high',
+    housing_quantities: [
+      { dimension: 'bedrooms', values: [3], role: 'evaluation', count_basis: 'total', evidence: '3 dormitorios', confidence: 'high' },
+      { dimension: 'people', values: [6], role: 'context', count_basis: 'total', evidence: 'familia de 6', confidence: 'high' },
+    ],
+    property: { operation: 'details', category: 'penthouse', reference_kind: 'followup', query_scope: 'offered',
+      filters: { bedrooms: 3 }, filter_evidence: { bedrooms: '3 dormitorios' }, evidence: current, confidence: 'high' },
+  } }, current, {})
+  const result = resolvePropertyTurn(catalog, current, { _property_context: saved }, [], interpreted)
+  assert.equal(result.query.filters.bedrooms, 3)
+  assert.equal(result.context.filter_resolution.current.bedrooms, null)
+  assert.equal(result.query.operation, 'details')
+  assert.deepEqual(result.matches.map(unit => unit.id), ['u602', 'u605'])
+
+  const priceCurrent = '¿Cuánto cuestan los que vimos? ¿Alcanzarían 2 dormitorios para seis personas?'
+  const quoteSemantics = { ...interpreted, housing_quantities: [
+    { dimension: 'bedrooms', values: [2], role: 'evaluation', count_basis: 'total', evidence: '2 dormitorios', confidence: 'high' },
+  ], property: { ...interpreted.property, filters: { bedrooms: null } } }
+  // Without a resolved query, the independent price parser must still preserve
+  // typed evaluation rather than manufacture a different current constraint.
+  const quote = unitPriceQuote({ catalogo: catalog, semantica_turno: quoteSemantics, politica_comercial: { precios_autorizados: true },
+    property_context: { ...saved, query: { category: 'penthouse', filters: { bedrooms: 3 }, scope: 'offered' } } }, priceCurrent, {})
+  assert.ok(quote)
+  assert.deepEqual(quote.units.map(unit => unit.id), ['u602', 'u605'])
+})
+
 test('contextual comparisons resolve arbitrary offered units even when the extractor repeats their attributes', () => {
   for (const [category, numbers, bedrooms, floor] of [
     ['penthouse', ['602', '605'], 3, 6], ['departamento', ['801', '803'], 2, 8], ['suite', ['901', '903'], 1, 9], ['local', ['LC-11', 'LC-12'], 0, 0],
@@ -440,7 +470,7 @@ test('a complete comparison survives the delivered answer and quotes both verifi
       const quote=unitPriceQuote(info(followup,apartments,{modo_comercial:mode}),current,summary)
       assert.match(quote.reply,/202.*250[.,]000.*302.*270[.,]000/)
       assert.equal(quote.comparison.difference,20000)
-      assert.ok(responsePlan(quote.reply,{source:'unit_price',verified_price_only:true}).locked)
+      assert.equal(responsePlan(quote.reply,{source:'unit_price',verified_price_only:true}).locked,false)
     }
   }
 })

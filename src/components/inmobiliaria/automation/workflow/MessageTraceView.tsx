@@ -230,6 +230,7 @@ function ReviewDecision({ output, catalog }: { output: Record<string, unknown>; 
     <h5>{decision.title}</h5><p>{decision.explanation}</p>
     {decision.causes.length > 0 && <><strong>Por qué se tomó esta decisión</strong><ul>{decision.causes.map((cause, index) => <li key={index}>{cause}</li>)}</ul></>}
     {decision.details.length > 0 && <details><summary>Ver las {decision.details.length} comprobaciones individuales</summary><ul>{decision.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul></details>}
+    {decision.resolvedDetails.length > 0 && <details><summary>Referencias internas corregidas</summary><ul>{decision.resolvedDetails.map((detail, index) => <li key={index}>{detail}</li>)}</ul></details>}
     {output.review_reference_source != null && <p>Las referencias de unidades se contrastan con los hechos guardados en el resultado de esta misma ejecución, no con el catálogo actual.</p>}
     <strong>¿Se intentó reparar?</strong><p>{decision.repair}</p>
   </section>

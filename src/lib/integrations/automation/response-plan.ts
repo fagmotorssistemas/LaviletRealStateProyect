@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { isCategoryOverview } from './catalog-dialogue'
+import { BROCHURE_URL } from './project-material'
 
 /** Application delivery limit, independent of the preferred conversational length. */
 export const MAX_REPLY_CHARACTERS = 3000
@@ -26,8 +27,8 @@ function verifiedUrls(verified: Row = {}): string[] {
   return authoritativeSources.flatMap(key => sourceUrls(verified[key]))
 }
 
-/** A template URL is allowed evidence, not an obligation to repeat that material. */
-export function replyLinkContract(baseReply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
+/** Material authority comes from configured sources, never from a draft/fallback. */
+export function replyLinkContract(_baseReply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
   const explicit = object(audit.link_contract), profile = object(audit.profile_introduction)
   const intent = object(audit.resolved_turn_intent || context.verified?.contrato_turno)
   const requests = rows(intent.requests).filter(request => request.confidence === 'high')
@@ -42,9 +43,9 @@ export function replyLinkContract(baseReply: string, audit: Row = {}, context: {
       && !/\bno\s+(?:me\s+)?(?:quiero|necesito|interesa|envie|mande|comparta).{0,45}(?:recorrido|showroom|tour|360|modelo)/.test(requested))) required.push(text(tour.url))
   if (audit.source === 'brochure' || new RegExp(asksToReceive.source + '(?:brochure|folleto|brochur|pdf)\\b').test(requested)
     && !/\bno\s+(?:me\s+)?(?:quiero|necesito|interesa|envie|mande|comparta).{0,45}(?:brochure|folleto|brochur|pdf)/.test(requested)) {
-    required.push(...urls(baseReply).filter(url => /brochure|folleto|\.pdf(?:[?#]|$)/i.test(url)))
+    required.push(text(profile.brochure_url) || text(context.verified?.brochure_url) || BROCHURE_URL)
   }
-  const allowed = [...urls(baseReply), ...verifiedUrls(context.verified), ...strings(explicit.allowed_links),
+  const allowed = [BROCHURE_URL, ...verifiedUrls(context.verified), ...strings(explicit.allowed_links),
     ...urls(text(profile.brochure_url)), ...urls(text(tour.url))]
   return { allowed_links: [...new Set(allowed)], required_links: [...new Set(required)] }
 }
@@ -90,48 +91,62 @@ export const COMMERCIAL_CONTINUATION_RULES = `El objetivo comercial es atender l
 /** Locks decisions and facts, not their conversational wording. */
 export function responsePlan(baseReply: string, audit: Row, context: { current?: string; verified?: Row } = {}) {
   const source = text(audit.source)
+  const intent = object(audit.resolved_turn_intent || context.verified?.contrato_turno)
+  const explicit = object(audit.response_contract)
+  const pending = object(audit.pending_question)
   const uncovered = Array.isArray(audit.uncovered_requests) ? audit.uncovered_requests : []
   const locked = audit.coverage_complete !== false && !uncovered.length
-    && (lockedSources.has(source) || source === 'unit_price' && audit.verified_price_only === true && audit.price_grounded !== true)
+    && lockedSources.has(source)
   return {
     source,
     locked,
-    protected_facts: [...(Array.isArray(object(audit.catalog_results).units) ? object(audit.catalog_results).units as unknown[] : []),
-      ...(Array.isArray(object(audit.alternative_results).units) ? object(audit.alternative_results).units as unknown[] : [])],
+    current_request: { message: context.current || text(intent.current_message), objective: text(intent.objective),
+      requests: rows(intent.requests), subject: object(intent.subject), requested_action: text(intent.requested_action) || null },
+    required_facts: strings(intent.required_facts),
+    protected_facts: [...rows(object(audit.catalog_results).units), ...rows(object(audit.alternative_results).units),
+      ...(audit.verified_catalog === true ? [] : rows(context.verified?.catalogo))],
     covered_requests: Array.isArray(audit.covered_requests) ? audit.covered_requests : [],
     ...replyLinkContract(baseReply, audit, context),
-    required_numbers: [...baseReply.matchAll(/\b\d[\d.,]*\b/g)].map(match => match[0]),
-    next_question: text(baseReply.match(/[^?¿\n]*\?\s*$/)?.[0]).trim() || null,
+    required_numbers: strings(explicit.required_numbers),
+    next_question: text(pending.question || object(audit.progressive_selection).question || object(audit.post_tour_continuation).question) || null,
+    operational_state: { source, action: text(audit.action) || null, reservation: object(audit.reservation),
+      registration_verified: audit.registration_verified === true, request_id: text(audit.request_id) || null,
+      preference: object(audit.preference), pending_question: pending },
   }
 }
 
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. La revisión debe comprobar el propósito y la cobertura de la solicitud actual, además de los datos; una respuesta base también puede omitir la consulta.
 ${COMMERCIAL_CONTINUATION_RULES}
-Use contrato_redaccion y evidencia_turno para responder al cliente con naturalidad. No cambie acciones operativas ni invente selecciones del cliente. Si decisiones_protegidas=false, la base es una orientación: puede reorganizar, resumir y elegir una pregunta útil según la necesidad actual, sin repetir preguntas resueltas. Para una familia aún sin requisitos conocidos, oriente con categorías verificadas y pregunte un dato útil como dormitorios, sin inventar ocupación máxima ni asumir tamaño familiar. Una aceptación continúa la propuesta pendiente; una comparación explica diferencias; una consulta concreta recibe primero su respuesta. No convierta un resumen en una lista de fichas.
+Redacte desde solicitud_actual, los hechos disponibles y el estado operativo. La respuesta base es un respaldo interno, no una fuente de hechos ni una estructura a imitar, incluso en rutas operativas. Puede organizar, resumir y elegir el detalle útil para la necesidad actual sin copiar una lista o una pregunta de la base. No cambie acciones operativas ni invente selecciones del cliente. Una aceptación continúa la propuesta pendiente; una comparación explica diferencias; una consulta concreta recibe primero su respuesta.
+Puede ofrecer orientación contextual razonable: si una familia de seis personas pregunta por comodidad, puede explicar que conviene revisar cómo distribuirían los dormitorios y compartir sus preferencias, usando los dormitorios y superficies verificados como referencia. Compartir dormitorio es una posibilidad general, no una característica del proyecto ni una garantía de capacidad. Distinga claramente sugerencias de hechos; no prometa que una unidad es apta para seis, ni invente ocupación máxima, número de camas, posibilidad de remodelar o dormitorios adicionales. No reduzca la conversación a repetir una ficha cuando puede explicar cómo evaluar las opciones.
 No narre su procesamiento interno ni las operaciones que realiza para preparar la respuesta: evite «descarto los penthouses», «me concentro en los departamentos», «he interpretado su intención» o «aplico el filtro». Exprese directamente la información útil para el cliente; por ejemplo, «Los departamentos de 3 dormitorios comparten estas características…». Puede reconocer brevemente su preferencia sin describir el trabajo interno. Esto no impide informar una acción real solicitada por el cliente cuando su resultado esté confirmado en el contexto operativo; nunca la invente.
-Conserve los hechos necesarios para responder la consulta, condiciones y enlaces obligatorios. Las cifras_obligatorias del contrato deben conservarse; otras cifras de opciones secundarias pueden omitirse cuando no sean pertinentes, sin alterar los valores que sí mencione. No añada brochure, saludo, invitación ni pregunta por costumbre: respete el contrato y el modo comercial del contexto.
+Responda datos_requeridos con los hechos verificados y conserve las condiciones operativas y enlaces obligatorios. No es obligatorio enumerar todas las cifras, atributos, unidades o frases de una respuesta anterior. cifras_obligatorias solo contiene obligaciones explícitas del contrato operativo, nunca números extraídos de una plantilla. No altere los valores que sí mencione. Elija una continuación útil para la solicitud actual; el contrato no obliga a añadir una CTA.
 Si recibe apertura_decidida, úsela como orientación de tono: puede cambiarla u omitirla. Prefiera una cortesía breve pertinente, sin repetir aperturas recientes. No agregue una fórmula en todos los turnos.
 El contrato indica si este turno necesita un saludo inicial. Respete esa necesidad sin copiar literalmente una fórmula. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado y formular el siguiente paso autorizado. pregunta_siguiente es una propuesta; su redacción puede cambiar y la solicitud actual prevalece sobre una continuación anterior.
-Puede mejorar una base correcta pero poco natural. Si ya es clara y pertinente, consérvela. Nunca invente datos para embellecerla.`
+El revisor debe contrastar la respuesta con la solicitud, los hechos y el estado real, no con la semejanza a un texto de respaldo. Nunca invente datos para embellecer una explicación.`
 
 export function finalWriterContract(baseReply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
   const plan = responsePlan(baseReply, audit, context)
   return {
-    version: 'final-writer-v2', ruta: plan.source || 'commercial',
+    version: 'final-writer-v3', ruta: plan.source || 'commercial',
     decisiones_protegidas: plan.locked,
-    objetivo: plan.locked ? 'Responder conservando la decisión operativa protegida y su próximo paso.'
-      : 'Responder todas las solicitudes actuales con la evidencia del turno y una continuación pertinente al contexto. La base no impone su estructura ni su pregunta.',
+    objetivo: 'Atender la solicitud actual con información verificada y el estado operativo real; elegir una explicación y continuación pertinentes al contexto.',
+    solicitud_actual: plan.current_request,
+    datos_requeridos: plan.required_facts,
+    base_role: 'internal_fallback_only',
     hechos_protegidos: plan.protected_facts,
+    hechos_disponibles: plan.protected_facts,
     price_evidence: audit.price_evidence || null,
-    cifras_obligatorias: audit.semantic_review_enabled === true && !plan.locked ? [] : plan.required_numbers, enlaces_obligatorios: plan.required_links,
+    cifras_obligatorias: plan.required_numbers, enlaces_obligatorios: plan.required_links,
     enlaces_permitidos: plan.allowed_links,
     pregunta_siguiente: plan.next_question,
     pregunta_pendiente: object(audit.pending_question),
-    presentacion: isCategoryOverview(audit) ? object(audit.alternative_presentation)
-      : { kind: text(object(audit.catalog_query).operation) || 'commercial' },
+    presentacion: { ...(isCategoryOverview(audit) ? object(audit.alternative_presentation)
+      : { kind: text(object(audit.catalog_query).operation) || 'commercial' }), policy: 'suggestion_not_required_wording' },
     accion: text(audit.action) || null,
     resultado_operativo: object(audit.reservation),
+    estado_operativo: plan.operational_state,
     limites_editoriales: { longitud_sugerida: 1200, preguntas_sugeridas: 1, rechazo_por_estilo: false, limite_entrega: MAX_REPLY_CHARACTERS },
     saludo: { responsable: 'sistema', texto: text(audit.writer_greeting) || null },
   }

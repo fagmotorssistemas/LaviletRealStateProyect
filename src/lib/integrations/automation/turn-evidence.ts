@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { projectQuantityEvidence } from './project-quantities'
-import { decimalNumber } from './numeric-relations'
+import { numericMentions } from './semantic-review'
+import { BROCHURE_URL } from './project-material'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const fields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'floor_number', 'published_commercial_price']
@@ -74,6 +75,59 @@ export function replyReferences(reply: string) {
     .map((value, index) => ({ id: `S${index + 1}`, text: value }))
 }
 
+/** Code-owned provenance. Drafts, base copy, remembered messages and model
+ * interpretations are deliberately not eligible project/operational sources. */
+export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, current = ''): Row[] {
+  const result: Row[] = []
+  const add = (path: string, kind: string, value: unknown, extra: Row = {}) => {
+    if (value == null || value === '' || Array.isArray(value) && !value.length
+      || typeof value === 'object' && !Array.isArray(value) && !Object.keys(object(value)).length) return
+    result.push({ id: `E${result.length + 1}`, kind, path, value, ...extra })
+  }
+  // References to the one canonical catalogue avoid copying all its fields into
+  // the prompt twice. The IDs identify existing sources, never model prose.
+  for (const key of ['units', 'groups'] as const) rows(evidence[key]).forEach((unit, index) => {
+    result.push({ id: `E${result.length + 1}`, kind: 'project_fact', path: `evidencia_turno.${key}.${index}`,
+      reference_id: unit.id, reference_label: unit.unit_number || unit.category || null })
+  })
+  const projectKeys = ['proyecto', 'alcance_producto', 'instalaciones', 'lugares_cercanos', 'contexto_sector', 'estado_proyecto',
+    'posicionamiento_proyecto', 'politica_comercial', 'politica_visitas', 'politica_financiera', 'financing_policy', 'financiamiento',
+    'condiciones_instalaciones', 'horario_atencion', 'ubicacion']
+  for (const key of projectKeys) {
+    const value = verified[key]
+    if (Array.isArray(value)) value.forEach((item, index) => add(`contexto_verificado.${key}.${index}`, 'project_fact', item))
+    else add(`contexto_verificado.${key}`, 'project_fact', value)
+  }
+  // Being able to share a configured material is a project fact, not proof that
+  // it was already delivered in WhatsApp or that a reservation was performed.
+  const profile = object(audit.profile_introduction), tour = object(audit.unit_model)
+  add('materiales_configurados.brochure', 'project_fact', {
+    kind: 'brochure', url: text(profile.brochure_url) || text(verified.brochure_url) || BROCHURE_URL,
+  })
+  if (text(tour.url)) add('estado_operativo.unit_model', 'project_fact', {
+    kind: 'tour_360', unit_number: tour.unit_number || null, unit_id: tour.unit_id || null, url: tour.url,
+  })
+  const query = object(audit.catalog_query), queryResults = object(audit.catalog_results)
+  if (audit.verified_catalog === true && query.scope === 'catalog' && queryResults.complete === true
+    && Array.isArray(queryResults.units) && !queryResults.units.length
+    && Array.isArray(queryResults.unknown_unit_ids) && !queryResults.unknown_unit_ids.length)
+    add('catalog_evidence.catalog_results', 'project_fact', { query, complete: true, units: [] }, { scope: 'catalog_no_results' })
+  for (const key of ['reservation', 'visit_result', 'visit_draft', 'visit', 'handoff_result', 'advisor_assignment', 'action_result'])
+    add(`estado_operativo.${key}`, 'operational_fact', audit[key])
+  if (typeof audit.action === 'string' || typeof audit.registration_verified === 'boolean')
+    add('estado_operativo.resultado_accion', 'operational_fact', Object.fromEntries(
+      ['source', 'action', 'registration_verified', 'request_id', 'assigned_advisor_id', 'preference', 'selected_option', 'selected_partner']
+        .filter(key => audit[key] != null).map(key => [key, audit[key]])))
+  add('contexto_verificado.propuestas', 'operational_fact', rows(verified.propuestas).filter(proposal =>
+    ['awaiting_advisor', 'awaiting_client', 'confirmed', 'cancelled', 'rejected'].includes(text(proposal.status))))
+  add('contexto_verificado.avisos_operativos_confirmados', 'operational_fact', verified.avisos_operativos_confirmados)
+  // A declaration can support acknowledgement, never a property fact or action.
+  add('mensaje_actual', 'lead_statement', current)
+  add('contexto_verificado.perfil_lead', 'lead_statement', verified.perfil_lead)
+  add('contexto_verificado.lead', 'lead_statement', verified.lead)
+  return result
+}
+
 /** Resolve only references that identify one sentence of the actual draft. Never change a value. */
 export function normalizeReviewReferences(review: Row, units: Row[], reply: string) {
   const corrections: Row[] = []
@@ -100,11 +154,10 @@ export function normalizeReviewReferences(review: Row, units: Row[], reply: stri
     }
     // The reviewer may paraphrase the prose. A unique occurrence of the exact
     // numeric value in the draft is a code-owned reference, independent of word order.
-    const fragmentNumbers = [...text(item.fragment).matchAll(/\d[\d.,]*/g)].map(match => decimalNumber(match[0]))
+    const fragmentNumbers = numericMentions(text(item.fragment)).map(match => match.value)
     if (!sentence && !reply.includes(text(item.fragment)) && typeof item.value === 'number' && Number.isFinite(item.value)
       && (!fragmentNumbers.length || fragmentNumbers.includes(item.value))) {
-      const includesValue = (candidate: string, value: number) => [...candidate.matchAll(/\d[\d.,]*/g)]
-        .some(match => decimalNumber(match[0]) === value)
+      const includesValue = (candidate: string, value: number) => numericMentions(candidate).some(match => match.value === value)
       const matches = sentences.filter(candidate => fragmentNumbers.every(value => includesValue(candidate.text, value))
         && includesValue(candidate.text, item.value as number)
         && (item.operator !== 'between' || typeof item.upper_value === 'number'

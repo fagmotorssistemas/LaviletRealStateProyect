@@ -10,7 +10,7 @@ import { hasAffordabilityConcern } from './financing'
 import { asksForHouse } from './product-fit'
 import { unitAlternative } from './unit-alternatives'
 import { catalogQuery, filterCatalog, validateCatalogReply } from './catalog-dialogue'
-import { propertyFiltersFromText } from './turn-semantics'
+import { propertyFiltersFromText, propertyFiltersWithQuantityMeaning } from './turn-semantics'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 function unitPurchaseClause(clause: string) {
@@ -109,7 +109,7 @@ function priceSelection(info: Row, current: string, summary: Row) {
   // A fresh, explicit category price question defines a new scope. A short
   // clarification instead retains the interpreter's normalized query filters.
   const freshCategoryQuery = !resolvedQuery && !!literalCategory && asksUnitPrice(current, true)
-  const currentFilters = propertyFiltersFromText(current, text(object(propertyContext.pending_question).id))
+  const currentFilters = propertyFiltersWithQuantityMeaning(propertyFiltersFromText(current, text(object(propertyContext.pending_question).id)), info.semantica_turno)
   const semanticFilters = object(semanticProperty.filters)
   const filters = { ...(freshCategoryQuery ? {} : object(sharedQuery.filters)),
     ...Object.fromEntries(Object.entries(semanticFilters).filter(([, value]) => value !== null && value !== undefined)),

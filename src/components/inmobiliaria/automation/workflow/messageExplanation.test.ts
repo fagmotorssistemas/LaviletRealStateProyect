@@ -344,7 +344,32 @@ test('review diagnostics group repeated causes while retaining individual receiv
   assert.equal(decision.details.length,3)
   assert.match(decision.details[0],/recibido: 5; catálogo: 3/)
   const accepted=reviewDecision({status:'checked',semantic_review:{reference_corrections:[{code:'unit_number_resolved'}]}})
-  assert.match(accepted.causes[0],/sin cambiar el texto comercial/)
+  assert.deepEqual(accepted.causes,[])
+  assert.match(accepted.resolvedDetails[0],/sin cambiar el texto comercial/)
+})
+
+test('resolved reference diagnostics never mask real review failures or claim a fallback was sent during recovery', () => {
+  const output = { status: 'rejected_review', issues: ['invalid_review_metadata'],
+    recovery: { version: 'turn-recovery-v1', pending: true, base_used: false },
+    semantic_review: { reference_corrections: [{ code: 'unit_number_resolved', from: '804', to: 'unit-804' }],
+      validation_details: [{ code: 'catalog_value_mismatch', unit_id: 'unit-804', field: 'bedrooms', received: 6, expected: 3 }] },
+    fallback_validation: { passed: false, issues: ['response_requires_validation'] },
+    proposed_preview: 'La unidad tiene seis dormitorios.', final_preview: 'Su consulta queda pendiente de revisión.' }
+  const decision = reviewDecision(output)
+  assert.equal(decision.recoveryPending, true)
+  assert.match(decision.title, /Recuperación pendiente/)
+  assert.match(decision.explanation, /base no se autorizó/)
+  assert.doesNotMatch(decision.explanation, /conservó la respuesta de respaldo/i)
+  assert.match(decision.causes.join(' '), /valores declarados no coinciden/)
+  assert.doesNotMatch(decision.causes.join(' '), /referencias internas sin cambiar/)
+  assert.match(decision.details.join(' '), /recibido: 6; catálogo: 3/)
+  assert.match(decision.resolvedDetails.join(' '), /804.*unit-804/)
+  const item = step(1, 'response_coverage', output)
+  const sections = explainStep(execution([item]), item).coverageSections!
+  assert.match(sections.find(section => section.title === 'Respuesta elegida en este paso')!.facts[0].value, /pendiente de recuperación/)
+  assert.match(sections.find(section => section.title === 'Validación de la respuesta de respaldo')!.facts[0].value, /base no se autorizó/)
+  assert.ok(sections.some(section => section.title === 'Referencias internas corregidas'))
+  assert.match(reviewDecision({ status: 'rejected_review' }).explanation, /conservó la respuesta de respaldo/)
 })
 
 test('review decision explains the historical family draft ID failure with its actual snapshot', () => {

@@ -126,6 +126,16 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
   // An unreadable reaction or a greeting must never inherit operational events from history.
   if (method !== 'model') extracted.events = []
   const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)
+  extracted.household = semantics.household
+  if (Object.hasOwn(object(raw.turn_semantics), 'housing_quantities')) {
+    const quantities = Array.isArray(semantics.housing_quantities) ? semantics.housing_quantities.map(object) : []
+    // A prose qualification must not reintroduce a rejected people/evaluation
+    // count as a durable bedroom preference through a parallel memory field.
+    if (!quantities.some(quantity => quantity.dimension === 'bedrooms' && quantity.role === 'requirement')
+      || Array.isArray(semantics.normalization_issues) && semantics.normalization_issues.includes('bedroom_filter_without_bedroom_requirement')) {
+      extracted.qualification = { ...object(extracted.qualification), dormitorios_texto: null }
+    }
+  }
   // The model may omit the scoring event while explicitly identifying the
   // request. Typed, current intent can add interest; the event never authorizes
   // the operational action in the opposite direction.
@@ -143,6 +153,8 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
       contract_version: CONVERSATION_CONTRACT_VERSION, method,
       primary_intent: semantics.primary_intent, confidence: semantics.confidence,
       interpretation: semantics.interpretation,
+      housing_quantities: semantics.housing_quantities,
+      household: semantics.household,
       reservation: semantics.reservation,
       property_group: property.group || null, property_category: property.category || null,
       operation: property.operation || null, filters: object(property.filters),
@@ -161,6 +173,7 @@ export function rememberInterpretedTurn(previous: Row, current: string, extracte
   const facts = { ...object(previous.datos_confirmados) }
   if (extracted.preferred_category) facts.categoria = extracted.preferred_category
   if (extracted.purchase_purpose) facts.proposito = extracted.purchase_purpose
+  if (object(extracted.household).confidence === 'high') facts.household = extracted.household
   return { ...previous, solicitud_actual: current.slice(0, 1200), datos_confirmados: facts,
     _turn_contract: CONVERSATION_CONTRACT_VERSION }
 }

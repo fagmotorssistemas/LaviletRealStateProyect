@@ -2,7 +2,7 @@ import { areaAssertions, satisfiesNumeric } from './numeric-relations'
 import { object, text, type Row } from './data'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
-import { factualValueIssues, reviewedCatalogDenials } from './semantic-review'
+import { factualValueIssues, reviewedCatalogDenials, reviewedContextualGuidance } from './semantic-review'
 import { turnEvidence } from './turn-evidence'
 import { bedroomOptions } from './bedroom-options'
 
@@ -117,7 +117,8 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
     ? rows(review.factual_values) : []
   const comparable = (value: string) => value.replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const words: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 }
-  const factualReply = reviewedCatalogDenials(reply, audit).reduce((body, fragment) => body.replace(fragment, ''), reply)
+  const factualReply = [...reviewedCatalogDenials(reply, audit), ...reviewedContextualGuidance(reply, audit)]
+    .reduce((body, fragment) => body.replace(fragment, ''), reply)
   const raw = factualReply.replace(/https?:\/\/\S+/g, '').replace(/¿[^?]*\?/g, '').replace(/m²/g, 'm2').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const clauses = raw.replace(/,\s*(?:frente a|mientras que|en cambio)\s+/g, '; ').split(/(?<!\d)\.\s+|(?<=\d)\.(?!\d)\s+|[;\n]+|\s+y\s+(?=(?:el |la |los |las )?(?:departamentos?|suites?|penthouses?|locales?|unidades?)\s+\d)/)
   for (const clause of clauses) {

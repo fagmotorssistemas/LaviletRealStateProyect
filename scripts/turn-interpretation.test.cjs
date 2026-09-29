@@ -99,6 +99,27 @@ test('prompt revision changes with instructions and durable continuity needs no 
   assert.equal(memory._turn_contract, CONVERSATION_CONTRACT_VERSION)
 })
 
+test('household extraction has durable context but cannot leak into bedroom qualification or erase prior preferences', async () => {
+  const current = 'es para mi familia, unas 5 sin contar conmigo'
+  const result = await interpretConversationTurn({ mensaje_actual: current }, { activePrompt: async () => 'Prompt', aiJson: async () => ({
+    qualification: { dormitorios_texto: '5', prioridad: 'espacio' },
+    turn_semantics: { primary_intent: 'select_property', primary_evidence: current, confidence: 'high',
+      housing_quantities: [{ dimension: 'people', values: [5], role: 'context', count_basis: 'excluding_speaker', evidence: current, confidence: 'high' }],
+      property: { operation: 'search', evidence: current, confidence: 'high', filters: { bedrooms: 5 }, filter_evidence: { bedrooms: current } } },
+  }) })
+  assert.equal(result.extracted.qualification.dormitorios_texto, null)
+  assert.equal(result.extracted.qualification.prioridad, 'espacio')
+  assert.equal(result.extracted.household.occupants, 6)
+  assert.equal(result.diagnostic.household.occupants, 6)
+  const previous = { datos_confirmados: { dormitorios_texto: 'tres' }, _property_context: { query: { filters: { bedrooms: 3 } }, offered_ids: ['u602', 'u605'] } }
+  const memory = rememberInterpretedTurn(previous, current, result.extracted)
+  assert.equal(memory.datos_confirmados.household.occupants, 6)
+  assert.equal(memory.datos_confirmados.dormitorios_texto, 'tres')
+  assert.deepEqual(memory._property_context, previous._property_context)
+  const next = rememberInterpretedTurn(memory, 'y cuánto cuestan', { household: null })
+  assert.deepEqual(next.datos_confirmados.household, memory.datos_confirmados.household)
+})
+
 test('stale advisor, opt-out and follow-up flags cannot turn an ordinary request into an action', async () => {
   for (const current of ['Quiero el brochure', 'Quiero saber el precio', 'Tengo una moto para vender y pagar la entrada']) {
     const result = await interpretConversationTurn({ mensaje_actual: current }, { activePrompt: async () => 'Prompt',

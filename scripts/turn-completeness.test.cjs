@@ -19,6 +19,14 @@ const { replyLinkContract, replyLinkIssues, reservationOperationalIssues, MAX_RE
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const covered = (fragment, base_status = 'answered', status = 'answered') => ({ fragment, intent: 'Responder la solicitud actual', request_type: ['clarification', 'outside_scope'].includes(status) ? status : 'specific_fact', base_status, status, evidence: 'Respuesta verificada' })
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true, operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [] }
+function assertPending(result, ...rejectedReplies) {
+  assert.equal(result.audit.recovery?.pending, true)
+  assert.equal(result.audit.recovery?.base_used, false)
+  assert.equal(result.audit.fallback_validation.passed, false)
+  assert.equal(result.audit.draft_rejected, true)
+  assert.match(result.reply, /pendiente/)
+  for (const rejected of rejectedReplies) assert.notEqual(result.reply, rejected)
+}
 
 test('a template tour is optional unless requested; authorized links and required delivery are separate', () => {
   const url = 'https://www.lavilett.com/tour?unidad=605'
@@ -70,7 +78,8 @@ test('reservation response retains AI wording without an unrelated tour and requ
   const receipt = { kind: 'request', request_status: 'requested', status: 'assigned', advisor_assigned: true, handoff_verified: true }
   const baseReply = `Su solicitud para el penthouse 605 tiene un asesor asignado. Puede ver el tour: ${url}`
   const reply = 'He derivado su solicitud al asesor asignado para continuar con el proceso de separación del penthouse 605.'
-  const input = { current, baseReply, audit: { source: 'reservation_handoff', reservation: receipt, unit_model: { url } }, verified: {} }
+  const input = { current, baseReply, audit: { source: 'reservation_handoff', reservation: receipt, unit_model: { url } },
+    verified: { catalogo: [{ id: 'p605', unit_number: '605', category: 'penthouse' }] } }
   const result = await completeTurnReply(input, model({ reply, requests: [covered(current)], question: noQuestion }, approved).generate)
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.reply, reply)
@@ -133,8 +142,7 @@ test('a writer cannot replace a requested available price with a catalogue descr
     verified: { respuesta_precio_verificada: baseReply } }, model(candidate, candidate).generate)
   assert.equal(result.audit.status, 'rejected_guard')
   assert.ok(result.audit.issues.includes('turn_price_unanswered'))
-  assert.equal(result.reply, baseReply)
-  assert.equal(result.audit.fallback_validation.passed, true)
+  assertPending(result, baseReply, candidate.reply)
   assert.equal(result.needsAdvisor, false)
 })
 
@@ -150,8 +158,8 @@ test('fallback is held to the same price objective without inventing a missing p
   assert.equal(result.needsAdvisor, false)
   const noPrices = await completeTurnReply({ ...input, baseReply: 'No hay un rango publicado; necesito conocer la categoría.',
     verified: {} }, unavailable)
-  assert.equal(noPrices.audit.fallback_validation.passed, true)
-  assert.equal(noPrices.reply, 'No hay un rango publicado; necesito conocer la categoría.')
+  assertPending(noPrices, 'No hay un rango publicado; necesito conocer la categoría.')
+  assert.doesNotMatch(noPrices.reply, /\$|100[.,]000/)
 })
 
 test('the real writer keeps the initial residence invitation, purpose and deferred brochure', async () => {
@@ -185,7 +193,7 @@ test('premature categories are repaired and a removed profile purpose is blocked
   const blocked = await completeTurnReply(input, model(missingPurpose, missingPurpose).generate)
   assert.equal(blocked.audit.status, 'rejected_guard')
   assert.ok(blocked.audit.issues.includes('lead_profile_question_purpose_changed'))
-  assert.ok(blocked.reply.includes(PROFILE_INVITATION))
+  assertPending(blocked, missingPurpose.reply)
   assert.equal(blocked.needsAdvisor, false)
 
   const prematureBrochure = { ...candidate, reply: candidate.reply + '\n' + BROCHURE_URL }
@@ -225,7 +233,7 @@ test('the real writer delivers the verified brochure and resumes a purposeful co
   const blocked = await completeTurnReply(input, model(forgedLink).generate)
   assert.equal(blocked.audit.status, 'rejected_guard')
   assert.ok(blocked.audit.issues.includes('unauthorized_link'))
-  assert.ok(blocked.reply.includes(BROCHURE_URL))
+  assertPending(blocked, forgedLink.reply)
   assert.doesNotMatch(blocked.reply, /example\.invalid/)
 })
 
@@ -354,7 +362,7 @@ test('general financing preserves the original complete draft and audits actual 
   const result=await completeTurnReply(input,mock.generate)
   assert.equal(result.reply,reply)
   assert.deepEqual(result.audit.text_transformations,[])
-  assert.match(mock.calls[1][0],/oraciones incompletas/)
+  assert.match(mock.calls[1][0],/coherencia del mensaje actual/)
   const adjusted=await completeTurnReply({...input,normalizeReply:text=>text.replace('En cuanto a financiamiento, ','')},model(candidate,approved).generate)
   assert.equal(adjusted.audit.text_transformations[0].before,reply)
   assert.equal(adjusted.audit.text_transformations[0].after,adjusted.reply)
@@ -381,7 +389,7 @@ test('commercial budget objection permits choosing alternatives or financing and
   assert.equal(result.audit.commercial_continuation.checks.operational_goal_preserved,true)
   assert.equal(mock.calls[0][1].preserveOperationalQuestion,false)
   assert.equal(mock.calls[0][1].contrato_redaccion.decisiones_protegidas,false)
-  assert.match(mock.calls[1][0],/Ofrecer alternativas no equivale a seleccionarlas/)
+  assert.match(mock.calls[1][0],/no autoriza.*selecci|no.*selecciones|no afirme.*solo porque se solicitó/)
   const denied = {...approved,operational_goal_preserved:false}
   const rejected = await completeTurnReply(input,model(candidate,denied,candidate,denied).generate)
   assert.equal(rejected.audit.status,'rejected_review')
@@ -457,7 +465,7 @@ test('semantic review permits omitting irrelevant base numbers but checks unit-v
   assert.equal(mock.calls.length, 2)
   const swapped = await completeTurnReply(input, model(candidate, { ...review, factual_values: [{ ...review.factual_values[0], unit_id: 'd502' }] }).generate)
   assert.equal(swapped.audit.status, 'rejected_review')
-  assert.equal(swapped.reply, input.baseReply)
+  assertPending(swapped, input.baseReply, candidate.reply)
   const unsupported = await completeTurnReply(input, model(candidate, { ...review, claims: [{ ...claim, verdict: 'unsupported' }] }).generate)
   assert.equal(unsupported.audit.status, 'rejected_review')
   const unanswered = await completeTurnReply(input, model(candidate, { ...review, all_requests_considered: false }).generate)
@@ -475,7 +483,7 @@ test('opening suggestion does not replace the writer chosen wording', async () =
   assert.equal(repeated.audit.opening_decision.removed_repetition, true)
 })
 
-test('semantic review records evidence and falls back if unsupported claims cannot be repaired', async () => {
+test('semantic review records evidence and leaves unsupported unrepaired claims pending', async () => {
   const current = 'Quiero información', reply = 'Ofrecemos departamentos.'
   const input = { current, baseReply: 'Tenemos departamentos.', verified: { categorias: ['departamento'] }, audit: { semantic_review_enabled: true } }
   const candidate = { reply, requests: [covered(current)], question: noQuestion }
@@ -488,7 +496,7 @@ test('semantic review records evidence and falls back if unsupported claims cann
   for (const verdict of ['unsupported', 'contradicted', 'neutral']) {
     const rejected = await completeTurnReply(input, model(candidate, { ...approved, claims: [{ ...claim, verdict }] }).generate)
     assert.equal(rejected.audit.status, 'rejected_review')
-    assert.equal(rejected.reply, input.baseReply)
+    assertPending(rejected, input.baseReply, candidate.reply)
   }
 })
 test('Carlos price category switch uses catalogue evidence and accepts natural wording', async () => {
@@ -506,13 +514,14 @@ test('Carlos price category switch uses catalogue evidence and accepts natural w
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.reply, good)
   assert.deepEqual(result.audit.price_evidence.units.map(unit => unit.price_usd), [550000])
-  assert.ok(!mock.calls[0][1].respuesta_base.includes('310.000'))
+  assert.equal(mock.calls[0][1].respuesta_base, undefined)
+  assert.match(mock.calls[0][1].contexto_verificado.respuesta_precio_verificada, /550[.,]000/)
   const repaired = await completeTurnReply(input, model(candidate(good.replace('550.000', '999.000')), candidate(good), approved).generate)
   assert.equal(repaired.reply, good)
   assert.equal(repaired.audit.repair_attempts.length, 1)
   const rejected = await completeTurnReply(input, model(candidate(good.replace('550.000', '999.000')), candidate(good.replace('550.000', '999.000'))).generate)
   assert.equal(rejected.audit.status, 'rejected_guard')
-  assert.match(rejected.reply, /550[.,]000/)
+  assertPending(rejected, good)
   assert.doesNotMatch(rejected.reply, /310[.,]000|999[.,]000/)
 })
 test('invalid coverage records exact field and expectation without accepting the draft', async () => {
@@ -529,7 +538,7 @@ test('invalid coverage records exact field and expectation without accepting the
     const mock = model(candidate, candidate)
     const result = await completeTurnReply(input, mock.generate)
     assert.equal(result.audit.status, 'invalid_coverage')
-    assert.equal(result.reply, input.baseReply)
+    assertPending(result, input.baseReply)
     assert.equal(mock.calls.length, 2)
     assert.equal(result.audit.repair_attempts[0].final_status, 'invalid_coverage')
     assert.ok(result.audit.issues.some(issue => issue.includes(field) && issue.includes('recibido') && issue.includes('se esperaba')))
@@ -556,10 +565,23 @@ test('Carlos catalogue metadata is repaired without changing his final answer or
   const question = { text: '¿Le gustaría revisar las alternativas disponibles?', purpose: 'permission_to_continue', missing_datum: 'Aceptación', next_decision: 'Mostrar alternativas' }
   const baseReply = 'Actualmente no contamos con departamentos de 5 dormitorios. Tenemos departamentos de 3 dormitorios, hasta 120,83 m² interiores, y penthouses de 3 dormitorios, hasta 142,09 m² interiores. ' + question.text
   const reply = baseReply.replace('Actualmente', 'En este momento')
-  const input = { current, baseReply, verified: {}, audit: { source: 'catalog_search', verified_catalog: true } }
+  const input = { current, baseReply, verified: {}, audit: { source: 'catalog_search', verified_catalog: true, semantic_review_enabled: true,
+    catalog_query: { scope: 'catalog', filters: { bedrooms: 5 } },
+    catalog_results: { units: [], complete: true, unknown_unit_ids: [] },
+    alternative_results: { units: [{ id: 'd202', category: 'departamento', bedrooms: 3, area_internal_m2: 120.83 },
+      { id: 'p602', category: 'penthouse', bedrooms: 3, area_internal_m2: 142.09 }] } } }
   const invalid = { reply, requests: [covered(current), covered(question.text)], question }
   const valid = { reply, requests: [covered(current)], question }
-  const mock = model(invalid, valid, approved)
+  const review = { ...approved, claims: [
+    { fragment: 'S1', subject: 'departamentos de cinco dormitorios', polarity: 'negation', verdict: 'supported',
+      evidence: 'Consulta completa sin coincidencias.', evidence_source: 'catalog_no_results' },
+    { fragment: 'S2', subject: 'alternativas de tres dormitorios', polarity: 'affirmation', verdict: 'supported',
+      evidence: 'Alternativas de catálogo y máximos de categoría.', evidence_source: 'verified_context' },
+  ], factual_values: [
+    { fragment: 'S2', unit_id: 'group:departamento:3:max', field: 'area_internal_m2', value: 120.83, operator: 'lte', upper_value: null },
+    { fragment: 'S2', unit_id: 'group:penthouse:3:max', field: 'area_internal_m2', value: 142.09, operator: 'lte', upper_value: null },
+  ] }
+  const mock = model(invalid, valid, review)
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.reply, reply)
   assert.equal(result.audit.status, 'checked')
@@ -580,14 +602,14 @@ test('metadata repair keeps factual guards and cannot rewrite the draft', async 
     const mock = model(invalid, valid)
     const result = await completeTurnReply(input, mock.generate)
     assert.equal(result.audit.status, 'rejected_guard')
-    assert.equal(result.reply, input.baseReply)
+    assertPending(result, input.baseReply)
     assert.equal(mock.calls.length, 2)
   }
   const mock = model({ reply: input.baseReply, requests: [], question: {} },
     { reply: 'Otra respuesta.', requests: [covered(input.current)], question: noQuestion })
   const result = await completeTurnReply(input, mock.generate)
   assert.deepEqual(result.audit.issues, ['metadata_repair_changed_reply'])
-  assert.equal(result.reply, input.baseReply)
+  assertPending(result, input.baseReply)
 })
 
 test('repair cannot hide omitted requests even when reply equals the base', async () => {
@@ -605,7 +627,7 @@ test('repair service failure falls back and records its final status', async () 
   const input = { current: 'Hola', baseReply: 'Hola.', verified: {} }
   const mock = model({ reply: 'Hola.', requests: null, question: noQuestion }, new Error('unavailable'))
   const result = await completeTurnReply(input, mock.generate)
-  assert.equal(result.reply, input.baseReply)
+  assertPending(result, input.baseReply)
   assert.equal(result.audit.repair_attempts[0].final_status, 'invalid_coverage')
   assert.equal(result.audit.repair_attempts[0].failure, 'repair_call_failed')
   assert.equal(mock.calls.length, 2)
@@ -618,17 +640,18 @@ test('final writer receives a route-specific contract for information, price and
     ['financing_question', 'Podemos orientarle con Banco Pichincha.', {}],
   ]) {
     const mock = model({ reply: baseReply, requests: [covered('Quiero conocer las opciones')], question: noQuestion })
-    const result = await completeTurnReply({ current: 'Quiero conocer las opciones', baseReply, verified: {}, audit: { source, ...extra } }, mock.generate)
+    const verified = source === 'unit_price' ? { price: 250000 } : { brochure_url: BROCHURE_URL }
+    const result = await completeTurnReply({ current: 'Quiero conocer las opciones', baseReply, verified, audit: { source, ...extra } }, mock.generate)
     const contract = mock.calls[0][1].contrato_redaccion
     assert.equal(contract.ruta, source)
-    assert.equal(contract.decisiones_protegidas, source !== 'project_overview')
+    assert.equal(contract.decisiones_protegidas, source === 'financing_question')
     assert.deepEqual(result.audit.writer_contract, contract)
     assert.equal(result.reply, baseReply)
     if (source === 'project_overview') {
       assert.equal(contract.enlaces_obligatorios.length, 0)
       assert.equal(contract.enlaces_permitidos.length, 1)
     }
-    if (source === 'unit_price') assert.ok(contract.cifras_obligatorias.includes('250.000'))
+    if (source === 'unit_price') assert.deepEqual(contract.cifras_obligatorias, [])
   }
 })
 
@@ -646,7 +669,7 @@ test('protected route checks the semantic goal instead of matching the literal q
   const goalRejected = { ...approved, operational_goal_preserved: false }
   const bad = model(changedCandidate, goalRejected, changedCandidate, goalRejected)
   const rejected = await completeTurnReply(input, bad.generate)
-  assert.equal(rejected.reply, baseReply)
+  assertPending(rejected, baseReply, changedCandidate.reply)
   assert.ok(rejected.audit.issues.includes('review_check_failed:operational_goal_preserved'))
   assert.equal(bad.calls.length, 4)
   const paraphrase = { reply: 'Tenemos alternativas. ¿En cuál planta le gustaría revisar opciones?', requests: [covered(input.current)],
@@ -654,15 +677,15 @@ test('protected route checks the semantic goal instead of matching the literal q
   assert.equal((await completeTurnReply(input, model(paraphrase, approved).generate)).reply, paraphrase.reply)
 })
 
-test('visit rewrite missing the date keeps the complete base instead of splicing duplicate hours', async () => {
+test('visit rewrite without verified scheduling evidence stays pending without confirming or splicing times', async () => {
   const current = 'Me parece bien mañana a las 4 de la tarde'
   const baseReply = 'Revisaremos la disponibilidad para mañana, viernes 18 de septiembre a las 4 p. m. en nuestra oficina. Le avisaremos cuando el equipo confirme el horario.'
   const candidate = 'Hemos recibido su preferencia para mañana a las 4 p. m. en nuestra oficina. Le avisaremos cuando el equipo confirme.'
   const mock = model({reply:candidate,requests:[covered(current)],question:noQuestion},approved)
   const result = await completeTurnReply({current,baseReply,verified:{},audit:{source:'visit_intake'}},mock.generate)
-  assert.equal(result.reply,baseReply)
+  assertPending(result,baseReply,candidate)
   assert.equal(result.audit.status,'rejected_guard')
-  assert.equal((result.reply.match(/4 p\. m\./g)||[]).length,1)
+  assert.doesNotMatch(result.reply,/confirmada|4 p\. m\./)
   assert.equal(result.needsAdvisor,false)
 })
 test('sentence protection keeps both morning and afternoon abbreviations intact',()=>{
@@ -692,7 +715,7 @@ test('coverage repair cannot add commercial offers to a passive response or drop
   const draft = baseReply + ' También podemos orientarle sobre financiamiento con JEP.'
   const mock = model({ reply: draft, requests: [covered(current)], question: noQuestion })
   const result = await completeTurnReply(input, mock.generate)
-  assert.equal(result.reply, baseReply)
+  assertPending(result, baseReply, draft)
   assert.equal(result.audit.status, 'rejected_guard')
   assert.ok(result.audit.issues.includes('unsolicited_sales_offer'))
   assert.match(mock.calls[0][0], /MODO INFORMATIVO/)
@@ -742,14 +765,15 @@ test('ambiguous options clarify two plausible paths and do not require an adviso
   assert.equal(result.reply, reply)
 })
 
-test('model failure retains the complete base rather than mechanically cutting its clauses', async () => {
+test('model failure leaves the query pending without sending an unreviewed template', async () => {
   const result = await completeTurnReply({current:'¿Qué opciones tengo?',baseReply:'No ofrecemos crédito directo.',verified:{}},async()=>{throw Error('offline')})
-  assert.equal(result.reply,'No ofrecemos crédito directo.')
+  assertPending(result,'No ofrecemos crédito directo.')
   assert.equal(result.needsAdvisor,false)
 })
 
 test('unknown concrete facts preserve answered information and return only missing fragments', async () => {
-  const input = { current: 'Qué precio tiene el 202? Tiene certificación acústica?', baseReply: 'El departamento 202 tiene un valor referencial de $250.000.', verified: {} }
+  const input = { current: 'Qué precio tiene el 202? Tiene certificación acústica?', baseReply: 'El departamento 202 tiene un valor referencial de $250.000.',
+    verified: { catalogo: [{ id: 'd202', unit_number: '202', category: 'departamento', published_commercial_price: 250000 }] } }
   const reply = 'El departamento 202 tiene un valor referencial de $250.000. La certificación acústica necesita verificarse.'
   const mock = model({ reply, requests: [covered('Qué precio tiene el 202?'), covered('Tiene certificación acústica?', 'missing_fact', 'missing_fact')], question: noQuestion }, { ...approved, missing_fact_fragments: ['Tiene certificación acústica?'] })
   const result = await completeTurnReply(input, mock.generate)
@@ -759,19 +783,20 @@ test('unknown concrete facts preserve answered information and return only missi
 })
 
 test('invented historical fragments and fictitious URLs never pass source validation', async () => {
-  const input = { current: 'Qué incluye el 202?', baseReply: 'El 202 tiene balcón.', verified: {} }
+  const input = { current: 'Qué incluye el 202?', baseReply: 'El 202 tiene balcón.', verified: { catalogo: [{ id: 'd202', unit_number: '202', spaces: ['balcón'] }] } }
   const invalid = { reply: input.baseReply, requests: [covered('Quiero una cita mañana')], question: noQuestion }
   const invented = model(invalid, invalid)
   assert.equal((await completeTurnReply(input, invented.generate)).audit.status, 'invalid_coverage')
   const badLink = model({ reply: input.baseReply + ' https://inventado.example/202', requests: [covered(input.current)], question: noQuestion })
   const result = await completeTurnReply(input, badLink.generate)
-  assert.equal(result.reply, input.baseReply)
+  assertPending(result, input.baseReply)
   assert.deepEqual(result.audit.issues, ['unauthorized_link'])
   assert.equal(badLink.calls.length, 1)
 })
 
 test('prices and unverified actions stay protected while question punctuation is not an operation', () => {
-  const input = { current: 'Quisiera visitar el 202.', baseReply: 'El 202 cuesta $250.000. ¿Qué fecha le vendría bien?', verified: { price: 300000 }, preserveOperationalQuestion: true }
+  const input = { current: 'Quisiera visitar el 202.', baseReply: 'El 202 cuesta $250.000. ¿Qué fecha le vendría bien?',
+    verified: { catalogo: [{ id: 'd202', unit_number: '202', published_commercial_price: 250000 }] }, preserveOperationalQuestion: true }
   const issues = turnCompletenessIssues(input, 'El 202 cuesta $300.000.', noQuestion)
   assert.ok(issues.includes('numbers_changed'))
   assert.equal(issues.includes('operational_question_omitted'), false)
@@ -780,16 +805,24 @@ test('prices and unverified actions stay protected while question punctuation is
 })
 
 test('a URL query is not mistaken for a client-facing question and verified catalogue prices can be formatted', () => {
-  const input = { current: 'Ubicación y precio?', baseReply: 'Mapa: https://maps.google.com/?q=Cuenca', verified: { price: 250000 } }
+  const input = { current: 'Ubicación y precio?', baseReply: 'Mapa: https://maps.google.com/?q=Cuenca',
+    verified: { price: 250000, ubicacion: 'https://maps.google.com/?q=Cuenca' } }
   assert.deepEqual(turnCompletenessIssues(input, 'El precio es $250.000. Mapa: https://maps.google.com/?q=Cuenca', noQuestion), [])
+})
+
+test('a template alone cannot authorize its numeric facts or material destinations', () => {
+  const baseReply = 'La unidad 202 cuesta $250.000. Consulte https://inventado.example/reserva'
+  const issues = turnCompletenessIssues({ current: 'Quiero información', baseReply, verified: {} }, baseReply, noQuestion)
+  assert.ok(issues.includes('numbers_changed'))
+  assert.ok(issues.includes('unauthorized_link'))
 })
 
 test('a meaningless question and unverified income claim are rejected by independent review without retries', async () => {
   const input = { current: 'El local es para rentarlo, eso influye en el crédito?', baseReply: 'Podemos revisar las opciones.', verified: {} }
   const reply = 'Los ingresos futuros por renta respaldan el crédito.'
-  const mock = model({ reply, requests: [covered(input.current, 'missing_fact')], question: noQuestion }, { ...approved, answers_supported: false })
+  const mock = model({ reply, requests: [{ ...covered(input.current, 'missing_fact', 'missing_fact'), fact_key: 'policy' }], question: noQuestion }, { ...approved, answers_supported: false })
   const result = await completeTurnReply(input, mock.generate)
-  assert.equal(result.reply, input.baseReply)
+  assertPending(result, input.baseReply)
   assert.equal(result.audit.status, 'rejected_guard')
   assert.equal(result.needsAdvisor, true)
   assert.equal(mock.calls.length, 1)
@@ -803,26 +836,27 @@ test('optional CTA purpose failure does not generate an urgent handoff', async (
   assert.equal(result.audit.status, 'rejected_guard')
 })
 
-test('provider errors preserve the verified base without pretending that an advisor was notified', async () => {
+test('provider errors preserve the pending turn without pretending that an advisor was notified', async () => {
   const input = { current: 'Sí, con JEP', baseReply: 'Continuamos con Cooperativa JEP. ¿Cuál es su nombre completo?', verified: {} }
   const mock = model(new Error('provider unavailable'))
   const result = await completeTurnReply(input, mock.generate)
-  assert.equal(result.reply, input.baseReply)
-  assert.equal(result.changed, false)
+  assertPending(result, input.baseReply)
+  assert.equal(result.changed, true)
   assert.equal(result.needsAdvisor, false)
   assert.equal(result.audit.status, 'unavailable')
 })
 
 test('missing required facts are repaired by the writer instead of splicing template sentences', async () => {
-  const input = { current: 'Qué opciones y precios tienen?', baseReply: 'Tenemos departamentos de 2 o 3 dormitorios.', verified: { price_range: '$250.000 a $550.000' } }
+  const input = { current: 'Qué opciones y precios tienen?', baseReply: 'Tenemos departamentos de 2 o 3 dormitorios.',
+    verified: { price_range: '$250.000 a $550.000', catalogo: [{ id: 'd2', bedrooms: 2 }, { id: 'd3', bedrooms: 3 }] } }
   const draft = { reply: 'Los valores referenciales van de $250.000 a $550.000.', requests: [covered(input.current, 'unanswered')], question: noQuestion }
   const revised = { ...draft, reply: 'Los departamentos de 2 o 3 dormitorios tienen valores referenciales de $250.000 a $550.000.' }
-  const mock = model(draft, revised, approved)
+  const mock = model(draft, { ...approved, all_requests_considered: false }, revised, approved)
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.reply, revised.reply)
   assert.match(result.reply, /250\.000 a \$550\.000/)
-  assert.equal(mock.calls[1][1].reparacion.borrador, draft.reply)
-  assert.equal(mock.calls[2][1].respuesta_propuesta, result.reply)
+  assert.equal(mock.calls[2][1].reparacion.borrador, draft.reply)
+  assert.equal(mock.calls[3][1].respuesta_propuesta, result.reply)
   assert.equal(result.needsAdvisor, false)
 })
 
@@ -842,9 +876,7 @@ test('a false rental-income claim never survives even if the provider is unavail
   const input = { current, baseReply, verified: {}, preserveOperationalQuestion: true }
   const result = await completeTurnReply(input, model(new Error('provider unavailable')).generate)
   assert.doesNotMatch(result.reply, /rentarlo respalda|porque genera ingresos/)
-  assert.match(result.reply, /Banco Pichincha o Cooperativa JEP/)
-  assert.match(result.reply, /¿Con cuál entidad desea continuar\?/)
-  assert.match(result.reply, /evaluación financiera debe revisarlo la entidad/)
+  assertPending(result, baseReply)
   assert.equal(result.needsAdvisor, true)
   assert.equal(result.changed, true)
   assert.equal(result.audit.unsupported_rental_claim_removed, true)
@@ -901,7 +933,7 @@ test('a rejected rewrite cannot turn an unanswered fact into a request for an ad
   const input = comparisonTurn()
   const mock = model({ reply: input.baseReply + ' Tiene 999 m² interiores.', requests: [covered(input.current, 'unanswered', 'missing_fact')], question: input.question })
   const result = await completeTurnReply(input, mock.generate)
-  assert.equal(result.reply, input.baseReply)
+  assertPending(result, input.baseReply)
   assert.equal(result.audit.status, 'rejected_guard')
   assert.equal(result.needsAdvisor, false)
   assert.equal(result.audit.draft_rejected, true)
@@ -1012,7 +1044,7 @@ test('reviewer repairs nonliteral claim evidence once without rewriting the comm
   let calls=0;
   const result=await completeTurnReply(input,async()=>responses[calls++]);
   assert.equal(calls,3,JSON.stringify(result.audit));
-  assert.equal(result.reply,success?reply:input.baseReply);
+  if(success)assert.equal(result.reply,reply);else assertPending(result,input.baseReply,reply);
   assert.equal(result.audit.status,success?'checked':'rejected_review');
   assert.equal(result.audit.repair_attempts[0].target,'review_metadata');
   assert.equal(result.audit.repair_attempts[0].issues[0].code,'claim_fragment_not_in_reply');
@@ -1111,7 +1143,7 @@ test('a commercial defect has one rewrite and independent recheck; a repeated de
  for(const repaired of [true,false]){
   const mock=model(candidate(bad),review(bad,5),candidate(repaired?good:bad),review(repaired?good:bad,repaired?3:5));
   const result=await completeTurnReply(input,mock.generate);
-  assert.equal(mock.calls.length,4);assert.equal(result.reply,repaired?good:baseReply);
+  assert.equal(mock.calls.length,4);if(repaired)assert.equal(result.reply,good);else assertPending(result,baseReply,bad);
   assert.equal(result.audit.status,repaired?'checked':'rejected_review');
   assert.equal(result.audit.repair_attempts.length,1);
   assert.equal(result.audit.repair_attempts[0].target,'commercial_draft');
@@ -1216,7 +1248,7 @@ test('metadata repair cannot hide a wrong price, omit an endpoint or erase claim
  for(const scenario of ['wrong_price','missing_endpoint','missing_claim']) {
   const reply=scenario==='wrong_price'?baseReply.replace('550.000','600.000'):baseReply;
   const upper=scenario==='wrong_price'?600000:550000;
-  const first={...approved,claims:[{...validClaim,fragment:'Los valores del proyecto son referenciales.'}],factual_values:[
+  const first={...approved,claims:[{...validClaim,fragment:scenario==='missing_claim'?'S1':'Los valores del proyecto son referenciales.'}],factual_values:[
    {fragment:'S1',unit_id:'price',field:'published_commercial_price',value:145000,upper_value:upper,operator:'gte'}]};
   const repaired={...approved,claims:scenario==='missing_claim'?[]:[validClaim],factual_values:[scenario==='missing_endpoint'
    ?{fragment:'S1',unit_id:'group:context:all:min',field:'published_commercial_price',value:145000,upper_value:null,operator:'gte'}
@@ -1224,7 +1256,7 @@ test('metadata repair cannot hide a wrong price, omit an endpoint or erase claim
   const mock=model({reply,requests:[covered(current)],question:noQuestion},first,repaired);
   const result=await completeTurnReply({current,baseReply,verified:{catalogo:units},audit:{semantic_review_enabled:true}},mock.generate);
   assert.equal(result.audit.status,'rejected_review',scenario+JSON.stringify(result.audit));
-  assert.equal(mock.calls.length,3,scenario);assert.equal(result.reply,baseReply);
+  assert.equal(mock.calls.length,3,scenario);assertPending(result,baseReply,reply);
   assert.equal(result.audit.repair_attempts[0].target,'review_metadata');
   assert.ok(result.audit.semantic_review.validation_details.some(issue=>issue.code===({wrong_price:'catalog_range_mismatch',missing_endpoint:'review_repair_omitted_facts',missing_claim:'review_repair_omitted_claims'})[scenario]));
  }

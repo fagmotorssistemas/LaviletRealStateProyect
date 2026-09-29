@@ -457,6 +457,7 @@ function progressiveSelectionSections(output: Row, snapshots: CatalogSnapshot[])
 }
 
 function coverageSections(output: Row, snapshots: CatalogSnapshot[]): ExplanationSection[] {
+  const decision = reviewDecision(output)
   const continuation = row(output.commercial_continuation)
   const question = row(continuation.question)
   const checks = row(continuation.checks)
@@ -466,7 +467,8 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
   const attempts = rows(output.repair_attempts)
   const requests = rows(output.requests)
   const present = (key: string, label: string): ExplanationFact => ({ label, value: str(output[key]) || 'No se conservó este texto en el registro.' })
-  const selection = invalid ? 'Se descartó la propuesta por información interna inválida; no se completó la revisión del contenido.'
+  const selection = decision.recoveryPending ? 'La propuesta no quedó aprobada. La base no se usó como reemplazo; la consulta permanece pendiente de recuperación.'
+    : invalid ? 'Se descartó la propuesta por información interna inválida; no se completó la revisión del contenido.'
     : checked ? 'La propuesta superó la revisión de este paso. Los pasos posteriores aún pueden modificarla.'
       : status ? `Resultado registrado: ${humanValue(status)}. Consulte la respuesta conservada y los controles.`
         : 'No se guardó el resultado de la revisión; no se puede determinar si se aceptó la propuesta.'
@@ -479,7 +481,7 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
     ...progressiveSelectionSections(output, snapshots),
     ...transformationSections(output),
     ...(Object.keys(row(output.fallback_validation)).length ? [{ title: 'Validación de la respuesta de respaldo', description: 'El respaldo también debe tener datos verificados y atender la consulta. Una omisión informada se contrasta con la cobertura del catálogo.', facts: [
-      { label: 'Resultado', value: row(output.fallback_validation).passed === true ? 'Superó los controles registrados del respaldo.' : 'El respaldo original no superó los controles y fue sustituido.' },
+      { label: 'Resultado', value: decision.recoveryPending ? 'La base no se autorizó como reemplazo; la consulta quedó pendiente de recuperación.' : row(output.fallback_validation).passed === true ? 'Superó los controles registrados del respaldo.' : 'El respaldo original no superó los controles y fue sustituido.' },
       { label: 'Motivos', value: humanValue(row(output.fallback_validation).issues) || 'Sin controles fallidos registrados.' },
       { label: 'Solicitudes omitidas', value: humanValue(row(output.fallback_validation).unanswered_requests) || 'Ninguna registrada.' },
     ] }] : []),
@@ -496,10 +498,10 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
       { label: 'Objetivo y selección', value: checks.operational_goal_preserved === true ? 'El revisor aprobó la continuidad del objetivo y el respeto de la selección.' : checks.operational_goal_preserved === false ? 'El revisor rechazó el objetivo o la continuidad de la selección.' : 'No se completó esta comprobación.' },
       { label: 'Resultado y motivo', value: checked ? 'Propuesta aceptada en este paso tras los controles registrados de contenido y continuidad.' : `Propuesta no aceptada. ${reviewDecision(output).causes.join(' ') || humanValue(output.issues) || 'Consulte los controles registrados.'}` },
     ] }] : []),
-    { title: 'Respuesta elegida en este paso', description: 'El borrador es el texto propuesto por la IA, todavía sujeto a validación. Descartarlo significa utilizar otra respuesta, no dejar al cliente sin contestación. El envío se comprueba en el paso de Kommo.', facts: [
+    { title: 'Respuesta elegida en este paso', description: 'El borrador es el texto propuesto por la IA, todavía sujeto a validación. Una propuesta rechazada puede iniciar una recuperación pendiente; la respuesta preparada y su envío se comprueban en los pasos posteriores y en Kommo.', facts: [
       { label: 'Qué ocurrió', value: selection }, present('final_preview', 'Respuesta conservada'), present('proposed_preview', 'Propuesta de la IA (borrador)'), present('base_preview', 'Respuesta base de respaldo'),
     ] },
-    { title: 'Error detectado', description: 'Estos controles explican el rechazo de la propuesta. Un error en requests significa que falló la lista interna de solicitudes; no demuestra que el texto comercial fuera incorrecto.', facts: [
+    { title: 'Controles de validación', description: 'Estos son los controles registrados al terminar este paso. Las referencias internas corregidas se muestran por separado; un error en requests afecta la ficha interna y no demuestra que el texto comercial fuera incorrecto.', facts: [
       ...(Object.keys(row(output.final_validation)).length ? [{ label: 'Decisión conjunta', value: row(output.final_validation).passed === true
         ? 'Catálogo, relaciones numéricas y controles de la ruta aprobados dentro del mismo proceso de reparación.'
         : `Controles finales: ${humanValue(row(output.final_validation).issues)}` }] : []),
@@ -508,6 +510,7 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
       { label: 'Controles registrados', value: Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
       ...(rows(row(output.semantic_review).validation_details).length ? reviewDecision(output).causes.map(value => ({ label: 'Causa agrupada', value })) : []),
     ] },
+    ...(decision.resolvedDetails.length ? [{ title: 'Referencias internas corregidas', description: 'Estas incidencias se resolvieron y no explican un rechazo posterior.', facts: decision.resolvedDetails.map(value => ({ label: 'Corrección resuelta', value })) }] : []),
     { title: 'Decisiones y evidencia', description: 'El sistema conserva las aperturas elegidas y controla las repeticiones; una apertura vacía permite cortesía opcional. La revisión semántica contrasta las afirmaciones y el código comprueba sus referencias y valores.', facts: [
       { label: 'Apertura', value: output.opening_decision ? humanValue(output.opening_decision) : 'No registrada' },
       { label: 'Cambio de filtros', value: output.query_transition && Object.keys(row(output.query_transition)).length ? humanValue(output.query_transition) : 'No se registró un cambio de alcance.' },
