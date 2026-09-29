@@ -951,8 +951,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         <p className="text-xs text-[#8a8d87]">
           En <span className="font-medium text-[#3a3d36]">2D</span> y{' '}
           <span className="font-medium text-[#3a3d36]">3D</span> podés dibujar y editar las mismas
-          zonas. El 3D es una imagen (cualquier formato); al subir se convierte a WebP sin pérdida.
-          Usá el ajuste fino si el conjunto queda corrido.
+          zonas. El 3D es una imagen; al subir se convierte a WebP sin pérdida. Usá el ajuste fino si
+          el conjunto queda corrido.
         </p>
       </div>
 

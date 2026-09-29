@@ -2,7 +2,8 @@
 
 import dynamic from 'next/dynamic'
 import { useState } from 'react'
-import { Download, ImagePlus, LayoutGrid, Plus } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Download, ImagePlus, LayoutGrid, Mountain, Plus } from 'lucide-react'
 import { useInventoryUnits } from '@/hooks/inmobiliaria/useInventoryUnits'
 import { updateUnitStatus } from '@/services/inmobiliaria.service'
 import { useAuth } from '@/contexts/AuthContext'
@@ -28,6 +29,7 @@ import { INVENTORY_SORT_OPTIONS, UNIT_IMPORT_CATEGORY_OPTIONS, UNIT_STATUS_OPTIO
 import { toast } from 'sonner'
 
 export default function InventarioPage() {
+  const router = useRouter()
   const { supabase } = useAuth()
   const { canWrite } = useRoleAccess()
   const categoryOptions = UNIT_IMPORT_CATEGORY_OPTIONS
@@ -92,6 +94,15 @@ export default function InventarioPage() {
               <Button type="button" variant="outline" onClick={() => setAssetsOpen(true)} className="w-full justify-center gap-2 sm:w-auto">
                 <ImagePlus size={16} aria-hidden />
                 Imágenes tipología
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push('/inmobiliaria/inventario/alrededores')}
+                className="w-full justify-center gap-2 sm:w-auto"
+              >
+                <Mountain size={16} aria-hidden />
+                Alrededores
               </Button>
               <Button
                 type="button"

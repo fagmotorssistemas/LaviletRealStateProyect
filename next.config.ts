@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '40mb',
     },
-    proxyClientMaxBodySize: '40mb',
+    proxyClientMaxBodySize: '150mb',
   },
   turbopack: {
     root: projectRoot,

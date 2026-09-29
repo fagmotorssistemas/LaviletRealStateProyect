@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type UIEvent } from 'react'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -101,6 +102,7 @@ function labeledFinishes(rows: { slug: string; name: string }[]) {
 }
 
 export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProps) {
+  const router = useRouter()
   const [typologies, setTypologies] = useState<TypologyImport[]>([])
   const [code, setCode] = useState('')
   const [kind, setKind] = useState<TypologyAssetKind>('plano')
@@ -655,20 +657,30 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 {item.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => {
+                onClose()
+                router.push('/inmobiliaria/inventario/alrededores')
+              }}
+              className="shrink-0 border-b-2 border-transparent px-3 py-1.5 text-sm text-[#8a8d87] hover:text-[#3a3d36]"
+            >
+              Alrededores
+            </button>
           </div>
 
-          {tab !== 'pisos' ? (
+          {tab === 'pisos' ? (
+            <p className="text-xs text-[#8a8d87]">
+              Planos del edificio: en cada piso marcá los departamentos con el número de unidad
+              (ej. 208). El showroom usa esa etiqueta para abrir la unidad.
+            </p>
+          ) : (
             <Select
               label="Tipología"
               options={typologyOptions}
               value={code}
               onChange={(e) => setCode(e.target.value)}
             />
-          ) : (
-            <p className="text-xs text-[#8a8d87]">
-              Planos del edificio: en cada piso marcá los departamentos con el número de unidad
-              (ej. 208). El showroom usa esa etiqueta para abrir la unidad.
-            </p>
           )}
           {tab === 'documentos' ? (
             <Select
