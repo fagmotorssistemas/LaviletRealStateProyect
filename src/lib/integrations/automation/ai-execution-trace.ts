@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 import type { AutomationExecutionTrace } from './execution-trace'
+import { aiRequestRole } from './ai-model-routing'
 
 type Context = { trace: AutomationExecutionTrace; calls: number }
 type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
@@ -25,9 +26,7 @@ export function withAIExecutionTrace<T>(trace: AutomationExecutionTrace, work: (
 export function beginModelTrace(instructions: string, model: string, task: string, input?: unknown, schema?: unknown, attachments = false) {
   const context = active.getStore()
   if (!context) return { finish: (_error?: unknown, _usage?: Usage, _result?: unknown) => { void _error; void _usage; void _result } }
-  const properties = (schema as { properties?: Record<string, unknown> } | undefined)?.properties || {}
-  const role = attachments ? 'media' : properties.property_fragments ? 'scope' : properties.turn_semantics ? 'extractor'
-    : task === 'review' ? 'reviewer' : properties.requests && properties.question ? 'writer' : task === 'writing' ? 'draft' : 'interpretation'
+  const role = aiRequestRole(schema, task, attachments)
   const revision = createHash('sha256').update(instructions).digest('hex').slice(0, 16)
   const purpose = task === 'writing' ? 'Redactar con IA' : task === 'review' ? 'Revisar con IA' : 'Interpretar con IA'
   const parent = context.trace.currentStep()
