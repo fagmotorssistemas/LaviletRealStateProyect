@@ -12,6 +12,7 @@ import {
   getFloorPlanOverlayAlign,
   getFloorPlanVariantMedia,
   zoneDisplayPointsPercent,
+  zonesForVariant,
 } from '@/lib/tour/floorPlanZones'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
@@ -123,8 +124,9 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
   )
 
   const displaySlots = useMemo<DisplaySlot[]>(() => {
-    if (!planDoc?.zones?.length) return []
-    return [...planDoc.zones]
+    const zones = zonesForVariant(planDoc, '2d')
+    if (!zones.length) return []
+    return [...zones]
       .sort((a, b) => a.order - b.order)
       .filter((zone) => zone.pointsPercent.trim())
       .map((zone) => ({
@@ -135,8 +137,9 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
   }, [planDoc, overlayAlign])
 
   const activeSlotId = useMemo(() => {
-    if (!unit || !planDoc?.zones?.length) return null
-    return findZoneIdForUnit(unit, planDoc.zones)
+    const zones = zonesForVariant(planDoc, '2d')
+    if (!unit || !zones.length) return null
+    return findZoneIdForUnit(unit, zones)
   }, [unit, planDoc])
 
   if (!unit) return null

@@ -28,6 +28,7 @@ import {
   getFloorPlanOverlayAlign,
   getFloorPlanVariantMedia,
   zoneDisplayPointsPercent,
+  zonesForVariant,
   type FloorPlanVariant,
 } from '@/lib/tour/floorPlanZones'
 import { SITE } from '@/lib/marketing/site'
@@ -312,8 +313,6 @@ export function TourFloorPlan({
   const { t, locale } = useTourLanguage()
 
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
-  const [htmlHoverUnit, setHtmlHoverUnit] = useState<TourUnitSummary | null>(null)
-  const [htmlHoverLabel, setHtmlHoverLabel] = useState<string | null>(null)
   const [scale, setScale] = useState(ZOOM_MIN)
   /** Capas montadas: se quedan en DOM y el cambio es solo visibility. */
   const [layers, setLayers] = useState<Partial<Record<number, FloorLayer>>>({})
@@ -578,8 +577,8 @@ export function TourFloorPlan({
   const planAspect = `${planAspectSize.width} / ${planAspectSize.height}`
 
   /**
-   * 3D: borde a borde, proporción real. El sobrante se recorta, no queda centrado con franjas.
-   * 2D: el plano entero dentro del marco.
+   * 2D y 3D: pantalla completa, misma proporción que el archivo.
+   * El marco se recorta; la imagen no se estira.
    */
   const planFrameStyle = useMemo(() => {
     const aspect = planAspectSize.width / Math.max(1, planAspectSize.height)
@@ -595,30 +594,14 @@ export function TourFloorPlan({
     }
 
     const stageWider = stageW / stageH > aspect
-    if (planVariant === '3d') {
-      const frameW = stageWider ? stageW : Math.round(stageH * aspect)
-      const frameH = stageWider ? Math.round(frameW / aspect) : stageH
-      return {
-        width: frameW,
-        height: frameH,
-        flexShrink: 0,
-      }
+    const frameW = stageWider ? stageW : Math.round(stageH * aspect)
+    const frameH = stageWider ? Math.round(frameW / aspect) : stageH
+    return {
+      width: frameW,
+      height: frameH,
+      flexShrink: 0,
     }
-
-    return stageWider
-      ? {
-          aspectRatio: planAspect,
-          height: '100%' as const,
-          width: 'auto' as const,
-          maxWidth: '100%' as const,
-        }
-      : {
-          aspectRatio: planAspect,
-          width: '100%' as const,
-          height: 'auto' as const,
-          maxHeight: '100%' as const,
-        }
-  }, [planAspect, planAspectSize.height, planAspectSize.width, planVariant, stageSize])
+  }, [planAspect, planAspectSize.height, planAspectSize.width, stageSize])
 
   const overlayAlign = useMemo(
     () => getFloorPlanOverlayAlign(docForToggles ?? null, planVariant),
@@ -636,7 +619,7 @@ export function TourFloorPlan({
 
   const displaySlots = useMemo<DisplaySlot[]>(() => {
     // Zonas del piso activo únicamente (evita pines del plano anterior).
-    const zones = docForToggles?.zones
+    const zones = zonesForVariant(docForToggles, planVariant)
     if (!zones?.length) return []
     return [...zones]
       .sort((a, b) => a.order - b.order)
@@ -647,14 +630,14 @@ export function TourFloorPlan({
         points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
         unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
       }))
-  }, [docForToggles?.zones, unitsOnFloor, overlayAlign])
+  }, [docForToggles, planVariant, unitsOnFloor, overlayAlign])
   displaySlotsRef.current = displaySlots
 
   const activeHtmlFloor =
     planVariant === '3d' && currentLayer?.kind === 'html' && !waitingHtmlBoot ? floor : null
-  /** Segmentación visible solo en 2D (en 3D el HTML interactivo). */
-  const showSegmentation = planVariant !== '3d'
   const htmlInteractive = activeHtmlFloor != null
+  /** Zonas y botones sobre la imagen 2D y la imagen 3D. El HTML WebGL no los pinta (el hover re-renderiza el canvas). */
+  const showSegmentation = !htmlInteractive
   const htmlHoverLabelRef = useRef<string | null>(null)
 
   // CRÍTICO FPS: el hover del iframe NO hace setState (re-render = 4fps con WebGL).
@@ -698,9 +681,7 @@ export function TourFloorPlan({
       lastHtmlOpenAtRef.current = now
       htmlHoverUnitRef.current = unit
       htmlHoverLabelRef.current = unit.unit_number
-      setHtmlHoverUnit(unit)
-      setHtmlHoverLabel(unit.unit_number)
-      // El HTML ya elevó con su hover/click nativo; solo abrimos la ficha.
+      // El clic abre la ficha. El hover no pinta la unidad ni muestra un rótulo.
       onSelectUnitRef.current(unit, slotId)
     }
     window.addEventListener('message', onMessage)
@@ -711,8 +692,6 @@ export function TourFloorPlan({
     if (!htmlInteractive) {
       htmlHoverUnitRef.current = null
       htmlHoverLabelRef.current = null
-      setHtmlHoverUnit(null)
-      setHtmlHoverLabel(null)
     }
   }, [htmlInteractive])
 
@@ -842,19 +821,9 @@ export function TourFloorPlan({
   const handleHoverSlot = (slot: DisplaySlot | null) => {
     if (!slot?.unit) {
       setHoverSlot(null)
-      if (htmlInteractive) {
-        const selected =
-          displaySlots.find((item) => item.unit && item.unit.id === selectedUnitId) ?? null
-        if (selected?.unit) {
-          elevateHtmlUnit(selected.id || selected.unit.unit_number, selected.unit)
-        } else {
-          elevateHtmlUnit(null)
-        }
-      }
       return
     }
     setHoverSlot(slot.id)
-    if (htmlInteractive) elevateHtmlUnit(slot.id || slot.unit.unit_number, slot.unit)
   }
 
   const zoomOut = () =>
@@ -953,8 +922,7 @@ export function TourFloorPlan({
       <div
         ref={stageRef}
         className={cn(
-          'absolute inset-0 flex min-h-0 min-w-0 items-center justify-center overflow-hidden',
-          planVariant === '3d' ? 'p-0' : landscapeFill ? 'p-1' : 'p-2 sm:p-3',
+          'absolute inset-0 flex min-h-0 min-w-0 items-center justify-center overflow-hidden p-0',
         )}
       >
           {showPlanChrome ? (
@@ -1004,9 +972,7 @@ export function TourFloorPlan({
           <div
             className={cn(
               'relative shrink-0 overflow-hidden',
-              planVariant === '3d'
-                ? 'bg-[#14110e]'
-                : 'rounded-xl bg-white ring-1 ring-white/10 [@media(max-height:520px)]:rounded-lg',
+              planVariant === '3d' ? 'bg-[#14110e]' : 'bg-white',
             )}
             style={planFrameStyle}
             onMouseLeave={() => setHoverSlot(null)}
@@ -1281,82 +1247,6 @@ export function TourFloorPlan({
             </svg>
           ) : null}
 
-          {/* Pines 3D: mismos clics que el overlay (ficha + elevación). */}
-          {htmlInteractive && displaySlots.length > 0 ? (
-            <div className="pointer-events-none absolute inset-0 z-[4]">
-              {displaySlots.map((slot) => {
-                if (!slot.unit && !slot.label) return null
-                const { cx, cy } = slotCentroid(slot.points)
-                const label = slot.unit?.unit_number ?? slot.label
-                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
-                const hovered = hoverSlot === slot.id
-                return (
-                  <button
-                    key={`html-pin-${slot.id}`}
-                    type="button"
-                    disabled={!slot.unit}
-                    onMouseEnter={() => handleHoverSlot(slot)}
-                    onMouseLeave={() => handleHoverSlot(null)}
-                    onPointerDown={(event) => onSlotPointerDown(slot, event)}
-                    onPointerUp={(event) => onSlotPointerUp(slot, event)}
-                    onPointerCancel={() => {
-                      slotPointerRef.current = null
-                    }}
-                    onClick={(event) => onSlotClick(slot, event)}
-                    className={cn(
-                      'pointer-events-auto absolute z-[4] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1 rounded-md px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.28)] ring-1 transition-[transform,box-shadow] duration-100',
-                      selected || hovered
-                        ? 'bg-white ring-[#3d9b4a]'
-                        : 'bg-white/92 ring-black/10',
-                      slot.unit
-                        ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
-                        : 'cursor-not-allowed opacity-70',
-                    )}
-                    style={{ left: `${cx}%`, top: `${cy}%` }}
-                    aria-label={t(slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
-                  >
-                    <span
-                      className={cn(
-                        'h-1.5 w-1.5 shrink-0 rounded-full sm:h-2 sm:w-2',
-                        slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
-                      )}
-                    />
-                    <span className="text-[10px] font-bold tracking-wide text-[#1a2744] sm:text-[11px]">
-                      {t(label)}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          ) : null}
-
-          {/* Hover sin zona: pin al centro con el id del HTML. */}
-          {htmlInteractive && htmlHoverLabel && displaySlots.length === 0 ? (
-            <div className="pointer-events-none absolute inset-0 z-[3]">
-              <button
-                type="button"
-                className="pointer-events-auto absolute top-1/2 left-1/2 z-[3] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2.5 py-1.5 shadow-[0_4px_16px_rgba(15,23,42,0.35)] ring-1 ring-black/10"
-                onClick={() => {
-                  if (htmlHoverUnit) {
-                    elevateHtmlUnit(htmlHoverLabel, htmlHoverUnit)
-                    onSelectUnit(htmlHoverUnit, htmlHoverUnit.unit_number)
-                  }
-                }}
-                disabled={!htmlHoverUnit}
-              >
-                <span
-                  className={cn(
-                    'h-2 w-2 shrink-0 rounded-full',
-                    htmlHoverUnit ? statusDotClass(htmlHoverUnit.status) : 'bg-[#BDA27E]',
-                  )}
-                  aria-hidden
-                />
-                <span className="text-[11px] font-bold tracking-wide text-[#1a2744]">
-                  {t(htmlHoverLabel)}
-                </span>
-              </button>
-            </div>
-          ) : null}
           </div>
 
         <div

@@ -2,7 +2,7 @@
  * Zonas de departamentos por piso (polígonos manuales sobre el plano).
  * Persistidos por edificio (no por tipología); el showroom matchea zonas ↔ unidades por número.
  *
- * Las zonas se guardan en % (0–100) y se comparten entre variantes 2D y 3D del mismo piso.
+ * Las zonas se guardan en % (0–100). 2D y 3D parten de la misma copia y después se editan aparte.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { floorPlanStorageKey } from '@/lib/tour/floorPlanHotspots'
@@ -62,7 +62,10 @@ export type FloorPlanZonesDoc = {
   variants: Record<FloorPlanVariant, FloorPlanVariantMedia>
   /** Alineación del overlay por variante (no mueve la imagen, solo las zonas). */
   align?: Partial<Record<FloorPlanVariant, FloorPlanOverlayAlign>>
+  /** Copia legacy. Si no hay `zonesByVariant`, es el dibujo de las dos variantes. */
   zones: FloorPlanZone[]
+  /** Polígonos independientes por variante. Si falta una, se usa `zones`. */
+  zonesByVariant?: Partial<Record<FloorPlanVariant, FloorPlanZone[]>>
   updatedAt: string
 }
 
@@ -332,6 +335,49 @@ export function getFloorPlanOverlayAlign(
 ): FloorPlanOverlayAlign {
   if (!doc?.align?.[variant]) return { ...DEFAULT_OVERLAY_ALIGN }
   return parseOverlayAlign(doc.align[variant])
+}
+
+function cloneZoneList(zones: FloorPlanZone[]): FloorPlanZone[] {
+  return zones.map((zone) => ({
+    ...zone,
+    polygon: zone.polygon.map((point) => [point[0], point[1]] as Point),
+  }))
+}
+
+/** Zonas de una variante. Si todavía no se separaron, usa el dibujo compartido. */
+export function zonesForVariant(
+  doc: FloorPlanZonesDoc | null | undefined,
+  variant: FloorPlanVariant,
+): FloorPlanZone[] {
+  const own = doc?.zonesByVariant?.[variant]
+  if (Array.isArray(own)) return own
+  return doc?.zones ?? []
+}
+
+/**
+ * Guarda polígonos solo en la variante activa.
+ * La otra conserva la copia que ya estaba dibujada.
+ */
+export function withVariantZones(
+  doc: FloorPlanZonesDoc,
+  variant: FloorPlanVariant,
+  nextZones: FloorPlanZone[],
+): FloorPlanZonesDoc {
+  const current2d = Array.isArray(doc.zonesByVariant?.['2d'])
+    ? doc.zonesByVariant['2d']
+    : cloneZoneList(doc.zones)
+  const current3d = Array.isArray(doc.zonesByVariant?.['3d'])
+    ? doc.zonesByVariant['3d']
+    : cloneZoneList(doc.zones)
+  const zonesByVariant: Record<FloorPlanVariant, FloorPlanZone[]> = {
+    '2d': variant === '2d' ? nextZones : current2d,
+    '3d': variant === '3d' ? nextZones : current3d,
+  }
+  return {
+    ...doc,
+    zonesByVariant,
+    zones: zonesByVariant['2d'],
+  }
 }
 
 /** Aplica offset/escala a un polígono en % (para alinear 3D sin re-dibujar). */
@@ -638,6 +684,50 @@ export function zonesToApartments(
   })
 }
 
+function parseZoneList(value: unknown, imageWidth: number, imageHeight: number): FloorPlanZone[] {
+  if (!Array.isArray(value)) return []
+  const zones: FloorPlanZone[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const z = item as Partial<FloorPlanZone>
+    const id = typeof z.id === 'string' ? z.id.trim() : ''
+    const polygon = Array.isArray(z.polygon)
+      ? (z.polygon.filter(
+          (p) =>
+            Array.isArray(p) &&
+            p.length >= 2 &&
+            Number.isFinite(Number(p[0])) &&
+            Number.isFinite(Number(p[1])),
+        ) as Point[])
+      : []
+    const pointsPercent =
+      typeof z.pointsPercent === 'string' && z.pointsPercent.trim()
+        ? z.pointsPercent
+        : polygonToPercentPoints(polygon, imageWidth, imageHeight)
+    const curvesPercent =
+      typeof z.curvesPercent === 'string' && z.curvesPercent.trim()
+        ? z.curvesPercent.trim()
+        : undefined
+    if (!id) continue
+    if (polygon.length < 3 && percentPointsToPolygon(pointsPercent, imageWidth || 100, imageHeight || 100).length < 3) {
+      continue
+    }
+    zones.push({
+      id,
+      label: typeof z.label === 'string' && z.label.trim() ? z.label.trim() : id,
+      order: Number.isFinite(Number(z.order)) ? Number(z.order) : zones.length,
+      polygon:
+        polygon.length >= 3
+          ? polygon
+          : percentPointsToPolygon(pointsPercent, imageWidth || 100, imageHeight || 100),
+      kind: z.kind === 'circle' ? 'circle' : 'polygon',
+      pointsPercent,
+      curvesPercent,
+    })
+  }
+  return zones
+}
+
 export function parseFloorPlanZonesDoc(value: unknown): FloorPlanZonesDoc | null {
   if (!value || typeof value !== 'object') return null
   const row = value as Partial<FloorPlanZonesDoc> & {
@@ -649,47 +739,19 @@ export function parseFloorPlanZonesDoc(value: unknown): FloorPlanZonesDoc | null
   const imageHeight = Number(row.imageHeight)
   if (!typologyCode || !Number.isFinite(floor)) return null
   if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight)) return null
-  const zones: FloorPlanZone[] = []
-  if (Array.isArray(row.zones)) {
-    for (const item of row.zones) {
-      if (!item || typeof item !== 'object') continue
-      const z = item as Partial<FloorPlanZone>
-      const id = typeof z.id === 'string' ? z.id.trim() : ''
-      const polygon = Array.isArray(z.polygon)
-        ? (z.polygon.filter(
-            (p) =>
-              Array.isArray(p) &&
-              p.length >= 2 &&
-              Number.isFinite(Number(p[0])) &&
-              Number.isFinite(Number(p[1])),
-          ) as Point[])
-        : []
-      const pointsPercent =
-        typeof z.pointsPercent === 'string' && z.pointsPercent.trim()
-          ? z.pointsPercent
-          : polygonToPercentPoints(polygon, imageWidth, imageHeight)
-      const curvesPercent =
-        typeof z.curvesPercent === 'string' && z.curvesPercent.trim()
-          ? z.curvesPercent.trim()
-          : undefined
-      if (!id) continue
-      if (polygon.length < 3 && percentPointsToPolygon(pointsPercent, imageWidth || 100, imageHeight || 100).length < 3) {
-        continue
+  const zones = parseZoneList(row.zones, imageWidth, imageHeight)
+  const rawByVariant =
+    row.zonesByVariant && typeof row.zonesByVariant === 'object' ? row.zonesByVariant : null
+  const zonesByVariant = rawByVariant
+    ? {
+        ...(Array.isArray(rawByVariant['2d'])
+          ? { '2d': parseZoneList(rawByVariant['2d'], imageWidth, imageHeight) }
+          : {}),
+        ...(Array.isArray(rawByVariant['3d'])
+          ? { '3d': parseZoneList(rawByVariant['3d'], imageWidth, imageHeight) }
+          : {}),
       }
-      zones.push({
-        id,
-        label: typeof z.label === 'string' && z.label.trim() ? z.label.trim() : id,
-        order: Number.isFinite(Number(z.order)) ? Number(z.order) : zones.length,
-        polygon:
-          polygon.length >= 3
-            ? polygon
-            : percentPointsToPolygon(pointsPercent, imageWidth || 100, imageHeight || 100),
-        kind: z.kind === 'circle' ? 'circle' : 'polygon',
-        pointsPercent,
-        curvesPercent,
-      })
-    }
-  }
+    : undefined
 
   const rawVariants = row.variants && typeof row.variants === 'object' ? row.variants : null
   const draft: FloorPlanZonesDoc = {
@@ -715,6 +777,7 @@ export function parseFloorPlanZonesDoc(value: unknown): FloorPlanZonesDoc | null
       ),
     },
     zones,
+    zonesByVariant,
     updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : new Date().toISOString(),
   }
   return withFloorPlanVariants(draft)
@@ -793,6 +856,32 @@ export async function saveFloorPlanZones(
         zone.pointsPercent ||
         polygonToPercentPoints(zone.polygon, normalized.imageWidth, normalized.imageHeight),
     })),
+    zonesByVariant: normalized.zonesByVariant
+      ? {
+          ...(normalized.zonesByVariant['2d']
+            ? {
+                '2d': normalized.zonesByVariant['2d'].map((zone, index) => ({
+                  ...zone,
+                  order: index,
+                  pointsPercent:
+                    zone.pointsPercent ||
+                    polygonToPercentPoints(zone.polygon, normalized.imageWidth, normalized.imageHeight),
+                })),
+              }
+            : {}),
+          ...(normalized.zonesByVariant['3d']
+            ? {
+                '3d': normalized.zonesByVariant['3d'].map((zone, index) => ({
+                  ...zone,
+                  order: index,
+                  pointsPercent:
+                    zone.pointsPercent ||
+                    polygonToPercentPoints(zone.polygon, normalized.imageWidth, normalized.imageHeight),
+                })),
+              }
+            : {}),
+        }
+      : undefined,
     updatedAt: new Date().toISOString(),
   }
   const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(

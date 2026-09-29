@@ -86,6 +86,7 @@ export function SurroundingsCaptureStudio({ typologyCode }: SurroundingsCaptureS
   const [capturing, setCapturing] = useState(false)
   const [floor, setFloor] = useState(FLOOR_PLAN_DEFAULT_FLOOR)
   const [target, setTarget] = useState<Target>('plan')
+  const [stepPx, setStepPx] = useState(1)
   const [stage, setStage] = useState({ w: 0, h: 0 })
   const [background, setBackground] = useState<SurroundingsLayer>(DEFAULT_SURROUNDINGS_LAYER)
   const [planLayer, setPlanLayer] = useState<SurroundingsLayer>(DEFAULT_SURROUNDINGS_LAYER)
@@ -308,7 +309,7 @@ export function SurroundingsCaptureStudio({ typologyCode }: SurroundingsCaptureS
     const onKey = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement | null)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      const step = event.shiftKey ? 40 : 12
+      const step = event.shiftKey ? stepPx * 10 : stepPx
       if (event.key === 'ArrowLeft') {
         event.preventDefault()
         nudge(-step, 0)
@@ -325,7 +326,7 @@ export function SurroundingsCaptureStudio({ typologyCode }: SurroundingsCaptureS
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [nudge])
+  }, [nudge, stepPx])
 
   const upload = async (role: 'background' | 'plan', file: File | undefined) => {
     if (!file) return
@@ -475,16 +476,30 @@ export function SurroundingsCaptureStudio({ typologyCode }: SurroundingsCaptureS
             />
             <span className="w-10 tabular-nums">{Math.round(active.scale * 100)}%</span>
           </label>
-          <Button type="button" variant="secondary" onClick={() => nudge(0, -12)} aria-label="Subir">
+          <label className="flex min-w-[150px] items-center gap-2 text-xs text-[#555850]">
+            Paso
+            <input
+              type="range"
+              min={1}
+              max={20}
+              step={1}
+              value={stepPx}
+              onChange={(event) => setStepPx(Number(event.target.value))}
+              className="min-w-[72px] flex-1"
+              aria-label="Sensibilidad del movimiento"
+            />
+            <span className="w-8 tabular-nums">{stepPx}px</span>
+          </label>
+          <Button type="button" variant="secondary" onClick={() => nudge(0, -stepPx)} aria-label="Subir">
             <ArrowUp size={14} />
           </Button>
-          <Button type="button" variant="secondary" onClick={() => nudge(0, 12)} aria-label="Bajar">
+          <Button type="button" variant="secondary" onClick={() => nudge(0, stepPx)} aria-label="Bajar">
             <ArrowDown size={14} />
           </Button>
-          <Button type="button" variant="secondary" onClick={() => nudge(-12, 0)} aria-label="Izquierda">
+          <Button type="button" variant="secondary" onClick={() => nudge(-stepPx, 0)} aria-label="Izquierda">
             <ArrowLeft size={14} />
           </Button>
-          <Button type="button" variant="secondary" onClick={() => nudge(12, 0)} aria-label="Derecha">
+          <Button type="button" variant="secondary" onClick={() => nudge(stepPx, 0)} aria-label="Derecha">
             <ArrowRight size={14} />
           </Button>
           <label className="flex min-w-[200px] flex-1 items-center gap-2 text-xs text-[#555850]">

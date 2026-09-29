@@ -17,6 +17,8 @@ import {
   getFloorPlanVariantMedia,
   parseOverlayAlign,
   withFloorPlanVariants,
+  withVariantZones,
+  zonesForVariant,
   zonesToApartments,
   type FloorPlanFloorSummary,
   type FloorPlanOverlayAlign,
@@ -276,15 +278,15 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         const h = media.imageHeight > 1 ? media.imageHeight : 970
         applyHtml(bust, w, h)
         if (gen !== loadGenRef.current) return
-        setApartments(doc?.zones ? zonesToApartments(doc.zones, w, h) : [])
+        setApartments(doc ? zonesToApartments(zonesForVariant(doc, nextVariant), w, h) : [])
       } else if (media.imageUrl) {
         const bust = `${media.imageUrl}${media.imageUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
         const size = await applyImage(bust)
         if (gen !== loadGenRef.current) return
         setApartments(
-          doc?.zones
+          doc
             ? zonesToApartments(
-                doc.zones,
+                zonesForVariant(doc, nextVariant),
                 size?.width || media.imageWidth || undefined,
                 size?.height || media.imageHeight || undefined,
               )
@@ -293,7 +295,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       } else {
         await applyImage(null)
         if (gen !== loadGenRef.current) return
-        setApartments(doc?.zones ? zonesToApartments(doc.zones) : [])
+        setApartments(doc ? zonesToApartments(zonesForVariant(doc, nextVariant)) : [])
       }
       setSelectedIds([])
       setEditMode(false)
@@ -334,9 +336,11 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         updatedAt: new Date().toISOString(),
       })
 
-    let nextDoc = withFloorPlanVariants({ ...base, zones: flushedZones, floor, typologyCode })
+    let nextDoc = withFloorPlanVariants(
+      withVariantZones({ ...base, floor, typologyCode }, planVariant, flushedZones),
+    )
 
-    // Persistí las zonas al cambiar de variante para que 2D/3D queden sincronizadas.
+    // Al cambiar de variante se guarda solo el dibujo de la que se deja. La otra conserva su copia.
     if (natural && (imageUrl || htmlUrl) && flushedZones.length > 0) {
       try {
         await ensureAuthCookies()
@@ -361,7 +365,8 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
               imageUrl: preferred.imageUrl,
               imageWidth: preferred.imageWidth || 1,
               imageHeight: preferred.imageHeight || 1,
-              zones: flushedZones,
+              zones: nextDoc.zones,
+              zonesByVariant: nextDoc.zonesByVariant,
             },
           }),
         })
@@ -383,17 +388,19 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
     if (media.htmlUrl) {
       const bust = `${media.htmlUrl}${media.htmlUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
       applyHtml(bust, media.imageWidth || 2048, media.imageHeight || 970)
-      setApartments(zonesToApartments(nextDoc.zones, media.imageWidth || 2048, media.imageHeight || 970))
-      toast.message('Viendo HTML 3D · mismas zonas (dibujá en 2D)')
+      setApartments(
+        zonesToApartments(zonesForVariant(nextDoc, next), media.imageWidth || 2048, media.imageHeight || 970),
+      )
+      toast.message('Viendo HTML 3D · su segmentación es independiente del 2D')
     } else if (media.imageUrl) {
       const bust = `${media.imageUrl}${media.imageUrl.includes('?') ? '&' : '?'}v=${Date.now()}`
       await applyImage(bust)
       const size = await loadImageSize(bust)
-      setApartments(zonesToApartments(nextDoc.zones, size.width, size.height))
-      toast.message(`Viendo plano ${next.toUpperCase()} · mismas zonas`)
+      setApartments(zonesToApartments(zonesForVariant(nextDoc, next), size.width, size.height))
+      toast.message(`Viendo plano ${next.toUpperCase()} · segmentación propia`)
     } else {
       await applyImage(null)
-      setApartments(zonesToApartments(nextDoc.zones, 1000, 1000))
+      setApartments(zonesToApartments(zonesForVariant(nextDoc, next), 1000, 1000))
       toast.message(
         next === '3d'
           ? 'Subí la imagen 3D: las zonas del 2D ya están listas'
@@ -475,7 +482,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         const media = getFloorPlanVariantMedia(normalized, planVariant)
         setApartments(
           zonesToApartments(
-            normalized.zones,
+            zonesForVariant(normalized, planVariant),
             media.imageWidth > 1 ? media.imageWidth : 2048,
             media.imageHeight > 1 ? media.imageHeight : 970,
           ),
@@ -896,21 +903,24 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         },
       }
       const preferred = floorPlanVariantHasMedia(variants['2d']) ? variants['2d'] : variants['3d']
-      const doc: FloorPlanZonesDoc = {
-        ...base,
-        floor,
-        typologyCode,
-        variants,
-        align: {
-          '2d': parseOverlayAlign(base.align?.['2d']),
-          '3d': parseOverlayAlign(base.align?.['3d']),
+      const doc: FloorPlanZonesDoc = withVariantZones(
+        {
+          ...base,
+          floor,
+          typologyCode,
+          variants,
+          align: {
+            '2d': parseOverlayAlign(base.align?.['2d']),
+            '3d': parseOverlayAlign(base.align?.['3d']),
+          },
+          imageUrl: preferred.imageUrl,
+          imageWidth: preferred.imageWidth || natural.width,
+          imageHeight: preferred.imageHeight || natural.height,
+          updatedAt: new Date().toISOString(),
         },
-        imageUrl: preferred.imageUrl,
-        imageWidth: preferred.imageWidth || natural.width,
-        imageHeight: preferred.imageHeight || natural.height,
+        planVariant,
         zones,
-        updatedAt: new Date().toISOString(),
-      }
+      )
       const res = await fetch('/api/floor-plan-zones', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -935,7 +945,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       }
       await refreshSummaries()
       toast.success(
-        `${floorPlanLevelLabel(floor)}: ${apartments.length} zona(s) guardada(s) · valen para 2D y 3D`,
+        `${floorPlanLevelLabel(floor)}: ${apartments.length} zona(s) guardada(s) en ${planVariant.toUpperCase()}`,
       )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo guardar')

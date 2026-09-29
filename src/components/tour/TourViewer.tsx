@@ -862,6 +862,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     return 'plan'
   })
   const [planFloor, setPlanFloor] = useState(FLOOR_PLAN_DEFAULT_FLOOR)
+  const [planEntryOpen, setPlanEntryOpen] = useState(() => !readUnitQueryParam())
 
   useEffect(() => {
     const ios = isIOSWebKit()
@@ -3653,6 +3654,24 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setGateOpen(false)
         }}
       />
+
+      {planEntryOpen && shellMode === 'plan' ? (
+        <div className="absolute inset-0 z-[30] bg-black">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/tour/ingreso.png"
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          <button
+            type="button"
+            onClick={() => setPlanEntryOpen(false)}
+            className="absolute top-[calc(50%+2rem)] left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
+          >
+            {t('Ingresar')}
+          </button>
+        </div>
+      ) : null}
     </div>
     </div>
   )
