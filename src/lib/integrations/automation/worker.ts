@@ -16,6 +16,7 @@ import { PreReplySendError } from './delivery-phase'
 import { claimTestMessages } from './test-response-mode'
 import { isCommercialContextReadFailure } from './context-read'
 import { processAdvisorOutbound } from './advisor-outbound'
+import { syncTransportIncidents } from './transport-monitor'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -88,7 +89,8 @@ export async function runAutomation(testContact?: string) {
           if (settings.globalMaintenance && !settings.testLeadId && config.test_only === false) {
             for (const name of ['lv_release_expired_holds', 'lv_escalate_overdue_requests', 'process_handoff_queue']) { await guard(); await rpc(name) }
           }
-          result = { enqueued }
+          await guard()
+          result = { enqueued, transport: await syncTransportIncidents() }
         } else if (first.kind === 'decay') {
           await guard()
           const canApplyDecay=settings.globalMaintenance && !settings.testLeadId && config.test_only === false

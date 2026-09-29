@@ -113,6 +113,11 @@ function categoryFor(input: LeadIntroductionInput) {
   return Object.keys(CATEGORY_LABELS).find(key => new RegExp(`\\b${key === 'departamento' ? 'depart(?:a|e)mento' : key}s?\\b`).test(normalized(input.current))) || ''
 }
 function categoryIntroduction(input: LeadIntroductionInput, category: string) {
+  const semantics = object(object(input.extracted).turn_semantics)
+  // The introduction may shorten a category presentation, never replace a
+  // resolved price/financing/detail answer merely because its wording varies.
+  if (object(input.audit).source === 'unit_price'
+    || semantics.confidence === 'high' && !['select_property', 'project_information'].includes(text(semantics.primary_intent))) return ''
   if (!category || /precio|cuesta|financ|cuota|credito|\d|dormitorio|habitacion|area|metro|tamano|grande|espacio|ampli|plano|visita|entrega|constru|ubicacion|direccion|piscina|terraza|parqueader|incluy|tiene|tienen|hay/.test(normalized(input.current))) return ''
   const units = catalogFor(input).filter(unit => unit.category === category)
   if (!units.length) return ''

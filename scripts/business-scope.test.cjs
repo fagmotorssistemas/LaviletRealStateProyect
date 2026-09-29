@@ -114,6 +114,27 @@ test('provider failures and invalid classifications fail closed without reusing 
   }
 })
 
+test('a grounded property request repairs uncertain scope despite spelling mistakes', () => {
+  const { validateBusinessScope, reconcilePropertyScope } = scopeModule(() => {})
+  for (const current of ['cual es el precio de los departametnos???', 'cual es el costo de los departamentos???']) {
+    const uncertain = validateBusinessScope({ kind: 'out_of_scope', property_fragments: [], reply: '',
+      outside_subject: '', outside_source: 'none' }, current)
+    const repaired = reconcilePropertyScope(uncertain, current,
+      [{ domain: 'property', confidence: 'high', request: current, evidence: current }])
+    assert.equal(repaired.kind, 'property')
+    assert.equal(repaired.uncertain, false)
+  }
+  const uncertain = { kind: 'neutral', property_message: '', reply: '', uncertain: true }
+  assert.equal(reconcilePropertyScope(uncertain, 'Cuánto cuesta el vuelo?',
+    [{ domain: 'other', confidence: 'high', request: 'Cuánto cuesta el vuelo?', evidence: 'Cuánto cuesta el vuelo?' }]).uncertain, true)
+  assert.equal(reconcilePropertyScope({ ...uncertain, outside_evidence: { fragment: 'vuelo', source: 'current' } },
+    'Quiero un vuelo y detalles del departamento', [{ domain: 'property', confidence: 'high', evidence: 'detalles del departamento' }]).uncertain, true)
+  assert.equal(reconcilePropertyScope(uncertain, '¿Con cuánto puedo empezar?',
+    [{ domain: 'financing', confidence: 'high', request: 'Consultar entrada', evidence: '¿Con cuánto puedo empezar?' }]).kind, 'property')
+  assert.equal(reconcilePropertyScope(uncertain, 'cual es el costo de los departametnos?',
+    [{ domain: 'property', confidence: 'low', request: 'cual es el costo de los departametnos?' }]).uncertain, true)
+})
+
 test('understanding an unrelated-service correction ends stale vehicle context for prices', () => {
   for (const reply of [validReply,
     'Lamento no poder ayudarle con esa consulta médica. Nuestra atención se centra en las viviendas y locales de La Vilet.',

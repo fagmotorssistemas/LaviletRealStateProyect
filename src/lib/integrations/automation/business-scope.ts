@@ -36,6 +36,20 @@ function hasConcreteOutsideSubject(value: string) {
   return scopeText(value).replace(generalScopeWords, ' ').trim().split(/\s+/).some(word => word.length > 2)
 }
 
+// A provisional classification must not erase a grounded interpretation.
+// Known outside subjects and unresolved mixed requests retain their boundary;
+// the domain interpretation never authorizes an action on its own.
+export function reconcilePropertyScope(decision: BusinessScopeDecision, current: string, requests: Row[]) {
+  if (!decision.uncertain || decision.kind !== 'neutral' || decision.outside_evidence) return decision
+  const grounded = requests.filter(request => request.confidence === 'high'
+    && text(request.evidence).trim().length > 0
+    && current.normalize('NFKC').toLowerCase().includes(text(request.evidence).normalize('NFKC').toLowerCase()))
+  if (grounded.some(request => request.domain === 'other')
+    || !grounded.some(request => ['property', 'financing', 'visit', 'advisor'].includes(text(request.domain)))) return decision
+  return { kind: 'property' as const, property_message: current, reply: '', uncertain: false,
+    reason: 'grounded_property_request_after_scope_uncertainty' }
+}
+
 function unspecifiedCommercialQuery(value: string) {
   return !hasConcreteOutsideSubject(value)
     && (purchasePriceQuestion(value) || /\b(?:informacion|info|detalles|disponibilidad|opciones|ayuda)\b/.test(scopeText(value)))
@@ -115,8 +129,9 @@ function safeScopeReply(value: unknown, introduced = false, ambiguousPriceRefere
 // A mixed message must preserve source text; hallucinated or historical fragments fail closed.
 export function validateBusinessScope(result: unknown, current: string, introduced = false, ambiguousPriceReference = false, history: unknown = [], previousScope: unknown = {}): BusinessScopeDecision {
   const row = object(result)
+  const outsideEvidence = groundedOutsideEvidence(row, current, history)
   if (!kinds.includes(row.kind as BusinessScopeKind) || !Array.isArray(row.property_fragments)
-    || typeof row.reply !== 'string' || row.property_fragments.length > 8) return uncertainDecision()
+    || typeof row.reply !== 'string' || row.property_fragments.length > 8) return { ...uncertainDecision(), ...(outsideEvidence ? { outside_evidence: outsideEvidence } : {}) }
   // No classifier label can turn an unresolved outside-product price into a
   // property quote. This also protects neutral/mixed responses from falling
   // through to stale lead.unit_id or summary catalogue references.
@@ -127,7 +142,6 @@ export function validateBusinessScope(result: unknown, current: string, introduc
     outside_evidence: previousEvidence,
   }
   const kind = row.kind as BusinessScopeKind
-  const outsideEvidence = groundedOutsideEvidence(row, current, history)
   if ((kind === 'out_of_scope' || kind === 'mixed') && !outsideEvidence) {
     // Do not let an unsupported exclusion bypass the turn interpreter/writer.
     // Action authorization is still decided downstream from the actual intent.
@@ -138,22 +152,23 @@ export function validateBusinessScope(result: unknown, current: string, introduc
   if (kind === 'property') return { kind, property_message: current, reply: '', uncertain: false }
   if (kind === 'neutral') return { kind, property_message: '', reply: '', uncertain: false }
   if (kind === 'out_of_scope') {
-    if (row.property_fragments.length) return uncertainDecision()
+    if (row.property_fragments.length) return { ...uncertainDecision(), outside_evidence: outsideEvidence! }
     return { kind, property_message: '', reply: safeScopeReply(row.reply, introduced, ambiguousPriceReference), uncertain: false,
       outside_evidence: outsideEvidence! }
   }
-  if (!row.property_fragments.length) return uncertainDecision()
+  const invalidMixed = () => ({ ...uncertainDecision(), outside_evidence: outsideEvidence! })
+  if (!row.property_fragments.length) return invalidMixed()
   const fragments: string[] = []
   let end = 0
   for (const candidate of row.property_fragments) {
-    if (typeof candidate !== 'string' || !candidate.trim() || candidate.trim().length < 4) return uncertainDecision()
+    if (typeof candidate !== 'string' || !candidate.trim() || candidate.trim().length < 4) return invalidMixed()
     const fragment = candidate.trim(), start = current.indexOf(fragment, end)
-    if (start < 0) return uncertainDecision()
+    if (start < 0) return invalidMixed()
     fragments.push(fragment)
     end = start + fragment.length
   }
   const propertyMessage = fragments.join('\n')
-  if (propertyMessage === current.trim()) return uncertainDecision()
+  if (propertyMessage === current.trim()) return invalidMixed()
   return { kind, property_message: propertyMessage, reply: safeScopeReply(row.reply, true), uncertain: false,
     outside_evidence: outsideEvidence! }
 }

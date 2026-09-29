@@ -43,7 +43,9 @@ export function AutomationDeliveryBanner() {
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar la revisión.') }
     finally { setBusy(false) }
   }
-  if (!allowed || (!error && !health?.blocked && !health?.incidentCount)) return null
+  const transport = health?.transport
+  const transportIssue = Boolean(transport?.error || transport?.missing.length || transport?.delayed.length)
+  if (!allowed || (!error && !health?.blocked && !health?.incidentCount && !transportIssue)) return null
   const reason = health?.httpStatus === 402 ? 'Kommo rechazó las solicitudes con «Payment Required» (402). Revise la suscripción o consulte a soporte de Kommo.'
     : health?.httpStatus === 401 ? 'Kommo rechazó las credenciales (401). Un administrador debe revisar la conexión.'
       : 'Kommo rechazó el acceso (403). Un administrador debe revisar los permisos de la integración.'
@@ -51,7 +53,7 @@ export function AutomationDeliveryBanner() {
     <div className="flex items-start gap-3">
       <AlertTriangle size={20} className="mt-0.5 shrink-0 text-amber-700" />
       <div className="min-w-0 flex-1">
-        <h2 className="font-semibold">{health?.blocked ? 'Los envíos del bot están bloqueados por Kommo' : health?.incidentCount ? 'Hay respuestas que necesitan revisión' : 'No se pudo verificar el estado del bot'}</h2>
+        <h2 className="font-semibold">{health?.blocked ? 'Los envíos del bot están bloqueados por Kommo' : health?.incidentCount ? 'Hay respuestas que necesitan revisión' : transportIssue ? 'Hay avisos sobre la sincronización con Kommo' : 'No se pudo verificar el estado del bot'}</h2>
         {health?.blocked && <><p className="mt-1">{reason}</p><p className="mt-1">Los nuevos mensajes se conservan pendientes. Cambiar «Detener IA» o reiniciar al lead no elimina este bloqueo.</p></>}
         {!!health?.pendingMessages && health.blocked && <p className="mt-1">Mensajes pendientes: {health.pendingMessages}.</p>}
         {!!health?.incidentCount && <details className="mt-3">
@@ -60,12 +62,31 @@ export function AutomationDeliveryBanner() {
           <ul className="mt-2 space-y-2">
             {health.incidents.map(item => <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-amber-200 bg-white/60 px-3 py-2">
               {item.kommoId ? <a className="inline-flex items-center gap-1 underline" href={`https://lavilet.kommo.com/leads/detail/${item.kommoId}`} target="_blank" rel="noopener noreferrer">Lead #{item.kommoId}<ExternalLink size={12} /></a> : <span>Automatización</span>}
-              <span className="text-xs">{item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Venció el plazo para responder; necesita atención' : item.delivery === 'generation_failed' ? 'Falló la generación de la respuesta; requiere atención' : 'Resultado del envío por comprobar'} · {item.reason}</span>
+              <span className="text-xs">{item.reason === 'KOMMO_INBOUND_NOT_OBSERVED' ? 'Kommo registra un mensaje sin recepción aquí; revise el canal y atienda la consulta pendiente' : item.reason === 'SUPERSEDED_DELAYED_INBOUND' ? 'Mensaje recibido fuera de orden; revise que la conversación más reciente haya atendido su consulta' : item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Mensaje no enviado; necesita atención' : item.delivery === 'generation_failed' ? 'Falló la generación de la respuesta; requiere atención' : 'Resultado del envío por comprobar'} · {item.reason}</span>
               {admin && item.canResolve && !health.blocked && <button type="button" disabled={busy} onClick={() => void update('incident_reviewed', item.id)} className="ml-auto text-xs font-medium underline disabled:opacity-50">Ya atendí esta conversación</button>}
             </li>)}
           </ul>
           {health.incidentCount > health.incidents.length && <p className="mt-2 text-xs">Se muestran los últimos {health.incidents.length} intentos.</p>}
         </details>}
+        {!!transport?.missing.length && <details className="mt-3" open>
+          <summary className="cursor-pointer font-medium">{transport.missing.length} mensajes de Kommo sin registro en la automatización</summary>
+          <p className="mt-2 text-xs">Revise el canal y el historial en Kommo. Estos eventos solo permiten comprobar que existe un mensaje; no contienen su texto ni autorizan reenviarlo.</p>
+          <ul className="mt-2 space-y-1">{transport.missing.map(item => <li key={item.id}>
+            <a className="underline" href={`https://lavilet.kommo.com/leads/detail/${item.kommoId}`} target="_blank" rel="noopener noreferrer">Lead #{item.kommoId}</a>
+            {' · '}{new Date(item.at).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })} · Sin recepción registrada
+          </li>)}</ul>
+        </details>}
+        {!!transport?.delayed.length && <details className="mt-3">
+          <summary className="cursor-pointer font-medium">{transport.delayed.length} mensajes llegaron con más de 5 minutos de retraso</summary>
+          <p className="mt-2 text-xs">Se compara la hora original del mensaje con su llegada al sistema. Este retraso es anterior al procesamiento de la IA.</p>
+          <ul className="mt-2 space-y-1">{transport.delayed.map(item => <li key={item.id}>
+            <a className="underline" href={`https://lavilet.kommo.com/leads/detail/${item.kommoId}`} target="_blank" rel="noopener noreferrer">Lead #{item.kommoId}</a>
+            {' · '}{item.minutes} minutos de retraso
+          </li>)}</ul>
+        </details>}
+        {transportIssue && <p className="mt-2 text-xs">Comprobación de las últimas 2 horas para leads activos del bot. El mantenimiento automático conserva los casos sin recepción para revisión; esta página actualiza la comprobación cada minuto. La aceptación del envío por Kommo no confirma su entrega en WhatsApp.</p>}
+        {transport?.limited && transportIssue && <p className="mt-1 text-xs">Hay más eventos de los que cubre esta comprobación; revise también el historial de Kommo.</p>}
+        {transport?.error && <p className="mt-2 text-xs">No se pudo consultar el registro de mensajes de Kommo. La comprobación se reintentará automáticamente. {transport.error}</p>}
         {admin && health?.blocked && <div className="mt-3">
           <button type="button" disabled={busy} onClick={() => void update('resume_after_account_review')} className="rounded-lg border border-amber-700 px-3 py-2 font-medium disabled:opacity-50">Ya revisé Kommo: reanudar pendientes</button>
           <p className="mt-1 text-xs">Permite procesar los mensajes nuevos que están en espera. Los intentos fallidos siguen en revisión. Si Kommo vuelve a rechazar el acceso, los envíos se pausarán otra vez.</p>

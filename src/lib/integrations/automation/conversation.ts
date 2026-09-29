@@ -49,7 +49,8 @@ import { scheduleNutritionLater } from './nutrition-later'
 import { nutritionContinuation } from './nutrition-week-one-rules'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
-import { classifyBusinessScope, type BusinessScopeDecision } from './business-scope'
+import { classifyBusinessScope, reconcilePropertyScope, type BusinessScopeDecision } from './business-scope'
+import { inboundFreshness } from './inbound-freshness'
 import { financingFieldAnswer, financingCollectionIssues } from './financing-continuation'
 import { sectorClaimsReply } from './commercial-accuracy'
 import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
@@ -255,8 +256,24 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     trace.finish(inboundStep, 'skipped', { reason: 'DUPLICATE' })
     return { action: 'duplicate' }
   }
+  const activeLast = inbound.normalized[inbound.normalized.length - 1]
+  const receivedAt = text(rows.find(row => object(row.payload).externalId === activeLast.externalId)?.received_at) || activeLast.sentAt
+  const freshness = inboundFreshness(activeLast.sentAt, receivedAt)
+  if (freshness.delayed) {
+    const newer = await db().from('lv_integration_events').select('id', { count: 'exact', head: true }).match(scope)
+      .eq('kind', 'inbound').eq('contact_key', `${last.kommoId}:${last.contactId}`).gt('payload->>sentAt', activeLast.sentAt)
+      .abortSignal(AbortSignal.timeout(10_000))
+    if (newer.error) throw new Error('NEW_INPUT_CHECK_FAILED')
+    if (newer.count) {
+      trace.finish(inboundStep, 'skipped', { reason: 'SUPERSEDED_DELAYED_INBOUND', webhook_delay_minutes: freshness.lagMinutes,
+        message_persisted: true, newer_messages: newer.count })
+      return { action: 'cancelled', reason: 'SUPERSEDED_DELAYED_INBOUND', webhook_delay_minutes: freshness.lagMinutes,
+        requires_review: true, delivery_status: 'not_sent' }
+    }
+  }
   let lead = await one('leads', text(inbound.registration.lead_id))
-  trace.finish(inboundStep, 'succeeded', { lead_identified: true, conversation_identified: true, media_read_failed: inbound.mediaFailed })
+  trace.finish(inboundStep, 'succeeded', { lead_identified: true, conversation_identified: true, media_read_failed: inbound.mediaFailed,
+    webhook_delay_minutes: freshness.lagMinutes, delayed_webhook: freshness.delayed })
   const permissionStep = trace.start('response_permission', 'Permiso para responder', 'control', 'conversation.ts · kommo.ts', {
     manual_stop: lead.bot_enabled !== true || inbound.stopped,
     opt_out: Boolean(lead.tracking_opt_out_at),
@@ -288,7 +305,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     }
     return { action: 'bot_paused' }
   }
-  const activeLast = inbound.normalized[inbound.normalized.length - 1]
   let current = inbound.normalized.map(e => e.text).join('\n').slice(0, 30_000)
   const meaningfulText = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const processingStarted = Date.now()
@@ -479,14 +495,24 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       missing: ['full_name', 'residence_city', 'residence_country'].filter(key => !text(object(previousSummary._lead_profile)[key])) },
     historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-8) : [],
     tema_actual: salesSubject(current, context.historial), alcance_negocio: businessScope.kind,
+    alcance_negocio_incierto: businessScope.uncertain,
     ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion,
     contexto_propiedades: previousPropertyContext, catalogo_unidades: turnCatalog,
     propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance,
     unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
-    mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain ? '' : current,
+    mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence ? '' : current,
   }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
   const { extracted, semantics: turnSemantics } = interpretation
   const classifiedScope = businessScope.kind
+  const reconciledScope = reconcilePropertyScope(businessScope, current, interpretation.requests)
+  if (reconciledScope !== businessScope) {
+    businessScope = reconciledScope
+    reply = ''
+    audit = {}
+    trace.add('scope_reconciliation', 'Conciliar alcance e intención', 'decision', 'business-scope.ts', 'succeeded',
+      { classifier_scope: classifiedScope, classifier_uncertain: true },
+      { scope: businessScope.kind, reason: businessScope.reason, grounded_requests: interpretation.requests.filter(request => request.domain === 'property' && request.confidence === 'high').length })
+  }
   const turnIntent = resolveTurnIntent({ current, history: context.historial, semantics: turnSemantics, requests: interpretation.requests,
     scope: businessScope, previous: previousSummary._turn_intent, pendingQuestion,
     profilePending: object(previousSummary._lead_introduction).status === 'pending' })
@@ -510,10 +536,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const reference = resolvePropertyTurn(turnCatalog, current, previousSummary, context.historial, turnSemantics)
   propertyTurn = reference
   currentSemantics = turnSemantics
-  summary = { ...rememberInterpretedTurn(previousSummary, originalTurn, extracted),
+  const unresolvedPropertyScope = businessScope.uncertain || businessScope.kind === 'out_of_scope'
+  summary = { ...rememberInterpretedTurn(previousSummary, originalTurn, unresolvedPropertyScope
+    ? { ...extracted, preferred_category: null, purchase_purpose: null } : extracted),
     _turn_intent: turnIntent,
-    _unit_reference: minimalTurn ? previousSummary._unit_reference || {} : reference.memory,
-    _property_context: minimalTurn ? previousPropertyContext : reference.context }
+    _unit_reference: minimalTurn || unresolvedPropertyScope ? previousSummary._unit_reference || {} : reference.memory,
+    _property_context: minimalTurn || unresolvedPropertyScope ? previousPropertyContext : reference.context }
   const declaredProfile = object(extracted.lead_profile)
   summary._lead_profile = mergeLeadProfile(previousSummary._lead_profile, declaredProfile,
     { message_id: activeLast.externalId, declared_at: activeLast.sentAt })

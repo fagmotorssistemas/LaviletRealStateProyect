@@ -1,6 +1,7 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { db, object, rpc, scope, text } from './data'
+import { transportHealth } from './transport-monitor'
 
 const stateKey = '__kommo_delivery__'
 export const accountBlockedStatus = (status: number) => [401, 402, 403].includes(status)
@@ -39,13 +40,14 @@ export async function kommoDeliveryBlock() {
 }
 
 export async function deliveryHealth() {
-  const [block, incidents, pending] = await Promise.all([
+  const [block, incidents, pending, transport] = await Promise.all([
     kommoDeliveryBlock(),
     db().from('lv_integration_events').select('id,contact_key,kind,status,result,completed_at,received_at', { count: 'exact' }).match(scope)
       .neq('kind', 'lock').or('status.eq.uncertain,and(status.eq.cancelled,result->>requires_review.eq.true)')
       .order('received_at', { ascending: false }).limit(50).abortSignal(AbortSignal.timeout(10_000)),
     db().from('lv_integration_events').select('id', { count: 'exact', head: true }).match(scope)
       .eq('kind', 'inbound').eq('status', 'pending').abortSignal(AbortSignal.timeout(10_000)),
+    transportHealth(),
   ])
   if (incidents.error || pending.error) throw Error('DELIVERY_HEALTH_READ_FAILED')
   const items = (incidents.data || []).map(row => {
@@ -62,7 +64,7 @@ export async function deliveryHealth() {
   })
   return { blocked: !!block, httpStatus: Number(block?.http_status) || null,
     detectedAt: text(block?.detected_at) || null, pendingMessages: pending.count || 0,
-    incidents: items, incidentCount: incidents.count || 0 }
+    incidents: items, incidentCount: incidents.count || 0, transport }
 }
 
 // Explicit administrator recovery only. This does not replay any failed send,

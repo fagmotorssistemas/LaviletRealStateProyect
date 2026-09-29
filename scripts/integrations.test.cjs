@@ -271,7 +271,7 @@ test('a failed handoff never tells the lead that an advisor was assigned', async
   live(t)
   const h = conversationHarness({ handoffFails: true, commercialResult: { reply: '', audit: { requires_advisor: true } } })
   h.rows[0].payload.text = '¿Cuál es el número de licencia urbanística?'; h.rows[1].payload.text = ''
-  await assert.rejects(() => h.process(h.rows, async () => {}), /HANDOFF_NOT_RECORDED/)
+  await assert.rejects(() => h.process(h.rows, async () => {}), error => error.message === 'PRE_REPLY_SEND_FAILED' && /HANDOFF_NOT_RECORDED/.test(error.original?.message))
   assert.equal(h.calls.some(c => c.name === 'launch' || c.name === 'register_outbound_message'), false)
 })
 
@@ -1307,8 +1307,10 @@ function conversationHarness(options = {}) {
   const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false, ...options.config }
   let escalationAttempted = false, escalationStored = options.proposals?.[0] || null
   const query = table => {
-    const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: 0 }).then(resolve) } }
+    let checksNewerInput = false
+    const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: checksNewerInput ? options.newerInboundCount || 0 : 0 }).then(resolve) } }
     for (const name of ['update', 'delete', 'select', 'eq', 'match', 'is', 'gt', 'lt', 'in', 'order', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
+    q.gt = column => { checksNewerInput = table === 'lv_integration_events' && column === 'payload->>sentAt'; return q }
     q.update = values => {
       calls.push({ name: 'update:' + table, args: values })
       if (table === 'leads') Object.assign(lead, structuredClone(values))
@@ -1348,7 +1350,8 @@ function conversationHarness(options = {}) {
           message: 'Entendemos. He pasado su solicitud al equipo para que un asesor se comunique con usted y puedan coordinar la visita directamente.' }
       },
     },
-    './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }) },
+    './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }),
+      reconcilePropertyScope: require('../src/lib/integrations/automation/business-scope.ts').reconcilePropertyScope },
     './nutrition': { scheduleNutrition24h: async () => ({ scheduled: false, reason: 'test' }) },
     './nutrition-week-one': { scheduleNutritionWeekOne: async () => ({ scheduled: false, reason: 'test' }) },
     './nutrition-later': { scheduleNutritionLater: async () => ({ scheduled: false, reason: 'test' }) },
@@ -1468,7 +1471,7 @@ test('failed or inconsistent reservation receipts cannot produce a confirmed act
       reservation: { kind: 'request', evidence: current, unit_numbers: [], confidence: 'high' },
     } } })
     h.rows[0].payload.text = current
-    await assert.rejects(h.process([h.rows[0]], async () => {}), /RESERVATION/)
+    await assert.rejects(h.process([h.rows[0]], async () => {}), error => error.message === 'PRE_REPLY_SEND_FAILED' && /RESERVATION/.test(error.original?.message))
     assert.equal(h.calls.some(call => call.name === 'launch' || call.name === 'register_outbound_message'), false)
   }
 })
@@ -2892,6 +2895,44 @@ test('a bare first price request reaches the writer with verified prices and the
   assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake'].includes(call.name)), false)
 })
 
+test('an uncertain scope does not discard a grounded apartment price question before review', async t => {
+  live(t)
+  for (const current of ['cual es el costo de los departametnos???', 'cual es el preico de los departamentos??']) {
+  const catalog = dialogueReplayCatalog.filter(unit => ['502'].includes(unit.unit_number)).map(unit => ({ ...unit, published_commercial_price: 310000 }))
+  const h = conversationHarness({ catalog, commercialInfo: { ...priceInfo(), catalogo: catalog }, realCommercial: true,
+    commercialAi: deterministicOnly, captureTrace: true,
+    businessScope: { kind: 'neutral', property_message: '', reply: '', uncertain: true },
+    extracted: { turn_semantics: extractedProperty(current, { category: 'departamento', operation: 'none' }, 'ask_price'),
+      requests: [{ request: current, domain: 'property', evidence: current, confidence: 'high' }] } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_tool_calls.source, 'unit_price')
+  assert.match(sent.p_content, /310[.,]000/)
+  assert.doesNotMatch(sent.p_content, /no alcanc[eé] a entender/i)
+  assert.equal(h.calls.some(call => call.name === 'completeTurnReply'), true)
+  const extraction = h.calls.find(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos'))
+  assert.equal(extraction.args.input.mensaje_accion, current)
+  assert.equal(sent.p_tool_calls.interpretation.primary_intent, 'ask_price')
+  }
+})
+
+test('delayed incoming messages are preserved, answered if current and skipped only when superseded', async t => {
+  live(t)
+  for (const newerInboundCount of [0, 1]) {
+    const h = conversationHarness({ newerInboundCount, captureTrace: true })
+    h.rows[0].payload.sentAt = new Date(Date.now() - 20 * 60_000).toISOString()
+    h.rows[0].received_at = new Date().toISOString()
+    const result = await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.some(call => call.name === 'register_inbound_message'), true)
+    assert.equal(h.calls.some(call => call.name === 'launch'), newerInboundCount === 0)
+    if (newerInboundCount) {
+      assert.equal(result.reason, 'SUPERSEDED_DELAYED_INBOUND')
+      assert.equal(h.calls.some(call => call.name === 'ai'), false)
+    }
+  }
+})
+
 test('a category clarification preserves the preceding price objective and does not return a catalogue of measurements', async t => {
   live(t)
   const catalog = dialogueReplayCatalog.filter(unit => ['210', '502'].includes(unit.unit_number)).map(unit => ({
@@ -3371,7 +3412,7 @@ test('dialogue v2 records contract and extractor revision even when inference fa
   live(t)
   const h = conversationHarness({ captureTrace: true, extractionFails: true })
   h.rows[0].payload.text = 'Quiero un departamento'
-  await assert.rejects(h.process([h.rows[0]], async () => {}), /OPENAI_INCOMPLETE/)
+  await assert.rejects(h.process([h.rows[0]], async () => {}), error => error.message === 'PRE_REPLY_SEND_FAILED' && /OPENAI_INCOMPLETE/.test(error.original?.message))
   const steps = h.calls.find(call => call.name === 'execution_trace').args
   const version = steps.find(step => step.step_key === 'execution_version').output_summary
   assert.equal(version.contract_version, 'lavilet-dialogue-v3')
