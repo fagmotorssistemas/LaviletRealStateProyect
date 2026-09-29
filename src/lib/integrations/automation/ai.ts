@@ -18,7 +18,7 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
   const observation = beginModelTrace(instructions, model, task, input, schema, !!(image || file))
   let usage: Row | undefined
   try {
-    const response = await requestOpenAI('https://api.openai.com/v1/responses', { method: 'POST', redirect: 'error',
+    const result = object(await requestOpenAI('https://api.openai.com/v1/responses', { method: 'POST', redirect: 'error',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, store: false, max_output_tokens: object(schema?.properties).turn_semantics ? 4200 : 2200,
         instructions,
@@ -26,8 +26,7 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
           ...(image ? [{ type: 'input_image', image_url: image, detail: 'high' }] : []),
           ...(file ? [{type:'input_file', filename:file.name, file_data:file.data}] : [])] }],
         text: { format: schema ? { type: 'json_schema', name: 'lavilet_result', strict: true, schema } : { type: 'json_object' } } }),
-    })
-    const result = object(await response.json())
+    }, {}, response => response.json()))
     usage = Object.keys(object(result.usage)).length ? object(result.usage) : undefined
     if (result.status !== 'completed') throw new Error('OPENAI_INCOMPLETE')
     const output = (Array.isArray(result.output) ? result.output : []).map(object)

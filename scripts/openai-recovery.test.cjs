@@ -58,6 +58,30 @@ test('network faults and a genuine rate limit can recover', async () => {
   await assert.rejects(() => requestOpenAI('https://api.openai.com/v1/responses', {}, broken.dependencies), e => e.message === 'OPENAI_NETWORK_ERROR')
 })
 
+test('a timeout while reading the response body is retried and remains a typed generation failure', async () => {
+  const timedOutBody = () => ({ ok: true, json: async () => { throw new DOMException('timed out', 'TimeoutError') } })
+  const h = requests([timedOutBody(), new Response('{"status":"completed"}')])
+  const result = await requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, response => response.json())
+  assert.equal(result.status, 'completed')
+  assert.equal(h.calls.length, 2)
+  assert.deepEqual(h.waits, [750])
+
+  const exhausted = requests([timedOutBody(), timedOutBody(), timedOutBody()])
+  await assert.rejects(
+    () => requestOpenAI('https://api.openai.com/v1/responses', {}, exhausted.dependencies, response => response.json()),
+    error => error instanceof OpenAIRequestError && error.retryable && error.attempts === 3
+      && error.message === 'OPENAI_NETWORK_ERROR_RESPONSE_BODY_TIMEOUT',
+  )
+
+  const invalid = requests([{ ok: true, json: async () => { throw new SyntaxError('invalid JSON') } }])
+  await assert.rejects(
+    () => requestOpenAI('https://api.openai.com/v1/responses', {}, invalid.dependencies, response => response.json()),
+    error => error instanceof OpenAIRequestError && !error.retryable && error.attempts === 1
+      && error.message === 'OPENAI_NETWORK_ERROR_INVALID_RESPONSE_BODY',
+  )
+  assert.equal(invalid.calls.length, 1)
+})
+
 test('a scope-classifier outage is propagated instead of blaming the customer message', async () => {
   const scope = load('src/lib/integrations/automation/business-scope.ts', { './ai': { aiJson: async () => { throw new OpenAIRequestError(503, true, 3) } } })
   await assert.rejects(() => scope.classifyBusinessScope('Tiene la distribución?'), OpenAIRequestError)
@@ -68,7 +92,7 @@ function recoveryHarness(options = {}) {
   const lead = { ...data.scope, id: 'lead', kommo_id: 3577404, bot_enabled: !options.paused, tracking_opt_out_at: options.optedOut ? 'yes' : null }
   let stopped = !!options.paused
   function from(table) {
-    const filters = {}, q = { select() { return q }, eq(k, v) { filters[k] = v; return q }, match() { return q }, gt() { return q }, in() { return q },
+    const filters = {}, q = { select() { return q }, eq(k, v) { filters[k] = v; return q }, match() { return q }, gt() { return q }, in() { return q }, is() { return q },
       update(values) { calls.push({ name: 'update:' + table, values }); if (table === 'leads') Object.assign(lead, values); return q },
       then(resolve) {
         const count = table === 'messages' ? (filters.role === 'bot' ? options.answered : options.human)
@@ -77,7 +101,7 @@ function recoveryHarness(options = {}) {
       } }
     return q
   }
-  const module = load('src/lib/integrations/automation/generation-recovery.ts', {
+  const recovery = load('src/lib/integrations/automation/generation-recovery.ts', {
     './config': { assertLive() {}, automationSettings: () => ({ mode: 'live', testLeadId: null }) },
     './data': { ...data, db: () => ({ from }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false }),
       one: async table => table === 'leads' ? { ...lead } : { lead_id: lead.id },
@@ -92,9 +116,10 @@ function recoveryHarness(options = {}) {
       getKommoContact: async () => ({ name: 'Pablo', custom_fields_values: [{ field_code: 'PHONE', values: [{ value: '+593000000000' }] }] }),
       setKommoField: async (...args) => { calls.push({ name: 'field', args }); if (args[1] === 451530) stopped = true },
       launchSalesbot: async (...args) => { calls.push({ name: 'send', args }); if (options.launchFails) throw Error('KOMMO_UNAVAILABLE') } },
+    './ctwa-lead-store': { preserveCtwaForContact: async () => {} },
   })
   const rows = [{ payload: { externalId: 'source-message', kommoId: 3577404, contactId: 8105914, text: options.message || 'Tiene una distribución preliminar?', sentAt: new Date(Date.now() - (options.expired ? 25 * 3600000 : 1000)).toISOString(), media: null } }]
-  return { ...module, calls, run: () => module.recoverGenerationFailure(rows, async () => {}, 'OPENAI_HTTP_503') }
+  return { ...recovery, calls, run: () => recovery.recoverGenerationFailure(rows, async () => {}, 'OPENAI_HTTP_503') }
 }
 
 test('after exhausted inference the actual advisor queue is recorded before one notice is sent', async () => {
@@ -106,7 +131,7 @@ test('after exhausted inference the actual advisor queue is recorded before one 
   const out = h.calls.find(c => c.name === 'register_outbound_message').args
   assert.match(out.p_content, /Disculpe la demora/)
   assert.equal(out.p_tool_calls.source_message_id, 'source-message')
-  assert.ok(h.calls.some(c => c.name === 'update:leads' && c.values.bot_enabled === false))
+  assert.ok(h.calls.some(c => c.name === 'update:leads' && c.values.bot_enabled === true))
 })
 
 test('recovery respects duplicates, humans, stop flags, newer messages and the reply window', async () => {
