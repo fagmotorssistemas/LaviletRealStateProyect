@@ -190,9 +190,10 @@ test('premature categories are repaired and a removed profile purpose is blocked
   const shortQuestion = '¿Podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
   const missingPurpose = { ...candidate, reply: `La Vilet está en Puertas del Sol, Cuenca. ${shortQuestion}`,
     question: { ...candidate.question, text: shortQuestion } }
-  const blocked = await completeTurnReply(input, model(missingPurpose, missingPurpose).generate)
-  assert.equal(blocked.audit.status, 'rejected_guard')
-  assert.ok(blocked.audit.issues.includes('lead_profile_question_purpose_changed'))
+  const missingPurposeReview = { ...review, operational_goal_preserved: false }
+  const blocked = await completeTurnReply(input, model(missingPurpose, missingPurposeReview, missingPurpose, missingPurposeReview).generate)
+  assert.equal(blocked.audit.status, 'rejected_review')
+  assert.ok(blocked.audit.issues.includes('review_check_failed:operational_goal_preserved'))
   assertPending(blocked, missingPurpose.reply)
   assert.equal(blocked.needsAdvisor, false)
 
@@ -207,7 +208,7 @@ test('the real writer delivers the verified brochure and resumes a purposeful co
   const { plan: opening } = introductionFixture()
   const current = 'Soy Carlos y vivo en Madrid'
   const plan = leadIntroductionTurn({ current, summary: { _lead_introduction: opening.state },
-    extracted: { lead_profile: { full_name: 'Carlos', residence_city: 'Madrid' } },
+    extracted: { lead_profile: { full_name: 'Carlos', evidence: { full_name: 'Soy Carlos' }, residence_city: 'Madrid' } },
     reply: 'Gracias por la información.', audit: { source: 'commercial', semantic_review_enabled: true } })
   assert.equal(plan.audit.profile_introduction.stage, 'deliver')
   const question = { text: '¿Le gustaría que le compartamos información de alguna de estas opciones?',
@@ -284,7 +285,7 @@ test('operational questions are assessed by purpose instead of number or templat
   assert.equal(operationalCopyIssues(base,draft,{evidence_review:true}).includes('question_count'),false)
   assert.equal(operationalCopyIssues(base,draft,{}).includes('operational_question_added'),false)
   assert.equal(operationalCopyIssues(base,draft+' ¿Mañana?',{evidence_review:true}).includes('question_count'),false)
-  assert.equal(turnCompletenessIssues({current:'¿Cuándo puedo ir?',baseReply:base,verified:{},audit:{source:'visit_intake',semantic_review_enabled:true}},draft,noQuestion).includes('question_without_purpose'),true)
+  assert.equal(turnCompletenessIssues({current:'¿Cuándo puedo ir?',baseReply:base,verified:{},audit:{source:'visit_intake',semantic_review_enabled:true}},draft,noQuestion).includes('question_without_purpose'),false)
 })
 
 test('a fallback with an explicitly unanswered request cannot be marked valid', async () => {
@@ -737,10 +738,10 @@ test('answers three independent requests including a concern without question ma
 test('a complete answer requires one review and records a specific purpose rather than a filler question', async () => {
   const input = { current: 'Sí ayúdeme en el financiamiento, el local lo quiero para rentarlo, influye?', baseReply: 'Podemos revisar opciones con Banco Pichincha o Cooperativa JEP. El uso previsto ayuda a orientar la compra; debemos verificar si una entidad considera ese uso en su evaluación. ¿Con cuál entidad desea continuar?', verified: { partners: ['Banco Pichincha', 'Cooperativa JEP'] }, preserveOperationalQuestion: true }
   const question = { text: '¿Con cuál entidad desea continuar?', purpose: 'choose_financing_partner', missing_datum: 'Entidad elegida', next_decision: 'Preparar la revisión con la entidad que autorice el cliente' }
-  const mock = model({ reply: input.baseReply, requests: [covered('Sí ayúdeme en el financiamiento'), covered('el local lo quiero para rentarlo, influye?', 'missing_fact', 'missing_fact')], question })
+  const mock = model({ reply: input.baseReply, requests: [covered('Sí ayúdeme en el financiamiento'), covered('el local lo quiero para rentarlo, influye?', 'missing_fact', 'missing_fact')], question }, approved)
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.changed, false)
-  assert.equal(mock.calls.length, 1)
+  assert.equal(mock.calls.length, 2)
   assert.equal(result.needsAdvisor, true)
   assert.deepEqual(result.unresolved, ['el local lo quiero para rentarlo, influye?'])
   assert.equal(result.audit.question.purpose, 'choose_financing_partner')
@@ -824,16 +825,20 @@ test('a meaningless question and unverified income claim are rejected by indepen
   const result = await completeTurnReply(input, mock.generate)
   assertPending(result, input.baseReply)
   assert.equal(result.audit.status, 'rejected_guard')
-  assert.equal(result.needsAdvisor, true)
+  assert.equal(result.needsAdvisor, false)
+  assert.deepEqual(result.unresolved, [])
+  assert.deepEqual(result.audit.pending_missing_fact_fragments, [input.current])
   assert.equal(mock.calls.length, 1)
 })
 
 test('optional CTA purpose failure does not generate an urgent handoff', async () => {
   const input = { current: 'Qué productos tienen?', baseReply: 'Tenemos suites, departamentos y locales comerciales.', verified: {} }
-  const mock = model({ reply: input.baseReply + ' ¿Qué opina?', requests: [covered(input.current)], question: { text: '¿Qué opina?', purpose: 'none', missing_datum: '', next_decision: '' } })
+  const draft = { reply: input.baseReply + ' ¿Qué opina?', requests: [covered(input.current)], question: { text: '¿Qué opina?', purpose: 'none', missing_datum: '', next_decision: '' } }
+  const rejected = { ...approved, question_has_purpose: false }
+  const mock = model(draft, rejected, draft, rejected)
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.needsAdvisor, false)
-  assert.equal(result.audit.status, 'rejected_guard')
+  assert.equal(result.audit.status, 'rejected_review')
 })
 
 test('provider errors preserve the pending turn without pretending that an advisor was notified', async () => {
@@ -877,10 +882,12 @@ test('a false rental-income claim never survives even if the provider is unavail
   const result = await completeTurnReply(input, model(new Error('provider unavailable')).generate)
   assert.doesNotMatch(result.reply, /rentarlo respalda|porque genera ingresos/)
   assertPending(result, baseReply)
-  assert.equal(result.needsAdvisor, true)
+  assert.equal(result.needsAdvisor, false)
+  assert.deepEqual(result.unresolved, [])
   assert.equal(result.changed, true)
   assert.equal(result.audit.unsupported_rental_claim_removed, true)
-  assert.ok(result.unresolved.every(fragment => current.includes(fragment)))
+  assert.ok(result.audit.pending_missing_fact_fragments.length > 0)
+  assert.ok(result.audit.pending_missing_fact_fragments.every(fragment => current.includes(fragment)))
 })
 
 test('a rental purpose alone does not force handoff or suppress a valid conditional explanation', () => {
@@ -906,7 +913,7 @@ function comparisonTurn(current = 'y cual es la diferencia entre cada uno?') {
 
 test('a complete catalogue comparison contradicts an erroneous missing-fact claim without a handoff', async () => {
   const input = comparisonTurn()
-  const mock = model({ reply: input.baseReply, requests: [{ ...covered(input.current, 'missing_fact', 'missing_fact'), fact_key: 'catalog_comparison' }], question: input.question })
+  const mock = model({ reply: input.baseReply, requests: [{ ...covered(input.current, 'missing_fact', 'missing_fact'), fact_key: 'catalog_comparison' }], question: input.question }, approved)
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.needsAdvisor, false)
@@ -983,8 +990,9 @@ test('an unchanged answer with an omitted request still receives independent cov
   assert.equal(mock.calls.length, 3)
   assert.equal(result.audit.repair_attempts[0].failure, 'repair_call_failed')
   assert.equal(result.audit.independent_review, true)
-  assert.equal(result.needsAdvisor, true)
-  assert.deepEqual(result.unresolved, [missing])
+  assert.equal(result.needsAdvisor, false)
+  assert.deepEqual(result.unresolved, [])
+  assert.deepEqual(result.audit.pending_missing_fact_fragments, [missing])
   assert.equal(result.audit.status, 'rejected_review')
 })
 

@@ -34,6 +34,7 @@ import { propertySelectionReply } from './property-selection'
 import { resolvePropertyTurn } from './property-context'
 import { catalogDialogueReply } from './catalog-dialogue'
 import { preferenceOptionsReply } from './progressive-options'
+import { confirmedLeadProfile } from './lead-profile'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -42,7 +43,7 @@ export async function publishedUnitCatalog() {
   return (result.data || []) as Row[]
 }
 
-export async function commercialContext(lead: Row, history: unknown) {
+export async function commercialContext(lead: Row, history: unknown, profileInput?: unknown) {
   const sources = await readCommercialContext({
     units: (attempt) => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces')
       .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
@@ -73,10 +74,13 @@ export async function commercialContext(lead: Row, history: unknown) {
   const pricing = botPricingPolicy(mode, launchPricesVisible(projectData.policies_json))
   const pricesAllowed = pricing.visible
   const catalog = units.map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
-  return { lead: { name: conversationalFirstName(text(lead.name)), preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
+  const profile = confirmedLeadProfile(profileInput)
+  return { lead: { name: conversationalFirstName(text(profile.full_name)) || null,
+    name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null,
+    preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
     preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage, unit_id: lead.unit_id, budget: lead.budget,
     budget_max: lead.budget_max, behavior_signals: lead.behavior_signals }, historial: history,
-    conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
+    perfil_lead: profile, conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,

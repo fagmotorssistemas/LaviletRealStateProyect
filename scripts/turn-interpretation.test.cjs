@@ -5,7 +5,32 @@ require('./test-typescript.cjs')
 const { interpretConversationTurn, rememberInterpretedTurn, TURN_EXTRACTION_SCHEMA, CONVERSATION_CONTRACT_VERSION } = require('../src/lib/integrations/automation/turn-interpretation.ts')
 const { TURN_SEMANTICS_SCHEMA } = require('../src/lib/integrations/automation/turn-semantics.ts')
 const { unreadMediaMarker } = require('../src/lib/integrations/automation/media-format.ts')
-const { mergeLeadProfile } = require('../src/lib/integrations/automation/lead-profile.ts')
+const { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } = require('../src/lib/integrations/automation/lead-profile.ts')
+
+test('conversational names require declaration evidence and never inherit a reset contact label', () => {
+  for (const profile of [{}, { full_name: 'Carlos Fabian' },
+    { full_name: 'Carlos Fabian', sources: { full_name: { source: 'crm', evidence: 'Carlos Fabian' } } },
+    { full_name: 'Carlos Fabian', sources: { full_name: { source: 'lead_declaration', evidence: '' } } }]) {
+    assert.equal(confirmedLeadName(profile), '')
+    assert.equal(confirmedLeadProfile(profile).name_status, 'unconfirmed')
+  }
+  const declared = mergeLeadProfile({}, { full_name: 'Carlos Fabian', evidence: { full_name: 'soy Carlos Fabian' } },
+    { message_id: 'name-message', declared_at: '2026-09-29T10:00:00Z' })
+  assert.equal(confirmedLeadName(declared), 'Carlos Fabian')
+  const next = mergeLeadProfile(declared, { residence_city: 'Cuenca', evidence: { residence_city: 'vivo en Cuenca' } })
+  assert.equal(confirmedLeadName(next), 'Carlos Fabian')
+  assert.deepEqual(confirmedLeadProfile(next).sources.full_name, declared.sources.full_name)
+  assert.equal(confirmedLeadName({}), '')
+  assert.equal(declared.full_name, 'Carlos Fabian')
+})
+
+test('a current name declaration replaces an old name without losing its actual source', () => {
+  const previous = { full_name: 'Carlos', sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Carlos' } } }
+  const profile = mergeLeadProfile(previous, { full_name: 'Ana María', evidence: { full_name: 'me llamo Ana María' } }, { message_id: 'current' })
+  assert.equal(confirmedLeadName(profile), 'Ana María')
+  assert.equal(confirmedLeadProfile(profile).sources.full_name.message_id, 'current')
+  assert.equal(previous.full_name, 'Carlos')
+})
 
 test('the entire extraction schema is closed recursively, including nullable objects and semantics', () => {
   function check(schema) {

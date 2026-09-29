@@ -24,7 +24,7 @@ import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
 import { isProfileOnlyTurn, leadIntroductionTurn, leadProfilePendingQuestion } from './lead-introduction'
-import { mergeLeadProfile } from './lead-profile'
+import { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { progressivePendingQuestion } from './progressive-options'
 import { tourContinuation } from './tour-continuation'
 import { resolveTurnIntent } from './turn-intent'
@@ -361,7 +361,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
   let turnCatalog: Row[] = [], propertyTurn: Row = {}, currentSemantics: Row = {}
   let greeting = !inbound.mediaFailed && isGreetingOnly(current)
-  const previousSummary = object(conversationBefore.summary)
+  const storedSummary = object(conversationBefore.summary)
+  const previousSummary: Row = { ...storedSummary, _lead_profile: confirmedLeadProfile(storedSummary._lead_profile) }
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
   const financeContinuation = !inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)
     && financingFieldAnswer(current, context.historial, {explicit_consent:true})
@@ -424,7 +425,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       needs_help: args.p_needs_help === true,
       rescheduling: Boolean(args.p_previous_request),
     })
-    const info=await commercialContext(lead,context.historial)
+    const info=await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
     if(info.estado_proyecto && object(info.estado_proyecto).primaryPlace==='none') {
       trace.finish(visitStep, 'paused', { action: 'visits_disabled', reason: 'NO_AUTHORIZED_PLACE' })
       return {action:'visits_disabled',message:'Por el momento no hay visitas presenciales habilitadas. Podemos resolver sus dudas por aquí.'}
@@ -735,7 +736,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const residualReference = resolvePropertyTurn(turnCatalog, current, summary, context.historial, residualSemantics)
     propertyTurn = residualReference
     currentSemantics = residualSemantics
-    const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind,
+    const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind,
       historial: context.historial, financiamiento: finance, referencia_unidad: residualReference,
       property_context: residualReference.context, semantica_turno: residualSemantics,
       resultado_visita: { action: 'confirmed', request_id: proposal.request_id || proposal.id } }
@@ -801,7 +802,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   if (!reply && !inbound.mediaFailed && !operationalTurn && (turnIntent.objective === 'project_information'
     || (turnSemantics.confidence !== 'high' && isProjectInformationRequest(current)))) {
-    const info = { ...await commercialContext(lead, context.historial), semantica_turno: turnSemantics, property_context: reference.context }
+    const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), semantica_turno: turnSemantics, property_context: reference.context }
     reply = projectInformationReply(info, current, BROCHURE_URL)
     if (reply) audit = { source: 'project_overview', brochure_sent: true }
   }
@@ -823,12 +824,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (reply) audit = { source: 'project_information_choice' }
     }
     if (!reply && wantsBrochure(current, context.historial)) {
-      const info = await commercialContext(lead, context.historial)
+      const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
       reply = brochureReply(current, context.historial, text(info.modo_comercial),!!info.estado_proyecto)
       if (reply) audit = { source: 'brochure', brochure_sent: true }
     }
     if (!reply && acceptsUnitOptions(current, text(state.ultima_respuesta))) {
-      const accepted = acceptedPriceOption(await commercialContext(lead, context.historial), current, previousSummary)
+      const accepted = acceptedPriceOption(await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), current, previousSummary)
       reply = accepted?.reply || `No tengo los detalles actualizados de esa unidad. Le comparto el brochure para que pueda conocer la propuesta del proyecto:\n\n${BROCHURE_URL}`
       audit = accepted?.audit || { source: 'price_option_unavailable', brochure_sent: true }
     }
@@ -847,7 +848,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const locationRequest = locationRequestKind(current)
     const earlyTopics = commercialTurnTopics(current, context.historial, ['property', 'mixed'].includes(businessScope.kind))
     if (!reply && locationRequest && earlyTopics.length === 1 && earlyTopics[0] === 'location') {
-      const info = await commercialContext(lead, context.historial)
+      const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
       reply = locationAnswer(info, locationRequest)
       if (reply) {
         audit = { source: 'location' }
@@ -963,7 +964,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         p_snapshot: interpretedVisit ? { ...proposal, _interpreted_visit: interpretedVisit } : proposal })
       reply = text(result.message) || intakeReply(result, activeLast.sentAt)
       if (result.action === 'collecting' && requestedHelp) {
-        const visitInfo = await commercialContext(lead, context.historial)
+        const visitInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
         reply = visitBusinessHoursReply(visitInfo.horario_atencion, result, activeLast.sentAt) || reply
       }
       audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id }
@@ -997,7 +998,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       const financeAnswer = priceTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
       let financePrerequisite = ''
       if (financeTurn && !financeAnswer) {
-        const selectionInfo = { ...await commercialContext(lead, context.historial), historial: context.historial,
+        const selectionInfo = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
           financiamiento: finance, referencia_unidad: reference }
         financePrerequisite = financingPrerequisiteReply(selectionInfo, current)
       }
@@ -1030,7 +1031,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         audit = { source: 'advisor_handoff' }
       } else if (visitRequested) {
         await guard()
-        const visitInfo = await commercialContext(lead, context.historial)
+        const visitInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
         const quote = priceTurn ? unitPriceQuote({ ...visitInfo, contrato_turno: turnIntent, alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
         if (quote?.needsAdvisor) {
           reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita', { rule_id: 'price.unverified_for_visit', origin: 'catalog', caused_by_step: catalogStep })
@@ -1067,7 +1068,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       }
       else {
         const model = reference.needsClarification ? null : unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
-        const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, propuestas: proposals,
+        const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, propuestas: proposals,
           contrato_turno: turnIntent,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
           referencia_unidad:reference, property_context: reference.context, semantica_turno: turnSemantics, archivos_no_leidos:inbound.mediaErrors,
@@ -1095,14 +1096,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (appliedVisitAction) audit.completed_visit_action = appliedVisitAction
   if (inbound.mediaErrors.length) audit = {...audit, media_errors: inbound.mediaErrors}
   if (audit.source === 'visit_intake') {
-    const info = await commercialContext(lead, context.historial)
+    const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
     if(info.estado_proyecto && /¿Qué día y a qué hora le gustaría venir\?/.test(reply)) {
       const invitation=readinessInvitation(info.estado_proyecto as ProjectReadiness).replace('¿Le gustaría','Podemos').replace('?','.')
       reply=reply.replace('¿Qué día y a qué hora le gustaría venir?',`${invitation} ¿Qué día y hora le convendrían?`)
     } else if (!info.estado_proyecto && info.modo_comercial === 'lanzamiento') reply = launchVisitReply(reply, object(info.politica_visitas).launchDestination === 'office' ? 'office' : 'site')
   }
   if (['financing', 'financing_question', 'financing_handoff', 'visit_intake', 'visit_status'].includes(text(audit.source))) {
-    const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead) }
+    const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead) }
     const prepared = turnAnswerFacts(info, current, previousSummary)
     const completed = completeTurnAnswer(reply, prepared)
     reply = completed.reply
@@ -1126,7 +1127,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind)
     && ['', 'catalog_search', 'catalog_select', 'catalog_reference', 'unit_model_request', 'commercial', 'location', 'project_overview', 'project_information_choice', 'visit_place_clarification'].includes(text(audit.source))
   if (showroomEligible && (visualContinuation || asksConstructionStatus(current))) {
-    const info = await commercialContext(lead, context.historial)
+    const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
     const readiness = object(info.estado_proyecto)
     const noPhysicalUnits = readiness.stage === 'not_started'
       || Array.isArray(readiness.enabledPlaces) && !readiness.enabledPlaces.some(place => ['model', 'completed_unit'].includes(String(place)))
@@ -1148,7 +1149,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const deliveredTour = object(audit.unit_model)
   if (text(deliveredTour.unit_number) && text(deliveredTour.url) && reply.includes(text(deliveredTour.url))
     && !finalNotice && !handoffNotice && !/^(?:visit|financing|advisor|price_and_visit)/.test(text(audit.source))) {
-    const info = { ...await commercialContext(lead, context.historial), historial: context.historial,
+    const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
       semantica_turno: turnSemantics, financiamiento: finance, memoria_comercial: memory }
     const unit = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object).find(row => text(row.unit_number) === text(deliveredTour.unit_number)) || {}
     const next = tourContinuation(info, unit, current)
@@ -1210,7 +1211,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     await guard()
     const info: Row = scopeOnlyReview
       ? { alcance_negocio: businessScope.kind, limite_alcance: scopeContract, contrato_turno: turnIntent }
-      : { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
+      : { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       ...(scopeContract ? { limite_alcance: scopeContract } : {}),
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
       avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [],
@@ -1354,7 +1355,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.handoff_text_transformations = [{ stage: 'Aviso de derivación realizada: se conserva la pregunta', before: beforeHandoff, after: reply }]
   }
   if (!recoveringTurn() && !['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
-    reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
+    reply = withVisitLocation(reply, await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), true)
   }
   trace.add('route_selected', 'Seleccionar ruta de respuesta', 'decision', 'conversation.ts · turn-routing.ts', 'succeeded', {
     scope: businessScope.kind,
@@ -1371,7 +1372,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if(direct !== reply) audit.direct_reply_guard = true
   const openingDecision = object(audit.turn_completeness).opening_decision
   const withOpening = (body: string) => reviewedText ? body : openingDecision ? applyDecidedOpening(body, text(object(openingDecision).prefix)) : variedReplyOpening(body, context.historial)
-  reply = naturalConversationReply(withOpening(direct), text(lead.name), turnGreeting, activeLast.sentAt)
+  reply = naturalConversationReply(withOpening(direct), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
   // The last prose transformation is checked too, before any external send.
   const finalCatalogValidation = validateCatalogReply(reply, audit)
   if (!finalCatalogValidation.valid && catalogBaseReply) {
@@ -1379,7 +1380,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (!approvedAllowed && !recoveringTurn()) audit.turn_completeness = { ...object(audit.turn_completeness),
       recovery: { version: 'turn-recovery-v1', pending: true, base_used: false, reason: 'final_catalog_guard' },
       fallback_validation: { passed: false, issues: ['response_requires_validation', finalCatalogValidation.reason].filter(Boolean) } }
-    reply = naturalConversationReply(withOpening(approvedAllowed ? reviewedText : recoveryReply(object(audit.turn_completeness))), text(lead.name), turnGreeting, activeLast.sentAt)
+    reply = naturalConversationReply(withOpening(approvedAllowed ? reviewedText : recoveryReply(object(audit.turn_completeness))), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
     if (handoffNotice && !reply.includes(handoffNotice)) reply = withHandoffNotice(reply, handoffNotice)
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
     if (!approvedAllowed) audit.fallback_recovery = { status: 'invalid_base_not_restored', issue: finalCatalogValidation.reason }

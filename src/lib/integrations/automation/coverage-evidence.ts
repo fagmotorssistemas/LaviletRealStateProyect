@@ -58,9 +58,15 @@ export function assessMissingFacts(fragments: string[], audit: Row, facts: Row[]
     const request = facts.find(row => text(row.fragment) === fragment)
     const answered = catalogCoversFragment(fragment, request?.fact_key, audit)
     const question = text(clarification.text)
+    // The independent reviewer identifies the current requests clarified by the
+    // actual question. Descriptive evidence need not duplicate its wording.
+    // Old stored reviews without this field retain their literal-reference path.
+    const linkedClarification = Array.isArray(clarification.clarifies)
+      ? clarification.clarifies.includes(fragment)
+      : question.length > 0 && text(request?.evidence).includes(question)
     const needsClarification = clarification.validated === true && clarification.purpose === 'clarify_request'
       && question.length > 0 && ['answered', 'clarification'].includes(text(request?.status))
-      && text(request?.evidence).includes(question)
+      && linkedClarification
     if (!answered && needsClarification) return { fragment, fact_key: text(request?.fact_key) || null,
       outcome: 'clarification_needed', reason: 'La pregunta aprobada solicita una precisión al cliente; no demuestra que falte información del proyecto.', question }
     if (!answered && request && request.base_status !== 'missing_fact' && ['answered', 'clarification', 'outside_scope'].includes(text(request.status))) return {

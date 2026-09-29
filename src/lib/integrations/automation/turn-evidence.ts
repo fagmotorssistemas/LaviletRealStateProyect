@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { projectQuantityEvidence } from './project-quantities'
 import { numericMentions } from './semantic-review'
 import { BROCHURE_URL } from './project-material'
+import { confirmedLeadProfile } from './lead-profile'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const fields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'floor_number', 'published_commercial_price']
@@ -123,8 +124,13 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
   add('contexto_verificado.avisos_operativos_confirmados', 'operational_fact', verified.avisos_operativos_confirmados)
   // A declaration can support acknowledgement, never a property fact or action.
   add('mensaje_actual', 'lead_statement', current)
-  add('contexto_verificado.perfil_lead', 'lead_statement', verified.perfil_lead)
-  add('contexto_verificado.lead', 'lead_statement', verified.lead)
+  const leadProfile = confirmedLeadProfile(verified.perfil_lead || profile.profile_state)
+  add('contexto_verificado.perfil_lead', 'lead_statement', leadProfile)
+  // Contact/CRM labels cannot certify a client's identity, including when a
+  // historical context accidentally still supplies lead.name.
+  const leadFacts = Object.fromEntries(Object.entries(object(verified.lead)).filter(([key]) =>
+    !['name', 'full_name', 'display_name', 'contact_name', 'name_source', 'name_confirmed'].includes(key)))
+  add('contexto_verificado.lead', 'lead_statement', leadFacts)
   return result
 }
 

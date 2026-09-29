@@ -2,7 +2,8 @@ import { object, text, type Row } from './data'
 import { isGreetingOnly, normalized } from './sdr-rules'
 import { conversationalFirstName, isCourtesyOnly } from './conversation-style'
 import { BROCHURE_URL } from './project-material'
-import { mergeLeadProfile } from './lead-profile'
+import { confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
+import { replyQuestions } from './reply-question'
 import { commercialContinuationSources } from './response-plan'
 
 export const PROFILE_INVITATION = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
@@ -71,7 +72,7 @@ function declinedProfile(current: string) {
   return /(?:no quiero|no deseo|prefiero no|no voy a|no le voy a).{0,35}(?:dar|decir|compartir|nombre|datos|resido|vivo)|(?:no importa|no es necesario).{0,20}(?:nombre|donde|datos)/.test(normalized(current))
 }
 function knownProfile(input: LeadIntroductionInput) {
-  return mergeLeadProfile({ ...object(object(input.summary)._lead_profile), ...object(input.profile) }, object(object(input.extracted).lead_profile))
+  return confirmedLeadProfile(mergeLeadProfile(confirmedLeadProfile({ ...object(object(input.summary)._lead_profile), ...object(input.profile) }), confirmedLeadProfile(object(input.extracted).lead_profile)))
 }
 
 export function hasProfileAnswer(raw: unknown) {
@@ -92,10 +93,12 @@ function questionPurpose(missing: string[]) {
 
 /** Persist the referent of the question actually sent, including paraphrases. */
 export function leadProfilePendingQuestion(reply: string, auditRaw: unknown): Row {
-  const plan = object(object(auditRaw).profile_introduction)
+  const audit = object(auditRaw), plan = object(audit.profile_introduction)
   const purpose = text(plan.question_purpose)
+  const review = object(audit.turn_completeness)
+  if (Object.keys(review).length && review.status !== 'checked') return {}
   if (!purpose || purpose === 'none' || leadIntroductionIssues(reply, auditRaw).some(issue => /question|confirmation/.test(issue))) return {}
-  const question = reply.match(/¿[^¿?]+\?/g)?.at(-1) || ''
+  const question = replyQuestions(reply).join(' ')
   if (!question) return {}
   const id = purpose === 'confirm_residence' ? 'lead_residence_confirmation'
     : purpose === 'collect_profile' ? 'lead_profile' : purpose === 'collect_name' ? 'lead_profile_name' : 'lead_profile_residence'
@@ -211,7 +214,9 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
 
 export const LEAD_INTRODUCTION_RULES = `
 APERTURA Y PERFIL DEL LEAD
+- Esta secuencia es una regla comercial obligatoria y prevalece sobre las sugerencias generales de presentación, libertad editorial o cierre sin pregunta. El sistema decide la etapa y los datos pendientes; el redactor elige cómo expresarlos y el revisor comprueba su significado en el mensaje real.
 - Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después formule una sola pregunta con question_purpose. Puede reformularla conservando los datos faltantes y el propósito de brochure más guía personalizada; no se exige copiar toda la frase. La ubicación solicitada es dónde reside actualmente, nunca desde dónde escribe ni el lugar donde quiere comprar.
+- full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si missing_fields incluye full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden los datos pendientes, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla. Si falta un dato obligatorio en la pregunta, señale el defecto real en operational_goal_preserved con la pregunta del borrador como fragmento.
 - declared_location conserva el lugar declarado; residence_candidate es una posibilidad pendiente, NO residencia confirmada. Con question_purpose=confirm_residence reconozca el lugar candidato y pregunte si es su residencia actual, sin pedir nuevamente una ciudad desde cero. «Soy de X» merece esta aclaración aunque responda a una pregunta de residencia. Si ya hay residencia confirmada en profile_state, no vuelva a preguntarla. Una ciudad de origen distinta puede conservarse sin contradecir la residencia actual.
 - Si name_acknowledgement tiene contenido, incluya «Mucho gusto, Nombre» usando ese nombre verificado, una sola vez. Es un reconocimiento del nombre recién declarado, no una cortesía opcional ni un saludo que deba suprimirse. No añada saludos adicionales.
 - Si generic_introduction=true, presente brevemente La Vilet y su ubicación sin enumerar suites, departamentos, penthouses ni locales. Esa presentación de opciones corresponde a la continuación después de los datos. No añada una segunda pregunta comercial.
@@ -222,21 +227,12 @@ APERTURA Y PERFIL DEL LEAD
 export function leadIntroductionIssues(reply: string, auditRaw: unknown) {
   const plan = object(object(auditRaw).profile_introduction)
   if (!Object.keys(plan).length) return []
-  const issues: string[] = [], question = text(plan.question)
+  const issues: string[] = []
   const value = normalized(reply), purpose = text(plan.question_purpose)
-  const questions = [...reply.matchAll(/¿([^¿?]+)\?/g)].map(match => normalized(match[1]))
-  const asksName = questions.some(q => /nombre|como (?:se llama|le llam)/.test(q))
-  const asksResidence = questions.some(q => /resid|\bviv[ea]|viviendo/.test(q))
-  if (question && !purpose && !reply.includes(question)) issues.push('lead_profile_question_changed') // Historical audit compatibility.
-  if (purpose === 'confirm_residence') {
-    const candidate = object(plan.candidate)
-    const placeMentioned = [text(candidate.city), text(candidate.country)].filter(Boolean).every(place => value.includes(normalized(place)))
-    if (!asksResidence || !placeMentioned) issues.push('lead_profile_confirmation_omitted')
-    else if (questions.some(q => /(?:en que|que|cual) (?:ciudad|pais|lugar)|donde (?:reside|vive)/.test(q))) issues.push('lead_profile_question_purpose_changed')
-  } else if (['collect_profile', 'collect_name', 'collect_residence'].includes(purpose)) {
-    if ((purpose !== 'collect_residence' && !asksName) || (purpose !== 'collect_name' && !asksResidence)) issues.push('lead_profile_question_purpose_changed')
-    if (!/brochure|folleto/.test(value) || !/guia personalizada|orienta\w* (?:de forma )?personalizada/.test(value)) issues.push('lead_profile_question_purpose_changed')
-  }
+  // Presence is structural; the independent reviewer checks meaning, missing
+  // fields and the brochure purpose. No vocabulary/phrase equivalence gate.
+  if (['collect_profile', 'collect_name', 'collect_residence', 'confirm_residence'].includes(purpose)
+    && !replyQuestions(reply).length) issues.push('lead_profile_question_missing')
   const acknowledgement = normalized(text(plan.name_acknowledgement))
   if (acknowledgement && !value.includes(acknowledgement)) issues.push('lead_profile_name_acknowledgement_missing')
   if (object(plan.profile_state).residence_status !== 'confirmed') {
@@ -252,4 +248,21 @@ export function leadIntroductionIssues(reply: string, auditRaw: unknown) {
   if (plan.brochure_deferred === true && reply.includes(text(plan.brochure_url) || BROCHURE_URL)) issues.push('lead_profile_brochure_premature')
   if (plan.brochure_required === true && !reply.includes(text(plan.brochure_url) || BROCHURE_URL)) issues.push('lead_profile_brochure_missing')
   return issues
+}
+
+/** Concrete instructions for a commercial repair, separate from metadata repair. */
+export function leadIntroductionRepairs(issues: string[], auditRaw: unknown): Row[] {
+  const plan = object(object(auditRaw).profile_introduction)
+  if (!Object.keys(plan).length) return []
+  const instructions: Record<string, string> = {
+    lead_profile_categories_premature: 'Elimine la enumeración de suites, departamentos, penthouses y locales de esta presentación inicial. Presente brevemente el proyecto y su ubicación; conserve la pregunta de los datos pendientes. La presentación de opciones corresponde al siguiente intercambio.',
+    lead_profile_question_missing: 'Incluya la pregunta de perfil exigida por la etapa, solicitando solamente los datos pendientes y explicando el propósito de brochure y guía personalizada. Para confirm_residence confirme el lugar candidato, sin pedir otra ciudad desde cero.',
+    lead_profile_name_acknowledgement_missing: 'Incluya el reconocimiento name_acknowledgement del nombre declarado, una sola vez.',
+    lead_profile_unconfirmed_residence: 'No afirme como residencia el lugar de origen o estancia temporal. Confirme si el candidato es su residencia actual.',
+    lead_profile_brochure_premature: 'Retire el enlace del brochure: su entrega está prevista para el siguiente intercambio.',
+    lead_profile_brochure_missing: 'Incluya el enlace verificado del brochure que corresponde entregar en este turno.',
+  }
+  return issues.filter(issue => instructions[issue]).map(issue => ({ code: issue, owner: 'system', repair_owner: 'writer',
+    target: 'commercial_draft', instruction: instructions[issue], question_purpose: plan.question_purpose,
+    missing_fields: plan.missing_fields || [], candidate: plan.candidate || null }))
 }

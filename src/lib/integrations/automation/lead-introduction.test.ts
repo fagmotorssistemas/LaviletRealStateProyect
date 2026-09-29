@@ -8,6 +8,8 @@ const catalog = [
   { id: 'a901', unit_number: '901', category: 'departamento', bedrooms: 3, price: 310000 },
   { id: 's305', unit_number: '305', category: 'suite', bedrooms: 1, price: 120000 },
 ]
+const declaredName = (name: string, evidence = name) => ({ full_name: name, evidence: { full_name: evidence },
+  sources: { full_name: { source: 'lead_declaration', evidence, message_id: 'declared-name' } } })
 const input = (overrides: Partial<LeadIntroductionInput> = {}): LeadIntroductionInput => ({
   current: 'Quiero información', history: [], summary: {}, extracted: {}, catalog,
   reply: `La Vilet reúne suites, departamentos y locales. Aquí está el brochure: ${BROCHURE_URL}\n¿Le gustaría conocer alguna de estas opciones?`,
@@ -16,15 +18,37 @@ const input = (overrides: Partial<LeadIntroductionInput> = {}): LeadIntroduction
 const begin = () => leadIntroductionTurn(input())
 const pending = (overrides: Partial<LeadIntroductionInput> = {}) => input({
   current: 'Me llamo Juan', summary: { _lead_introduction: begin().state },
-  extracted: { lead_profile: { full_name: 'Juan' } },
+  extracted: { lead_profile: declaredName('Juan', 'Me llamo Juan') },
   reply: '¿Qué planta prefiere?', audit: { source: 'catalog_search' }, ...overrides,
 })
 
-const originProfile = (name = 'Carlos', city = 'Cuenca') => ({ full_name: name,
+const originProfile = (name = 'Carlos', city = 'Cuenca') => ({ ...declaredName(name),
   declared_location: { city, country: null, kind: 'origin', evidence: `soy de ${city}` },
   residence_candidate: { city, country: null, evidence: `soy de ${city}` }, residence_status: 'pending_confirmation' })
 
 describe('progressive lead introduction', () => {
+  it('keeps requesting the name when a CRM label has no declaration provenance', () => {
+    for (const profile of [{ full_name: 'Carlos Fabian' },
+      { full_name: 'Carlos Fabian', sources: { full_name: { source: 'crm', evidence: 'Carlos Fabian' } } }]) {
+      const turn = leadIntroductionTurn(input({ summary: { _lead_profile: profile } }))
+      assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+      assert.doesNotMatch(turn.reply, /Carlos/)
+      assert.equal(turn.state.status, 'pending')
+      assert.equal((turn.audit.profile_introduction as { question_purpose: string }).question_purpose, 'collect_profile')
+    }
+  })
+  it('reuses a prior declared name without asking it again or repeating its acknowledgement', () => {
+    const known = declaredName('Ana María', 'Me llamo Ana María')
+    const turn = leadIntroductionTurn(input({ summary: { _lead_profile: known } }))
+    assert.match(turn.reply, /Mucho gusto, Ana/)
+    assert.match(turn.reply, /reside actualmente/)
+    assert.doesNotMatch(turn.reply, /indicarnos su nombre/)
+    const next = leadIntroductionTurn(input({ current: 'Vivo en Chile',
+      summary: { _lead_profile: known, _lead_introduction: { ...turn.state, acknowledged_name: 'Ana' } },
+      extracted: { lead_profile: { residence_country: 'Chile' } } }))
+    assert.doesNotMatch(next.reply, /Mucho gusto|indicarnos su nombre|reside actualmente/)
+    assert.equal(next.state.status, 'complete')
+  })
   it('waits after a greeting and starts on the first substantive request after greeting', () => {
     const greeting = leadIntroductionTurn(input({ current: 'Hola', reply: 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?', audit: { source: 'greeting' } }))
     assert.equal(greeting.applied, false)
@@ -62,7 +86,7 @@ describe('progressive lead introduction', () => {
       extracted: { preferred_category: 'departamento' }, audit: { source: 'catalog_search' } }))
     const turn = leadIntroductionTurn(pending({ current: 'Soy Carlos y vivo en Madrid',
       summary: { _lead_introduction: first.state },
-      extracted: { lead_profile: { full_name: 'Carlos', residence_city: 'Madrid' } } }))
+      extracted: { lead_profile: { ...declaredName('Carlos', 'Soy Carlos'), residence_city: 'Madrid' } } }))
     assert.match(turn.reply, /brochure/)
     assert.ok(turn.reply.includes(BROCHURE_URL))
     assert.match(turn.reply, /Cuántos dormitorios está buscando/)
@@ -76,7 +100,7 @@ describe('progressive lead introduction', () => {
     assert.doesNotMatch(turn.reply, /su nombre|desde dónde|desde qué/)
     assert.equal(turn.state.reminder_count, 1)
     const following = leadIntroductionTurn(pending({ current: 'Vivo en Cuenca',
-      summary: { _lead_introduction: turn.state, _lead_profile: { full_name: 'Juan' } },
+      summary: { _lead_introduction: turn.state, _lead_profile: declaredName('Juan', 'Me llamo Juan') },
       extracted: { lead_profile: { full_name: null, residence_city: 'Cuenca' } } }))
     assert.equal(following.state.status, 'complete')
     assert.doesNotMatch(following.reply, /https:\/\/|su nombre|reside actualmente/)
@@ -124,14 +148,15 @@ describe('progressive lead introduction', () => {
   it('keeps verified category facts without copying promotional claims from the desired wording', () => {
     const turn = leadIntroductionTurn(input())
     assert.doesNotMatch(turn.reply, /mayor plusvalía|terrazas privadas|iluminación natural|vanguardista/)
-    const known = leadIntroductionTurn(input({ profile: { full_name: 'Ana', residence_country: 'Chile' } }))
+    const known = leadIntroductionTurn(input({ profile: { ...declaredName('Ana', 'Soy Ana'), residence_country: 'Chile' } }))
     assert.ok(known.reply.includes(BROCHURE_URL))
     assert.doesNotMatch(known.reply, /podría indicarnos/)
   })
-  it('validates the opening purpose, residence wording, category timing and brochure delivery', () => {
+  it('keeps stage and material guards while leaving question meaning to independent review', () => {
     const turn = begin()
     assert.deepEqual(leadIntroductionIssues(turn.reply, turn.audit), [])
-    assert.ok(leadIntroductionIssues(turn.reply.replace('reside actualmente', 'nos escribe'), turn.audit).includes('lead_profile_question_purpose_changed'))
+    assert.deepEqual(leadIntroductionIssues(turn.reply.replace('reside actualmente', 'nos escribe'), turn.audit), [])
+    assert.ok(leadIntroductionIssues('La Vilet está en Cuenca.', turn.audit).includes('lead_profile_question_missing'))
     assert.ok(leadIntroductionIssues(turn.reply + ' Tenemos departamentos.', turn.audit).includes('lead_profile_categories_premature'))
     assert.ok(leadIntroductionIssues(turn.reply + BROCHURE_URL, turn.audit).includes('lead_profile_brochure_premature'))
     const delivered = leadIntroductionTurn(pending())
@@ -182,9 +207,10 @@ describe('progressive lead introduction', () => {
     assert.deepEqual(leadIntroductionIssues(reply, turn.audit), [])
     assert.equal(leadProfilePendingQuestion(reply, turn.audit).question, '¿Actualmente vive allí?')
     assert.ok(leadIntroductionIssues(reply.replace('Entiendo que es de', 'Como vive en'), turn.audit).includes('lead_profile_unconfirmed_residence'))
-    assert.ok(leadIntroductionIssues(reply.replace('¿Actualmente vive allí?', '¿En qué ciudad reside actualmente?'), turn.audit).includes('lead_profile_question_purpose_changed'))
+    assert.deepEqual(leadIntroductionIssues(reply.replace('¿Actualmente vive allí?', '¿En qué ciudad reside actualmente?'), turn.audit), [])
     assert.ok(leadIntroductionIssues(reply.replace('Mucho gusto, Carlos.', ''), turn.audit).includes('lead_profile_name_acknowledgement_missing'))
-    assert.ok(leadIntroductionIssues(reply.replace('Cuenca', 'Quito'), turn.audit).includes('lead_profile_confirmation_omitted'))
+    // Semantic review, not a location substring check, must reject a changed candidate.
+    assert.deepEqual(leadIntroductionIssues(reply.replace('Cuenca', 'Quito'), turn.audit), [])
   })
 
   it('retains a parallel budget answer and first-name acknowledgement on specialized routes', () => {
@@ -195,7 +221,7 @@ describe('progressive lead introduction', () => {
     assert.match(turn.reply, /Entiendo que es de Cuenca/)
     assert.equal((turn.reply.match(/\?/g) || []).length, 1)
     const specialized = leadIntroductionTurn(pending({ current: 'Me llamo Carlos, quiero una visita',
-      extracted: { lead_profile: { full_name: 'Carlos' } }, audit: { source: 'visit_intake' }, reply: '¿Qué día desea visitarnos?' }))
+      extracted: { lead_profile: declaredName('Carlos', 'Me llamo Carlos') }, audit: { source: 'visit_intake' }, reply: '¿Qué día desea visitarnos?' }))
     assert.equal(specialized.reply, 'Mucho gusto, Carlos.\n\n¿Qué día desea visitarnos?')
   })
 

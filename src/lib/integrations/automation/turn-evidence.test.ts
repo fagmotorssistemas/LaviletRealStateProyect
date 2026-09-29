@@ -4,6 +4,17 @@ import { normalizeReviewReferences, verifiedClaimSources } from './turn-evidence
 import { factualValueIssues } from './semantic-review'
 import { validateCatalogReply } from './catalog-dialogue'
 
+test('CRM names cannot become identity evidence but a persisted declaration can', () => {
+  const lead = { name: 'Nombre del WhatsApp', full_name: 'Nombre del CRM', preferred_category: 'departamento' }
+  const unconfirmed = verifiedClaimSources({ lead, perfil_lead: { full_name: 'Nombre sin procedencia' } }, {}, {}, 'Buenas tardes')
+  assert.doesNotMatch(JSON.stringify(unconfirmed), /Nombre del WhatsApp|Nombre del CRM|Nombre sin procedencia/)
+  const confirmed = verifiedClaimSources({ lead, perfil_lead: { full_name: 'Ana María',
+    sources: { full_name: { source: 'lead_declaration', evidence: 'Me llamo Ana María', message_id: 'name-1' } } } }, {}, {}, 'Quiero información')
+  const nameSource = confirmed.find(source => source.path === 'contexto_verificado.perfil_lead')
+  assert.equal((nameSource?.value as { full_name: string }).full_name, 'Ana María')
+  assert.doesNotMatch(JSON.stringify(confirmed), /Nombre del WhatsApp|Nombre del CRM/)
+})
+
 test('configured brochure and unit tours have factual evidence without claiming delivery or accepting history URLs', () => {
   const sources = verifiedClaimSources({ history: [{ content: 'https://untrusted.example/file' }] }, {
     profile_introduction: { brochure_url: 'https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' },

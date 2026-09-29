@@ -118,6 +118,8 @@ const values: Record<string, string> = {
   current_request_overrides_pending_visit: 'La consulta actual no pide una visita; una coordinación anterior no puede sustituirla',
   collect_lead_profile: 'Recoger nombre y residencia para personalizar la guía', current_residence: 'Residencia actual, no lugar de contacto',
   lead_profile_question_changed: 'Se omitió o cambió la solicitud de datos con su explicación de brochure y guía personalizada',
+  lead_profile_question_missing: 'El sistema detectó que falta la pregunta de datos exigida en esta etapa comercial',
+  invalid_review_question_metadata: 'La ficha de la pregunta elaborada por el revisor está incompleta o cita una solicitud incorrecta; corresponde reparar la ficha',
   lead_profile_categories_premature: 'La presentación inicial enumeró categorías antes de entregar el brochure',
   lead_profile_brochure_premature: 'Se adjuntó el brochure antes del intercambio previsto',
   lead_profile_brochure_missing: 'Falta el brochure que debía entregarse en este turno',

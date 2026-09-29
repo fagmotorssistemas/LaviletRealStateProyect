@@ -8,6 +8,24 @@ const literal = (quote: string, current: string) => !!quote && quote.length <= 5
   && current.normalize('NFKC').toLowerCase().includes(quote.normalize('NFKC').toLowerCase())
 const label = (value: unknown) => { const v = text(value).trim(); return v && v.length <= 150 ? v : '' }
 
+/** Only the conversation profile can establish a conversational name. CRM and
+ * WhatsApp display labels are deliberately not inputs to this projection. */
+export function confirmedLeadProfile(profileInput: unknown): Row {
+  const profile = object(profileInput), sources = { ...object(profile.sources) }
+  const name = label(profile.full_name), source = object(sources.full_name)
+  const evidence = text(source.evidence || object(profile.evidence).full_name).trim()
+  const declared = ['lead_declaration', 'lead_confirmation'].includes(text(source.source))
+    || !Object.keys(source).length && !!text(object(profile.evidence).full_name)
+  const confirmed = !!name && declared && !!evidence && contains(evidence, name)
+  if (!confirmed) delete sources.full_name
+  return { ...profile, full_name: confirmed ? name : null, name_status: confirmed ? 'confirmed' : 'unconfirmed',
+    sources, evidence: { ...object(profile.evidence), full_name: confirmed ? evidence : null } }
+}
+
+export function confirmedLeadName(profileInput: unknown): string {
+  return text(confirmedLeadProfile(profileInput).full_name)
+}
+
 const residenceMarker = /\b(?:vivo|vivimos|resido|residimos|estoy viviendo|estamos viviendo|mi residencia (?:es|esta)|mi domicilio (?:es|esta)|estoy radicad[oa])\b/g
 const originMarker = /\b(?:soy de|somos de|naci en|nacid[oa] en|mi (?:origen|lugar de origen) es)\b/g
 const temporaryMarker = /\b(?:escribo desde|estoy en|estamos en|de viaje en|de vacaciones en|visitando)\b/g
@@ -180,6 +198,7 @@ export function mergeLeadProfile(previousInput: unknown, incomingInput: unknown,
     sources.residence_candidate = fieldSource('residence_candidate', object(incoming.residence_candidate).evidence)
   } else if (!result.residence_status) result.residence_status = result.residence_city || result.residence_country ? 'confirmed' : 'unknown'
   result.sources = sources
+  result.name_status = confirmedLeadName(result) ? 'confirmed' : 'unconfirmed'
   result.diagnostics = Array.isArray(incoming.diagnostics) ? incoming.diagnostics : []
   return result
 }

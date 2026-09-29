@@ -13,7 +13,7 @@ require('./test-typescript.cjs')
 const { completeTurnReply, turnCompletenessIssues } = require('../src/lib/integrations/automation/turn-completeness.ts')
 const { checkReviewDecision } = require('../src/lib/integrations/automation/turn-review-checks.ts')
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
-  operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], review_issues: [], claims: [], factual_values: [] }
+  operational_goal_preserved: true, question_has_purpose: true, question: { purpose: 'none', missing_datum: '', next_decision: '', clarifies: [] }, missing_fact_fragments: [], review_issues: [], claims: [], factual_values: [] }
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 const candidate = (current, reply) => ({ reply, requests: [{ fragment: current, intent: 'Orientar la consulta actual',
   request_type: 'general_information', status: 'answered', evidence: 'Responde la inquietud con los hechos y orientación pertinente', fact_key: null }], question: noQuestion })

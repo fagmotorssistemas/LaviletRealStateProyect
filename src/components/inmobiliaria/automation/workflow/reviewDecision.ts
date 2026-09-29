@@ -12,6 +12,8 @@ const profileChecks: Record<string, string> = {
   reservation_handoff_not_verified: 'El borrador afirmó un trámite o derivación de reserva que no está comprobado.',
   lead_profile_confirmation_omitted: 'Se omitió confirmar si el lugar declarado es la residencia actual.',
   lead_profile_question_purpose_changed: 'La pregunta cambió el dato que debía recoger o confirmar.',
+  lead_profile_question_missing: 'El sistema detectó que falta la pregunta de datos exigida en esta etapa comercial.',
+  invalid_review_question_metadata: 'La ficha de la pregunta del revisor necesita reparación; esto no demuestra un error en el mensaje.',
   lead_profile_unconfirmed_residence: 'Se presentó como residencia confirmada un lugar que aún necesita confirmación.',
   lead_profile_name_acknowledgement_missing: 'Falta el saludo «Mucho gusto» con el nombre recibido por primera vez.',
   commercial_next_question_missing: 'Se omitió la pregunta que permite avanzar entre las opciones de interés.',

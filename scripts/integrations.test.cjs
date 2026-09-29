@@ -1141,11 +1141,20 @@ test('commercial context reads only the explicit price policy and never leaks un
       return q
     } })
     const { commercialContext } = load('src/lib/integrations/automation/sdr.ts', { './data': { ...data, db } })
-    const info = await commercialContext({}, [])
+    const info = await commercialContext({ name: 'Carlos Fabian' }, [], {})
     assert.equal(info.politica_comercial.precios_autorizados, allowed)
     assert.equal(info.politica_comercial.precios_aproximados, approximate)
     assert.equal(info.catalogo[0].published_commercial_price, allowed ? 310000 : null)
     assert.doesNotMatch(JSON.stringify(info), /legacy-not-authorized|forma_pago|policies_json/)
+    assert.equal(info.lead.name, null)
+    assert.equal(info.lead.name_confirmed, false)
+    assert.doesNotMatch(JSON.stringify(info), /Carlos/)
+    const named = await commercialContext({ name: 'Nombre de WhatsApp' }, [], { full_name: 'Ana María',
+      sources: { full_name: { source: 'lead_declaration', evidence: 'Me llamo Ana María', message_id: 'name-1' } } })
+    assert.equal(named.lead.name, 'Ana')
+    assert.equal(named.lead.name_confirmed, true)
+    assert.equal(named.lead.name_source.message_id, 'name-1')
+    assert.doesNotMatch(JSON.stringify(named), /Nombre de WhatsApp/)
   }
 })
 const later = offset => new Date(now + offset).toISOString()
@@ -3081,6 +3090,26 @@ test('a category clarification preserves the preceding price objective and does 
   assert.equal(next.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake'].includes(call.name)), false)
 })
 
+test('an opening uses only declared identity and an empty reset profile never inherits the CRM display name', async t => {
+  live(t)
+  for (const [profile, known] of [[{}, false], [{ full_name: 'Carlos Fabian' }, false],
+    [{ full_name: 'Ana María', sources: { full_name: { source: 'lead_declaration', evidence: 'Me llamo Ana María', message_id: 'prior-name' } } }, true]]) {
+    const h = conversationHarness({ lead: { name: 'Carlos Fabian' }, summary: { _lead_profile: profile },
+      extracted: { turn_semantics: extractedProperty('Quiero información', { operation: 'none' }) },
+      commercialResult: { reply: 'La Vilet está en Puertas del Sol, Cuenca.', audit: { source: 'commercial' } } })
+    h.rows[0].payload.text = 'Quiero información'
+    await h.process([h.rows[0]], async () => {})
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args.p_content
+    const writer = h.calls.find(call => call.name === 'completeTurnReply').args
+    assert.doesNotMatch(sent, /Carlos/)
+    assert.equal(writer.verified.perfil_lead.full_name, known ? 'Ana María' : null)
+    assert.equal(/indicarnos su nombre/.test(sent), !known)
+    if (known) assert.match(sent, /Mucho gusto, Ana/)
+    assert.equal(h.lead.name, 'Carlos Fabian')
+    assert.equal(h.calls.some(call => call.name === 'update:leads' && call.args.name), false)
+  }
+})
+
 test('introductory profile is persisted with evidence and brochure is released on a partial answer', async t => {
   live(t)
   const first=conversationHarness({catalog:dialogueReplayCatalog,commercialInfo:{...priceInfo(),catalogo:dialogueReplayCatalog},realCommercial:true,commercialAi:deterministicOnly,
@@ -3102,6 +3131,7 @@ test('introductory profile is persisted with evidence and brochure is released o
   assert.match(answer,/guía personalizada.*reside actualmente/s)
   assert.doesNotMatch(answer,/indicarnos su nombre/)
   assert.equal(saved._lead_profile.full_name,'Juan')
+  assert.equal(saved._lead_profile.name_status,'confirmed')
   assert.equal(saved._lead_profile.sources.full_name.evidence,'Me llamo Juan')
   assert.equal(second.calls.find(call=>call.name==='update:leads').args.name,'Juan')
   assert.equal(second.calls.some(call=>call.name==='process_financing_message_v2'),false)
