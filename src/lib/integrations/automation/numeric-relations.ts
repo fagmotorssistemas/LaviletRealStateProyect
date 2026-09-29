@@ -20,7 +20,7 @@ export function satisfiesNumeric(actual: number, value: number, operator: unknow
   }
 }
 export function relationBefore(value: string): NumericOperator {
-  value = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  value = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/(?:us\$|\$|usd|€|eur)\s*$/, '').trimEnd()
   if (/(?:desde|a partir de|minimo de|al menos|como minimo|no menos de|mayor(?:es)? o igual(?:es)? (?:a|que))\s*$/.test(value)) return 'gte'
   if (/(?:hasta|maximo de|como maximo|no mas de|menor(?:es)? o igual(?:es)? (?:a|que))\s*$/.test(value)) return 'lte'
   if (/(?:mas de|superior(?:es)? a|mayor(?:es)? (?:a|que))\s*$/.test(value)) return 'gt'
@@ -29,7 +29,7 @@ export function relationBefore(value: string): NumericOperator {
 }
 /** Catalogue endpoints assert an attained minimum/maximum, not just a loose bound. */
 export function endpointBefore(value: string): 'min' | 'max' | null {
-  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/(?:us\$|\$|usd|€|eur)\s*$/, '').trimEnd()
   if (/(?:hasta|maximo de)\s*$/.test(normalized)) return 'max'
   if (/(?:desde|a partir de|minimo de)\s*$/.test(normalized)) return 'min'
   return null

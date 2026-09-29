@@ -162,15 +162,16 @@ test('operational AI cannot reintroduce finance or visit after a passive price a
 })
 
 test('out-of-scope replies introduce the brand once, including invalid model fallback', async () => {
+  const { scopeFallbackReply } = require('../src/lib/integrations/automation/scope-response.ts')
   const { validateBusinessScope, classifyBusinessScope } = load('src/lib/integrations/automation/business-scope.ts', {
     './ai': { aiJson: async (_rules, input) => {
-      assert.equal(input.marca_ya_presentada, true)
+      assert.equal(input.marca_ya_presentada, undefined)
       return { kind: 'out_of_scope', property_fragments: [], outside_subject: 'comida', outside_source: 'current', reply: 'Entiendo la confusión. Somos La Vilet, un proyecto inmobiliario y no gestionamos pedidos de comida.' }
     } },
   })
   const row = { kind: 'out_of_scope', property_fragments: [], outside_subject: 'comida', outside_source: 'current', reply: 'Entiendo la confusión. Somos La Vilet, un proyecto inmobiliario y no gestionamos pedidos de comida.' }
-  assert.match(validateBusinessScope(row, 'Envíeme comida').reply, /La Vilet/)
-  assert.doesNotMatch(validateBusinessScope(row, 'Envíeme comida', true).reply, /La Vilet/)
+  assert.match(scopeFallbackReply(validateBusinessScope(row, 'Envíeme comida')), /La Vilet/)
+  assert.doesNotMatch(scopeFallbackReply(validateBusinessScope(row, 'Envíeme comida', true), true), /La Vilet/)
   assert.doesNotMatch(validateBusinessScope({ ...row, outside_subject: 'taxi', reply: 'Ya reservé su taxi.' }, 'Envíeme taxi', true).reply, /La Vilet|reservé/)
   assert.doesNotMatch((await classifyBusinessScope('Envíeme comida', [], true)).reply, /La Vilet/)
 })
@@ -219,12 +220,20 @@ test('unrelated business requests bypass pending property appointments, financin
   live(t)
   for (const current of ['Revisa mi vuelo de mañana', 'Agenda una limpieza dental', 'Quiero alquilar una moto', '¿Cuánto cuesta reparar mi celular?']) {
     const h = conversationHarness({ businessScope: { kind: 'out_of_scope', property_message: '', reply: 'Lo siento, no ofrecemos ese servicio. Somos La Vilet, un proyecto inmobiliario.', uncertain: false },
-      visitDraft: { status: 'collecting' }, proposals: [{ id: 'visit', status: 'awaiting_client' }], extracted: { requested_advisor: true, events: ['requested_visit', 'asked_financing'] } })
+      visitDraft: { status: 'collecting' }, proposals: [{ id: 'visit', status: 'awaiting_client' }], extracted: { requested_advisor: true, events: ['requested_visit', 'asked_financing'] },
+      // Even a mistaken review cannot turn an outside-service gap into a CRM action.
+      turnComplete: input => ({ reply: input.baseReply, changed: false, needsAdvisor: true,
+        unresolved: ['resolver el servicio ajeno'], audit: {} }) })
     h.rows[0].payload.text = current; h.rows[1].payload.text = ''
     const result = await h.process(h.rows, async () => {})
     assert.equal(result.source, 'business_out_of_scope')
     assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
     assert.equal(h.calls.some(c => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2', 'lv_evaluate_message_interest'].includes(c.name)), false)
+    const written = h.calls.find(c => c.name === 'completeTurnReply').args
+    assert.equal(written.current.trim(), current)
+    assert.equal(written.verified.limite_alcance.kind, 'out_of_scope')
+    assert.equal(written.verified.catalogo, undefined)
+    assert.equal(written.verified.financiamiento, undefined)
   }
 })
 
@@ -236,7 +245,11 @@ test('mixed bookings reach an advisor without feeding the flight date to the SQL
   assert.equal(result.source, 'mixed_visit_handoff')
   assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
   assert.equal(h.calls.some(c => c.name === 'lv_collect_visit_intake'), false)
-  assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /no gestionamos reservas.*[\s\S]*bandeja/)
+  assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /no gestionamos.*[\s\S]*bandeja/)
+  const written = h.calls.find(c => c.name === 'completeTurnReply').args
+  assert.equal(written.current.trim(), h.rows[0].payload.text)
+  assert.equal(written.verified.limite_alcance.property_message, 'Quiero visitar La Vilet')
+  assert.match(written.baseReply, /no gestionamos.*[\s\S]*bandeja/)
 })
 
 test('details plus permission to visit answers both even when the extractor misses the event', async t => {
@@ -2865,7 +2878,7 @@ test('project overview takes priority over a broad catalogue interpretation thro
 
 test('a bare first price request reaches the writer with verified prices and the introductory profile question', async t => {
   live(t)
-  const current = 'Precio'
+  const current = 'PRECIO'
   const catalog = dialogueReplayCatalog.filter(unit => ['210', '502', '605'].includes(unit.unit_number)).map(unit => ({
     ...unit, published_commercial_price: unit.category === 'suite' ? 250000 : unit.category === 'penthouse' ? 550000 : 310000,
   }))
@@ -2897,11 +2910,12 @@ test('a bare first price request reaches the writer with verified prices and the
 
 test('an uncertain scope does not discard a grounded apartment price question before review', async t => {
   live(t)
-  for (const current of ['cual es el costo de los departametnos???', 'cual es el preico de los departamentos??']) {
+  for (const current of ['cual es el costo de los departametnos???', 'cual es el preico de los departamentos??', 'PREICO DE LOS DEPARTAMENTOS']) {
   const catalog = dialogueReplayCatalog.filter(unit => ['502'].includes(unit.unit_number)).map(unit => ({ ...unit, published_commercial_price: 310000 }))
   const h = conversationHarness({ catalog, commercialInfo: { ...priceInfo(), catalogo: catalog }, realCommercial: true,
     commercialAi: deterministicOnly, captureTrace: true,
-    businessScope: { kind: 'neutral', property_message: '', reply: '', uncertain: true },
+    businessScope: { kind: 'neutral', property_message: '', reply: '', uncertain: true, confidence: 'low',
+      outside_evidence: { fragment: 'departametnos', source: 'current' } },
     extracted: { turn_semantics: extractedProperty(current, { category: 'departamento', operation: 'none' }, 'ask_price'),
       requests: [{ request: current, domain: 'property', evidence: current, confidence: 'high' }] } })
   h.rows[0].payload.text = current

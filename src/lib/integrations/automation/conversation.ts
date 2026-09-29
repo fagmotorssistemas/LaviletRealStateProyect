@@ -61,6 +61,7 @@ import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
 import { asksForHouse, houseProductReply } from './product-fit'
 import { declinesAllVisitAlternatives } from './visit-escalation'
 import { completeTurnReply } from './turn-completeness'
+import { scopeFallbackReply, scopeWritingContract } from './scope-response'
 import { validateCatalogReply } from './catalog-dialogue'
 import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
@@ -373,10 +374,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     businessScope = financeContinuation || isProjectInformationRequest(current) ? {kind:'property',property_message:current,reply:'',uncertain:false}
       : await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true, object(previousSummary._turn_intent).scope)
     if (businessScope.kind === 'out_of_scope') {
-      reply = businessScope.reply
+      reply = scopeFallbackReply(businessScope, previousSummary._brand_introduced === true)
       audit = { source: 'business_out_of_scope', business_scope: businessScope.kind }
     } else if (businessScope.uncertain) {
-      reply = 'Disculpe, no alcancé a entender bien su consulta. ¿Qué le gustaría saber sobre La Vilet?'
+      reply = scopeFallbackReply(businessScope, previousSummary._brand_introduced === true)
       audit = { source: 'scope_clarification', business_scope: 'uncertain' }
     } else if (businessScope.kind === 'mixed') current = businessScope.property_message
   }
@@ -385,6 +386,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reason: businessScope.reason || null,
     outside_evidence: businessScope.outside_evidence || null,
     uncertain: businessScope.uncertain,
+    confidence: businessScope.confidence || null,
     greeting,
     courtesy: isCourtesyOnly(current),
   })
@@ -500,7 +502,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     contexto_propiedades: previousPropertyContext, catalogo_unidades: turnCatalog,
     propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance,
     unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
-    mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence ? '' : current,
+    mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence && businessScope.confidence !== 'low' ? '' : current,
   }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
   const { extracted, semantics: turnSemantics } = interpretation
   const classifiedScope = businessScope.kind
@@ -1166,6 +1168,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (introduction.applied) trace.add('lead_introduction', 'Presentación y datos del lead', 'decision', 'lead-introduction.ts', 'succeeded', {}, introduction.audit)
     }
   }
+  // Action parsing uses only verified property fragments. Writing/review sees
+  // the full mixed message and its boundary together, before any final send.
+  const writingCurrent = businessScope.kind === 'mixed' ? originalTurn : current
+  const needsScopeCopy = businessScope.uncertain || ['out_of_scope', 'mixed'].includes(businessScope.kind)
+  const scopeOnlyReview = businessScope.uncertain || businessScope.kind === 'out_of_scope'
+  const scopeContract = needsScopeCopy ? scopeWritingContract(businessScope, previousSummary._brand_introduced === true) : null
+  if (businessScope.kind === 'mixed') reply = scopeFallbackReply(businessScope, true) + '\n\n' + reply
   const plannedResponse = responsePlan(reply, audit)
   let reviewedText = ''
   let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
@@ -1189,9 +1198,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           : commercialPromptRoute
             ? { kind: 'prompt', label: 'Conversación y orientación comercial', href: '/inmobiliaria/automatizacion/guion#respuestas', source: 'sdr.ts · respuesta_comercial · revisor_respuesta' }
             : { kind: 'code', label: 'Ruta especializada de respuesta', source: `conversation.ts · ruta ${text(audit.source)}` } }) })
-  if (!finalNotice && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification', 'commercial_location_budget'].includes(text(audit.source))) {
+  if (!finalNotice && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'vehicle_out_of_scope', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
-    const info = { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
+    const info: Row = scopeOnlyReview
+      ? { alcance_negocio: businessScope.kind, limite_alcance: scopeContract, contrato_turno: turnIntent }
+      : { ...await commercialContext(lead, context.historial), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
+      ...(scopeContract ? { limite_alcance: scopeContract } : {}),
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
       avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [],
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
@@ -1206,7 +1218,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       base_preview: traceText(reply, MAX_REPLY_CHARACTERS), source: text(audit.source) || 'commercial',
       catalog_coverage: audit.catalog_coverage,
     })
-    const reviewed = await completeTurnReply({ current, history: context.historial, baseReply: reply,
+    const reviewed = await completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: reply,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true },
       validateReply: candidate => [
         ...(quote?.quoted === true && priceReplyIssues(candidate, info, current, quote.prices).includes('unsupported_fact') ? ['unsupported_price_rewrite'] : []),
@@ -1229,7 +1241,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       audit.semantic_review = semanticEvidence
       if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
         reviewedText = reply
-        reviewFinalContent = candidate => completeTurnReply({ current, history: context.historial, baseReply: candidate,
+        reviewFinalContent = candidate => completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: candidate,
           verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [], avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
           audit: { ...audit, semantic_review_enabled: true },
           validateReply: value => [
@@ -1261,6 +1273,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       reviewed.unresolved = assessMissingFacts(originalGaps, audit).unresolved
       reviewed.needsAdvisor = reviewed.unresolved.length > 0
     }
+    // Scope clarification is never a factual property gap or consent to handoff.
+    if (scopeOnlyReview) { reviewed.unresolved = []; reviewed.needsAdvisor = false }
     const grounded = assessMissingFacts(reviewed.unresolved, audit, (Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests : []).map(object))
     reviewed.unresolved = grounded.unresolved
     reviewed.needsAdvisor = reviewed.needsAdvisor && grounded.unresolved.length > 0
@@ -1331,7 +1345,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
     reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
   }
-  if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
   trace.add('route_selected', 'Seleccionar ruta de respuesta', 'decision', 'conversation.ts · turn-routing.ts', 'succeeded', {
     scope: businessScope.kind,
   }, {
@@ -1355,7 +1368,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       && validateCatalogReply(catalogBaseReply, audit).valid
     reply = naturalConversationReply(withOpening(fallbackAllowed ? catalogBaseReply : unverifiedReply(audit)), text(lead.name), turnGreeting, activeLast.sentAt)
     if (locationRequestKind(current)) reply = withVisitLocation(reply, await commercialContext(lead, context.historial), true)
-    if (businessScope.kind === 'mixed' && businessScope.reply) reply = businessScope.reply + '\n\n' + reply
     if (handoffNotice && !reply.includes(handoffNotice)) reply = withHandoffNotice(reply, handoffNotice)
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
     if (!fallbackAllowed) audit.fallback_recovery = { status: 'invalid_base_not_restored', issue: finalCatalogValidation.reason }

@@ -21,7 +21,7 @@ export const factualValuesSchema = { type: 'array', maxItems: 80, items: { type:
 export const FLEXIBLE_FACT_RULES = `La respuesta_base es una propuesta, no evidencia independiente ni un texto obligatorio. Puede omitir cifras y opciones secundarias si responde plenamente al mensaje actual. answered_content_preserved evalúa la información necesaria para esa consulta, no que se repitan todas las cifras de la base. No equipare mayor precio con mayor superficie o exclusividad. Para afirmar un máximo de precio use el ranking calculado sobre el conjunto pertinente; si no existe evidencia, rechace esa afirmación.
 En factual_values extraiga TODAS las relaciones explícitas entre una unidad y sus valores numéricos (dormitorios, baños, áreas, precio publicado, planta). Use el ID del catálogo, field y value numérico. En fragment use preferentemente el identificador S1, S2... de oraciones_borrador: el sistema lo convierte en la oración exacta. También admite una copia literal, nunca una cita resumida. Para resúmenes de categoría («hasta», «desde»), use el ID group:...:max o group:...:min de evidencia_turno.groups y el valor calculado allí. No atribuya un máximo a todas las unidades ni enumere los valores de cada unidad cuando el texto solo expresa un máximo. No calcule grupos nuevos ni mezcle conjuntos. Desagregue solo afirmaciones explícitas compartidas por unidades concretas. No use números del historial como evidencia. Use [] si no hay relaciones numéricas verificables. Si hay más de 80 relaciones no apruebe la respuesta.`
 
-export const NUMERIC_RELATION_RULES = 'En factual_values indique operator: eq para valores exactos, gt/gte/lt/lte para comparaciones y between para intervalos (upper_value es el extremo superior; null en los otros casos). Represente el limite escrito, no lo sustituya por el valor del catalogo. Cada unidad nombrada en una comparacion colectiva necesita su propia relacion. El codigo comprobara el operador contra el fragmento y calculara la relacion con los datos verificados. No use una aprobacion narrativa para omitir relaciones numericas.'
+export const NUMERIC_RELATION_RULES = 'En factual_values indique operator: eq para valores exactos, gt/gte/lt/lte para comparaciones y between para intervalos (upper_value es el extremo superior; null en los otros casos). Un rango desde X hasta Y se representa con between, value X y upper_value Y. Para rangos generales use un ID group:...:range del conjunto pertinente; sus campos contienen el minimo y upper_values contiene el maximo. Si hay grupos price_quote, son las unidades disponibles con precio publicado incluidas en la cotizacion verificada actual: use esos grupos para sus precios; no los extienda al inventario completo ni a otra categoria. Para un extremo aislado use group:...:min o :max. Use solamente IDs presentes en evidencia_turno; price y price_reference no son IDs. Represente el limite escrito, no lo sustituya por el valor del catalogo. Cada unidad nombrada en una comparacion colectiva necesita su propia relacion. El codigo comprobara el operador contra el fragmento y calculara la relacion con los datos verificados. No use una aprobacion narrativa para omitir relaciones numericas.'
 
 export function validateFactualValues(value: unknown, reply: string, catalog: unknown): boolean {
   return factualValueIssues(value, reply, catalog).length === 0
@@ -40,7 +40,10 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
       const literals = [...fragment.matchAll(/\d[\d.,]*/g)]
       const matching = literals.filter(match => decimalNumber(match[0]) === fact.value)
       const expressed = fact.operator === 'between'
-        ? /\bentre\b|\d\s*(?:a|–|-)\s*\d/.test(fragment) && literals.some(match => decimalNumber(match[0]) === fact.upper_value)
+        ? matching.some(lower => literals.some(upper => decimalNumber(upper[0]) === fact.upper_value && upper.index! > lower.index!
+          && /^(?:\s*(?:usd|dolares|m2|m²|metros cuadrados|\$|us\$|€|eur))?\s*(?:hasta|a|y|–|-)\s*(?:(?:usd|us\$|\$|€|eur)\s*)?$/.test(fragment.slice(lower.index! + lower[0].length, upper.index))
+          && (/\b(?:entre|desde|de)\s*(?:(?:usd|us\$|\$|€|eur)\s*)?$/.test(fragment.slice(0, lower.index))
+            || !/\by\b/.test(fragment.slice(lower.index! + lower[0].length, upper.index)))))
         : matching.some(match => relationBefore(fragment.slice(0, match.index)) === fact.operator)
       if (!matching.length || !expressed) return [{ ...detail, code: 'numeric_relation_not_in_reply', kind: 'review_metadata' }]
     }
@@ -50,12 +53,20 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
         reason: !unit ? 'unit_id_not_in_catalog' : !factFields.includes(field) ? 'unsupported_field' : 'invalid_numeric_value',
         ...(numbered.length === 1 ? { expected_unit_id: numbered[0].id, unit_number: numbered[0].unit_number } : {}) }]
     }
-    if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value))
+    if (unit.aggregation === 'range') {
+      const upper = object(unit.upper_values)[field]
+      if (fact.operator !== 'between') return [{ ...detail, code: 'range_reference_requires_interval', kind: 'review_metadata' }]
+      if (unit[field] == null || upper == null || !satisfiesNumeric(Number(unit[field]), fact.value as number)
+        || typeof fact.upper_value !== 'number' || !satisfiesNumeric(Number(upper), fact.upper_value))
+        return [{ ...detail, code: 'catalog_range_mismatch', kind: 'catalog_data', expected: unit[field] ?? null, expected_upper: upper ?? null }]
+    } else if (unit.aggregation && fact.operator === 'between') {
+      return [{ ...detail, code: 'interval_requires_range_reference', kind: 'review_metadata' }]
+    } else if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value))
       return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected: unit[field] ?? null }]
     const fragment = text(fact.fragment)
     const endpoint = [...fragment.matchAll(/\d[\d.,]*/g)].filter(match => decimalNumber(match[0]) === fact.value)
       .map(match => endpointBefore(fragment.slice(0, match.index))).find(Boolean)
-    if (endpoint && unit.aggregation && (unit.aggregation !== endpoint || !satisfiesNumeric(Number(unit[field]), fact.value as number)))
+    if (endpoint && unit.aggregation && unit.aggregation !== 'range' && (unit.aggregation !== endpoint || !satisfiesNumeric(Number(unit[field]), fact.value as number)))
       return [{ ...detail, code: 'catalog_endpoint_mismatch', kind: 'catalog_data', expected: unit[field], aggregation: endpoint }]
     if (!text(fact.fragment).trim() || !reply.includes(text(fact.fragment)))
       return [{ ...detail, code: 'review_fragment_not_in_reply', kind: 'review_metadata' }]
@@ -72,13 +83,58 @@ export const claimSchema = { type: 'array', maxItems: 16, items: { type: 'object
 
 export const CLAIM_RULES = `Además de revisar la cobertura, enumere en claims cada afirmación factual de respuesta_propuesta, con un fragmento literal (o el ID S1, S2... de oraciones_borrador cuando esté disponible), sujeto, polaridad y evidencia concreta. Use hasta 16 entradas, agrupe datos del mismo sujeto y mantenga cada explicación de evidencia por debajo de 160 caracteres. La cortesía y las preguntas no son hechos comerciales. No use el historial ni la propia respuesta como evidencia. supported requiere respaldo del contexto verificado; neutralidad o ausencia de contradicción NO bastan. Si no hay respaldo use unsupported. Una negación también necesita evidencia. catalog_no_results solo autoriza la afirmación de que no hubo coincidencias para EXACTAMENTE catalog_evidence.catalog_query; no autoriza decir que no hay propiedades en general ni negar otra categoría. Para esa fuente cite únicamente la oración negativa completa, sin incluir alternativas afirmativas. Distinga «no hay», «no solo hay» e incertidumbre. Compruebe que la respuesta conteste la pregunta actual, no solo que reproduzca la base. Devuelva claims=[] únicamente cuando no existan afirmaciones factuales.`
 
-export function reviewClaims(value: unknown, reply: string): { valid: boolean; claims: Row[] } {
-  if (!Array.isArray(value) || value.length > 16) return { valid: false, claims: [] }
+export function reviewClaims(value: unknown, reply: string): { valid: boolean; claims: Row[]; issues: Row[] } {
+  if (!Array.isArray(value) || value.length > 16)
+    return { valid: false, claims: [], issues: [{ code: 'invalid_claim_list', kind: 'review_metadata' }] }
   const claims = value.map(object)
-  return { claims, valid: claims.every(claim => text(claim.fragment).trim() && reply.includes(text(claim.fragment))
-    && text(claim.subject).trim() && text(claim.evidence).trim() && claim.verdict === 'supported'
-    && ['affirmation', 'negation', 'uncertainty'].includes(text(claim.polarity))
-    && ['verified_context', 'catalog_no_results'].includes(text(claim.evidence_source))) }
+  const issues: Row[] = claims.flatMap((claim, index) => {
+    const detail = { index, subject: text(claim.subject), fragment: text(claim.fragment) }
+    const result: Row[] = []
+    // A malformed citation does not mean that the commercial statement is false.
+    // Conversely, a negative verdict stays a content defect even with bad metadata.
+    if (['unsupported', 'contradicted'].includes(text(claim.verdict)))
+      result.push({ ...detail, code: `claim_${claim.verdict}`, kind: 'commercial_content' })
+    else if (claim.verdict !== 'supported')
+      result.push({ ...detail, code: 'invalid_claim_verdict', kind: 'review_metadata' })
+    if (!text(claim.fragment).trim() || !reply.includes(text(claim.fragment)))
+      result.push({ ...detail, code: 'claim_fragment_not_in_reply', kind: 'review_metadata' })
+    if (!text(claim.subject).trim() || !text(claim.evidence).trim()
+      || !['affirmation', 'negation', 'uncertainty'].includes(text(claim.polarity))
+      || !['verified_context', 'catalog_no_results'].includes(text(claim.evidence_source)))
+      result.push({ ...detail, code: 'invalid_claim_evidence_metadata', kind: 'review_metadata' })
+    return result
+  })
+  return { claims, valid: issues.length === 0, issues }
+}
+
+/** Repairs may consolidate duplicate extraction rows, but cannot erase the
+ * numerical endpoints or verified subjects already extracted from this draft. */
+export function reviewRepairCoverageIssues(previous: Row, repaired: Row, reply: string, catalog: Row[]): Row[] {
+  const before = (Array.isArray(previous.factual_values) ? previous.factual_values : []).map(object)
+  const after = (Array.isArray(repaired.factual_values) ? repaired.factual_values : []).map(object)
+  const written = [...reply.matchAll(/\d[\d.,]*/g)].map(match => decimalNumber(match[0]))
+  const omitted = before.some(fact => {
+    const reference = catalog.find(unit => unit.id === fact.unit_id)
+    const values = [fact.value, fact.upper_value].filter((value): value is number => typeof value === 'number' && written.includes(value))
+    return values.some(value => !after.some(next => {
+      const nextReference = catalog.find(unit => unit.id === next.unit_id)
+      const sameSubject = !reference || next.unit_id === fact.unit_id
+        || Array.isArray(nextReference?.member_ids) && nextReference.member_ids.includes(fact.unit_id)
+      return sameSubject && next.field === fact.field && (next.value === value || next.operator === 'between' && next.upper_value === value)
+    }))
+  })
+  const claimsBefore = (Array.isArray(previous.claims) ? previous.claims : []).map(object)
+  const claimsAfter = (Array.isArray(repaired.claims) ? repaired.claims : []).map(object)
+  // For citations that were already grounded, preserve coverage of that text.
+  // For broken citations no sentence can safely be guessed: require at least the
+  // same number of claims and let the fresh independent review establish evidence.
+  const omittedClaims = claimsAfter.length < claimsBefore.length || claimsBefore.some(claim => {
+    const fragment = text(claim.fragment)
+    return fragment.trim() && reply.includes(fragment) && !claimsAfter.some(next =>
+      text(next.fragment).includes(fragment) || fragment.includes(text(next.fragment)) && text(next.fragment).trim())
+  })
+  return [...(omitted ? [{ code: 'review_repair_omitted_facts', kind: 'review_metadata' }] : []),
+    ...(omittedClaims ? [{ code: 'review_repair_omitted_claims', kind: 'review_metadata' }] : [])]
 }
 
 /** Only a reviewed denial of this complete, empty query may bypass lexical checks.

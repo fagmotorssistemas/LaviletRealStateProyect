@@ -12,6 +12,7 @@
     "tour:resize": "node scripts/tour-resize.mjs",
     "test:meta-pg": "node scripts/meta-pg-harness.mjs",
     "test:integrations": "node --test scripts/integrations.test.cjs scripts/inbound-freshness.test.cjs scripts/transport-monitor.test.cjs",
+    "test:review-contracts": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/turn-prompt-context.test.ts src/lib/integrations/automation/ai-output.test.ts src/lib/integrations/automation/turn-evidence.test.ts src/lib/integrations/automation/execution-trace.test.ts scripts/turn-completeness.test.cjs",
     "test:progressive-options": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/progressive-options.test.ts src/lib/integrations/automation/tour-continuation.test.ts",
     "test:lead-introduction": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/lead-introduction.test.ts scripts/turn-interpretation.test.cjs scripts/turn-completeness.test.cjs",
     "test:ctwa-kommo": "node --require ./scripts/test-typescript.cjs --test scripts/ctwa-kommo.test.cjs scripts/ctwa-kommo-sql.test.cjs",

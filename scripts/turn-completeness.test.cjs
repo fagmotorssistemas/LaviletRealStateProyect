@@ -1000,22 +1000,22 @@ test('catalogue evidence cannot answer attributes or comparisons of an absent un
 })
 
 
-test('reviewer repairs nonliteral evidence once without rewriting the commercial draft', async () => {
+test('reviewer repairs nonliteral claim evidence once without rewriting the commercial draft', async () => {
  const current='Y no tiene algo de 5 habitaciones?';
  const reply='No tenemos viviendas de 5 dormitorios. Los departamentos ofrecen hasta 120,83 m2 interiores.';
  const input={ current, baseReply:'No tenemos viviendas de 5 dormitorios. Departamentos: 120,83 m2 interiores.', audit:{semantic_review_enabled:true}, verified:{catalogo:[{id:'d',area_internal_m2:120.83}]} };
  const candidate={reply,requests:[covered(current)],question:noQuestion};
- const fact={unit_id:'d',field:'area_internal_m2',value:120.83,fragment:'Departamentos: 120,83 m2 interiores.'};
- const review={...approved,claims:[{fragment:reply,subject:'alternativas',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}],factual_values:[fact]};
+ const fact={unit_id:'d',field:'area_internal_m2',value:120.83,fragment:'S2'};
+ const review={...approved,claims:[{fragment:'Los departamentos tienen superficies amplias.',subject:'alternativas',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}],factual_values:[fact]};
  for(const success of [true,false]) {
-  const responses=[candidate,review,{...review,factual_values:[{...fact,fragment:success?'Los departamentos ofrecen hasta 120,83 m2 interiores.':fact.fragment}]}];
+  const responses=[candidate,review,{...review,claims:review.claims.map(claim=>({...claim,fragment:success?reply:claim.fragment}))}];
   let calls=0;
   const result=await completeTurnReply(input,async()=>responses[calls++]);
   assert.equal(calls,3,JSON.stringify(result.audit));
   assert.equal(result.reply,success?reply:input.baseReply);
   assert.equal(result.audit.status,success?'checked':'rejected_review');
   assert.equal(result.audit.repair_attempts[0].target,'review_metadata');
-  assert.equal(result.audit.repair_attempts[0].issues[0].code,'review_fragment_not_in_reply');
+  assert.equal(result.audit.repair_attempts[0].issues[0].code,'claim_fragment_not_in_reply');
  }
  const responses=[candidate,review,{...review,factual_values:[]}];let calls=0;
  const omitted=await completeTurnReply(input,async()=>responses[calls++]);
@@ -1081,7 +1081,7 @@ test('empty search retains verified alternatives for writer, reviewer, aggregate
  assert.deepEqual(evidence.query_result_ids,[]);assert.deepEqual(evidence.alternative_ids,units.map(u=>u.id));
  assert.equal(evidence.groups.find(g=>g.id==='group:penthouse:3:max').area_internal_m2,142.09);
  assert.equal(evidence.groups.find(g=>g.id==='group:penthouse:3:min').area_internal_m2,140.53);
- for(const call of mock.calls) assert.deepEqual(call[1].evidencia_turno.units.map(u=>u.id),units.map(u=>u.id));
+ for(const call of mock.calls) assert.deepEqual(call[1].evidencia_turno.units.map(u=>u.id),units.map(u=>u.unit_number));
 });
 
 test('reference normalization never changes numbers or resolves ambiguous unit numbers', () => {
@@ -1130,5 +1130,112 @@ test('unknown reference gets one metadata repair and cannot bypass checks by omi
   assert.equal(mock.calls.length,3);assert.equal(result.audit.repair_attempts.length,1);
   assert.equal(result.audit.status,repaired?'checked':'rejected_review');
   assert.equal(mock.calls[2][1].respuesta_propuesta,reply);
+ }
+});
+
+test('PRECIO repairs only reviewer metadata for a supported interval and a paraphrased claim', async () => {
+ const current='PRECIO';
+ const reply='Los precios van desde $145.000 hasta $550.000 USD. Estos son valores referenciales sujetos a cambios.';
+ const units=[{id:'low',unit_number:'101',category:'suite',published_commercial_price:145000},
+  {id:'high',unit_number:'605',category:'penthouse',published_commercial_price:550000}];
+ const claim=(fragment,subject)=>({fragment,subject,polarity:'affirmation',verdict:'supported',evidence:'Precios publicados y condicion referencial verificados',evidence_source:'verified_context'});
+ const candidate={reply,requests:[covered(current)],question:noQuestion};
+ const first={...approved,claims:[claim('S1','precios'),claim('Los precios son valores referenciales sujetos a cambios.','condiciones')],factual_values:[
+  {unit_id:'price',field:'published_commercial_price',value:145000,operator:'gte',upper_value:550000,fragment:'S1'},
+  {unit_id:'price_reference',field:'published_commercial_price',value:145000,operator:'eq',upper_value:550000,fragment:'S1'}]};
+ const repaired={...approved,claims:[claim('S1','precios'),claim('S2','condiciones')],factual_values:[
+  {unit_id:'group:context:all:range',field:'published_commercial_price',value:145000,operator:'between',upper_value:550000,fragment:'S1'}]};
+ const mock=model(candidate,first,repaired);
+ const result=await completeTurnReply({current,baseReply:reply,verified:{catalogo:units},audit:{semantic_review_enabled:true}},mock.generate);
+ assert.equal(result.audit.status,'checked',JSON.stringify(result.audit));
+ assert.equal(result.reply,reply);assert.equal(mock.calls.length,3);
+ assert.equal(result.audit.repair_attempts.length,1);
+ assert.equal(result.audit.repair_attempts[0].target,'review_metadata');
+ assert.deepEqual(mock.calls.map(call=>call[6]),['writing','review','review']);
+ assert.equal(mock.calls[2][1].respuesta_propuesta,reply);
+ assert.ok(result.audit.repair_attempts[0].issues.some(issue=>issue.code==='claim_fragment_not_in_reply'));
+ assert.ok(result.audit.repair_attempts[0].issues.some(issue=>issue.code==='unexpected_numeric_upper_bound'));
+});
+
+test('scoped interval references validate both endpoints across natural price wording', () => {
+ const {turnEvidence}=require('../src/lib/integrations/automation/turn-evidence.ts');
+ const {factualValueIssues}=require('../src/lib/integrations/automation/semantic-review.ts');
+ const catalog=[{id:'a',category:'departamento',bedrooms:2,published_commercial_price:210000},
+  {id:'b',category:'departamento',bedrooms:3,published_commercial_price:310000},
+  {id:'c',category:'penthouse',bedrooms:3,published_commercial_price:550000}];
+ const evidence=turnEvidence({catalogo:catalog});
+ const validated=[...evidence.units,...evidence.groups];
+ for(const fragment of ['Los departamentos cuestan entre $210.000 y $310.000 USD.',
+  'El rango es de USD 210.000 a USD 310.000.',
+  'Los valores van desde $210.000 hasta $310.000.',
+  'El precio es $210.000 - $310.000 USD.']) {
+  const fact={fragment,unit_id:'group:departamento:all:range',field:'published_commercial_price',value:210000,upper_value:310000,operator:'between'};
+  assert.deepEqual(factualValueIssues([fact],fragment,validated),[],fragment);
+  const bad=fragment.replaceAll('310.000','550.000');
+  assert.equal(factualValueIssues([{...fact,fragment:bad,upper_value:550000}],bad,validated)[0].code,'catalog_range_mismatch');
+ }
+ for(const [fragment,unit_id,value,operator] of [
+  ['Desde $210.000 USD.','group:departamento:all:min',210000,'gte'],
+  ['Hasta USD 310.000.','group:departamento:all:max',310000,'lte']]) {
+  assert.deepEqual(factualValueIssues([{fragment,unit_id,field:'published_commercial_price',value,operator,upper_value:null}],fragment,validated),[]);
+ }
+});
+
+test('current authorized price quote supplies exact ranges despite unpriced or unavailable catalogue rows',async()=>{
+ const {unitPriceQuote}=require('../src/lib/integrations/automation/price-reply.ts');
+ const current='PRECIO';
+ const catalogo=[{id:'priced-low',unit_number:'101',category:'suite',published_commercial_price:145000},
+  {id:'priced-high',unit_number:'605',category:'penthouse',published_commercial_price:550000},
+  {id:'unpriced',unit_number:'202',category:'departamento',published_commercial_price:null},
+  {id:'sold',unit_number:'603',category:'penthouse',published_commercial_price:700000,status:'vendido'},
+  {id:'private',unit_number:'301',category:'suite',published_commercial_price:100000,is_published:false}];
+ const verified={catalogo,alcance_negocio:'property',politica_comercial:{precios_autorizados:true,precios_aproximados:true}};
+ const quote=unitPriceQuote(verified,current,{});assert.equal(quote.quoted,true);
+ const reply=quote.reply;
+ const review={...approved,claims:[{fragment:reply,subject:'cotizacion actual',polarity:'affirmation',verdict:'supported',evidence:'Unidades disponibles con precio publicado',evidence_source:'verified_context'}],
+  factual_values:[{fragment:'S1',unit_id:'group:price_quote:all:range',field:'published_commercial_price',value:145000,upper_value:550000,operator:'between'}]};
+ const mock=model({reply,requests:[covered(current)],question:noQuestion},review);
+ const result=await completeTurnReply({current,baseReply:reply,verified,audit:{source:'unit_price',verified_price_only:true,semantic_review_enabled:true,
+  price_evidence:{units:[{id:'stale',price_usd:10000}]}}},mock.generate);
+ assert.equal(result.audit.status,'checked',JSON.stringify(result.audit));assert.equal(mock.calls.length,2);
+ assert.equal(result.reply,reply);
+ const groups=mock.calls[1][1].evidencia_turno.groups;
+ assert.equal(groups.find(group=>group.id==='group:context:all:range').published_commercial_price,undefined);
+ const quoted=groups.find(group=>group.id==='group:price_quote:all:range');
+ assert.deepEqual(quoted.member_ids,['101','605']);
+ assert.equal(quoted.published_commercial_price,145000);
+ assert.equal(quoted.upper_values.published_commercial_price,550000);
+ assert.equal(quoted.source_scope,'current_price_quote');
+ assert.deepEqual(result.audit.price_evidence.units.map(unit=>unit.id),['priced-low','priced-high']);
+});
+
+test('metadata repair cannot hide a wrong price, omit an endpoint or erase claims',async()=>{
+ const current='Precio';const baseReply='Los precios van desde $145.000 hasta $550.000 USD.';
+ const units=[{id:'a',published_commercial_price:145000},{id:'b',published_commercial_price:550000}];
+ const validClaim={fragment:'S1',subject:'precios',polarity:'affirmation',verdict:'supported',evidence:'Precios verificados',evidence_source:'verified_context'};
+ for(const scenario of ['wrong_price','missing_endpoint','missing_claim']) {
+  const reply=scenario==='wrong_price'?baseReply.replace('550.000','600.000'):baseReply;
+  const upper=scenario==='wrong_price'?600000:550000;
+  const first={...approved,claims:[{...validClaim,fragment:'Los valores del proyecto son referenciales.'}],factual_values:[
+   {fragment:'S1',unit_id:'price',field:'published_commercial_price',value:145000,upper_value:upper,operator:'gte'}]};
+  const repaired={...approved,claims:scenario==='missing_claim'?[]:[validClaim],factual_values:[scenario==='missing_endpoint'
+   ?{fragment:'S1',unit_id:'group:context:all:min',field:'published_commercial_price',value:145000,upper_value:null,operator:'gte'}
+   :{fragment:'S1',unit_id:'group:context:all:range',field:'published_commercial_price',value:145000,upper_value:upper,operator:'between'}]};
+  const mock=model({reply,requests:[covered(current)],question:noQuestion},first,repaired);
+  const result=await completeTurnReply({current,baseReply,verified:{catalogo:units},audit:{semantic_review_enabled:true}},mock.generate);
+  assert.equal(result.audit.status,'rejected_review',scenario+JSON.stringify(result.audit));
+  assert.equal(mock.calls.length,3,scenario);assert.equal(result.reply,baseReply);
+  assert.equal(result.audit.repair_attempts[0].target,'review_metadata');
+  assert.ok(result.audit.semantic_review.validation_details.some(issue=>issue.code===({wrong_price:'catalog_range_mismatch',missing_endpoint:'review_repair_omitted_facts',missing_claim:'review_repair_omitted_claims'})[scenario]));
+ }
+});
+
+test('unsupported claims remain content defects even when their citations are malformed',()=>{
+ const {reviewClaims}=require('../src/lib/integrations/automation/semantic-review.ts');
+ for(const verdict of ['unsupported','contradicted']) {
+  const checked=reviewClaims([{fragment:'not in draft',subject:'reservation',polarity:'affirmation',verdict,evidence:'No reservation receipt',evidence_source:'verified_context'}],'Su solicitud fue recibida.');
+  assert.equal(checked.valid,false);
+  assert.ok(checked.issues.some(issue=>issue.kind==='commercial_content'));
+  assert.ok(checked.issues.some(issue=>issue.kind==='review_metadata'));
  }
 });
