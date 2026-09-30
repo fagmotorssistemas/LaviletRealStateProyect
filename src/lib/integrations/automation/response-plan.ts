@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { isCategoryOverview } from './catalog-dialogue'
 import { BROCHURE_URL } from './project-material'
+import { confirmedLeadProfile } from './lead-profile'
 
 /** Application delivery limit, independent of the preferred conversational length. */
 export const MAX_REPLY_CHARACTERS = 3000
@@ -115,6 +116,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
 }
 
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
+estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando el propósito de brochure y guía personalizada. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false y los datos ya están confirmados, continúe sin volver a pedirlos. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Puede ofrecer reenviarlo cuando sea pertinente sin repetir obligatoriamente toda la apertura. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. La revisión debe comprobar el propósito y la cobertura de la solicitud actual, además de los datos; una respuesta base también puede omitir la consulta.
 ${COMMERCIAL_CONTINUATION_RULES}
 Redacte desde solicitud_actual, los hechos disponibles y el estado operativo. La respuesta base es un respaldo interno, no una fuente de hechos ni una estructura a imitar, incluso en rutas operativas. Puede organizar, resumir y elegir el detalle útil para la necesidad actual sin copiar una lista o una pregunta de la base. No cambie acciones operativas ni invente selecciones del cliente. Una aceptación continúa la propuesta pendiente; una comparación explica diferencias; una consulta concreta recibe primero su respuesta.
@@ -125,6 +127,37 @@ Si recibe apertura_decidida, úsela como orientación de tono: puede cambiarla u
 El contrato indica si este turno necesita un saludo inicial. Respete esa necesidad sin copiar literalmente una fórmula. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado y formular el siguiente paso autorizado. pregunta_siguiente es una propuesta; su redacción puede cambiar y la solicitud actual prevalece sobre una continuación anterior.
 El revisor debe contrastar la respuesta con la solicitud, los hechos y el estado real, no con la semejanza a un texto de respaldo. Nunca invente datos para embellecer una explicación.`
 
+/** A single state contract for writer and reviewer, independent of base wording. */
+export function commercialStageContract(audit: Row, verified: Row = {}, requiredLinks: string[] = []) {
+  const introduction = object(audit.profile_introduction), conversation = object(verified.estado_conversacion)
+  const profile = confirmedLeadProfile(verified.perfil_lead || introduction.profile_state)
+  const nameKnown = profile.name_status === 'confirmed'
+  const residenceKnown = profile.residence_status === 'confirmed'
+    && Boolean(text(profile.residence_city) || text(profile.residence_country))
+  const purpose = text(introduction.question_purpose)
+  const collect = ['collect_profile', 'collect_name', 'collect_residence', 'confirm_residence'].includes(purpose)
+  const missing = [...(!nameKnown ? ['full_name'] : []), ...(!residenceKnown ? ['current_residence'] : [])]
+  const brochureUrl = text(introduction.brochure_url) || text(verified.brochure_url) || BROCHURE_URL
+  const share = introduction.brochure_required === true || audit.source === 'brochure' || requiredLinks.includes(brochureUrl)
+  const sharedBefore = introduction.brochure_previously_sent === true || conversation.brochure_sent === true
+  return { version: 'commercial-stage-v1',
+    etapa: collect ? purpose === 'confirm_residence' ? 'confirm_profile' : 'collect_profile'
+      : nameKnown && residenceKnown ? 'continue_with_known_profile' : 'answer_current_request',
+    consulta_actual_primero: true, requiere_captura: collect,
+    datos_confirmados: { nombre: nameKnown ? profile.full_name : null,
+      residencia_actual: residenceKnown ? { city: profile.residence_city || null, country: profile.residence_country || null } : null },
+    datos_pendientes: missing, datos_a_pedir: collect ? missing : [],
+    residencia_por_confirmar: purpose === 'confirm_residence' ? object(introduction.candidate || profile.residence_candidate) : null,
+    proposito_captura: collect ? 'brochure_y_guia_personalizada' : null,
+    presentacion_sin_tipos: introduction.generic_introduction === true && introduction.brochure_deferred === true,
+    brochure: { compartido_previamente: sharedBefore,
+      accion: share ? 'share_now' : sharedBefore ? 'already_shared' : introduction.brochure_deferred === true ? 'offer_after_profile' : 'available_if_relevant',
+      url: brochureUrl },
+    siguiente_objetivo: collect ? purpose : text(object(audit.pending_question).act)
+      || text(object(audit.resolved_turn_intent || verified.contrato_turno).objective) || 'answer_current_request',
+  }
+}
+
 export function finalWriterContract(baseReply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
   const plan = responsePlan(baseReply, audit, context)
   return {
@@ -132,6 +165,7 @@ export function finalWriterContract(baseReply: string, audit: Row = {}, context:
     decisiones_protegidas: plan.locked,
     objetivo: 'Atender la solicitud actual con información verificada y el estado operativo real; elegir una explicación y continuación pertinentes al contexto.',
     solicitud_actual: plan.current_request,
+    estado_comercial: commercialStageContract(audit, context.verified, plan.required_links),
     datos_requeridos: plan.required_facts,
     base_role: 'internal_fallback_only',
     hechos_protegidos: plan.protected_facts,

@@ -97,3 +97,53 @@ test('fallback links cannot authorize destinations; requested approved material 
   assert.deepEqual(brochure.required_links, [BROCHURE_URL])
   assert.deepEqual(replyLinkIssues(BROCHURE_URL, brochure), [])
 })
+
+const declaredProfile = { full_name: 'Nathaly Caballero', residence_city: 'Cuenca', residence_country: 'Ecuador',
+  residence_status: 'confirmed', sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Nathaly Caballero' } } }
+
+test('commercial stage asks only missing profile data and retains the brochure purpose', () => {
+  for (const [profile, purpose, expected] of [[{}, 'collect_profile', ['full_name', 'current_residence']],
+    [{ ...declaredProfile, residence_status: 'unknown' }, 'collect_residence', ['current_residence']],
+    [{ ...declaredProfile, full_name: null }, 'collect_name', ['full_name']]]) {
+    const state = finalWriterContract('', { profile_introduction: { profile_state: profile,
+      question_purpose: purpose, brochure_deferred: true, generic_introduction: true } }).estado_comercial
+    assert.equal(state.requiere_captura, true)
+    assert.deepEqual(state.datos_a_pedir, expected)
+    assert.equal(state.proposito_captura, 'brochure_y_guia_personalizada')
+    assert.equal(state.brochure.accion, 'offer_after_profile')
+    assert.equal(state.presentacion_sin_tipos, true)
+  }
+  const whatsappName = finalWriterContract('', { profile_introduction: { question_purpose: 'collect_profile' } },
+    { verified: { lead: { name: 'Display name' }, perfil_lead: { full_name: 'Display name', name_status: 'confirmed' } } }).estado_comercial
+  assert.equal(whatsappName.datos_confirmados.nombre, null)
+  assert.ok(whatsappName.datos_a_pedir.includes('full_name'))
+})
+
+test('topic changes preserve declared identity and brochure history; an explicit resend is a current action', () => {
+  const verified = { perfil_lead: declaredProfile, estado_conversacion: { brochure_sent: true } }
+  const state = finalWriterContract('', {}, { current: 'Me equivoqué de número, pero cuénteme de los departamentos', verified }).estado_comercial
+  assert.equal(state.etapa, 'continue_with_known_profile')
+  assert.equal(state.datos_confirmados.nombre, 'Nathaly Caballero')
+  assert.deepEqual(state.datos_a_pedir, [])
+  assert.equal(state.brochure.accion, 'already_shared')
+  assert.equal(state.brochure.compartido_previamente, true)
+  const resend = finalWriterContract('', {}, { current: 'Envíeme el brochure', verified }).estado_comercial
+  assert.equal(resend.brochure.accion, 'share_now')
+  assert.equal(resend.brochure.compartido_previamente, true)
+  const firstSend = finalWriterContract('', { source: 'brochure', brochure_sent: true },
+    { verified: { perfil_lead: declaredProfile } }).estado_comercial
+  assert.equal(firstSend.brochure.accion, 'share_now')
+  assert.equal(firstSend.brochure.compartido_previamente, false)
+})
+
+test('commercial stage keeps confirmation candidates and does not force profile collection on other routes', () => {
+  const candidate = { city: 'Guayaquil', country: null }
+  const state = finalWriterContract('', { profile_introduction: {
+    question_purpose: 'confirm_residence', candidate, profile_state: { ...declaredProfile, residence_status: 'pending_confirmation' },
+  } }).estado_comercial
+  assert.equal(state.etapa, 'confirm_profile')
+  assert.deepEqual(state.residencia_por_confirmar, candidate)
+  assert.deepEqual(state.datos_a_pedir, ['current_residence'])
+  assert.equal(state.datos_confirmados.residencia_actual, null)
+  assert.equal(finalWriterContract('', { source: 'visit_intake' }).estado_comercial.requiere_captura, false)
+})

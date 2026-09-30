@@ -5,7 +5,7 @@ import type { Row } from './data'
  * Keep the context small; the boundary still forbids unrelated actions. */
 export function scopePolicyContext(commercial: Row, scope: BusinessScopeDecision): Row {
   const keys = ['proyecto', 'politicas_negocio', 'politica_visitas', 'politica_comercial', 'politica_financiera',
-    'modo_comercial', 'alcance_producto', 'perfil_lead', 'lead', 'historial', 'business_policy_context']
+    'modo_comercial', 'alcance_producto', 'perfil_lead', 'lead', 'historial', 'business_policy_context', 'estado_conversacion']
   return { ...Object.fromEntries(keys.filter(key => commercial[key] !== undefined).map(key => [key, commercial[key]])),
     alcance_negocio: scope.kind }
 }

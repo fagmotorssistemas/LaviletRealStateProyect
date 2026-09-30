@@ -196,11 +196,35 @@ export const claimSchema = { type: 'array', maxItems: 16, items: { type: 'object
   evidence_ids: { type: 'array', maxItems: 16, items: { type: 'string' } },
 }, required: ['fragment', 'subject', 'polarity', 'claim_kind', 'verdict', 'evidence', 'evidence_source', 'evidence_ids'] } }
 
+/** Constrain citations before generation; this does not decide what prose means. */
+export function groundedClaimReviewSchema(schema: Row, sources: Row[]): Row {
+  const properties = { ...object(schema.properties) }, list = object(properties.claims), item = object(list.items)
+  const original = object(item.properties), variants: Row[] = []
+  const add = (kind: string[], verdict: string[], source: string[], ids: string[]) => variants.push({
+    ...item, properties: { ...original, claim_kind: { type: 'string', enum: kind },
+      verdict: { type: 'string', enum: verdict }, evidence_source: { type: 'string', enum: source },
+      evidence_ids: ids.length ? { type: 'array', minItems: 1, maxItems: 16, items: { type: 'string', enum: ids } }
+        : { type: 'array', maxItems: 0, items: { type: 'string' } } },
+  })
+  for (const kind of ['project_fact', 'operational_fact', 'lead_statement']) {
+    const matching = sources.filter(row => row.kind === kind)
+    for (const scope of kind === 'project_fact' ? ['verified_context', 'catalog_no_results']
+      : [kind === 'lead_statement' ? 'lead_declaration' : 'verified_context']) {
+      const ids = matching.filter(row => scope === 'catalog_no_results' ? row.scope === scope : row.scope !== 'catalog_no_results')
+        .map(row => text(row.id))
+      if (ids.length) add([kind], ['supported', 'contradicted'], [scope], ids)
+    }
+  }
+  add(['project_fact', 'operational_fact', 'lead_statement'], ['unsupported'], ['none'], [])
+  add(['contextual_guidance'], ['supported'], ['contextual_reasoning'], [])
+  return { ...schema, properties: { ...properties, claims: { ...list, items: { anyOf: variants } } } }
+}
+
 export const CLAIM_RULES = `Revise únicamente lo que afirma respuesta_propuesta. El catálogo, el historial, el mensaje actual y la base NO son un inventario de afirmaciones a insertar en claims o factual_values. Una cifra existente en el catálogo que NO se expresa en el borrador NO se revisa. Antes de contrastar un dato compruebe que el fragmento lo dice realmente: una cortesía no afirma un precio.
 Enumere en claims las afirmaciones pertinentes usando obligatoriamente en fragment un ID S1, S2... existente en oraciones_borrador, sujeto, polaridad y claim_kind. Seleccione el ID; no copie ni reformule el texto. Use hasta 16 entradas agrupando datos del mismo sujeto; evidence explica brevemente el respaldo, no copia fichas completas. La cortesía y las preguntas no requieren claims. Varias afirmaciones de una oración pueden reutilizar su ID con distintos sujetos. Si una oración mezcla hechos y orientación, revise sus hechos con el tipo factual correspondiente y explique la orientación condicionada en evidence; no etiquete toda la oración contextual_guidance para omitir sus hechos.
 claim_kind=project_fact: hechos atribuidos al inmueble/proyecto, cifras, disponibilidad, condiciones, prestaciones y políticas. Requieren evidence_ids de evidencia_afirmaciones con kind=project_fact. operational_fact: acciones, estados o resultados del proceso, requiere fuentes kind=operational_fact; intención no equivale a acción confirmada. lead_statement: una declaración del cliente, requiere fuentes kind=lead_statement; puede reconocer su familia o presupuesto sin convertirlos en dormitorios solicitados ni precio comercial. Para estos tres tipos supported necesita fuentes existentes y aplicables: las IDs no bastan si el contenido no respalda el significado. No invente IDs ni cite S1, respuesta_propuesta, historial o preguntas del cliente como fuente de hechos del proyecto o acciones.
 contextual_guidance: orientación razonable, posibilidades cotidianas y valoraciones condicionadas; por ejemplo, que la comodidad depende de cómo prefieran distribuirse o compartir habitaciones. Puede aprobarse SIN una fuente del catálogo, con evidence_source=contextual_reasoning y evidence_ids=[]; explique brevemente por qué es orientación y no una garantía. No exija estudios para una posibilidad cotidiana ni fuerce una pregunta de dormitorios si la inquietud se puede responder evaluando las opciones conocidas. Esto no autoriza inventar capacidad máxima, habitabilidad garantizada, redistribuciones constructivas, requisitos, rentabilidad, precios ni acciones. Si incluye un dato verificable del inmueble, revíselo por separado como project_fact; no lo esconda bajo contextual_guidance.
-Para hechos respaldados use evidence_source=verified_context; para declaraciones use lead_declaration. supported significa respaldo real o razonamiento contextual prudente, no solo ausencia de contradicción. Si un HECHO del borrador no tiene respaldo, use unsupported con evidence_source=none; no invente una fuente. Si una ficha previa inventó una afirmación ausente del texto, elimine esa fila al reparar la ficha sin modificar el borrador ni borrar sus afirmaciones reales.
+Para hechos respaldados use evidence_source=verified_context; para declaraciones use lead_declaration. supported significa respaldo real o razonamiento contextual prudente, no solo ausencia de contradicción. Si un HECHO del borrador no tiene respaldo, use unsupported con evidence_source=none; no invente una fuente. contradicted necesita la fuente existente que lo contradice. Una referencia vacía o mal elegida es un defecto de ficha: busque primero el respaldo en las fuentes, sin cambiar automáticamente el veredicto a unsupported para cumplir el esquema. Si una ficha previa inventó una afirmación ausente del texto, elimine esa fila al reparar la ficha sin modificar el borrador ni borrar sus afirmaciones reales.
 catalog_no_results requiere una fuente de evidencia_afirmaciones que represente la consulta completa vacía y solo autoriza negar coincidencias para EXACTAMENTE esa consulta, nunca todo el inventario ni otra categoría. Seleccione el ID de la oración negativa y contraste la negación por separado de las alternativas afirmativas. Distinga «no hay», «no solo hay» e incertidumbre. Compruebe que la respuesta atienda la inquietud actual, sin exigir semejanza con la base.`
 
 function guidanceNeedsFactualEvidence(fragment: string): boolean {
@@ -262,7 +286,7 @@ export function reviewClaims(value: unknown, reply: string, sources?: Row[], str
           result.push({ ...detail, code: 'invalid_guidance_evidence', kind: 'review_metadata' })
         if (!structuredOnly && guidanceNeedsFactualEvidence(fragment))
           result.push({ ...detail, code: 'guidance_contains_factual_assertion', kind: 'review_metadata' })
-      } else if (claim.verdict === 'supported') {
+      } else if (claim.verdict === 'supported' || claim.verdict === 'contradicted') {
         const expectedSource = kind === 'lead_statement' ? 'lead_declaration'
           : claim.evidence_source === 'catalog_no_results' && kind === 'project_fact' ? 'catalog_no_results' : 'verified_context'
         if (!ids.length || referenced.some(source => !source || source.kind !== kind)

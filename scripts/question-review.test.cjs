@@ -220,8 +220,9 @@ test('a commercial opening repair does not spend the independent reviewer metada
     assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 1 }, review_metadata: { limit: 1, used: 1 } })
     assert.equal(mock.calls[3][1].respuesta_propuesta, goodReply)
     assert.equal(mock.calls[4][1].respuesta_propuesta, goodReply)
-    assert.deepEqual(mock.calls[3][2].properties.claims.items.properties.fragment.enum, ['S1', 'S2'])
-    assert.deepEqual(mock.calls[4][2].properties.claims.items.properties.fragment.enum, ['S1', 'S2'])
+    for (const call of [mock.calls[3], mock.calls[4]])
+      for (const variant of call[2].properties.claims.items.anyOf)
+        assert.deepEqual(variant.properties.fragment.enum, ['S1', 'S2'])
     assert.equal(result.audit.status, repaired ? 'checked' : 'rejected_review', JSON.stringify(result.audit))
     assert.equal(result.needsAdvisor, false)
     if (repaired) {

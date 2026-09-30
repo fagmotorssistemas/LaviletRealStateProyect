@@ -307,3 +307,58 @@ test('operational wording reaches semantic review instead of a verb blacklist', 
   assert.deepEqual(turnCompletenessIssues({ ...input, baseReply: 'Su solicitud está registrada.',
     audit: { registration_verified: true, action: 'submitted' } }, draft, noQuestion), [])
 })
+
+test('scoped exact area endpoints survive a range citation without another writer or reviewer', async () => {
+  const current = 'Me equivoqué de número, pero cuénteme de los departamentos'
+  const reply = 'Los departamentos de dos dormitorios tienen áreas desde 109,69 m²; los de tres llegan hasta 120,83 m².'
+  const units = [{ id: 'd201', category: 'departamento', bedrooms: 2, area_internal_m2: 109.69 },
+    { id: 'd301', category: 'departamento', bedrooms: 2, area_internal_m2: 115.04 },
+    { id: 'd202', category: 'departamento', bedrooms: 3, area_internal_m2: 120.83 }]
+  let writerState
+  const mock = sequence((_rules, context) => {
+    writerState = context.contrato_redaccion.estado_comercial
+    assert.equal(writerState.datos_confirmados.nombre, 'Nathaly Caballero')
+    assert.deepEqual(writerState.datos_a_pedir, [])
+    assert.equal(writerState.brochure.accion, 'already_shared')
+    return candidate(current, reply)
+  }, (_rules, context, schema) => {
+    assert.deepEqual(context.contrato_redaccion.estado_comercial, writerState)
+    assert.ok(schema.properties.claims.items.anyOf.length)
+    const groups = ['group:departamento:2:range', 'group:departamento:3:range']
+    return { ...approved, claims: [{ fragment: 'S1', subject: 'Áreas de departamentos por dormitorios', polarity: 'affirmation',
+      claim_kind: 'project_fact', verdict: 'supported', evidence: 'Extremos exactos por grupo.', evidence_source: 'verified_context',
+      evidence_ids: groups.map(id => context.evidencia_afirmaciones.find(s => s.reference_id === id).id) }],
+    factual_values: groups.map((unit_id, i) => ({ fragment: 'S1', unit_id, field: 'area_internal_m2',
+      value: i ? 120.83 : 109.69, operator: i ? 'lte' : 'gte', upper_value: null, measurement_unit: 'm2' })) }
+  })
+  const result = await completeTurnReply({ current, baseReply: 'Respuesta base', verified: { catalogo: units,
+    perfil_lead: { full_name: 'Nathaly Caballero', residence_city: 'Cuenca', residence_status: 'confirmed',
+      sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Nathaly Caballero' } } },
+    estado_conversacion: { brochure_sent: true } }, audit: { semantic_review_enabled: true } }, mock.generate)
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(mock.calls.length, 2)
+  assert.deepEqual(result.audit.semantic_review.factual_values.map(f => f.unit_id), ['group:departamento:2:min', 'group:departamento:3:max'])
+  assert.equal(result.audit.semantic_review.reference_corrections.filter(c => c.code === 'range_endpoint_reference_resolved').length, 2)
+})
+
+test('repairing an empty citation preserves the draft and does not turn a question into an unsupported fact', async () => {
+  const current = 'Quisiera información del proyecto'
+  const reply = 'El proyecto está en Cuenca. ¿Qué le gustaría conocer?'
+  const q = { text: '¿Qué le gustaría conocer?', purpose: 'clarify_request', missing_datum: 'interés', next_decision: 'orientar consulta', clarifies: [] }
+  const proposal = { ...candidate(current, reply), question: q }
+  const row = { fragment: 'S1', subject: 'Ubicación del proyecto', polarity: 'affirmation', claim_kind: 'project_fact',
+    verdict: 'supported', evidence: 'Ubicación publicada.', evidence_source: 'verified_context', evidence_ids: [] }
+  const mock = sequence(proposal, { ...approved, question: q, claims: [row] }, (_rules, context) => {
+    assert.equal(context.respuesta_propuesta, reply)
+    assert.match(context.reparacion_revision.instruccion, /no demuestra que el hecho sea falso/)
+    return { ...approved, question: q, claims: [{ ...row, evidence_ids: [context.evidencia_afirmaciones.find(s => s.path === 'contexto_verificado.proyecto').id] }] }
+  })
+  const result = await completeTurnReply({ current, baseReply: 'Hola', verified: { proyecto: { city: 'Cuenca' } },
+    audit: { semantic_review_enabled: true } }, mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, reply)
+  assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review', 'review'])
+  assert.deepEqual(result.audit.repair_attempts.map(r => r.target), ['review_metadata'])
+})

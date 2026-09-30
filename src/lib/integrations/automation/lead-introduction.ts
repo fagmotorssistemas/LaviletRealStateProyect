@@ -206,6 +206,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   return { reply: result, state, applied: true, brochureDeferred: !deliver,
     audit: { ...audit, brochure_sent: deliverBrochure || prior.brochure_sent === true, profile_introduction: { stage, question, brochure_deferred: !deliver,
       brochure_required: deliverBrochure, brochure_url: url, generic_introduction: overview && !deliver,
+      brochure_previously_sent: prior.brochure_sent === true,
       missing_fields: missing, reminder_count: reminderCount, residence_meaning: 'current_residence',
       profile_state: profile, question_purpose: purpose, candidate: needsConfirmation ? { ...candidate } : null,
       name_acknowledgement: acknowledgement || null,

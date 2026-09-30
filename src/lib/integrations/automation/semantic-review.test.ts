@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { factualValueIssues, numericMentions, reviewClaims, reviewRepairCoverageIssues, reviewedContextualGuidance } from './semantic-review'
+import { factualValueIssues, numericMentions, reviewClaims, reviewRepairCoverageIssues, reviewedContextualGuidance, groundedClaimReviewSchema, claimSchema } from './semantic-review'
+import { object, type Row } from './data'
 import { normalizeReviewReferences, verifiedClaimSources } from './turn-evidence'
 
 const unit = { id: 'unit-202', unit_number: '202', category: 'departamento', published_commercial_price: 210000,
@@ -10,6 +11,31 @@ const fact = (fragment: string, value: number, field = 'published_commercial_pri
 const claim = (fragment: string, extra: Record<string, unknown> = {}) => ({ fragment, subject: 'orientación',
   polarity: 'uncertainty', verdict: 'supported', evidence: 'Posibilidad general condicionada a las preferencias de la familia.',
   claim_kind: 'contextual_guidance', evidence_source: 'contextual_reasoning', evidence_ids: [], ...extra })
+
+test('grounded claim schema requires existing sources of the right kind and permits honest missing evidence', () => {
+  const sources = [{ id: 'E1', kind: 'project_fact' }, { id: 'E2', kind: 'lead_statement' },
+    { id: 'E3', kind: 'operational_fact' }, { id: 'E4', kind: 'project_fact', scope: 'catalog_no_results' }]
+  const schema = groundedClaimReviewSchema({ properties: { claims: claimSchema }, required: ['claims'] }, sources)
+  const variants = object(object(object(schema.properties).claims).items).anyOf as Row[]
+  for (const variant of variants) {
+    const p = object(variant.properties), verdicts = object(p.verdict).enum as string[], kinds = object(p.claim_kind).enum as string[]
+    const ids = object(p.evidence_ids)
+    if (verdicts.includes('supported') && !kinds.includes('contextual_guidance')) {
+      assert.equal(ids.minItems, 1)
+      for (const id of object(ids.items).enum as string[]) assert.ok(kinds.includes(sources.find(s => s.id === id)!.kind))
+      if ((object(p.evidence_source).enum as string[]).includes('catalog_no_results')) assert.deepEqual(object(ids.items).enum, ['E4'])
+      else assert.ok(!(object(ids.items).enum as string[]).includes('E4'))
+    } else assert.equal(ids.maxItems, 0)
+  }
+  assert.ok(variants.some(v => (object(object(v.properties).verdict).enum as string[]).includes('unsupported')))
+  const empty = groundedClaimReviewSchema({ properties: { claims: claimSchema } }, [])
+  assert.equal((object(object(object(empty.properties).claims).items).anyOf as Row[]).length, 2)
+  const fabricated = claim('El proyecto tiene helipuerto.', { claim_kind: 'project_fact', verdict: 'unsupported', evidence_source: 'none', evidence: 'No consta en las fuentes.' })
+  assert.ok(reviewClaims([fabricated], fabricated.fragment, sources, true).issues.some(i => i.code === 'claim_unsupported'))
+  const contradicted = { ...fabricated, verdict: 'contradicted', evidence_source: 'verified_context', evidence_ids: ['E1'] }
+  assert.ok(reviewClaims([contradicted], fabricated.fragment, sources, true).issues.some(i => i.code === 'claim_contradicted'))
+  assert.ok(reviewClaims([{ ...contradicted, evidence_ids: [] }], fabricated.fragment, sources, true).issues.some(i => i.code === 'claim_source_not_verified'))
+})
 
 test('a catalogue price attributed to a greeting is reviewer metadata, not a false draft price', () => {
   const reply = 'Mucho gusto, Carlos. Aquí tiene el brochure.'

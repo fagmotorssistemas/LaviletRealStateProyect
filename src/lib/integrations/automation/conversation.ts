@@ -1216,6 +1216,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     await guard()
     const commercialInfo: Row = !scopeOnlyReview || businessScope.uncertain
       ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile) : {}
+    commercialInfo.estado_conversacion = { brochure_sent: object(previousSummary._lead_introduction).brochure_sent === true,
+      introduction_status: object(previousSummary._lead_introduction).status || null }
     const info: Row = scopeOnlyReview
       ? { ...scopePolicyContext(commercialInfo, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
       : { ...commercialInfo, alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,

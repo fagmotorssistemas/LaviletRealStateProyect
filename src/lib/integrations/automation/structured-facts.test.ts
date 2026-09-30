@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema } from './structured-facts'
+import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts } from './structured-facts'
+import { turnEvidence } from './turn-evidence'
 import { factualValuesSchema } from './semantic-review'
 import { object, type Row } from './data'
 
@@ -46,3 +47,58 @@ test('live schema lets the reviewer interpret written quantities and requires in
   assert.ok((schema.required as string[]).includes('factual_inventory_complete'))
   assert.deepEqual(object(object(variants[0].properties).unit_id).enum,['202','302'])
 })
+
+const scopedUnits = [
+  { id: 'd201', category: 'departamento', bedrooms: 2, area_internal_m2: 109.69 },
+  { id: 'd301', category: 'departamento', bedrooms: 2, area_internal_m2: 115.04 },
+  { id: 'd202', category: 'departamento', bedrooms: 3, area_internal_m2: 120.83 },
+  { id: 'p602', category: 'penthouse', bedrooms: 3, area_internal_m2: 142.09 },
+]
+const snapshot = turnEvidence({ catalogo: scopedUnits })
+const catalog = [...snapshot.units, ...snapshot.groups]
+const endpoint = (bedrooms: number, value: number, operator: string) => ({ fragment: 'S1',
+  unit_id: `group:departamento:${bedrooms}:range`, field: 'area_internal_m2', value, operator, upper_value: null, measurement_unit: 'm2' })
+
+test('exact scoped endpoints repair only the reference, preserving numbers and draft provenance', () => {
+  const input = [endpoint(2, 109.69, 'gte'), endpoint(3, 120.83, 'lte')]
+  const original = structuredClone(input)
+  const normalized = normalizeStructuredFacts(input, catalog)
+  assert.deepEqual(input, original)
+  assert.deepEqual(normalized.facts, input.map((row, i) => ({ ...row, unit_id: `group:departamento:${i + 2}:${i ? 'max' : 'min'}` })))
+  assert.equal(normalized.corrections.length, 2)
+  assert.deepEqual(structuredFactIssues(input, catalog), [])
+  assert.deepEqual(normalizeStructuredFacts(normalized.facts, catalog).corrections, [])
+})
+
+test('reference repair cannot round, move between scopes, infer an endpoint, or choose an ambiguous source', () => {
+  for (const f of [endpoint(2, 109.7, 'gte'), endpoint(2, 120.83, 'lte'), endpoint(2, 109.69, 'eq'), endpoint(2, 109.69, 'lt')]) {
+    assert.deepEqual(normalizeStructuredFacts([f], catalog).corrections, [])
+    assert.ok(structuredFactIssues([f], catalog).length)
+  }
+  const f = endpoint(2, 109.69, 'gte'), min = catalog.find(row => row.id === 'group:departamento:2:min')!
+  for (const candidates of [catalog.filter(row => row !== min), [...catalog, { ...min, id: 'duplicate' }],
+    catalog.map(row => row === min ? { ...min, member_ids: ['unrelated'] } : row),
+    catalog.map(row => row === min ? { ...min, source_scope: 'other_query' } : row)]) {
+    assert.deepEqual(normalizeStructuredFacts([f], candidates).corrections, [])
+    assert.ok(structuredFactIssues([f], candidates).length)
+  }
+  // A scalar can refer to a range only when both exact endpoints coincide.
+  assert.equal(normalizeStructuredFacts([endpoint(3, 120.83, 'eq')], catalog).corrections.length, 1)
+})
+
+test('schema and runtime distinguish scalar extrema from complete intervals', () => {
+  const schema = structuredReviewSchema({ properties: { factual_values: factualValuesSchema }, required: ['factual_values'] }, ['S1'], catalog, [])
+  const variants = object(object(object(schema.properties).factual_values).items).anyOf as Row[]
+  for (const group of snapshot.groups) {
+    const allowed = variants.filter(v => (object(object(v.properties).unit_id).enum as string[]).includes(textId(group)))
+    assert.equal(allowed.length, 1)
+    assert.deepEqual(object(object(allowed[0].properties).operator).enum,
+      group.aggregation === 'range' ? ['between'] : group.aggregation === 'min' ? ['eq', 'gte'] : ['eq', 'lte'])
+  }
+  for (const [aggregation, operator] of [['min', 'lte'], ['max', 'gte']]) {
+    const source = catalog.find(row => row.id === `group:departamento:2:${aggregation}`)!
+    assert.equal(structuredFactIssues([{ ...endpoint(2, Number(source.area_internal_m2), operator), unit_id: source.id }], catalog)[0].code, 'aggregate_operator_mismatch')
+  }
+})
+
+function textId(row: Row) { return String(row.id) }

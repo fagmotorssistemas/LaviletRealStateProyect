@@ -4,10 +4,35 @@ import { satisfiesNumeric } from './numeric-relations'
 export const factUnits: Record<string, string> = { bedrooms: 'count', bathrooms_full: 'count',
   area_internal_m2: 'm2', area_exterior_m2: 'm2', published_commercial_price: 'USD', floor_number: 'floor' }
 
+/** A range may be cited for one of its exact endpoints by an older reviewer.
+ * Resolve only the reference, within the identical set, never the value/prose. */
+export function normalizeStructuredFacts(input: unknown, catalog: Row[]) {
+  const corrections: Row[] = []
+  if (!Array.isArray(input)) return { facts: input, corrections }
+  const facts = input.map(raw => {
+    const fact = object(raw), source = catalog.find(row => row.id === fact.unit_id)
+    if (source?.aggregation !== 'range' || fact.upper_value != null || typeof fact.value !== 'number') return raw
+    const field = text(fact.field), lower = source[field], upper = object(source.upper_values)[field]
+    const endpoint = fact.operator === 'gte' && fact.value === lower ? 'min'
+      : fact.operator === 'lte' && fact.value === upper ? 'max'
+        : fact.operator === 'eq' && lower === upper && fact.value === lower ? 'min' : null
+    if (!endpoint || !Array.isArray(source.member_ids) || !source.member_ids.length) return raw
+    const members = [...source.member_ids].sort()
+    const matches = catalog.filter(row => row.aggregation === endpoint && row[field] === fact.value
+      && ['category', 'bedrooms_filter', 'source_scope', 'covers'].every(key => row[key] === source[key])
+      && Array.isArray(row.member_ids) && JSON.stringify([...row.member_ids].sort()) === JSON.stringify(members))
+    if (matches.length !== 1) return raw
+    corrections.push({ code: 'range_endpoint_reference_resolved', from: fact.unit_id, to: matches[0].id,
+      field, value: fact.value, operator: fact.operator })
+    return { ...fact, unit_id: matches[0].id }
+  })
+  return { facts, corrections }
+}
+
 /** No draft, vocabulary or regular expressions: compare interpreted facts to authoritative data. */
 export function structuredFactIssues(input: unknown, catalog: Row[]): Row[] {
   if (!Array.isArray(input) || input.length > 80) return [{ code: 'invalid_fact_list', kind: 'review_metadata' }]
-  return input.flatMap(raw => {
+  return (normalizeStructuredFacts(input, catalog).facts as unknown[]).flatMap(raw => {
     const fact: Row = { operator: 'eq', ...object(raw) }, source = catalog.find(row => row.id === fact.unit_id), field = text(fact.field)
     const fail = (code: string, kind = 'review_metadata') => [{ code, kind, unit_id: fact.unit_id, field,
       received: fact.value, expected: source?.[field] ?? null, fragment: fact.fragment }]
@@ -21,8 +46,12 @@ export function structuredFactIssues(input: unknown, catalog: Row[]): Row[] {
     if (source.aggregation === 'range') {
       if (fact.operator !== 'between') return fail('range_reference_requires_interval')
       if (fact.value !== expected || fact.upper_value !== object(source.upper_values)[field]) return fail('catalog_range_mismatch', 'catalog_data')
-    } else if ((source.aggregation && fact.value !== expected)
-      || !satisfiesNumeric(expected, fact.value, fact.operator, fact.upper_value)) return fail('catalog_value_mismatch', 'catalog_data')
+    } else {
+      if (source.aggregation === 'min' && !['eq', 'gte'].includes(text(fact.operator))
+        || source.aggregation === 'max' && !['eq', 'lte'].includes(text(fact.operator))) return fail('aggregate_operator_mismatch')
+      if ((source.aggregation && fact.value !== expected)
+        || !satisfiesNumeric(expected, fact.value, fact.operator, fact.upper_value)) return fail('catalog_value_mismatch', 'catalog_data')
+    }
     return []
   })
 }
@@ -45,11 +74,20 @@ export function structuredReviewSchema(schema: Row, sentenceIds: string[], catal
     unit_id: { type: 'string', enum: catalog.length ? catalog.map(row => text(row.id)) : ['none'] },
     value: { type: 'number' }, measurement_unit: { type: 'string', enum: [...new Set(Object.values(factUnits))] } }
   // Interpretation of quantities, units and comparisons belongs to the reviewer.
-  properties.factual_values = { type: 'array', maxItems: catalog.length && sentenceIds.length ? 80 : 0,
-    items: { anyOf: [false, true].map(interval => ({ type: 'object', additionalProperties: false,
-      properties: { ...factProperties, operator: { type: 'string', enum: interval ? ['between'] : ['eq', 'gt', 'gte', 'lt', 'lte'] },
-        upper_value: { type: interval ? 'number' : 'null' } },
-      required: [...new Set([...Object.keys(factProperties), 'operator', 'upper_value'])] })) } }
+  const variants: Row[] = []
+  for (const [aggregation, operators, interval] of [
+    ['', ['eq', 'gt', 'gte', 'lt', 'lte'], false], ['', ['between'], true],
+    ['min', ['eq', 'gte'], false], ['max', ['eq', 'lte'], false], ['range', ['between'], true],
+  ] as const) {
+    const ids = catalog.filter(row => (row.aggregation || '') === aggregation).map(row => text(row.id))
+    if (!ids.length) continue
+    variants.push({ type: 'object', additionalProperties: false,
+      properties: { ...factProperties, unit_id: { type: 'string', enum: ids },
+        operator: { type: 'string', enum: operators }, upper_value: { type: interval ? 'number' : 'null' } },
+      required: [...new Set([...Object.keys(factProperties), 'operator', 'upper_value'])] })
+  }
+  properties.factual_values = { type: 'array', maxItems: variants.length && sentenceIds.length ? 80 : 0,
+    items: { anyOf: variants.length ? variants : [{ type: 'object', properties: {}, required: [], additionalProperties: false }] } }
   properties.project_values = { type: 'array', maxItems: projectFacts.length ? 40 : 0, items: { type: 'object', additionalProperties: false,
     properties: { fragment: { type: 'string', enum: sentenceIds.length ? sentenceIds : ['none'] },
       source_id: { type: 'string', enum: projectFacts.length ? projectFacts.map(row => text(row.id)) : ['none'] },
@@ -60,3 +98,4 @@ export function structuredReviewSchema(schema: Row, sentenceIds: string[], catal
 }
 
 export const STRUCTURED_FACT_RULES = `CONTRATO DE HECHOS ESTRUCTURADOS: Usted interpreta el borrador completo. El sistema NO extrae ni interpreta sus cifras, palabras, unidades de medida ni comparaciones. En factual_values enumere todos los hechos numéricos atribuidos a unidades o grupos y seleccione unidad/grupo, atributo, valor exacto, operador y measurement_unit (m2, USD, count o floor). Interprete números escritos con palabras y representaciones equivalentes. Convierta unidades solo cuando sean inequívocas y exactas; nunca redondee. No copie cifras de la fuente que no estén afirmadas en el borrador. En project_values incluya las cantidades del proyecto respaldadas por evidencia_turno.project_facts con source_id, dimension, measurement_unit y valor normalizado de esa fuente. Si falta una fuente, rechace la afirmación en claims/review_issues, no la omita silenciosamente. Use [] cuando no corresponda. factual_inventory_complete=true SOLO después de revisar todas las oraciones y comprobar que no omitió hechos. La cobertura, atribución y significado son responsabilidad suya; el sistema compara exclusivamente los campos estructurados con sus fuentes. Al reparar su ficha, vuelva a extraer desde el MISMO borrador, sin cambiarlo ni conservar filas que usted haya atribuido por error.`
+  + '\nREFERENCIAS NUMÉRICAS: un grupo min sirve para su mínimo exacto (eq o gte); max para su máximo exacto (eq o lte); range para el intervalo completo (between, value y upper_value). Para extremos de categorías o tamaños distintos use cada grupo min/max correspondiente; no los una en un rango de una categoría diferente. Aunque ambos extremos coincidan, un grupo range representa un intervalo. El esquema separa estas referencias; una referencia incompatible es un defecto de ficha, no prueba de que la cifra del borrador sea falsa.'
