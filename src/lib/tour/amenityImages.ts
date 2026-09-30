@@ -1,8 +1,3 @@
-import { readdir } from 'node:fs/promises'
-import path from 'node:path'
-
-const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.avif', '.gif'])
-
 export type AmenityGalleryItem = {
   title: string
   titleEn: string
@@ -11,10 +6,35 @@ export type AmenityGalleryItem = {
 
 const CAPTION_ORDER = ['Exterior', 'Planta baja', 'Planta alta', 'Piscina', 'Jacuzzi', 'Gimnasio']
 
+/**
+ * Nombres sueltos, sin leer la carpeta en runtime.
+ * Un readdir de public/tour/amenidades mete los PNG en la función de Vercel y supera 250 MB.
+ */
+const AMENITY_FILES = [
+  'Exterior 1 con personas.png',
+  'Exterior 2 con personas.png',
+  'Exterior 3 con personas.png',
+  'Gym 1 con persona.png',
+  'Gym 2 con persona.png',
+  'Gym 3 con persona.png',
+  'GYM 4 con persona.png',
+  'Jacuzzi 1 con persona.png',
+  'Jacuzzi 2 con persona.png',
+  'PA_exterior 1.png',
+  'PA_exterior 2.png',
+  'PA_exterior 3.png',
+  'PB_exterior 1.png',
+  'PB_exterior 2.png',
+  'piscina 2.png',
+  'piscina personas.png',
+  'piscina.png',
+  'pl6-final.png',
+] as const
+
 /** Título visible a partir del nombre del archivo, sin notas de producción. */
 export function amenityCaptionFromFile(file: string): { title: string; titleEn: string } {
-  const base = path
-    .basename(file, path.extname(file))
+  const base = file
+    .replace(/\.[^.]+$/, '')
     .replace(/[_-]+/g, ' ')
     .replace(/\b(con|sin)\s+personas?\b/gi, ' ')
     .replace(/\bfinal\b/gi, ' ')
@@ -35,17 +55,8 @@ export function amenityCaptionFromFile(file: string): { title: string; titleEn: 
   return { title, titleEn: title }
 }
 
-export async function listAmenityGallery(): Promise<AmenityGalleryItem[]> {
-  const dir = path.join(process.cwd(), 'public', 'tour', 'amenidades')
-  let files: string[] = []
-  try {
-    files = await readdir(dir)
-  } catch {
-    return []
-  }
-  return files
-    .filter((file) => IMAGE_EXT.has(path.extname(file).toLowerCase()))
-    .filter((file) => !/\bsin\s+personas?\b/i.test(file))
+export function listAmenityGallery(): AmenityGalleryItem[] {
+  return AMENITY_FILES.filter((file) => !/\bsin\s+personas?\b/i.test(file))
     .map((file) => {
       const caption = amenityCaptionFromFile(file)
       return {
