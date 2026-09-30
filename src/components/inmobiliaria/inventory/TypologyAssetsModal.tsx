@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
+  createLocalesTypologyAction,
   deleteTypologyAssetAction,
   listTypologiesImportAction,
   listTypologyAssetsAction,
@@ -31,6 +32,7 @@ import {
 import type { TourLightMode } from '@/types/tour'
 import { cn } from '@/lib/utils'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
+import { isLocalesTypologyName } from '@/lib/tour/localesTypology'
 import { TYPOLOGY_UPLOAD_MAX_MB } from '@/lib/typology-assets/resolveUpload'
 import {
   unitImportCategoryLabel,
@@ -121,6 +123,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [notice, setNotice] = useState<Notice | null>(null)
   const [toolbarHidden, setToolbarHidden] = useState(false)
   const roomFileRef = useRef<HTMLInputElement>(null)
+  const localesFileRef = useRef<HTMLInputElement>(null)
+  const [localesName, setLocalesName] = useState('')
+  const [creatingLocales, setCreatingLocales] = useState(false)
   const pendingSlotRef = useRef<SceneSlot | null>(null)
   const modalScrollRef = useRef(0)
   const lastScrollYRef = useRef(0)
@@ -163,6 +168,30 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
       toast.error(error instanceof Error ? error.message : 'No se pudieron cargar las tipologías')
     }
   }, [])
+
+  const localesMode = isLocalesTypologyName(code)
+
+  useEffect(() => {
+    if (!localesMode) return
+    if (tab === 'ambientes' || tab === 'puntos') setTab('galeria')
+  }, [localesMode, tab])
+
+  const createLocales = async () => {
+    setCreatingLocales(true)
+    try {
+      const created = await createLocalesTypologyAction(localesName)
+      await loadTypologies()
+      setCode(created.code)
+      setLocalesName('')
+      setTab('galeria')
+      setKind('render')
+      toast.success(`${created.code} lista. Subí los renders en Galería.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo crear la tipología')
+    } finally {
+      setCreatingLocales(false)
+    }
+  }
 
   const loadAssets = useCallback(async (typologyCode: string) => {
     if (!typologyCode) {
@@ -637,7 +666,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 { id: 'documentos' as const, label: 'Planos' },
                 { id: 'pisos' as const, label: 'Pisos' },
               ] as const
-            ).map((item) => (
+            )
+              .filter((item) => !localesMode || item.id === 'galeria' || item.id === 'pisos')
+              .map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -675,12 +706,33 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
               (ej. 208). El showroom usa esa etiqueta para abrir la unidad.
             </p>
           ) : (
+            <>
             <Select
               label="Tipología"
               options={typologyOptions}
               value={code}
               onChange={(e) => setCode(e.target.value)}
             />
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="min-w-[220px] flex-1 text-xs text-[#555850]">
+                Nueva tipología de locales
+                <input
+                  value={localesName}
+                  onChange={(event) => setLocalesName(event.target.value)}
+                  placeholder="Locales planta 1"
+                  className="mt-1 h-9 w-full rounded-md border border-[#2B1A18]/15 bg-white px-2 text-sm text-[#3a3d36]"
+                />
+              </label>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={creatingLocales || !localesName.trim()}
+                onClick={() => void createLocales()}
+              >
+                {creatingLocales ? 'Creando…' : 'Crear'}
+              </Button>
+            </div>
+            </>
           )}
           {tab === 'documentos' ? (
             <Select
@@ -793,7 +845,59 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           </div>
         )}
 
-        {tab === 'galeria' && (
+        {tab === 'galeria' && localesMode && (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <p className="text-sm text-[#3a3d36]">Renders de {code}</p>
+              <p className="text-xs text-[#8a8d87]">
+                Estos renders los comparten todos los locales asignados a esta tipología. No hay 360 ni comparador.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!code || uploading}
+              onClick={() => localesFileRef.current?.click()}
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-[#2B1A18]/20 bg-[#f7f6f2] px-4 py-8 text-sm text-[#3a3d36] disabled:opacity-60"
+            >
+              <ImagePlus size={16} />
+              {uploading ? 'Subiendo…' : 'Subir renders'}
+            </button>
+            <input
+              ref={localesFileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                void onFiles(event.target.files, 'render')
+                event.target.value = ''
+              }}
+            />
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {assets
+                .filter((row) => row.kind === 'render')
+                .map((asset) => (
+                  <div key={asset.id} className="overflow-hidden rounded-md border border-[#2B1A18]/10 bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={asset.public_url} alt={asset.file_name} className="aspect-[4/3] w-full object-cover" />
+                    <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                      <span className="min-w-0 truncate text-[11px] text-[#3a3d36]">{asset.file_name}</span>
+                      <button
+                        type="button"
+                        className="text-[#8a8d87] hover:text-[#8a5c58]"
+                        aria-label={`Borrar ${asset.file_name}`}
+                        onClick={() => void onDelete(asset.id)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'galeria' && !localesMode && (
           <div className="space-y-5">
             <div className="space-y-1">
               <p className="text-sm text-[#3a3d36]">Galería</p>

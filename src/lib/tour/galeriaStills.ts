@@ -18,6 +18,8 @@ export type GaleriaStillsOptions = {
   light?: TourLightMode | null
   /** true = todas las celdas acabado×luz (ficha). Default false con filtros. */
   allScenes?: boolean
+  /** Locales: la galería es la lista de renders, sin ambientes ni 360. */
+  rendersOnly?: boolean
   /**
    * Galería showroom: un still por ambiente.
    * Acabado y luz al azar; la etiqueta es solo el nombre del ambiente.
@@ -77,6 +79,16 @@ export function buildGaleriaStills(
   options?: GaleriaStillsOptions,
 ): GaleriaStill[] {
   if (!typology) return []
+
+  if (typology.category === 'local' || options?.rendersOnly) {
+    return (typology.renders ?? [])
+      .filter((render) => Boolean(render.url))
+      .map((render) => ({
+        id: render.id || render.file_name,
+        label: stillLabelFromFile(render.file_name) || 'Render',
+        url: render.url,
+      }))
+  }
 
   const allScenes = options?.allScenes === true
   const randomPerRoom = options?.randomPerRoom === true && !allScenes

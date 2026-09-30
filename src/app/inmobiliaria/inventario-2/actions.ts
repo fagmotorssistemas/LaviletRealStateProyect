@@ -2,6 +2,7 @@
 
 import {
   createUnitsImport,
+  createLocalesTypology,
   deleteTypologyAsset,
   getTypologyAssetPublicUrl,
   listTypologiesImport,
@@ -73,6 +74,12 @@ export async function listTypologiesImportAction(): Promise<{
     console.error('listTypologiesImportAction', error)
     return { data: [], error: actionError(error) }
   }
+}
+
+export async function createLocalesTypologyAction(name: string): Promise<TypologyImport> {
+  await assertCanAccessCrmPath('/inmobiliaria/inventario')
+  await assertCanWriteCrm()
+  return createLocalesTypology(await getCrmDataClient(), name)
 }
 
 export async function listTypologyAssetsAction(

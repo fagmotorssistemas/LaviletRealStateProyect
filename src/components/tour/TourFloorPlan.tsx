@@ -315,10 +315,20 @@ export function TourFloorPlan({
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
   const [scale, setScale] = useState(ZOOM_MIN)
   /** Capas montadas: se quedan en DOM y el cambio es solo visibility. */
-  const [layers, setLayers] = useState<Partial<Record<number, FloorLayer>>>({})
-  const [variantByFloor, setVariantByFloor] = useState<Partial<Record<number, FloorPlanVariant>>>({})
+  const [layers, setLayers] = useState<Partial<Record<number, FloorLayer>>>(() => {
+    const ready = getReadyFloorView(floor, preferredVariant)
+    const layer = ready ? toLayer(ready) : null
+    return layer ? { [floor]: layer } : {}
+  })
+  const [variantByFloor, setVariantByFloor] = useState<Partial<Record<number, FloorPlanVariant>>>(() => {
+    const ready = getReadyFloorView(floor, preferredVariant)
+    return ready ? { [floor]: ready.variant } : {}
+  })
   const [failedFloors, setFailedFloors] = useState<Partial<Record<number, boolean>>>({})
-  const [readyFloors, setReadyFloors] = useState<Partial<Record<number, boolean>>>({})
+  const [readyFloors, setReadyFloors] = useState<Partial<Record<number, boolean>>>(() => {
+    const ready = getReadyFloorView(floor, preferredVariant)
+    return ready?.url ? { [floor]: true } : {}
+  })
   const stickyFloorRef = useRef<number | null>(null)
   const htmlIframeRefs = useRef<Partial<Record<number, HTMLIFrameElement | null>>>({})
   /** Solo 1 iframe WebGL: más cuelgan el primer load. */
@@ -512,7 +522,6 @@ export function TourFloorPlan({
   }, [currentReady, floor])
 
   const shown = (planVariant === '3d' ? currentLayer : layers[paintFloor] ?? currentLayer) ?? null
-  const waiting = !currentLayer && !failedFloors[floor]
   const missing = !currentLayer && Boolean(failedFloors[floor])
   const docForToggles = currentLayer?.doc ?? null
   const has2d = floorPlanVariantHasMedia(docForToggles?.variants?.['2d'])
@@ -1018,10 +1027,6 @@ export function TourFloorPlan({
                 />
               )
             })}
-            {waitingHtmlBoot ? (
-              <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center bg-[#14110e] text-sm text-white/70">
-                {t(" Cargando plano 3D… ")}</div>
-            ) : null}
 
             <div
               className={cn(
@@ -1124,22 +1129,22 @@ export function TourFloorPlan({
                     fill={
                       showSegmentation
                         ? selected
-                          ? 'rgba(61,155,74,0.38)'
+                          ? 'rgba(61,155,74,0.58)'
                           : hovered && slot.unit
-                            ? 'rgba(61,155,74,0.18)'
+                            ? 'rgba(61,155,74,0.42)'
                             : 'rgba(255,255,255,0.04)'
                         : 'rgba(255,255,255,0.001)'
                     }
                     stroke={
                       showSegmentation
                         ? selected
-                          ? 'rgba(61,155,74,0.95)'
+                          ? 'rgba(46,140,58,1)'
                           : hovered && slot.unit
-                            ? 'rgba(255,255,255,0.7)'
+                            ? 'rgba(61,155,74,0.95)'
                             : 'rgba(255,255,255,0.28)'
                         : 'rgba(0,0,0,0)'
                     }
-                    strokeWidth={showSegmentation ? (selected || hovered ? 0.55 : 0.35) : 0.01}
+                    strokeWidth={showSegmentation ? (selected || hovered ? 0.85 : 0.35) : 0.01}
                     vectorEffect="non-scaling-stroke"
                     style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
                     onMouseEnter={() => {
@@ -1185,7 +1190,7 @@ export function TourFloorPlan({
                       slot.unit
                         ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
                         : 'cursor-not-allowed opacity-55',
-                      (selected || hovered) && slot.unit && 'ring-2 ring-[#3d9b4a]/45',
+                      (selected || hovered) && slot.unit && 'ring-2 ring-[#3d9b4a]/80',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
                     aria-label={t(slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
@@ -1206,10 +1211,6 @@ export function TourFloorPlan({
             ) : null}
           </div>
 
-          {waiting ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/40 text-xs text-white/70">
-              {t(" Cargando plano… ")}</div>
-          ) : null}
           {missing ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#14110e]/55 text-xs text-white/80">
               {t(" No hay plano para este piso ")}</div>

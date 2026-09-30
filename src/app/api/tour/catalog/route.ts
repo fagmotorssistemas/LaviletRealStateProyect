@@ -13,6 +13,7 @@ import {
 } from '@/lib/tour/tourRooms'
 import { buildRoomScenes, parseRoomSceneFileName, pickRoomScene, TOUR_SCENE_LIGHTS } from '@/lib/tour/roomScene'
 import { loadTypologyHotspots } from '@/lib/tour/typologyHotspots'
+import { isLocalesTypologyName } from '@/lib/tour/localesTypology'
 import type { TypologyAsset } from '@/types/inmobiliaria'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -163,17 +164,21 @@ async function toCatalogTypology(
     url: getTypologyAssetPublicUrl(admin, item.storage_path, item.created_at),
   })
   const publicAssets = list.map(toPublic)
+  const locales = isLocalesTypologyName(row.name) || isLocalesTypologyName(row.description)
   const typeUnits = units.filter((unit) => unit.unit_type_id === row.id)
-  const roomDefs = unionTourRooms(
-    typeUnits.map((unit) => ({
-      bedrooms: unit.bedrooms ?? row.bedrooms,
-      bathrooms_full: unit.bathrooms_full ?? unit.bathrooms,
-      bathrooms_half: unit.bathrooms_half,
-      spaces: sanitizeTourSpaces(unit.spaces),
-    })),
-  )
-  const rooms =
-    roomDefs.length > 0
+  const roomDefs = locales
+    ? []
+    : unionTourRooms(
+        typeUnits.map((unit) => ({
+          bedrooms: unit.bedrooms ?? row.bedrooms,
+          bathrooms_full: unit.bathrooms_full ?? unit.bathrooms,
+          bathrooms_half: unit.bathrooms_half,
+          spaces: sanitizeTourSpaces(unit.spaces),
+        })),
+      )
+  const rooms = locales
+    ? []
+    : roomDefs.length > 0
       ? roomDefs
       : unionTourRooms([
           {
@@ -183,9 +188,11 @@ async function toCatalogTypology(
             spaces: ['Sala', 'Cocina'],
           },
         ])
-  const slots = rooms.some((room) => room.slug === 'dormitorio' || room.slug.startsWith('dormitorio-'))
-    ? rooms
-    : [...rooms, { slug: 'dormitorio', label: 'Dormitorio' }]
+  const slots = locales
+    ? []
+    : rooms.some((room) => room.slug === 'dormitorio' || room.slug.startsWith('dormitorio-'))
+      ? rooms
+      : [...rooms, { slug: 'dormitorio', label: 'Dormitorio' }]
   const homeSlug = tourHomeSlug(rooms)
   const panoScenes = buildRoomScenes(publicAssets, homeSlug)
   const defaultFinish = finishes[0]?.slug ?? null
@@ -214,9 +221,10 @@ async function toCatalogTypology(
     id: row.id,
     code: row.name,
     name: row.description || row.name,
-    category: row.bedrooms && row.bedrooms >= 2 ? 'departamento' : 'suite',
-    panorama:
-      !panoAsset && panoScenes.length === 0
+    category: locales ? 'local' : row.bedrooms && row.bedrooms >= 2 ? 'departamento' : 'suite',
+    panorama: locales
+      ? null
+      : !panoAsset && panoScenes.length === 0
         ? null
         : {
             id: panoAsset?.id ?? defaultPano?.file_name ?? 'pano',

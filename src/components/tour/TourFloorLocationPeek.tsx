@@ -222,8 +222,8 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
                   fill={
                     active
                       ? grown
-                        ? 'rgba(61,155,74,0.55)'
-                        : 'rgba(61,155,74,0.42)'
+                        ? 'rgba(61,155,74,0.7)'
+                        : 'rgba(61,155,74,0.58)'
                       : 'rgba(255,255,255,0.015)'
                   }
                   stroke={

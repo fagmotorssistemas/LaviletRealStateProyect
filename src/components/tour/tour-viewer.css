@@ -575,6 +575,11 @@ html.tour-is-force-landscape body {
   touch-action: none;
 }
 
+/* El círculo "Cargando…" del visor 360 no debe verse: el plano ya está en pantalla. */
+.psv-loader-container {
+  display: none !important;
+}
+
 .psv-canvas-container {
   background: #111;
   touch-action: none;

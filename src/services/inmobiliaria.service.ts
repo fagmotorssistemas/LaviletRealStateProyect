@@ -15,6 +15,7 @@ import { unitCategoryFilterValues, UNASSIGNED_ASSIGNEE } from '@/types/inmobilia
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import { normalizeSource } from '@/lib/leads/sources'
 import { TOUR_PROJECT_ID, TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
+import { localesTypologyName, localesTypologySlug } from '@/lib/tour/localesTypology'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { mergeLeadTimeline } from '@/lib/inmobiliaria/leadTimeline'
 
@@ -635,6 +636,56 @@ export async function listTypologiesImport(supabase: SupabaseClient): Promise<Ty
     name: row.description || row.name,
     created_at: row.created_at,
   }))
+}
+
+/** Tipología de locales (solo galería). El nombre queda como "Locales planta 1". */
+export async function createLocalesTypology(
+  supabase: SupabaseClient,
+  rawName: string,
+): Promise<TypologyImport> {
+  const name = localesTypologyName(rawName)
+  const slug = localesTypologySlug(name)
+  const { data: existing, error: existingError } = await supabase
+    .from('unit_types')
+    .select('id, name')
+    .eq('tenant_id', TOUR_TENANT_ID)
+    .eq('is_active', true)
+    .ilike('name', name)
+    .limit(1)
+    .maybeSingle()
+  if (existingError) throw new Error(existingError.message)
+  if (existing?.name) throw new Error(`Ya existe la tipología ${existing.name}`)
+
+  const { data: orderRows } = await supabase
+    .from('unit_types')
+    .select('sort_order')
+    .eq('tenant_id', TOUR_TENANT_ID)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+  const sortOrder = (Number(orderRows?.[0]?.sort_order) || 0) + 1
+
+  const { data, error } = await supabase
+    .from('unit_types')
+    .insert({
+      tenant_id: TOUR_TENANT_ID,
+      project_id: TOUR_PROJECT_ID,
+      name,
+      slug,
+      description: name,
+      bedrooms: 0,
+      bathrooms: 0,
+      is_active: true,
+      sort_order: sortOrder,
+    })
+    .select('id, name, description, created_at')
+    .single()
+  if (error) throw new Error(error.message)
+  return {
+    code: data.name,
+    category: 'local',
+    name: data.description || data.name,
+    created_at: data.created_at,
+  }
 }
 
 export async function listTypologyAssets(

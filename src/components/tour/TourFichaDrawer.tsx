@@ -15,6 +15,7 @@ import {
   Layers,
   Mail,
   Rotate3d,
+  Images,
   Ruler,
   Share2,
   X,
@@ -49,6 +50,8 @@ type TourFichaDrawerProps = {
   expanded?: boolean
   onVerFicha?: (unit: TourUnitSummary) => void
   onTour360?: (unit: TourUnitSummary) => void
+  /** Locales: el segundo botón abre la galería, no el 360. */
+  galleryOnly?: boolean
   onRequestInfo?: (unit: TourUnitSummary) => void
   onSelectUnit?: (unit: TourUnitSummary) => void
   onBack?: () => void
@@ -188,6 +191,7 @@ export function TourFichaDrawer({
   expanded = false,
   onVerFicha,
   onTour360,
+  galleryOnly = false,
   onRequestInfo,
   onSelectUnit,
   onBack,
@@ -741,8 +745,8 @@ export function TourFichaDrawer({
                       }}
                       className="flex h-9 items-center justify-center gap-1.5 border border-[#2B1A18]/15 bg-white text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
                     >
-                      <Rotate3d size={15} strokeWidth={1.75} />
-                      {t(" Tour 360° ")}</button>
+                      {galleryOnly ? <Images size={15} strokeWidth={1.75} /> : <Rotate3d size={15} strokeWidth={1.75} />}
+                      {t(galleryOnly ? 'Galería' : ' Tour 360° ')}</button>
                   </div>
                 )}
               </div>
