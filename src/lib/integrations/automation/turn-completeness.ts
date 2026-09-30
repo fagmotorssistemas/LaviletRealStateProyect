@@ -1,5 +1,6 @@
 import { DIALOGUE_WRITING_RULES, DIALOGUE_REVIEW_RULES } from './dialogue-writing-rules'
 import { checkReviewDecision, reviewIssuesSchema, REVIEW_CHECK_RULES, FACTUAL_REVIEW_SCOPE_RULES } from './turn-review-checks'
+import { OPERATIONAL_REVIEW_RULES } from './operational-review'
 import { finalWriterContract, FINAL_WRITER_RULES, commercialContinuationSources, MAX_REPLY_CHARACTERS, replyLinkContract, replyLinkIssues, reservationOperationalIssues } from './response-plan'
 import { leadIntroductionIssues, leadIntroductionRepairs, leadIntroductionReviewIssues, leadIntroductionReviewSchema, LEAD_INTRODUCTION_RULES } from './lead-introduction'
 import { confirmedLeadProfile } from './lead-profile'
@@ -186,17 +187,9 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   // from reply, never from a second model-generated string to compare.
   const value = normalize(reply), base = normalize(source)
   if (reply.split(/(?<=[.!?])\s+|\n+/).some(sentence => unsupportedRentalClaim(sentence, input.current, input.verified))) issues.push('unsupported_rental_credit_claim')
-  for (const action of [/(?:hemos|he|ya) (?:enviado|derivado|registrado|contactado|agendado|reservado|confirmado|aprobado)/, /(?:su|la) (?:cita|visita) (?:ya )?(?:esta|queda|quedo) (?:confirmada|agendada|reservada)/, /(?:confirmamos|agendamos|reservamos|aprobamos) su (?:cita|visita|credito)/]) {
-    const verifiedHandoff = object(input.audit?.reservation).handoff_verified === true
-      && /(?:hemos|he|ya) (?:enviado|derivado|registrado)/.test(value)
-      && !/(?:hemos|he|ya) (?:contactado|agendado|reservado|confirmado|aprobado)/.test(value)
-    const operationRecorded = input.audit?.registration_verified === true
-      || Array.isArray(input.verified.avisos_operativos_confirmados) && input.verified.avisos_operativos_confirmados.length > 0
-      || Array.isArray(input.verified.propuestas) && input.verified.propuestas.some(proposal => object(proposal).status === 'confirmed')
-    // The base is never proof an action happened. Recorded operations can be
-    // expressed freely; the reviewer still checks the exact action and status.
-    if (action.test(value) && !verifiedHandoff && !operationRecorded) issues.push('new_operational_claim')
-  }
+  // Semantic operational claims belong to the factual reviewer, which must
+  // match the specific action, target and status to recorded results.
+  // Acknowledging personal data is not evidence of a commercial operation.
   if (/soy (?:una persona|humano|humana)|somos (?:personas|humanos)/.test(value)) issues.push('human_identity')
   if (/asistente virtual|soy (?:una )?ia|inteligencia artificial/.test(value) && !/asistente|robot|bot\b|humano|persona|inteligencia artificial|\bia\b/.test(normalize(input.current))) issues.push('unsolicited_identity')
   if (/credito (?:ya |esta )?aprobado|aprobacion garantizada|financiamiento (?:garantizado|asegurado)/.test(value)) issues.push('credit_guarantee')
@@ -498,7 +491,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         + (input.audit?.progressive_selection || input.audit?.post_tour_continuation ? '\n' + PROGRESSIVE_OPTIONS_RULES : '')
         + '\n' + passiveSalesRules(engagement) + visitRules
         + (semanticEnabled ? '\n' + CLAIM_RULES + '\n' + FLEXIBLE_FACT_RULES + '\n' + NUMERIC_RELATION_RULES : '')
-        + '\n' + FACTUAL_REVIEW_SCOPE_RULES
+        + '\n' + FACTUAL_REVIEW_SCOPE_RULES + '\n' + OPERATIONAL_REVIEW_RULES
       const openingSchema = leadIntroductionReviewSchema(input.audit, sentenceReferences)
       const reviewContext = { ...(openingSchema.required.length ? { contrato_apertura: {
         etapa: 'presentacion_inicial_sin_tipos_de_inmueble',

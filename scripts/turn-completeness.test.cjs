@@ -120,7 +120,7 @@ test('reservation response retains AI wording without an unrelated tour and requ
   assert.deepEqual(reservationOperationalIssues('Su asesor asignado continuará con la solicitud.', {
     ...input.audit, reservation: { ...receipt, status: 'acknowledged' },
   }), [])
-  assert.ok(reservationOperationalIssues('He derivado su consulta a un asesor.', { source: 'reservation_handoff' }).includes('reservation_handoff_not_verified'))
+  assert.deepEqual(reservationOperationalIssues('He registrado su nombre.', { source: 'reservation_handoff' }), [])
 })
 
 function introductionFixture() {
@@ -842,14 +842,14 @@ test('invented historical fragments and fictitious URLs never pass source valida
   assert.equal(badLink.calls.length, 1)
 })
 
-test('prices and unverified actions stay protected while question punctuation is not an operation', () => {
+test('price and punctuation checks do not replace semantic review of commercial actions', () => {
   const input = { current: 'Quisiera visitar el 202.', baseReply: 'El 202 cuesta $250.000. ¿Qué fecha le vendría bien?',
     verified: { catalogo: [{ id: 'd202', unit_number: '202', published_commercial_price: 250000 }] }, preserveOperationalQuestion: true }
   const issues = turnCompletenessIssues(input, 'El 202 cuesta $300.000.', noQuestion)
   assert.ok(issues.includes('numbers_changed'))
   assert.equal(issues.includes('operational_question_omitted'), false)
   assert.deepEqual(turnCompletenessIssues(input, 'El 202 cuesta $250.000. Indíqueme la fecha que prefiere.', noQuestion), [])
-  assert.ok(turnCompletenessIssues(input, 'Ya hemos confirmado su cita para el 202 de $250.000.', noQuestion).includes('new_operational_claim'))
+  assert.ok(!turnCompletenessIssues(input, 'Ya hemos confirmado su cita para el 202 de $250.000.', noQuestion).includes('new_operational_claim'))
 })
 
 test('a URL query is not mistaken for a client-facing question and verified catalogue prices can be formatted', () => {

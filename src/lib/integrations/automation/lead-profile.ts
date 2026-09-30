@@ -26,87 +26,27 @@ export function confirmedLeadName(profileInput: unknown): string {
   return text(confirmedLeadProfile(profileInput).full_name)
 }
 
-const residenceMarker = /\b(?:vivo|vivimos|resido|residimos|estoy viviendo|estamos viviendo|mi residencia (?:es|esta)|mi domicilio (?:es|esta)|estoy radicad[oa])\b/g
-const originMarker = /\b(?:soy de|somos de|naci en|nacid[oa] en|mi (?:origen|lugar de origen) es)\b/g
-const temporaryMarker = /\b(?:escribo desde|estoy en|estamos en|de viaje en|de vacaciones en|visitando)\b/g
-const otherDeclaration = /\b(?:pero|aunque|sin embargo|(?:y )?(?:soy de|somos de|vivo|vivimos|resido|residimos|estoy viviendo|estoy en|escribo desde))\b/
-
-function declaredBy(current: string, value: string, marker: RegExp): boolean {
-  const source = fold(current)
-  for (const match of source.matchAll(new RegExp(marker))) {
-    const before = source.slice(0, match.index).trimEnd()
-    const literalBefore = current.normalize('NFC').slice(0, match.index).trimEnd()
-    // Accented affirmative «sí vivo» must not be treated as conditional «si vivo».
-    if (/\b(?:no|ya no|ojala|cuando)\s*$/.test(before) || /\bsi\s*$/i.test(literalBefore)) continue
-    const after = source.slice((match.index || 0) + match[0].length).split(otherDeclaration)[0]
-      .split(/\b(?:no en|antes|anteriormente|vivia|residia|planeo|quiero vivir|visitando)\b|[;!?]|\.(?:\s|$)/)[0]
-    if (contains(after, value)) return true
-  }
-  return false
-}
-
-const profilePending = (input: Row) => {
-  const pending = object(input.pregunta_pendiente), profile = object(input.perfil_inicial)
-  const missing = Array.isArray(profile.missing) ? profile.missing.map(text) : []
-  const question = words(text(pending.question || pending.text)), id = text(pending.id)
-  return { pending, profile,
-    name: profile.awaiting === true && missing.includes('full_name') || ['lead_profile', 'lead_profile_name'].includes(id)
-      || /\b(?:su nombre|que nombre|como (?:se llama|le (?:llamamos|llame)))\b/.test(question),
-    residence: profile.awaiting === true && missing.some(key => ['residence_city', 'residence_country'].includes(key))
-      || ['lead_profile', 'lead_profile_residence', 'lead_residence_confirmation'].includes(id)
-      || /\b(?:vive|viven|reside|residen|residencia)\b/.test(question) }
-}
-
-/** The model proposes typed facts. Evidence validation preserves ambiguous places as candidates. */
+/** The extractor owns meaning; this boundary checks structure and provenance only.
+ * Evidence is an audit citation, never a second natural-language classifier. */
 export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row {
-  const { pending, profile, name: awaitsName, residence: awaitsResidence } = profilePending(input)
+  const pending = object(input.pregunta_pendiente), profile = object(input.perfil_inicial)
   const evidence = object(raw.profile_evidence), accepted: Row = { full_name: null, residence_city: null, residence_country: null }
   const values: Row = { full_name: null, residence_city: null, residence_country: null }
   const diagnostics: string[] = []
-  const currentWords = words(current)
-  const hasDisqualifier = /\b(?:soy de|somos de|naci|nacido|nacida|nacionalidad|origen|escribo desde|estoy en|de viaje|vacaciones|proyecto|edificio|vivia|residia|vivire|residire|quiero vivir|planeo vivir)\b/.test(currentWords)
-  const hasResidence = /\b(?:vivo|vivimos|resido|residimos|viviendo|residencia|domicilio|radicad[oa])\b/.test(currentWords)
   const validValue = (value: unknown, quote: unknown) => !!label(value) && literal(text(quote), current) && contains(text(quote), label(value))
-  const name = label(raw.full_name), nameQuote = text(evidence.full_name).trim()
-  if (validValue(name, nameQuote) && !/\bno (?:me llamo|soy)\b/.test(words(nameQuote)) && !declaredBy(nameQuote, name, originMarker)
-    && (awaitsName || /\b(?:me llamo|mi nombre es|soy|digame|llameme|puede llamarme)\b/.test(words(nameQuote)))) {
-    values.full_name = name; accepted.full_name = nameQuote
-  }
-  for (const key of ['residence_city', 'residence_country']) {
+  for (const key of ['full_name', 'residence_city', 'residence_country']) {
     const value = label(raw[key]), quote = text(evidence[key]).trim()
-    if (!validValue(value, quote)) continue
-    const explicit = declaredBy(current, value, residenceMarker) && declaredBy(quote, value, residenceMarker)
-    const shortAnswer = awaitsResidence && !hasDisqualifier && !hasResidence
-      && !/\b(?:no|prefiero no|no quiero|no deseo|no voy a)\b/.test(currentWords)
-    if (!explicit && !shortAnswer) continue
+    if (!value) continue
+    if (!validValue(value, quote)) { diagnostics.push(key + '_invalid_provenance'); continue }
     values[key] = value; accepted[key] = quote
   }
-
   let declared: Row | null = null
   const proposed = object(raw.declared_location), kind = text(proposed.kind), quote = text(proposed.evidence).trim()
-  if (['origin', 'temporary', 'unspecified'].includes(kind) && literal(quote, current)) {
+  if (['origin', 'temporary', 'former', 'future', 'unspecified'].includes(kind) && literal(quote, current)) {
     const location: Row = { city: null, country: null, kind, evidence: quote }
-    for (const field of ['city', 'country']) {
-      const value = label(proposed[field])
-      if (!validValue(value, quote)) continue
-      const supported = kind === 'origin' ? declaredBy(quote, value, originMarker)
-        : kind === 'temporary' ? declaredBy(quote, value, temporaryMarker)
-        : !hasDisqualifier && !hasResidence && awaitsResidence
-      if (supported) location[field] = value
-    }
+    for (const field of ['city', 'country']) if (validValue(proposed[field], quote)) location[field] = label(proposed[field])
     if (location.city || location.country) declared = location
   }
-  // Compatibility with an older extractor returning origin in residence_city/country.
-  if (!declared) {
-    const location: Row = { city: null, country: null, kind: 'origin', evidence: null }
-    for (const [key, field] of [['residence_city', 'city'], ['residence_country', 'country']]) {
-      const value = label(raw[key]), quote = text(evidence[key]).trim()
-      if (!validValue(value, quote) || !declaredBy(current, value, originMarker)) continue
-      location[field] = value; location.evidence = quote
-    }
-    if (location.city || location.country) { declared = location; diagnostics.push('origin_preserved_as_declared_location') }
-  }
-
   let confirmation: Row | null = null
   const candidate = object(profile.residence_candidate), target = object(pending.residence_candidate)
   const sameCandidate = !!(label(candidate.city) || label(candidate.country))
@@ -115,19 +55,13 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
   const confirmationQuote = text(proposedConfirmation.evidence).trim()
   const answer = object(object(raw.turn_semantics).answer_to_previous)
   const contradictsPendingAnswer = Object.keys(answer).length > 0 && (answer.question_id !== 'lead_residence_confirmation' || answer.kind === 'none')
-  const declaredCandidateDiffers = declared && declared.kind !== 'temporary'
+  const declaredCandidateDiffers = declared && ['origin', 'unspecified'].includes(text(declared.kind))
     && ((declared.city && words(text(declared.city)) !== words(text(candidate.city)))
       || (declared.country && words(text(declared.country)) !== words(text(candidate.country))))
   if (text(pending.id) === 'lead_residence_confirmation' && sameCandidate && ['confirm', 'deny'].includes(decision)
     && !contradictsPendingAnswer && !declaredCandidateDiffers
     && proposedConfirmation.confidence === 'high' && literal(confirmationQuote, current)) {
-    // A confirmation belongs to this question and candidate, never to an unrelated yes in the turn.
-    const fragment = words(confirmationQuote)
-    const positive = /^(?:si\b|claro\b|correcto\b|exacto\b|asi es\b|afirmativo\b|confirmo\b)/.test(fragment)
-      || /\b(?:ese|esa) es mi (?:residencia|domicilio)\b/.test(fragment)
-    const negative = /^(?:no\b|negativo\b)/.test(fragment) || /\b(?:no vivo|no resido|no es mi residencia)\b/.test(fragment)
-    if ((decision === 'confirm' && positive && !negative && !/\b(?:pero no|ya no|no vivo|no resido)\b/.test(currentWords))
-      || (decision === 'deny' && negative)) confirmation = { decision, evidence: confirmationQuote, confidence: 'high' }
+    confirmation = { decision, evidence: confirmationQuote, confidence: 'high' }
   }
   // Explicit current residence always wins over an earlier place or a bare confirmation.
   let status = 'unknown', residenceCandidate: Row | null = null
@@ -142,14 +76,14 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
     status = 'confirmed'; diagnostics.push('residence_candidate_confirmed')
   } else if (confirmation?.decision === 'deny') {
     status = 'unknown'; diagnostics.push('residence_candidate_denied')
-  } else if (/\b(?:prefiero no|no quiero|no deseo|no voy a)\b[^.!?]{0,80}\b(?:decir|indicar|compartir|dar|responder)\b/.test(currentWords)
-    && awaitsResidence) {
+  } else if (object(raw.residence_response).status === 'declined'
+    && literal(text(object(raw.residence_response).evidence), current)) {
     status = 'declined'; diagnostics.push('residence_collection_declined')
-  } else if (declared && declared.kind !== 'temporary') {
+  } else if (declared && ['origin', 'unspecified'].includes(text(declared.kind))) {
     status = 'pending_confirmation'
     residenceCandidate = { city: declared.city, country: declared.country, evidence: declared.evidence }
     diagnostics.push('declared_location_needs_residence_confirmation')
-  } else if (declared) diagnostics.push('temporary_location_not_residence')
+  } else if (declared) diagnostics.push('noncurrent_location_not_residence')
   if (text(pending.id) === 'lead_residence_confirmation' && proposedConfirmation.decision && !sameCandidate)
     diagnostics.push('residence_confirmation_target_mismatch')
   if (proposedConfirmation.decision && contradictsPendingAnswer) diagnostics.push('residence_confirmation_answer_mismatch')
@@ -204,7 +138,8 @@ export function mergeLeadProfile(previousInput: unknown, incomingInput: unknown,
 }
 
 export const LEAD_PROFILE_EXTRACTION_RULES = `
-Separe lugar declarado y residencia ACTUAL. declared_location conserva ciudad/pais y evidence literal: kind=origin para "soy de", nacimiento u origen; temporary para "escribo desde", viaje o vacaciones; unspecified solo para un lugar cuyo papel es ambiguo. Nunca borre un origen por no ser residencia.
+Usted es responsable de interpretar semánticamente el perfil: identidad, residencia actual, negaciones, correcciones, temporalidad y respuestas a preguntas pendientes. El sistema NO vuelve a interpretar verbos ni mantiene una lista de expresiones permitidas. Use el significado y el contexto, incluso con errores ortográficos y formulaciones nuevas; no limite la residencia a las palabras vivo/resido. Una mudanza ya realizada que indica dónde vive ahora acredita residencia; una mudanza planeada no. No convierta nombres de terceros o del contacto de WhatsApp en el nombre declarado del lead.
+residence_city/residence_country contienen solamente residencia ACTUAL inequívoca. Si es ambiguo, devuelva null y declared_location.kind=unspecified. Para residencia anterior use kind=former, para un destino futuro kind=future; ninguno es candidato actual. residence_response={status:declined,evidence:cita literal} solo si el lead rehúsa proporcionar su residencia; en otro caso null. Interprete afirmaciones y negaciones de confirmación antes de emitir residence_confirmation, sin limitarse a sí/no. Separe lugar declarado y residencia ACTUAL. declared_location conserva ciudad/pais y evidence literal: kind=origin para "soy de", nacimiento u origen; temporary para "escribo desde", viaje o vacaciones; unspecified solo para un lugar cuyo papel es ambiguo. Nunca borre un origen por no ser residencia.
 "Soy de Cuenca" conserva Cuenca como origen y candidato por confirmar; NO llena residence_city ni residence_country, ni siquiera después de preguntar residencia. "Soy de Cuenca pero vivo en Guayaquil" conserva Cuenca en declared_location y Guayaquil como residence_city con evidencia "vivo en Guayaquil". Si nombra explícitamente la residencia no necesita confirmar el origen.
 Un país o una ciudad debe aparecer literalmente en su evidencia actual. No infiera país de ciudad, teléfono, nombre, proyecto ni historia. Lugares temporales, deseados, futuros, antiguos o negados no acreditan residencia. Nombre y perfil no eligen un inmueble ni autorizan una cita.
 residence_confirmation solo puede responder pregunta_pendiente.id=lead_residence_confirmation y su residence_candidate, coincidente con perfil_inicial.residence_candidate. Para "sí" o "no" devuelva confirm/deny con evidence actual y confidence; no copie el lugar histórico como una declaración literal nueva. Una corrección explícita de residencia prevalece. Una aceptación de brochure, precio o cita no confirma residencia. Si no es una respuesta inequívoca a esa pregunta, devuelva null.

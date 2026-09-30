@@ -69,8 +69,7 @@ export function reservationOperationalIssues(reply: string, audit: Row = {}): st
   if (confirmsStock && receipt.request_status !== 'confirmed') issues.push('reservation_not_confirmed')
   const claimsAssigned = /\basesor[a]?\s+(?:ya\s+)?asignad[oa]\b|\b(?:he|hemos|ya)\s+(?:le\s+)?asignado\b|\b(?:le|se le)\s+asigno\b/.test(value)
   if (claimsAssigned && !(receipt.handoff_verified === true && ['assigned', 'acknowledged'].includes(text(receipt.status)) && receipt.advisor_assigned === true)) issues.push('advisor_assignment_not_verified')
-  const claimsHandoff = /\b(?:he|hemos|ya)\s+(?:le\s+)?(?:derivado|pasado|enviado|registrado|solicitado|comunicado)\b|\b(?:solicitud|consulta)\s+(?:ha quedado|esta|quedo)\s+(?:registrada|enviada|derivada|en cola)\b/.test(value)
-  if (claimsHandoff && receipt.handoff_verified !== true) issues.push('reservation_handoff_not_verified')
+  // Handoff meaning and its matching receipt are checked by the semantic reviewer.
   return issues
 }
 

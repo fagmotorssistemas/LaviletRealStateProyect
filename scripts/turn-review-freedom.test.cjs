@@ -16,6 +16,44 @@ const approved = { all_requests_considered: true, answers_supported: true, answe
   operational_goal_preserved: true, question_has_purpose: true, question: { purpose: 'none', missing_datum: '', next_decision: '', clarifies: [] }, missing_fact_fragments: [], review_issues: [], claims: [], factual_values: [] }
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 
+test('personal acknowledgements reach the reviewer and pass with lead evidence, including during a handoff', async () => {
+  const current = 'Me llamo Ernesto y me mudé a Guayaquil'
+  for (const reply of ['He registrado su nombre y su residencia en Guayaquil.', 'Tomo nota de sus datos, Ernesto.']) {
+    const mock = sequence(candidate(current, reply), (rules, context) => {
+      assert.match(rules, /Reconocer el nombre, residencia/)
+      return { ...approved, claims: [{ fragment: 'S1', subject: 'Datos personales', polarity: 'affirmation',
+        claim_kind: 'lead_statement', verdict: 'supported', evidence: 'Reconoce los datos declarados.',
+        evidence_source: 'lead_declaration', evidence_ids: [context.evidencia_afirmaciones.find(source => source.path === 'mensaje_actual').id] }] }
+    })
+    const result = await completeTurnReply({ current, baseReply: 'Gracias.', verified: {},
+      audit: { semantic_review_enabled: true, reservation: { handoff_verified: false } } }, mock.generate)
+    assert.equal(result.reply, reply)
+    assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+    assert.equal(mock.calls.length, 2)
+  }
+})
+
+test('semantic review blocks fabricated commercial actions even when another action has a receipt', async () => {
+  for (const reply of ['Su cita ya está confirmada.', 'La unidad quedó reservada.', 'He enviado su consulta al asesor.']) {
+    const current = 'Gracias por registrar mis datos'
+    let reviews = 0
+    const generate = async (_rules, context) => {
+      if (!context.respuesta_propuesta) return candidate(current, reply)
+      reviews++
+      return { ...approved, answers_supported: false, review_issues: [{ kind: 'commercial_content',
+        code: 'unverified_operation', fragment: 'S1', detail: 'No hay resultado confirmado de esta acción.' }],
+      claims: [{ fragment: 'S1', subject: 'Gestión comercial', polarity: 'affirmation', claim_kind: 'operational_fact',
+        verdict: 'unsupported', evidence: 'El registro de datos no acredita esta gestión.', evidence_source: 'none', evidence_ids: [] }] }
+    }
+    const result = await completeTurnReply({ current, baseReply: 'Gracias.', verified: {}, audit: {
+      semantic_review_enabled: true, registration_verified: true, action: 'profile_updated',
+    } }, generate)
+    assert.ok(reviews > 0)
+    assert.notEqual(result.reply, reply)
+    assert.notEqual(result.audit.status, 'checked')
+  }
+})
+
 test('a failed review of a single empty search recovers its verified answer without approving the draft', async () => {
   const current = '¿Tiene viviendas de 5 dormitorios?'
   const draft = 'No hay viviendas de 5 dormitorios. Podemos conseguir otra fuera del proyecto.'
@@ -177,10 +215,10 @@ test('reviewed household distribution advice permits digits as well as words wit
   }
 })
 
-test('a template cannot authorize a completed action, while a verified receipt can be worded freely', () => {
+test('operational wording reaches semantic review instead of a verb blacklist', () => {
   const draft = 'Hemos registrado su solicitud.'
   const input = { current: 'Quiero solicitar una visita', verified: {}, baseReply: draft }
-  assert.ok(turnCompletenessIssues(input, draft, noQuestion).includes('new_operational_claim'))
+  assert.ok(!turnCompletenessIssues(input, draft, noQuestion).includes('new_operational_claim'))
   assert.deepEqual(turnCompletenessIssues({ ...input, baseReply: 'Su solicitud está registrada.',
     audit: { registration_verified: true, action: 'submitted' } }, draft, noQuestion), [])
 })
