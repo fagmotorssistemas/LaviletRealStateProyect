@@ -245,6 +245,7 @@ function DraftDecision({ data }: { data: unknown }) {
 
 function ReviewDecision({ output, catalog }: { output: Record<string, unknown>; catalog: Record<string, unknown>[] }) {
   const decision = reviewDecision(output, catalog)
+  const policies = Array.isArray(output.business_policy_sources) ? output.business_policy_sources.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object') : []
   return <section className={styles.reviewVerdict} data-tone={decision.tone} aria-label="Resultado de la validación del borrador">
     <h5>{decision.title}</h5><p>{decision.explanation}</p>
     {decision.causes.length > 0 && <><strong>Por qué se tomó esta decisión</strong><ul>{decision.causes.map((cause, index) => <li key={index}>{cause}</li>)}</ul></>}
@@ -252,6 +253,15 @@ function ReviewDecision({ output, catalog }: { output: Record<string, unknown>; 
     {decision.resolvedDetails.length > 0 && <details><summary>Referencias internas corregidas</summary><ul>{decision.resolvedDetails.map((detail, index) => <li key={index}>{detail}</li>)}</ul></details>}
     {output.review_reference_source != null && <p>Las referencias de unidades se contrastan con los hechos guardados en el resultado de esta misma ejecución, no con el catálogo actual.</p>}
     <strong>¿Se intentó reparar?</strong><p>{decision.repair}</p>
+    <details><summary>Políticas comerciales disponibles en esta ejecución ({policies.length})</summary>
+      <p>Esta lista conserva las versiones entregadas a la IA, aunque la configuración actual haya cambiado. Estar disponible no significa que el revisor la haya citado.</p>
+      {policies.map(policy => <div key={String(policy.policy_id)}><strong>{String(policy.title)} · versión {String(policy.version)}</strong>
+        <p>{String(policy.policy_content)}</p><p>Alcance: {String(policy.scope)} · Fuente: {String(policy.source)}</p>
+        <Link href={`/inmobiliaria/automatizacion/conocimiento?seccion=politicas&politica=${encodeURIComponent(String(policy.policy_id))}`}>Ver política actual</Link>
+      </div>)}
+      {!policies.length && <p>{'business_policy_sources' in output ? 'No se entregaron políticas comerciales publicadas para esta ejecución.' : 'Este registro histórico no conserva políticas comerciales.'}</p>}
+      <Link href="/inmobiliaria/automatizacion/conocimiento?seccion=politicas">Administrar políticas comerciales</Link>
+    </details>
   </section>
 }
 

@@ -1,0 +1,29 @@
+.navigation { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0; }
+.navigation a { padding:10px 14px; border:1px solid #dce3d7; border-radius:8px; background:white; color:#465440; text-decoration:none; font-size:13px; }
+.navigation a[aria-current='page'] { background:#26372d; color:white; border-color:#26372d; }
+.toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin:20px 0; }
+.toolbar input { flex:1; min-width:190px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+.card, .editor { background:white; border:1px solid #dce3d7; border-radius:12px; padding:22px; }
+.card { display:flex; flex-direction:column; gap:12px; }
+.card h2,.editor h2 { font-size:19px; color:#26372d; font-weight:600; }
+.card p,.editor p,.description { color:#60705a; line-height:1.6; font-size:14px; }
+.card a { color:#365932; text-underline-offset:4px; margin-top:auto; }
+.badge { font-size:12px; color:#496241; background:#eef3e9; border-radius:5px; padding:4px 8px; width:fit-content; }
+.editor { margin-top:20px; }
+.form { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:20px 0; }
+.form label { display:flex; flex-direction:column; gap:7px; font-size:14px; color:#34482d; }
+.wide { grid-column:1/-1; }
+.form input,.form select,.form textarea,.toolbar input { border:1px solid #cbd5c4; border-radius:6px; padding:10px 12px; background:white; color:#26372d; width:100%; }
+.form textarea { min-height:105px; resize:vertical; }
+.buttons { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+.buttons button,.toolbar button { padding:10px 15px; border:1px solid #bccbb3; border-radius:6px; background:#f4f7f0; color:#26372d; cursor:pointer; }
+.buttons button.primary,.toolbar button { background:#26372d; color:white; }
+.buttons button:disabled { opacity:.5; cursor:default; }
+.error { color:#9b2828; background:#fff0ee; padding:12px; border-radius:6px; margin:12px 0; }
+.notice { color:#34552b; background:#edf5e6; padding:12px; border-radius:6px; margin:12px 0; }
+.history { margin-top:20px; border-top:1px solid #e0e7db; padding-top:16px; }
+.history summary { cursor:pointer; color:#34482d; padding:8px 0; }
+.history pre { white-space:pre-wrap; font-family:inherit; font-size:14px; padding:12px; background:#f7f9f4; }
+.navigation a:focus-visible,.buttons button:focus-visible,.toolbar button:focus-visible,.card a:focus-visible { outline:3px solid #a29166; outline-offset:3px; }
+@media(max-width:640px) { .form { grid-template-columns:1fr; } .card,.editor { padding:16px; } }

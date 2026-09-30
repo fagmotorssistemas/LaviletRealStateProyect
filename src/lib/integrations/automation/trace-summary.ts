@@ -1,8 +1,8 @@
 type Summary = Record<string, unknown>
 
-const internalIdKey = /^(?:id|batch_id|batch_event_ids|event_id|event_ids|conversation_id|lead_id|unit_id|unit_ids|candidate_unit_ids|selected_unit_ids|result_unit_ids|reference_unit_ids|target_ids|candidate_ids|focused_ids|offered_ids|comparison_ids)$/
+const internalIdKey = /^(?:id|policy_id|batch_id|batch_event_ids|event_id|event_ids|conversation_id|lead_id|unit_id|unit_ids|candidate_unit_ids|selected_unit_ids|result_unit_ids|reference_unit_ids|target_ids|candidate_ids|focused_ids|offered_ids|comparison_ids)$/
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const replyTextKey = /^(?:(?:base|proposed|final|approved|candidate|response|rejected)_preview|(?:approved|candidate|final)_text|before|after)$/
+const replyTextKey = /^(?:(?:base|proposed|final|approved|candidate|response|rejected)_preview|(?:approved|candidate|final|policy)_text|policy_content|before|after)$/
 
 const privateKey = /^(?:.*_)?(?:authorization|password|secret|token|api_key|access_token|refresh_token|phone|telefono|mobile|email|correo|cedula|dni|identificacion|national_id|full_name|ruc|job_title|employment_stability_months|account_number|numero_cuenta|salary|salario|sueldo|income|ingresos|employer|empleador|financial_documents|personal_data)$/i
 

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import styles from './AutomationWorkspace.module.css'
 
-export function AutomationSectionTabs({ active, attentionCount }: { active: 'monitoreo' | 'control' | 'workflow' | 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' | 'pruebas'; attentionCount?: number }) {
+export function AutomationSectionTabs({ active, attentionCount }: { active: 'monitoreo' | 'control' | 'workflow' | 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' | 'pruebas' | 'conocimiento'; attentionCount?: number }) {
   const { isAdmin } = useRoleAccess()
   const [remoteAttentionCount, setRemoteAttentionCount] = useState<number | null>(null)
   useEffect(() => {
@@ -28,16 +28,10 @@ export function AutomationSectionTabs({ active, attentionCount }: { active: 'mon
     { id: 'control', href: '/inmobiliaria/automatizacion/control', label: 'Control de leads' },
     { id: 'workflow', href: '/inmobiliaria/automatizacion/workflow', label: 'Flujo visual' },
     ...(isAdmin ? [
-      { id: 'reglas', href: '/inmobiliaria/automatizacion/reglas', label: 'Reglas y SLA' },
-      { id: 'guion', href: '/inmobiliaria/automatizacion/guion', label: 'Guion del bot' },
-      { id: 'proyecto', href: '/inmobiliaria/automatizacion/proyecto', label: 'Estado del proyecto' },
-      { id: 'estilo', href: '/inmobiliaria/automatizacion/estilo', label: 'Estilo de conversación' },
-      { id: 'pruebas', href: '/inmobiliaria/automatizacion/pruebas', label: 'Modo de pruebas' },
-      { id: 'precios', href: '/inmobiliaria/automatizacion/precios', label: 'Precios' },
-      { id: 'ubicacion', href: '/inmobiliaria/automatizacion/ubicacion', label: 'Ubicación' },
+      { id: 'conocimiento', href: '/inmobiliaria/automatizacion/conocimiento', label: 'Conocimiento y reglas' },
     ] : []),
   ]
   return <nav className={styles.tabs} aria-label="Secciones de automatización">
-    {tabs.map(tab => <Link key={tab.id} href={tab.href} aria-current={active === tab.id ? 'page' : undefined}>{tab.label}</Link>)}
+    {tabs.map(tab => <Link key={tab.id} href={tab.href} aria-current={(active === tab.id || tab.id === 'conocimiento' && !['monitoreo', 'control', 'workflow'].includes(active)) ? 'page' : undefined}>{tab.label}</Link>)}
   </nav>
 }

@@ -28,6 +28,32 @@ function assertPending(result, ...rejectedReplies) {
   for (const rejected of rejectedReplies) assert.notEqual(result.reply, rejected)
 }
 
+test('published business policies reach writer and reviewer with the same version and survive the response audit', async () => {
+  const { changeBusinessPolicy, emptyPolicy, publishedBusinessPolicies } = require('../src/lib/inmobiliaria/businessPolicies.ts')
+  const current = '¿Pueden darme información aunque resida en Colombia?'
+  const reply = 'Podemos compartir información del proyecto con residentes en Colombia.'
+  const stored = changeBusinessPolicy({}, { action: 'publish', id: 'remote-information', value: {
+    ...emptyPolicy(), title: 'Información a distancia', content: reply, scope: 'Solo información, sin confirmar condiciones de compra.', source: 'Equipo comercial',
+  } }, 'admin', '2026-09-30T16:00:00Z')
+  const policies = publishedBusinessPolicies(stored, 'preventa', '2026-09-30T16:00:00Z')
+  let calls = 0
+  const result = await completeTurnReply({ current, baseReply: reply, verified: { politicas_negocio: policies }, audit: { semantic_review_enabled: true } }, async (instructions, context) => {
+    calls++
+    assert.deepEqual(context.contexto_verificado.politicas_negocio, policies)
+    assert.match(instructions, /Residencia en el extranjero y nacionalidad son conceptos distintos/)
+    if (calls === 1) return { reply, requests: [covered(current)], question: noQuestion }
+    const source = context.evidencia_afirmaciones.find(item => item.path === 'contexto_verificado.politicas_negocio.0')
+    assert.equal(source.value.version, 1)
+    return { ...approved, question: { ...noQuestion, clarifies: [] }, review_issues: [], claims: [{ fragment: 'S1', subject: 'Información a distancia',
+      polarity: 'affirmation', claim_kind: 'project_fact', verdict: 'supported', evidence: 'Política publicada de información a distancia',
+      evidence_source: 'verified_context', evidence_ids: [source.id] }] }
+  })
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit.semantic_review))
+  assert.equal(result.reply, reply)
+  assert.equal(calls, 2)
+  assert.deepEqual(result.audit.business_policy_sources, policies)
+})
+
 test('a template tour is optional unless requested; authorized links and required delivery are separate', () => {
   const url = 'https://www.lavilett.com/tour?unidad=605'
   const base = `Penthouse 605. Puede explorar el recorrido: ${url}`

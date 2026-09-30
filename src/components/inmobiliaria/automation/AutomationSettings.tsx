@@ -4,13 +4,15 @@ import { createContext, useContext, useId, useState, type ReactNode } from 'reac
 import { ArrowUpRight, BellRing, ChevronRight, type LucideIcon } from 'lucide-react'
 import { useVisitInboxContext } from '@/contexts/VisitInboxContext'
 import { AutomationSectionTabs } from './AutomationSectionTabs'
+import { KnowledgeNavigation } from './KnowledgeNavigation'
+import { knowledgeSectionFor } from '@/lib/inmobiliaria/knowledgeSections'
 import workspace from './AutomationWorkspace.module.css'
 import styles from './AutomationSettings.module.css'
 
 export { styles as automationSettingsStyles }
 
 export function AutomationSettingsHeader({ active, title, description, project }: {
-  active: 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' | 'pruebas'; title: string; description: string; project: ReactNode
+  active: 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' | 'pruebas' | 'conocimiento'; title: string; description: string; project: ReactNode
 }) {
   const inbox = useVisitInboxContext()
   return <>
@@ -27,6 +29,7 @@ export function AutomationSettingsHeader({ active, title, description, project }
         </button>
       </div>
     </header>
+    {active !== 'conocimiento' && <KnowledgeNavigation active={knowledgeSectionFor(active)} />}
     <div className={styles.projectBar}><div>{project}</div><p>Revise la configuración del proyecto.<br /><span>Guarde cada sección cuando termine de editarla.</span></p></div>
   </>
 }

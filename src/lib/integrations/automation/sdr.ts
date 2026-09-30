@@ -1,5 +1,6 @@
 import 'server-only'
 import { activePrompt, aiJson, draftReply } from './ai'
+import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
 import { recordDraftDecision } from './ai-execution-trace'
 import { db, object, scope, text, type Row } from './data'
 import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
@@ -83,6 +84,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     perfil_lead: profile, conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
+    politicas_negocio: publishedBusinessPolicies(projectData.policies_json, mode),
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),

@@ -1296,6 +1296,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
+      business_policy_sources: reviewed.audit.business_policy_sources,
       resolved_turn_intent: turnIntent,
       reservation: audit.reservation,
       interpretation: interpretation.diagnostic,
