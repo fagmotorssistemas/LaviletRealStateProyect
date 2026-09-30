@@ -238,7 +238,7 @@ export function reviewedContextualGuidance(reply: string, audit: Row): string[] 
   }).map(claim => text(claim.fragment))
 }
 
-export function reviewClaims(value: unknown, reply: string, sources?: Row[]): { valid: boolean; claims: Row[]; issues: Row[] } {
+export function reviewClaims(value: unknown, reply: string, sources?: Row[], structuredOnly = false): { valid: boolean; claims: Row[]; issues: Row[] } {
   if (!Array.isArray(value) || value.length > 16)
     return { valid: false, claims: [], issues: [{ code: 'invalid_claim_list', kind: 'review_metadata' }] }
   const claims = value.map(object)
@@ -260,7 +260,7 @@ export function reviewClaims(value: unknown, reply: string, sources?: Row[]): { 
       if (kind === 'contextual_guidance') {
         if (claim.evidence_source !== 'contextual_reasoning' || ids.length)
           result.push({ ...detail, code: 'invalid_guidance_evidence', kind: 'review_metadata' })
-        if (guidanceNeedsFactualEvidence(fragment))
+        if (!structuredOnly && guidanceNeedsFactualEvidence(fragment))
           result.push({ ...detail, code: 'guidance_contains_factual_assertion', kind: 'review_metadata' })
       } else if (claim.verdict === 'supported') {
         const expectedSource = kind === 'lead_statement' ? 'lead_declaration'

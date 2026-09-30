@@ -1,3 +1,4 @@
+import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, STRUCTURED_FACT_RULES } from './structured-facts'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import { DIALOGUE_WRITING_RULES, DIALOGUE_REVIEW_RULES } from './dialogue-writing-rules'
 import { checkReviewDecision, reviewIssuesSchema, REVIEW_CHECK_RULES, FACTUAL_REVIEW_SCOPE_RULES } from './turn-review-checks'
@@ -13,7 +14,6 @@ import { TURN_INTENT_RULES, turnIntentIssues } from './turn-intent'
 import { isCategoryOverview, validateCatalogReply } from './catalog-dialogue'
 import { pendingTurnReply } from './delivery-integrity'
 import { projectQuantityEvidence, validateProjectQuantities, withoutSupportedQuantities } from './project-quantities'
-import { NUMERIC_RELATION_RULES } from './semantic-review'
 import { turnEvidence, normalizeReviewReferences, replyReferences, sentenceReferenceReviewSchema, verifiedClaimSources, draftNumericCandidates } from './turn-evidence'
 import { compactTurnPromptContext, TURN_CONTEXT_REFERENCE_RULES } from './turn-prompt-context'
 import { BUSINESS_SCOPE_WRITING_RULES } from './scope-response'
@@ -31,7 +31,7 @@ import { assessMissingFacts, catalogCoversFragment, coverageFactKeys } from './c
 import { traceText } from './trace-summary'
 import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
 import { decidedOpening, replyOpening, recentReplyOpenings } from './response-openings'
-import { claimSchema, CLAIM_RULES, reviewClaims, reviewRepairCoverageIssues, factualValuesSchema, FLEXIBLE_FACT_RULES, factualValueIssues, reviewedContextualGuidance } from './semantic-review'
+import { claimSchema, CLAIM_RULES, reviewClaims, factualValuesSchema, reviewedContextualGuidance } from './semantic-review'
 
 export type TurnCompletenessInput = {
   current: string
@@ -158,6 +158,11 @@ function queryConstraintNumbers(audit: Row = {}): string[] {
 export function turnCompletenessIssues(input: TurnCompletenessInput, reply: string): string[] {
   const issues: string[] = [], source = input.baseReply, facts = verifiedText(input.verified)
   const semantic = input.audit?.semantic_review_enabled === true
+  if (semantic) return [
+    ...(!reply.trim() ? ['empty_reply'] : []),
+    ...(reply.length > MAX_REPLY_CHARACTERS ? ['transport_length'] : []),
+    ...replyLinkIssues(reply, replyLinkContract(source, input.audit, input)),
+  ]
   issues.push(...leadIntroductionIssues(reply, input.audit || {}))
   issues.push(...turnIntentIssues(reply, input.audit?.resolved_turn_intent || input.verified.contrato_turno, input.verified.respuesta_precio_verificada))
   if (!semantic) issues.push(...reservationOperationalIssues(reply, input.audit))
@@ -383,7 +388,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const fallbackCheck = validateCatalogReply(reply, input.audit || {})
     const uncoveredBase = requests.filter(request => request.base_status === 'unanswered'
       && !catalogCoversFragment(request.fragment, request.fact_key, input.audit))
-    const fallbackIssues = [...(!fallbackCheck.valid ? [fallbackCheck.reason] : []), ...validateProjectQuantities(reply, sharedEvidence.project_facts).issues, ...replyLinkIssues(reply, linkContract), ...reservationOperationalIssues(reply, input.audit), ...(input.validateReply?.(reply) || []),
+    const fallbackIssues = [...(!fallbackCheck.valid ? [fallbackCheck.reason] : []), ...validateProjectQuantities(reply, sharedEvidence.project_facts).issues, ...replyLinkIssues(reply, linkContract), ...reservationOperationalIssues(reply, input.audit), ...(input.audit?.semantic_review_enabled === true ? [] : input.validateReply?.(reply) || []),
       ...(!reply.trim() ? ['empty_reply'] : reply.length > MAX_REPLY_CHARACTERS ? ['transport_length'] : []),
       ...turnIntentIssues(reply, turnIntent, input.verified.respuesta_precio_verificada),
       ...(uncoveredBase.length ? ['fallback_unanswered_request'] : [])]
@@ -456,7 +461,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     }
     requests = rows
     const preparedReply = input.audit?.semantic_review_enabled === true ? text(candidate.reply).trim() : currentTopicReply(text(candidate.reply).trim(), input.current)
-    const reply = input.normalizeReply?.(preparedReply) ?? preparedReply
+    const reply = input.audit?.semantic_review_enabled === true ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply
     textTransformations = [
       ...(proposedReply !== preparedReply ? [{ stage: 'Formato de la propuesta', before: proposedReply, after: preparedReply }] : []),
       ...(preparedReply !== reply ? [{ stage: 'Normalización de la ruta antes de revisión', before: preparedReply, after: reply }] : []),
@@ -469,13 +474,13 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     continuationChecks = {}
     const allIssues = turnCompletenessIssues(input, reply)
     finalValidation = { passed: false, issues: allIssues,
-      project_quantity_checks: validateProjectQuantities(reply, sharedEvidence.project_facts).details,
+      project_quantity_checks: input.audit?.semantic_review_enabled === true ? [] : validateProjectQuantities(reply, sharedEvidence.project_facts).details,
       validated_text: reply, policy: 'subject_attribute_quantity_v2' }
     // Semantic review gets to evaluate meaning before numerical catalogue controls.
     // The latter still run before acceptance; they cannot be waived by the model.
     const deferredIssues: string[] = input.audit?.semantic_review_enabled === true ? allIssues.filter(issue => issue === 'numbers_changed') : []
     const issues = allIssues.filter(issue => !deferredIssues.includes(issue))
-    if (groundedPrice) issues.push(...verifiedPriceReplyIssues(reply, input.verified, input.current, verifiedQuote!))
+    if (input.audit?.semantic_review_enabled !== true && groundedPrice) issues.push(...verifiedPriceReplyIssues(reply, input.verified, input.current, verifiedQuote!))
     if (input.audit?.semantic_review_enabled !== true && reply !== input.baseReply.trim() && passiveSalesCopy(reply, input.current, engagement) !== reply) issues.push('unsolicited_sales_offer')
     if (issues.length) {
       const inventedUrl = issues.includes('unauthorized_link')
@@ -487,15 +492,15 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const reviewRequired = unresolved.length > 0 || !!question.text || !!input.audit?.profile_introduction || adaptiveContinuation || input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
     if (reviewRequired) {
       const sentenceReferences = replyReferences(reply)
-      const numericCandidates = draftNumericCandidates(reply)
+      const numericCandidates = input.audit?.semantic_review_enabled === true ? [] : draftNumericCandidates(reply)
       Object.assign(context, { oraciones_borrador: sentenceReferences })
       const semanticEnabled = input.audit?.semantic_review_enabled === true
       const reviewInstructions = REVIEW_RULES + '\n' + BUSINESS_POLICY_RULES + '\n' + TURN_INTENT_RULES + RESIDENTIAL_CONTINUITY_RULES
         + (input.audit?.profile_introduction ? '\n' + LEAD_INTRODUCTION_RULES : '')
         + (input.audit?.progressive_selection || input.audit?.post_tour_continuation ? '\n' + PROGRESSIVE_OPTIONS_RULES : '')
         + '\n' + passiveSalesRules(engagement) + visitRules
-        + (semanticEnabled ? '\n' + CLAIM_RULES + '\n' + FLEXIBLE_FACT_RULES + '\n' + NUMERIC_RELATION_RULES : '')
-        + '\n' + FACTUAL_REVIEW_SCOPE_RULES + '\n' + OPERATIONAL_REVIEW_RULES + '\n' + SEMANTIC_POLICY_REVIEW_RULES
+        + (semanticEnabled ? '\n' + CLAIM_RULES : '')
+        + '\n' + FACTUAL_REVIEW_SCOPE_RULES + '\n' + OPERATIONAL_REVIEW_RULES + '\n' + SEMANTIC_POLICY_REVIEW_RULES + (semanticEnabled ? '\n' + STRUCTURED_FACT_RULES : '')
       const openingSchema = leadIntroductionReviewSchema(input.audit, sentenceReferences)
       const reviewContext = { ...(openingSchema.required.length ? { contrato_apertura: {
         etapa: 'presentacion_inicial_sin_tipos_de_inmueble',
@@ -508,16 +513,20 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         cifras_del_borrador: numericCandidates,
         respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }
       const baseReviewSchema = semanticEnabled ? evidenceReviewSchema : reviewSchema
-      const activeReviewSchema = sentenceReferenceReviewSchema({ ...baseReviewSchema,
+      let activeReviewSchema = sentenceReferenceReviewSchema({ ...baseReviewSchema,
         properties: { ...openingSchema.properties, ...object(baseReviewSchema.properties) },
-        required: [...openingSchema.required, ...baseReviewSchema.required as string[]] }, reply, input.current, validationCatalog)
+        required: [...openingSchema.required, ...baseReviewSchema.required as string[]] }, reply, input.current, validationCatalog, semanticEnabled)
+      if (semanticEnabled) activeReviewSchema = structuredReviewSchema(activeReviewSchema, sentenceReferences.map(row => text(row.id)), validationCatalog, sharedEvidence.project_facts)
       const evaluateReview = (raw: Row) => {
-        const normalized = normalizeReviewReferences(raw, validationCatalog, reply, input.current)
+        const normalized = normalizeReviewReferences(raw, validationCatalog, reply, input.current, semanticEnabled)
         const review: Row = normalized.review
-        const factIssues = semanticEnabled ? [...sharedEvidence.conflicts, ...factualValueIssues(review.factual_values, reply, validationCatalog)] : []
+        const factIssues = semanticEnabled ? [...sharedEvidence.conflicts, ...structuredFactIssues(review.factual_values, validationCatalog),
+          ...structuredProjectIssues(review.project_values ?? [], sharedEvidence.project_facts),
+          ...(review.factual_inventory_complete === false ? [{ code: 'incomplete_fact_inventory', kind: 'review_metadata' }] : []),
+          ...(object(input.verified.politica_comercial).precios_autorizados === false && (Array.isArray(review.factual_values) ? review.factual_values : []).some(raw => object(raw).field === 'published_commercial_price') ? [{ code: 'price_disclosure_not_authorized', kind: 'commercial_content' }] : [])] : []
         // The runtime schema requires review_issues. Older saved fixtures retain
         // their legacy interpretation; new reviews must reference code-owned facts.
-        const checked = semanticEnabled ? reviewClaims(review.claims, reply, review.review_issues === undefined ? undefined : claimSources)
+        const checked = semanticEnabled ? reviewClaims(review.claims, reply, review.review_issues === undefined ? undefined : claimSources, true)
           : { claims: [], issues: [], valid: true }
         const decision = checkReviewDecision(review, input.current, reply)
         const openingIssues = leadIntroductionReviewIssues(review, input.audit, sentenceReferences)
@@ -533,10 +542,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         activeReviewSchema, undefined, undefined, undefined, 'review'))
       const repairEligibility = { policy: 'review_metadata_v7', budget_available: repairBudget().review_metadata.used === 0,
           eligible: !sharedEvidence.conflicts.length && evaluated.issues.length > 0
-            && evaluated.issues.some(issue => issue.kind === 'review_metadata'),
+            && evaluated.issues.some(issue => issue.kind === 'review_metadata' || issue.kind === 'catalog_data'),
           reason: !evaluated.issues.length ? 'no_metadata_errors'
             : sharedEvidence.conflicts.length ? 'conflicting_system_evidence'
-              : evaluated.issues.some(issue => issue.kind === 'review_metadata') ? 'metadata_repairable' : 'data_or_evidence_error' }
+              : evaluated.issues.some(issue => issue.kind === 'review_metadata' || issue.kind === 'catalog_data') ? 'metadata_repairable' : 'data_or_evidence_error' }
         // Keep the original reason available even if the repair service fails.
         semanticReview = { status: 'rejected', query: input.audit?.catalog_query || null, claims: evaluated.review.claims,
           factual_values: evaluated.review.factual_values, validation_details: evaluated.issues, repair_eligibility: repairEligibility }
@@ -553,16 +562,16 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
                 errores: previous.issues, ficha_anterior: previous.review } }), activeReviewSchema, undefined, undefined, undefined, 'review')
           evaluated = evaluateReview(repaired)
           evaluated.corrections.unshift(...previous.corrections)
-          if (semanticEnabled) evaluated.issues.push(...reviewRepairCoverageIssues(previous.review, evaluated.review, reply, validationCatalog))
+          // The reviewer re-extracts the inventory; a malformed earlier sheet is not evidence.
           repair.remaining_issues = evaluated.issues
         }
         const { review, checked, decision, issues: reviewIssues } = evaluated
         reviewMissing = Array.isArray(review.missing_fact_fragments) ? review.missing_fact_fragments.filter((fragment): fragment is string => typeof fragment === 'string' && literal(fragment, input.current)) : []
         continuationChecks = decision.checks
         editorialObservations.push(...decision.editorial.map(issue => `review_editorial:${text(issue.check)}:${text(issue.reason)}`))
-        semanticReview = { status: reviewIssues.length === 0 ? 'checked' : 'rejected', query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: evaluated.factIssues.length === 0, validation_details: reviewIssues, repair_eligibility: repairEligibility,
+        semanticReview = { status: reviewIssues.length === 0 ? 'checked' : 'rejected', validation_owner: semanticEnabled ? 'structured_facts_v1' : 'legacy', project_values: review.project_values || [], factual_inventory_complete: review.factual_inventory_complete, query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: evaluated.factIssues.length === 0, validation_details: reviewIssues, repair_eligibility: repairEligibility,
           opening_property_type_sentence_ids: review.opening_property_type_sentence_ids,
-          numeric_review_scope: { source: 'actual_draft', candidates: numericCandidates, empty_required: numericCandidates.length === 0 },
+          numeric_review_scope: { source: 'reviewer_inventory', candidates: [], empty_required: validationCatalog.length === 0 },
           review_issues: review.review_issues || [], editorial_observations: decision.editorial,
           reference_corrections: evaluated.corrections, evidence_summary: { version: sharedEvidence.version, unit_count: sharedEvidence.units.length, alternative_ids: sharedEvidence.alternative_ids, group_count: sharedEvidence.groups.length } }
         if (reviewIssues.some(issue => ['commercial_content', 'catalog_data'].includes(text(issue.kind))) && attempt === 0 && !sharedEvidence.conflicts.length) {
@@ -590,10 +599,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         verified_numeric_relations: (Array.isArray(semanticReview.factual_values) ? semanticReview.factual_values : [])
           .map(object).map(fact => ({ value: fact.value, upper_value: fact.operator === 'between' ? fact.upper_value : null })) } }, reply).filter(issue => issue === 'numbers_changed')
       : deferredIssues
-    const catalogCheck = validateCatalogReply(reply, { ...input.audit, semantic_review: semanticReview })
-    const finalIssues = [...numericIssues, ...(!catalogCheck.valid ? [catalogCheck.reason || 'unsupported_catalog_rewrite'] : []), ...(input.validateReply?.(reply) || [])]
+    const catalogCheck = input.audit?.semantic_review_enabled === true ? { valid: true, reason: undefined, details: [] } : validateCatalogReply(reply, { ...input.audit, semantic_review: semanticReview })
+    const finalIssues = [...numericIssues, ...(!catalogCheck.valid ? [catalogCheck.reason || 'unsupported_catalog_rewrite'] : []), ...(input.audit?.semantic_review_enabled === true ? [] : input.validateReply?.(reply) || [])]
     finalValidation = { passed: !finalIssues.length, issues: finalIssues, details: catalogCheck.details || [],
-      project_quantity_checks: validateProjectQuantities(reply, sharedEvidence.project_facts).details,
+      project_quantity_checks: [],
       validated_text: reply,
       numeric_relations: semanticReview.factual_values || [], policy: 'subject_attribute_quantity_v2' }
     if (finalIssues.length) {

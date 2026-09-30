@@ -163,11 +163,12 @@ test('a writer cannot replace a requested available price with a catalogue descr
   const baseReply = 'Las suites parten de $100.000 USD.'
   const contract = { version: 'turn-intent-v1', objective: 'ask_price', required_facts: ['price'] }
   const candidate = { reply: 'Tenemos suites de un dormitorio.', requests: [covered(current)], question: noQuestion }
+  const review = { ...approved, claims: [], answers_supported: false }
   const result = await completeTurnReply({ current, baseReply,
     audit: { semantic_review_enabled: true, resolved_turn_intent: contract },
-    verified: { respuesta_precio_verificada: baseReply } }, model(candidate, candidate).generate)
-  assert.equal(result.audit.status, 'rejected_guard')
-  assert.ok(result.audit.issues.includes('turn_price_unanswered'))
+    verified: { respuesta_precio_verificada: baseReply } }, model(candidate, review, candidate, review).generate)
+  assert.equal(result.audit.status, 'rejected_review')
+  assert.ok(result.audit.issues.includes('review_check_failed:answers_supported'))
   assertPending(result, baseReply, candidate.reply)
   assert.equal(result.needsAdvisor, false)
 })
@@ -225,9 +226,10 @@ test('premature categories are repaired and a removed profile purpose is blocked
   assert.equal(blocked.needsAdvisor, false)
 
   const prematureBrochure = { ...candidate, reply: candidate.reply + '\n' + BROCHURE_URL }
-  const deferred = await completeTurnReply(input, model(prematureBrochure, prematureBrochure).generate)
-  assert.equal(deferred.audit.status, 'rejected_guard')
-  assert.ok(deferred.audit.issues.includes('lead_profile_brochure_premature'))
+  const brochureReview = { ...review, claims: [], operational_goal_preserved: false }
+  const deferred = await completeTurnReply(input, model(prematureBrochure, brochureReview, prematureBrochure, brochureReview).generate)
+  assert.equal(deferred.audit.status, 'rejected_review')
+  assert.ok(deferred.audit.issues.includes('review_check_failed:operational_goal_preserved'))
   assert.equal(deferred.reply.includes(BROCHURE_URL), false)
 })
 
@@ -255,7 +257,7 @@ test('the real writer delivers the verified brochure and resumes a purposeful co
   const missingBrochure = { ...candidate, reply: plan.reply.replace(BROCHURE_URL, '') }
   const repaired = await completeTurnReply(input, model(missingBrochure, candidate, review).generate)
   assert.equal(repaired.audit.status, 'checked')
-  assert.ok(repaired.audit.repair_attempts[0].issues.includes('lead_profile_brochure_missing'))
+  assert.ok(repaired.audit.repair_attempts[0].issues.includes('required_link_omitted'))
   assert.ok(repaired.reply.includes(BROCHURE_URL))
   const forgedLink = { ...candidate, reply: plan.reply.replace(BROCHURE_URL, 'https://example.invalid/brochure.pdf') }
   const blocked = await completeTurnReply(input, model(forgedLink).generate)
@@ -331,15 +333,17 @@ test('project quantities use subject evidence rather than an isolated numeric al
   const input={current,baseReply:'El proyecto cuenta con medidas de seguridad.',verified:{instalaciones:[{amenity_name:'Sistemas de seguridad 24h',description:'Vigilancia permanente'}]},audit:{semantic_review_enabled:true}}
   const candidate={reply,requests:[covered(current)],question:noQuestion}
   const review={...approved,claims:[{fragment:reply,subject:'Seguridad',polarity:'affirmation',verdict:'supported',evidence:'Sistemas de seguridad 24h',evidence_source:'verified_context'}]}
-  const result=await completeTurnReply(input,model(candidate,review).generate)
+  const projectReview = (_rules, context) => ({ ...review, project_values: [{ fragment: 'S1', source_id: context.evidencia_turno.project_facts[0].id, dimension: 'duration', measurement_unit: 'hour', value: 24 }] })
+  const result=await completeTurnReply(input,model(candidate,projectReview).generate)
   assert.equal(result.reply,reply)
   assert.equal(result.audit.status,'checked')
-  assert.equal(result.audit.final_validation.project_quantity_checks[0].outcome,'supported')
+  assert.equal(result.audit.semantic_review.project_values[0].value,24)
   assert.equal(result.audit.final_validation.validated_text,reply)
   const bad={...candidate,reply:reply.replace('24','48')}
-  const denied=await completeTurnReply(input,model(bad,bad).generate)
-  assert.equal(denied.audit.status,'rejected_guard')
-  assert.ok(denied.audit.issues.includes('quantity_value_mismatch'))
+  const badReview = (...args) => ({...projectReview(...args), project_values: projectReview(...args).project_values.map(f => ({...f,value:48}))})
+  const denied=await completeTurnReply(input,model(bad,badReview,badReview,bad,badReview).generate)
+  assert.equal(denied.audit.status,'rejected_review')
+  assert.ok(denied.audit.semantic_review.validation_details.some(f => f.code==='project_quantity_mismatch'))
   assert.equal(denied.needsAdvisor,false)
 })
 
@@ -465,14 +469,14 @@ test('catalog comparisons compute bounds and final catalog failures share the si
   assert.equal(accepted.audit.status,'checked')
   assert.equal(accepted.reply,reply)
   const bad={...candidate,reply:'Penthouse 605: 23,01 m² interiores.'}
-  const dishonestReview={...approved,claims:[{...review.claims[0],fragment:bad.reply}],factual_values:[]}
-  const mock=model(bad,dishonestReview,candidate,review)
+  const dishonestReview={...approved,claims:[{...review.claims[0],fragment:bad.reply}],factual_values:[{fragment:bad.reply,unit_id:'p605',field:'area_internal_m2',value:23.01}]}
+  const mock=model(bad,dishonestReview,dishonestReview,candidate,review)
   const repaired=await completeTurnReply(input,mock.generate)
   assert.equal(repaired.reply,reply)
   assert.equal(repaired.audit.status,'checked')
-  assert.equal(repaired.audit.repair_attempts.length,1)
-  assert.deepEqual(repaired.audit.repair_attempts[0].issues,['catalog_area_mismatch'])
-  assert.equal(mock.calls.length,4)
+  assert.equal(repaired.audit.repair_attempts.length,2)
+  assert.equal(repaired.audit.repair_attempts[0].issues[0].code,'catalog_value_mismatch')
+  assert.equal(mock.calls.length,5)
 })
 
 test('semantic review permits omitting irrelevant base numbers but checks unit-value relationships', async () => {
@@ -584,7 +588,7 @@ test('invalid coverage diagnostics protect personal data in rejected values', as
 })
 function model(...answers) {
   const calls = []
-  const generate = async (...args) => { calls.push(args); const next = answers[calls.length - 1]; if (next instanceof Error) throw next; return next }
+  const generate = async (...args) => { calls.push(args); const next = answers[calls.length - 1]; if (next instanceof Error) throw next; return typeof next === 'function' ? next(...args) : next }
   return { generate, calls }
 }
 
@@ -1197,13 +1201,13 @@ test('a commercial defect has one rewrite and independent recheck; a repeated de
   factual_values:[{unit_id:'p',field:'bedrooms',value,fragment:'S1'}]});
  const bad='El penthouse 602 tiene 5 dormitorios.',good='El penthouse 602 tiene 3 dormitorios.';
  for(const repaired of [true,false]){
-  const mock=model(candidate(bad),review(bad,5),candidate(repaired?good:bad),review(repaired?good:bad,repaired?3:5));
+  const mock=model(candidate(bad),review(bad,5),review(bad,5),candidate(repaired?good:bad),review(repaired?good:bad,repaired?3:5));
   const result=await completeTurnReply(input,mock.generate);
-  assert.equal(mock.calls.length,4);if(repaired)assert.equal(result.reply,good);else assertPending(result,baseReply,bad);
+  assert.equal(mock.calls.length,5);if(repaired)assert.equal(result.reply,good);else assertPending(result,baseReply,bad);
   assert.equal(result.audit.status,repaired?'checked':'rejected_review');
-  assert.equal(result.audit.repair_attempts.length,1);
-  assert.equal(result.audit.repair_attempts[0].target,'commercial_draft');
-  assert.equal(mock.calls[2][1].reparacion.controles[0].code,'catalog_value_mismatch');
+  assert.equal(result.audit.repair_attempts.length,2);
+  assert.equal(result.audit.repair_attempts[1].target,'commercial_draft');
+  assert.equal(mock.calls[3][1].reparacion.controles[0].code,'catalog_value_mismatch');
  }
 });
 
@@ -1213,7 +1217,7 @@ test('unknown reference gets one metadata repair and cannot bypass checks by omi
  const fact={unit_id:'unknown',field:'bedrooms',value:3,fragment:'S1'};
  const review={...approved,claims:[{fragment:'S1',subject:'p',polarity:'affirmation',verdict:'supported',evidence:'catalogo',evidence_source:'verified_context'}],factual_values:[fact]};
  for(const repaired of [true,false]){
-  const mock=model(candidate,review,{...review,factual_values:repaired?[{...fact,unit_id:'p'}]:[]});
+  const mock=model(candidate,review,{...review,factual_inventory_complete:repaired,factual_values:repaired?[{...fact,unit_id:'p'}]:[]});
   const result=await completeTurnReply({current,baseReply:'Penthouse 602: 3 dormitorios.',audit:{semantic_review_enabled:true},verified:{catalogo:[{id:'p',unit_number:'602',bedrooms:3}]}},mock.generate);
   assert.equal(mock.calls.length,3);assert.equal(result.audit.repair_attempts.length,1);
   assert.equal(result.audit.status,repaired?'checked':'rejected_review');
@@ -1242,7 +1246,7 @@ test('PRECIO repairs only reviewer metadata for a supported interval and a parap
  assert.deepEqual(mock.calls.map(call=>call[6]),['writing','review','review']);
  assert.equal(mock.calls[2][1].respuesta_propuesta,reply);
  assert.ok(result.audit.repair_attempts[0].issues.some(issue=>issue.code==='claim_fragment_not_in_reply'));
- assert.ok(result.audit.repair_attempts[0].issues.some(issue=>issue.code==='unexpected_numeric_upper_bound'));
+ assert.ok(result.audit.repair_attempts[0].issues.some(issue=>issue.code==='invalid_unit_fact'));
 });
 
 test('scoped interval references validate both endpoints across natural price wording', () => {
@@ -1306,7 +1310,7 @@ test('metadata repair cannot hide a wrong price, omit an endpoint or erase claim
   const upper=scenario==='wrong_price'?600000:550000;
   const first={...approved,claims:[{...validClaim,fragment:scenario==='missing_claim'?'S1':'Los valores del proyecto son referenciales.'}],factual_values:[
    {fragment:'S1',unit_id:'price',field:'published_commercial_price',value:145000,upper_value:upper,operator:'gte'}]};
-  const repaired={...approved,claims:scenario==='missing_claim'?[]:[validClaim],factual_values:[scenario==='missing_endpoint'
+  const repaired={...approved,factual_inventory_complete:scenario==='wrong_price',claims:scenario==='missing_claim'?[]:[validClaim],factual_values:[scenario==='missing_endpoint'
    ?{fragment:'S1',unit_id:'group:context:all:min',field:'published_commercial_price',value:145000,upper_value:null,operator:'gte'}
    :{fragment:'S1',unit_id:'group:context:all:range',field:'published_commercial_price',value:145000,upper_value:upper,operator:'between'}]};
   const mock=model({reply,requests:[covered(current)],question:noQuestion},first,repaired,
@@ -1315,7 +1319,7 @@ test('metadata repair cannot hide a wrong price, omit an endpoint or erase claim
   assert.equal(result.audit.status,'rejected_review',scenario+JSON.stringify(result.audit));
   assert.equal(mock.calls.length,scenario==='wrong_price'?4:3,scenario);assertPending(result,baseReply,reply);
   assert.equal(result.audit.repair_attempts[0].target,'review_metadata');
-  assert.ok(result.audit.semantic_review.validation_details.some(issue=>issue.code===({wrong_price:'catalog_range_mismatch',missing_endpoint:'review_repair_omitted_facts',missing_claim:'review_repair_omitted_claims'})[scenario]));
+  assert.ok(result.audit.semantic_review.validation_details.some(issue=>issue.code===({wrong_price:'catalog_range_mismatch',missing_endpoint:'incomplete_fact_inventory',missing_claim:'incomplete_fact_inventory'})[scenario]));
  }
 });
 

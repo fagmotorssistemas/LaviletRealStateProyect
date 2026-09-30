@@ -98,7 +98,7 @@ export function draftNumericCandidates(reply: string) {
 /** The live reviewer selects a code-owned sentence instead of copying its prose.
  * Historical snapshots can still contain literal fragments; their readers and
  * validators retain that representation after reference normalization. */
-export function sentenceReferenceReviewSchema(schema: Row, reply: string, current = '', catalog?: Row[]): Row {
+export function sentenceReferenceReviewSchema(schema: Row, reply: string, current = '', catalog?: Row[], structuredOnly = false): Row {
   const ids = replyReferences(reply).map(sentence => sentence.id)
   const properties = { ...object(schema.properties) }
   for (const key of ['claims']) {
@@ -112,7 +112,7 @@ export function sentenceReferenceReviewSchema(schema: Row, reply: string, curren
     } }
   }
   const factList = object(properties.factual_values)
-  if (Object.keys(factList).length) {
+  if (Object.keys(factList).length && !structuredOnly) {
     const candidates = draftNumericCandidates(reply), item = object(factList.items)
     const unitIds = catalog?.flatMap(unit => [text(unit.id), ...(text(unit.unit_number) && catalog.filter(other => other.unit_number === unit.unit_number).length === 1 ? [text(unit.unit_number)] : [])]).filter(Boolean)
     properties.factual_values = candidates.length && (unitIds === undefined || unitIds.length) ? { ...factList, items: { anyOf: candidates.flatMap(candidate => [false, true].map(interval => ({
@@ -201,7 +201,7 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
 }
 
 /** Resolve only references that identify one sentence of the actual draft. Never change a value. */
-export function normalizeReviewReferences(review: Row, units: Row[], reply: string, current = '') {
+export function normalizeReviewReferences(review: Row, units: Row[], reply: string, current = '', structuredOnly = false) {
   const corrections: Row[] = []
   const sentences = replyReferences(reply)
   const resolveFragment = (item: Row): Row => {
@@ -210,7 +210,7 @@ export function normalizeReviewReferences(review: Row, units: Row[], reply: stri
     // recovery (for example S99 against a sentence containing the number 99).
     if (!sentence && /^[SR]\d+$/.test(text(item.fragment)))
       return { ...item, invalid_sentence_reference: true }
-    if (!sentence && /\.{3}|…/.test(text(item.fragment))) {
+    if (!structuredOnly && !sentence && /\.{3}|…/.test(text(item.fragment))) {
       const parts = text(item.fragment).split(/\.{3}|…/).map(part => part.trim()).filter(Boolean)
       if (parts.length >= 2 && parts.every(part => part.length >= 4)) {
         const matches = sentences.filter(candidate => {
@@ -230,8 +230,8 @@ export function normalizeReviewReferences(review: Row, units: Row[], reply: stri
     }
     // The reviewer may paraphrase the prose. A unique occurrence of the exact
     // numeric value in the draft is a code-owned reference, independent of word order.
-    const fragmentNumbers = numericMentions(text(item.fragment)).map(match => match.value)
-    if (!sentence && !reply.includes(text(item.fragment)) && typeof item.value === 'number' && Number.isFinite(item.value)
+    const fragmentNumbers = structuredOnly ? [] : numericMentions(text(item.fragment)).map(match => match.value)
+    if (!structuredOnly && !sentence && !reply.includes(text(item.fragment)) && typeof item.value === 'number' && Number.isFinite(item.value)
       && (!fragmentNumbers.length || fragmentNumbers.includes(item.value))) {
       const includesValue = (candidate: string, value: number) => numericMentions(candidate).some(match => match.value === value)
       const matches = sentences.filter(candidate => fragmentNumbers.every(value => includesValue(candidate.text, value))

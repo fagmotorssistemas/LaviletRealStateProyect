@@ -40,7 +40,7 @@ import { fabricatedActionRequest, mediaClarificationReply } from './clarificatio
 import { acceptsUnitOptions, acceptsVisitInvitation, ambiguousVisitAcceptance, rememberSalesReply } from './sales-policy'
 import { mediaFailureReply, unreadMediaMarker } from './media-format'
 import { variedReplyOpening, applyDecidedOpening } from './response-openings'
-import { acceptedPriceOption, asksUnitPrice, unitPriceQuote, priceReplyIssues } from './price-reply'
+import { acceptedPriceOption, asksUnitPrice, unitPriceQuote } from './price-reply'
 import { scheduleNutrition24h } from './nutrition'
 import { scheduleNutritionWeekOne } from './nutrition-week-one'
 import { scheduleNutritionLater } from './nutrition-later'
@@ -1226,12 +1226,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     })
     const reviewed = await completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: reply,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true },
-      validateReply: candidate => [
-        ...(quote?.quoted === true && priceReplyIssues(candidate, info, current, quote.prices).includes('unsupported_fact') ? ['unsupported_price_rewrite'] : []),
-      ],
       preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
     // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
-    const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
     const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
     const catalogValidation = validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence })
     if (object(reviewed.audit.fallback_validation).passed === false) {
@@ -1239,7 +1235,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       // obligations cannot restore that rejected base at this boundary.
       reply = recoveryReply(reviewed.audit)
       reviewed.audit = { ...reviewed.audit, retained_verified_reply: false, final_preview: traceText(reply, MAX_REPLY_CHARACTERS) }
-    } else if (!invalidPrice && catalogValidation.valid) {
+    } else if (catalogValidation.valid) {
       reply = reviewed.reply
       audit.semantic_review = semanticEvidence
       if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
@@ -1247,9 +1243,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         reviewFinalContent = candidate => completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: candidate,
           verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [], avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
           audit: { ...audit, semantic_review_enabled: true },
-          validateReply: value => [
-            ...(quote?.quoted === true && priceReplyIssues(value, info, current, quote.prices).includes('unsupported_fact') ? ['unsupported_price_rewrite'] : []),
-          ] })
+        })
       }
     }
     else {
@@ -1260,10 +1254,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       const unansweredBase = (Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests : []).map(object)
         .some(request => request.base_status === 'unanswered' && !catalogCoversFragment(text(request.fragment), text(request.fact_key), audit))
       const rejectedBase = reply
-      reviewed.audit = { ...reviewed.audit, status: invalidPrice ? 'rejected_price_guard' : 'rejected_catalog_guard',
-        final_validation: { passed: false, boundary_integrity_failure: true, issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason], details: catalogValidation.details || [] },
+      reviewed.audit = { ...reviewed.audit, status: 'rejected_catalog_guard',
+        final_validation: { passed: false, boundary_integrity_failure: true, issues: [catalogValidation.reason], details: catalogValidation.details || [] },
         candidate_requests: reviewed.audit.requests, requests: [],
-        issues: [invalidPrice ? 'unsupported_price_rewrite' : catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: false,
+        issues: [catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: false,
         recovery: { version: 'turn-recovery-v1', pending: true, base_used: false, reason: 'boundary_integrity_failure' },
         fallback_validation: { passed: false, issues: [baseCheck.reason, unansweredBase ? 'fallback_unanswered_request' : null, 'response_requires_validation'].filter(Boolean),
           recovery: 'pending_validation', rejected_preview: traceText(rejectedBase, MAX_REPLY_CHARACTERS) } }
@@ -1285,7 +1279,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reviewed.audit = { ...reviewed.audit, needs_advisor: reviewed.needsAdvisor, unresolved: reviewed.unresolved,
       handoff_assessments: [...(Array.isArray(reviewed.audit.handoff_assessments) ? reviewed.audit.handoff_assessments : []), ...grounded.assessments] }
     const requests = Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests.map(object) : []
-    const resolvedFromContext = !invalidPrice && catalogValidation.valid && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
+    const resolvedFromContext = catalogValidation.valid && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
@@ -1364,7 +1358,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if(direct !== reply) audit.direct_reply_guard = true
   const openingDecision = object(audit.turn_completeness).opening_decision
   const withOpening = (body: string) => reviewedText ? body : openingDecision ? applyDecidedOpening(body, text(object(openingDecision).prefix)) : variedReplyOpening(body, context.historial)
-  reply = naturalConversationReply(withOpening(direct), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
+  reply = reviewedText ? direct : naturalConversationReply(withOpening(direct), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
   // The last prose transformation is checked too, before any external send.
   const finalCatalogValidation = validateCatalogReply(reply, audit)
   if (!finalCatalogValidation.valid && catalogBaseReply) {
@@ -1372,7 +1366,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (!approvedAllowed && !recoveringTurn()) audit.turn_completeness = { ...object(audit.turn_completeness),
       recovery: { version: 'turn-recovery-v1', pending: true, base_used: false, reason: 'final_catalog_guard' },
       fallback_validation: { passed: false, issues: ['response_requires_validation', finalCatalogValidation.reason].filter(Boolean) } }
-    reply = naturalConversationReply(withOpening(approvedAllowed ? reviewedText : recoveryReply(object(audit.turn_completeness))), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
+    reply = approvedAllowed ? reviewedText : naturalConversationReply(withOpening(recoveryReply(object(audit.turn_completeness))), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
     if (handoffNotice && !reply.includes(handoffNotice)) reply = withHandoffNotice(reply, handoffNotice)
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
     if (!approvedAllowed) audit.fallback_recovery = { status: 'invalid_base_not_restored', issue: finalCatalogValidation.reason }

@@ -107,6 +107,10 @@ export function isCategoryOverview(audit: Row): boolean {
  * to this category, bedroom count or unit. Non-catalogue questions remain free
  * to be completed by the normal coverage stage. */
 export function validateCatalogReply(reply: string, audit: Row): { valid: boolean; reason?: string; details?: Row[] } {
+  // A reviewed inventory has already been compared with the immutable sources.
+  // Never reinterpret an approved draft with the historical prose parser.
+  if (object(audit.semantic_review).validation_owner === 'structured_facts_v1'
+    && object(audit.semantic_review).status === 'checked') return { valid: true }
   if (object(audit.reference_resolution).status === 'clarification'
     && /\bno (?:contamos|tenemos|hay|disponemos)\b/i.test(reply)) return { valid: false, reason: 'unresolved_reference_is_not_unavailability' }
   if (audit.verified_catalog !== true) return { valid: true }

@@ -121,7 +121,7 @@ test('foreign-residence reply with brochure gets an empty numeric review despite
   const question = { purpose: 'none', missing_datum: '', next_decision: '' }
   const mock = sequence({ reply, requests: [covered(message)], question }, (_rules, context, schema) => {
     assert.deepEqual(context.cifras_del_borrador, [])
-    assert.equal(schema.properties.factual_values.maxItems, 0)
+    assert.equal(schema.properties.factual_values.maxItems, 80)
     return { ...approved, question: { ...question, clarifies: [] }, claims: [], factual_values: [] }
   })
   const result = await completeTurnReply({ current: message, baseReply: reply,
@@ -132,7 +132,7 @@ test('foreign-residence reply with brochure gets an empty numeric review despite
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, reply)
   assert.deepEqual(result.audit.repair_attempts, [])
-  assert.equal(result.audit.semantic_review.numeric_review_scope.empty_required, true)
+  assert.equal(result.audit.semantic_review.numeric_review_scope.source, 'reviewer_inventory')
   assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review'])
 })
 

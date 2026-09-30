@@ -13,6 +13,7 @@ require('./test-typescript.cjs')
 const { completeTurnReply, turnCompletenessIssues } = require('../src/lib/integrations/automation/turn-completeness.ts')
 const { checkReviewDecision } = require('../src/lib/integrations/automation/turn-review-checks.ts')
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
+  factual_inventory_complete: true, project_values: [],
   operational_goal_preserved: true, question_has_purpose: true, question: { purpose: 'none', missing_datum: '', next_decision: '', clarifies: [] }, missing_fact_fragments: [], review_issues: [], claims: [], factual_values: [] }
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 
@@ -135,6 +136,40 @@ function sequence(...answers) {
   } }
 }
 
+test('the full pipeline preserves freely phrased exact quantities and blocks rounding even with reviewer approval', async () => {
+  const current = 'Cuénteme sobre el departamento 202'
+  const unit = { id: 'd202', unit_number: '202', category: 'departamento', area_internal_m2: 120.83 }
+  for (const [reply, value, accepted] of [
+    ['Su superficie interior suma ciento veinte coma ochenta y tres metros cuadrados.', 120.83, true],
+    ['En el interior dispone de 120,83 metros cuadrados.', 120.83, true],
+    ['Su superficie interior suma ciento veinte coma ocho metros cuadrados.', 120.8, false],
+  ]) {
+    const roles = []
+    const generate = async (_rules, context, _schema, _a, _b, _c, role) => {
+      roles.push(role)
+      if (role === 'writing') return candidate(current, reply)
+      return { ...approved,
+        claims: [{ fragment: 'S1', subject: 'Superficie interior', polarity: 'affirmation', claim_kind: 'project_fact',
+          verdict: 'supported', evidence: 'Superficie de la unidad consultada', evidence_source: 'verified_context',
+          evidence_ids: context.evidencia_afirmaciones.filter(source => source.path.startsWith('evidencia_turno.units.')).map(source => source.id) }],
+        factual_values: [{ fragment: 'S1', unit_id: unit.id, field: 'area_internal_m2', value,
+          measurement_unit: 'm2', operator: 'eq', upper_value: null }] }
+    }
+    const result = await completeTurnReply({ current, baseReply: 'Información de la unidad.', verified: { catalogo: [unit] },
+      audit: { semantic_review_enabled: true, verified_catalog: true, catalog_results: { units: [unit] } } }, generate)
+    if (accepted) {
+      assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+      assert.equal(result.reply, reply)
+      assert.deepEqual(roles, ['writing', 'review'])
+    } else {
+      assert.notEqual(result.audit.status, 'checked')
+      assert.notEqual(result.reply, reply)
+      assert.match(JSON.stringify(result.audit), /catalog_value_mismatch/)
+      assert.ok(roles.length <= 5, 'Repairs must remain bounded')
+    }
+  }
+})
+
 test('family suitability guidance survives the full writer/reviewer/catalogue pipeline without an imposed question', async () => {
   const current = '¿Me alcanzarán tres dormitorios para una familia de seis?'
   const facts = 'Disponemos de departamentos y penthouses de tres dormitorios.'
@@ -210,13 +245,13 @@ test('catalogue facts absent from the draft can be removed by reviewer repair wi
   const current = 'Gracias, soy Carlos'
   const reply = 'Mucho gusto, Carlos.'
   const unit = { id: 'd202', unit_number: '202', category: 'departamento', published_commercial_price: 210000 }
-  const bad = { ...approved, factual_values: [{ fragment: 'S1', unit_id: 'd202', field: 'published_commercial_price', value: 210000, operator: 'eq', upper_value: null }] }
+  const bad = { ...approved, factual_inventory_complete: false, factual_values: [{ fragment: 'S1', unit_id: 'd202', field: 'published_commercial_price', value: 210000, operator: 'eq', upper_value: null }] }
   const mock = sequence(candidate(current, reply), bad, approved)
   const result = await completeTurnReply({ current, baseReply: 'Hola.', verified: { catalogo: [unit] }, audit: { semantic_review_enabled: true } }, mock.generate)
   assert.equal(result.reply, reply)
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.audit.repair_attempts[0].target, 'review_metadata')
-  assert.equal(result.audit.repair_attempts[0].issues[0].code, 'numeric_relation_not_in_reply')
+  assert.equal(result.audit.repair_attempts[0].issues[0].code, 'incomplete_fact_inventory')
 })
 
 test('a persistent review defect uses bounded recovery and never a catalogue list as an answer to suitability', async () => {

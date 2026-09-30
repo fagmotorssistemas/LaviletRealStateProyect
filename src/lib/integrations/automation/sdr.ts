@@ -258,10 +258,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     const review = await aiJson(reviewer + rules + SEMANTIC_POLICY_REVIEW_RULES + '\nDevuelva además requiere_asesor=true SOLO si una pregunta inmobiliaria concreta no puede resolverse con los hechos del contexto y debe verificarla el equipo. No lo active por estilo, una preferencia aún sin elegir, preguntas sobre otros negocios, ni enlaces o agenda que el sistema adjunta/procesa. Tampoco por falta de una fecha de entrega: puede explicar que aún no se ha definido. Si hay datos suficientes, corrija el borrador en vez de derivar.', { ...input, respuesta: reply }, reviewSchema, undefined, undefined, undefined, 'review')
     if (review.requiere_asesor === true) return { reply: '', audit: { source: 'verified_information_gap', requires_advisor: true, handoff_reason: 'consulta inmobiliaria que requiere información del equipo', fallback: false } }
     const observations = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan), ...priceReplyIssues(reply, info, current, quote?.prices), ...commercialCoverageIssues(reply, turnAnswers.topics)]
-    const issues = priceReplyIssues(reply, info, current, quote?.prices).filter(issue => issue !== 'style')
+    const issues: string[] = [] // Final structured review validates business facts.
     if (!reply.trim()) issues.push('empty_reply')
     if (reply.length > MAX_REPLY_CHARACTERS) issues.push('transport_length')
-    if (quote?.quoted && !/\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares)/i.test(reply)) issues.push('ignored_question')
     if (quote?.quoted && !quote.financingOffer && !mentionsFinancing(current) && mentionsFinancing(reply)) observations.push('repeated_question')
     if (reply.trim() === text(object(info.conversacion).ultima_respuesta).trim() && !/rep[ií]t|repita|otra vez|no entend[ií]/i.test(current)) observations.push('repeated_question')
     const reviewIssues = Array.isArray(review.motivos) ? review.motivos.map(text) : []
