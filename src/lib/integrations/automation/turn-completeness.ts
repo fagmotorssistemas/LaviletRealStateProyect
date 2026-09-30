@@ -1,3 +1,4 @@
+import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import { DIALOGUE_WRITING_RULES, DIALOGUE_REVIEW_RULES } from './dialogue-writing-rules'
 import { checkReviewDecision, reviewIssuesSchema, REVIEW_CHECK_RULES, FACTUAL_REVIEW_SCOPE_RULES } from './turn-review-checks'
 import { OPERATIONAL_REVIEW_RULES } from './operational-review'
@@ -156,22 +157,23 @@ function queryConstraintNumbers(audit: Row = {}): string[] {
 
 export function turnCompletenessIssues(input: TurnCompletenessInput, reply: string): string[] {
   const issues: string[] = [], source = input.baseReply, facts = verifiedText(input.verified)
+  const semantic = input.audit?.semantic_review_enabled === true
   issues.push(...leadIntroductionIssues(reply, input.audit || {}))
   issues.push(...turnIntentIssues(reply, input.audit?.resolved_turn_intent || input.verified.contrato_turno, input.verified.respuesta_precio_verificada))
-  issues.push(...reservationOperationalIssues(reply, input.audit))
+  if (!semantic) issues.push(...reservationOperationalIssues(reply, input.audit))
   const projectFacts = projectQuantityEvidence(input.verified)
   const quantities = validateProjectQuantities(reply, projectFacts)
   issues.push(...quantities.issues)
   const numericReply = reviewedContextualGuidance(reply, input.audit || {})
     .reduce((body, fragment) => body.replace(fragment, ''), withoutSupportedQuantities(reply, quantities.supportedSpans))
   const contract = finalWriterContract(source, input.audit, input)
-  if (contract.decisiones_protegidas) {
+  if (!semantic && contract.decisiones_protegidas) {
     // Quantity evidence and the declared question purpose are checked below and
     // by semantic review; template equality is not evidence of truth.
     issues.push(...operationalCopyIssues(source, reply, { ...input.audit, verified: input.verified, evidence_review: input.audit?.semantic_review_enabled === true, current_message: input.current }))
   }
-  if (isVisitCopy(input.audit ?? {})) issues.push(...visitCopyIssues(source, reply))
-  issues.push(...residentialContinuationIssues(reply, input.current, { ...input.verified, historial: input.history })
+  if (!semantic && isVisitCopy(input.audit ?? {})) issues.push(...visitCopyIssues(source, reply))
+  if (!semantic) issues.push(...residentialContinuationIssues(reply, input.current, { ...input.verified, historial: input.history })
     .filter(issue => issue !== 'repeated_presentation' && issue !== 'suite_awareness_omitted'))
   if (!reply.trim()) issues.push('empty_reply')
   if (reply.length > MAX_REPLY_CHARACTERS) issues.push('transport_length')
@@ -181,10 +183,11 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   const queryNumbers = queryConstraintNumbers(input.audit)
   const allowedNumbers = new Set([...numbers(facts), ...queryNumbers,
     ...(input.audit?.semantic_review_enabled === true ? numbers(input.current) : [])].map(numericValue))
-  const semanticOmission = input.audit?.semantic_review_enabled === true && !contract.decisiones_protegidas && !isVisitCopy(input.audit ?? {})
+  const semanticOmission = semantic
   if ((!semanticOmission && contract.cifras_obligatorias.some(number => !numbers(reply).includes(number))) || numbers(numericReply).some(number => !allowedNumbers.has(numericValue(number)))) issues.push('numbers_changed')
   // Question meaning is reviewed independently. Its wording comes directly
   // from reply, never from a second model-generated string to compare.
+  if (!semantic) {
   const value = normalize(reply), base = normalize(source)
   if (reply.split(/(?<=[.!?])\s+|\n+/).some(sentence => unsupportedRentalClaim(sentence, input.current, input.verified))) issues.push('unsupported_rental_credit_claim')
   // Semantic operational claims belong to the factual reviewer, which must
@@ -194,6 +197,7 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   if (/asistente virtual|soy (?:una )?ia|inteligencia artificial/.test(value) && !/asistente|robot|bot\b|humano|persona|inteligencia artificial|\bia\b/.test(normalize(input.current))) issues.push('unsolicited_identity')
   if (/credito (?:ya |esta )?aprobado|aprobacion garantizada|financiamiento (?:garantizado|asegurado)/.test(value)) issues.push('credit_guarantee')
   if (/\b(?:rpc|system prompt|developer|json|base de datos)\b/.test(value) && !/\b(?:rpc|system prompt|developer|json|base de datos)\b/.test(base)) issues.push('internal_language')
+  }
   return [...new Set(issues)]
 }
 
@@ -316,8 +320,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const sharedEvidence = turnEvidence(input.verified, input.audit, groundedPrice ? verifiedQuote!.units : [])
   const claimSources = verifiedClaimSources(input.verified, input.audit || {}, sharedEvidence, input.current)
   const validationCatalog = [...sharedEvidence.units, ...sharedEvidence.groups]
-  const safeBase = safeRentalCreditBase(input.baseReply, input.current, input.verified)
-  input = { ...input, baseReply: currentTopicReply(safeBase.reply,input.current) }
+  const safeBase = input.audit?.semantic_review_enabled === true ? { reply: input.baseReply, unresolved: [], removed: false } : safeRentalCreditBase(input.baseReply, input.current, input.verified)
+  input = { ...input, baseReply: input.audit?.semantic_review_enabled === true ? safeBase.reply : currentTopicReply(safeBase.reply,input.current) }
   const opening = { ...decidedOpening(input.baseReply, input.history), policy: 'editorial_suggestion', applied: false }
   const writerContract = finalWriterContract(input.baseReply, input.audit, input)
   const linkContract = replyLinkContract(input.baseReply, input.audit, input)
@@ -451,7 +455,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       return fallback('invalid_coverage', [], metadataIssues)
     }
     requests = rows
-    const preparedReply = currentTopicReply(text(candidate.reply).trim(), input.current)
+    const preparedReply = input.audit?.semantic_review_enabled === true ? text(candidate.reply).trim() : currentTopicReply(text(candidate.reply).trim(), input.current)
     const reply = input.normalizeReply?.(preparedReply) ?? preparedReply
     textTransformations = [
       ...(proposedReply !== preparedReply ? [{ stage: 'Formato de la propuesta', before: proposedReply, after: preparedReply }] : []),
@@ -472,7 +476,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const deferredIssues: string[] = input.audit?.semantic_review_enabled === true ? allIssues.filter(issue => issue === 'numbers_changed') : []
     const issues = allIssues.filter(issue => !deferredIssues.includes(issue))
     if (groundedPrice) issues.push(...verifiedPriceReplyIssues(reply, input.verified, input.current, verifiedQuote!))
-    if (reply !== input.baseReply.trim() && passiveSalesCopy(reply, input.current, engagement) !== reply) issues.push('unsolicited_sales_offer')
+    if (input.audit?.semantic_review_enabled !== true && reply !== input.baseReply.trim() && passiveSalesCopy(reply, input.current, engagement) !== reply) issues.push('unsolicited_sales_offer')
     if (issues.length) {
       const inventedUrl = issues.includes('unauthorized_link')
       const repairable = !inventedUrl && !issues.some(issue => ['unsupported_rental_credit_claim', 'credit_guarantee', 'human_identity'].includes(issue))
@@ -491,7 +495,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         + (input.audit?.progressive_selection || input.audit?.post_tour_continuation ? '\n' + PROGRESSIVE_OPTIONS_RULES : '')
         + '\n' + passiveSalesRules(engagement) + visitRules
         + (semanticEnabled ? '\n' + CLAIM_RULES + '\n' + FLEXIBLE_FACT_RULES + '\n' + NUMERIC_RELATION_RULES : '')
-        + '\n' + FACTUAL_REVIEW_SCOPE_RULES + '\n' + OPERATIONAL_REVIEW_RULES
+        + '\n' + FACTUAL_REVIEW_SCOPE_RULES + '\n' + OPERATIONAL_REVIEW_RULES + '\n' + SEMANTIC_POLICY_REVIEW_RULES
       const openingSchema = leadIntroductionReviewSchema(input.audit, sentenceReferences)
       const reviewContext = { ...(openingSchema.required.length ? { contrato_apertura: {
         etapa: 'presentacion_inicial_sin_tipos_de_inmueble',

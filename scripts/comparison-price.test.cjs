@@ -13,11 +13,11 @@ require('./test-typescript.cjs')
 const { unitPriceQuote, priceReplyIssues, acceptedPriceOption } = require('../src/lib/integrations/automation/price-reply.ts')
 const { verifiedPriceReplyIssues } = require('../src/lib/integrations/automation/price-reply.ts')
 
-test('price evidence rejects swapped unit prices and missing launch conditions', () => {
+test('price evidence rejects swapped unit prices while launch wording belongs to the reviewer', () => {
   const quote = unitPriceQuote(info(), '¿Y en precio?', {})
   const swapped = 'El departamento 202 cuesta $270.000 USD; el departamento 302 cuesta $250.000 USD. La diferencia es de $20.000 USD. Son valores referenciales de lanzamiento y pueden cambiar.'
   assert.ok(verifiedPriceReplyIssues(swapped, info(), '¿Y en precio?', quote).includes('price_unit_mismatch'))
-  assert.ok(verifiedPriceReplyIssues('El departamento 202 cuesta $250.000 USD y el departamento 302 $270.000 USD.', info(), '¿Y en precio?', quote).includes('unsupported_fact'))
+  assert.ok(!verifiedPriceReplyIssues('El departamento 202 cuesta $250.000 USD y el departamento 302 $270.000 USD.', info(), '¿Y en precio?', quote).includes('unsupported_fact'))
   assert.deepEqual(verifiedPriceReplyIssues(quote.reply, info(), '¿Y en precio?', quote), [])
 })
 

@@ -482,7 +482,5 @@ export function priceReplyIssues(reply: string, info: Row, current = '', expecte
     }
     catch { return ['unsupported_fact'] }
   }
-  if (policy.precios_aproximados === true && (!/aproximad|referencial/.test(m) || !/lanzamiento/.test(m) || !/pueden? (?:cambiar|variar)|sujet[oa]s? a cambios/.test(m))) return ['unsupported_fact']
-  if (info.modo_comercial === 'preventa' && /(?:precio|valor)[^.]*aproximad|referencial de lanzamiento/.test(m)) return ['unsupported_fact']
   return styleIssues || current.trim() && !disclosureRequested ? ['style'] : []
 }

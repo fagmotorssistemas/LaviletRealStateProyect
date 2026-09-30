@@ -206,10 +206,11 @@ test('the real writer keeps the initial residence invitation, purpose and deferr
 test('premature categories are repaired and a removed profile purpose is blocked by the real writer pipeline', async () => {
   const { input, candidate, review } = introductionFixture()
   const premature = { ...candidate, reply: `Tenemos suites, departamentos, penthouses y locales comerciales. ${PROFILE_INVITATION}` }
-  const repaired = await completeTurnReply(input, model(premature, candidate, review).generate)
+  const stageReview = { ...review, claims: [], factual_values: [], opening_property_type_sentence_ids: ['S1'] }
+  const repaired = await completeTurnReply(input, model(premature, stageReview, candidate, review).generate)
   assert.equal(repaired.audit.status, 'checked')
   assert.equal(repaired.audit.repair_attempts.length, 1)
-  assert.ok(repaired.audit.repair_attempts[0].issues.includes('lead_profile_categories_premature'))
+  assert.ok(repaired.audit.repair_attempts[0].issues.some(issue => issue.code === 'lead_profile_categories_premature'))
   assert.ok(repaired.reply.includes(PROFILE_INVITATION))
   assert.doesNotMatch(repaired.reply, /suites|departamentos|penthouses|locales comerciales/)
 

@@ -1,3 +1,4 @@
+import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import { CURRENT_TONE } from './conversation-tone'
 import { financingCollectionIssues, FINANCING_COLLECTION_RULE } from './financing-continuation'
 import { aiJson } from './ai'
@@ -63,8 +64,9 @@ export async function operationalReply(baseReply: string, current: string, histo
     const visitRules = (isVisitCopy(context) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + FINANCING_COLLECTION_RULE
     const result = await aiJson(WRITING_RULES + openingWritingRules(recent) + visitRules, input, replySchema, undefined, undefined, undefined, 'writing')
     const draft = text(result.mensaje).trim()
-    if (operationalCopyIssues(baseReply, draft, {...context,current_message:current}).length) return fallback
-    const reviewed = await aiJson(REVIEW_RULES + visitRules, { ...input, redaccion_propuesta: draft }, reviewSchema, undefined, undefined, undefined, 'review')
+    // Meaning is checked by the reviewer below; retain transport and link integrity.
+    if (!draft || draft.length > MAX_REPLY_CHARACTERS || replyLinkIssues(draft, input.contrato_enlaces).length) return fallback
+    const reviewed = await aiJson(REVIEW_RULES + visitRules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, redaccion_propuesta: draft }, reviewSchema, undefined, undefined, undefined, 'review')
     if (reviewed.fiel_a_los_hechos !== true || reviewed.conserva_estado_y_objetivo !== true || reviewed.no_pide_datos_conocidos !== true) return fallback
     return { reply: draft, generated: draft !== baseReply }
   } catch {

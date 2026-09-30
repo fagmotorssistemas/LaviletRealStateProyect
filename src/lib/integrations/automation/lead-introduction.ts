@@ -228,6 +228,11 @@ APERTURA Y PERFIL DEL LEAD
 export function leadIntroductionIssues(reply: string, auditRaw: unknown) {
   const plan = object(object(auditRaw).profile_introduction)
   if (!Object.keys(plan).length) return []
+  // Live semantic review owns meaning; URLs remain exact application identifiers.
+  if (object(auditRaw).semantic_review_enabled === true) return [
+    ...(plan.brochure_deferred === true && reply.includes(text(plan.brochure_url) || BROCHURE_URL) ? ['lead_profile_brochure_premature'] : []),
+    ...(plan.brochure_required === true && !reply.includes(text(plan.brochure_url) || BROCHURE_URL) ? ['lead_profile_brochure_missing'] : []),
+  ]
   const issues: string[] = []
   const value = normalized(reply), purpose = text(plan.question_purpose)
   // Presence is structural; the independent reviewer checks meaning, missing

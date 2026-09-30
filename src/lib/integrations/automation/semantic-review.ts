@@ -204,15 +204,11 @@ Para hechos respaldados use evidence_source=verified_context; para declaraciones
 catalog_no_results requiere una fuente de evidencia_afirmaciones que represente la consulta completa vacía y solo autoriza negar coincidencias para EXACTAMENTE esa consulta, nunca todo el inventario ni otra categoría. Seleccione el ID de la oración negativa y contraste la negación por separado de las alternativas afirmativas. Distinga «no hay», «no solo hay» e incertidumbre. Compruebe que la respuesta atienda la inquietud actual, sin exigir semejanza con la base.`
 
 function guidanceNeedsFactualEvidence(fragment: string): boolean {
+  // Numeric integrity only. The reviewer classifies nonnumeric facts and
+  // promises; action/guarantee keywords cannot override that classification.
   const value = normalized(fragment)
   const explicitPrice = /(?:\$|\busd\b|\bdolares?\b|\bprecio\b|\bvalor\b|\bcuota\b)/.test(value) && numericMentions(fragment).length > 0
-  const assertedAction = /\b(?:ya|hemos|he|quedo|queda|esta)\s+(?:le\s+|se\s+)?(?:asignad[oa]|agendad[oa]|reservad[oa]|confirmad[oa]|registrad[oa]|enviad[oa]|derivad[oa]|aprobad[oa])\b/.test(value)
-    || /\b(?:asignamos|agendamos|reservamos|confirmamos|registramos|enviamos|derivamos|aprobamos)\b/.test(value)
-  const guarantee = /\b(?:garantiza\w*|garantizado|garantizada|asegurado|asegurada|capacidad maxima|aforo|habitabilidad)\b/.test(value)
-    && !/\b(?:no\s+(?:se\s+)?(?:puede\s+|podemos\s+)?(?:garantiz|asegur)|sin garantizar|no implica|no demuestra)\w*/.test(value)
   const namedUnit = /\b(?:departamentos?|suites?|penthouses?|locales?|unidades?)\s+(?:numeros?\s*)?\d/.test(value)
-  const propertyAssertion = /\b(?:proyecto|edificio|departamentos?|suites?|penthouses?|locales?|unidades?)\b[^.!?;]{0,55}\b(?:tiene[n]?|cuenta[n]?|incluye[n]?|dispone[n]?|admite[n]?|permite[n]?|ofrece[n]?|garantiza[n]?|mide[n]?)\b/.test(value)
-    || /\b(?:contamos|disponemos|ofrecemos)\b[^.!?;]{0,45}\b(?:dormitorios?|habitaciones?|banos?|planta|piso|metros?)\b/.test(value)
   const propertyMeasures = numericMentions(fragment).filter(mention => /^\s*(?:dormitorios?|habitaciones?|cuartos?|banos?|plantas?|pisos?|m2|m²|metros? cuadrados?)(?![a-z0-9])/.test(value.slice(mention.end))
     || /\b(?:planta|piso)\s*$/.test(value.slice(0, mention.index)))
   const propertyMeasure = propertyMeasures.length > 0
@@ -225,7 +221,7 @@ function guidanceNeedsFactualEvidence(fragment: string): boolean {
   const concreteAvailability = /\b(?:disponible|disponibles|ofrecemos|tenemos|contamos|dispone|disponen)\b/.test(value)
   const occupancyClaim = /\b(?:caben|alberga[n]?|admite[n]?|capacidad para|apto[s]? para|apta[s]? para)\b/.test(value)
   const guidance = (contextualEvaluation || hypotheticalPreference) && !concreteAvailability && !occupancyClaim
-  return explicitPrice || assertedAction || guarantee || namedUnit || propertyAssertion || attributedMeasure || occupancyClaim || propertyMeasure && !guidance
+  return explicitPrice || namedUnit || attributedMeasure || propertyMeasure && !guidance
 }
 
 /** Only independently accepted, source-free guidance may be omitted from

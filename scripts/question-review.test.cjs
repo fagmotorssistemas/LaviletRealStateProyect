@@ -148,15 +148,15 @@ test('a commercial opening repair does not spend the independent reviewer metada
     evidence_ids: [context.evidencia_afirmaciones.find(item => item.path === 'contexto_verificado.proyecto').id] }] })
   for (const repaired of [true, false]) {
     const badFragment = 'La Vilet se encuentra ubicada en Puertas del Sol, Cuenca.'
-    const mock = sequence(draft(premature), draft(goodReply, question), reviewed(badFragment), reviewed(repaired ? 'S1' : badFragment))
+    const mock = sequence(draft(premature), review(profileQuestion, { claims: [], factual_values: [], opening_property_type_sentence_ids: ['S1'] }), draft(goodReply, question), reviewed(badFragment), reviewed(repaired ? 'S1' : badFragment))
     const result = await completeTurnReply(input, mock.generate)
-    assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'writing', 'review', 'review'])
+    assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review', 'writing', 'review', 'review'])
     assert.deepEqual(result.audit.repair_attempts.map(attempt => attempt.target), ['commercial_draft', 'review_metadata'])
     assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 1 }, review_metadata: { limit: 1, used: 1 } })
-    assert.equal(mock.calls[2][1].respuesta_propuesta, goodReply)
     assert.equal(mock.calls[3][1].respuesta_propuesta, goodReply)
-    assert.deepEqual(mock.calls[2][2].properties.claims.items.properties.fragment.enum, ['S1', 'S2'])
+    assert.equal(mock.calls[4][1].respuesta_propuesta, goodReply)
     assert.deepEqual(mock.calls[3][2].properties.claims.items.properties.fragment.enum, ['S1', 'S2'])
+    assert.deepEqual(mock.calls[4][2].properties.claims.items.properties.fragment.enum, ['S1', 'S2'])
     assert.equal(result.audit.status, repaired ? 'checked' : 'rejected_review', JSON.stringify(result.audit))
     assert.equal(result.needsAdvisor, false)
     if (repaired) {

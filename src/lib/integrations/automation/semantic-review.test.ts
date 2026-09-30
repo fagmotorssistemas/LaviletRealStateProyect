@@ -115,17 +115,26 @@ test('reasonable contextual guidance does not need invented catalogue sources', 
   ]) assert.equal(reviewClaims([claim(reply)], reply, []).valid, true, reply)
 })
 
-test('a factual price or completed action cannot bypass evidence by calling itself guidance', () => {
-  for (const reply of ['Su precio es de $210.000 USD.', 'Ya le asignamos un asesor.', 'Su reserva está confirmada.',
-    'La habitabilidad está garantizada para toda la familia.', 'El departamento 202 tiene seis dormitorios.',
+test('numeric catalogue claims cannot bypass exact data checks by calling themselves guidance', () => {
+  for (const reply of ['Su precio es de $210.000 USD.', 'El departamento 202 tiene seis dormitorios.',
     'Tiene seis dormitorios; podría resultar cómodo según sus preferencias.',
-    'Son seis dormitorios, conviene evaluar la distribución.', 'Pueden caber todos: admite seis personas.',
+    'Son seis dormitorios, conviene evaluar la distribución.',
     '140 m² de superficie interior.',
-    'El proyecto permite remodelar todas las habitaciones.', 'Nuestras opciones disponibles son de cinco dormitorios.']) {
+    'Nuestras opciones disponibles son de cinco dormitorios.']) {
     const review = reviewClaims([claim(reply)], reply, [])
     assert.equal(review.valid, false, reply)
     assert.ok(review.issues.some(issue => issue.code === 'guidance_contains_factual_assertion'), reply)
   }
+})
+
+test('semantic classification owns nonnumeric promises while typed facts still require a source', () => {
+  for (const reply of ['Su reserva está confirmada.', 'Ya le asignamos un asesor.']) {
+    const result = reviewClaims([claim(reply, { claim_kind: 'operational_fact', evidence_source: 'verified_context' })], reply, [])
+    assert.equal(result.valid, false)
+    assert.ok(result.issues.some(issue => issue.code === 'claim_source_not_verified'))
+  }
+  const advice = 'Conviene comprobar si su reserva está confirmada antes de avanzar.'
+  assert.equal(reviewClaims([claim(advice)], advice, []).valid, true)
 })
 
 test('review repair removes phantom numbers even when the number exists in another subject or field', () => {

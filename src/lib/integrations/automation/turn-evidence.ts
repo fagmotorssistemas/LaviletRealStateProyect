@@ -115,14 +115,15 @@ export function sentenceReferenceReviewSchema(schema: Row, reply: string, curren
   if (Object.keys(factList).length) {
     const candidates = draftNumericCandidates(reply), item = object(factList.items)
     const unitIds = catalog?.flatMap(unit => [text(unit.id), ...(text(unit.unit_number) && catalog.filter(other => other.unit_number === unit.unit_number).length === 1 ? [text(unit.unit_number)] : [])]).filter(Boolean)
-    properties.factual_values = candidates.length && (unitIds === undefined || unitIds.length) ? { ...factList, items: { anyOf: candidates.map(candidate => ({
+    properties.factual_values = candidates.length && (unitIds === undefined || unitIds.length) ? { ...factList, items: { anyOf: candidates.flatMap(candidate => [false, true].map(interval => ({
       ...item, properties: { ...object(item.properties),
         ...(unitIds ? { unit_id: { type: 'string', enum: [...new Set(unitIds)] } } : {}),
         fragment: { type: 'string', enum: [candidate.sentence_id] },
         value: { type: 'number', enum: candidate.values },
-        upper_value: { anyOf: [{ type: 'null' }, { type: 'number', enum: candidate.values }] },
+        operator: { type: 'string', enum: interval ? ['between'] : ['eq', 'gt', 'gte', 'lt', 'lte'] },
+        upper_value: interval ? { type: 'number', enum: candidate.values } : { type: 'null' },
       },
-    })) } } : { ...factList, maxItems: 0 }
+    }))) } } : { ...factList, maxItems: 0 }
   }
   const issueList = object(properties.review_issues)
   if (Object.keys(issueList).length) {

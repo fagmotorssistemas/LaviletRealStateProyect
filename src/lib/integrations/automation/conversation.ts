@@ -2,9 +2,7 @@ import { currentTopicReply } from './current-topic'
 import { withHandoffNotice } from './handoff-copy'
 import { requiresContentReview, unverifiedReply } from './delivery-integrity'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
-import { visitTruthReply } from './visit-copy'
 import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
-import { protectedSentences } from './turn-completeness'
 import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
 import { OpenAIRequestError } from './openai-request'
@@ -51,8 +49,7 @@ import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wants
 import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, reconcilePropertyScope, type BusinessScopeDecision } from './business-scope'
 import { inboundFreshness } from './inbound-freshness'
-import { financingFieldAnswer, financingCollectionIssues } from './financing-continuation'
-import { sectorClaimsReply } from './commercial-accuracy'
+import { financingFieldAnswer } from './financing-continuation'
 import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { selectedVisitOption } from './visit-choice'
@@ -1231,10 +1228,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true },
       validateReply: candidate => [
         ...(quote?.quoted === true && priceReplyIssues(candidate, info, current, quote.prices).includes('unsupported_fact') ? ['unsupported_price_rewrite'] : []),
-        ...(financingCollectionIssues(candidate, audit, current) ? ['financing_collection_changed'] : []),
       ],
-      normalizeReply: candidate => currentTopicReply(sectorClaimsReply(
-        visitTruthReply(candidate, info, audit, proposals, protectedSentences)), current),
       preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
     // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
     const invalidPrice = reviewed.changed && quote?.quoted === true && priceReplyIssues(reviewed.reply, info, current, quote.prices).includes('unsupported_fact')
@@ -1246,7 +1240,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       reply = recoveryReply(reviewed.audit)
       reviewed.audit = { ...reviewed.audit, retained_verified_reply: false, final_preview: traceText(reply, MAX_REPLY_CHARACTERS) }
     } else if (!invalidPrice && catalogValidation.valid) {
-      if(!financingCollectionIssues(reviewed.reply,audit,current)) reply = reviewed.reply
+      reply = reviewed.reply
       audit.semantic_review = semanticEvidence
       if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
         reviewedText = reply
@@ -1255,7 +1249,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           audit: { ...audit, semantic_review_enabled: true },
           validateReply: value => [
             ...(quote?.quoted === true && priceReplyIssues(value, info, current, quote.prices).includes('unsupported_fact') ? ['unsupported_price_rewrite'] : []),
-            ...(financingCollectionIssues(value, audit, current) ? ['financing_collection_changed'] : []),
           ] })
       }
     }
@@ -1333,9 +1326,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       requires_advisor: needsCommercialHandoff, handoff_review: resolvedFromContext ? 'resolved_from_context' : 'needs_advisor',
       ...(resolvedFromContext ? { handoff_reason: null } : {}),
     } : {}) }
-    const truthfulVisitReply = visitTruthReply(reply, info, audit, proposals, protectedSentences)
-    if (truthfulVisitReply !== reply) audit.visit_copy_guard = true
-    reply = truthfulVisitReply
     const visitCoordinationHandled = audit.source === 'visit_intake'
       && ['collecting', 'submitted', 'closed_day', 'outside_hours', 'past'].includes(text(audit.action))
       && (!reviewed.unresolved.length || reviewed.unresolved.every(item => /\b(?:visitas?|citas?|fechas?|horas?|horarios?|agenda|agendar|reagendar|propuestas?)\b/i.test(item)))
@@ -1370,7 +1360,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     source: text(audit.source) || 'commercial',
   })
   const beforeFinalFormatting = reply
-  const direct = currentTopicReply(sectorClaimsReply(reply),current)
+  const direct = reviewedText ? reply : currentTopicReply(reply,current)
   if(direct !== reply) audit.direct_reply_guard = true
   const openingDecision = object(audit.turn_completeness).opening_decision
   const withOpening = (body: string) => reviewedText ? body : openingDecision ? applyDecidedOpening(body, text(object(openingDecision).prefix)) : variedReplyOpening(body, context.historial)

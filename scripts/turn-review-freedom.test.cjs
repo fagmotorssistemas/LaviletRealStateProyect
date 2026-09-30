@@ -16,6 +16,56 @@ const approved = { all_requests_considered: true, answers_supported: true, answe
   operational_goal_preserved: true, question_has_purpose: true, question: { purpose: 'none', missing_datum: '', next_decision: '', clarifies: [] }, missing_fact_fragments: [], review_issues: [], claims: [], factual_values: [] }
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 
+test('price ranges and equivalent launch disclosures survive the full review pipeline', async () => {
+  const current = 'y que precio tiene disculpe'
+  const units = [
+    { id: 'local-min', unit_number: 'LC-11', category: 'local', status: 'disponible', is_published: true, published_commercial_price: 145000 },
+    { id: 'penthouse-max', unit_number: '601', category: 'penthouse', status: 'disponible', is_published: true, published_commercial_price: 550000 },
+  ]
+  for (const disclosure of ['Son valores referenciales de lanzamiento y podrían variar.', 'Los valores de lanzamiento son orientativos y están sujetos a modificaciones.']) {
+    const reply = `Los precios van desde $145.000 hasta $550.000 USD. ${disclosure}`
+    const mock = sequence(candidate(current, reply), (rules, context, schema) => {
+      assert.match(rules, /podrían variar/)
+      const variants = schema.properties.factual_values.items.anyOf
+      assert.ok(variants.every(v => v.properties.upper_value.type === 'null'
+        || JSON.stringify(v.properties.operator.enum) === '["between"]'))
+      return { ...approved, claims: [{ fragment: 'S1', subject: 'Rango publicado', polarity: 'affirmation',
+        claim_kind: 'project_fact', verdict: 'supported', evidence: 'Extremos exactos del conjunto cotizado.', evidence_source: 'verified_context',
+        evidence_ids: [context.evidencia_afirmaciones.find(s => s.reference_id === 'group:price_quote:all:range').id] }],
+      factual_values: [{ fragment: 'S1', unit_id: 'group:price_quote:all:range', field: 'published_commercial_price',
+        value: 145000, upper_value: 550000, operator: 'between' }] }
+    })
+    const result = await completeTurnReply({ current, baseReply: reply, verified: { catalogo: units, alcance_negocio: 'property',
+      modo_comercial: 'lanzamiento', politica_comercial: { precios_autorizados: true, precios_aproximados: true } },
+    audit: { source: 'unit_price', verified_price_only: true, semantic_review_enabled: true } }, mock.generate)
+    assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+    assert.equal(result.reply, reply)
+    assert.equal(mock.calls.length, 2)
+  }
+})
+
+test('semantic policies replace phrase vetoes without waiving a real policy violation', async () => {
+  const current = 'Gracias por la información'
+  const input = { current, baseReply: 'Gracias.', verified: {}, audit: { semantic_review_enabled: true } }
+  for (const reply of ['No ofrecemos aprobación garantizada.', 'Todavía no hemos confirmado su cita.',
+    'No soy una persona; soy un asistente virtual.', 'No tengo datos suficientes para afirmar que la renta respalde el crédito.']) {
+    assert.deepEqual(turnCompletenessIssues(input, reply), [], reply)
+  }
+  const reply = 'Los precios de lanzamiento son definitivos y no cambiarán.'
+  let reviewerCalls = 0
+  const generate = async (rules, context) => {
+    if (!context.respuesta_propuesta) return candidate(current, reply)
+    reviewerCalls++
+    assert.match(rules, /carácter referencial de lanzamiento/)
+    return { ...approved, answers_supported: false, review_issues: [{ check: 'answers_supported', kind: 'content',
+      fragment: 'S1', reason: 'Contradice la política de precios referenciales.' }] }
+  }
+  const result = await completeTurnReply({ ...input, verified: { politica_comercial: { precios_aproximados: true } } }, generate)
+  assert.ok(reviewerCalls > 0)
+  assert.notEqual(result.audit.status, 'checked')
+  assert.notEqual(result.reply, reply)
+})
+
 test('personal acknowledgements reach the reviewer and pass with lead evidence, including during a handoff', async () => {
   const current = 'Me llamo Ernesto y me mudé a Guayaquil'
   for (const reply of ['He registrado su nombre y su residencia en Guayaquil.', 'Tomo nota de sus datos, Ernesto.']) {

@@ -129,8 +129,10 @@ test('numeric candidates preserve prose variants and constrain each sentence to 
   const branches = object(object(object(schema.properties).factual_values).items).anyOf as Row[]
   for (const [index, branch] of branches.entries()) {
     const properties = object(branch.properties)
-    assert.deepEqual(properties.fragment, { type: 'string', enum: [candidates[index].sentence_id] })
-    assert.deepEqual(properties.value, { type: 'number', enum: candidates[index].values })
+    assert.deepEqual(properties.fragment, { type: 'string', enum: [candidates[Math.floor(index / 2)].sentence_id] })
+    assert.deepEqual(properties.value, { type: 'number', enum: candidates[Math.floor(index / 2)].values })
+    assert.deepEqual(properties.operator, { type: 'string', enum: index % 2 ? ['between'] : ['eq', 'gt', 'gte', 'lt', 'lte'] })
+    assert.deepEqual(properties.upper_value, index % 2 ? { type: 'number', enum: candidates[Math.floor(index / 2)].values } : { type: 'null' })
     assert.equal(branch.additionalProperties, false)
     assert.deepEqual(branch.required, factualValuesSchema.items.required)
   }
