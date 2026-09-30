@@ -6,6 +6,16 @@ import { object, type Row } from './data'
 import { checkReviewDecision, reviewChecks, reviewIssuesSchema } from './turn-review-checks'
 import { validateCatalogReply } from './catalog-dialogue'
 
+test('numeric reviewer schema only admits real unit references, and none for an empty search', () => {
+  const schema = { properties: { factual_values: factualValuesSchema } }
+  const reply = 'No hay viviendas de 5 dormitorios.'
+  const empty = sentenceReferenceReviewSchema(schema, reply, '', [])
+  assert.equal(object(object(empty.properties).factual_values).maxItems, 0)
+  const available = sentenceReferenceReviewSchema(schema, reply, '', [{ id: 'real-unit', unit_number: '202' }])
+  const variants = object(object(object(available.properties).factual_values).items).anyOf as Row[]
+  assert.deepEqual(object(object(variants[0].properties).unit_id).enum, ['real-unit', '202'])
+})
+
 test('CRM names cannot become identity evidence but a persisted declaration can', () => {
   const lead = { name: 'Nombre del WhatsApp', full_name: 'Nombre del CRM', preferred_category: 'departamento' }
   const unconfirmed = verifiedClaimSources({ lead, perfil_lead: { full_name: 'Nombre sin procedencia' } }, {}, {}, 'Buenas tardes')
@@ -213,15 +223,15 @@ test('all reviewer defect references use IDs and source is assigned by code even
   assert.equal(decision.editorial.length, 1)
 })
 
-test('current-request IDs retain real omissions as content defects and invalid IDs cannot prove them', () => {
+test('current-request IDs retain mandatory objective defects and invalid IDs cannot prove them', () => {
   const current = 'Quiero conocer el precio.', reply = 'Buenas tardes.'
-  const entry = { check: 'all_requests_considered', kind: 'content', fragment: 'R1', reason: 'No responde al precio solicitado.' }
-  const flags = Object.fromEntries(reviewChecks.map(check => [check, check !== 'all_requests_considered']))
+  const entry = { check: 'operational_goal_preserved', kind: 'content', fragment: 'R1', reason: 'No responde al precio solicitado.' }
+  const flags = Object.fromEntries(reviewChecks.map(check => [check, check !== 'operational_goal_preserved']))
   const result = normalizeReviewReferences({ ...flags, review_issues: [entry] }, [], reply, current)
   assert.deepEqual((result.review.review_issues as Row[])[0], { ...entry, fragment: current, source: 'current_request' })
   const decision = checkReviewDecision(result.review, current, reply)
   assert.equal(decision.issues[0].kind, 'commercial_content')
-  assert.equal(decision.issues[0].code, 'review_check_failed:all_requests_considered')
+  assert.equal(decision.issues[0].code, 'review_check_failed:operational_goal_preserved')
   for (const fragment of ['R2', 'S99']) {
     const invalid = normalizeReviewReferences({ ...flags, review_issues: [{ ...entry, fragment }] }, [], reply, current)
     assert.equal(checkReviewDecision(invalid.review, current, reply).issues[0].code, 'invalid_review_issue_reference')

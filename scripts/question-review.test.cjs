@@ -317,7 +317,7 @@ test('a reviewer timeout cannot turn a writer missing-fact label into an advisor
   assert.equal(result.audit.recovery.pending, true)
 })
 
-test('invalid reviewer metadata keeps potential gaps pending without authorizing a handoff', async () => {
+test('irrelevant question metadata cannot veto a draft without questions or change its verified gap', async () => {
   const current = '¿Aceptan mascotas?'
   const reply = 'No tengo una política verificada sobre mascotas.'
   const question = { purpose: 'none', missing_datum: '', next_decision: '' }
@@ -326,13 +326,12 @@ test('invalid reviewer metadata keeps potential gaps pending without authorizing
     request_type: 'specific_fact', status: 'missing_fact', evidence: 'No consta una política verificada.', fact_key: 'policy',
   })] }, broken, broken)
   const result = await completeTurnReply({ current, baseReply: reply, verified: {} }, mock.generate)
-  assert.equal(result.audit.status, 'rejected_review')
-  assert.equal(result.needsAdvisor, false)
-  assert.deepEqual(result.unresolved, [])
-  assert.deepEqual(result.audit.pending_missing_fact_fragments, [current])
-  assert.equal(result.audit.pending_gap_assessments[0].outcome, 'missing_fact')
-  assert.equal(result.audit.repair_attempts[0].target, 'review_metadata')
-  assert.equal(result.audit.recovery.pending, true)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.needsAdvisor, true)
+  assert.deepEqual(result.unresolved, [current])
+  assert.deepEqual(result.audit.question.clarifies, [])
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(mock.calls.length, 2)
 })
 
 test('an unchanged draft without questions still requires review before a real information gap can authorize handoff', async () => {

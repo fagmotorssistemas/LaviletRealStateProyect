@@ -1,6 +1,8 @@
 import { object, text, type Row } from './data'
 
 export const reviewChecks = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', 'question_has_purpose'] as const
+const advisoryChecks = new Set(['all_requests_considered', 'answered_content_preserved', 'question_has_purpose'])
+export const FACTUAL_REVIEW_SCOPE_RULES = `ALCANCE DE LA REVISIÓN: Bloquee únicamente hechos o promesas sin respaldo, contradicciones y reglas comerciales obligatorias aplicables al turno. all_requests_considered, answered_content_preserved y question_has_purpose son observaciones de calidad, no vetos: sus detalles usan kind=editorial. No rechace por orden, longitud, falta de una pregunta opcional o por no encontrar opciones en una búsqueda completa. Informar que no hay coincidencias SÍ responde una consulta de disponibilidad. operational_goal_preserved controla obligaciones concretas del contrato de apertura o de la acción actual, nunca preferencias generales de venta. Mantenga las reglas obligatorias de recoger datos y no presentar categorías antes de la etapa permitida. Cada defecto factual debe identificar la afirmación y qué evidencia falta o la contradice. Un error de su ficha no demuestra un error comercial. Revise separadamente las afirmaciones de una oración compuesta: una búsqueda vacía puede respaldar la ausencia solicitada, pero no un máximo, otra categoría o una promesa adicional.`
 export const reviewIssuesSchema = { type: 'array', maxItems: 12, items: { type: 'object', additionalProperties: false,
   properties: { check: { type: 'string', enum: [...reviewChecks] },
     kind: { type: 'string', enum: ['content', 'editorial'] },
@@ -26,6 +28,10 @@ export function checkReviewDecision(review: Row, current: string, reply: string)
     return { issues: [{ code: 'invalid_review_issue_list', kind: 'review_metadata' }], editorial, checks }
   const details = review.review_issues.map(object)
   for (const detail of details) {
+    if (advisoryChecks.has(text(detail.check))) {
+      editorial.push({ ...detail, kind: 'editorial' })
+      continue
+    }
     const source = detail.source === 'current_request' ? current : detail.source === 'draft' ? reply : ''
     if (detail.invalid_sentence_reference === true || !reviewChecks.includes(detail.check as typeof reviewChecks[number]) || !['content', 'editorial'].includes(text(detail.kind))
       || !text(detail.fragment).trim() || !source.includes(text(detail.fragment)) || !text(detail.reason).trim()) {
@@ -36,6 +42,12 @@ export function checkReviewDecision(review: Row, current: string, reply: string)
     else issues.push({ ...detail, code: `review_check_failed:${detail.check}`, kind: 'commercial_content' })
   }
   for (const check of needed) {
+    if (advisoryChecks.has(check)) {
+      checks[check] = true
+      if (review[check] !== true && !editorial.some(item => item.check === check))
+        editorial.push({ check, kind: 'editorial', reason: 'Observación de calidad sin un defecto factual o una obligación incumplida.' })
+      continue
+    }
     const hasContent = issues.some(issue => issue.check === check && issue.kind === 'commercial_content')
     const hasEditorial = editorial.some(issue => issue.check === check)
     checks[check] = !hasContent && (review[check] === true || hasEditorial)

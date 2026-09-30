@@ -42,16 +42,17 @@ export function repairBudgetFacts(output: Row) {
 export function reviewDecision(output: Row, catalog: Row[] = []) {
   const status = text(output.status), review = row(output.semantic_review)
   const recovery = row(output.recovery || row(output.turn_completeness).recovery)
+  const recoveredCatalog = status === 'recovered_catalog_result' && recovery.strategy === 'verified_empty_search'
   const recoveryPending = recovery.version === 'turn-recovery-v1' && recovery.pending === true
   const errors = list(review.validation_details), attempts = list(output.repair_attempts)
   const issues = Array.isArray(output.issues) ? output.issues.map(text) : []
   const quantityChecks = list(row(output.final_validation).project_quantity_checks)
-  const rejected = output.draft_rejected === true || /^(rejected|invalid)/.test(status)
+  const rejected = recoveredCatalog || output.draft_rejected === true || /^(rejected|invalid)/.test(status)
   const metadata = rejected && (status === 'invalid_coverage' || issues.includes('invalid_review_metadata'))
   const tone = status === 'checked' ? 'accepted' : metadata ? 'metadata' : rejected ? 'rejected' : 'unknown'
-  const title = recoveryPending ? 'Propuesta sin aprobar · Recuperación pendiente' : tone === 'accepted' ? 'Propuesta aprobada en este paso' : metadata ? 'Propuesta descartada · Falló la ficha interna'
+  const title = recoveredCatalog ? 'Borrador descartado · Resultado de catálogo verificado' : recoveryPending ? 'Propuesta sin aprobar · Recuperación pendiente' : tone === 'accepted' ? 'Propuesta aprobada en este paso' : metadata ? 'Propuesta descartada · Falló la ficha interna'
     : rejected ? 'Propuesta descartada · Falló una validación' : 'Decisión sobre el borrador sin confirmar'
-  const explanation = recoveryPending ? 'La propuesta no superó la revisión y la respuesta base no se autorizó como reemplazo. La consulta quedó pendiente de recuperación; el texto preparado y su envío se comprueban en los pasos posteriores.'
+  const explanation = recoveredCatalog ? 'El sistema preparó una respuesta con el resultado de la búsqueda completa sin coincidencias, conservando sus filtros. No aprobó el borrador rechazado. El envío se comprueba en Envío a Kommo.' : recoveryPending ? 'La propuesta no superó la revisión y la respuesta base no se autorizó como reemplazo. La consulta quedó pendiente de recuperación; el texto preparado y su envío se comprueban en los pasos posteriores.'
     : tone === 'accepted' ? 'Los controles de este paso aprobaron la propuesta. El envío definitivo se verifica en Envío a Kommo.'
     : metadata ? 'El sistema no pudo validar la información interna que acompaña al texto. Conservó la respuesta de respaldo; esto no demuestra por sí solo que la redacción comercial fuera incorrecta.'
       : rejected ? 'La propuesta no superó los controles registrados. Se conservó la respuesta de respaldo.' : 'Este registro no permite confirmar la aceptación o el descarte.'

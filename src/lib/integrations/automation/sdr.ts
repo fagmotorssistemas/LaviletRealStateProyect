@@ -1,6 +1,8 @@
 import 'server-only'
 import { activePrompt, aiJson, draftReply } from './ai'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
+import { isTestPhone } from '@/lib/inmobiliaria/testResponseMode'
+import { testResponseMode } from './test-response-mode'
 import { recordDraftDecision } from './ai-execution-trace'
 import { db, object, scope, text, type Row } from './data'
 import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
@@ -62,6 +64,9 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
   const places = (Array.isArray(sources.places.data) ? sources.places.data : []) as Row[]
   const settings = object(sources.config.data), mode = text(settings.mode) || 'lanzamiento'
   const projectData = object(sources.project.data)
+  const restrictedPolicies = object(object(projectData.policies_json).business_policies).test_items
+  const authorizedContact = Array.isArray(restrictedPolicies) && restrictedPolicies.length > 0
+    && isTestPhone(lead.phone) && (await testResponseMode())?.leadId === lead.id
   const areaFactsResult = await db().from('project_area_facts')
     .select('fact_key,category,headline,safe_sales_text,audiences,commercial_modes,verified_on')
     .match(scope).eq('review_status', 'verified').eq('approved_for_bot', true)
@@ -84,7 +89,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     perfil_lead: profile, conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
-    politicas_negocio: publishedBusinessPolicies(projectData.policies_json, mode),
+    politicas_negocio: publishedBusinessPolicies(projectData.policies_json, mode, new Date().toISOString(), authorizedContact),
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),

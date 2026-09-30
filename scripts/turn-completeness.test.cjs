@@ -217,7 +217,7 @@ test('premature categories are repaired and a removed profile purpose is blocked
   const missingPurpose = { ...candidate, reply: `La Vilet está en Puertas del Sol, Cuenca. ${shortQuestion}`,
     question: { ...candidate.question, text: shortQuestion } }
   const missingPurposeReview = { ...review, operational_goal_preserved: false }
-  const blocked = await completeTurnReply(input, model(missingPurpose, missingPurposeReview, missingPurpose, missingPurposeReview).generate)
+  const blocked = await completeTurnReply(input, model(missingPurpose, missingPurposeReview, missingPurposeReview, missingPurpose, missingPurposeReview).generate)
   assert.equal(blocked.audit.status, 'rejected_review')
   assert.ok(blocked.audit.issues.includes('review_check_failed:operational_goal_preserved'))
   assertPending(blocked, missingPurpose.reply)

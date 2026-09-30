@@ -11,13 +11,15 @@ export type PolicyContent = {
 export type PolicyVersion = PolicyContent & { version: number; publishedAt: string; publishedBy: string }
 export type BusinessPolicy = {
   id: string; draft: PolicyContent; published: PolicyVersion | null; history: PolicyVersion[]
+  restricted?: boolean
 }
 export type BusinessPolicyState = { revision: number; items: BusinessPolicy[] }
 const row = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
 export function businessPolicies(value: unknown): BusinessPolicyState {
   const state = row(row(value).business_policies)
   return { revision: Number.isSafeInteger(state.revision) ? Number(state.revision) : 0,
-    items: Array.isArray(state.items) ? state.items as BusinessPolicy[] : [] }
+    items: [...(Array.isArray(state.items) ? state.items as BusinessPolicy[] : []),
+      ...(Array.isArray(state.test_items) ? (state.test_items as BusinessPolicy[]).map(item => ({ ...item, restricted: true })) : [])] }
 }
 export function emptyPolicy(): PolicyContent {
   return { title: '', topic: 'compra_exterior', content: '', scope: '', source: '', mode: 'todos', validUntil: '' }
@@ -54,16 +56,17 @@ export function changeBusinessPolicy(value: unknown, command: PolicyCommand, act
   const published = command.action === 'publish' ? { ...draft,
     version: Math.max(0, ...history.map(item => item.version), existing?.published?.version || 0) + 1,
     publishedAt: now, publishedBy: actor } : command.action === 'pause' ? null : existing?.published || null
-  const item: BusinessPolicy = { id: command.id, draft, published,
+  const item: BusinessPolicy = { id: command.id, draft, published, ...(existing?.restricted ? { restricted: true } : {}),
     history: command.action === 'publish' ? [published!, ...history].slice(0, 20) : history }
+  const items = existing ? state.items.map(old => old.id === item.id ? item : old) : [...state.items, item]
   return { ...row(value), business_policies: { revision: state.revision + 1,
-    items: existing ? state.items.map(old => old.id === item.id ? item : old) : [...state.items, item] } }
+    items: items.filter(item => !item.restricted), test_items: items.filter(item => item.restricted) } }
 }
 /** Read only published, in-scope versions. Missing knowledge grants no permission. */
-export function publishedBusinessPolicies(value: unknown, mode: string, now = new Date().toISOString()) {
+export function publishedBusinessPolicies(value: unknown, mode: string, now = new Date().toISOString(), authorizedContact = false) {
   return businessPolicies(value).items.flatMap(item => {
     const policy = item.published
-    if (!policy || policy.mode !== 'todos' && policy.mode !== mode || policy.validUntil && policy.validUntil < now.slice(0, 10)) return []
+    if (!policy || item.restricted && !authorizedContact || policy.mode !== 'todos' && policy.mode !== mode || policy.validUntil && policy.validUntil < now.slice(0, 10)) return []
     return [{ policy_id: item.id, version: policy.version, title: policy.title, topic: policy.topic,
       policy_content: policy.content, scope: policy.scope, source: policy.source, mode: policy.mode,
       valid_until: policy.validUntil || null, published_at: policy.publishedAt }]

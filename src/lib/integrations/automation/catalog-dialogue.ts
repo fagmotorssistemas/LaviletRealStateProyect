@@ -5,6 +5,7 @@ import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { factualValueIssues, reviewedCatalogDenials, reviewedContextualGuidance } from './semantic-review'
 import { turnEvidence } from './turn-evidence'
 import { bedroomOptions } from './bedroom-options'
+import { verifiedAbsenceReply } from './catalog-absence'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
 export type CatalogQuery = {
@@ -300,7 +301,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const baseAudit: Row = { query_transition: object(context.query_transition), filter_resolution: object(context.filter_resolution),
     reference_resolution: object(context.reference_resolution), source: `catalog_${query.operation}`, verified_catalog: true, catalog_query: query,
     catalog_results: { unit_ids: unitIds(units), units: units.map(facts), complete: true, unknown_unit_ids: [] },
-    covered_requests: [`catalog_${query.operation}`], coverage_complete: false,
+    covered_requests: [`catalog_${query.operation}`], coverage_complete: false, catalog_excluded_categories: excluded,
     offered_unit_ids: [], focused_unit_ids: [], selected_unit_ids: [],
     catalog_coverage: { operation: query.operation, status: units.length ? 'answered' : 'no_results', result_unit_ids: unitIds(units),
       known_fields: compareCatalog(units).known_fields },
@@ -322,7 +323,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   if (!units.length) {
     const subject = query.category ? plural[query.category] : query.group === 'commercial' ? 'locales comerciales' : 'viviendas'
     const conditions = [query.filters.bedrooms_any?.length ? `de ${query.filters.bedrooms_any.join(' o ')} dormitorios` : query.filters.bedrooms !== null ? `de ${query.filters.bedrooms} dormitorios` : '', query.filters.floor_number !== null ? `en la planta ${query.filters.floor_number}` : ''].filter(Boolean).join(' ')
-    const opening = `Actualmente no contamos con ${subject} disponibles${conditions ? ` ${conditions}` : ''}.`
+    const opening = verifiedAbsenceReply(baseAudit) || `Actualmente no contamos con ${subject} disponibles${conditions ? ` ${conditions}` : ''}.`
     if (query.filters.bedrooms_required === true) return respond(opening)
     let proposed = catalogQuery({ ...query, operation: 'search', scope: 'catalog', selector: null,
       filters: { ...query.filters, bedrooms_any: [], bedrooms: null, floor_number: null, min_area_m2: null, max_area_m2: null } })

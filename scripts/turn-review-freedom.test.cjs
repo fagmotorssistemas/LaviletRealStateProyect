@@ -15,6 +15,24 @@ const { checkReviewDecision } = require('../src/lib/integrations/automation/turn
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
   operational_goal_preserved: true, question_has_purpose: true, question: { purpose: 'none', missing_datum: '', next_decision: '', clarifies: [] }, missing_fact_fragments: [], review_issues: [], claims: [], factual_values: [] }
 const noQuestion = { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
+
+test('a failed review of a single empty search recovers its verified answer without approving the draft', async () => {
+  const current = '¿Tiene viviendas de 5 dormitorios?'
+  const draft = 'No hay viviendas de 5 dormitorios. Podemos conseguir otra fuera del proyecto.'
+  const proposal = { ...candidate(current, draft), requests: [{ fragment: current, intent: 'Disponibilidad de cinco dormitorios', request_type: 'specific_fact', status: 'answered', fact_key: 'bedrooms', evidence: 'Búsqueda completa sin coincidencias' }] }
+  const mock = sequence(proposal, () => { throw Error('REVIEW_TIMEOUT') })
+  const result = await completeTurnReply({ current, baseReply: 'Respuesta antigua', verified: {}, audit: {
+    semantic_review_enabled: true, verified_catalog: true, source: 'catalog_search',
+    catalog_query: { scope: 'catalog', operation: 'search', group: 'residential', filters: { bedrooms: 5, bedrooms_required: true } },
+    catalog_results: { complete: true, units: [], unknown_unit_ids: [] },
+    resolved_turn_intent: { requests: [{ domain: 'property' }] },
+  } }, mock.generate)
+  assert.equal(result.reply, 'Actualmente no contamos con viviendas disponibles de 5 dormitorios.')
+  assert.equal(result.audit.status, 'recovered_catalog_result')
+  assert.equal(result.audit.recovery.pending, false)
+  assert.equal(result.needsAdvisor, false)
+  assert.doesNotMatch(result.reply, /fuera del proyecto/)
+})
 const candidate = (current, reply) => ({ reply, requests: [{ fragment: current, intent: 'Orientar la consulta actual',
   request_type: 'general_information', status: 'answered', evidence: 'Responde la inquietud con los hechos y orientación pertinente', fact_key: null }], question: noQuestion })
 const guidance = fragment => ({ fragment, subject: 'Distribución familiar', polarity: 'uncertainty', claim_kind: 'contextual_guidance',
@@ -71,6 +89,21 @@ test('an unexplained reviewer veto is repaired as metadata while preserving the 
   assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review', 'review'])
 })
 
+test('mixed reviewer metadata and content allegations get one independent recheck of the same draft', async () => {
+  const current = '¿Podemos revisar la distribución?'
+  const reply = 'Podemos evaluar cómo prefieren distribuirse.'
+  const bad = { ...approved, answers_supported: false,
+    review_issues: [{ check: 'answers_supported', kind: 'content', source: 'draft', fragment: reply, reason: 'Se debe verificar esta orientación.' }],
+    claims: [guidance('Una frase inventada por el revisor.')] }
+  const mock = sequence(candidate(current, reply), bad, { ...approved, claims: [guidance(reply)] })
+  const result = await completeTurnReply({ current, baseReply: 'Respuesta antigua', verified: {}, audit: { semantic_review_enabled: true } }, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.repair_attempts[0].target, 'review_metadata')
+  assert.equal(mock.calls.length, 3)
+  assert.equal(mock.calls[2][1].respuesta_propuesta, reply)
+})
+
 test('editorial preferences are observable without vetoing a supported answer', async () => {
   const current = '¿Podemos evaluar las distribuciones?'
   const reply = 'Podemos revisar las distribuciones según sus necesidades.'
@@ -114,7 +147,7 @@ test('a persistent review defect uses bounded recovery and never a catalogue lis
   assert.equal(mock.calls.length, 3)
 })
 
-test('content defects require a literal, current reason and trigger a localized rewrite with independent review', async () => {
+test('quality omissions are advisory even when the reviewer labels them as content defects', async () => {
   const current = '¿Será cómodo para mi familia?'
   const draft = 'Tenemos opciones de vivienda.'
   const repaired = 'La comodidad depende de cómo prefieran distribuirse; podemos revisar las distribuciones.'
@@ -122,12 +155,14 @@ test('content defects require a literal, current reason and trigger a localized 
     source: 'current_request', fragment: current, reason: 'La respuesta enumera categorías sin atender la inquietud sobre comodidad.' }] }
   const mock = sequence(candidate(current, draft), badReview, candidate(current, repaired), { ...approved, claims: [guidance(repaired)] })
   const result = await completeTurnReply({ current, baseReply: draft, verified: {}, audit: { semantic_review_enabled: true } }, mock.generate)
-  assert.equal(result.reply, repaired)
+  assert.equal(result.reply, draft)
   assert.equal(result.audit.status, 'checked')
-  assert.equal(result.audit.repair_attempts[0].target, 'commercial_draft')
-  assert.equal(mock.calls.length, 4)
+  assert.equal(result.audit.repair_attempts.length, 0)
+  assert.ok(result.audit.editorial_observations.some(item => item.startsWith('review_editorial:all_requests_considered:')))
+  assert.equal(mock.calls.length, 2)
   const invalid = checkReviewDecision({ ...badReview, review_issues: [{ ...badReview.review_issues[0], fragment: 'consulta antigua' }] }, current, draft)
-  assert.equal(invalid.issues[0].kind, 'review_metadata')
+  assert.deepEqual(invalid.issues, [])
+  assert.equal(invalid.editorial[0].kind, 'editorial')
 })
 
 test('reviewed household distribution advice permits digits as well as words without inventing property attributes', async () => {

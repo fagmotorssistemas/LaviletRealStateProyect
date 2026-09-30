@@ -98,7 +98,7 @@ export function draftNumericCandidates(reply: string) {
 /** The live reviewer selects a code-owned sentence instead of copying its prose.
  * Historical snapshots can still contain literal fragments; their readers and
  * validators retain that representation after reference normalization. */
-export function sentenceReferenceReviewSchema(schema: Row, reply: string, current = ''): Row {
+export function sentenceReferenceReviewSchema(schema: Row, reply: string, current = '', catalog?: Row[]): Row {
   const ids = replyReferences(reply).map(sentence => sentence.id)
   const properties = { ...object(schema.properties) }
   for (const key of ['claims']) {
@@ -114,8 +114,10 @@ export function sentenceReferenceReviewSchema(schema: Row, reply: string, curren
   const factList = object(properties.factual_values)
   if (Object.keys(factList).length) {
     const candidates = draftNumericCandidates(reply), item = object(factList.items)
-    properties.factual_values = candidates.length ? { ...factList, items: { anyOf: candidates.map(candidate => ({
+    const unitIds = catalog?.flatMap(unit => [text(unit.id), ...(text(unit.unit_number) && catalog.filter(other => other.unit_number === unit.unit_number).length === 1 ? [text(unit.unit_number)] : [])]).filter(Boolean)
+    properties.factual_values = candidates.length && (unitIds === undefined || unitIds.length) ? { ...factList, items: { anyOf: candidates.map(candidate => ({
       ...item, properties: { ...object(item.properties),
+        ...(unitIds ? { unit_id: { type: 'string', enum: [...new Set(unitIds)] } } : {}),
         fragment: { type: 'string', enum: [candidate.sentence_id] },
         value: { type: 'number', enum: candidate.values },
         upper_value: { anyOf: [{ type: 'null' }, { type: 'number', enum: candidate.values }] },
