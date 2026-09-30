@@ -15,10 +15,29 @@ const { experienceContext, experienceIssues, residentialContinuationIssues } = r
 const { validateCatalogReply } = require('../src/lib/integrations/automation/catalog-dialogue.ts')
 const { verifiedPriceReplyIssues } = require('../src/lib/integrations/automation/price-reply.ts')
 const { BROCHURE_URL } = require('../src/lib/integrations/automation/project-material.ts')
+const { scopeTurnCatalog } = require('../src/lib/integrations/automation/turn-context-scope.ts')
 
 const units = [{ id: 'd804', unit_number: '804', category: 'departamento', bedrooms: 3, bathrooms_full: 2,
   area_internal_m2: 118.4, area_exterior_m2: 15.2, floor_number: 8, published_commercial_price: 320000 }]
 const memory = { mentioned_benefits: ['piscina'], deferred_fields: [] }
+
+test('context scoping retains complete category evidence and preserves mixed or ambiguous requests', () => {
+  const catalogo = [{ id: 'p1', category: 'penthouse' }, { id: 'p2', category: 'penthouse' }, { id: 'd1', category: 'departamento' }]
+  const verified = { catalogo, politicas_negocio: [{ id: 'policy' }], perfil_lead: { residence_status: 'unknown' } }
+  const intent = { objective: 'ask_price', subject: { category: 'penthouse' }, requests: [{ domain: 'property', confidence: 'high' }] }
+  const audit = { source: 'unit_price', verified_price_only: true, resolved_turn_intent: intent }
+  const scoped = scopeTurnCatalog(verified, audit)
+  assert.deepEqual(scoped.catalogo, catalogo.slice(0, 2))
+  assert.equal(scoped.politicas_negocio, verified.politicas_negocio)
+  assert.equal(scoped.perfil_lead, verified.perfil_lead)
+  assert.equal(verified.catalogo.length, 3)
+  for (const change of [{ objective: 'compare_properties' }, { requests: [...intent.requests, { domain: 'property', confidence: 'high' }] },
+    { subject: { category: 'suite' } }, { subject: { category: 'penthouse', unit_numbers: ['601', '202'] } },
+    { requests: [{ domain: 'property', confidence: 'low' }] }])
+    assert.equal(scopeTurnCatalog(verified, { ...audit, resolved_turn_intent: { ...intent, ...change } }), verified)
+  assert.equal(scopeTurnCatalog(verified, { ...audit, verified_catalog: true }), verified)
+  assert.equal(scopeTurnCatalog({ ...verified, limite_alcance: { kind: 'uncertain' } }, audit).catalogo, catalogo)
+})
 
 test('current request and factual contract are independent of a fallback wording or its presence', () => {
   const intent = { objective: 'ask_price', required_facts: ['price'], subject: { unit_numbers: ['804'] },

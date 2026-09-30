@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -1373,6 +1374,9 @@ function conversationHarness(options = {}) {
       },
     },
     './business-scope': { classifyBusinessScope: async current => options.businessScope || ({ kind: 'neutral', property_message: current, reply: '', uncertain: false }),
+      reconcileConversationScope: load('src/lib/integrations/automation/business-scope.ts', {
+        './ai': { aiJson: async () => { throw Error('SCOPE_ARBITRATION_NOT_CONFIGURED_IN_FIXTURE') } },
+      }).reconcileConversationScope,
       reconcilePropertyScope: require('../src/lib/integrations/automation/business-scope.ts').reconcilePropertyScope },
     './nutrition': { scheduleNutrition24h: async () => ({ scheduled: false, reason: 'test' }) },
     './nutrition-week-one': { scheduleNutritionWeekOne: async () => ({ scheduled: false, reason: 'test' }) },
@@ -2745,6 +2749,34 @@ test('invalid fallback never reappears at the boundary or final catalogue guard'
     assert.equal(sent.p_tool_calls.turn_completeness.retained_verified_reply, false)
     assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
   }
+})
+
+test('accepted prose with unusable follow-up does not persist an inferred action or complete profile capture', async t => {
+  live(t)
+  const reply = 'Podemos continuar con la información. ¿Desea iniciar la revisión financiera?'
+  const summary = { _lead_introduction: { status: 'pending', brochure_sent: false },
+    _last_operational_step: { kind: 'financing_consent', reply: 'Pregunta anterior' } }
+  const h = conversationHarness({ summary, turnComplete: { reply, changed: true, needsAdvisor: false, unresolved: [],
+    audit: { status: 'checked', follow_up: { usable: false, warnings: [{ code: 'invalid_review_question_metadata' }] },
+      final_validation: { passed: true }, question: { text: '¿Desea iniciar la revisión financiera?', purpose: 'none' } } } })
+  h.rows[0].payload.text = 'Cuénteme del proyecto'
+  await h.process([h.rows[0]], async () => {}).catch(error => { throw error.original || error })
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_content, reply)
+  assert.deepEqual(sent.p_tool_calls.pending_question, {})
+  const saved = JSON.parse(h.calls.filter(call => call.name === 'update:conversations').at(-1).args.summary)
+  assert.deepEqual(saved._pending_question, {})
+  assert.deepEqual(saved._last_operational_step, {})
+  assert.equal(saved._follow_up_review.usable, false)
+  assert.equal(saved._follow_up_review.reply, reply)
+  assert.equal(saved._lead_introduction.status, 'pending')
+  assert.equal(saved._response_recovery.pending, undefined)
+  assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
+  const next = conversationHarness({ summary: saved, history: [{ role: 'bot', content: reply }] })
+  next.rows[0].payload.text = 'Quiero conocer más información'
+  await next.process([next.rows[0]], async () => {})
+  const extraction = next.calls.find(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos'))
+  assert.deepEqual(extraction.args.input.pregunta_pendiente, {})
 })
 
 test('pending review recovery preserves contextual acknowledgment and does not mark planned material or topics as delivered', async t => {

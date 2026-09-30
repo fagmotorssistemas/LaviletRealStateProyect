@@ -6,6 +6,16 @@ import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 import { responseAttempts } from './attemptHistory'
 
+test('accepted responses show auxiliary follow-up warnings without a rejection banner', () => {
+  const item = step(1, 'response_coverage', { status: 'checked', follow_up: { usable: false,
+    warnings: [{ code: 'invalid_review_question_metadata', reason: 'No se identificó el dato de seguimiento.' }] } })
+  const sections = explainStep(execution([item]), item).coverageSections!
+  const tracking = sections.find(section => section.title === 'Respuesta y seguimiento')!
+  assert.match(tracking.facts[0].value, /no se utilizará para avanzar automáticamente/)
+  assert.match(tracking.facts[1].value, /No se identificó/)
+  assert.equal(reviewDecision(item.output).tone, 'accepted')
+})
+
 test('shared intent v2 exposes extractor priority and current reservation without hiding the objective', () => {
   const contract = { version: 'turn-intent-v2', objective: 'request_reservation', interpretation_source: 'current_reservation',
     requested_action: 'reservation_handoff', subject: { unit_numbers: ['807'] }, scope: { kind: 'property' },

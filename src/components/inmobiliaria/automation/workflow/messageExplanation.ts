@@ -388,6 +388,12 @@ function editorialSections(output: Row): ExplanationSection[] {
   const showLinks = has(links, 'allowed_links') || has(links, 'required_links')
   const urls = (value: unknown) => Array.isArray(value) ? value.filter(item => typeof item === 'string').join('\n') || 'Ninguno registrado.' : 'No se registró esta lista.'
   return [
+    ...(typeof row(output.follow_up).usable === 'boolean' ? [{ title: 'Respuesta y seguimiento',
+      description: 'La aprobación del texto y la fiabilidad de la ficha de continuación se evalúan por separado. Una advertencia auxiliar no elimina los controles de datos y reglas comerciales.',
+      facts: [fact('Seguimiento automático', row(output.follow_up).usable === false
+        ? 'Ficha incompleta: no se utilizará para avanzar automáticamente la conversación.' : 'Ficha disponible para el seguimiento.'),
+      ...rows(row(output.follow_up).warnings).map(warning => fact('Advertencia auxiliar', typeof warning.reason === 'string' ? warning.reason : 'No se pudo validar un dato de seguimiento.'))],
+    }] : []),
     ...(Array.isArray(output.editorial_observations) ? [{ title: 'Observaciones de redacción',
       description: 'Son sugerencias de estilo y continuidad. Por sí solas no rechazan el borrador ni sustituyen los controles de hechos y acciones.',
       facts: output.editorial_observations.length ? output.editorial_observations.filter(item => typeof item === 'string').map(item => fact('Observación informativa', humanValue(item)))

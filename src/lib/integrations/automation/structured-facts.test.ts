@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts } from './structured-facts'
 import { turnEvidence } from './turn-evidence'
+import { sentenceInventoryIssues } from './review-inventory'
 import { factualValuesSchema } from './semantic-review'
 import { object, type Row } from './data'
 
@@ -9,6 +10,21 @@ const units = [{ id: '202', area_internal_m2: 120.83, area_exterior_m2: 27.03, f
   published_commercial_price: 250000, bedrooms: 3, bathrooms_full: 2 },
 { id: '302', area_internal_m2: 100, floor_number: 3, published_commercial_price: 270000 }]
 const fact = (field: string, value: number, measurement_unit: string) => ({ unit_id: '202', field, value, measurement_unit, operator: 'eq', upper_value: null })
+
+test('sentence inventory cannot silently skip, duplicate, or lose an asserted dimension', () => {
+  const sentences = [{ id: 'S1', text: 'Valor y planta.' }, { id: 'S2', text: 'Invitación.' }]
+  const inventory = [{ sentence_id: 'S1', catalog_fields: ['floor_number'], project_quantities: false, business_facts: true },
+    { sentence_id: 'S2', catalog_fields: [], project_quantities: false, business_facts: false }]
+  const sheet = { sentence_inventory: inventory, claims: [{ fragment: 'Valor y planta.', claim_kind: 'project_fact' }],
+    factual_values: [{ ...fact('floor_number', 2, 'floor'), fragment: 'Valor y planta.' }] }
+  assert.deepEqual(sentenceInventoryIssues(sheet, sentences), [])
+  for (const rows of [[], [inventory[0]], [...inventory, inventory[0]], [...inventory, { ...inventory[1], sentence_id: 'S3' }]])
+    assert.ok(sentenceInventoryIssues({ ...sheet, sentence_inventory: rows }, sentences).length)
+  assert.equal(sentenceInventoryIssues({ ...sheet, factual_values: [] }, sentences)[0].code, 'sentence_fact_not_reviewed')
+  assert.equal(sentenceInventoryIssues({ ...sheet, claims: [] }, sentences)[0].code, 'sentence_claim_not_reviewed')
+  assert.ok(sentenceInventoryIssues({ ...sheet, sentence_inventory: [{ ...inventory[0], project_quantities: true }, inventory[1]] }, sentences)
+    .some(issue => issue.code === 'sentence_quantity_not_reviewed'))
+})
 
 test('exact field/value/source comparisons do not consume or interpret prose', () => {
   for (const f of [fact('area_internal_m2',120.83,'m2'), fact('floor_number',2,'floor'), fact('published_commercial_price',250000,'USD')]) {

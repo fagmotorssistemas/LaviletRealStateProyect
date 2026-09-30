@@ -122,7 +122,7 @@ test('question text is code-owned: old copied casing or paraphrases do not rejec
     assert.equal(mock.calls[0][2].properties.question.properties.text, undefined)
     assert.equal(mock.calls[0][2].properties.question.required.includes('text'), false)
     assert.ok(mock.calls[1][2].required.includes('question'))
-    assert.deepEqual(mock.calls[1][2].properties.question.required, ['purpose', 'missing_datum', 'next_decision', 'clarifies_request_ids'])
+    assert.deepEqual(mock.calls[1][2].properties.question.required, ['purpose', 'role', 'missing_datum', 'next_decision', 'clarifies_request_ids'])
     assert.deepEqual(mock.calls[1][2].properties.question.properties.clarifies_request_ids.items.enum, ['R1'])
     assert.equal(mock.calls[1][1].pregunta.text, actualQuestion)
     assert.deepEqual(mock.calls[1][1].referencias_solicitud, [{ id: 'R1', text: current }])
@@ -233,21 +233,19 @@ test('a commercial opening repair does not spend the independent reviewer metada
   }
 })
 
-test('a reviewer metadata repair does not consume the writer correction of a semantic opening violation', async () => {
+test('an auxiliary question defect cannot waive a semantic opening violation or spend a metadata retry', async () => {
   const input = profileInput()
   const premature = `${project} Ofrecemos espacios para residir y para actividades comerciales. Para compartirle el brochure y brindarle una guía personalizada, ${actualQuestion}`
-  const invalid = { ...review(), question: undefined }
-  const stageViolation = review(profileQuestion, { opening_property_type_sentence_ids: ['S2'] })
-  const mock = sequence(draft(premature), invalid, stageViolation, draft(), review())
+  const stageViolation = review(profileQuestion, { question: undefined, opening_property_type_sentence_ids: ['S2'] })
+  const mock = sequence(draft(premature), stageViolation, draft(), review())
   const result = await completeTurnReply(input, mock.generate)
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, goodReply)
-  assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review', 'review', 'writing', 'review'])
-  assert.deepEqual(result.audit.repair_attempts.map(attempt => attempt.target), ['review_metadata', 'commercial_draft'])
-  assert.equal(result.audit.repair_attempts[1].issues[0].code, 'lead_profile_categories_premature')
-  assert.equal(mock.calls[1][1].respuesta_propuesta, mock.calls[2][1].respuesta_propuesta)
-  assert.deepEqual(mock.calls[2][2].properties.opening_property_type_sentence_ids.items.enum, ['S1', 'S2', 'S3'])
-  assert.deepEqual(mock.calls[4][2].properties.opening_property_type_sentence_ids.items.enum, ['S1', 'S2'])
+  assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review', 'writing', 'review'])
+  assert.deepEqual(result.audit.repair_attempts.map(attempt => attempt.target), ['commercial_draft'])
+  assert.equal(result.audit.repair_attempts[0].issues[0].code, 'lead_profile_categories_premature')
+  assert.deepEqual(mock.calls[1][2].properties.opening_property_type_sentence_ids.items.enum, ['S1', 'S2', 'S3'])
+  assert.deepEqual(mock.calls[3][2].properties.opening_property_type_sentence_ids.items.enum, ['S1', 'S2'])
 })
 
 test('the explicit opening assessment rejects premature property types even when other review flags approve them', async () => {

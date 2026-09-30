@@ -561,8 +561,6 @@ test('invalid coverage records exact field and expectation without accepting the
   const cases = [
     { requests: [covered('prefiero los departamentos')], question: noQuestion, field: 'requests[0].fragment' },
     { requests: null, question: noQuestion, field: 'requests:' },
-    { requests: [covered(input.current)], question: { ...noQuestion, purpose: 'invented' }, field: 'question.purpose' },
-    { requests: [covered(input.current)], question: { ...noQuestion, next_decision: null }, field: 'question.next_decision' },
     { requests: [{ ...covered(input.current), status: 'invented' }], question: noQuestion, field: 'requests[0].status' },
   ]
   for (const { field, ...metadata } of cases) {
@@ -658,7 +656,7 @@ test('metadata repair keeps factual guards and cannot rewrite the draft', async 
     assertPending(result, input.baseReply)
     assert.equal(mock.calls.length, 2)
   }
-  const mock = model({ reply: input.baseReply, requests: [], question: {} },
+  const mock = model({ reply: input.baseReply, requests: null, question: {} },
     { reply: 'Otra respuesta.', requests: [covered(input.current)], question: noQuestion })
   const result = await completeTurnReply(input, mock.generate)
   assert.deepEqual(result.audit.issues, ['metadata_repair_changed_reply'])

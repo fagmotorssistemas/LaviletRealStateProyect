@@ -64,6 +64,7 @@ import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
 import { financingPrerequisiteReply } from './property-selection'
 import { answersPendingQuestion, normalizedPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
+import { followUpUsable, pendingFollowUpNeedsInterpretation } from './review-disposition'
 import { MAX_REPLY_CHARACTERS, responsePlan } from './response-plan'
 import { evaluateInterestDecision, reservationRequest, verifiedReservationReceipt } from './reservation-action'
 import { commercialTurnTopics } from './multi-topic-turn'
@@ -486,7 +487,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   })
   const lastResponse = text(state.ultima_respuesta)
   const rememberedQuestion = normalizedPendingQuestion(previousSummary._pending_question || previousPropertyContext.pending_question, minimalTurn ? undefined : turnCatalog)
-  const pendingQuestion = text(rememberedQuestion.question) && (lastResponse.includes(text(rememberedQuestion.question)) || previousSummary._interpretation_pending === true)
+  const pendingQuestion = pendingFollowUpNeedsInterpretation(previousSummary, lastResponse) ? {}
+    : text(rememberedQuestion.question) && (lastResponse.includes(text(rememberedQuestion.question)) || previousSummary._interpretation_pending === true)
     ? rememberedQuestion
     : pendingQuestionFromReply(lastResponse)
   let interpretation = await interpretConversationTurn({
@@ -1306,6 +1308,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       profile_introduction: audit.profile_introduction,
       progressive_selection: audit.progressive_selection, post_tour_continuation: audit.post_tour_continuation,
       commercial_continuation: reviewed.audit.commercial_continuation,
+      follow_up: reviewed.audit.follow_up, catalog_context_scope: reviewed.audit.catalog_context_scope,
       text_transformations: reviewed.audit.text_transformations,
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
       price_evidence: reviewed.audit.price_evidence,
@@ -1400,13 +1403,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.delivery_integrity = { changed_content: false, status: 'approved_content_preserved', approved_text: reviewedText, final_text: reply,
       confirmed_notice_added: Boolean(handoffNotice && reply.includes(handoffNotice)) }
   }
-  const profilePending = leadProfilePendingQuestion(reply, audit)
-  const progressivePending = progressivePendingQuestion(reply, audit)
+  const canTrackFollowUp = followUpUsable(audit)
+  const profilePending = canTrackFollowUp ? leadProfilePendingQuestion(reply, audit) : {}
+  const progressivePending = canTrackFollowUp ? progressivePendingQuestion(reply, audit) : {}
   const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
   // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
   const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
     ? declaredPending : pendingQuestionFromReply(reply)
-  audit.pending_question = reply.includes('?') ? Object.keys(profilePending).length ? normalizedPendingQuestion(profilePending)
+  audit.pending_question = canTrackFollowUp && reply.includes('?') ? Object.keys(profilePending).length ? normalizedPendingQuestion(profilePending)
     : Object.keys(progressivePending).length ? normalizedPendingQuestion(progressivePending, turnCatalog) : replyPending : {}
   if (recoveringTurn()) { audit.answered_topics = []; audit.coverage_complete = false }
   if (!reply.trim() || reply.length > MAX_REPLY_CHARACTERS) throw new Error('EMPTY_OR_LONG_REPLY')
@@ -1419,6 +1423,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     direct_reply_adjusted: audit.direct_reply_guard === true,
     turn_completeness_checked: Boolean(audit.turn_completeness),
     coverage_status: text(object(audit.turn_completeness).status) || (plannedResponse.locked ? 'protected_operational_reply' : 'deterministic_reply'),
+    follow_up_usable: canTrackFollowUp,
     catalog_guard: text(audit.final_catalog_guard) || (audit.verified_catalog === true ? 'passed' : 'not_applicable'),
   })
   const conversationId = text(inbound.registration.conversation_id)
@@ -1491,6 +1496,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   // Mark the introduction only after the actual message was accepted for delivery.
   // A rejected/omitted question cannot leave a confirmation pending in memory.
   if (pendingRecovery) summary._lead_introduction = previousIntroduction
+  else if (!canTrackFollowUp && audit.profile_introduction) summary._lead_introduction = { ...previousIntroduction,
+    status: previousIntroduction.status || 'pending',
+    brochure_sent: previousIntroduction.brochure_sent === true || reply.includes(text(object(audit.profile_introduction).brochure_url) || BROCHURE_URL) }
   else if (audit.profile_introduction) summary._lead_introduction = { ...introductionState,
     status: deliveredProfileQuestion.startsWith('lead_') ? 'pending' : 'complete',
     brochure_sent: previousIntroduction.brochure_sent === true || reply.includes(text(object(audit.profile_introduction).brochure_url) || BROCHURE_URL),
@@ -1501,10 +1509,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     ...(acknowledgement && normalized(reply).includes(normalized(acknowledgement))
       ? { acknowledged_name: text(object(summary._lead_profile).full_name).trim().split(/\s+/)[0] } : {}) }
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
+    _follow_up_review: canTrackFollowUp ? {} : { usable: false, reply },
     _pending_requests: pendingRecovery ? pendingRequests : [],
     _response_recovery: pendingRecovery ? { ...object(object(audit.turn_completeness).recovery), source_message_id: activeLast.externalId,
       current_request: writingCurrent, objective: turnIntent.objective } : {},
-    _last_operational_step: pendingRecovery ? object(summary._last_operational_step || previousSummary._last_operational_step)
+    _last_operational_step: !canTrackFollowUp ? {} : pendingRecovery ? object(summary._last_operational_step || previousSummary._last_operational_step)
       : ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'financing_question' || audit.source === 'budget_financing_guidance') && /(?:iniciar|iniciemos|revisión|revisemos)/i.test(reply) && /\?/.test(reply)
       ? { kind: 'financing_consent', reply } : {},
     ...(pendingRecovery ? { _unit_reference: propertyTurn.explicit === true && !propertyTurn.needsClarification

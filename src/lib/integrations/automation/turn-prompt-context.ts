@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 
 export const TURN_CONTEXT_REFERENCE_RULES = `El contexto usa una sola copia del catálogo en evidencia_turno.units y de sus agregaciones en evidencia_turno.groups. Un objeto con unit_ref remite a esa unidad; sus otros campos conservan datos particulares de esa aparición. Si contradicen la evidencia canónica, no los use para inventar un hecho. ref remite a la ruta indicada del mismo contexto. Son referencias internas, nunca texto para el cliente. Los identificadores cortos de unidad son válidos para factual_values.unit_id. Use las agregaciones calculadas para rangos y extremos; no convierta un rango en el precio de cada unidad. No interprete una referencia como ausencia de datos. Historial, borrador y base siguen sin ser evidencia de hechos nuevos.`
+  + '\nSi contexto_verificado.catalog_context_scope indica complete_category, el catálogo cubre esa categoría. No deduzca que otras categorías no existen ni amplíe una afirmación a todo el proyecto. Use siempre el alcance y los miembros de la fuente citada.'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)

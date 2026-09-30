@@ -12,6 +12,7 @@ Module._load = function (id, parent, main) {
 require('./test-typescript.cjs')
 const { completeTurnReply, turnCompletenessIssues } = require('../src/lib/integrations/automation/turn-completeness.ts')
 const { checkReviewDecision } = require('../src/lib/integrations/automation/turn-review-checks.ts')
+const { reviewDisposition, followUpUsable, pendingFollowUpNeedsInterpretation } = require('../src/lib/integrations/automation/review-disposition.ts')
 const approved = { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
   factual_inventory_complete: true, project_values: [],
   operational_goal_preserved: true, question_has_purpose: true, question: { purpose: 'none', missing_datum: '', next_decision: '', clarifies: [] }, missing_fact_fragments: [], review_issues: [], claims: [], factual_values: [] }
@@ -135,6 +136,128 @@ function sequence(...answers) {
     return typeof answer === 'function' ? answer(...args) : answer
   } }
 }
+
+test('penthouse price survives an empty optional or historical follow-up datum without another model call', async () => {
+  const current = 'entiendo, y por ejemplo un penthouse que precio tiene?'
+  const reply = 'Los penthouses de la sexta planta alta tienen un valor referencial de lanzamiento de $550.000 USD cada uno, sujeto a cambios. ¿Le gustaría obtener más detalles?'
+  const units = [{ id: 'p601', unit_number: '601', category: 'penthouse', bedrooms: 2, floor_number: 6, published_commercial_price: 550000 },
+    { id: 'p602', unit_number: '602', category: 'penthouse', bedrooms: 3, floor_number: 6, published_commercial_price: 550000 },
+    { id: 'd202', unit_number: '202', category: 'departamento', bedrooms: 3, floor_number: 2, published_commercial_price: 250000 }]
+  for (const role of ['optional_continuation', undefined]) {
+    const question = { purpose: 'choose_property', missing_datum: '', next_decision: 'Ofrecer detalles de la opción que interese.', ...(role ? { role } : {}) }
+    const mock = sequence((_rules, context, schema) => {
+      assert.equal(context.evidencia_turno.units.length, 2)
+      assert.equal(context.contrato_redaccion.price_evidence.units.length, 2)
+      assert.deepEqual(schema.properties.requests.items.properties.fragment.enum, ['R1', 'R2'])
+      return { ...candidate(current, reply), requests: [{ ...candidate(current, reply).requests[0], fragment: 'R2' }], question }
+    }, (_rules, context) => ({ ...approved, question: { ...question, clarifies_request_ids: [] },
+      claims: [{ fragment: 'S1', subject: 'Precio y planta de los penthouses', polarity: 'affirmation', claim_kind: 'project_fact',
+        verdict: 'supported', evidence_source: 'verified_context', evidence: 'Precios y plantas exactos del grupo cotizado.',
+        evidence_ids: [context.evidencia_afirmaciones.find(s => s.reference_id === 'group:price_quote:all:min').id] }],
+      factual_values: [{ fragment: 'S1', unit_id: 'group:price_quote:all:min', field: 'published_commercial_price', value: 550000, operator: 'eq', upper_value: null, measurement_unit: 'USD' },
+        { fragment: 'S1', unit_id: 'group:price_quote:all:min', field: 'floor_number', value: 6, operator: 'eq', upper_value: null, measurement_unit: 'floor' }],
+      sentence_inventory: [{ sentence_id: 'S1', catalog_fields: ['published_commercial_price', 'floor_number'], project_quantities: false, business_facts: true },
+        { sentence_id: 'S2', catalog_fields: [], project_quantities: false, business_facts: false }] }))
+    const result = await completeTurnReply({ current, baseReply: 'Precio publicado: $550.000 USD.', verified: { catalogo: units,
+      politica_comercial: { precios_autorizados: true, precios_aproximados: true } }, audit: { source: 'unit_price',
+      verified_price_only: true, semantic_review_enabled: true, resolved_turn_intent: { objective: 'ask_price', subject: { category: 'penthouse' },
+        requests: [{ domain: 'property', confidence: 'high', evidence: 'un penthouse que precio tiene?' }] } } }, mock.generate)
+    assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+    assert.equal(result.reply, reply)
+    assert.equal(result.audit.final_validation.passed, true)
+    assert.equal(result.audit.follow_up.usable, Boolean(role))
+    assert.equal(result.audit.catalog_context_scope.included_unit_count, 2)
+    assert.equal(result.audit.requests[0].fragment, 'un penthouse que precio tiene?')
+    assert.equal(mock.calls.length, 2)
+    assert.deepEqual(result.audit.repair_attempts, [])
+  }
+})
+
+test('malformed writer and reviewer question sheets do not withhold independently approved prose', async () => {
+  const current = 'Gracias', reply = 'Con mucho gusto. ¿Desea que continuemos?'
+  for (const question of [{}, { purpose: 'invented', missing_datum: '', next_decision: null },
+    { purpose: 'choose_property', role: 'required_collection', missing_datum: '', next_decision: '' }]) {
+    const mock = sequence({ ...candidate(current, reply), question }, { ...approved, question })
+    const result = await completeTurnReply({ current, baseReply: 'Gracias.', verified: {}, audit: { semantic_review_enabled: true } }, mock.generate)
+    assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+    assert.equal(result.reply, reply)
+    assert.equal(result.audit.follow_up.usable, false)
+    assert.ok(result.audit.follow_up.warnings.length)
+    assert.equal(result.audit.operational_action_verified, false)
+    assert.equal(mock.calls.length, 2)
+    assert.deepEqual(result.audit.repair_attempts, [])
+  }
+})
+
+test('optional metadata cannot waive an omitted required profile collection', async () => {
+  const current = 'Estoy interesado', reply = 'Bienvenido. ¿Quiere ver opciones?'
+  const question = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: '', next_decision: '' }
+  const mock = sequence(candidate(current, reply), { ...approved, question, operational_goal_preserved: false,
+    review_issues: [{ check: 'operational_goal_preserved', kind: 'content', fragment: 'R1', reason: 'Se omitieron nombre y residencia requeridos en la etapa.' }] },
+  candidate(current, reply), { ...approved, question, operational_goal_preserved: false,
+    review_issues: [{ check: 'operational_goal_preserved', kind: 'content', fragment: 'R1', reason: 'La captura obligatoria sigue ausente.' }] })
+  const result = await completeTurnReply({ current, baseReply: '¿Cómo se llama y dónde reside?', verified: {},
+    audit: { semantic_review_enabled: true, profile_introduction: { question_purpose: 'collect_profile', profile_state: {} } } }, mock.generate)
+  assert.equal(result.audit.status, 'rejected_review')
+  assert.notEqual(result.reply, reply)
+  assert.ok(result.audit.issues.includes('review_check_failed:operational_goal_preserved'))
+})
+
+test('a sentence inventory omission is repaired as verification, never downgraded to follow-up metadata', async () => {
+  const current = 'Cuénteme del 202', reply = 'El departamento 202 está en la segunda planta.'
+  for (const repaired of [true, false]) {
+    const sheet = { ...approved, sentence_inventory: [{ sentence_id: 'S1', catalog_fields: ['floor_number'], project_quantities: false, business_facts: false }] }
+    const fixed = { ...sheet, factual_values: [{ fragment: 'S1', unit_id: 'u202', field: 'floor_number', value: 2, operator: 'eq', upper_value: null, measurement_unit: 'floor' }] }
+    const mock = sequence(candidate(current, reply), sheet, repaired ? fixed : sheet)
+    const result = await completeTurnReply({ current, baseReply: reply, verified: { catalogo: [{ id: 'u202', unit_number: '202', category: 'departamento', floor_number: 2 }] },
+      audit: { semantic_review_enabled: true } }, mock.generate)
+    assert.equal(result.audit.status, repaired ? 'checked' : 'rejected_review', JSON.stringify(result.audit))
+    assert.equal(result.audit.repair_attempts[0].target, 'review_metadata')
+    assert.equal(result.audit.repair_attempts[0].issues[0].code, 'sentence_fact_not_reviewed')
+    assert.equal(mock.calls[2][1].respuesta_propuesta, reply)
+    if (repaired) assert.equal(result.reply, reply)
+  }
+})
+
+test('only explicitly auxiliary defects can allow delivery; source errors and unknown checks remain blocking', () => {
+  const auxiliary = { code: 'invalid_review_question_metadata', kind: 'follow_up_metadata' }
+  const result = reviewDisposition([auxiliary])
+  assert.equal(result.content_approved, true)
+  assert.equal(result.follow_up_usable, false)
+  for (const code of ['claim_source_not_verified', 'invalid_sentence_inventory', 'catalog_value_mismatch', 'unexplained_review_failure', 'future_check']) {
+    const decision = reviewDisposition([auxiliary, { code, kind: 'review_metadata' }])
+    assert.equal(decision.content_approved, false)
+    assert.equal(decision.blocking.length, 1)
+  }
+  const audit = { turn_completeness: { status: 'checked', follow_up: { usable: false } } }
+  assert.equal(followUpUsable(audit), false)
+  assert.equal(followUpUsable({}), true)
+  assert.equal(followUpUsable({ ...audit, delivery_integrity: { status: 'revalidated', review: { follow_up: { usable: true } } } }), true)
+  assert.equal(pendingFollowUpNeedsInterpretation({ _follow_up_review: { usable: false, reply: '¿Continuamos?' } }, '¿Continuamos?'), true)
+  assert.equal(pendingFollowUpNeedsInterpretation({ _follow_up_review: { usable: false, reply: '¿Continuamos?' } }, 'Otra respuesta'), false)
+})
+
+test('request IDs preserve the exact customer text and a real missing policy remains distinct from optional follow-up', async () => {
+  const current = '¿Aceptan MASCOTAS?'
+  const reply = 'Necesito confirmar la política sobre mascotas. ¿Le gustaría conocer la ubicación?'
+  const question = { purpose: 'permission_to_continue', role: 'optional_continuation', missing_datum: '', next_decision: '' }
+  const mock = sequence((_rules, context, schema) => {
+    assert.deepEqual(schema.properties.requests.items.properties.fragment.enum, ['R1'])
+    assert.equal(context.referencias_solicitud[0].text, current)
+    return { ...candidate(current, reply), question, requests: [{ fragment: 'R1', intent: 'Consultar política',
+      request_type: 'specific_fact', status: 'missing_fact', evidence: 'No hay política publicada.', fact_key: 'policy' }] }
+  }, (_rules, _context, schema) => {
+    assert.deepEqual(schema.properties.missing_fact_fragments.items.enum, ['R1'])
+    return { ...approved, question: { ...question, clarifies_request_ids: [] }, missing_fact_fragments: ['R1'] }
+  })
+  const result = await completeTurnReply({ current, baseReply: reply, verified: {}, audit: { semantic_review_enabled: true } }, mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, reply)
+  assert.equal(result.needsAdvisor, true)
+  assert.deepEqual(result.unresolved, [current])
+  assert.deepEqual(result.audit.missing_fact_fragments, [current])
+  assert.equal(mock.calls.length, 2)
+})
 
 test('the full pipeline preserves freely phrased exact quantities and blocks rounding even with reviewer approval', async () => {
   const current = 'Cuénteme sobre el departamento 202'

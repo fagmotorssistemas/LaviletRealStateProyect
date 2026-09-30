@@ -18,7 +18,21 @@ export function questionReferenceSchema(schema: Row, references: RequestReferenc
     description: 'IDs de referencias_solicitud que esta pregunta aclara. No copie frases. Vacío si no aclara una solicitud.' }
   properties.question = { ...question, properties: questionProperties,
     required: [...new Set([...(question.required as string[]).filter(key => key !== 'clarifies'), 'clarifies_request_ids'])] }
+  if (properties.missing_fact_fragments) properties.missing_fact_fragments = { type: 'array', maxItems: references.length,
+    items: { type: 'string', enum: references.length ? references.map(row => row.id) : ['none'] },
+    description: 'IDs de solicitudes actuales sobre hechos realmente ausentes. No copie texto ni incluya defectos de ficha.' }
   return { ...schema, properties }
+}
+
+export function coverageReferenceSchema(schema: Row, references: RequestReference[]): Row {
+  const properties = { ...object(schema.properties) }, list = object(properties.requests), item = object(list.items)
+  return { ...schema, properties: { ...properties, requests: { ...list, maxItems: 12,
+    items: { ...item, properties: { ...object(item.properties), fragment: { type: 'string',
+      enum: references.length ? references.map(row => row.id) : ['none'], description: 'ID de referencias_solicitud. Seleccione la solicitud del cliente; no copie su texto.' } } } } } }
+}
+
+export function resolveRequestReference(value: unknown, references: RequestReference[]) {
+  return references.find(reference => reference.id === value)?.text ?? value
 }
 
 export function resolveQuestionReferences(question: Row, references: RequestReference[]) {
