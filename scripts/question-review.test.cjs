@@ -12,6 +12,7 @@ Module._load = function (id, parent, main) {
 require('./test-typescript.cjs')
 const { completeTurnReply } = require('../src/lib/integrations/automation/turn-completeness.ts')
 const { leadProfilePendingQuestion } = require('../src/lib/integrations/automation/lead-introduction.ts')
+const { scopePolicyContext } = require('../src/lib/integrations/automation/scope-response.ts')
 
 const profileQuestion = { purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia actual',
   next_decision: 'Compartir el brochure y orientar según su interés', clarifies: [] }
@@ -44,6 +45,69 @@ function sequence(...answers) {
   } }
 }
 
+test('residential continuation accepts approved prose despite the old paraphrased question reference', async () => {
+  const current = 'gracias, quiero algo para vivir'
+  const reply = '¿Cuántos dormitorios necesita o prefiere?'
+  const question = { purpose: 'clarify_request', missing_datum: 'bedrooms', next_decision: 'Presentar opciones según los dormitorios.' }
+  for (const links of [
+    { clarifies: ['gracias', 'quiero algo para vivir', 'busca un departamento para vivir'] },
+    { clarifies_request_ids: ['R1', 'R999'] },
+    { clarifies_request_ids: ['R1'] },
+  ]) {
+    const mock = sequence({ reply, question, requests: [covered(current, { status: 'clarification' })] },
+      review({ ...question, ...links }, { claims: [], factual_values: [], project_values: [], factual_inventory_complete: true }))
+    const result = await completeTurnReply({ current, baseReply: '¿Qué tipo de vivienda desea?', verified: {}, audit: { semantic_review_enabled: true } }, mock.generate)
+    assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+    assert.equal(result.reply, reply)
+    assert.deepEqual(result.audit.repair_attempts, [])
+    assert.equal(mock.calls.length, 2)
+    assert.ok(!result.audit.question.clarifies.includes('busca un departamento para vivir'))
+    assert.deepEqual(mock.calls[1][2].properties.question.properties.clarifies_request_ids.items.enum, ['R1'])
+  }
+})
+
+test('reference IDs clarify one request without hiding a separate unresolved policy', async () => {
+  const price = '¿Cuánto cuesta?', policy = '¿Aceptan mascotas?', current = `${price} ${policy}`
+  const reply = 'Debo verificar la política de mascotas. ¿Qué unidad desea cotizar?'
+  const question = { purpose: 'clarify_request', missing_datum: 'Unidad', next_decision: 'Consultar su precio' }
+  const requests = [covered(price, { status: 'clarification', fact_key: 'price' }),
+    covered(policy, { status: 'missing_fact', fact_key: 'policy' })]
+  const mock = sequence({ reply, question, requests }, (_rules, context, schema) => {
+    const selected = context.referencias_solicitud.find(row => row.text === price)
+    assert.ok(schema.properties.question.properties.clarifies_request_ids.items.enum.includes(selected.id))
+    return review({ ...question, clarifies_request_ids: [selected.id, 'R999'] }, { missing_fact_fragments: [price, policy] })
+  })
+  const result = await completeTurnReply({ current, baseReply: reply, verified: {} }, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.deepEqual(result.audit.question.clarifies, [price])
+  assert.deepEqual(result.unresolved, [policy])
+  assert.equal(result.audit.semantic_review.question_metadata.reference_warnings.length, 1)
+})
+
+test('both models receive the same remote-residence policy even while scope remains uncertain', async () => {
+  const current = 'vivo en Portugal, ¿hay algún inconveniente?'
+  const reply = 'Puede recibir información a distancia; un asesor debe confirmar la modalidad de firma y cierre.'
+  const policy = { policy_id: 'remote-information', version: 1,
+    policy_content: 'Residir fuera de Ecuador no impide recibir información. El asesor debe confirmar firma y cierre.' }
+  const verified = scopePolicyContext({ politicas_negocio: [policy], business_policy_context: { status: 'loaded', available_count: 1 } }, { kind: 'neutral', uncertain: true })
+  const question = { purpose: 'none', missing_datum: '', next_decision: '' }
+  const mock = sequence((_rules, context) => {
+    assert.deepEqual(context.contexto_verificado.politicas_negocio, [policy])
+    return { reply, question, requests: [covered(current)] }
+  }, (_rules, context) => {
+    assert.deepEqual(context.contexto_verificado.politicas_negocio, [policy])
+    const source = context.evidencia_afirmaciones.find(row => row.path === 'contexto_verificado.politicas_negocio.0')
+    assert.ok(source)
+    return review({ ...question, clarifies_request_ids: [] }, { claims: [{ fragment: 'S1', subject: 'Atención remota',
+      polarity: 'affirmation', claim_kind: 'project_fact', verdict: 'supported', evidence: 'Política publicada de información remota y límites de cierre.',
+      evidence_source: 'verified_context', evidence_ids: [source.id] }], factual_values: [], project_values: [], factual_inventory_complete: true })
+  })
+  const result = await completeTurnReply({ current, baseReply: '¿Qué desea consultar?', verified, audit: { semantic_review_enabled: true } }, mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, reply)
+  assert.deepEqual(result.audit.business_policy_sources, [policy])
+})
+
 test('question text is code-owned: old copied casing or paraphrases do not reject an unchanged profile reply', async () => {
   for (const oldText of ['¿Podría indicarme su nombre y en qué ciudad o país reside actualmente?', '¿Cómo se llama y dónde vive?', undefined]) {
     const writerQuestion = { purpose: profileQuestion.purpose, missing_datum: profileQuestion.missing_datum,
@@ -58,7 +122,8 @@ test('question text is code-owned: old copied casing or paraphrases do not rejec
     assert.equal(mock.calls[0][2].properties.question.properties.text, undefined)
     assert.equal(mock.calls[0][2].properties.question.required.includes('text'), false)
     assert.ok(mock.calls[1][2].required.includes('question'))
-    assert.deepEqual(mock.calls[1][2].properties.question.required, ['purpose', 'missing_datum', 'next_decision', 'clarifies'])
+    assert.deepEqual(mock.calls[1][2].properties.question.required, ['purpose', 'missing_datum', 'next_decision', 'clarifies_request_ids'])
+    assert.deepEqual(mock.calls[1][2].properties.question.properties.clarifies_request_ids.items.enum, ['R1'])
     assert.equal(mock.calls[1][1].pregunta.text, actualQuestion)
     assert.deepEqual(mock.calls[1][1].referencias_solicitud, [{ id: 'R1', text: current }])
     assert.deepEqual(mock.calls[1][2].properties.review_issues.items.properties.fragment.enum, ['S1', 'S2', 'R1'])
@@ -199,18 +264,17 @@ test('the explicit opening assessment rejects premature property types even when
   assert.equal(mock.calls.length, 4)
 })
 
-test('invalid canonical reviewer question repairs only the review and preserves the exact draft', async () => {
+test('an invalid question trace link is advisory and cannot veto an approved draft', async () => {
   const brokenReview = review({ ...profileQuestion, clarifies: ['Una solicitud que el cliente no expresó'] })
-  const mock = sequence(draft(), brokenReview, review())
+  const mock = sequence(draft(), brokenReview)
   const result = await completeTurnReply(profileInput(), mock.generate)
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, goodReply)
-  assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review', 'review'])
+  assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review'])
   assert.equal(mock.calls[1][1].respuesta_propuesta, goodReply)
-  assert.equal(mock.calls[2][1].respuesta_propuesta, goodReply)
-  assert.match(mock.calls[2][1].reparacion_revision.instruccion, /No reescriba el mensaje/)
-  assert.equal(result.audit.repair_attempts[0].target, 'review_metadata')
-  assert.ok(result.audit.repair_attempts[0].issues.some(issue => issue.code === 'invalid_review_question_metadata'))
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(result.audit.semantic_review.question_metadata.reference_warnings[0].code, 'question_reference_ignored')
+  assert.deepEqual(result.audit.question.clarifies, [])
 })
 
 test('a new review cannot omit canonical question metadata through the legacy compatibility path', async () => {

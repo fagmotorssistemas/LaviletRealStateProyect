@@ -1,4 +1,5 @@
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, STRUCTURED_FACT_RULES } from './structured-facts'
+import { requestReferences, questionReferenceSchema, resolveQuestionReferences, type RequestReference } from './question-references'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import { DIALOGUE_WRITING_RULES, DIALOGUE_REVIEW_RULES } from './dialogue-writing-rules'
 import { checkReviewDecision, reviewIssuesSchema, REVIEW_CHECK_RULES, FACTUAL_REVIEW_SCOPE_RULES } from './turn-review-checks'
@@ -65,8 +66,8 @@ const questionSchema: Row = { type: 'object', additionalProperties: false,
     next_decision: { type: 'string', description: 'Descripción orientativa del siguiente paso, no autorización de una acción. Puede quedar vacía si no está determinado.' } },
   required: ['purpose', 'missing_datum', 'next_decision'] }
 const reviewedQuestionSchema: Row = { ...questionSchema, properties: { ...object(questionSchema.properties),
-  clarifies: { type: 'array', maxItems: 12, items: { type: 'string' }, description: 'Fragmentos literales de mensaje_actual cuya referencia o preferencia se precisa con la pregunta. Vacío si no es una aclaración de la solicitud.' } },
-  required: [...questionSchema.required as string[], 'clarifies'] }
+  clarifies_request_ids: { type: 'array', maxItems: 13, items: { type: 'string' }, description: 'Identificadores de referencias_solicitud. Nunca copie frases.' } },
+  required: [...questionSchema.required as string[], 'clarifies_request_ids'] }
 const coverageSchema: Row = {
   type: 'object', additionalProperties: false,
   properties: {
@@ -259,19 +260,15 @@ function questionRow(value: unknown, reply: string, issues: string[]): Question 
     : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 }
 
-function reviewQuestion(raw: Row, reply: string, current: string, declared: Question, audit: Row) {
+function reviewQuestion(raw: Row, reply: string, declared: Question, audit: Row, references: RequestReference[]) {
   if (!replyQuestionText(reply)) return { question: { text: '', purpose: 'none', missing_datum: '', next_decision: '', clarifies: [] }, issues: [] as Row[], nextDecisionSource: 'no_question_in_reply' }
   // Saved pre-contract reviews have no issue inventory or canonical question.
   if (raw.review_issues === undefined && raw.question === undefined) return { question: declared, issues: [] as Row[], nextDecisionSource: 'legacy' }
   const errors: string[] = [], question = questionRow(raw.question, reply, errors)
-  const clarifies = object(raw.question).clarifies
-  if (!Array.isArray(clarifies) || clarifies.length > 12 || clarifies.some(fragment => typeof fragment !== 'string' || !literal(fragment, current)))
-    errors.push('question.clarifies debe contener únicamente fragmentos literales del mensaje actual.')
+  const links = resolveQuestionReferences(object(raw.question), references)
   if (question?.text && raw.question_has_purpose === true
     && (question.purpose === 'none' || !question.missing_datum.trim()))
     errors.push('La pregunta fue aprobada, pero su ficha no identifica propósito y dato pendiente.')
-  if (Array.isArray(clarifies) && clarifies.length && (!question?.text || question.purpose !== 'clarify_request'))
-    errors.push('question.clarifies solo corresponde a una pregunta real que aclara la solicitud actual.')
   let nextDecisionSource = question?.next_decision.trim() ? 'reviewer' : 'not_specified'
   const profile = object(audit.profile_introduction)
   if (question?.text && question.purpose === 'collect_lead_profile' && !question.next_decision.trim()) {
@@ -285,7 +282,8 @@ function reviewQuestion(raw: Row, reply: string, current: string, declared: Ques
       nextDecisionSource = 'verified_profile_stage'
     }
   }
-  return { question: question ? { ...question, clarifies: Array.isArray(clarifies) ? clarifies as string[] : [] } : declared,
+  return { question: question ? { ...question, clarifies: links.clarifies, clarifies_request_ids: links.clarifies_request_ids } : declared,
+    referenceWarnings: links.warnings,
     nextDecisionSource,
     issues: errors.map(reason => ({ code: 'invalid_review_question_metadata', kind: 'review_metadata', reason })) }
 }
@@ -370,7 +368,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       return { reply: verifiedAbsence, changed: verifiedAbsence !== originalBase, needsAdvisor: false, unresolved: [], audit: {
         status: 'recovered_catalog_result', issues, semantic_review: semanticReview, repair_attempts: repairAttempts,
         repair_budget: repairBudget(), requests, resolved_turn_intent: turnIntent, editorial_observations: editorialObservations,
-        business_policy_sources: input.verified.politicas_negocio || [],
+        business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' },
         recovery: { version: 'turn-recovery-v2', pending: false, base_used: false, strategy: 'verified_empty_search', rejected_review_status: status },
         fallback_validation: { passed: true, issues: [], recovery: 'verified_empty_search' },
         final_validation: { passed: true, issues: [], validated_text: verifiedAbsence, policy: 'complete_empty_catalog_search' },
@@ -398,7 +396,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       base_used: false, previous_base_checks: fallbackIssues }
     reply = pendingTurnReply({ ...input.audit, resolved_turn_intent: turnIntent })
     return { reply, changed: reply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { business_policy_sources: input.verified.politicas_negocio || [], resolved_turn_intent: turnIntent, recovery, editorial_observations: editorialObservations, link_contract: linkContract, text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: writerContract, price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
+      audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, recovery, editorial_observations: editorialObservations, link_contract: linkContract, text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: writerContract, price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
         fallback_validation: { passed: false, issues: [...fallbackIssues, 'response_requires_validation'], details: fallbackCheck.details || [], unanswered_requests: uncoveredBase.map(request => request.fragment),
           recovery: 'pending_validation', rejected_preview: traceText(input.baseReply, MAX_REPLY_CHARACTERS) },
         repair_budget: repairBudget(), missing_fact_fragments: reviewMissing, handoff_assessments: [],
@@ -492,6 +490,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const reviewRequired = unresolved.length > 0 || !!question.text || !!input.audit?.profile_introduction || adaptiveContinuation || input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
     if (reviewRequired) {
       const sentenceReferences = replyReferences(reply)
+      const requestRefs = requestReferences(input.current, requests)
       const numericCandidates = input.audit?.semantic_review_enabled === true ? [] : draftNumericCandidates(reply)
       Object.assign(context, { oraciones_borrador: sentenceReferences })
       const semanticEnabled = input.audit?.semantic_review_enabled === true
@@ -509,7 +508,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         evaluacion: 'Indique exclusivamente en opening_property_type_sentence_ids las oraciones que presentan tipos de inmuebles. El sistema aplicará ese incumplimiento: no lo duplique en otros controles ni convierta hechos verdaderos en falsos por ser prematuros.',
       } } : {}), ...context, catalog_evidence: { catalog_query: input.audit?.catalog_query,
         catalog_results: input.audit?.catalog_results, alternative_results: input.audit?.alternative_results },
-        referencias_solicitud: input.current.trim() ? [{ id: 'R1', text: input.current }] : [],
+        referencias_solicitud: requestRefs,
         cifras_del_borrador: numericCandidates,
         respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }
       const baseReviewSchema = semanticEnabled ? evidenceReviewSchema : reviewSchema
@@ -517,6 +516,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         properties: { ...openingSchema.properties, ...object(baseReviewSchema.properties) },
         required: [...openingSchema.required, ...baseReviewSchema.required as string[]] }, reply, input.current, validationCatalog, semanticEnabled)
       if (semanticEnabled) activeReviewSchema = structuredReviewSchema(activeReviewSchema, sentenceReferences.map(row => text(row.id)), validationCatalog, sharedEvidence.project_facts)
+      activeReviewSchema = questionReferenceSchema(activeReviewSchema, requestRefs)
       const evaluateReview = (raw: Row) => {
         const normalized = normalizeReviewReferences(raw, validationCatalog, reply, input.current, semanticEnabled)
         const review: Row = normalized.review
@@ -531,11 +531,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         const decision = checkReviewDecision(review, input.current, reply)
         const openingIssues = leadIntroductionReviewIssues(review, input.audit, sentenceReferences)
         if (openingIssues.some(issue => issue.kind === 'commercial_content')) decision.checks.operational_goal_preserved = false
-        const reviewedQuestion = reviewQuestion(review, reply, input.current, question, input.audit || {})
+        const reviewedQuestion = reviewQuestion(review, reply, question, input.audit || {}, requestRefs)
         const missingIssues = !Array.isArray(review.missing_fact_fragments)
           || review.missing_fact_fragments.some(fragment => typeof fragment !== 'string' || !literal(fragment, input.current))
           ? [{ code: 'invalid_missing_fact_reference', kind: 'review_metadata' }] : []
-        return { review, factIssues, checked, decision, question: reviewedQuestion.question, nextDecisionSource: reviewedQuestion.nextDecisionSource, corrections: normalized.corrections,
+        return { review, factIssues, checked, decision, question: reviewedQuestion.question, nextDecisionSource: reviewedQuestion.nextDecisionSource, questionReferenceWarnings: reviewedQuestion.referenceWarnings || [], corrections: normalized.corrections,
           issues: [...factIssues, ...checked.issues, ...decision.issues, ...missingIssues, ...reviewedQuestion.issues, ...openingIssues] }
       }
       let evaluated = evaluateReview(await generate(reviewInstructions, compactTurnPromptContext(reviewContext),
@@ -587,6 +587,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       // exact text. Correcting this metadata never rewrites an approved draft.
       const questionChanged = ['purpose', 'missing_datum', 'next_decision'].some(key => object(question)[key] !== object(evaluated.question)[key])
       semanticReview.question_metadata = { owner: 'reviewer', text_source: 'actual_reply', corrected: questionChanged,
+        reference_warnings: evaluated.questionReferenceWarnings,
         next_decision_source: evaluated.nextDecisionSource,
         ...(questionChanged ? { proposed: question, reviewed: evaluated.question } : {}) }
       question = evaluated.question
@@ -624,7 +625,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     unresolved = assessed.unresolved
     for (const repair of repairAttempts) repair.final_status = 'checked'
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { business_policy_sources: input.verified.politicas_negocio || [], resolved_turn_intent: turnIntent, editorial_observations: editorialObservations, link_contract: linkContract,
+      audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, editorial_observations: editorialObservations, link_contract: linkContract,
         operational_action_verified: object(input.audit?.reservation).handoff_verified === true && continuationChecks.operational_goal_preserved === true && continuationChecks.answers_supported === true,
         text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
         repair_budget: repairBudget(), independent_review: reviewRequired,

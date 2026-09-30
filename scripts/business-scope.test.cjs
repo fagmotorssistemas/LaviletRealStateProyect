@@ -30,6 +30,58 @@ const validReply = 'Lo siento, no somos una agencia de viajes ni gestionamos vue
 const previousOutsideScope = fragment => ({ kind: 'out_of_scope', outside_evidence: { fragment, source: 'current' } })
 const { scopeFallbackReply, scopeWritingContract } = load('src/lib/integrations/automation/scope-response.ts', {})
 
+test('residence continuation with a historical mixed fragment is arbitrated once using the pending question', async () => {
+  const current = 'soy David Villa y ahora mismo vivo en portugal. hay algun inconveniente?'
+  const pending = { act: 'profile', question: '¿Cuál es su nombre y dónde reside?' }
+  const calls = []
+  const module = scopeModule(async (_rules, input) => {
+    calls.push(input)
+    if (calls.length === 1) return { kind: 'mixed', confidence: 'medium', outside_subject: current,
+      outside_source: 'current', property_fragments: ['que precio tienen los departamentos?'] }
+    assert.equal(input.clasificacion_anterior.boundary_invalid, true)
+    assert.deepEqual(input.pregunta_pendiente, pending)
+    return { kind: 'property', confidence: 'high', outside_subject: '', outside_source: 'none', property_fragments: [] }
+  })
+  const history = [{ role: 'bot', content: pending.question }]
+  const initial = await module.classifyBusinessScope(current, history, false, {}, pending)
+  assert.equal(initial.uncertain, true)
+  const result = await module.reconcileConversationScope(initial, current,
+    [{ domain: 'property', confidence: 'high', evidence: 'hay algun inconveniente?' }], history, pending)
+  assert.equal(result.kind, 'property')
+  assert.equal(result.uncertain, false)
+  assert.equal(result.outside_evidence, undefined)
+  assert.equal(calls.length, 2)
+})
+
+test('scope arbitration preserves a genuine outside request and never retries an invalid arbitration', async () => {
+  const current = 'Quiero cambiar mi vuelo. También quiero ver una suite.'
+  const decision = { kind: 'neutral', uncertain: true, confidence: 'medium', boundary_invalid: true,
+    property_message: '', reply: '', outside_evidence: { fragment: 'vuelo', source: 'current' } }
+  const requests = [{ domain: 'property', confidence: 'high', evidence: 'quiero ver una suite' },
+    { domain: 'other', confidence: 'high', evidence: 'cambiar mi vuelo' }]
+  for (const valid of [true, false]) {
+    let calls = 0
+    const module = scopeModule(async () => { calls++; return { kind: 'mixed', confidence: 'high',
+      outside_subject: 'vuelo', outside_source: 'current', property_fragments: [valid ? 'También quiero ver una suite.' : 'Un mensaje anterior'] } })
+    const result = await module.reconcileConversationScope(decision, current, requests, [], {})
+    assert.equal(calls, 1)
+    if (valid) { assert.equal(result.kind, 'mixed'); assert.doesNotMatch(result.property_message, /vuelo/) }
+    else { assert.equal(result.uncertain, true); assert.equal(result.reason, 'scope_reconciliation_unresolved') }
+  }
+})
+
+test('uncertain scope keeps published policy context without importing unrelated catalogue actions', () => {
+  const { scopePolicyContext } = load('src/lib/integrations/automation/scope-response.ts', {})
+  const policies = [{ policy_id: 'remote-information', version: 1, policy_content: 'Puede recibir información remota; el cierre debe confirmarlo un asesor.' }]
+  const output = scopePolicyContext({ politicas_negocio: policies, business_policy_context: { status: 'loaded', available_count: 1 },
+    perfil_lead: { residence_country: 'Portugal' }, catalogo: [{ id: '202' }], propuestas: [{ action: 'visit' }] },
+  { kind: 'neutral', uncertain: true })
+  assert.deepEqual(output.politicas_negocio, policies)
+  assert.equal(output.business_policy_context.status, 'loaded')
+  assert.equal(output.catalogo, undefined)
+  assert.equal(output.propuestas, undefined)
+})
+
 test('classifier receives recent conversation as data and preserves a property follow-up verbatim', async () => {
   let request
   const module = scopeModule(async (instructions, input, schema, _image, _file, _tone, task) => {

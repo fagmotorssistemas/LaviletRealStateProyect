@@ -82,6 +82,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
   const pricesAllowed = pricing.visible
   const catalog = units.map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
   const profile = confirmedLeadProfile(profileInput)
+  const policies = publishedBusinessPolicies(projectData.policies_json, mode, new Date().toISOString(), authorizedContact)
   return { lead: { name: conversationalFirstName(text(profile.full_name)) || null,
     name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null,
     preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
@@ -90,7 +91,8 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     perfil_lead: profile, conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
-    politicas_negocio: publishedBusinessPolicies(projectData.policies_json, mode, new Date().toISOString(), authorizedContact),
+    politicas_negocio: policies,
+    business_policy_context: { status: 'loaded', available_count: policies.length, mode },
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),

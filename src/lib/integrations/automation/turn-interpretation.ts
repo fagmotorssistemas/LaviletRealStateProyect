@@ -66,6 +66,7 @@ export type TurnInterpretation = {
   method: 'model' | 'literal_greeting' | 'unreadable_input'
   promptRevision: string | null
   diagnostic: Row
+  withActionMessage?: (message: string) => TurnInterpretation
 }
 
 const evidenceMatches = (evidence: string, current: string) => evidence.length > 0 && evidence.length <= 500
@@ -115,6 +116,12 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
     dependencies.onPromptRevision?.(promptRevision)
     raw = await dependencies.aiJson(instructions, { ...input, mensaje_actual: readable }, TURN_EXTRACTION_SCHEMA)
   }
+  return normalizeInterpretation(input, raw, readable, method, promptRevision)
+}
+
+/** Reuse the same extraction after scope arbitration. No second model call and
+ * no promotion of outside fragments into operational evidence. */
+function normalizeInterpretation(input: Row, raw: Row, readable: string, method: TurnInterpretation['method'], promptRevision: string | null): TurnInterpretation {
   const actionMessage = Object.hasOwn(input, 'mensaje_accion') ? text(input.mensaje_accion) : readable
   const extracted = normalizeEvents(raw, actionMessage)
   const actions = evidencedActions(raw, actionMessage)
@@ -150,6 +157,7 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
       evidence: text(request.evidence), confidence: ['high', 'medium', 'low'].includes(text(request.confidence)) ? request.confidence : 'low' }))
   const property = object(semantics.property)
   return { extracted, semantics, requests, method, promptRevision,
+    withActionMessage: message => normalizeInterpretation({ ...input, mensaje_accion: message }, raw, readable, method, promptRevision),
     diagnostic: {
       contract_version: CONVERSATION_CONTRACT_VERSION, method,
       primary_intent: semantics.primary_intent, confidence: semantics.confidence,

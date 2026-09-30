@@ -7,6 +7,39 @@ const { TURN_SEMANTICS_SCHEMA } = require('../src/lib/integrations/automation/tu
 const { unreadMediaMarker } = require('../src/lib/integrations/automation/media-format.ts')
 const { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } = require('../src/lib/integrations/automation/lead-profile.ts')
 
+test('scope reconciliation restores the same extracted profile without repeating the model call', async () => {
+  const current = 'soy David Villa y ahora mismo vivo en portugal. hay algun inconveniente?'
+  let calls = 0
+  const initial = await interpretConversationTurn({ mensaje_actual: current, mensaje_accion: '', alcance_negocio_incierto: true }, {
+    activePrompt: async () => 'Prompt', aiJson: async () => { calls++; return {
+      full_name: 'David Villa', residence_country: 'portugal', profile_evidence: { full_name: 'soy David Villa', residence_country: 'ahora mismo vivo en portugal' },
+      requests: [{ domain: 'property', request: 'Consulta sobre residir fuera del país', evidence: 'hay algun inconveniente?', confidence: 'high' }],
+      turn_semantics: { primary_intent: 'project_information', primary_evidence: 'hay algun inconveniente?', confidence: 'high' },
+    } },
+  })
+  assert.equal(initial.extracted.residence_country, null)
+  const recovered = initial.withActionMessage(current)
+  assert.equal(recovered.extracted.residence_country, 'portugal')
+  assert.equal(recovered.extracted.lead_profile.full_name, 'David Villa')
+  assert.equal(recovered.semantics.primary_intent, 'project_information')
+  assert.equal(initial.extracted.residence_country, null)
+  assert.equal(calls, 1)
+})
+
+test('rebinding a resolved mixed boundary does not authorize an outside-service advisor request', async () => {
+  const property = 'Quiero información sobre La Vilet.'
+  const current = `Quiero un asesor para mi vuelo. ${property}`
+  let calls = 0
+  const result = await interpretConversationTurn({ mensaje_actual: current, mensaje_accion: '' }, {
+    activePrompt: async () => 'Prompt', aiJson: async () => { calls++; return {
+      requested_advisor: true, action_evidence: { requested_advisor: 'Quiero un asesor para mi vuelo' },
+      requests: [{ domain: 'property', request: property, evidence: property, confidence: 'high' }],
+    } },
+  })
+  assert.equal(result.withActionMessage(property).extracted.requested_advisor, false)
+  assert.equal(calls, 1)
+})
+
 test('conversational names require declaration evidence and never inherit a reset contact label', () => {
   for (const profile of [{}, { full_name: 'Carlos Fabian' },
     { full_name: 'Carlos Fabian', sources: { full_name: { source: 'crm', evidence: 'Carlos Fabian' } } },

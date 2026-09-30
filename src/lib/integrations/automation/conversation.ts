@@ -47,7 +47,7 @@ import { scheduleNutritionLater } from './nutrition-later'
 import { nutritionContinuation } from './nutrition-week-one-rules'
 import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
 import { salesSubject } from './sales-subject'
-import { classifyBusinessScope, reconcilePropertyScope, type BusinessScopeDecision } from './business-scope'
+import { classifyBusinessScope, reconcileConversationScope, type BusinessScopeDecision } from './business-scope'
 import { inboundFreshness } from './inbound-freshness'
 import { financingFieldAnswer } from './financing-continuation'
 import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
@@ -58,7 +58,7 @@ import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
 import { asksForHouse, houseProductReply } from './product-fit'
 import { declinesAllVisitAlternatives } from './visit-escalation'
 import { completeTurnReply } from './turn-completeness'
-import { scopeFallbackReply, scopeWritingContract } from './scope-response'
+import { scopeFallbackReply, scopeWritingContract, scopePolicyContext } from './scope-response'
 import { catalogQuery, filterCatalog, validateCatalogReply } from './catalog-dialogue'
 import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
@@ -370,7 +370,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   })
   if (!inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)) {
     businessScope = financeContinuation || isProjectInformationRequest(current) ? {kind:'property',property_message:current,reply:'',uncertain:false}
-      : await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true, object(previousSummary._turn_intent).scope)
+      : await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true, object(previousSummary._turn_intent).scope, previousSummary._pending_question)
     if (businessScope.kind === 'out_of_scope') {
       reply = scopeFallbackReply(businessScope, previousSummary._brand_introduced === true)
       audit = { source: 'business_out_of_scope', business_scope: businessScope.kind }
@@ -489,7 +489,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const pendingQuestion = text(rememberedQuestion.question) && (lastResponse.includes(text(rememberedQuestion.question)) || previousSummary._interpretation_pending === true)
     ? rememberedQuestion
     : pendingQuestionFromReply(lastResponse)
-  const interpretation = await interpretConversationTurn({
+  let interpretation = await interpretConversationTurn({
     resumen: previousSummary, historial: context.historial,
     perfil_inicial: { ...object(previousSummary._lead_profile), awaiting: object(previousSummary._lead_introduction).status === 'pending',
       missing: ['full_name', 'residence_city', 'residence_country'].filter(key => !text(object(previousSummary._lead_profile)[key])) },
@@ -502,17 +502,25 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
     mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence && businessScope.confidence !== 'low' ? '' : current,
   }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
-  const { extracted, semantics: turnSemantics } = interpretation
   const classifiedScope = businessScope.kind
-  const reconciledScope = reconcilePropertyScope(businessScope, current, interpretation.requests)
+  const classifiedUncertain = businessScope.uncertain
+  const reconciledScope = await reconcileConversationScope(businessScope, current, interpretation.requests, context.historial, pendingQuestion)
   if (reconciledScope !== businessScope) {
     businessScope = reconciledScope
-    reply = ''
-    audit = {}
+    if (businessScope.kind === 'property' || businessScope.kind === 'mixed') {
+      reply = ''
+      audit = {}
+      if (businessScope.kind === 'mixed') current = businessScope.property_message
+      interpretation = interpretation.withActionMessage?.(current) || interpretation
+    } else {
+      reply = scopeFallbackReply(businessScope, previousSummary._brand_introduced === true)
+      audit = { source: businessScope.uncertain ? 'scope_clarification' : 'business_out_of_scope', business_scope: businessScope.kind }
+    }
     trace.add('scope_reconciliation', 'Conciliar alcance e intención', 'decision', 'business-scope.ts', 'succeeded',
-      { classifier_scope: classifiedScope, classifier_uncertain: true },
+      { classifier_scope: classifiedScope, classifier_uncertain: classifiedUncertain },
       { scope: businessScope.kind, reason: businessScope.reason, grounded_requests: interpretation.requests.filter(request => request.domain === 'property' && request.confidence === 'high').length })
   }
+  const { extracted, semantics: turnSemantics } = interpretation
   const turnIntent = resolveTurnIntent({ current, history: context.historial, semantics: turnSemantics, requests: interpretation.requests,
     scope: businessScope, previous: previousSummary._turn_intent, pendingQuestion,
     profilePending: object(previousSummary._lead_introduction).status === 'pending' })
@@ -1206,9 +1214,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
             : { kind: 'code', label: 'Ruta especializada de respuesta', source: `conversation.ts · ruta ${text(audit.source)}` } }) })
   if (!finalNotice && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'vehicle_out_of_scope', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
+    const commercialInfo: Row = !scopeOnlyReview || businessScope.uncertain
+      ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile) : {}
     const info: Row = scopeOnlyReview
-      ? { alcance_negocio: businessScope.kind, limite_alcance: scopeContract, contrato_turno: turnIntent }
-      : { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
+      ? { ...scopePolicyContext(commercialInfo, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
+      : { ...commercialInfo, alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       ...(scopeContract ? { limite_alcance: scopeContract } : {}),
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
       avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [],
@@ -1284,6 +1294,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
       business_policy_sources: reviewed.audit.business_policy_sources,
+      business_policy_context: commercialInfo.business_policy_context || { status: 'not_loaded_outside_scope' },
       resolved_turn_intent: turnIntent,
       reservation: audit.reservation,
       interpretation: interpretation.diagnostic,
