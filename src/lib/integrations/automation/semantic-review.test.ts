@@ -38,6 +38,22 @@ test('actual wrong prices remain catalogue defects; repair cannot hide their ass
     .some(issue => issue.code === 'review_repair_omitted_facts'))
 })
 
+test('explicitly approximate whole-square-metre areas accept ordinary rounding, without relaxing exact facts', () => {
+  const penthouse = { ...unit, area_internal_m2: 142.09, bedrooms: 3 }
+  const department = { ...unit, id: 'unit-502', area_internal_m2: 120.83, bedrooms: 3 }
+  const reply = 'Las áreas interiores llegan hasta aproximadamente 142 m² en los penthouses y 121 m² en los departamentos.'
+  const area = (id: string, value: number) => ({ ...fact(reply, value, 'area_internal_m2'), unit_id: id })
+  assert.deepEqual(factualValueIssues([area(penthouse.id, 142), area(department.id, 121)], reply, [penthouse, department]), [])
+  const exact = 'El penthouse tiene 142 m² interiores.'
+  assert.equal(factualValueIssues([{ ...area(penthouse.id, 142), fragment: exact }], exact, [penthouse])[0].code, 'catalog_value_mismatch')
+  const incorrect = 'Tiene aproximadamente 140 m² interiores.'
+  assert.equal(factualValueIssues([{ ...area(penthouse.id, 140), fragment: incorrect }], incorrect, [penthouse])[0].code, 'catalog_value_mismatch')
+  const lateQualifier = 'Tiene 142 m² interiores y aproximadamente 30 m² exteriores.'
+  assert.equal(factualValueIssues([{ ...area(penthouse.id, 142), fragment: lateQualifier }], lateQualifier, [penthouse])[0].code, 'catalog_value_mismatch')
+  const price = 'Su precio aproximado es de $210.001 USD.'
+  assert.equal(factualValueIssues([{ ...fact(price, 210001), unit_id: penthouse.id }], price, [penthouse])[0].code, 'catalog_value_mismatch')
+})
+
 test('numeric evidence follows Spanish wording and reordered sentences without copying catalogue prose', () => {
   for (const [fragment, field, value] of [
     ['Su valor es de doscientos diez mil dólares.', 'published_commercial_price', 210000],

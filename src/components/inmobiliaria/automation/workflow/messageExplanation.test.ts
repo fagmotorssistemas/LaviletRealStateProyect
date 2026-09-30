@@ -4,6 +4,7 @@ import { conversationGroups, explainStep, humanValue, stepTitle } from './messag
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
+import { responseAttempts } from './attemptHistory'
 
 test('shared intent v2 exposes extractor priority and current reservation without hiding the objective', () => {
   const contract = { version: 'turn-intent-v2', objective: 'request_reservation', interpretation_source: 'current_reservation',
@@ -435,6 +436,23 @@ test('AI labels use recorded function and do not mislabel historical scope calls
   assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'writer', task: 'writing' })), /Redactor/)
   assert.match(stepTitle(step(1, 'model_request', {}, { ai_role: 'extractor' })), /Extractor/)
   assert.match(stepTitle(step(1, 'model_request', {}, { task: 'writing' })), /histórica/)
+})
+
+test('response history exposes the first draft and both reviewers without mixing another coverage step', () => {
+  const coverage = step(10, 'response_coverage', { status: 'rejected_review', issues: ['second_error'],
+    repair_attempts: [{ target: 'commercial_draft', proposed_preview: 'Primer borrador', status: 'rejected_guard', issues: ['first_error'] }] })
+  const call = (order: number, role: string, data: Record<string, unknown>, parent = 10) => step(order, 'model_request',
+    { output_snapshot: { data }, token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10 } },
+    { ai_role: role, caused_by_step: parent, model: role === 'reviewer' ? 'gpt-4o-mini' : 'gpt-4.1' })
+  const steps = [coverage, call(11, 'writer', { reply: 'Primer borrador' }), call(12, 'reviewer', { claims: [] }),
+    call(13, 'writer', { reply: 'Segundo borrador' }), call(14, 'reviewer', { claims: [{ verdict: 'unsupported' }] }),
+    step(15, 'route_selected'), call(16, 'writer', { reply: 'Otro turno' })]
+  const attempts = responseAttempts(steps, coverage)
+  assert.deepEqual(attempts.map(attempt => attempt.reply), ['Primer borrador', 'Segundo borrador'])
+  assert.deepEqual(attempts.map(attempt => attempt.reviews.map(review => review.step)), [[12], [14]])
+  assert.deepEqual(attempts.map(attempt => attempt.systemResult?.issues), [['first_error'], ['second_error']])
+  assert.equal(attempts[0].writerCost?.pricedCalls, 1)
+  assert.equal(responseAttempts(steps, step(15, 'route_selected')).length, 0)
 })
 
 test('invalid writer metadata separates rejection from advisor decision and never claims complete coverage', () => {

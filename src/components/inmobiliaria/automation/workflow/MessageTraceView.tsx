@@ -9,6 +9,9 @@ import { reviewDecision } from './reviewDecision'
 import styles from './MessageTraceView.module.css'
 import { promptContextParts } from './promptContext'
 import { executionCost } from './executionCost'
+import { responseAttempts } from './attemptHistory'
+
+const formatUsd = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value)
 
 export function MessageTraceView() {
   const [executions, setExecutions] = useState<WorkflowExecution[]>([])
@@ -66,6 +69,7 @@ export function MessageTraceView() {
   const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
   const cost = useMemo(() => executionCost(steps), [steps])
   const step = steps.find(item => item.order === stepOrder) || steps.find(item => item.key === 'dialogue_decision') || steps[0]
+  const attempts = step?.key === 'response_coverage' ? responseAttempts(steps, step) : []
   const explanation = execution && step ? explainStep(execution, step) : null
   const processing = execution && ['pending', 'processing'].includes(execution.status)
   useEffect(() => {
@@ -132,6 +136,21 @@ export function MessageTraceView() {
               <header><div><span className={styles.eyebrow}>Paso {step.order} · {statusLabel(step.status)}</span><h4>{explanation.title}</h4></div><span className={styles.badge} data-tone="observed">Observado en el registro</span></header>
               <p className={styles.summary}>{explanation.summary}</p>
               {step.key === 'response_coverage' && <ReviewDecision output={step.output} catalog={catalogSnapshots(execution, step)} />}
+              {step.key === 'response_coverage' && attempts.length > 0 && <section className={styles.attemptHistory} aria-label="Borradores y revisiones de esta respuesta">
+                <h5>Borradores y revisiones, en orden</h5>
+                <p>Se muestra el texto que devolvió cada redactor antes de la decisión del sistema. Una revisión completada no equivale a una respuesta enviada.</p>
+                {attempts.map(attempt => <div className={styles.attempt} key={attempt.number}>
+                  <h6>Intento {attempt.number} · redactor · paso {attempt.writerStep}</h6>
+                  <p className={styles.attemptReply}>{attempt.reply || 'No se conservó el texto de este borrador.'}</p>
+                  {attempt.writerCost?.pricedCalls === 1 && <small>Costo estimado de la redacción: {formatUsd(attempt.writerCost.estimatedUsd)}</small>}
+                  {attempt.systemResult && <p className={styles.attemptResult}><strong>Decisión del sistema:</strong> {humanValue(attempt.systemResult.status)}. {attempt.systemResult.issues ? humanValue(attempt.systemResult.issues) : 'Sin controles fallidos registrados.'}</p>}
+                  {attempt.reviews.map((review, index) => <details className={styles.technical} key={review.step}>
+                    <summary>Revisor {index + 1} de este borrador · paso {review.step}{review.cost.pricedCalls === 1 ? ` · ${formatUsd(review.cost.estimatedUsd)}` : ''}</summary>
+                    <p>Salida original de la IA revisora; el sistema valida esta ficha por separado.</p>
+                    <pre>{review.result ? JSON.stringify(review.result, null, 2) : 'No se conservó la salida estructurada del revisor.'}</pre>
+                  </details>)}
+                </div>)}
+              </section>}
               {step.key === 'draft_validation' && <DraftDecision data={((step.output.output_snapshot || {}) as Record<string, unknown>).data} />}
               {step.key === 'model_request' && <AIExchange step={step} onCause={explanation.cause ? () => selectStep(explanation.cause!.order) : undefined} />}
               <FactSection title="Qué información utilizó" facts={explanation.used} empty="No se guardaron entradas legibles para este paso." />

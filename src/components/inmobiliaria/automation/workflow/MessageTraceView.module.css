@@ -110,3 +110,11 @@
 .reviewVerdict[data-tone="accepted"], .verdictBadge[data-tone="accepted"] { background: #edf8ef; color: #205932; border-color: #398252; }
 .reviewVerdict[data-tone="metadata"], .verdictBadge[data-tone="metadata"] { background: #fff5e6; color: #784400; border-color: #b97717; }
 .reviewVerdict[data-tone="rejected"], .verdictBadge[data-tone="rejected"] { background: #fff0f0; color: #882c2c; border-color: #bd5050; }
+.attemptHistory { margin: 18px 0; padding: 16px; border: 1px solid #d6c7ee; border-radius: 8px; background: #faf8ff; }
+.attemptHistory h5 { margin: 0 0 6px; font-size: 15px; }
+.attemptHistory > p { margin: 0 0 13px; font-size: 12px; color: #645578; }
+.attempt { padding: 14px 0; border-top: 1px solid #e4d9f3; }
+.attempt h6 { margin: 0 0 8px; font-size: 13px; }
+.attemptReply { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.attempt small { color: #645578; }
+.attemptResult { margin: 10px 0 0; font-size: 12px; color: #6f3c3c; }

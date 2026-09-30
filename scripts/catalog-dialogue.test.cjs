@@ -91,6 +91,15 @@ test('area attributes and mathematical bounds are independent of prose spelling'
     {...reviewed.semantic_review.factual_values[0],fragment:falseInterior}]}}).valid,false)
 })
 
+test('catalogue guard accepts explicitly approximate whole-m² rounding but retains exact-area checks', () => {
+  const audit = { verified_catalog: true, catalog_results: { units: [
+    { id: 'p602', unit_number: '602', category: 'penthouse', area_internal_m2: 142.09 },
+  ] } }
+  assert.equal(validateCatalogReply('El penthouse 602 tiene aproximadamente 142 m² interiores.', audit).valid, true)
+  assert.equal(validateCatalogReply('El penthouse 602 tiene 142 m² interiores.', audit).valid, false)
+  assert.equal(validateCatalogReply('El penthouse 602 tiene aproximadamente 140 m² interiores.', audit).valid, false)
+})
+
 test('bedroom alternatives query every requested count, including word forms, without inventing a denial', () => {
   const {propertyFiltersFromText}=require('../src/lib/integrations/automation/turn-semantics.ts')
   for(const current of ['no tiene opciones de 5 dormitorios o de 6?', 'me interesa una opcion de cinco o seis cuartos']) {

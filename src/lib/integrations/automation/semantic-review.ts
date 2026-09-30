@@ -1,5 +1,5 @@
 import { object, text, type Row } from './data'
-import { decimalNumber, endpointBefore, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
+import { decimalNumber, endpointBefore, matchesApproximateArea, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
 
 const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number']
 
@@ -125,6 +125,13 @@ export function validateFactualValues(value: unknown, reply: string, catalog: un
   return factualValueIssues(value, reply, catalog).length === 0
 }
 
+function approximateRoundedArea(fact: Row, fragment: string, actual: unknown): boolean {
+  if (!['area_internal_m2', 'area_exterior_m2'].includes(text(fact.field)) || fact.operator !== 'eq'
+    || typeof fact.value !== 'number' || !Number.isInteger(fact.value)
+    || typeof actual !== 'number' || !Number.isFinite(actual)) return false
+  return matchesApproximateArea(actual, fact.value, fragment)
+}
+
 export function factualValueIssues(value: unknown, reply: string, catalog: unknown): Row[] {
   if (!Array.isArray(value) || value.length > 80) return [{ code: 'invalid_fact_list', kind: 'review_metadata' }]
   const units = Array.isArray(catalog) ? catalog.map(object) : []
@@ -154,7 +161,8 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
         return [{ ...detail, code: 'catalog_range_mismatch', kind: 'catalog_data', expected: unit[field] ?? null, expected_upper: upper ?? null }]
     } else if (unit.aggregation && fact.operator === 'between') {
       return [{ ...detail, code: 'interval_requires_range_reference', kind: 'review_metadata' }]
-    } else if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value))
+    } else if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value)
+      && !approximateRoundedArea(fact, fragment, unit[field]))
       return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected: unit[field] ?? null }]
     const endpoint = numericMentions(fragment).filter(match => match.value === fact.value)
       .map(match => endpointBefore(fragment.slice(0, match.index))).find(Boolean)
