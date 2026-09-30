@@ -3,7 +3,7 @@
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
-import { Minus, Plus } from 'lucide-react'
+import { Box, Minus, Plus, Square } from 'lucide-react'
 import {
   FLOOR_PLAN_FLOORS,
   floorPlanLevelLabel,
@@ -937,13 +937,14 @@ export function TourFloorPlan({
           {showPlanChrome ? (
             <div
               className={cn(
-                'pointer-events-auto absolute z-30 flex rounded-lg bg-white/95 p-0.5 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-1 ring-black/10',
+                'pointer-events-auto absolute z-30 flex rounded-full border border-[#bda27e]/40 bg-[#14110e]/55 p-0.5 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
                 landscapeFill ? 'top-1.5 left-1.5' : 'top-3 left-3 sm:top-4 sm:left-4',
               )}
             >
               {(['2d', '3d'] as const).map((item) => {
                 const available = item === '2d' ? has2d : has3d
                 const active = planVariant === item
+                const Icon = item === '2d' ? Square : Box
                 return (
                   <button
                     key={item}
@@ -951,12 +952,12 @@ export function TourFloorPlan({
                     disabled={!available}
                     onClick={() => switchVariant(item)}
                     className={cn(
-                      'rounded-md px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors sm:px-3 sm:text-[12px]',
+                      'inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors sm:px-3 sm:text-[12px]',
                       active
-                        ? 'bg-[#1a2744] text-white shadow-sm'
+                        ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
                         : available
-                          ? 'text-[#3a4050] hover:bg-[#eef1f6]'
-                          : 'cursor-not-allowed text-[#9ca3af] opacity-50',
+                          ? 'text-[#f7f3ee] hover:bg-white/10'
+                          : 'cursor-not-allowed text-[#f7f3ee]/35',
                     )}
                     aria-pressed={active}
                     title={
@@ -965,6 +966,7 @@ export function TourFloorPlan({
                         : `Todavía no hay plano ${item.toUpperCase()}`)
                     }
                   >
+                    <Icon size={13} strokeWidth={2} aria-hidden />
                     {t(item)}
                   </button>
                 )
@@ -1289,7 +1291,7 @@ export function TourFloorPlan({
         <div className="pointer-events-auto flex min-h-0 flex-1 flex-col">
           <div
             className={cn(
-              'flex h-full min-h-0 flex-1 flex-col justify-between gap-0.5 overflow-y-auto overscroll-contain rounded-lg bg-white/90 p-1 shadow-[0_8px_24px_rgba(15,23,42,0.18)] backdrop-blur-sm',
+              'flex h-full min-h-0 flex-1 flex-col justify-between gap-0.5 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-1 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
               'sm:gap-1 sm:p-1.5',
               '[@media(max-height:520px)]:gap-0.5 [@media(max-height:520px)]:rounded-md [@media(max-height:520px)]:p-0.5',
             )}
@@ -1314,8 +1316,8 @@ export function TourFloorPlan({
                     'sm:min-h-[1.9rem]',
                     '[@media(max-height:520px)]:min-h-[1.4rem] [@media(max-height:520px)]:text-[10px]',
                     active
-                      ? 'bg-[#1a2744] text-white shadow-sm'
-                      : 'bg-white/80 text-[#3a4050] hover:bg-[#eef1f6]',
+                      ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
+                      : 'text-[#f7f3ee] hover:bg-white/10',
                   )}
                   aria-pressed={active}
                   aria-label={t(floorPlanLevelLabel(item))}
