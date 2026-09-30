@@ -76,13 +76,32 @@ export function replyReferences(reply: string) {
     .map((value, index) => ({ id: `S${index + 1}`, text: value }))
 }
 
+/** Candidate values come from the draft, never from the catalogue. These are
+ * mentions, not approved facts: the reviewer still identifies subject/field and
+ * the independent validators check the relationship and catalogue value. */
+export function draftNumericCandidates(reply: string) {
+  return replyReferences(reply).flatMap(sentence => {
+    const prose = sentence.text.replace(/https?:\/\/\S+/gi, url => ' '.repeat(url.length))
+      .replace(/\bm2\b/gi, 'm ')
+    const mentions = numericMentions(prose).filter(mention => {
+      // Spanish indefinite articles in ordinary prose do not assert a quantity.
+      // Retain singular quantities with catalogue dimensions; compound numbers
+      // such as "un millón" are already parsed as a complete mention.
+      if (!/^(?:un|una)$/i.test(mention.text)) return true
+      const after = prose.slice(mention.end).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      return /^\s+(?:(?:solo|sola|unico|unica)\s+)?(?:dormitorio|habitacion|cuarto|bano|planta|piso|nivel|metro|dolar|usd)\b/.test(after)
+    })
+    return mentions.length ? [{ sentence_id: sentence.id, values: [...new Set(mentions.map(mention => mention.value))] }] : []
+  })
+}
+
 /** The live reviewer selects a code-owned sentence instead of copying its prose.
  * Historical snapshots can still contain literal fragments; their readers and
  * validators retain that representation after reference normalization. */
 export function sentenceReferenceReviewSchema(schema: Row, reply: string, current = ''): Row {
   const ids = replyReferences(reply).map(sentence => sentence.id)
   const properties = { ...object(schema.properties) }
-  for (const key of ['claims', 'factual_values']) {
+  for (const key of ['claims']) {
     const list = object(properties[key])
     if (!Object.keys(list).length) continue
     const item = object(list.items)
@@ -91,6 +110,17 @@ export function sentenceReferenceReviewSchema(schema: Row, reply: string, curren
         ? { type: 'string', enum: ids }
         : { type: 'string', maxLength: 0 } },
     } }
+  }
+  const factList = object(properties.factual_values)
+  if (Object.keys(factList).length) {
+    const candidates = draftNumericCandidates(reply), item = object(factList.items)
+    properties.factual_values = candidates.length ? { ...factList, items: { anyOf: candidates.map(candidate => ({
+      ...item, properties: { ...object(item.properties),
+        fragment: { type: 'string', enum: [candidate.sentence_id] },
+        value: { type: 'number', enum: candidate.values },
+        upper_value: { anyOf: [{ type: 'null' }, { type: 'number', enum: candidate.values }] },
+      },
+    })) } } : { ...factList, maxItems: 0 }
   }
   const issueList = object(properties.review_issues)
   if (Object.keys(issueList).length) {

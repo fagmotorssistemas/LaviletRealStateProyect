@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeReviewReferences, replyReferences, sentenceReferenceReviewSchema, verifiedClaimSources } from './turn-evidence'
+import { normalizeReviewReferences, replyReferences, sentenceReferenceReviewSchema, verifiedClaimSources, draftNumericCandidates } from './turn-evidence'
 import { claimSchema, factualValuesSchema, factualValueIssues, reviewClaims, reviewRepairCoverageIssues } from './semantic-review'
 import { object, type Row } from './data'
 import { checkReviewDecision, reviewChecks, reviewIssuesSchema } from './turn-review-checks'
@@ -84,12 +84,13 @@ test('live reviewer schema accepts only the current draft sentence IDs without m
     required: ['claims', 'factual_values', 'answers_supported'] }
   const original = JSON.stringify(schema)
   const first = sentenceReferenceReviewSchema(schema, 'Buenas tardes. La Vilet se ubica en Cuenca.')
-  for (const field of ['claims', 'factual_values']) {
+  for (const field of ['claims']) {
     const list = object(object(first.properties)[field]), item = object(list.items)
     assert.deepEqual(object(item.properties).fragment, { type: 'string', enum: ['S1', 'S2'] })
     assert.ok((item.required as string[]).includes('fragment'))
     assert.equal(item.additionalProperties, false)
   }
+  assert.equal(object(object(first.properties).factual_values).maxItems, 0)
   assert.deepEqual(first.required, schema.required)
   assert.equal(JSON.stringify(schema), original)
   const next = sentenceReferenceReviewSchema(schema, 'La Vilet se ubica en Cuenca.')
@@ -97,6 +98,49 @@ test('live reviewer schema accepts only the current draft sentence IDs without m
     { type: 'string', enum: ['S1'] })
   const empty = sentenceReferenceReviewSchema(schema, '')
   assert.equal(object(object(empty.properties).claims).maxItems, 0)
+})
+
+test('numeric review of foreign residence cannot invent catalogue areas or read a brochure version as an area', () => {
+  const reply = 'Mucho gusto, Carlos. Residir fuera de Ecuador no representa una limitación para revisar información. Puede recibir una guía personalizada: https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf.'
+  assert.deepEqual(draftNumericCandidates(reply), [])
+  const schema = sentenceReferenceReviewSchema({ properties: { factual_values: factualValuesSchema } }, reply)
+  assert.equal(object(object(schema.properties).factual_values).maxItems, 0)
+})
+
+test('numeric candidates preserve prose variants and constrain each sentence to its own values', () => {
+  const reply = 'El balcón tiene 27,03 metros cuadrados y el interior 120.83 m2. Tiene tres dormitorios y dos baños, en la sexta planta. Su valor va desde 145 mil hasta quinientos cincuenta mil dólares.'
+  const candidates = draftNumericCandidates(reply)
+  assert.deepEqual(candidates, [
+    { sentence_id: 'S1', values: [27.03, 120.83] },
+    { sentence_id: 'S2', values: [3, 2, 6] },
+    { sentence_id: 'S3', values: [145000, 550000] },
+  ])
+  const schema = sentenceReferenceReviewSchema({ properties: { factual_values: factualValuesSchema } }, reply)
+  const branches = object(object(object(schema.properties).factual_values).items).anyOf as Row[]
+  for (const [index, branch] of branches.entries()) {
+    const properties = object(branch.properties)
+    assert.deepEqual(properties.fragment, { type: 'string', enum: [candidates[index].sentence_id] })
+    assert.deepEqual(properties.value, { type: 'number', enum: candidates[index].values })
+    assert.equal(branch.additionalProperties, false)
+    assert.deepEqual(branch.required, factualValuesSchema.items.required)
+  }
+  assert.deepEqual(draftNumericCandidates('Una habitación y un baño. Área: veintisiete coma cero tres metros cuadrados.'), [
+    { sentence_id: 'S1', values: [1] }, { sentence_id: 'S2', values: [27.03] },
+  ])
+})
+
+test('numbers mentioned by the writer still fail when they contradict the catalogue or describe a family', () => {
+  const unit = { id: 'unit-1', area_internal_m2: 72.18, bedrooms: 3 }
+  const reply = 'La superficie interior es 99.99 m².'
+  const schema = sentenceReferenceReviewSchema({ properties: { factual_values: factualValuesSchema } }, reply)
+  const branches = object(object(object(schema.properties).factual_values).items).anyOf as Row[]
+  assert.deepEqual(object(branches[0].properties).value, { type: 'number', enum: [99.99] })
+  const fact = { fragment: 'S1', unit_id: unit.id, field: 'area_internal_m2', value: 99.99, operator: 'eq', upper_value: null }
+  const normalized = normalizeReviewReferences({ factual_values: [fact] }, [unit], reply)
+  assert.equal(factualValueIssues(normalized.review.factual_values, reply, [unit])[0].code, 'catalog_value_mismatch')
+  const family = 'Su familia tiene tres personas.'
+  const wrong = normalizeReviewReferences({ factual_values: [{ ...fact, field: 'bedrooms', value: 3 }] }, [unit], family)
+  assert.equal(factualValueIssues(wrong.review.factual_values, family, [unit])[0].code, 'numeric_field_not_in_reply')
 })
 
 test('reviewer selects the welcome sentence instead of reformulating it and facts remain independently grounded', () => {

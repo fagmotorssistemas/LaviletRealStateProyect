@@ -115,6 +115,27 @@ test('an unspecified next decision outside a verified stage stays empty and does
   assert.equal(result.audit.operational_action_verified, false)
 })
 
+test('foreign-residence reply with brochure gets an empty numeric review despite a populated catalogue', async () => {
+  const message = 'Me llamo Carlos y ahora resido en Colombia. ¿Habrá algún problema si vivo lejos?'
+  const reply = 'Mucho gusto, Carlos. Puede revisar la información desde Colombia. Le comparto el brochure: https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf. Podemos brindarle una guía personalizada.'
+  const question = { purpose: 'none', missing_datum: '', next_decision: '' }
+  const mock = sequence({ reply, requests: [covered(message)], question }, (_rules, context, schema) => {
+    assert.deepEqual(context.cifras_del_borrador, [])
+    assert.equal(schema.properties.factual_values.maxItems, 0)
+    return { ...approved, question: { ...question, clarifies: [] }, claims: [], factual_values: [] }
+  })
+  const result = await completeTurnReply({ current: message, baseReply: reply,
+    verified: { catalogo: Array.from({ length: 40 }, (_, index) => ({ id: `unit-${index}`, unit_number: String(200 + index),
+      category: 'departamento', bedrooms: 3, area_internal_m2: 72.18 + index })),
+      perfil_lead: { full_name: 'Carlos', sources: { full_name: { source: 'lead_declaration', evidence: 'Me llamo Carlos' } } } },
+    audit: { semantic_review_enabled: true } }, mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, reply)
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(result.audit.semantic_review.numeric_review_scope.empty_required, true)
+  assert.deepEqual(mock.calls.map(call => call[6]), ['writing', 'review'])
+})
+
 test('a commercial opening repair does not spend the independent reviewer metadata repair', async () => {
   const input = profileInput()
   input.audit.semantic_review_enabled = true

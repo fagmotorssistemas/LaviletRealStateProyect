@@ -10,7 +10,7 @@ import { isCategoryOverview, validateCatalogReply } from './catalog-dialogue'
 import { pendingTurnReply } from './delivery-integrity'
 import { projectQuantityEvidence, validateProjectQuantities, withoutSupportedQuantities } from './project-quantities'
 import { NUMERIC_RELATION_RULES } from './semantic-review'
-import { turnEvidence, normalizeReviewReferences, replyReferences, sentenceReferenceReviewSchema, verifiedClaimSources } from './turn-evidence'
+import { turnEvidence, normalizeReviewReferences, replyReferences, sentenceReferenceReviewSchema, verifiedClaimSources, draftNumericCandidates } from './turn-evidence'
 import { compactTurnPromptContext, TURN_CONTEXT_REFERENCE_RULES } from './turn-prompt-context'
 import { BUSINESS_SCOPE_WRITING_RULES } from './scope-response'
 import { operationalCopyIssues } from './operational-copy'
@@ -472,6 +472,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const reviewRequired = unresolved.length > 0 || !!question.text || !!input.audit?.profile_introduction || adaptiveContinuation || input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
     if (reviewRequired) {
       const sentenceReferences = replyReferences(reply)
+      const numericCandidates = draftNumericCandidates(reply)
       Object.assign(context, { oraciones_borrador: sentenceReferences })
       const semanticEnabled = input.audit?.semantic_review_enabled === true
       const reviewInstructions = REVIEW_RULES + '\n' + TURN_INTENT_RULES + RESIDENTIAL_CONTINUITY_RULES
@@ -488,6 +489,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       } } : {}), ...context, catalog_evidence: { catalog_query: input.audit?.catalog_query,
         catalog_results: input.audit?.catalog_results, alternative_results: input.audit?.alternative_results },
         referencias_solicitud: input.current.trim() ? [{ id: 'R1', text: input.current }] : [],
+        cifras_del_borrador: numericCandidates,
         respuesta_propuesta: reply, cobertura_propuesta: requests, pregunta: question }
       const baseReviewSchema = semanticEnabled ? evidenceReviewSchema : reviewSchema
       const activeReviewSchema = sentenceReferenceReviewSchema({ ...baseReviewSchema,
@@ -542,6 +544,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         editorialObservations.push(...decision.editorial.map(issue => `review_editorial:${text(issue.check)}:${text(issue.reason)}`))
         semanticReview = { status: reviewIssues.length === 0 ? 'checked' : 'rejected', query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: evaluated.factIssues.length === 0, validation_details: reviewIssues, repair_eligibility: repairEligibility,
           opening_property_type_sentence_ids: review.opening_property_type_sentence_ids,
+          numeric_review_scope: { source: 'actual_draft', candidates: numericCandidates, empty_required: numericCandidates.length === 0 },
           review_issues: review.review_issues || [], editorial_observations: decision.editorial,
           reference_corrections: evaluated.corrections, evidence_summary: { version: sharedEvidence.version, unit_count: sharedEvidence.units.length, alternative_ids: sharedEvidence.alternative_ids, group_count: sharedEvidence.groups.length } }
         if (reviewIssues.some(issue => ['commercial_content', 'catalog_data'].includes(text(issue.kind))) && attempt === 0 && !sharedEvidence.conflicts.length) {
