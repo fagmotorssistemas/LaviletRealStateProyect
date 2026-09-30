@@ -172,6 +172,7 @@ const values: Record<string, string> = {
   unit_fact_mismatch_or_invalid: 'Un valor atribuido a una unidad no coincide con el catálogo, o la lista de datos extraídos es inválida',
   invalid_review_metadata: 'Ficha interna del revisor inválida; no significa por sí solo que el mensaje comercial tenga datos incorrectos',
   review_fragment_not_in_reply: 'El revisor citó un fragmento que no aparece literalmente en el mensaje propuesto',
+  review_unit_binding_mismatch: 'El revisor atribuyó un valor real a otra unidad en su ficha interna',
   catalog_value_mismatch: 'El valor registrado por el revisor no coincide con el catálogo de esa unidad',
   invalid_unit_fact: 'La referencia a la unidad o al atributo en la ficha del revisor es inválida',
   review_repair_omitted_facts: 'La reparación omitió relaciones que debía volver a comprobar',

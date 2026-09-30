@@ -71,6 +71,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     if (error.code === 'review_fragment_not_in_reply') return `${location}: el fragmento de respaldo no aparece literalmente en el borrador. Falló la cita del revisor, no necesariamente el dato comercial.${quote}`
     if (error.code === 'numeric_relation_not_in_reply') return `${location}: el valor que el revisor intentó comprobar no está expresado en ese fragmento. Falló la ficha de revisión.${quote}`
     if (error.code === 'numeric_field_not_in_reply') return `${location}: la cifra del fragmento describe otro dato; no acredita ${field}. Falló la asociación de la ficha del revisor.${quote}`
+    if (error.code === 'review_unit_binding_mismatch') return `${location}: el revisor atribuyó ${field}: ${String(error.received)} a la unidad «${ref}», aunque el borrador no hace esa atribución. Debe corregirse la referencia de la ficha sin cambiar el valor del mensaje.${quote}`
     if (text(error.code).startsWith('review_check_failed:')) return `${checks[text(error.check)] || 'Se detectó un problema de contenido'} ${text(error.reason)}${quote}`
     if (error.code === 'unexplained_review_failure') return `El revisor rechazó «${text(error.check)}» sin identificar un defecto concreto. Se requiere corregir la ficha, no demuestra que el texto comercial sea incorrecto.`
     if (error.code === 'claim_source_not_verified') return `${location}: la fuente citada no respalda el tipo de afirmación o no pertenece a la evidencia de esta ejecución.${quote}`
@@ -100,6 +101,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     claim_fragment_not_in_reply: 'El revisor incluyó una afirmación que no aparece en el borrador.',
     numeric_relation_not_in_reply: 'El revisor atribuyó al fragmento un valor que el texto no expresa.',
     numeric_field_not_in_reply: 'El revisor asoció una cifra con un atributo distinto del expresado.',
+    review_unit_binding_mismatch: 'El revisor atribuyó una cifra a la unidad equivocada; corresponde reparar su ficha sin modificar el borrador.',
     claim_source_not_verified: 'La ficha citó fuentes ausentes o de un tipo incorrecto para la afirmación.',
     unexplained_review_failure: 'El revisor emitió un rechazo sin explicar un defecto concreto del contenido.',
     invalid_review_issue_reference: 'La explicación del rechazo no se vinculó correctamente al mensaje actual o al borrador.',

@@ -1,4 +1,4 @@
-import { areaAssertions, matchesApproximateArea, satisfiesNumeric } from './numeric-relations'
+import { areaAssertions, satisfiesNumeric } from './numeric-relations'
 import { object, text, type Row } from './data'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
@@ -181,8 +181,7 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
       const allowed = areaUnits.map(unit => measurement(unit[area.field])).filter((value): value is number => value !== null)
       const matches = (actual: number) => area.operator === 'between'
         ? satisfiesNumeric(actual, area.values[0], 'between', area.values[1])
-        : area.values.some(value => satisfiesNumeric(actual, value, area.operator)
-          || area.operator === 'eq' && matchesApproximateArea(actual, value, clause))
+        : area.values.some(value => satisfiesNumeric(actual, value, area.operator))
       if (area.derived) return { valid: false, reason: 'catalog_derived_fact_unverified' }
       if (area.exactRange && area.values.some(value => !allowed.some(actual => satisfiesNumeric(actual, value))))
         return { valid: false, reason: 'catalog_area_mismatch' }

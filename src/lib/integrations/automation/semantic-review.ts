@@ -1,5 +1,5 @@
 import { object, text, type Row } from './data'
-import { decimalNumber, endpointBefore, matchesApproximateArea, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
+import { decimalNumber, endpointBefore, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
 
 const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number']
 
@@ -100,6 +100,27 @@ function numericFieldContradictsText(fact: Row, fragment: string): boolean {
     && dimension !== fact.field && !(dimension === 'area' && /^area_/.test(text(fact.field))))
 }
 
+function wrongReviewUnitBinding(fact: Row, fragment: string, unit: Row, catalog: Row[]): boolean {
+  const sentence = normalized(fragment)
+  const categoryNames: Record<string, string> = {
+    suite: 'suite', suites: 'suite', departamento: 'departamento', departamentos: 'departamento',
+    penthouse: 'penthouse', penthouses: 'penthouse', local: 'local', locales: 'local',
+  }
+  const categories = [...sentence.matchAll(/\b(suites?|departamentos?|penthouses?|locales?)\b/g)]
+    .map(match => categoryNames[match[1]])
+  const named = [...sentence.matchAll(/\b(?:suites?|departamentos?|penthouses?|locales?|unidades?)\s+((?:\d{2,5}\b(?![.,]\d{1,2}\b))(?:\s*(?:,|y|e)\s*\d{2,5}\b(?![.,]\d{1,2}\b))*)/g)]
+    .flatMap(match => match[1].match(/\d+/g) || [])
+  if (named.length && unit.unit_number && !named.includes(text(unit.unit_number))) return true
+  if (categories.length && unit.category && !categories.includes(text(unit.category))) return true
+  if (named.length || unit.aggregation || satisfiesNumeric(Number(unit[fact.field as string]), Number(fact.value), fact.operator, fact.upper_value)) return false
+  if (!/\b(?:hasta|desde|maxim[oa]|minim[oa]|alcanzan|llegan|parten)\b/.test(sentence)) return false
+  // A category-level assertion should not be rejected because the reviewer
+  // selected a different member when another verified member has that value.
+  return catalog.some(candidate => candidate.id !== unit.id && candidate[fact.field as string] != null
+    && (!categories.length || categories.includes(text(candidate.category)))
+    && satisfiesNumeric(Number(candidate[fact.field as string]), Number(fact.value), fact.operator, fact.upper_value))
+}
+
 /** Historical evidence from this event only, never today's catalogue. */
 export function reviewReferenceSnapshot(result: unknown): Row[] {
   const coverage = object(object(result).turn_completeness)
@@ -119,17 +140,10 @@ export const FLEXIBLE_FACT_RULES = `La respuesta_base es una propuesta, no evide
 En factual_values extraiga TODAS las relaciones explícitas entre una unidad y sus valores numéricos (dormitorios, baños, áreas, precio publicado, planta). Use el ID del catálogo, field y value numérico. En fragment seleccione obligatoriamente un identificador S1, S2... existente en oraciones_borrador: el sistema lo convierte en la oración exacta. No copie, resuma ni reformule la oración; el esquema solo acepta esos identificadores. Varias relaciones pueden usar el mismo identificador. Para resúmenes de categoría («hasta», «desde»), use el ID group:...:max o group:...:min de evidencia_turno.groups y el valor calculado allí. No atribuya un máximo a todas las unidades ni enumere los valores de cada unidad cuando el texto solo expresa un máximo. No calcule grupos nuevos ni mezcle conjuntos. Desagregue solo afirmaciones explícitas compartidas por unidades concretas. No use números del historial como evidencia. Use [] si no hay relaciones numéricas verificables. Si hay más de 80 relaciones no apruebe la respuesta.`
 
 export const NUMERIC_RELATION_RULES = 'En factual_values indique operator: eq para valores exactos, gt/gte/lt/lte para comparaciones y between para intervalos (upper_value es el extremo superior; null en los otros casos). Un rango desde X hasta Y se representa con between, value X y upper_value Y. Para rangos generales use un ID group:...:range del conjunto pertinente; sus campos contienen el minimo y upper_values contiene el maximo. Si hay grupos price_quote, son las unidades disponibles con precio publicado incluidas en la cotizacion verificada actual: use esos grupos para sus precios; no los extienda al inventario completo ni a otra categoria. Para un extremo aislado use group:...:min o :max. Use solamente IDs presentes en evidencia_turno; price y price_reference no son IDs. Represente el limite escrito, no lo sustituya por el valor del catalogo. Cada unidad nombrada en una comparacion colectiva necesita su propia relacion. El codigo comprobara el operador contra el fragmento y calculara la relacion con los datos verificados. No use una aprobacion narrativa para omitir relaciones numericas.'
-  + '\nEl sistema obtiene cifras_del_borrador exclusivamente del texto actual y restringe el esquema a esos valores y sus oraciones. Si la lista está vacía, factual_values debe ser []. Los candidatos son menciones, no afirmaciones aprobadas: un número de unidad, una cantidad de familiares o una cifra ajena al inmueble no debe convertirse en área, precio o dormitorios. Incluya solo relaciones realmente expresadas y compárelas con el catálogo; nunca rellene la ficha con medidas del catálogo ausentes del texto.'
+  + '\nEl sistema obtiene cifras_del_borrador exclusivamente del texto actual y restringe el esquema a esos valores y sus oraciones. Si la lista está vacía, factual_values debe ser []. Los candidatos son menciones, no afirmaciones aprobadas: un número de unidad, una cantidad de familiares o una cifra ajena al inmueble no debe convertirse en área, precio o dormitorios. Incluya solo relaciones realmente expresadas y compárelas con el catálogo; nunca rellene la ficha con medidas del catálogo ausentes del texto. Un valor redondeado no coincide con el valor exacto del catálogo aunque el borrador diga «aproximadamente». Si una cifra correcta se atribuyó en su ficha a otra unidad, corrija la referencia interna; no cambie el texto ni invente respaldo.'
 
 export function validateFactualValues(value: unknown, reply: string, catalog: unknown): boolean {
   return factualValueIssues(value, reply, catalog).length === 0
-}
-
-function approximateRoundedArea(fact: Row, fragment: string, actual: unknown): boolean {
-  if (!['area_internal_m2', 'area_exterior_m2'].includes(text(fact.field)) || fact.operator !== 'eq'
-    || typeof fact.value !== 'number' || !Number.isInteger(fact.value)
-    || typeof actual !== 'number' || !Number.isFinite(actual)) return false
-  return matchesApproximateArea(actual, fact.value, fragment)
 }
 
 export function factualValueIssues(value: unknown, reply: string, catalog: unknown): Row[] {
@@ -153,6 +167,8 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
     }
     if (numericFieldContradictsText(fact, fragment))
       return [{ ...detail, code: 'numeric_field_not_in_reply', kind: 'review_metadata' }]
+    if (wrongReviewUnitBinding(fact, fragment, unit, units))
+      return [{ ...detail, code: 'review_unit_binding_mismatch', kind: 'review_metadata' }]
     if (unit.aggregation === 'range') {
       const upper = object(unit.upper_values)[field]
       if (fact.operator !== 'between') return [{ ...detail, code: 'range_reference_requires_interval', kind: 'review_metadata' }]
@@ -161,8 +177,7 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
         return [{ ...detail, code: 'catalog_range_mismatch', kind: 'catalog_data', expected: unit[field] ?? null, expected_upper: upper ?? null }]
     } else if (unit.aggregation && fact.operator === 'between') {
       return [{ ...detail, code: 'interval_requires_range_reference', kind: 'review_metadata' }]
-    } else if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value)
-      && !approximateRoundedArea(fact, fragment, unit[field]))
+    } else if (unit[field] == null || unit[field] === '' || !satisfiesNumeric(Number(unit[field]), fact.value as number, fact.operator, fact.upper_value))
       return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected: unit[field] ?? null }]
     const endpoint = numericMentions(fragment).filter(match => match.value === fact.value)
       .map(match => endpointBefore(fragment.slice(0, match.index))).find(Boolean)
@@ -289,10 +304,12 @@ export function reviewRepairCoverageIssues(previous: Row, repaired: Row, reply: 
   const omitted = before.some(fact => {
     const reference = catalog.find(unit => unit.id === fact.unit_id)
     const values = assertedRepairValues(fact, reply, reference, catalog)
+    const previousBindingWrong = factualValueIssues([fact], reply, catalog).some(issue => issue.code === 'review_unit_binding_mismatch')
     return values.some(value => !after.some(next => {
       const nextReference = catalog.find(unit => unit.id === next.unit_id)
       const sameSubject = !reference || next.unit_id === fact.unit_id
         || Array.isArray(nextReference?.member_ids) && nextReference.member_ids.includes(fact.unit_id)
+        || previousBindingWrong && next.fragment === fact.fragment && factualValueIssues([next], reply, catalog).length === 0
       return sameSubject && next.field === fact.field && (next.value === value || next.operator === 'between' && next.upper_value === value)
     }))
   })
@@ -302,7 +319,8 @@ export function reviewRepairCoverageIssues(previous: Row, repaired: Row, reply: 
   // An entry absent from the draft may be removed in a fresh metadata review.
   const omittedClaims = claimsBefore.some(claim => {
     const fragment = text(claim.fragment)
-    return claim.claim_kind !== 'contextual_guidance' && fragment.trim() && reply.includes(fragment) && !claimsAfter.some(next =>
+    return claim.claim_kind !== 'contextual_guidance' && fragment.trim() && !/[¿?]/.test(fragment)
+      && reply.includes(fragment) && !claimsAfter.some(next =>
       text(next.fragment).includes(fragment) || fragment.includes(text(next.fragment)) && text(next.fragment).trim())
   })
   return [...(omitted ? [{ code: 'review_repair_omitted_facts', kind: 'review_metadata' }] : []),

@@ -38,12 +38,18 @@ test('actual wrong prices remain catalogue defects; repair cannot hide their ass
     .some(issue => issue.code === 'review_repair_omitted_facts'))
 })
 
-test('explicitly approximate whole-square-metre areas accept ordinary rounding, without relaxing exact facts', () => {
-  const penthouse = { ...unit, area_internal_m2: 142.09, bedrooms: 3 }
+test('approximate wording does not authorize rounding catalogue areas', () => {
+  const penthouse = { ...unit, category: 'penthouse', area_internal_m2: 142.09, bedrooms: 3 }
   const department = { ...unit, id: 'unit-502', area_internal_m2: 120.83, bedrooms: 3 }
   const reply = 'Las áreas interiores llegan hasta aproximadamente 142 m² en los penthouses y 121 m² en los departamentos.'
   const area = (id: string, value: number) => ({ ...fact(reply, value, 'area_internal_m2'), unit_id: id })
-  assert.deepEqual(factualValueIssues([area(penthouse.id, 142), area(department.id, 121)], reply, [penthouse, department]), [])
+  assert.deepEqual(factualValueIssues([area(penthouse.id, 142), area(department.id, 121)], reply, [penthouse, department])
+    .map(issue => issue.code), ['catalog_value_mismatch', 'catalog_value_mismatch'])
+  const exactValues = 'Los penthouses alcanzan 142,09 m² interiores y los departamentos 120,83 m² interiores.'
+  assert.deepEqual(factualValueIssues([
+    { ...area(penthouse.id, 142.09), fragment: exactValues },
+    { ...area(department.id, 120.83), fragment: exactValues },
+  ], exactValues, [penthouse, department]), [])
   const exact = 'El penthouse tiene 142 m² interiores.'
   assert.equal(factualValueIssues([{ ...area(penthouse.id, 142), fragment: exact }], exact, [penthouse])[0].code, 'catalog_value_mismatch')
   const incorrect = 'Tiene aproximadamente 140 m² interiores.'
@@ -52,6 +58,27 @@ test('explicitly approximate whole-square-metre areas accept ordinary rounding, 
   assert.equal(factualValueIssues([{ ...area(penthouse.id, 142), fragment: lateQualifier }], lateQualifier, [penthouse])[0].code, 'catalog_value_mismatch')
   const price = 'Su precio aproximado es de $210.001 USD.'
   assert.equal(factualValueIssues([{ ...fact(price, 210001), unit_id: penthouse.id }], price, [penthouse])[0].code, 'catalog_value_mismatch')
+})
+
+test('a reviewer binding a real value to the wrong unit is metadata, while an invented value remains a catalogue error', () => {
+  const smaller = { ...unit, id: 'unit-601', unit_number: '601', category: 'penthouse', area_internal_m2: 106.58 }
+  const larger = { ...unit, id: 'unit-602', unit_number: '602', category: 'penthouse', area_internal_m2: 142.09 }
+  const suite = { ...unit, id: 'unit-210', unit_number: '210', category: 'suite', bedrooms: 1 }
+  const areaReply = 'Los penthouses alcanzan 142,09 m² interiores.'
+  const wrongArea = { ...fact(areaReply, 142.09, 'area_internal_m2'), unit_id: smaller.id }
+  const rightArea = { ...wrongArea, unit_id: larger.id }
+  assert.equal(factualValueIssues([wrongArea], areaReply, [smaller, larger])[0].code, 'review_unit_binding_mismatch')
+  assert.deepEqual(factualValueIssues([rightArea], areaReply, [smaller, larger]), [])
+  assert.deepEqual(reviewRepairCoverageIssues({ factual_values: [wrongArea] }, { factual_values: [rightArea] }, areaReply, [smaller, larger]), [])
+  const bedroomsReply = 'Los departamentos y penthouses tienen 3 dormitorios.'
+  const wrongSuite = { ...fact(bedroomsReply, 3, 'bedrooms'), unit_id: suite.id }
+  assert.equal(factualValueIssues([wrongSuite], bedroomsReply, [suite, unit, larger])[0].code, 'review_unit_binding_mismatch')
+  const falseReply = 'Los penthouses alcanzan 999 m² interiores.'
+  assert.equal(factualValueIssues([{ ...wrongArea, fragment: falseReply, value: 999 }], falseReply, [smaller, larger])[0].code, 'catalog_value_mismatch')
+  const collective = 'Los penthouses tienen 142,09 m² interiores.'
+  assert.equal(factualValueIssues([{ ...wrongArea, fragment: collective }], collective, [smaller, larger])[0].code, 'catalog_value_mismatch')
+  const namedFalse = 'El penthouse 601 tiene 142,09 m² interiores.'
+  assert.equal(factualValueIssues([{ ...wrongArea, fragment: namedFalse }], namedFalse, [smaller, larger])[0].code, 'catalog_value_mismatch')
 })
 
 test('numeric evidence follows Spanish wording and reordered sentences without copying catalogue prose', () => {
@@ -171,6 +198,12 @@ test('metadata repair can remove phantom claims but cannot erase grounded factua
     'review_repair_omitted_claims')
   assert.equal(reviewClaims([{ ...phantom, fragment: reply, evidence_ids: [], evidence_source: 'none' }], reply, []).issues[0].kind,
     'commercial_content')
+})
+
+test('a reviewer can remove a bogus claim about the bot question during metadata repair', () => {
+  const reply = 'El penthouse tiene tres dormitorios. ¿Prefiere revisar el departamento o el penthouse?'
+  const bogus = claim('¿Prefiere revisar el departamento o el penthouse?', { claim_kind: 'lead_statement', verdict: 'unsupported' })
+  assert.deepEqual(reviewRepairCoverageIssues({ claims: [bogus] }, { claims: [] }, reply, []), [])
 })
 
 test('catalogue no-results evidence exists only for a complete empty authorized query', () => {

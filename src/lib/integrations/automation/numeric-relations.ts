@@ -1,13 +1,6 @@
 /** Shared numeric contract. Comparisons are computed from evidence, never from a model verdict. */
 export const numericOperators = ['eq', 'gt', 'gte', 'lt', 'lte', 'between'] as const
 export type NumericOperator = typeof numericOperators[number]
-/** Only explicitly approximate, whole-m² area figures may use ordinary rounding. */
-export function matchesApproximateArea(actual: number, value: number, fragment: string) {
-  const mention = new RegExp(`\\b${value}\\b`).exec(fragment)
-  return Number.isFinite(actual) && Number.isInteger(value)
-    && !!mention && /\b(?:aproximad\w*|aprox\.?|alrededor de)\b/i.test(fragment.slice(0, mention.index))
-    && Math.round(actual) === value
-}
 export const decimalNumber = (value: string) => {
   const clean = value.replace(/[.,]$/, '')
   const last = Math.max(clean.lastIndexOf('.'), clean.lastIndexOf(','))

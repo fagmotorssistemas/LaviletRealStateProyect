@@ -515,15 +515,19 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       }
       let evaluated = evaluateReview(await generate(reviewInstructions, compactTurnPromptContext(reviewContext),
         activeReviewSchema, undefined, undefined, undefined, 'review'))
-      const repairEligibility = { policy: 'review_metadata_v5', budget_available: repairBudget().review_metadata.used === 0,
-          eligible: evaluated.issues.length > 0 && evaluated.issues.every(issue => issue.kind === 'review_metadata'),
+      const repairEligibility = { policy: 'review_metadata_v6', budget_available: repairBudget().review_metadata.used === 0,
+          eligible: !sharedEvidence.conflicts.length && evaluated.issues.length > 0
+            && (evaluated.issues.every(issue => issue.kind === 'review_metadata')
+              || evaluated.issues.some(issue => issue.code === 'review_unit_binding_mismatch')),
           reason: !evaluated.issues.length ? 'no_metadata_errors'
-            : evaluated.issues.some(issue => issue.kind !== 'review_metadata') ? 'data_or_evidence_error' : 'metadata_repairable' }
+            : sharedEvidence.conflicts.length ? 'conflicting_system_evidence'
+              : evaluated.issues.every(issue => issue.kind === 'review_metadata')
+                || evaluated.issues.some(issue => issue.code === 'review_unit_binding_mismatch') ? 'metadata_repairable' : 'data_or_evidence_error' }
         // Keep the original reason available even if the repair service fails.
         semanticReview = { status: 'rejected', query: input.audit?.catalog_query || null, claims: evaluated.review.claims,
           factual_values: evaluated.review.factual_values, validation_details: evaluated.issues, repair_eligibility: repairEligibility }
-        // One bounded repair of reviewer metadata, never a rewrite or a waiver
-        // of an unsupported commercial claim or a mismatched catalog value.
+        // Recheck a faulty reviewer sheet even when it also reports a content
+        // defect. The new sheet must still pass every content and catalog check.
         if (repairEligibility.eligible && repairEligibility.budget_available) {
           const repair: Row = { status: 'invalid_review_metadata', target: 'review_metadata', issues: evaluated.issues,
             proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) }

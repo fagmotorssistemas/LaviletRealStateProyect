@@ -595,6 +595,27 @@ test('Carlos catalogue metadata is repaired without changing his final answer or
   assert.equal(mock.calls[2][6], 'review')
 })
 
+test('a wrong reviewer unit binding is repaired on the same exact-value draft, even with a disputed content flag', async () => {
+  const current = '¿Qué opción amplia tienen para mi familia?'
+  const reply = 'El penthouse 602 tiene 142,09 m² interiores.'
+  const units = [
+    { id: 'p601', unit_number: '601', category: 'penthouse', area_internal_m2: 106.58 },
+    { id: 'p602', unit_number: '602', category: 'penthouse', area_internal_m2: 142.09 },
+  ]
+  const factual = { fragment: 'S1', unit_id: 'p601', field: 'area_internal_m2', value: 142.09, operator: 'eq', upper_value: null }
+  const reviewerQuestion = { ...noQuestion, clarifies: [] }
+  const rejected = { ...approved, answers_supported: false, question: reviewerQuestion, claims: [], factual_values: [factual],
+    review_issues: [{ check: 'answers_supported', kind: 'content', source: 'draft', fragment: 'S1', reason: 'El valor no corresponde a la unidad indicada en la ficha.' }] }
+  const corrected = { ...approved, question: reviewerQuestion, claims: [], factual_values: [{ ...factual, unit_id: 'p602' }], review_issues: [] }
+  const mock = model({ reply, requests: [covered(current)], question: noQuestion }, rejected, corrected)
+  const result = await completeTurnReply({ current, baseReply: reply, audit: { semantic_review_enabled: true }, verified: { catalogo: units } }, mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, reply)
+  assert.deepEqual(result.audit.repair_attempts.map(item => item.target), ['review_metadata'])
+  assert.equal(mock.calls.length, 3)
+  assert.equal(mock.calls[1][1].respuesta_propuesta, mock.calls[2][1].respuesta_propuesta)
+})
+
 test('metadata repair keeps factual guards and cannot rewrite the draft', async () => {
   const input = { current: 'Quiero información', baseReply: 'Tenemos departamentos.', verified: {} }
   for (const reply of ['Tenemos departamentos de 999 m².', 'Tenemos departamentos. https://inventado.example/ficha']) {
