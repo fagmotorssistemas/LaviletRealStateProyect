@@ -6,6 +6,7 @@ import { object, text, type Row } from './data'
 import { FOCUSED_REVIEW_VERSION } from './focused-review'
 import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
 import { requireReviewedResponse, ResponseReviewRecoveryError } from './response-review-recovery'
+import { atomicNumericSchema, materializeNumericReview } from './atomic-numeric-review'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const unit = { id: 'd202', unit_number: '202', category: 'departamento', status: 'disponible', is_published: true,
@@ -42,18 +43,19 @@ function locationClaim(context: Row, fragment: string): Row {
 function areaFact(fragment: string, value: number): Row {
   return { fragment, subject_category: 'departamento', unit_id: unit.id, field: 'area_internal_m2', operator: 'eq', value, upper_value: null, measurement_unit: 'm2', value_scope: 'individual' }
 }
-function harness(handle: (context: Row, schema: Row, task: string) => Row) {
+function harness(handle: (context: Row, schema: Row, task: string) => Row, wire = false) {
   const calls: { context: Row; schema: Row; task: string }[] = [], failures: string[] = []
   const ajv = new Ajv({ allErrors: true })
   const generate: NonNullable<Parameters<typeof completeTurnReply>[1]> = async (_instructions, input, schema, _image, _file, _tone, task = 'data') => {
     const context = object(input)
     assert.ok(schema)
+    if (wire && task === 'review') schema = atomicNumericSchema(schema)
     calls.push({ context, schema, task })
     try {
       const answer = handle(context, schema, task)
       const validate = ajv.compile(schema)
       assert.ok(validate(answer), `La salida simulada debe cumplir el schema dinámico real: ${ajv.errorsText(validate.errors)}`)
-      return answer
+      return wire && task === 'review' ? materializeNumericReview(answer) : answer
     } catch (error) {
       failures.push(error instanceof Error ? error.message : String(error))
       throw error
@@ -67,6 +69,64 @@ const penthouses = [106.58, 142.09, 109.69, 99.71, 140.53, 124.41].map((area, in
 }))
 const mixedCatalog = [...penthouses, { ...unit, id: 'l001', unit_number: '001', category: 'local', area_internal_m2: 46.65 }]
 const penthouseRange = 'group:penthouse:all:range'
+test('shared comparison evidence and assertion-only quantities approve the first draft across equivalent phrasings', async () => {
+  const penthouse = { ...unit, id: 'p602', unit_number: '602', category: 'penthouse', published_commercial_price: 550000 }
+  const apartment = { ...unit, published_commercial_price: 250000 }
+  const expensive = { ...unit, id: 'd502', unit_number: '502', published_commercial_price: 310000 }
+  for (const opening of ['El penthouse tiene un precio de $550.000.', 'El precio del penthouse es $550.000.', 'Puede revisar un penthouse por $550.000.']) {
+    const reply = opening + ' Como alternativa, los departamentos cuestan entre $250.000 y $310.000.'
+    const mock = harness((context, _schema, task) => {
+      const evidence = object(context.evidencia_turno)
+      assert.ok(rows(evidence.groups).some(group => group.id === 'group:departamento:3:range'))
+      assert.equal((evidence.query_result_ids as string[]).length, 1)
+      if (task === 'writing') return writer(context, reply)
+      const refs = rows(context.referencias_numericas)
+      return { review_contract: FOCUSED_REVIEW_VERSION, numeric_contract: 'numeric-inline-v1', numeric_coverage: 'asserted-facts-v1',
+        claims: [], pending_checks: [], non_factual_sentence_ids: [],
+        obligation_checks: rows(context.obligaciones_aplicables).map(o => ({ id: o.id, verdict: 'met', sentence_ids: ['R1'], reason: 'Cumple.' })),
+        numeric_checks: refs.filter(r => /\d/.test(text(r.text))).map(r => ({ numeric_id: r.id, classification: 'business_quantity',
+          unit_ids: [], reason: 'Precio o extremo del rango de la categoría.', project_values: [], factual_values: [{
+            fragment: r.sentence_id, subject_category: r.value === 550000 ? 'penthouse' : 'departamento',
+            unit_id: r.value === 550000 ? penthouse.id : 'group:departamento:3:range', field: 'published_commercial_price',
+            value: r.value === 550000 ? 550000 : 250000, upper_value: r.value === 550000 ? null : 310000,
+            operator: r.value === 550000 ? 'eq' : 'between', value_scope: r.value === 550000 ? 'individual' : 'group_summary', measurement_unit: 'USD',
+          }] })) }
+    }, true)
+    const result = await completeTurnReply({ current: 'Me interesan los penthouses aunque están caros.', baseReply: reply,
+      verified: { catalogo: [penthouse], catalogo_verificacion: [penthouse, apartment, expensive] },
+      audit: { semantic_review_enabled: true, verified_catalog: true, catalog_query: { category: 'penthouse' },
+        catalog_results: { units: [penthouse], unit_ids: [penthouse.id], complete: true, unknown_unit_ids: [] } } }, mock.generate)
+    assert.deepEqual(mock.failures, [])
+    assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+    assert.equal(result.reply, reply)
+    assert.equal(mock.calls.filter(c => c.task === 'writing').length, 1)
+    assert.equal(mock.calls.filter(c => c.task === 'review').length, 1)
+    assert.deepEqual(result.audit.repair_attempts, [])
+  }
+})
+
+test('assertion-only review still rejects an invented price instead of waiving a failed numerical check', async () => {
+  const reply = 'El departamento tiene un precio de $245.124.'
+  const mock = harness((context, _schema, task) => {
+    if (task === 'writing') return writer(context, reply)
+    const ref = rows(context.referencias_numericas).find(r => r.value === 245124)!
+    assert.ok(ref)
+    return { review_contract: FOCUSED_REVIEW_VERSION, numeric_contract: 'numeric-inline-v1', numeric_coverage: 'asserted-facts-v1',
+      ...(context.reparacion_revision ? { dismissed_numeric_checks: [], claim_resolutions: [], pending_resolutions: [] } : {}),
+      claims: [], pending_checks: [], non_factual_sentence_ids: [],
+      obligation_checks: rows(context.obligaciones_aplicables).map(o => ({ id: o.id, verdict: 'met', sentence_ids: ['R1'], reason: 'Cumple.' })),
+      numeric_checks: [{ numeric_id: ref.id, classification: 'business_quantity', reason: 'Precio afirmado por el borrador.', unit_ids: [], project_values: [],
+        factual_values: [{ fragment: ref.sentence_id, subject_category: 'departamento', unit_id: unit.id,
+          field: 'published_commercial_price', value: 245124, upper_value: null, operator: 'eq', value_scope: 'individual', measurement_unit: 'USD' }] }] }
+  }, true)
+  const result = await completeTurnReply({ current: '¿Cuánto cuesta el departamento?', baseReply: reply,
+    verified: { catalogo: [unit] }, audit: { semantic_review_enabled: true } }, mock.generate)
+  assert.deepEqual(mock.failures, [])
+  assert.equal(result.audit.status, 'rejected_review')
+  assert.ok(rows(object(result.audit.semantic_review).validation_details).some(i => i.code === 'catalog_value_mismatch'))
+  assert.notEqual(result.reply, reply)
+})
+
 test('semantic pending repair reaches final approval without regenerating the writer or approved checks', async () => {
   const reply = 'El penthouse está en el último nivel.'
   let reviews = 0

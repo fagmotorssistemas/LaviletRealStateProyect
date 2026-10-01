@@ -294,7 +294,10 @@ export function reviewClaims(value: unknown, reply: string, sources?: Row[], str
           || claim.evidence_source === 'catalog_no_results' && referenced.some(source => source?.scope !== 'catalog_no_results'))
           result.push({ ...detail, code: 'claim_source_not_verified', kind: 'review_metadata', evidence_ids: ids })
       }
-      if (['unsupported', 'contradicted'].includes(text(claim.verdict)))
+      if (claim.verdict === 'needs_evidence')
+        result.push({ ...detail, code: 'claim_evidence_missing', kind: 'review_metadata', owner: 'reviewer', repair_owner: 'reviewer',
+          reason: text(claim.evidence) })
+      else if (['unsupported', 'contradicted'].includes(text(claim.verdict)))
         result.push({ ...detail, code: `claim_${claim.verdict}`, kind: 'commercial_content' })
       else if (claim.verdict !== 'supported') result.push({ ...detail, code: 'invalid_claim_verdict', kind: 'review_metadata' })
       return result

@@ -3,6 +3,7 @@ import { remapNumericChecks, type NumericReference } from './focused-numeric-cov
 
 const rows = (v: unknown): Row[] => Array.isArray(v) ? v.map(object) : []
 export const ATOMIC_NUMERIC_VERSION = 'numeric-inline-v1'
+export const ASSERTED_QUANTITY_RULES = `REVISIÓN DE AFIRMACIONES: referencias_numericas es una ayuda de localización, no una lista de hechos ni de palabras que deba justificar. Extraiga TODOS los datos comerciales realmente afirmados, también cantidades escritas con palabras («un dormitorio», «sexta planta»), opciones en preguntas y extremos de intervalos. Emita numeric_checks para esas cantidades con su sujeto, atributo, valor y fuente. Puede omitir candidatos léxicos que no expresan datos comerciales, como artículos u órdenes conversacionales; no necesitan ficha ni motivo individual. Las cifras con dígitos deben quedar contrastadas o clasificadas como contexto no comercial (por ejemplo el presupuesto del cliente). La ausencia de fuente no convierte una cifra del negocio en lead_context: esa clase solo corresponde a datos del cliente. Cada N_ID designa SU expresión, nunca otro número de la misma oración. No convierta «un precio de $550.000» en precio=1 ni vincule ese «un» con 550000. Si se solicita reparar un N concreto y no expresa una cantidad comercial, not_quantity con listas vacías es una resolución válida. No duplique hechos numéricos en claims: allí contraste exclusivamente información adicional no numérica, relaciones, disponibilidad, políticas y acciones. Revise todas las afirmaciones del mensaje, no solo las candidatas señaladas por el detector.`
 const pair = [['factual_value_indexes', 'factual_values'], ['project_value_indexes', 'project_values']] as const
 const versions = (schema: Row, key: string) => object(object(schema.properties)[key]).enum
 export const isAtomicNumericSchema = (schema: Row) => Array.isArray(versions(schema, 'numeric_contract'))
@@ -45,6 +46,10 @@ export function atomicNumericSchema(schema: Row): Row {
   }) } }
   delete properties.factual_values
   delete properties.project_values
+  // Lexical candidates are not asserted facts. The reviewer extracts real
+  // business quantities; literal digit coverage remains checked by code.
+  properties.numeric_checks = { ...object(properties.numeric_checks), minItems: 0 }
+  properties.numeric_coverage = { type: 'string', enum: ['asserted-facts-v1'] }
   properties.numeric_contract = { type: 'string', enum: [ATOMIC_NUMERIC_VERSION] }
   return { ...schema, properties, required: Object.keys(properties) }
 }
@@ -115,6 +120,7 @@ export function numericPatchSchema(fullSchema: Row, ids: string[], sentences: st
     (object(object(v.properties).numeric_id).enum as string[]).some(id => ids.includes(id)))
   const checks = object(narrow({ ...original, items: { anyOf: selectedVariants } }))
   const properties = { review_contract: { type: 'string', enum: ['focused-review-v1'] },
+    numeric_coverage: { type: 'string', enum: ['asserted-facts-v1'] },
     numeric_contract: { type: 'string', enum: [ATOMIC_NUMERIC_VERSION] },
     numeric_checks: { ...checks, minItems: ids.length, maxItems: ids.length } }
   return { type: 'object', additionalProperties: false, properties, required: Object.keys(properties) }

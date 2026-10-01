@@ -169,6 +169,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     numeric_field_not_in_reply: 'El revisor asoció una cifra con un atributo distinto del expresado.',
     review_unit_binding_mismatch: 'El revisor atribuyó una cifra a la unidad equivocada; corresponde reparar su ficha sin modificar el borrador.',
     claim_source_not_verified: 'La ficha citó fuentes ausentes o de un tipo incorrecto para la afirmación.',
+    claim_evidence_missing: 'Falta la fuente necesaria para comprobar esta afirmación. No se ha demostrado que el mensaje sea incorrecto; se conserva el borrador durante la comprobación.',
     unexplained_review_failure: 'El revisor emitió un rechazo sin explicar un defecto concreto del contenido.',
     invalid_review_issue_reference: 'La explicación del rechazo no se vinculó correctamente al mensaje actual o al borrador.',
     guidance_contains_factual_assertion: 'La ficha debe separar la orientación general de los datos que necesitan evidencia.',

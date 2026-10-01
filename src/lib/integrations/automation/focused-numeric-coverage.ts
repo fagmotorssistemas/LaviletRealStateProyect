@@ -116,6 +116,10 @@ export function numericCoverageIssues(review: Row, refs: NumericReference[], cat
   for (const check of checks) if (!refs.some(ref => ref.id === check.numeric_id)) fail('unknown_numeric_reference', undefined, { numeric_id: check.numeric_id })
   for (const ref of refs) {
     const matches = checks.filter(check => check.numeric_id === ref.id)
+    // Word-number candidates need semantic interpretation, not a compulsory
+    // justification per word. Explicit digits still need a business binding
+    // or an explicit nonbusiness classification (e.g. the customer's budget).
+    if (!matches.length && review.numeric_coverage === 'asserted-facts-v1' && !/\d/u.test(ref.text)) continue
     if (matches.length !== 1) { fail(matches.length ? 'duplicate_numeric_reference' : 'unreviewed_numeric_reference', ref); continue }
     const check = matches[0], kind = text(check.classification)
     if (!classification.includes(kind) || !text(check.reason).trim()) { fail('invalid_numeric_classification', ref); continue }
@@ -153,7 +157,7 @@ export function numericCoverageIssues(review: Row, refs: NumericReference[], cat
           compared_field: 'unit_number', expected_identifiers: units.map(unit => ({ unit_id: unit?.id ?? null, unit_number: unit?.unit_number ?? null })),
           candidate_attributes: units.flatMap(unit => unit ? ['floor_number', 'bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price']
             .filter(field => unit[field] === ref.value).map(field => ({ unit_id: unit.id, field, value: unit[field] })) : []),
-          reason: 'La cifra fue declarada identificador, pero no coincide con unit_number de la fuente. Interprete su atributo real y repare el enlace a factual_values; las coincidencias de atributos son candidatos, no una decisión semántica del sistema. No cambie el borrador ni su cifra.',
+          reason: 'La expresión fue declarada identificador, pero no coincide con unit_number de la fuente. Reevalúe su significado: puede ser un atributo comercial, un dato del cliente o una expresión sin cantidad. No fuerce un enlace comercial ni sustituya esta expresión por otra cifra de la oración. No cambie el borrador.',
         })
     } else if (links.length || unitIds.length) fail('nonbusiness_numeric_has_business_binding', ref)
   }

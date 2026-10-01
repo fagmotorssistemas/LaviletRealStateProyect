@@ -3,6 +3,7 @@ import { projectQuantityEvidence } from './project-quantities'
 import { numericMentions } from './semantic-review'
 import { BROCHURE_URL } from './project-material'
 import { confirmedLeadProfile } from './lead-profile'
+import { comparisonEvidence } from './comparison-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const fields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'floor_number', 'published_commercial_price']
@@ -11,7 +12,8 @@ const fields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior
 export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: Row[] = []) {
   const sources = audit.verified_catalog === true
     ? [{ source: 'query', units: rows(object(audit.catalog_results).units) },
-      { source: 'alternatives', units: rows(object(audit.alternative_results).units) }]
+      { source: 'alternatives', units: rows(object(audit.alternative_results).units) },
+      { source: 'comparison_context', units: comparisonEvidence(verified, audit) }]
     : [{ source: 'context', units: rows(verified.catalogo) }]
   const byId = new Map<string, Row>()
   const conflicts: Row[] = []

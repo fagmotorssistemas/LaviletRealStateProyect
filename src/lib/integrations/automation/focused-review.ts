@@ -82,7 +82,7 @@ export function focusedReviewSchema(schema: Row, sentences: Row[], obligations: 
       }))]
       if (sourceIds.length) variants.push(variant([kind], ['supported', 'contradicted'], sourceIds))
     }
-    variants.push(variant(['project_fact', 'operational_fact'], ['unsupported'], []),
+    variants.push(variant(['project_fact', 'operational_fact'], ['unsupported', 'needs_evidence'], []),
       variant(['contextual_guidance'], ['supported'], []))
     properties.claims = { ...claims, items: { anyOf: variants } }
   }

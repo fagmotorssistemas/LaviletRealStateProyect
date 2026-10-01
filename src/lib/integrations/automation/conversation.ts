@@ -1231,7 +1231,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       contrato_turno: turnIntent,
       perfil_lead: summary._lead_profile,
       solicitudes_interpretadas: interpretation.requests,
-      ...(audit.verified_catalog === true ? { catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
+      ...(audit.verified_catalog === true ? { catalogo_verificacion: commercialInfo.catalogo,
+        catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)

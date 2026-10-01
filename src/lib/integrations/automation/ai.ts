@@ -11,7 +11,7 @@ import { aiRequestPolicy } from './ai-request-policy'
 import { beginModelTrace, aiExecutionRequestOptions } from './ai-execution-trace'
 import { aiRequestRole, automationModelForRole, automationReasoningEffortForRole } from './ai-model-routing'
 import { aiOutputBudget, modelResponseDiagnostics, type ModelResponseDiagnostics } from './ai-output'
-import { atomicNumericSchema, materializeNumericReview, ATOMIC_NUMERIC_RULES } from './atomic-numeric-review'
+import { atomicNumericSchema, materializeNumericReview, ATOMIC_NUMERIC_RULES, ASSERTED_QUANTITY_RULES } from './atomic-numeric-review'
 import { FOCUSED_NUMERIC_COVERAGE_RULES } from './focused-numeric-coverage'
 
 const jsonReplySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
@@ -27,9 +27,10 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
   if (focusedReview && schema) {
     schema = atomicNumericSchema(schema)
     instructions = instructions.replace(FOCUSED_NUMERIC_COVERAGE_RULES,
-      FOCUSED_NUMERIC_COVERAGE_RULES.split('\n')[0] + '\n' + ATOMIC_NUMERIC_RULES
+      ASSERTED_QUANTITY_RULES
       + '\nNo omita atributos secundarios ni opciones enumeradas en preguntas. Una enumeración exige sus valores individuales. Distinga floor_number del identificador comercial unit_number: tercera planta no significa unidad 304. unit_identifier requiere el identificador comercial exacto; las demás clasificaciones llevan unit_ids=[]. Las clasificaciones no comerciales llevan factual_values=[] y project_values=[]. No use not_quantity ni contextual_guidance para evitar contrastar un hecho del negocio.')
-    instructions += '\n' + ATOMIC_NUMERIC_RULES
+    if (!instructions.includes(ATOMIC_NUMERIC_RULES)) instructions += '\n' + ATOMIC_NUMERIC_RULES
+    if (!instructions.includes(ASSERTED_QUANTITY_RULES)) instructions += '\n' + ASSERTED_QUANTITY_RULES
   }
   // A factual/commercial review must not inherit the writer's tone, invitation
   // templates or stylistic limits, even when those settings are customized.

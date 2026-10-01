@@ -9,7 +9,7 @@ import { object, type Row } from './data'
 const sentences = [{ id: 'S1', text: 'Seguridad 24h.' }]
 const refs = buildNumericReferences(sentences)
 const fact = { fragment: 'S1', value: 24, dimension: 'duration', measurement_unit: 'hour' }
-const inline = (value = 24): Row => ({ numeric_contract: 'numeric-inline-v1', numeric_checks: [{
+const inline = (value = 24): Row => ({ numeric_contract: 'numeric-inline-v1', numeric_coverage: 'asserted-facts-v1', numeric_checks: [{
   numeric_id: refs[0].id, classification: 'business_quantity', unit_ids: [], reason: 'Horario del proyecto.',
   factual_values: [], project_values: [{ ...fact, value }],
 }] })
@@ -48,7 +48,7 @@ test('numeric patch preserves semantic decisions, rejects missing checks and ref
   assert.throws(() => mergeNumericPatch(previous, inline(), refs, 'old', 'new'), /DRAFT_CHANGED/)
   assert.equal((mergeNumericPatch(previous, { numeric_checks: [] }, refs, 'same', 'same').numeric_repair_issues as Row[]).length, 1)
   const narrowed = numericPatchSchema(schema, refs.map(r => r.id), ['S1'])
-  assert.deepEqual(Object.keys(object(narrowed.properties)).sort(), ['numeric_checks', 'numeric_contract', 'review_contract'])
+  assert.deepEqual(Object.keys(object(narrowed.properties)).sort(), ['numeric_checks', 'numeric_contract', 'numeric_coverage', 'review_contract'])
 })
 
 test('only numeric failures qualify for a narrow repair; shared interval checks stay together', () => {

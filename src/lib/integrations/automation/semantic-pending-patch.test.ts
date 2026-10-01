@@ -62,7 +62,7 @@ test('strict wire schema requests only semantic repairs and explicit pending res
   const scope = semanticPendingScope(issues, previous, sentences)!
   const schema = atomicNumericSchema(semanticPendingSchema(base, previous, scope, sentences))
   const validate = new Ajv({ strict: false }).compile(schema)
-  const wire = { ...patch(), numeric_contract: 'numeric-inline-v1' }
+  const wire = { ...patch(), numeric_contract: 'numeric-inline-v1', numeric_coverage: 'asserted-facts-v1' }
   delete wire.factual_values; delete wire.project_values
   wire.pending_resolutions = [{ pending_id: 'P1', resolution: 'resolved', claim_indexes: [0], numeric_ids: [], reason: 'Relación contrastada.' }]
   assert.equal(validate(wire), true, JSON.stringify(validate.errors))

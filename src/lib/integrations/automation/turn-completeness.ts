@@ -8,6 +8,7 @@ import { numericSubjectIssues } from './focused-subject-scope'
 import { concreteReviewRepairs, numericRepairProgress, repairReviewSummary } from './review-repair'
 import { buildNumericReferences, numericCoverageIssues, numericReferencesForPrompt } from './focused-numeric-coverage'
 import { numericPatchScope, numericPatchSchema, mergeNumericPatch, NUMERIC_PATCH_RULES } from './atomic-numeric-review'
+import { COMPARISON_EVIDENCE_RULES, EVIDENCE_VERDICT_RULES } from './comparison-evidence'
 import { semanticPendingScope, semanticPendingSchema, mergeSemanticPendingPatch, SEMANTIC_PENDING_RULES } from './semantic-pending-patch'
 import { sentenceInventoryIssues, SENTENCE_INVENTORY_RULES } from './review-inventory'
 import { FOCUSED_REVIEW_VERSION, FOCUSED_REVIEW_RULES, FOCUSED_EVIDENCE_RULES, RELATIONAL_FACT_RULES, reviewObligations, focusedReviewSchema, focusedReviewContext,
@@ -353,6 +354,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     verified: { ...input.verified, respuesta_precio_verificada: verifiedQuote!.reply },
     audit: { ...input.audit, price_evidence: evidence, price_grounded: true } }
   const sharedEvidence = turnEvidence(input.verified, input.audit, groundedPrice ? verifiedQuote!.units : [])
+  // The fresh comparison pool has already joined the canonical evidence. Do
+  // not send a second, unscoped copy as if it were another authority.
+  input = { ...input, verified: { ...input.verified } }
+  delete input.verified.catalogo_verificacion
   const claimSources = verifiedClaimSources(input.verified, input.audit || {}, sharedEvidence, input.current)
   const validationCatalog = [...sharedEvidence.units, ...sharedEvidence.groups]
   const safeBase = input.audit?.semantic_review_enabled === true ? { reply: input.baseReply, unresolved: [], removed: false } : safeRentalCreditBase(input.baseReply, input.current, input.verified)
@@ -455,7 +460,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       enlaces_obligatorios: linkContract.required_links, enlaces_permitidos: linkContract.allowed_links } }
   let requests: Coverage[] = []
   try {
-    const visitRules = COMMERCIAL_ACCURACY_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES
+    const visitRules = COMMERCIAL_ACCURACY_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES + '\n' + COMPARISON_EVIDENCE_RULES
       + (input.verified.limite_alcance ? '\n' + BUSINESS_SCOPE_WRITING_RULES : '')
       + (isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + (input.verified.estado_proyecto ? '\n'+readinessRules(input.verified.estado_proyecto as ProjectReadiness) : '')
     let writingRules = input.audit?.verified_catalog === true
@@ -547,7 +552,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       const numericCandidates = input.audit?.semantic_review_enabled === true ? [] : draftNumericCandidates(reply)
       Object.assign(context, { oraciones_borrador: sentenceReferences })
       const semanticEnabled = input.audit?.semantic_review_enabled === true
-      const reviewInstructions = semanticEnabled ? FOCUSED_REVIEW_RULES + '\n' + FOCUSED_EVIDENCE_RULES + '\n' + RELATIONAL_FACT_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES
+      const reviewInstructions = semanticEnabled ? FOCUSED_REVIEW_RULES + '\n' + FOCUSED_EVIDENCE_RULES + '\n' + RELATIONAL_FACT_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES + '\n' + COMPARISON_EVIDENCE_RULES + '\n' + EVIDENCE_VERDICT_RULES
         : REVIEW_RULES + '\n' + BUSINESS_POLICY_RULES + '\n' + TURN_INTENT_RULES + RESIDENTIAL_CONTINUITY_RULES
         + (input.audit?.profile_introduction ? '\n' + LEAD_INTRODUCTION_RULES : '')
         + (input.audit?.progressive_selection || input.audit?.post_tour_continuation ? '\n' + PROGRESSIVE_OPTIONS_RULES : '')
