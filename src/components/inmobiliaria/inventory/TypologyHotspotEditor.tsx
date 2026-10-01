@@ -30,10 +30,11 @@ export function TypologyHotspotEditor({
   const [saving, setSaving] = useState(false)
   const [panoError, setPanoError] = useState(false)
 
-  const current = rooms.find((item) => item.slug === editRoom) ?? rooms[0]
+  const withPano = rooms.filter((item) => Boolean(item.url))
+  const current = withPano.find((item) => item.slug === editRoom) ?? withPano[0]
   const panoUrl = current?.url ?? null
   const here = current?.slug ?? ''
-  const targets = rooms.filter((item) => item.slug !== here)
+  const targets = withPano.filter((item) => item.slug !== here)
   const herePoints = hotspots.filter((item) => item.from === here)
 
   const persist = useCallback(
@@ -59,8 +60,9 @@ export function TypologyHotspotEditor({
   )
 
   useEffect(() => {
-    if (!rooms.some((item) => item.slug === editRoom)) {
-      setEditRoom(rooms[0]?.slug ?? '')
+    const ready = rooms.filter((item) => Boolean(item.url))
+    if (!ready.some((item) => item.slug === editRoom)) {
+      setEditRoom(ready[0]?.slug ?? '')
     }
   }, [rooms, editRoom])
 
@@ -204,9 +206,9 @@ export function TypologyHotspotEditor({
       </p>
       <Select
         label="Ambiente"
-        options={rooms.map((item) => ({
+        options={withPano.map((item) => ({
           value: item.slug,
-          label: item.url ? item.label : `${item.label} · sin 360`,
+          label: item.label,
         }))}
         value={editRoom}
         onChange={(event) => {
@@ -214,7 +216,7 @@ export function TypologyHotspotEditor({
           setPending(null)
         }}
       />
-      <div className="relative overflow-hidden bg-[#111]" style={{ height: 380 }}>
+      <div className="relative h-[min(68dvh,720px)] min-h-[520px] overflow-hidden bg-[#111]">
         <div ref={containerRef} className="h-full w-full" />
         {!panoUrl || panoError ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center px-6 text-center text-sm text-white/70">
