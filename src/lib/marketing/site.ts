@@ -12,7 +12,7 @@ export const SITE = {
     lng: -79.0301792,
     mapsUrl: 'https://maps.app.goo.gl/3N5YR6QY4vxiHQue6',
     embedUrl:
-      'https://www.google.com/maps?q=-2.8923876,-79.0301792&hl=es&z=18&output=embed',
+      'https://maps.google.com/maps?q=-2.8923876,-79.0301792&hl=es&z=18&t=k&output=embed',
   },
 }
 

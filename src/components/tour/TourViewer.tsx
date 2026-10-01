@@ -48,6 +48,7 @@ import { TourNavModeModal, type TourNavMode } from '@/components/tour/TourNavMod
 import { TourVoiceAssist } from '@/components/tour/TourVoiceAssist'
 import { ShowroomMenu } from '@/components/tour/ShowroomMenu'
 import { TourAmenitiesGallery } from '@/components/tour/TourAmenitiesGallery'
+import { TourLocationView } from '@/components/tour/TourLocationView'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
@@ -850,6 +851,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [gateOpen, setGateOpen] = useState(false)
   const [fichaOpen, setFichaOpen] = useState(() => Boolean(readUnitQueryParam()))
   const [amenitiesOpen, setAmenitiesOpen] = useState(false)
+  const [locationOpen, setLocationOpen] = useState(false)
   const [showroomReady, setShowroomReady] = useState(false)
   const [fichaExpanded, setFichaExpanded] = useState(() => Boolean(readUnitQueryParam()))
   const [simulatorOpen, setSimulatorOpen] = useState(false)
@@ -2581,11 +2583,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
-        onHome={(view)=>{setAmenitiesOpen(false);setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
-        onAmenities={()=>{setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
-        onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
+        onHome={(view)=>{setAmenitiesOpen(false);setLocationOpen(false);setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onAmenities={()=>{setLocationOpen(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onLocation={()=>{setAmenitiesOpen(false);setLocationOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onPick={unit=>{setAmenitiesOpen(false);setLocationOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
           setAmenitiesOpen(false)
+          setLocationOpen(false)
           setSelectedUnitId(unit.id)
           if(unit.typology_code)setSelectedTypology(unit.typology_code)
           const local = isGalleryOnlyTypology({ code: unit.typology_code, category: unit.category })
@@ -2607,6 +2611,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         }}
       />
       <TourAmenitiesGallery open={amenitiesOpen} />
+      <TourLocationView open={locationOpen} onClose={() => setLocationOpen(false)} />
       <div
         className="absolute inset-0 overflow-hidden"
         style={
