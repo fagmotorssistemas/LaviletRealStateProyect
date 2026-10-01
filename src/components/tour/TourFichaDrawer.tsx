@@ -139,12 +139,26 @@ function SpecRow({
   icon,
   label,
   value,
+  tile = false,
 }: {
   icon?: ReactNode
   label: string
   value: string
+  tile?: boolean
 }) {
   const { t } = useTourLanguage()
+
+  if (tile) {
+    return (
+      <div className="flex h-full min-h-[5.75rem] flex-col justify-between rounded-2xl bg-[#f6f3ee] px-3.5 py-3.5">
+        <span className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.14em] text-[#8a7760] uppercase">
+          {icon ? <span className="text-[#8e7654]">{t(icon)}</span> : null}
+          {t(label)}
+        </span>
+        <p className="mt-3 text-[1.05rem] leading-tight font-semibold text-[#1a2744]">{t(value)}</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex items-center gap-2 border-b border-[#eceff3] py-1.5 last:border-b-0">
@@ -560,21 +574,27 @@ export function TourFichaDrawer({
                   </div>
                 ) : null}
 
-                <div className="tour-ficha-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-2.5 pb-1.5">
+                <div className="tour-ficha-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pt-2.5 pb-1.5">
+                  <div className="flex min-h-full flex-col">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-[1.15rem] leading-none font-bold tracking-tight text-[#1a2744]">
+                    <h2 className="text-[1.35rem] leading-none font-bold tracking-tight text-[#1a2744]">
                       {t(" Unidad ")}{t(unit.unit_number)}
                     </h2>
                     <span
                       className={cn(
-                        'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                        'rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] uppercase',
                         statusBadgeClass(unit.status),
                       )}
                     >
                       {t(statusLabel(unit.status))}
                     </span>
+                    {`${unit.category ?? ''} ${unit.typology_code ?? ''} ${typologyName ?? ''} ${typologyCode ?? ''}`.toLowerCase().includes('penthouse') ? (
+                      <span className="rounded-full bg-[#9a3b2f] px-2 py-0.5 text-[10px] font-semibold tracking-[0.14em] text-white">
+                        HOT
+                      </span>
+                    ) : null}
                   </div>
-                  <p className="mt-1 text-[1.2rem] font-bold tracking-tight text-[#2B1A18] tabular-nums">
+                  <p className="mt-2 text-[1.45rem] font-bold tracking-tight text-[#2B1A18] tabular-nums">
                     {t(formatPrice(unit.published_commercial_price, locale))}
                   </p>
 
@@ -647,10 +667,11 @@ export function TourFichaDrawer({
                       {t(" Especificaciones ")}</p>
                   ) : null}
 
-                  <div className={expanded ? 'mt-0' : 'mt-0.5'}>
+                  <div className={expanded ? 'mt-3' : 'mt-4 grid flex-1 auto-rows-fr grid-cols-2 gap-2.5'}>
                     {displayRows.map((row) => (
                       <SpecRow
                         key={row.label}
+                        tile={!expanded}
                         icon={specIcon(row.label)}
                         label={t(row.label)}
                         value={row.value}
@@ -704,6 +725,7 @@ export function TourFichaDrawer({
                     </div>
                   ) : null}
                   {expanded ? <div className="mt-4 border-t border-[#eceff3] pt-2"><UnitPublicQr number={unit.unit_number}/></div> : null}
+                  </div>
                 </div>
 
                 {expanded ? (

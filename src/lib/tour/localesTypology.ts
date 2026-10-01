@@ -25,13 +25,13 @@ export function localesTypologyName(raw: string): string {
   return name
 }
 
+/** El check `unit_types_slug_format` rechaza guiones. */
 export function localesTypologySlug(name: string): string {
   return (
     name
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'locales'
+      .replace(/[^a-z0-9]+/g, '') || 'locales'
   )
 }

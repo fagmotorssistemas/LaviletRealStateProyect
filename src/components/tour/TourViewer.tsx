@@ -90,7 +90,7 @@ import {
   readUnitQueryParam,
   writeUnitQueryParam,
 } from '@/lib/tour/unitDeepLink'
-import { FLOOR_PLAN_DEFAULT_FLOOR, FLOOR_PLAN_FLOORS, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
+import { FLOOR_PLAN_FLOORS, FLOOR_PLAN_LEVELS, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import { fetchFloorPlanReady, prefetchFloorPlans, warmFloorPlans } from '@/lib/tour/floorPlanClientCache'
 import { preloadStill, warmStills } from '@/lib/tour/stillPreload'
 import { isGalleryOnlyTypology } from '@/lib/tour/localesTypology'
@@ -842,6 +842,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [light, setLight] = useState<TourLightMode>('dia')
   const [room, setRoom] = useState(TOUR_HOME_SLUG)
   const [loading, setLoading] = useState(false)
+  const [panoHold, setPanoHold] = useState(false)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string | null>(null)
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
@@ -872,7 +873,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (readUnitQueryParam()) return 'unit'
     return 'plan'
   })
-  const [planFloor, setPlanFloor] = useState(FLOOR_PLAN_DEFAULT_FLOOR)
+  const openingPlanFloor = FLOOR_PLAN_LEVELS.find((level) => level.storageKey === 'terraza')?.id ?? 7
+  const [planFloor, setPlanFloor] = useState(openingPlanFloor)
   const [planEntryOpen, setPlanEntryOpen] = useState(() => !readUnitQueryParam())
   const [planMediaReady, setPlanMediaReady] = useState(false)
   const enterRequestedRef = useRef(false)
@@ -883,7 +885,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       if (!cancelled) setPlanMediaReady(true)
     }
     const timer = window.setTimeout(finish, 8000)
-    void fetchFloorPlanReady(FLOOR_PLAN_DEFAULT_FLOOR).finally(() => {
+    void fetchFloorPlanReady(openingPlanFloor).finally(() => {
       window.clearTimeout(timer)
       finish()
     })
@@ -964,6 +966,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [panoEntering, setPanoEntering] = useState(false)
   const [panoLeaving, setPanoLeaving] = useState(false)
   const lastStillRef = useRef<string | null>(null)
+  const stillScopeRef = useRef('')
+  const viewModeRef = useRef(viewMode)
+  const desiredPanoRef = useRef<string | null>(null)
+  const mountTourViewerRef = useRef<(() => void) | null>(null)
+  viewModeRef.current = viewMode
   const walkToRef = useRef<Position | null>(null)
   const walkingRef = useRef(false)
   const lookPromiseRef = useRef<PromiseLike<boolean> | null>(null)
@@ -1093,10 +1100,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       if (publicCat) {
         setPublicCatalog(publicCat)
-        const firstWithMedia = publicCat.typologies.find(
-          (item) => item.panorama || item.renders.length > 0 || item.rooms.some((room) => room.url || room.scenes.length > 0),
-        )
-        setSelectedTypology((prev) => prev || firstWithMedia?.code || publicCat.typologies[0]?.code || '')
       }
 
       const startFinish =
@@ -1132,10 +1135,15 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       setFinish(startFinish)
       setLight('dia')
       setRoom(TOUR_HOME_SLUG)
-      currentUrlRef.current = startUrl
-      preloadedRef.current.add(startUrl)
 
-      // Destruir resto previo (Strict Mode / remount rápido en iOS).
+      const mountTourViewer = () => {
+        if (cancelled || viewerRef.current) return
+        const openingUrl = desiredPanoRef.current || startUrl
+        const openingNodes = scene.nodes.map((node) =>
+          node.id === startNode.id ? { ...node, panorama: openingUrl } : node,
+        )
+        currentUrlRef.current = openingUrl
+        preloadedRef.current.add(openingUrl)
       disposeTourViewer(viewerRef.current, container)
       viewerRef.current = null
       tourRef.current = null
@@ -1175,7 +1183,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             dataMode: 'client',
             positionMode: 'manual',
             renderMode: '3d',
-            nodes: scene.nodes,
+            nodes: openingNodes,
             startNodeId: scene.startNodeId,
             preload: false,
             showLinkTooltip: true,
@@ -1222,11 +1230,18 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       viewer.addEventListener(
         events.ReadyEvent.type,
         () => {
-          preloadCurrentRoom(viewer, startNode.id, startUrl)
+          if (viewModeRef.current === 'tour') preloadCurrentRoom(viewer, startNode.id, openingUrl)
           if (!cancelled) setShowroomReady(true)
         },
         { once: true },
       )
+      }
+      mountTourViewerRef.current = mountTourViewer
+      if (viewModeRef.current === 'tour') mountTourViewer()
+      else {
+        setBooting(false)
+        if (!cancelled) setShowroomReady(true)
+      }
     }
 
     void boot().catch((error) => {
@@ -1282,16 +1297,17 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   }, [embedded, preloadCurrentRoom])
 
   useEffect(() => {
+    if (viewMode !== 'tour') return
+    mountTourViewerRef.current?.()
+  }, [viewMode])
+
+  useEffect(() => {
     let cancelled = false
     void fetch('/api/tour/catalog', { cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: TourPublicCatalog | null) => {
         if (cancelled || !data) return
         setPublicCatalog(data)
-        const firstWithMedia = data.typologies.find(
-          (item) => item.panorama || item.renders.length > 0,
-        )
-        setSelectedTypology((prev) => prev || firstWithMedia?.code || data.typologies[0]?.code || '')
         if (data.finishes?.length) {
           setFinish((prev) => (prev && data.finishes.some((item) => item.slug === prev) ? prev : data.finishes[0].slug))
         }
@@ -1592,6 +1608,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     light,
   )
   const activePanoUrl = urlForRoom(room) ?? (room === homeSlug ? typologyPanoUrl : null)
+  desiredPanoRef.current = activePanoUrl
 
   const comparePanoBUrl = useMemo(() => {
     if (!compareUnitB) return null
@@ -1913,6 +1930,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   )
   const stillSwipe = useSwipePages(viewMode !== 'tour', stillItems.length, stepStill)
   const stillUrl = stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.url ?? null
+  const stillScope = `${currentTypology?.id ?? ''}:${selectedUnitId ?? ''}`
+  if (stillScopeRef.current !== stillScope) {
+    stillScopeRef.current = stillScope
+    lastStillRef.current = null
+  }
   if (stillUrl) lastStillRef.current = stillUrl
   const overlayUrl = stillUrl ?? lastStillRef.current
   // En comparador/terminaciones el split es siempre 360, nunca stills.
@@ -2366,19 +2388,17 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       if (changing && ghost) setPanoEntering(true)
 
+      setPanoHold(true)
       try {
-        await Promise.race([
-          viewer.setPanorama(url, {
-            showLoader: false,
-            transition: ghost
-              ? { speed: 900, rotation: false, effect: 'fade' }
-              : false,
-            zoom: 0,
-          }),
-          sleep(1800),
-        ])
+        await viewer.setPanorama(url, {
+          showLoader: false,
+          transition: false,
+          zoom: 0,
+        })
       } catch {
         /* still land so the walk never freezes */
+      } finally {
+        if (token === switchTokenRef.current) setPanoHold(false)
       }
 
       if (token !== switchTokenRef.current) {
@@ -2561,7 +2581,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
-        onHome={()=>{setAmenitiesOpen(false);setShellMode('plan');setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false)}}
+        onHome={(view)=>{setAmenitiesOpen(false);setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onAmenities={()=>{setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
@@ -2603,6 +2623,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         <div
           className={cn(
             'tour-pano-stage h-full w-full',
+            viewMode !== 'tour' && 'invisible',
             panoLeaving && !showStill && !panoGhost && 'is-leaving',
             panoEntering && !showStill && 'is-entering',
           )}
@@ -2611,6 +2632,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             ref={containerRef}
             className={cn('h-full w-full', showStill && 'pointer-events-none')}
           />
+          {panoHold ? <div className="absolute inset-0 z-20 bg-[#111]" /> : null}
         </div>
         {panoGhost && !showStill ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -2757,6 +2779,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         onPointerDown={stillSwipe.onPointerDown}
       >
         <CrossfadeStill
+          key={stillScope}
           url={overlayUrl}
           alt={t(viewMode === 'tour' ? roomName : (stillItems[stillIndex]?.label ?? (isPlanosMode(viewMode) ? 'Plano' : 'Vista')))}
           contain={isPlanosMode(viewMode)}
@@ -2946,9 +2969,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   comparador: isComparador,
                 }}
                 onGaleria={() => {
-                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                    setSelectedTypology(publicCatalog.typologies[0].code)
-                  }
                   setShellMode('unit')
                   setFichaOpen(false)
                   setTerminacionesFocus(false)
@@ -2958,9 +2978,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   setGaleriaIndex(0)
                 }}
                 onPlanos={(mode) => {
-                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                    setSelectedTypology(publicCatalog.typologies[0].code)
-                  }
                   setShellMode('unit')
                   setFichaOpen(false)
                   setTerminacionesFocus(false)
@@ -2969,9 +2986,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   setViewMode(mode)
                 }}
                 onTour={() => {
-                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                    setSelectedTypology(publicCatalog.typologies[0].code)
-                  }
                   setShellMode('unit')
                   setFichaOpen(false)
                   setViewMode('tour')
@@ -2983,9 +2997,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   setNavChooserOpen(true)
                 }}
                 onTerminaciones={() => {
-                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                    setSelectedTypology(publicCatalog.typologies[0].code)
-                  }
                   setShellMode('unit')
                   setFichaOpen(false)
                   setFichaExpanded(false)
@@ -2995,9 +3006,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   setTerminacionesFocus(true)
                 }}
                 onComparador={() => {
-                  if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                    setSelectedTypology(publicCatalog.typologies[0].code)
-                  }
                   setShellMode('unit')
                   setFichaOpen(false)
                   setTerminacionesFocus(false)
@@ -3067,9 +3075,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   active={viewMode === 'galeria' && showUnitChrome && !terminacionesFocus && !isComparador}
                   icon={<Images size={14} strokeWidth={1.75} />}
                   onClick={() => {
-                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                      setSelectedTypology(publicCatalog.typologies[0].code)
-                    }
                     setShellMode('unit')
                     setFichaOpen(false)
                     setTerminacionesFocus(false)
@@ -3088,9 +3093,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   active={viewMode === 'planos-3d' && showUnitChrome && !terminacionesFocus && !isComparador}
                   icon={<Layers size={14} strokeWidth={1.75} />}
                   onClick={() => {
-                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                      setSelectedTypology(publicCatalog.typologies[0].code)
-                    }
                     setShellMode('unit')
                     setFichaOpen(false)
                     setTerminacionesFocus(false)
@@ -3105,9 +3107,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   active={viewMode === 'planos-2d' && showUnitChrome && !terminacionesFocus && !isComparador}
                   icon={<Layers size={14} strokeWidth={1.75} />}
                   onClick={() => {
-                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                      setSelectedTypology(publicCatalog.typologies[0].code)
-                    }
                     setShellMode('unit')
                     setFichaOpen(false)
                     setTerminacionesFocus(false)
@@ -3125,9 +3124,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   active={viewMode === 'tour' && showUnitChrome && !terminacionesFocus && !isComparador}
                   icon={<Rotate3d size={14} strokeWidth={1.75} />}
                   onClick={() => {
-                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                      setSelectedTypology(publicCatalog.typologies[0].code)
-                    }
                     setShellMode('unit')
                     setFichaOpen(false)
                     setViewMode('tour')
@@ -3147,9 +3143,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   active={terminacionesFocus || isFinishCompare}
                   icon={<SwatchBook size={14} strokeWidth={1.75} />}
                   onClick={() => {
-                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                      setSelectedTypology(publicCatalog.typologies[0].code)
-                    }
                     setShellMode('unit')
                     setFichaOpen(false)
                     setFichaExpanded(false)
@@ -3167,9 +3160,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   active={isComparador}
                   icon={<Columns2 size={14} strokeWidth={1.75} />}
                   onClick={() => {
-                    if (!selectedTypology && publicCatalog?.typologies?.[0]) {
-                      setSelectedTypology(publicCatalog.typologies[0].code)
-                    }
                     setShellMode('unit')
                     setFichaOpen(false)
                     setTerminacionesFocus(false)
@@ -3799,7 +3789,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               }
               enterRequestedRef.current = true
             }}
-            className="absolute top-[calc(50%+2rem)] left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
+            className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
           >
             {t('Ingresar')}
           </button>

@@ -14,6 +14,7 @@ import {
 import { TypologyFloorZonesPanel } from '@/components/inmobiliaria/inventory/TypologyFloorZonesPanel'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { AmenityUploadsPanel } from '@/components/inmobiliaria/inventory/AmenityUploadsPanel'
 import { Select } from '@/components/ui/Select'
 import {
   isVistaRoomSlug,
@@ -108,7 +109,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [typologies, setTypologies] = useState<TypologyImport[]>([])
   const [code, setCode] = useState('')
   const [kind, setKind] = useState<TypologyAssetKind>('plano')
-  const [tab, setTab] = useState<'ambientes' | 'galeria' | 'documentos' | 'puntos' | 'pisos'>('ambientes')
+  const [tab, setTab] = useState<'ambientes' | 'galeria' | 'documentos' | 'puntos' | 'pisos' | 'amenidades'>('ambientes')
   const [planoVariant, setPlanoVariant] = useState<'2d' | '3d'>('2d')
   const [roomSlots, setRoomSlots] = useState<TourRoomDef[]>([])
   const [catalogPanoUrl, setCatalogPanoUrl] = useState<string | null>(null)
@@ -665,9 +666,10 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 { id: 'puntos' as const, label: 'Puntos 360' },
                 { id: 'documentos' as const, label: 'Planos' },
                 { id: 'pisos' as const, label: 'Pisos' },
+                { id: 'amenidades' as const, label: 'Amenidades' },
               ] as const
             )
-              .filter((item) => !localesMode || item.id === 'galeria' || item.id === 'pisos')
+              .filter((item) => !localesMode || item.id === 'galeria' || item.id === 'pisos' || item.id === 'amenidades')
               .map((item) => (
               <button
                 key={item.id}
@@ -700,7 +702,11 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             </button>
           </div>
 
-          {tab === 'pisos' ? (
+          {tab === 'amenidades' ? (
+            <p className="text-xs text-[#8a8d87]">
+              Fotos del edificio para el menú Amenidades. No dependen de una tipología.
+            </p>
+          ) : tab === 'pisos' ? (
             <p className="text-xs text-[#8a8d87]">
               Planos del edificio: en cada piso marcá los departamentos con el número de unidad
               (ej. 208). El showroom usa esa etiqueta para abrir la unidad.
@@ -1025,6 +1031,8 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
         {tab === 'pisos' ? (
           <TypologyFloorZonesPanel />
         ) : null}
+
+        {tab === 'amenidades' ? <AmenityUploadsPanel /> : null}
 
         {tab === 'documentos' ? (
         <div className="space-y-4">

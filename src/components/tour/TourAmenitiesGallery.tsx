@@ -19,24 +19,27 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
   const startRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
-    if (!open) return
-    const controller = new AbortController()
-    setState('loading')
-    setIndex(0)
-    void fetch('/api/tour/amenities', { signal: controller.signal })
+    let cancelled = false
+    setState((current) => (current === 'ready' ? current : 'loading'))
+    void fetch('/api/tour/amenities')
       .then(async (response) => {
         if (!response.ok) throw new Error('amenities')
         return response.json() as Promise<{ items: AmenitySlide[] }>
       })
       .then((data) => {
-        setItems(data.items ?? [])
+        if (cancelled) return
+        const next = data.items ?? []
+        setItems(next)
         setState('ready')
+        for (const item of next) void preloadStill(item.imageUrl)
       })
       .catch(() => {
-        if (!controller.signal.aborted) setState('error')
+        if (!cancelled) setState('error')
       })
-    return () => controller.abort()
-  }, [open])
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const count = items.length
   const step = useCallback(
@@ -89,7 +92,7 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
           src={slide.imageUrl}
           alt={caption}
           draggable={false}
-          decoding="async"
+          decoding="auto"
           fetchPriority="high"
           className="absolute inset-0 h-full w-full object-cover"
         />
