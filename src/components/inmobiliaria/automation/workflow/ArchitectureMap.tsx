@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Maximize2, Minimize2 } from 'lucide-react'
 import { Background, Controls, Handle, MarkerType, MiniMap, Position, ReactFlow, type Node, type NodeProps, type Edge, type ReactFlowInstance } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
@@ -25,9 +26,27 @@ function DecisionNode({ data, selected }: NodeProps<MapNode>) {
 const nodeTypes = { architecture: DecisionNode }
 
 export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExecution; onStep?: (order: number) => void }) {
+  const mapRef = useRef<HTMLElement>(null)
   const [selectedId, setSelectedId] = useState('message')
   const [flow, setFlow] = useState<ReactFlowInstance<MapNode, Edge> | null>(null)
   const [showSequence, setShowSequence] = useState(true)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [fullscreenError, setFullscreenError] = useState('')
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === mapRef.current)
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen)
+  }, [])
+  async function toggleFullscreen() {
+    setFullscreenError('')
+    try {
+      if (document.fullscreenElement === mapRef.current) await document.exitFullscreen()
+      else if (mapRef.current?.requestFullscreen) await mapRef.current.requestFullscreen()
+      else setFullscreenError('Este navegador no permite pantalla completa.')
+    } catch {
+      setFullscreenError('No se pudo abrir el mapa en pantalla completa.')
+    }
+  }
   const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
   const selected = ARCHITECTURE_NODES.find(n => n.id === selectedId) || ARCHITECTURE_NODES[0]
   const evidence = nodeEvidence(selected, steps)
@@ -55,7 +74,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     return result
   }, [steps, showSequence])
   const unmatched = steps.filter(s => !ARCHITECTURE_NODES.some(n => nodeEvidence(n, [s]).length))
-  return <section className={styles.map} aria-label="Mapa de arquitectura y decisiones">
+  return <section ref={mapRef} className={styles.map} aria-label="Mapa de arquitectura y decisiones">
     <header><div><h2>Mapa de decisiones y rutas</h2><p>Todos los caminos permanecen visibles. Las conexiones punteadas describen posibilidades; no prueban que se ejecutaron.</p></div>
       <label><input type="checkbox" checked={showSequence} onChange={e => setShowSequence(e.target.checked)} disabled={!steps.length} /> Mostrar orden registrado</label></header>
     <p className={styles.notice}>{execution ? `Mensaje seleccionado: ${execution.message || execution.id}` : 'Vista general: seleccione un mensaje para superponer sus registros.'}</p>
@@ -78,10 +97,19 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     </nav>
     <div className={styles.workspace}>
       <div className={styles.canvas}>
-        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onInit={setFlow} defaultViewport={{ x: 20, y: -380, zoom: 0.65 }} minZoom={0.02} maxZoom={1.5}
-          nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, node) => setSelectedId(node.id)}>
-          <Background gap={24} /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={n => n.data.state === 'observed' ? '#43845d' : ['failed', 'rejected'].includes(String(n.data.state)) ? '#ba4141' : '#bec5c2'} />
-        </ReactFlow>
+        <div className={styles.fullscreenControl}>
+          <button type="button" onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen}>
+            {isFullscreen ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
+            {isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+          </button>
+          {fullscreenError && <span className={styles.fullscreenError} role="alert">{fullscreenError}</span>}
+        </div>
+        <div className={styles.flowSurface}>
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onInit={setFlow} defaultViewport={{ x: 20, y: -380, zoom: 0.65 }} minZoom={0.02} maxZoom={1.5}
+            nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, node) => setSelectedId(node.id)}>
+            <Background gap={24} /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={n => n.data.state === 'observed' ? '#43845d' : ['failed', 'rejected'].includes(String(n.data.state)) ? '#ba4141' : '#bec5c2'} />
+          </ReactFlow>
+        </div>
       </div>
       <aside className={styles.inspector} aria-live="polite">
         <small>{selected.owner} · {stateLabels[nodeState(selected, steps)]}</small><h3>{selected.title}</h3><p>{selected.description}</p>
