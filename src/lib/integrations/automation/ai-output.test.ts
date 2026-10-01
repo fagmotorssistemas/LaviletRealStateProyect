@@ -175,9 +175,9 @@ test('writer inherits configured tone while all reviewers remain factual', async
   const focused = { properties: { review_contract: { type: 'string', enum: ['focused-review-v1'] }, claims: {}, factual_values: {} } }
   for (const [candidate, task] of [[schema, 'writing'], [schema, 'review'], [focused, 'review']] as const)
     await aiJson('Base de la tarea.', input, candidate, undefined, undefined, settings, task)
-  assert.ok(String(sent[0].instructions).includes(toneDirection(settings)))
-  assert.ok(String(sent[0].instructions).includes(ACTION_INVITATION_RULE))
-  assert.ok(String(sent[0].instructions).includes(DIRECT_CONVERSATION_RULE))
+  assert.ok(String(sent[0].instructions).includes(toneDirection(settings).trim()))
+  assert.ok(!String(sent[0].instructions).includes(ACTION_INVITATION_RULE))
+  assert.ok(String(sent[0].instructions).includes(DIRECT_CONVERSATION_RULE.trim()))
   for (const request of sent.slice(1)) {
     assert.ok(!String(request.instructions).includes(toneDirection(settings)))
     assert.ok(!String(request.instructions).includes(ACTION_INVITATION_RULE))

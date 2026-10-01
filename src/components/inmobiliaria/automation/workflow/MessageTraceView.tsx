@@ -8,6 +8,7 @@ import { catalogSnapshots, conversationGroups, explainStep, humanValue, statusLa
 import { reviewDecision } from './reviewDecision'
 import styles from './MessageTraceView.module.css'
 import { promptContextParts } from './promptContext'
+import { PromptCopyButton } from './PromptCopyButton'
 import { executionCost } from './executionCost'
 import { responseAttempts } from './attemptHistory'
 import { ArchitectureMap } from './ArchitectureMap'
@@ -209,6 +210,7 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
   return <div className={styles.aiExchange}>
     {typeof input.borrador_rechazado === 'string' && <DraftDecision data={{ borrador_evaluado: input.borrador_rechazado, decision: 'Rechazado antes de esta corrección', motivos_registrados: input.correcciones_requeridas, siguiente_accion: 'Esta llamada intenta corregir ese borrador' }} />}
     <h5>Entrada y salida de esta llamada a IA</h5>
+    <PromptCopyButton step={step} />
     <p>Modelo: {String(step.input.model || 'No registrado')}. Copia protegida: puede ocultar datos sensibles.</p>
     <ReviewReferenceLegend step={step} />
     {attempts.length > 0 && <details className={styles.technical} open={step.status === 'failed'}>

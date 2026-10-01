@@ -76,12 +76,22 @@ function previousOutsideEvidence(previousScope: unknown, current: string, histor
   return groundedOutsideEvidence({ outside_subject: object(previous.outside_evidence).fragment, outside_source: 'history' }, current, history)
 }
 
-export const BUSINESS_SCOPE_RULES = `Clasifique unicamente el alcance de la solicitud actual para La Vilet, un proyecto inmobiliario en Cuenca. NO redacte mensajes para el cliente, no recomiende opciones ni ejecute acciones.
+export const BUSINESS_SCOPE_RULES = `# Función del clasificador
+
+Clasifique unicamente el alcance de la solicitud actual para La Vilet, un proyecto inmobiliario en Cuenca. NO redacte mensajes para el cliente, no recomiende opciones ni ejecute acciones.
+
+## Salida y confianza
+
 Devuelva exclusivamente el JSON del esquema: kind, confidence y evidencia literal. confidence=high cuando el referente sea claro; medium si depende del historial; low si no puede resolverlo. La falta de categoria, presupuesto o unidad NO reduce por si sola la certeza de que una consulta es inmobiliaria.
+
+## Categorías de alcance
+
 - property: preguntas o continuaciones sobre La Vilet, sus suites, departamentos, penthouses, locales, precios, financiamiento, ubicacion, visitas, asesor, datos del lead y dejar de recibir mensajes. "PRECIO", "cuanto cuesta", "quiero informacion" sin un asunto ajeno previo son property. Los errores ortograficos no cambian el negocio. property_fragments=[]; outside_subject=""; outside_source=none.
 - out_of_scope: pide EXCLUSIVAMENTE un producto, servicio o gestion ajena al proyecto. Debe existir un asunto ajeno concreto solicitado por el cliente; copie su nombre LITERAL en outside_subject y marque current o history. "precio", "producto", "servicio", "unknown" o falta de detalles no son evidencia. property_fragments=[].
 - mixed: DOS solicitudes independientes, una ajena y otra inmobiliaria. Copie en property_fragments SOLO los fragmentos inmobiliarios LITERALES, completos y en orden del mensaje ACTUAL, con sus negaciones, condiciones, fecha y hora propias. No incluya el asunto ajeno ni su fecha. Fuera de mixed, property_fragments=[].
 - neutral: saludo, cortesia o ambiguedad sin solicitud resoluble. No convierta en neutral una pregunta comercial solo por ser breve. outside_subject=""; outside_source=none.
+## Interpretación y continuidad
+
 Interprete el significado, no palabras sueltas: un parqueadero para moto, un local para consultorio, viajar para visitar el proyecto o vender un auto para pagar la entrada son property. "No quiero departamentos, revise mi vuelo" pide un vuelo; "ya se que no venden motos, quiero departamentos" es property. Una casa en Cuenca se aclara dentro del flujo inmobiliario; casas de otros proyectos/ciudades quedan fuera.
 El dato solicitado por el bot conserva su contexto: "cocinera" tras preguntar ocupacion es una respuesta financiera; "tienen trabajo para cocineras?" pide otro servicio. Nombres y residencia no son asuntos ajenos. Una fecha sola continua la solicitud previa, no autoriza una cita nueva.
 Responder los datos solicitados y preguntar si esa situacion afecta la compra constituye UNA continuacion property. Por ejemplo, residir en otro pais y preguntar si hay inconvenientes no solicita otro negocio. Identifique la accion ajena solicitada, no solo un lugar, nombre u ocupacion mencionados. El alcance no depende de conocer la politica necesaria para responder. Una politica desconocida sigue siendo una consulta property. El historial sirve para interpretar; nunca copie una pregunta anterior dentro de property_fragments del mensaje actual.

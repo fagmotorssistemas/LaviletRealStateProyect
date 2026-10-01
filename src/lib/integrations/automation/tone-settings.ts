@@ -2,7 +2,8 @@ import 'server-only'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { db, scope } from './data'
 import { CURRENT_TONE } from './conversation-tone'
-import { DIRECT_CONVERSATION_RULE, ACTION_INVITATION_RULE } from './direct-conversation-rule'
+import { DIRECT_CONVERSATION_RULE } from './direct-conversation-rule'
+import { promptSections } from './prompt-sections'
 import { DEFAULT_TONE, toneDirection, toneIsDefault, type ToneSettings } from '@/lib/inmobiliaria/conversationTone'
 import { readToneRow, toneState } from '@/services/conversationTone.service'
 
@@ -33,7 +34,7 @@ const replacements: Partial<Record<keyof typeof CURRENT_TONE, string>> = {
   courtesy: 'No repita fórmulas ni elogie cualquier afirmación.',
   commercialWarmth: 'Resuelva lo que la persona acaba de preguntar. No repita aperturas recientes.',
   commercialLanguage: 'Evite tecnicismos como «uso mixto», «circulación comercial independiente», «unidades residenciales», «expectativa de renta» y «metraje». No atribuya parqueo a visitantes o inclusión en la compra si no consta.',
-  commercialLength: 'Para una consulta sencilla, no supere 75 palabras; para varias dudas puede usar hasta 160. No omita respuestas para acortar el texto. Una pregunta como máximo; es opcional al aclarar una duda, no obligatoria.',
+  commercialLength: 'Prefiera brevedad según el detalle seleccionado. Atienda todas las consultas y capturas obligatorias; la extensión y el número de preguntas son preferencias editoriales.',
   projectExample: '',
   operationalIntro: 'Redacte un mensaje de coordinación de visitas o financiamiento para el cliente de La Vilet.',
   operationalWriting: 'Conteste directamente el mensaje actual. Use usted. No elogie cualquier comentario ni repita fórmulas recientes. Evite sonar a formulario.',
@@ -56,10 +57,10 @@ export async function configuredToneInstructions(instructions: string, override?
   const snapshot = override ? null : turnTone.getStore() ?? await readSnapshot()
   const settings = override ?? snapshot!.settings
   if (snapshot) snapshot.applied = true
-  if (toneIsDefault(settings)) return instructions + ACTION_INVITATION_RULE + DIRECT_CONVERSATION_RULE
+  if (toneIsDefault(settings)) return instructions + '\n\n' + promptSections([['Estilo de conversación', DIRECT_CONVERSATION_RULE]])
   for (const [key, replacement] of Object.entries(replacements)) {
     if (settings.style === 'actual' && ['commercialLanguage', 'projectExample'].includes(key)) continue
     instructions = instructions.split(CURRENT_TONE[key as keyof typeof CURRENT_TONE]).join(replacement)
   }
-  return instructions + toneDirection(settings) + ACTION_INVITATION_RULE + DIRECT_CONVERSATION_RULE
+  return instructions + '\n\n' + promptSections([['Estilo de conversación', toneDirection(settings) + DIRECT_CONVERSATION_RULE]])
 }

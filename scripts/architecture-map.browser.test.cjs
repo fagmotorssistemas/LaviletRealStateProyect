@@ -13,9 +13,11 @@ const execution = (id, message, steps) => ({ id, leadGroupId: 'lead-1', conversa
 const executions = [execution('2', '¿Qué precio tiene el departamento?', [
   step(1, 'message_received'), step(2, 'turn_intent', { objective: 'ask_price', needs_reference: false }),
   step(3, 'response_coverage', { status: 'checked' }),
-  step(4, 'model_request', { output_snapshot: { data: { reply: 'Primer borrador conservado' } } }, { ai_role: 'writer', caused_by_step: 3 }),
+  step(4, 'model_request', { output_snapshot: { data: { reply: 'Primer borrador conservado' } } }, { ai_role: 'writer', caused_by_step: 3,
+    prompt_snapshot: { capture_version: 2, instructions: '# Rol\n\n  - Responder con datos exactos', user_prefix: 'Datos:\n', data: { message: 'Consulta' }, response_schema: null, request_parameters: { model: 'synthetic', max_output_tokens: 2000 } } }),
   step(5, 'model_request', {}, { ai_role: 'reviewer', caused_by_step: 3 }),
-  step(6, 'model_request', { output_snapshot: { data: { reply: 'Segundo borrador conservado' } } }, { ai_role: 'writer', caused_by_step: 3 }),
+  step(6, 'model_request', { output_snapshot: { data: { reply: 'Segundo borrador conservado' } } }, { ai_role: 'writer', caused_by_step: 3,
+    prompt_snapshot: { instructions: 'Registro anterior', data: {} } }),
 ]), execution('1', 'Tengo un presupuesto de 50 mil dólares', [step(1, 'turn_intent', { objective: 'discuss_budget' }), step(2, 'budget_resolution', { status: 'incomplete_prices', price_evidence_complete: false }, { amount: 50000, currency: 'USD' })]),
 execution('3', 'Diagnóstico de ficha del revisor', [
   step(1, 'response_coverage', { status: 'rejected_review', recovery: { pending: true }, repair_attempts: [{ issues: [{ code: 'numeric_binding_not_in_sentence', binding: { key: 'factual_values', index: 0 }, numeric_id: 'N4', sentence_id: 'S3', received: 24, owner: 'system', repair_owner: 'reviewer' }] }] }),
@@ -47,6 +49,10 @@ async function main() {
       const page = await browser.newPage({ viewport: { width, height: 1000 } }), errors = []
       page.on('pageerror', e => { errors.push(e.message); console.error('BROWSER_ERROR', e.message) })
       await page.route('**/*', route => route.request().url().startsWith(`http://127.0.0.1:${server.address().port}`) ? route.continue() : route.abort())
+      await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => {
+        if (window.rejectCopy) throw new Error('Clipboard denied')
+        window.copiedPrompt = text
+      } } }))
       await page.goto(`http://127.0.0.1:${server.address().port}`)
       const selector = page.getByLabel('Mensaje del mapa', { exact: true })
       try { await selector.waitFor({ timeout: 10000 }) } catch (error) { console.error((await page.locator('body').innerText()).slice(0, 1600)); throw error }
@@ -62,6 +68,17 @@ async function main() {
       await inspector.getByText(/Paso 6/).click()
       assert.match(await inspector.innerText(), /Primer borrador conservado/)
       assert.match(await inspector.innerText(), /Segundo borrador conservado/)
+      await inspector.getByRole('button', { name: 'Copiar prompt completo', exact: true }).click()
+      const copied = JSON.parse(await page.evaluate(() => window.copiedPrompt))
+      assert.equal(copied.capture.exact, true)
+      assert.equal(copied.request.instructions, '# Rol\n\n  - Responder con datos exactos')
+      assert.equal(copied.request.model, 'synthetic')
+      await inspector.getByRole('button', { name: 'Copiar captura del prompt', exact: true }).click()
+      assert.equal(JSON.parse(await page.evaluate(() => window.copiedPrompt)).capture.exact, false)
+      await page.evaluate(() => { window.rejectCopy = true })
+      await inspector.getByRole('button', { name: 'Copiar prompt completo', exact: true }).click()
+      const manual = inspector.getByRole('textbox', { name: 'Prompt para copiar manualmente' })
+      assert.equal(JSON.parse(await manual.inputValue()).request.instructions, copied.request.instructions)
       await selector.selectOption({ label: await selector.locator('option').filter({ hasText: 'Tengo un presupuesto' }).innerText() })
       await page.getByRole('button', { name: 'Presupuesto', exact: true }).click()
       await page.locator('[data-id="budget_incomplete_prices"]').click()

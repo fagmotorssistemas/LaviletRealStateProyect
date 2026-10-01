@@ -5,6 +5,7 @@ import { normalizeTurnSemantics, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_
 import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
+import { promptSections } from './prompt-sections'
 import { interpretationInput, interpretationSourceIssues, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
 
 export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v3'
@@ -97,15 +98,14 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   let recoveryIssues: string[] = []
   if (method === 'model') {
     const prompt = await dependencies.activePrompt('extractor_eventos')
-    const instructions = prompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n'
-      + VISIT_INTENT_EXTRACTION_RULES + '\n' + TURN_SEMANTIC_EXTRACTION_RULES + '\n' + LEAD_PROFILE_EXTRACTION_RULES + `
+    const requestRules = `
 Contrato ${CONVERSATION_CONTRACT_VERSION}. Devuelva todos los campos del esquema; null significa desconocido.
 Enumere en requests TODAS las solicitudes actuales, incluidas dudas adicionales, correcciones, peticiones de asesor y no recibir más mensajes. Cada evidence debe ser literal del mensaje actual. No rellene solicitudes del historial.
 Si el mensaje corrige un sustantivo anterior («los departamentos, perdón»), conserve el propósito de la solicitud que corrige: «cómo puedo verlos» sigue siendo visualización, no una nueva búsqueda por categoría. Use el historial para resolver el sentido, pero cite solo el texto actual como evidencia. No afirme pluralidad de edificios por repetir una expresión corregida del cliente.
 resumen._turn_intent conserva el objetivo del turno previo. Si el lead aclara la categoría o unidad de una consulta de precio («Precio» → «sobre suites»), interprete la petición como precio de esa categoría, no solo listado de características. En requests describa ese sentido y cite como evidence únicamente el fragmento actual. Un objetivo previo no prevalece sobre un cambio de tema explícito, ni autoriza acciones. Dar nombre o residencia tampoco declara interés en una categoría.
 Separe las solicitudes independientes y asigne domain: property para catálogo, precios, características y datos del proyecto; visit para coordinar, aceptar, cambiar, cancelar o consultar una visita inmobiliaria; financing para consulta o revisión financiera; advisor para atención humana explícita; tracking para alta/baja de mensajes; courtesy para agradecimientos, despedidas y cortesía sin consulta nueva; other para temas ajenos o sin dominio resoluble. «Sí, confirmo la cita; además, ¿admiten mascotas?» contiene una solicitud visit y otra property. «Sí, confirmo la cita, muchas gracias» contiene una aceptación visit y cortesía courtesy, sin nueva consulta comercial. No absorba consultas adicionales dentro de visit ni clasifique una cita ajena al proyecto como visita inmobiliaria. El dominio describe la solicitud, nunca acredita una acción realizada.
 Una petición de iniciar separación o reserva pertenece a advisor y se describe también en turn_semantics.reservation.kind=request; una consulta sobre requisitos, monto o proceso pertenece a property y kind=information. Conserve preguntas simultáneas de precio, financiamiento y cualquier otra consulta en requests aunque la reserva sea el objetivo principal. asked_reservation es un evento de interés compatible con ambas situaciones y nunca reemplaza esa distinción. Una negativa parcial no elimina una petición posterior del mismo mensaje.
-mensaje_accion contiene la parte del mensaje que debe interpretar. Cuando alcance_negocio_incierto es true, el clasificador no pudo resolver el alcance: interprete el mensaje completo y conserve su intención y sus solicitudes con evidencia, sin heredar esa incertidumbre como una intención other. El sistema conciliará ambas interpretaciones antes de permitir acciones. Las declaraciones, visitas, financiamiento y solicitudes de asesor requieren evidencia en mensaje_accion. Una baja de mensajes (opt_out) es global y puede proceder de mensaje_actual completo. No derive al equipo inmobiliario una solicitud de asesor de otro negocio.
+Interprete mensaje_actual completo. La clasificación recibida es provisional: conserve todas las solicitudes actuales con su dominio y evidencia, incluso si alcance_negocio_incierto=true. El sistema conciliará el alcance y comprobará las autorizaciones después de la extracción. Una baja de mensajes (opt_out) es global. Una visita, presupuesto o solicitud de asesor de otro negocio pertenece a su solicitud other y no debe convertirse en una acción inmobiliaria.
 Para requested_advisor, opt_out y consent_granted copie en action_evidence el fragmento literal ACTUAL que autoriza esa acción, o null. Una pregunta de precio, un brochure, aceptar detalles y un agradecimiento no solicitan asesor ni conceden seguimiento. El historial no autoriza una acción nueva.
 full_name sirve también para el nombre con que el lead desea ser llamado; no exija apellidos para la presentación comercial ni invente un nombre desde el contacto de WhatsApp. En profile_evidence.full_name cite la presentación literal actual, o la respuesta a la pregunta pendiente de nombre. Mantenga separado el requisito posterior de nombre completo para financiamiento.
 residence_city y residence_country describen dónde VIVE actualmente el lead, no desde dónde escribe, su nacionalidad, su origen ni dónde desea comprar. Interprete cualquier formulación inequívoca de residencia actual, no solo los verbos vivir/residir, o una respuesta directa a una pregunta pendiente de residencia en perfil_inicial/pregunta_pendiente. Cite cada declaración completa en profile_evidence; el valor debe aparecer en ese fragmento actual. "Soy de Loja, pero vivo en Madrid" declara Madrid como residencia, no Loja. "Nueva York" no declara un país: residence_country permanece null; "vivo en España" no declara ciudad. No infiera desde teléfono, dirección del proyecto, WhatsApp, historial ni geografía. Una ubicación temporal o "escribo desde" no acredita residencia. Conserve null si no se declaró, si se niega a indicarlo o si solo pregunta otra cosa. Nombre y residencia son datos de perfil, no una elección inmobiliaria ni una solicitud de visita.
@@ -114,7 +114,15 @@ Una pregunta nueva sobre dormitorios o tamaño NO es una respuesta negativa al p
 El historial puede identificar una referencia implícita; diferencie esa referencia de un código expresado literalmente. Consultar el máximo o las opciones de una planta no significa elegir ni reservar una unidad.
 Use la última pregunta REAL del bot. Pedir ayuda para un horario activa requested_visit y visit_needs_help; no requested_advisor por ese solo motivo. Una fecha parcial responde a una coordinación durable. Extraiga financing_partner incluso si no está entre las entidades disponibles. No transforme información comercial en consentimiento.
 Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acompaña; no recupere intenciones viejas para llenar ese vacío.`
-    const currentInstructions = instructions + CURRENT_TURN_INTERPRETATION_RULE
+    const currentInstructions = promptSections([
+      ['Función y configuración del extractor', prompt],
+      ['Fuente del turno y separación del historial', CURRENT_TURN_INTERPRETATION_RULE],
+      ['Solicitudes, continuidad y autorizaciones', requestRules],
+      ['Interpretación del perfil', LEAD_PROFILE_EXTRACTION_RULES],
+      ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
+      ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
+      ['Formato de salida', 'El esquema JSON enviado con esta llamada es la única definición de campos y valores permitidos. Complete sus campos; use null solo donde el esquema lo permite y el dato sea desconocido. No añada un formato alternativo ni texto fuera del JSON.'],
+    ])
     promptRevision = createHash('sha256').update(currentInstructions).digest('hex').slice(0, 16)
     dependencies.onPromptRevision?.(promptRevision)
     const modelInput = interpretationInput(input, readable)

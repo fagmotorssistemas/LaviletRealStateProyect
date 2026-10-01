@@ -138,10 +138,10 @@ test('reviewer context keeps evidence and commercial state while excluding fallb
 })
 
 test('obligations are derived from actual stage, never a generic list applied to every reply', () => {
-  assert.deepEqual(reviewObligations({}, {}, {}).map(item => item.id), ['business_scope'])
+  assert.deepEqual(reviewObligations({}, {}, {}).map(item => item.id), ['business_scope', 'current_request'])
   const applicable = reviewObligations({ profile_introduction: { generic_introduction: true } }, { politica_comercial: { precios_aproximados: true } },
     { estado_comercial: { requiere_captura: true, datos_a_pedir: ['current_residence'], residencia_por_confirmar: 'Guayaquil' } })
-  assert.deepEqual(applicable.map(item => item.id), ['business_scope', 'profile_collection', 'profile_current_residence', 'opening_scope', 'price_conditions'])
+  assert.deepEqual(applicable.map(item => item.id), ['business_scope', 'current_request', 'profile_collection', 'profile_current_residence', 'opening_scope', 'price_conditions'])
   assert.deepEqual(applicable.find(item => item.id === 'profile_collection')?.required_data, ['current_residence'])
   assert.equal(applicable.find(item => item.id === 'profile_collection')?.candidate, 'Guayaquil')
   const both = reviewObligations({}, {}, { estado_comercial: { requiere_captura: true, datos_a_pedir: ['full_name', 'current_residence'] } })

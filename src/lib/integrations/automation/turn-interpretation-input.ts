@@ -8,7 +8,7 @@ const matches = (value: unknown, current: string) => current.normalize('NFKC').t
 export function interpretationInput(input: Row, current: string): Row {
   const summary = object(input.resumen)
   const result = pick(input, ['perfil_inicial', 'tema_actual', 'alcance_negocio', 'alcance_negocio_incierto',
-    'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'financiamiento', 'mensaje_accion'])
+    'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'financiamiento'])
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
   return { ...result,
     resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step']),

@@ -4,6 +4,7 @@ import type { AutomationExecutionTrace } from './execution-trace'
 import { aiRequestRole, type ReviewReasoningEffort } from './ai-model-routing'
 import type { ModelResponseDiagnostics } from './ai-output'
 import type { OpenAIRequestDiagnostics } from './openai-request'
+import { AI_USER_PREFIX } from './ai-request-body'
 
 type Context = { trace: AutomationExecutionTrace; calls: number; deadlineAt: number; guard?: () => Promise<void> }
 type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: number;
@@ -57,7 +58,9 @@ export function beginModelTrace(instructions: string, model: string, task: strin
     task, ai_role: role, model, attachments_omitted: attachments, prompt_revision: revision, ...(parent ? { caused_by_step: parent } : {}),
     ...(outputBudget !== undefined ? { configured_max_output_tokens: outputBudget } : {}),
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-    prompt_snapshot: { instructions, user_prefix: 'Responda en JSON. Datos de entrada:\n', data: input, response_schema: schema },
+    prompt_snapshot: { capture_version: 2, instructions, user_prefix: AI_USER_PREFIX,
+      data: JSON.parse(JSON.stringify(input ?? null)), response_schema: schema ? JSON.parse(JSON.stringify(schema)) : null,
+      request_parameters: { model, max_output_tokens: outputBudget, reasoning_effort: reasoningEffort || null } },
   })
   return { finish: (error?: unknown, usage?: Usage, result?: unknown, diagnostics?: ModelResponseDiagnostics, transport?: OpenAIRequestDiagnostics) => context.trace.finish(order, error ? 'failed' : 'succeeded', {
     model, prompt_revision: revision, task, result: error ? 'failed' : 'structured_result_received',

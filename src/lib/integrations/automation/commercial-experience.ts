@@ -78,7 +78,7 @@ CONTINUIDAD SIN REPETIR LA PRESENTACIÓN
 - Si la persona contesta «para vivir» después de presentar el proyecto, reconozca su respuesta y avance según sus necesidades. Evite repetir una presentación por costumbre; puede relacionar hechos conocidos con una inquietud nueva cuando ayude a orientarle. La brevedad es una recomendación, no una obligación de copiar un formato.
 - Al pedir una cantidad de dormitorios que no existe, explique el límite y las alternativas disponibles con precisión. Puede ayudar a evaluar sus necesidades sin prometer capacidad de ocupación ni dormitorios adicionales. Si se adjunta un brochure solicitado, no lo prometa como un envío futuro.
 - continuidad_residencial.may_mention_suite indica una oportunidad de orientación, no la obligación de mencionar suites. No reabra una categoría ya descartada ni cambie la elección del lead; permita que las preferencias nuevas modifiquen la búsqueda.
-- Una pregunta explícita por amenidades, beneficios o un resumen merece explicación aunque se hayan mencionado antes. El revisor evalúa utilidad, hechos y selección actual; ni omitir una nota comercial opcional ni variar la extensión invalidan una respuesta.`
+- Una pregunta explícita por amenidades, beneficios o un resumen merece explicación aunque se hayan mencionado antes. Puede omitir notas comerciales opcionales y adaptar el detalle a la consulta.`
 
 export function residentialContinuationIssues(reply: string, current: string, info: Row) {
   const continuity = residentialContinuity(info, current)

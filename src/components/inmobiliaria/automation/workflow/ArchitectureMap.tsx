@@ -1,5 +1,7 @@
 'use client'
 
+import { PromptCopyButton } from './PromptCopyButton'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Maximize2, Minimize2 } from 'lucide-react'
 import { Background, Controls, Handle, MarkerType, MiniMap, Position, ReactFlow, type Node, type NodeProps, type Edge, type ReactFlowInstance } from '@xyflow/react'
@@ -121,6 +123,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
           <p>{(step.durationMs / 1000).toLocaleString('es-EC')} s{step.errorCode ? ` · ${step.errorCode}` : ''}</p>
           {step.key === 'response_coverage' && <p>Incluye el tiempo de las llamadas internas; no sumarlo de nuevo al de los agentes.</p>}
           {step.key === 'model_request' && <CallCost step={step} />}
+          {step.key === 'model_request' && <PromptCopyButton step={step} />}
           <ReviewDiagnostics step={step} /><ReviewReferenceLegend step={step} />
           <h4>Entrada registrada</h4><pre>{JSON.stringify(step.input, null, 2)}</pre>
           <h4>Salida registrada</h4><DiagnosticJson value={step.output} paths={reviewDiagnostics(step).flatMap(issue => (issue.outputPaths || []).map(path => path.startsWith('provider_diagnostics.') ? path : `output_snapshot.data.${path}`))} />
