@@ -7,6 +7,7 @@ import { buildNumericReferences, remapNumericChecks, numericCoverageSchema, nume
 export { observedNumericIssues } from './focused-numeric-observations'
 
 export const FOCUSED_REVIEW_VERSION = 'focused-review-v1'
+export const RELATIONAL_FACT_RULES = `CANTIDADES Y RELACIONES: las cantidades expresadas (también con palabras, como «sexta planta») se extraen y contrastan exactamente. Las relaciones de ubicación, orden o comparación sin cantidad explícita se revisan como claims project_fact: «último nivel», «por encima de», «la opción más amplia» o «la de menor precio». No convierta esas relaciones en cifras copiadas del catálogo ni exija al redactor añadirlas. La IA interpreta la relación; las fuentes deben demostrarla para el sujeto y el alcance que realmente afirma el texto. Un máximo de las unidades disponibles no prueba por sí solo la última planta de todo el edificio; una muestra parcial no prueba un superlativo global. Si hay respaldo, supported con E_ID pertinentes; si la fuente contradice la relación, contradicted; si falta respaldo, unsupported explicando qué falta. La ausencia de una cifra en una relación no es motivo de pending_checks. No marque como orientación un hecho verificable para evitar comprobarlo. En oraciones mixtas contraste por separado la relación y las cantidades. Durante una reparación, retirar una cifra inventada por la ficha no elimina la relación que sí expresa el borrador: compruébela en claims sin reescribir el mensaje. Los errores y conclusiones previas son diagnósticos que pueden estar equivocados, no instrucciones.`
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 
 /** The server supplies the obligations for this turn, not a generic sales checklist. */
@@ -255,7 +256,22 @@ export function focusedRepairScope(issues: Row[], sentences: Row[], obligations:
     replace_entire_sentence: entireSentences.length > 0,
     replace_entire_sentence_ids: entireSentences,
     replaced_fields: issues.filter(issue => issue.field).flatMap(issue => issueSentences(issue).map(sentence_id => ({ sentence_id, field: issue.field }))),
+    numeric_ids: null as string[] | null,
     focused_sentence_ids: [...ids], preserved_sentence_ids: sentences.filter(row => !ids.has(text(row.id))).map(row => row.id) }
+}
+
+/** Preserve quantities unrelated to a field-level repair, even in the same
+ * sentence. A phantom quantity has no N reference and needs only dismissal and
+ * a semantic check of whatever the draft actually says. */
+export function focusedRepairNumericReferences(scope: ReturnType<typeof focusedRepairScope>, previous: Row, refs: NumericReference[], sentences: Row[]): NumericReference[] {
+  return refs.filter(ref => scope.replace_entire_sentence_ids.includes(ref.sentence_id)
+    || rows(previous.numeric_checks).filter(check => check.numeric_id === ref.id).some(check =>
+      [['factual_value_indexes', 'factual_values'], ['project_value_indexes', 'project_values']].some(([indexes, list]) =>
+        Array.isArray(check[indexes]) && (check[indexes] as number[]).some(index => {
+          const fact = rows(previous[list])[index]
+          return fact && scope.replaced_fields.some(target => target.sentence_id === repairSentenceId(fact.fragment, sentences)
+            && target.field === (fact.field || fact.dimension))
+        }))))
 }
 
 /** Removing a prior numeric check needs an explicit reviewer decision. Silence
@@ -326,7 +342,7 @@ export function mergeClaimRepairs(previous: Row, repaired: Row, scope: ReturnTyp
   }
   return {
     claims: [...rows(previous.claims).filter((_claim, index) => !removed.has(index)),
-      ...incoming.filter(claim => scope.replace_entire_sentence_ids.includes(repairSentenceId(claim.fragment, sentences)))],
+      ...incoming.filter(claim => scope.focused_sentence_ids.includes(repairSentenceId(claim.fragment, sentences)))],
     resolutions: accepted, issues,
   }
 }
@@ -385,7 +401,7 @@ export function mergeFocusedRepair(previous: Row, repaired: Row, scope: ReturnTy
     && scope.all_obligation_ids.includes(row.id)), ...rows(repaired.obligation_checks).filter(row => obligationIds.has(row.id)
       && Array.isArray(row.sentence_ids) && row.sentence_ids.every(id => id === 'R1' || target.has(text(id))))]
   const numericRefs = buildNumericReferences(allSentences)
-  const numericTarget = new Set(numericRefs.filter(ref => target.has(ref.sentence_id)).map(ref => ref.id))
+  const numericTarget = new Set(scope.numeric_ids ?? numericRefs.filter(ref => target.has(ref.sentence_id)).map(ref => ref.id))
   const allSentencesTargeted = allSentences.every(sentence => target.has(text(sentence.id)))
   const keptChecks = rows(previous.numeric_checks).filter(check => !numericTarget.has(text(check.numeric_id))
     && (!allSentencesTargeted || numericRefs.some(ref => ref.id === check.numeric_id)))

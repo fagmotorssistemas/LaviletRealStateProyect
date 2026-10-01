@@ -67,6 +67,33 @@ const penthouses = [106.58, 142.09, 109.69, 99.71, 140.53, 124.41].map((area, in
 }))
 const mixedCatalog = [...penthouses, { ...unit, id: 'l001', unit_number: '001', category: 'local', area_internal_m2: 46.65 }]
 const penthouseRange = 'group:penthouse:all:range'
+test('semantic pending repair reaches final approval without regenerating the writer or approved checks', async () => {
+  const reply = 'El penthouse está en el último nivel.'
+  let reviews = 0
+  const mock = harness((context, _schema, task) => {
+    if (task === 'writing') return writer(context, reply)
+    reviews++
+    const sentence = rows(context.oraciones_borrador)[0]
+    if (reviews === 1) return reviewer(context, { pending_checks: [{ fragment: sentence.id, reason: 'Falta una cifra para último nivel.' }] })
+    assert.deepEqual(context.referencias_numericas, [])
+    assert.deepEqual(context.obligaciones_aplicables, [])
+    assert.equal(rows(object(object(context.reparacion_revision).ficha_anterior).pending_checks)[0].pending_id, 'P1')
+    const answer = reviewer(context, { claims: [{ ...locationClaim(context, text(sentence.id)), subject: 'Ubicación del penthouse en el último nivel',
+      evidence: 'La documentación del proyecto indica expresamente esta ubicación.' }], pending_resolutions: [{
+      pending_id: 'P1', resolution: 'resolved', claim_indexes: [0], factual_value_indexes: [], project_value_indexes: [], reason: 'Relación respaldada por el proyecto.' }] })
+    delete answer.dismissed_numeric_checks; delete answer.claim_resolutions
+    return answer
+  })
+  const result = await completeTurnReply({ current: '¿Dónde se ubica el penthouse?', baseReply: reply,
+    verified: { proyecto: { ubicacion_penthouse: 'Último nivel del edificio.' } }, audit: { semantic_review_enabled: true } }, mock.generate)
+  assert.deepEqual(mock.failures, [])
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, reply)
+  assert.equal(mock.calls.filter(call => call.task === 'writing').length, 1)
+  assert.equal(reviews, 2)
+  assert.equal(rows(result.audit.repair_attempts)[0].scope, 'semantic_pending_only')
+})
+
 function rangeFact(fragment: string, value: number, source = penthouseRange): Row {
   return { fragment, subject_category: 'penthouse', unit_id: source, field: 'area_internal_m2', operator: 'between',
     value, upper_value: 142.09, measurement_unit: 'm2', value_scope: 'group_summary' }
