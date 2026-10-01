@@ -72,6 +72,7 @@ import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInter
 import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
 import { withAIExecutionTrace } from './ai-execution-trace'
 import { PreReplySendError } from './delivery-phase'
+import { requireReviewedResponse } from './response-review-recovery'
 import { assessMissingFacts, catalogCoversFragment } from './coverage-evidence'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
@@ -1336,6 +1337,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       requires_advisor: needsCommercialHandoff, handoff_review: resolvedFromContext ? 'resolved_from_context' : 'needs_advisor',
       ...(resolvedFromContext ? { handoff_reason: null } : {}),
     } : {}) }
+    requireReviewedResponse(reviewed.audit)
     const visitCoordinationHandled = audit.source === 'visit_intake'
       && ['collecting', 'submitted', 'closed_day', 'outside_hours', 'past'].includes(text(audit.action))
       && (!reviewed.unresolved.length || reviewed.unresolved.every(item => /\b(?:visitas?|citas?|fechas?|horas?|horarios?|agenda|agendar|reagendar|propuestas?)\b/i.test(item)))
@@ -1403,6 +1405,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.delivery_integrity = { changed_content: false, status: 'approved_content_preserved', approved_text: reviewedText, final_text: reply,
       confirmed_notice_added: Boolean(handoffNotice && reply.includes(handoffNotice)) }
   }
+  requireReviewedResponse(object(audit.turn_completeness))
   const canTrackFollowUp = followUpUsable(audit)
   const profilePending = canTrackFollowUp ? leadProfilePendingQuestion(reply, audit) : {}
   const progressivePending = canTrackFollowUp ? progressivePendingQuestion(reply, audit) : {}

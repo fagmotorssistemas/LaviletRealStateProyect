@@ -13,6 +13,8 @@ export class GenerationRecoveryError extends Error {
 
 /** No AI, no replay of sales actions, and at most one attempt to send the notice. */
 export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason: string) {
+  const reviewFailure = reason === 'RESPONSE_REVIEW_EXHAUSTED'
+  const recoveryDetail = reviewFailure ? { response_review_error: reason } : { generation_error: reason }
   let sendStarted = false
   try {
     assertLive()
@@ -133,7 +135,7 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     }
     if (!await canRespond()) return { action: 'superseded_or_paused' }
     const current = events.map(event => event.text || '[Archivo pendiente de revisar]').join('\n').slice(0, 1500)
-    const handoffReason = `Atender consulta sin respuesta por fallo de generación (${reason}). Consulta: ${current}`
+    const handoffReason = `Atender consulta sin respuesta por ${reviewFailure ? 'revisión agotada' : 'fallo de generación'} (${reason}). Consulta: ${current}`
     await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: handoffReason })
     const reactivated = await db().from('leads').update({ bot_enabled: true }).match(scope)
       .eq('id', lead.id).eq('handoff_reason', handoffReason).is('tracking_opt_out_at', null)
@@ -141,13 +143,13 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     const handed = await one('leads', text(lead.id))
     if (!['queued', 'assigned', 'acknowledged'].includes(text(handed.handoff_status))) throw Error('HANDOFF_NOT_RECORDED')
     const notice = 'Disculpe la demora. He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle.'
-    if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', generation_error: reason }
+    if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
     await setKommoField(last.kommoId, 457014, notice)
-    if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', generation_error: reason }
+    if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
     sendStarted = true
     await launchSalesbot(last.kommoId, 15578)
-    await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: notice, p_model: 'system:generation-recovery',
-      p_tool_calls: { source_message_id: last.externalId, provider_status: 'accepted', source: 'generation_recovery', generation_error: reason } })
-    return { action: 'advisor_recovery', delivery_status: 'accepted', generation_error: reason, requires_review: false }
+    await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: notice, p_model: reviewFailure ? 'system:review-recovery' : 'system:generation-recovery',
+      p_tool_calls: { source_message_id: last.externalId, provider_status: 'accepted', source: reviewFailure ? 'review_recovery' : 'generation_recovery', ...recoveryDetail } })
+    return { action: 'advisor_recovery', delivery_status: 'accepted', ...recoveryDetail, requires_review: false }
   } catch (error) { throw new GenerationRecoveryError(error, sendStarted) }
 }

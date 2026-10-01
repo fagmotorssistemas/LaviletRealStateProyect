@@ -216,8 +216,26 @@ function recoveryHarness(options = {}) {
     './ctwa-lead-store': { preserveCtwaForContact: async () => {} },
   })
   const rows = [{ payload: { externalId: 'source-message', kommoId: 3577404, contactId: 8105914, text: options.message || 'Tiene una distribución preliminar?', sentAt: new Date(Date.now() - (options.expired ? 25 * 3600000 : 1000)).toISOString(), media: null } }]
-  return { ...recovery, calls, run: () => recovery.recoverGenerationFailure(rows, async () => {}, 'OPENAI_HTTP_503') }
+  return { ...recovery, calls, run: () => recovery.recoverGenerationFailure(rows, async () => {}, options.reason || 'OPENAI_HTTP_503') }
 }
+
+test('exhausted review creates an actual handoff before the notice and preserves the distinct incident reason', async () => {
+  const h = recoveryHarness({ reason: 'RESPONSE_REVIEW_EXHAUSTED' })
+  const result = await h.run()
+  assert.equal(result.response_review_error, 'RESPONSE_REVIEW_EXHAUSTED')
+  assert.equal(result.generation_error, undefined)
+  assert.equal(result.delivery_status, 'accepted')
+  assert.equal(h.calls.filter(c => c.name === 'send').length, 1)
+  assert.ok(h.calls.findIndex(c => c.name === 'handoff_lead') < h.calls.findIndex(c => c.name === 'send'))
+  const registered = h.calls.find(c => c.name === 'register_outbound_message').args
+  assert.equal(registered.p_model, 'system:review-recovery')
+  assert.equal(registered.p_tool_calls.source, 'review_recovery')
+  for (const option of ['answered', 'human', 'paused', 'optedOut', 'newer', 'expired']) {
+    const paused = recoveryHarness({ reason: 'RESPONSE_REVIEW_EXHAUSTED', [option]: true })
+    await paused.run()
+    assert.equal(paused.calls.some(c => c.name === 'send'), false, option)
+  }
+})
 
 test('after exhausted inference the actual advisor queue is recorded before one notice is sent', async () => {
   const h = recoveryHarness()

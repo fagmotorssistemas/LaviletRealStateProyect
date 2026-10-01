@@ -35,7 +35,9 @@ export function structuredFactIssues(input: unknown, catalog: Row[]): Row[] {
   return (normalizeStructuredFacts(input, catalog).facts as unknown[]).flatMap(raw => {
     const fact: Row = { operator: 'eq', ...object(raw) }, source = catalog.find(row => row.id === fact.unit_id), field = text(fact.field)
     const fail = (code: string, kind = 'review_metadata') => [{ code, kind, unit_id: fact.unit_id, field,
-      received: fact.value, expected: source?.[field] ?? null, fragment: fact.fragment }]
+      received: fact.value, received_upper: fact.upper_value ?? null, operator: fact.operator,
+      expected: source?.[field] ?? null, expected_upper: object(source?.upper_values)[field] ?? null,
+      subject_category: fact.subject_category ?? null, fragment: fact.fragment }]
     if (!source || !factUnits[field] || typeof fact.value !== 'number' || !Number.isFinite(fact.value)) return fail('invalid_unit_fact')
     if (fact.measurement_unit != null && fact.measurement_unit !== factUnits[field]) return fail('numeric_unit_mismatch')
     if (!['eq', 'gt', 'gte', 'lt', 'lte', 'between'].includes(text(fact.operator))) return fail('invalid_numeric_operator')

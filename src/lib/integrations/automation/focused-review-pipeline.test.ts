@@ -5,6 +5,7 @@ import { completeTurnReply } from './turn-completeness'
 import { object, text, type Row } from './data'
 import { FOCUSED_REVIEW_VERSION } from './focused-review'
 import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
+import { requireReviewedResponse, ResponseReviewRecoveryError } from './response-review-recovery'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const unit = { id: 'd202', unit_number: '202', category: 'departamento', status: 'disponible', is_published: true,
@@ -18,7 +19,7 @@ function writer(context: Row, reply: string, question: Row = noQuestion): Row {
 }
 function reviewer(context: Row, extra: Row = {}): Row {
   const numericChecks = rows(context.referencias_numericas).map(reference => {
-    const factIndex = rows(extra.factual_values).findIndex(fact => fact.value === reference.value)
+    const factIndex = rows(extra.factual_values).findIndex(fact => fact.value === reference.value || fact.upper_value === reference.value)
     const article = reference.text === 'una'
     assert.ok(factIndex >= 0 || reference.value === 202 || article, 'Estas pruebas solo afirman la superficie y el identificador 202.')
     return { numeric_id: reference.id, classification: article ? 'not_quantity' : factIndex >= 0 ? 'business_quantity' : 'unit_identifier',
@@ -39,7 +40,7 @@ function locationClaim(context: Row, fragment: string): Row {
     verdict: 'supported', evidence_ids: [source.id], evidence: 'La ubicación consta en la información verificada del proyecto.' }
 }
 function areaFact(fragment: string, value: number): Row {
-  return { fragment, unit_id: unit.id, field: 'area_internal_m2', operator: 'eq', value, upper_value: null, measurement_unit: 'm2', value_scope: 'individual' }
+  return { fragment, subject_category: 'departamento', unit_id: unit.id, field: 'area_internal_m2', operator: 'eq', value, upper_value: null, measurement_unit: 'm2', value_scope: 'individual' }
 }
 function harness(handle: (context: Row, schema: Row, task: string) => Row) {
   const calls: { context: Row; schema: Row; task: string }[] = [], failures: string[] = []
@@ -60,6 +61,78 @@ function harness(handle: (context: Row, schema: Row, task: string) => Row) {
   }
   return { generate, calls, failures }
 }
+
+const penthouses = [106.58, 142.09, 109.69, 99.71, 140.53, 124.41].map((area, index) => ({
+  ...unit, id: `p${601 + index}`, unit_number: String(601 + index), category: 'penthouse', area_internal_m2: area,
+}))
+const mixedCatalog = [...penthouses, { ...unit, id: 'l001', unit_number: '001', category: 'local', area_internal_m2: 46.65 }]
+const penthouseRange = 'group:penthouse:all:range'
+function rangeFact(fragment: string, value: number, source = penthouseRange): Row {
+  return { fragment, subject_category: 'penthouse', unit_id: source, field: 'area_internal_m2', operator: 'between',
+    value, upper_value: 142.09, measurement_unit: 'm2', value_scope: 'group_summary' }
+}
+
+test('range repair receives the exact authoritative endpoints and a coherent rejection, then accepts the corrected draft', async () => {
+  for (const repeatError of [false, true]) {
+    let writers = 0
+    const mock = harness((context, _schema, task) => {
+      if (task === 'writing') {
+        writers++
+        if (writers === 2) {
+          const repair = object(context.reparacion)
+          assert.equal(object(repair.evaluacion_anterior).answers_supported, false)
+          const target = rows(repair.correcciones_concretas).find(row => row.code === 'catalog_range_mismatch')!
+          assert.equal(object(target.source).id, penthouseRange)
+          assert.deepEqual(target.authoritative, { value: 99.71, upper_value: 142.09 })
+          assert.equal(context.oraciones_borrador, undefined)
+        }
+        const minimum = writers === 1 || repeatError ? '106,58' : '99,71'
+        return writer(context, writers === 1 ? `Los penthouses tienen entre ${minimum} y 142,09 m² interiores.`
+          : `La superficie interior de los penthouses va desde ${minimum} hasta 142,09 m².`)
+      }
+      const ref = rows(context.oraciones_borrador)[0]
+      const minimum = writers === 1 || repeatError ? 106.58 : 99.71
+      return reviewer(context, { factual_values: [rangeFact(text(ref.id), minimum)] })
+    })
+    const result = await completeTurnReply({ current: 'Estoy buscando algo amplio, ¿qué me recomienda?',
+      baseReply: 'Información del proyecto.', verified: { catalogo: mixedCatalog }, audit: { semantic_review_enabled: true },
+    }, mock.generate)
+    assert.deepEqual(mock.failures, [])
+    assert.equal(result.audit.status, repeatError ? 'rejected_review' : 'checked', JSON.stringify(result.audit))
+    assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review', 'review', 'writing', 'review'])
+    const progress = object(rows(result.audit.repair_attempts).find(row => row.target === 'commercial_draft')?.progress)
+    assert.equal(progress.status, repeatError ? 'same_numeric_defect' : 'validated')
+    if (repeatError) assert.throws(() => requireReviewedResponse(result.audit), ResponseReviewRecoveryError)
+    else assert.match(result.reply, /99,71/)
+  }
+})
+
+test('a reviewer assigning a penthouse range to the mixed catalogue repairs only its reference', async () => {
+  for (const repairReference of [true, false]) {
+    const reply = 'Los penthouses tienen entre 99,71 y 142,09 m² interiores.'
+    const mock = harness((context, _schema, task) => {
+      if (task === 'writing') return writer(context, reply)
+      const repairing = !!context.reparacion_revision
+      if (repairing) {
+        const issues = rows(object(context.reparacion_revision).errores)
+        assert.ok(issues.some(issue => issue.code === 'numeric_subject_source_mismatch'))
+        assert.equal(issues.some(issue => issue.code === 'catalog_range_mismatch'), false,
+          'La cifra 46,65 de locales no debe convertirse en una corrección del texto sobre penthouses.')
+      }
+      const ref = rows(context.oraciones_borrador)[0]
+      return reviewer(context, { factual_values: [rangeFact(text(ref.id), 99.71,
+        repairing && repairReference ? penthouseRange : 'group:context:all:range')] })
+    })
+    const result = await completeTurnReply({ current: '¿Qué superficie tienen los penthouses?', baseReply: reply,
+      verified: { catalogo: mixedCatalog }, audit: { semantic_review_enabled: true },
+    }, mock.generate)
+    assert.deepEqual(mock.failures, [])
+    assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review', 'review'])
+    assert.equal(result.audit.status, repairReference ? 'checked' : 'rejected_review', JSON.stringify(result.audit))
+    if (repairReference) assert.equal(result.reply, reply)
+    else assert.throws(() => requireReviewedResponse(result.audit), ResponseReviewRecoveryError)
+  }
+})
 
 test('review transport exhaustion reaches recovery without discarding or rewriting the draft', async () => {
   for (const failure of [new OpenAIRequestError(0, true, 2, '', 'timeout'), new OpenAIRequestError(503, true, 2), new AIRequestGuardError()]) {

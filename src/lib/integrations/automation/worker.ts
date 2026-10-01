@@ -13,6 +13,7 @@ import { kommoDeliveryBlock, rejectedWriteStatus } from './delivery-state'
 import { OpenAIRequestError } from './openai-request'
 import { GenerationRecoveryError, recoverGenerationFailure } from './generation-recovery'
 import { PreReplySendError } from './delivery-phase'
+import { ResponseReviewRecoveryError } from './response-review-recovery'
 import { claimTestMessages } from './test-response-mode'
 import { isCommercialContextReadFailure } from './context-read'
 import { processAdvisorOutbound } from './advisor-outbound'
@@ -108,8 +109,10 @@ export async function runAutomation(testContact?: string) {
         const preReplySend = error instanceof PreReplySendError
         const original = preReplySend ? error.original : error
         const generationFailure = original instanceof OpenAIRequestError && original.kind !== 'cancelled'
+        const reviewFailure = preReplySend && original instanceof ResponseReviewRecoveryError
+        const recoverableResponse = generationFailure || reviewFailure
         let failure = original, recoveryUncertain = false
-        if (generationFailure && first.kind === 'inbound') {
+        if (recoverableResponse && first.kind === 'inbound') {
           try {
             const recovery = await recoverGenerationFailure(batch, guard, original.message)
             await rpc('lv_app_finish', { p_token: token, p_ids: ids,
@@ -126,7 +129,7 @@ export async function runAutomation(testContact?: string) {
         const reason = failure instanceof Error && /^[A-Z0-9_]+$/.test(failure.message) ? failure.message : 'PROCESSING_FAILED'
         const rejected = failure instanceof ProviderError && !failure.uncertain && rejectedWriteStatus(failure.status)
         const detail = failure instanceof ProviderError ? { provider_operation: failure.operation, delivery_uncertain: failure.uncertain, http_status: failure.status } : {}
-        const generationNotSent = generationFailure && !recoveryUncertain && !(failure instanceof ProviderError && failure.uncertain)
+        const generationNotSent = recoverableResponse && !recoveryUncertain && !(failure instanceof ProviderError && failure.uncertain)
         const preReplyNotSent = preReplySend && !recoveryUncertain
         const contextNotSent = isCommercialContextReadFailure(reason)
         // A rejected attempt stays visible for advisor review, but must not
@@ -134,8 +137,9 @@ export async function runAutomation(testContact?: string) {
         const status = rejected || generationNotSent || contextNotSent || preReplyNotSent ? 'cancelled' : 'uncertain'
         await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: status,
           p_result: { reason, ...detail, requires_review: true, ...(generationFailure ? { generation_error: original.message } : {}),
+            ...(reviewFailure ? { response_review_error: original.message } : {}),
             ...(rejected ? { delivery_status: 'rejected', recovery: 'not_replayed' }
-              : generationNotSent ? { delivery_status: 'generation_failed' }
+              : generationNotSent ? { delivery_status: reviewFailure ? 'not_sent' : 'generation_failed' }
                 : preReplyNotSent ? { delivery_status: 'not_sent', recovery: 'pre_reply_failure' }
                   : contextNotSent ? { delivery_status: 'not_sent', recovery: 'safe_read_failure' } : {}) } })
         results.push({ kind: first.kind, status, reason })

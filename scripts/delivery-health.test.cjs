@@ -191,6 +191,25 @@ test('a failure before the reply write does not block the next message for this 
   assert.equal(finish.p_result.requires_review, true)
 })
 
+test('exhausted review before delivery activates one guarded recovery without replaying the conversation', async () => {
+  const { PreReplySendError } = require('../src/lib/integrations/automation/delivery-phase.ts')
+  const { ResponseReviewRecoveryError } = require('../src/lib/integrations/automation/response-review-recovery.ts')
+  const { GenerationRecoveryError } = require('../src/lib/integrations/automation/generation-recovery.ts')
+  for (const state of ['accepted', 'failed', 'uncertain']) {
+    const h = workerHarness({ failure: new PreReplySendError(new ResponseReviewRecoveryError()),
+      ...(state !== 'accepted' ? { recoveryFailure: new GenerationRecoveryError(Error('RECOVERY_FAILED'), state === 'uncertain') } : {}) })
+    await h.runAutomation()
+    assert.equal(h.calls.filter(c => c.name === 'process').length, 1)
+    assert.equal(h.calls.filter(c => c.name === 'generation_recovery').length, 1)
+    const finish = h.calls.find(c => c.name === 'lv_app_finish').args
+    assert.equal(finish.p_status, state === 'accepted' ? 'completed' : state === 'failed' ? 'cancelled' : 'uncertain')
+    if (state !== 'accepted') {
+      assert.equal(finish.p_result.response_review_error, 'RESPONSE_REVIEW_EXHAUSTED')
+      assert.equal(finish.p_result.generation_error, undefined)
+    }
+  }
+})
+
 test('an uncertain recovery send remains blocked even if generation failed before the original reply write', async () => {
   const { PreReplySendError } = require('../src/lib/integrations/automation/delivery-phase.ts')
   const { OpenAIRequestError } = require('../src/lib/integrations/automation/openai-request.ts')
