@@ -10,6 +10,18 @@ type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: num
   input_tokens_details?: { cached_tokens?: number }; output_tokens_details?: { reasoning_tokens?: number } }
 const active = new AsyncLocalStorage<Context>()
 
+/** Diagnostic only: records an already computed decision, never evaluates or
+ * changes business rules. The parent links it to the response being prepared. */
+export function recordBudgetDecision(assessment: Record<string, unknown>) {
+  const trace = active.getStore()?.trace
+  if (!trace) return
+  const parent = trace.currentStep()
+  trace.add('budget_resolution', 'Comparar presupuesto con precios autorizados', 'decision', 'turn-budget.ts', 'succeeded',
+    { ...(parent ? { caused_by_step: parent } : {}), amount: assessment.amount, currency: assessment.currency },
+    { status: assessment.status, scope: assessment.scope, price_evidence_complete: assessment.price_evidence_complete,
+      candidate_unit_ids: assessment.candidate_unit_ids, matching_unit_ids: assessment.matching_unit_ids, minimum_price: assessment.minimum_price })
+}
+
 export function recordDraftDecision(reply: string, attempt: number, approved: boolean, review: unknown, codeIssues: string[]) {
   const context = active.getStore()
   if (!context) return

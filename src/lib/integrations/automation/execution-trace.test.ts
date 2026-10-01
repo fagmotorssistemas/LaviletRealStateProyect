@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AutomationExecutionTrace, TRACE_SCHEMA_VERSION } from './execution-trace'
 import { sanitizeTraceSummary, traceText } from './trace-summary'
-import { beginModelTrace, withAIExecutionTrace, recordDraftDecision } from './ai-execution-trace'
+import { beginModelTrace, withAIExecutionTrace, recordDraftDecision, recordBudgetDecision } from './ai-execution-trace'
 import { decisionRecord, catalogSnapshot } from './decision-record'
 
 test('response audit preserves drafts up to the transport limit without exposing credentials', () => {
@@ -15,6 +15,22 @@ test('response audit preserves drafts up to the transport limit without exposing
 })
 
 const event = { id: '00000000-0000-4000-8000-000000000001' }
+
+test('budget diagnostic preserves the computed decision and its parent without model calls', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  const parent = trace.start('response_coverage', 'Revisión', 'decision', 'fixture')
+  const assessment = { amount: 50000, currency: 'USD', status: 'incomplete_prices', price_evidence_complete: false, candidate_unit_ids: ['a'], matching_unit_ids: [], minimum_price: null }
+  const before = structuredClone(assessment)
+  await withAIExecutionTrace(trace, async () => recordBudgetDecision(assessment))
+  trace.finish(parent, 'succeeded')
+  await trace.flush()
+  assert.deepEqual(assessment, before)
+  const decision = stored.find(s => s.step_key === 'budget_resolution')!
+  assert.equal((decision.input_summary as Record<string, unknown>).caused_by_step, parent)
+  assert.equal((decision.output_summary as Record<string, unknown>).status, 'incomplete_prices')
+  assert.equal(stored.some(s => s.step_key === 'model_request'), false)
+})
 
 test('draft rejection preserves evaluated text and separates code objections from AI approval', async () => {
   let stored: Record<string, unknown>[] = []

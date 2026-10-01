@@ -1,221 +1,26 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  Handle,
-  MarkerType,
-  MiniMap,
-  Position,
-  ReactFlow,
-  type NodeProps,
-  type NodeTypes,
-} from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
-import {
-  Bot,
-  BrainCircuit,
-  Check,
-  CircleStop,
-  GitBranch,
-  Inbox,
-  Info,
-  LockKeyhole,
-  MousePointer2,
-  Play,
-  Route,
-  Sparkles,
-} from 'lucide-react'
+import { useState } from 'react'
 import { AutomationSectionTabs } from '@/components/inmobiliaria/automation/AutomationSectionTabs'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
-import {
-  WORKFLOWS,
-  WORKFLOW_ORDER,
-  type WorkflowId,
-  type WorkflowNode,
-  type WorkflowNodeData,
-  type WorkflowNodeKind,
-} from './workflowDefinitions'
-import {
-  displayValue,
-  fieldLabel,
-} from './executionWorkflow'
-import styles from './AutomationWorkflowView.module.css'
 import { MessageTraceView } from './MessageTraceView'
-
-const KIND_LABEL: Record<WorkflowNodeKind, string> = {
-  input: 'Entrada', process: 'Proceso', decision: 'Decisión', ai: 'IA', action: 'Acción', pause: 'Pausa', success: 'Resultado',
-}
-
-const KIND_ICON = {
-  input: Inbox,
-  process: Route,
-  decision: GitBranch,
-  ai: BrainCircuit,
-  action: Sparkles,
-  pause: CircleStop,
-  success: Check,
-} satisfies Record<WorkflowNodeKind, typeof Inbox>
-
-function FlowNode({ data, selected }: NodeProps<WorkflowNode>) {
-  const Icon = KIND_ICON[data.kind]
-  return <div className={styles.node} data-kind={data.kind} data-selected={selected ? 'true' : 'false'} data-trace={data.trace === true ? 'true' : undefined}>
-    <Handle type="target" position={Position.Left} className={styles.handle} />
-    <div className={styles.nodeTop}>
-      <span className={styles.nodeIcon}><Icon size={14} /></span>
-      <span>{data.eyebrow}</span>
-    </div>
-    <strong>{data.title}</strong>
-    <p>{data.summary}</p>
-    {data.traceStatus && <div className={styles.nodeTraceMeta}>
-      <span data-status={data.traceStatus}>{traceStatusLabel(data.traceStatus)}</span>
-      <time>{formatDuration(data.durationMs)}</time>
-    </div>}
-    <Handle type="source" position={Position.Right} className={styles.handle} />
-  </div>
-}
-
-const nodeTypes: NodeTypes = { workflow: FlowNode }
+import { ArchitectureMap } from './ArchitectureMap'
+import styles from './AutomationWorkflowView.module.css'
 
 export function AutomationWorkflowView() {
   const { isAdmin } = useRoleAccess()
-  const [view, setView] = useState<'messages' | 'architecture'>('messages')
-  const [workflowId, setWorkflowId] = useState<WorkflowId>('overview')
-  const [selectedId, setSelectedId] = useState(WORKFLOWS.overview.nodes[0].id)
-  const definition = WORKFLOWS[workflowId]
-  const nodes = useMemo(() => definition.nodes.map(item => ({ ...item, selected: item.id === selectedId })), [definition, selectedId])
-  const edges = useMemo(() => definition.edges.map(item => ({
-    ...item, markerEnd: { type: MarkerType.ArrowClosed, color: '#829077' },
-    style: { stroke: '#829077', strokeWidth: 1.6 },
-    labelStyle: { fill: '#65705f', fontSize: 10, fontWeight: 600 },
-    labelBgStyle: { fill: '#fbfcf8', fillOpacity: .92 },
-    labelBgPadding: [5, 3] as [number, number], labelBgBorderRadius: 3,
-  })), [definition])
-  const selected = definition.nodes.find(item => item.id === selectedId) ?? definition.nodes[0]
-  const selectWorkflow = (id: WorkflowId) => { setWorkflowId(id); setSelectedId(WORKFLOWS[id].nodes[0].id) }
-
+  const [view, setView] = useState<'messages' | 'architecture'>('architecture')
   return <main className={styles.workspace}>
     <header className={styles.header}>
-      <div>
-        <p className={styles.eyebrow}><strong>Automatización</strong><span>/</span>Mapa operativo</p>
+      <div><p className={styles.eyebrow}><strong>Automatización</strong><span>/</span>Mapa operativo</p>
         <h1 className={styles.title}>Mensajes y decisiones</h1>
-        <p className={styles.description}>Revise qué entendió el bot, qué consultó y qué ocurrió en cada ejecución.</p>
-      </div>
-      <div className={styles.headerActions}>
-        <AutomationSectionTabs active="workflow" />
-        <span className={styles.readOnly}><LockKeyhole size={12} />Solo lectura</span>
-      </div>
+        <p className={styles.description}>Explore las decisiones del sistema, los agentes y el recorrido registrado de cada mensaje.</p></div>
+      <div className={styles.headerActions}><AutomationSectionTabs active="workflow" /><span className={styles.readOnly}>Solo lectura</span></div>
     </header>
-
     <nav className={styles.viewTabs} aria-label="Vista de automatización">
-      {isAdmin && <button type="button" aria-pressed={view === 'messages'} onClick={() => setView('messages')}>Por mensaje</button>}
       <button type="button" aria-pressed={view === 'architecture' || !isAdmin} onClick={() => setView('architecture')}>Mapa de arquitectura</button>
+      {isAdmin && <button type="button" aria-pressed={view === 'messages'} onClick={() => setView('messages')}>Por mensaje</button>}
     </nav>
-    {view === 'messages' && isAdmin && <MessageTraceView />}
-    {(view === 'architecture' || !isAdmin) && <>
-    <section className={styles.intro}>
-      <div className={styles.introIcon}><Info size={18} /></div>
-      <div><h2>Estructura de la automatización</h2><p>Estos mapas explican responsabilidades y conexiones. No representan el recorrido observado de un mensaje; ese registro está en la vista Por mensaje.</p></div>
-    </section>
-    <nav className={styles.workflowPicker} aria-label="Flujos de automatización">
-      {WORKFLOW_ORDER.map(id => <button key={id} type="button" aria-pressed={workflowId === id} onClick={() => selectWorkflow(id)}><span>{WORKFLOWS[id].label}</span><small>{WORKFLOWS[id].nodes.length} etapas</small></button>)}
-    </nav>
-
-    <section className={styles.flowSection}>
-      <div className={styles.flowHeading}>
-        <div><p>Ruta seleccionada</p><h2>{definition.label}</h2></div>
-        <p>{definition.description}</p>
-      </div>
-
-      <div className={styles.explorer}>
-        <div className={styles.canvas} aria-label={`Diagrama: ${definition.label}`}>
-          <ReactFlow
-            key={workflowId}
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: .18, maxZoom: 1 }}
-            minZoom={.25}
-            maxZoom={1.5}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable
-            panOnDrag
-            selectionOnDrag={false}
-            onNodeClick={(_, item) => setSelectedId(item.id)}
-            onPaneClick={() => setSelectedId(definition.nodes[0].id)}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#d8ddd2" />
-            <Controls showInteractive={false} position="bottom-left" />
-            <MiniMap
-              pannable
-              zoomable
-              position="bottom-right"
-              nodeColor={item => nodeColor((item.data as WorkflowNodeData).kind)}
-              maskColor="rgba(248, 249, 245, .72)"
-              className={styles.minimap}
-            />
-          </ReactFlow>
-          <div className={styles.canvasHint}><MousePointer2 size={12} />Seleccione un nodo para ver su función</div>
-        </div>
-
-        <aside className={styles.inspector} aria-live="polite">
-          <div className={styles.inspectorHeader}>
-            <span className={styles.inspectorIcon} data-kind={selected.data.kind}>{renderKindIcon(selected.data.kind)}</span>
-            <div><p>{KIND_LABEL[selected.data.kind]}</p><h3>{selected.data.title}</h3></div>
-          </div>
-          <p className={styles.inspectorSummary}>{selected.data.summary}</p>
-          <dl>
-            {selected.data.traceStatus && <div><dt>Ejecución</dt><dd className={styles.traceFacts}>
-              <span data-status={selected.data.traceStatus}>{traceStatusLabel(selected.data.traceStatus)}</span>
-              <span>{formatDuration(selected.data.durationMs)}</span>
-              {selected.data.errorCode && <span>{selected.data.errorCode}</span>}
-            </dd></div>}
-            <div><dt>Lee</dt><dd>{selected.data.reads.length ? selected.data.reads.map(item => <span key={item}>{item}</span>) : 'Sin entradas resumidas'}</dd></div>
-            <div><dt>Produce</dt><dd>{selected.data.result}</dd></div>
-            <div><dt>Ubicación técnica</dt><dd><code>{selected.data.source}</code></dd></div>
-            {selected.data.input && Object.keys(selected.data.input).length > 0 && <div><dt>Entrada registrada</dt><dd><TraceFields values={selected.data.input} /></dd></div>}
-            {selected.data.output && Object.keys(selected.data.output).length > 0 && <div><dt>Salida registrada</dt><dd><TraceFields values={selected.data.output} /></dd></div>}
-          </dl>
-          <div className={styles.inspectorNote}><Bot size={15} /><p>Este mapa describe las etapas del motor; no demuestra que un mensaje haya pasado por ellas.</p></div>
-        </aside>
-      </div>
-    </section>
-
-    <section className={styles.legend} aria-label="Leyenda">
-      <p>Leyenda</p>
-      {(Object.keys(KIND_LABEL) as WorkflowNodeKind[]).map(kind => <span key={kind}><i data-kind={kind} />{KIND_LABEL[kind]}</span>)}
-      <span className={styles.navigationHint}><Play size={11} />Use la rueda para acercar y arrastre el fondo para desplazarse</span>
-    </section>
-    </>}
+    {isAdmin ? <MessageTraceView architecture={view === 'architecture'} /> : <ArchitectureMap />}
   </main>
-}
-
-function nodeColor(kind: WorkflowNodeKind) {
-  return { input: '#738269', process: '#7f8f99', decision: '#ad8b51', ai: '#7c6a9b', action: '#527b79', pause: '#a9655f', success: '#4e8061' }[kind]
-}
-
-function renderKindIcon(kind: WorkflowNodeKind) {
-  const Icon = KIND_ICON[kind]
-  return <Icon size={17} />
-}
-
-function TraceFields({ values }: { values: Record<string, unknown> }) {
-  return <ul className={styles.traceFields}>{Object.entries(values).map(([key, value]) => <li key={key}>
-    <span>{fieldLabel(key)}</span><strong>{displayValue(value)}</strong>
-  </li>)}</ul>
-}
-
-function traceStatusLabel(status: string) {
-  return { succeeded: 'Completado', paused: 'Detenido', skipped: 'Omitido', failed: 'Error' }[status] || status
-}
-
-function formatDuration(value: unknown) {
-  const milliseconds = Number(value) || 0
-  if (milliseconds < 1000) return `${milliseconds} ms`
-  return `${(milliseconds / 1000).toFixed(milliseconds < 10_000 ? 1 : 0)} s`
 }

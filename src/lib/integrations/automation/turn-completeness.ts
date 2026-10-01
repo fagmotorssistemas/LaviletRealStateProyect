@@ -2,6 +2,7 @@ import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, 
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
 import { turnBudgetAssessment } from './turn-budget'
+import { recordBudgetDecision } from './ai-execution-trace'
 import { focusedValueScopeIssues } from './focused-value-scope'
 import { numericSubjectIssues } from './focused-subject-scope'
 import { concreteReviewRepairs, numericRepairProgress, repairReviewSummary } from './review-repair'
@@ -335,6 +336,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const catalogEvidence = turnEvidence(input.verified, input.audit)
   input = { ...input, verified: { ...input.verified, catalogo: catalogEvidence.units } }
   const budgetAssessment = turnBudgetAssessment(input.verified, input.audit || {})
+  if (budgetAssessment) recordBudgetDecision(budgetAssessment)
   if (budgetAssessment) input = { ...input, verified: { ...input.verified, presupuesto_del_turno: budgetAssessment } }
   const originalBase = input.baseReply
   const adaptiveContinuation = commercialContinuationSources.has(text(input.audit?.source))

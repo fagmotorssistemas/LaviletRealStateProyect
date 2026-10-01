@@ -1,0 +1,36 @@
+.map { border: 1px solid #dce3d9; background: #fff; border-radius: 10px; overflow: hidden; margin: 18px 0; color: #33443a; }
+.map header { display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 20px; background: #f5f8f2; }
+.map h2 { font-size: 20px; font-weight: 600; }
+.map p { line-height: 1.65; font-size: 13px; }
+.map header label { display: flex; gap: 8px; align-items: center; font-size: 13px; min-width: 180px; }
+.notice { padding: 12px 20px; overflow-wrap: anywhere; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 20px 15px; font-size: 12px; }
+.navigation { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 20px 15px; }
+.navigation button { cursor: pointer; background: #f3f6f0; border: 1px solid #d4ded0; border-radius: 5px; padding: 7px 10px; font-size: 12px; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; border-block: 1px solid #dce3d9; }
+.canvas { height: 700px; min-width: 0; background: #fafbf8; }
+.node { width: 278px; border: 1px solid #aeb8b2; border-left: 5px solid #aeb8b2; border-radius: 8px; padding: 13px; background: #fff; color: #35433c; }
+.node small { display: block; font-size: 11px; margin-bottom: 8px; }
+.node strong { display: block; font-size: 15px; }
+.node p { font-size: 12px; line-height: 1.45; margin: 8px 0; }
+.node span { font-size: 11px; font-weight: 600; }
+.node[data-kind='agent'] { border-top: 4px solid #8362ac; }
+.node[data-kind='decision'] { border-top: 4px solid #bf8b31; }
+.node[data-state='observed'] { border-left-color: #287047; background: #edf7ee; }
+.node[data-state='failed'] { border-left-color: #be4545; background: #fff0ef; }
+.node[data-state='paused'] { border-left-color: #bf8b31; background: #fff6e8; }
+.node[data-state='not_selected'] { background: #f2f3f2; color: #69756e; }
+.node[data-selected='true'] { outline: 3px solid #486c9e; outline-offset: 3px; }
+.inspector { padding: 20px; max-height: 700px; overflow: auto; border-left: 1px solid #dce3d9; }
+.inspector h3 { font-size: 19px; font-weight: 600; margin: 7px 0; }
+.inspector h4 { font-size: 13px; font-weight: 600; margin-top: 12px; }
+.inspector dl { font-size: 12px; margin: 15px 0; }
+.inspector dt { font-weight: 600; margin-top: 10px; }
+.inspector dd { overflow-wrap: anywhere; }
+.inspector pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 300px; overflow: auto; background: #f5f6f3; padding: 10px; }
+.record { border-top: 1px solid #dce3d9; padding: 12px 0; }
+.record summary, .accessible summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.record button, .accessible button { cursor: pointer; border: 1px solid #cad5c7; padding: 8px 12px; border-radius: 5px; font-size: 12px; margin: 6px 4px 0 0; background: white; text-align: left; }
+.accessible { padding: 15px 20px; }
+.accessible button[aria-pressed='true'] { background: #e7efe2; border-color: #6c8860; }
+@media (max-width: 1050px) { .workspace { grid-template-columns: 1fr; } .inspector { max-height: 450px; border-left: 0; border-top: 1px solid #dce3d9; } .canvas { height: 570px; } .map header { flex-direction: column; align-items: flex-start; } }

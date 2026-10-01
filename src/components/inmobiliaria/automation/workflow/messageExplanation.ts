@@ -198,6 +198,7 @@ const titles: Record<string, string> = {
   execution_version: 'Versión y lote', message_received: 'Mensaje recibido', response_permission: 'Permiso para responder', commercial_context: 'Contexto de la conversación',
   scope_classification: 'Alcance de la consulta', decision_context: 'Datos disponibles', semantic_extraction: 'Interpretación del mensaje', catalog_resolution: 'Búsqueda y referencias',
   turn_intent: 'Objetivo compartido del turno', interest_evaluation: 'Interés y recomendación de traspaso',
+  budget_resolution: 'Presupuesto frente a precios autorizados',
   lead_profile_resolution: 'Nombre y residencia interpretados', lead_introduction: 'Presentación y datos del lead',
   dialogue_decision: 'Decisión de respuesta', response_coverage: 'Revisión de la respuesta', advisor_handoff: 'Derivación al asesor',
   route_selected: 'Ruta aplicada', response_validation: 'Validación final', message_delivery: 'Envío a Kommo', state_persisted: 'Memoria y seguimientos',
@@ -599,6 +600,12 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const found = Object.entries(output).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query', 'coverage_locked'].includes(key))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   if (step.key === 'turn_intent') found.push(...turnIntentSections(output, snapshots).flatMap(section => section.facts), ...interpretationSections(output.interpretation).flatMap(section => section.facts))
+  if (step.key === 'budget_resolution') {
+    const statuses: Record<string, string> = { prices_not_authorized: 'Los precios no están autorizados para este turno.', matching_options: 'Hay opciones con precio dentro del presupuesto.', incomplete_prices: 'Faltan precios o la búsqueda está incompleta; no se puede afirmar que no existen opciones.', no_matching_features: 'La búsqueda no encontró unidades con esas características.', below_available_prices: 'El presupuesto está por debajo de los precios comprobados de la búsqueda.' }
+    used.push(fact('Presupuesto interpretado', `${input.amount ?? 'Sin importe'} ${input.currency || ''}`))
+    found.push(fact('Resultado de la comparación', statuses[str(output.status)] || 'Resultado no reconocido; revisar el registro técnico.'))
+    found.push(fact('Evidencia de precios completa', output.price_evidence_complete === true ? 'Sí' : 'No'))
+  }
   if (step.key === 'semantic_extraction') found.push(...interpretationSections(output).flatMap(section => section.facts))
   if (step.key === 'advisor_handoff' && (output.requested_action === 'reservation_handoff' || output.request_status === 'requested')) {
     found.push(...reservationSections({ ...input, ...output }, snapshots).flatMap(section => section.facts))

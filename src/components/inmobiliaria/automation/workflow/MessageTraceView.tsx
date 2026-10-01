@@ -10,10 +10,11 @@ import styles from './MessageTraceView.module.css'
 import { promptContextParts } from './promptContext'
 import { executionCost } from './executionCost'
 import { responseAttempts } from './attemptHistory'
+import { ArchitectureMap } from './ArchitectureMap'
 
 const formatUsd = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value)
 
-export function MessageTraceView() {
+export function MessageTraceView({ architecture = false }: { architecture?: boolean }) {
   const [executions, setExecutions] = useState<WorkflowExecution[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -77,11 +78,11 @@ export function MessageTraceView() {
     if (batch && !batchId) setBatchId(batch.members[0].id)
   }, [group, batch, groupId, batchId])
   const handoffs = steps.filter(item => item.key === 'advisor_handoff')
-  const selectStep = (order: number) => { setStepOrder(order); panel.current?.focus() }
+  const selectStep = (order: number) => { setStepOrder(order); requestAnimationFrame(() => { panel.current?.focus(); panel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }) }
 
   return <section className={styles.trace} aria-label="Mensajes y decisiones reales">
     <header className={styles.toolbar}>
-      <div><h2>Mensajes y decisiones</h2><p>Registros de ejecución. Los resúmenes protegen datos personales y pueden estar abreviados.</p></div>
+      <div><h2>{architecture ? 'Elegir mensaje para el mapa' : 'Mensajes y decisiones'}</h2><p>Registros de ejecución. Los resúmenes protegen datos personales y pueden estar abreviados.</p></div>
       <button type="button" className={styles.button} onClick={() => void load()} disabled={loading}><RefreshCw size={14} />{loading ? 'Cargando…' : 'Actualizar'}</button>
     </header>
     <nav className={styles.views} aria-label="Tipo de ejecuciones">
@@ -97,9 +98,12 @@ export function MessageTraceView() {
       </select></label>
     </div>
     {error && <p className={styles.error} role="alert">{error}</p>}
+    {architecture && !execution && <ArchitectureMap />}
     {!execution ? <div className={styles.empty} role="status">{loading ? 'Buscando ejecuciones…' : query ? 'No se encontraron conversaciones para ese lead. Pruebe con parte del nombre o su ID de Kommo.' : view === 'maintenance' ? 'No hay tareas de mantenimiento registradas.' : 'Todavía no hay conversaciones disponibles para sus proyectos.'}</div>
-      : <div className={styles.layout}>
-        <nav className={styles.messages} aria-label="Mensajes de la conversación">
+      : <div className={styles.layout} style={architecture ? { gridTemplateColumns: 'minmax(0, 1fr)' } : undefined}>
+        {architecture ? <label className={styles.filters}>Mensaje del mapa<select aria-label="Mensaje del mapa" value={batch?.id || ''} onChange={event => { setBatchId(event.target.value); setStepOrder(null) }}>
+          {group?.batches.map(item => <option key={item.id} value={item.id}>{formatDate(item.execution.receivedAt || item.execution.occurredAt)} · {item.execution.message || 'Sin vista previa'}</option>)}
+        </select></label> : <nav className={styles.messages} aria-label="Mensajes de la conversación">
           <h3>{group?.label}</h3>
           {!group?.known && <p className={styles.muted}>No se guardó el identificador de conversación. Este evento se muestra por separado.</p>}
           {group?.batches.map(item => <button type="button" key={item.id} className={styles.message} aria-pressed={item.id === batch?.id}
@@ -109,7 +113,7 @@ export function MessageTraceView() {
             <span>{item.execution.outcome}</span>
             <small>{item.total > 1 ? `Lote de ${item.total} mensajes` : 'Un mensaje'} · {item.execution.steps.length ? `${item.execution.steps.length} pasos registrados` : 'Sin pasos registrados'}</small>
           </button>)}
-        </nav>
+        </nav>}
         <div className={styles.main}>
           <header className={styles.messageHeading}>
             <div><span className={styles.eyebrow}>{batch && batch.total > 1 ? 'Mensajes procesados juntos' : 'Mensaje seleccionado'} · {formatDate(execution.receivedAt || execution.occurredAt)}</span>
@@ -120,6 +124,7 @@ export function MessageTraceView() {
           {batch && batch.total > batch.members.length && <p className={styles.notice}>El registro indica {batch.total} mensajes en este lote; hay {batch.members.length} vistas previas cargadas. Los pasos son compartidos, no una ejecución independiente por cada mensaje.</p>}
           {batch && batch.total > 1 && batch.total === batch.members.length && <p className={styles.muted}>Estos mensajes pertenecen al mismo lote registrado y comparten el recorrido.</p>}
           <p className={styles.outcome}>{execution.outcome}{execution.action === 'accepted' ? ' · Entrega y lectura en WhatsApp sin confirmar.' : ''}</p>
+          {architecture && <ArchitectureMap execution={execution} onStep={selectStep} />}
           {processing && <p className={styles.notice} role="status">{execution.status === 'pending' ? 'Mensaje recibido: esperando procesamiento.' : 'Procesando la respuesta.'} La vista se actualiza cada 5 segundos. Puede revisar los mensajes anteriores mientras espera.</p>}
           {!steps.length && processing ? <p className={styles.muted}>Los pasos aparecerán cuando se guarde la ejecución.</p> : !steps.length ? <div className={styles.empty}>
             <h4>{execution.traceWarning === 'AUDIT_READ_FAILED' ? 'No se pudo leer la bitácora' : 'No hay pasos registrados para este evento'}</h4>
