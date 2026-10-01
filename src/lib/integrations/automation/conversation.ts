@@ -505,6 +505,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
     mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence && businessScope.confidence !== 'low' ? '' : current,
   }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
+  if (object(interpretation.diagnostic.interpretation_recovery).attempted === true) trace.add(
+    'interpretation_recovery', 'Recuperar interpretación del mensaje actual', 'decision', 'turn-interpretation.ts', 'succeeded', {},
+    object(interpretation.diagnostic.interpretation_recovery))
   const classifiedScope = businessScope.kind
   const classifiedUncertain = businessScope.uncertain
   const reconciledScope = await reconcileConversationScope(businessScope, current, interpretation.requests, context.historial, pendingQuestion)
@@ -1224,7 +1227,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     commercialInfo.estado_conversacion = { brochure_sent: object(previousSummary._lead_introduction).brochure_sent === true,
       introduction_status: object(previousSummary._lead_introduction).status || null }
     const info: Row = scopeOnlyReview
-      ? { ...scopePolicyContext(commercialInfo, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
+      ? { ...scopePolicyContext({ ...commercialInfo, financiamiento: finance, semantica_turno: currentSemantics,
+        property_context: propertyTurn.context, referencia_unidad: propertyTurn,
+        solicitudes_interpretadas: interpretation.requests }, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
       : { ...commercialInfo, alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       ...(scopeContract ? { limite_alcance: scopeContract } : {}),
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
@@ -1233,7 +1238,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       contrato_turno: turnIntent,
       perfil_lead: summary._lead_profile,
       solicitudes_interpretadas: interpretation.requests,
-      ...(audit.verified_catalog === true ? { catalogo_verificacion: commercialInfo.catalogo,
+      catalogo_verificacion: commercialInfo.catalogo,
+      ...(audit.verified_catalog === true ? {
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
     if (!locationRequestKind(current)) delete (info as Row).ubicacion

@@ -6,6 +6,10 @@ import type { Row } from './data'
 export function scopePolicyContext(commercial: Row, scope: BusinessScopeDecision): Row {
   const keys = ['proyecto', 'politicas_negocio', 'politica_visitas', 'politica_comercial', 'politica_financiera',
     'modo_comercial', 'alcance_producto', 'perfil_lead', 'lead', 'historial', 'business_policy_context', 'estado_conversacion']
+  // A provisional label without an outside subject cannot erase business facts.
+  // Confirmed outside boundaries still receive only the project/policy context.
+  if (scope.uncertain && !scope.outside_evidence) keys.push('catalogo', 'catalog_read', 'catalogo_verificacion',
+    'financiamiento', 'semantica_turno', 'property_context', 'referencia_unidad', 'solicitudes_interpretadas')
   return { ...Object.fromEntries(keys.filter(key => commercial[key] !== undefined).map(key => [key, commercial[key]])),
     alcance_negocio: scope.kind }
 }

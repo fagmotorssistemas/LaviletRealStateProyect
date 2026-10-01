@@ -5,6 +5,7 @@ import { normalizeTurnSemantics, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_
 import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
+import { interpretationInput, interpretationSourceIssues, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
 
 export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v3'
 
@@ -93,6 +94,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   const readable = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const method = !readable ? 'unreadable_input' : isGreetingOnly(readable) ? 'literal_greeting' : 'model'
   let raw: Row = {}, promptRevision: string | null = null
+  let recoveryIssues: string[] = []
   if (method === 'model') {
     const prompt = await dependencies.activePrompt('extractor_eventos')
     const instructions = prompt + '\n' + TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n'
@@ -112,11 +114,23 @@ Una pregunta nueva sobre dormitorios o tamaño NO es una respuesta negativa al p
 El historial puede identificar una referencia implícita; diferencie esa referencia de un código expresado literalmente. Consultar el máximo o las opciones de una planta no significa elegir ni reservar una unidad.
 Use la última pregunta REAL del bot. Pedir ayuda para un horario activa requested_visit y visit_needs_help; no requested_advisor por ese solo motivo. Una fecha parcial responde a una coordinación durable. Extraiga financing_partner incluso si no está entre las entidades disponibles. No transforme información comercial en consentimiento.
 Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acompaña; no recupere intenciones viejas para llenar ese vacío.`
-    promptRevision = createHash('sha256').update(instructions).digest('hex').slice(0, 16)
+    const currentInstructions = instructions + CURRENT_TURN_INTERPRETATION_RULE
+    promptRevision = createHash('sha256').update(currentInstructions).digest('hex').slice(0, 16)
     dependencies.onPromptRevision?.(promptRevision)
-    raw = await dependencies.aiJson(instructions, { ...input, mensaje_actual: readable }, TURN_EXTRACTION_SCHEMA)
+    const modelInput = interpretationInput(input, readable)
+    raw = await dependencies.aiJson(currentInstructions, modelInput, TURN_EXTRACTION_SCHEMA)
+    recoveryIssues = interpretationSourceIssues(raw, readable)
+    if (recoveryIssues.length) {
+      raw = await dependencies.aiJson(currentInstructions, { ...modelInput, recuperacion_interpretacion: {
+        issues: recoveryIssues, instruction: 'La extracción anterior usó evidencia ajena al mensaje actual o cantidades inválidas. Reinterprete TODO el mensaje_actual. No complete con declaraciones históricas ni reutilice la respuesta anterior. El historial solo resuelve referencias.' },
+        mensaje_actual: readable }, TURN_EXTRACTION_SCHEMA)
+      const remaining = interpretationSourceIssues(raw, readable)
+      if (remaining.length) throw new TurnInterpretationError(remaining)
+    }
   }
-  return normalizeInterpretation(input, raw, readable, method, promptRevision)
+  const result = normalizeInterpretation(input, raw, readable, method, promptRevision)
+  result.diagnostic.interpretation_recovery = { attempted: recoveryIssues.length > 0, issues: recoveryIssues, status: recoveryIssues.length ? 'recovered' : 'not_needed' }
+  return result
 }
 
 /** Reuse the same extraction after scope arbitration. No second model call and

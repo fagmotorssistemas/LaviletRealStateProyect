@@ -15,6 +15,7 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
       { source: 'alternatives', units: rows(object(audit.alternative_results).units) },
       { source: 'comparison_context', units: comparisonEvidence(verified, audit) }]
     : [{ source: 'context', units: rows(verified.catalogo) }]
+  sources.push({ source: 'budget_alternatives', units: rows(object(verified.presupuesto_del_turno).alternatives) })
   const byId = new Map<string, Row>()
   const conflicts: Row[] = []
   for (const { source, units } of sources) for (const unit of units) {

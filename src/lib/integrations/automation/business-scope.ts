@@ -42,7 +42,7 @@ function hasConcreteOutsideSubject(value: string) {
 // Known outside subjects and unresolved mixed requests retain their boundary;
 // the domain interpretation never authorizes an action on its own.
 export function reconcilePropertyScope(decision: BusinessScopeDecision, current: string, requests: Row[]) {
-  if (!decision.uncertain || decision.kind !== 'neutral' || decision.outside_evidence && decision.confidence !== 'low') return decision
+  if (decision.kind !== 'neutral' || decision.outside_evidence && decision.confidence !== 'low') return decision
   const grounded = requests.filter(request => request.confidence === 'high'
     && text(request.evidence).trim().length > 0
     && current.normalize('NFKC').toLowerCase().includes(text(request.evidence).normalize('NFKC').toLowerCase()))
@@ -114,7 +114,7 @@ export function validateBusinessScope(result: unknown, current: string, introduc
     // Do not let an unsupported exclusion bypass the turn interpreter/writer.
     // Action authorization is still decided downstream from the actual intent.
     const propertyOnly = salesSubject(current).subject === 'property' && !hasConcreteOutsideSubject(current)
-    if (!unspecifiedCommercialQuery(current) && !propertyOnly) return uncertainDecision()
+    if (!unspecifiedCommercialQuery(current) && !propertyOnly) return { ...uncertainDecision(), boundary_invalid: true, reason: 'outside_subject_not_grounded' }
     return { kind: 'property', property_message: current, reply: '', uncertain: false, reason: 'outside_subject_not_grounded' }
   }
   if (kind === 'property') return { kind, property_message: current, reply: '', uncertain: false }

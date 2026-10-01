@@ -14,6 +14,7 @@ import { OpenAIRequestError } from './openai-request'
 import { GenerationRecoveryError, recoverGenerationFailure } from './generation-recovery'
 import { PreReplySendError } from './delivery-phase'
 import { ResponseReviewRecoveryError } from './response-review-recovery'
+import { TurnInterpretationError } from './turn-interpretation-input'
 import { claimTestMessages } from './test-response-mode'
 import { isCommercialContextReadFailure } from './context-read'
 import { processAdvisorOutbound } from './advisor-outbound'
@@ -110,7 +111,8 @@ export async function runAutomation(testContact?: string) {
         const original = preReplySend ? error.original : error
         const generationFailure = original instanceof OpenAIRequestError && original.kind !== 'cancelled'
         const reviewFailure = preReplySend && original instanceof ResponseReviewRecoveryError
-        const recoverableResponse = generationFailure || reviewFailure
+        const interpretationFailure = preReplySend && original instanceof TurnInterpretationError
+        const recoverableResponse = generationFailure || reviewFailure || interpretationFailure
         let failure = original, recoveryUncertain = false
         if (recoverableResponse && first.kind === 'inbound') {
           try {

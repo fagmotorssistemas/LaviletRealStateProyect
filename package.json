@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:turn-recovery": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/turn-recovery.test.ts scripts/turn-interpretation.test.cjs scripts/business-scope.test.cjs src/lib/integrations/automation/conversation-budget-regression.test.ts",
     "dev": "node scripts/print-env-banner.cjs && next dev",
     "build": "next build",
     "start": "next start",

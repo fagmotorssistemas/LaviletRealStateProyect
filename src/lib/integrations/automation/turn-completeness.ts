@@ -1,7 +1,7 @@
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
-import { turnBudgetAssessment } from './turn-budget'
+import { turnBudgetAssessment, BUDGET_CONTINUATION_RULES } from './turn-budget'
 import { recordBudgetDecision } from './ai-execution-trace'
 import { focusedValueScopeIssues } from './focused-value-scope'
 import { numericSubjectIssues } from './focused-subject-scope'
@@ -475,6 +475,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         : ' La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.')
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
     if (budgetAssessment) writingRules += '\nPRESUPUESTO ACTUAL: contexto_verificado.presupuesto_del_turno contiene el importe interpretado y su comparación con los precios autorizados de la búsqueda. Responda ese punto junto con las características solicitadas. Una enumeración de plantas o una pregunta de preferencia no responde si el presupuesto alcanza. Si falta información, explique la limitación concreta en reply; marcar missing_fact en requests no la comunica al cliente. No invente precios, créditos, descuentos ni una derivación realizada.'
+    if (budgetAssessment) writingRules += '\n' + BUDGET_CONTINUATION_RULES
     if (input.audit?.progressive_selection || input.audit?.post_tour_continuation) writingRules += '\n' + PROGRESSIVE_OPTIONS_RULES
     for (let attempt = 0; attempt < 2; attempt++) {
     const previousDraft = proposedReply

@@ -52,7 +52,7 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   return {
     version: 'turn-intent-v2', objective, required_facts: requiredFacts,
     current_message: input.current,
-    ...(object(input.semantics.budget).status === 'amount' ? { budget: input.semantics.budget } : {}),
+    ...(object(input.semantics.budget).status && object(input.semantics.budget).status !== 'not_discussed' ? { budget: input.semantics.budget } : {}),
     interpretation_source: interpretationSource,
     interpretation: { extractor_primary_intent: object(input.semantics.interpretation).extractor_primary_intent || input.semantics.primary_intent || 'other',
       canonical_primary_intent: objective, decisions },

@@ -133,11 +133,14 @@ test('only requests evidenced in this turn survive and telemetry omits identity 
     turn_semantics: { primary_intent: 'select_property', primary_evidence: 'Me interesa vivienda', confidence: 'high',
       property: { category: 'departamento', operation: 'select', evidence: 'Me interesa vivienda', confidence: 'high' } },
   }
+  let calls = 0
   const result = await interpretConversationTurn({ mensaje_actual: current, historial: [{ role: 'cliente', content: 'quiero ir mañana a las diez' }] }, {
-    activePrompt: async () => 'Prompt', aiJson: async () => raw,
+    activePrompt: async () => 'Prompt', aiJson: async () => { calls++; return raw },
   })
   assert.equal(result.requests.length, 2)
+  assert.equal(calls, 1)
   assert.equal(result.diagnostic.discarded_request_count, 2)
+  assert.equal(result.diagnostic.interpretation_recovery.status, 'not_needed')
   assert.equal(result.semantics.property.group, 'residential')
   assert.equal(result.semantics.property.category, null)
   assert.doesNotMatch(JSON.stringify(result.diagnostic), /0102030405|3210|Nombre privado/)

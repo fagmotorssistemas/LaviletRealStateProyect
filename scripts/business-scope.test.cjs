@@ -70,7 +70,7 @@ test('scope arbitration preserves a genuine outside request and never retries an
   }
 })
 
-test('uncertain scope keeps published policy context without importing unrelated catalogue actions', () => {
+test('uncertain scope keeps published commercial evidence without importing unrelated actions', () => {
   const { scopePolicyContext } = load('src/lib/integrations/automation/scope-response.ts', {})
   const policies = [{ policy_id: 'remote-information', version: 1, policy_content: 'Puede recibir información remota; el cierre debe confirmarlo un asesor.' }]
   const output = scopePolicyContext({ politicas_negocio: policies, business_policy_context: { status: 'loaded', available_count: 1 },
@@ -78,7 +78,7 @@ test('uncertain scope keeps published policy context without importing unrelated
   { kind: 'neutral', uncertain: true })
   assert.deepEqual(output.politicas_negocio, policies)
   assert.equal(output.business_policy_context.status, 'loaded')
-  assert.equal(output.catalogo, undefined)
+  assert.deepEqual(output.catalogo, [{ id: '202' }])
   assert.equal(output.propuestas, undefined)
 })
 
@@ -169,7 +169,10 @@ test('provider failures and invalid classifications fail closed without reusing 
   for (const fake of [async () => { throw Error('TIMEOUT') }, async () => ({ kind: 'reserve', property_fragments: [], reply: '' }),
     async () => ({ kind: 'out_of_scope', property_fragments: ['agende mañana'], reply: validReply })]) {
     const result = await scopeModule(fake).classifyBusinessScope('Agende mi vuelo mañana')
-    assert.deepEqual(result, { kind: 'neutral', property_message: '', reply: '', uncertain: true })
+    assert.equal(result.kind, 'neutral')
+    assert.equal(result.property_message, '')
+    assert.equal(result.reply, '')
+    assert.equal(result.uncertain, true)
   }
 })
 

@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { BUDGET_CONTINUATION_RULES } from './turn-budget'
 import { mergePendingRepairs } from './focused-pending-repair'
 export { pendingReferencesForRepair, pendingResolutionSchema } from './focused-pending-repair'
 import { focusedValueScopeSchema, FOCUSED_VALUE_SCOPE_RULES } from './focused-value-scope'
@@ -34,8 +35,8 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   const policy = object(verified.politica_comercial)
   if (verified.presupuesto_del_turno) obligations.push({ id: 'current_budget_answer',
     instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si hay precios autorizados, debe explicar su relación con el presupuesto; si faltan o no están autorizados, debe comunicar esa limitación o aclarar el dato necesario. Enumerar características y preguntar planta sin atender el presupuesto incumple. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
-  if (object(verified.presupuesto_del_turno).status === 'below_available_prices') obligations.push({ id: 'budget_continuation',
-    instruction: 'Después de explicar que el presupuesto no alcanza las opciones verificadas, mantenga una continuación útil: una alternativa más económica del catálogo si existe, material autorizado o una aclaración pertinente. No invente una opción ni financiación y no cierre la conversación con un simple rechazo.' })
+  if (object(verified.presupuesto_del_turno).continuation) obligations.push({ id: 'budget_continuation',
+    action: object(verified.presupuesto_del_turno).continuation, instruction: BUDGET_CONTINUATION_RULES })
   if (policy.precios_aproximados === true) obligations.push({ id: 'price_conditions',
     instruction: 'Si el borrador comunica precios, preserve su carácter referencial de lanzamiento y posibilidad de cambio, con cualquier redacción equivalente. Si no comunica precios, esta obligación está cumplida.' })
   if (contract.decisiones_protegidas === true || audit.action || audit.visit_result || audit.reservation
