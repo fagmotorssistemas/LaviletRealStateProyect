@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { informationSubject } from './information-context'
 import { bedroomOptionsFromText } from './bedroom-options'
+import { replaceBedroomComparison } from './bedroom-comparison'
 import { resolveCatalogReference } from './catalog-reference'
 import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText, propertyFiltersWithQuantityMeaning, propertyPreferenceChange } from './turn-semantics'
@@ -180,8 +181,8 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const groupChanged = !!group && !!previousGroup && group !== previousGroup
   // Choosing apartments within residential options refines the same search.
   // Only a change of use (housing/local) invalidates its previous constraints.
-  const filters = { ...(groupChanged ? emptyPropertyFilters() : normalizedPropertyFilters(previousQuery.filters)),
-    ...Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null)) }
+  const filters = replaceBedroomComparison({ ...(groupChanged ? emptyPropertyFilters() : normalizedPropertyFilters(previousQuery.filters)),
+    ...Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null)) }, suppliedFilters)
   if (suppliedFilters.bedrooms_any?.length && (lexicalFilters.bedrooms === null || suppliedFilters.bedrooms_any.includes(lexicalFilters.bedrooms))) { filters.bedrooms = null; filters.bedrooms_any = suppliedFilters.bedrooms_any }
   else if (suppliedFilters.bedrooms != null) delete filters.bedrooms_any
   const asksRanking = /\b(?:cual|cuales|que|cuanto)\b.*\b(?:mas grande|mas amplio|mayor|mas pequen|mas barat|mas economic|menor)/.test(m)

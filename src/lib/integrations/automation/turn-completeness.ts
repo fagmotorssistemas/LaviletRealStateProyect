@@ -1,6 +1,7 @@
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
+import { turnBudgetAssessment } from './turn-budget'
 import { focusedValueScopeIssues } from './focused-value-scope'
 import { numericSubjectIssues } from './focused-subject-scope'
 import { concreteReviewRepairs, numericRepairProgress, repairReviewSummary } from './review-repair'
@@ -333,6 +334,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   input = { ...input, verified: scopeTurnCatalog(input.verified, input.audit || {}) }
   const catalogEvidence = turnEvidence(input.verified, input.audit)
   input = { ...input, verified: { ...input.verified, catalogo: catalogEvidence.units } }
+  const budgetAssessment = turnBudgetAssessment(input.verified, input.audit || {})
+  if (budgetAssessment) input = { ...input, verified: { ...input.verified, presupuesto_del_turno: budgetAssessment } }
   const originalBase = input.baseReply
   const adaptiveContinuation = commercialContinuationSources.has(text(input.audit?.source))
   if (adaptiveContinuation) input = { ...input, preserveOperationalQuestion: false }
@@ -460,6 +463,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       + (input.audit?.progressive_selection ? ' Mantenga el propósito de la pregunta indicado en progressive_selection; puede reformularla.'
         : ' La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.')
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
+    if (budgetAssessment) writingRules += '\nPRESUPUESTO ACTUAL: contexto_verificado.presupuesto_del_turno contiene el importe interpretado y su comparación con los precios autorizados de la búsqueda. Responda ese punto junto con las características solicitadas. Una enumeración de plantas o una pregunta de preferencia no responde si el presupuesto alcanza. Si falta información, explique la limitación concreta en reply; marcar missing_fact en requests no la comunica al cliente. No invente precios, créditos, descuentos ni una derivación realizada.'
     if (input.audit?.progressive_selection || input.audit?.post_tour_continuation) writingRules += '\n' + PROGRESSIVE_OPTIONS_RULES
     for (let attempt = 0; attempt < 2; attempt++) {
     const previousDraft = proposedReply

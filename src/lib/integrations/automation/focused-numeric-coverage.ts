@@ -29,8 +29,19 @@ export function numericReferencesForPrompt(refs: NumericReference[]): Row[] {
     ...(quantities.length ? { quantities } : {}) }))
 }
 
+function identifierValues(ref: NumericReference): number[][] {
+  const literal = ref.text.trim().replace(/[.,]$/, '')
+  return [[ref.value], ...(/^\d+(?:,\d+)+$/.test(literal) ? [literal.split(',').map(Number)] : [])]
+}
+
+function identifierCandidates(ref: NumericReference, catalog: Row[]): string[] {
+  const values = identifierValues(ref).flat()
+  return catalog.filter(unit => !unit.aggregation && numericMentions(text(unit.unit_number)).length === 1
+    && values.includes(numericMentions(text(unit.unit_number))[0].value)).map(unit => text(unit.id))
+}
+
 export const FOCUSED_NUMERIC_COVERAGE_RULES = `INVENTARIO NUMÉRICO: referencias_numericas enumera las expresiones numéricas del borrador, incluidas palabras ambiguas como un/una/segundo. Resuelva CADA N_ID exactamente una vez en numeric_checks. Usted interpreta su significado: business_quantity para datos numéricos del negocio; unit_identifier para identificadores comerciales de unidades; lead_context para datos declarados del cliente; contextual_guidance para una posibilidad o consejo sin asegurar un dato del negocio; not_quantity para artículos u otros usos sin cantidad. Dé una explicación breve, especialmente al excluir una expresión del contraste numérico.
-business_quantity debe enlazar índices BASE CERO de factual_values o project_values donde extrajo ESE valor y esa oración. Un claim narrativo no sustituye el contraste numérico. No omita precio, planta, tamaño ni atributos secundarios. En intervalos, ambos N_ID pueden enlazar la misma fila between si corresponden a sus extremos. unit_identifier debe enumerar en unit_ids TODAS las unidades reales que identifica esa expresión; no grupos ni cifras que sean precios/medidas. Una expresión como 202,302 puede significar agrupación numérica o lista: usted decide por el contexto; si identifica dos unidades, cite ambas en unit_ids y el sistema contrastará todos los componentes exactos. Las demás clasificaciones llevan unit_ids=[]; las no comerciales tampoco llevan índices de hechos. No declare not_quantity/contextual_guidance para evitar contrastar un dato de negocio que sí afirma el texto. Una pregunta sobre datos del cliente no constituye un dato de negocio. Estas clasificaciones resuelven la interpretación; el sistema solo verifica referencias y cantidades exactas.`
+business_quantity debe enlazar índices BASE CERO de factual_values o project_values donde extrajo ESE valor y esa oración. Interprete el atributo una sola vez en factual_values: numeric_checks enlaza esa extracción, no la reinterpreta. Un claim narrativo no sustituye el contraste numérico. No omita precio, planta, tamaño ni atributos secundarios. En intervalos, ambos N_ID pueden enlazar la misma fila between si corresponden a sus extremos. Una ENUMERACIÓN exige sus valores individuales, no solo un intervalo: «tercera, cuarta y quinta planta» tiene floor_number=3,4,5, cada uno asociado a las unidades correspondientes. También compruebe esos atributos si se enumeran como opciones dentro de una pregunta. «Tercera planta» nunca significa unit_number=304: el 3 es floor_number de esa unidad; solo «departamento 304» expresa su identificador. unit_identifier se reserva al número comercial exacto de la unidad, no a un atributo que ayude a localizarla. El schema ofrece únicamente identificadores numéricamente compatibles; si no ofrece esa variante, interprete el atributo real o el uso no comercial, sin forzar otro identificador. Una expresión como 202,302 puede significar agrupación numérica o lista: usted decide por el contexto; si identifica dos unidades, cite ambas en unit_ids y el sistema contrastará todos los componentes exactos. Las demás clasificaciones llevan unit_ids=[]; las no comerciales tampoco llevan índices de hechos. No declare not_quantity/contextual_guidance para evitar contrastar un dato de negocio que sí afirma el texto. Una pregunta sobre datos del cliente no constituye un dato de negocio. Estas clasificaciones resuelven la interpretación; el sistema solo verifica referencias y cantidades exactas.`
 
 export function numericCoverageSchema(schema: Row, refs: NumericReference[], catalog: Row[]): Row {
   const unitIds = catalog.filter(row => !row.aggregation).map(row => text(row.id)).filter(Boolean)
@@ -50,8 +61,13 @@ export function numericCoverageSchema(schema: Row, refs: NumericReference[], cat
       factual_value_indexes: { ...indexList, minItems: 1 }, unit_ids: emptyUnits }),
     variant({ classification: { type: 'string', enum: ['business_quantity'] },
       factual_value_indexes: emptyIndexes, project_value_indexes: { ...indexList, minItems: 1 }, unit_ids: emptyUnits }),
-    ...(unitIds.length ? [variant({ classification: { type: 'string', enum: ['unit_identifier'] },
-      factual_value_indexes: emptyIndexes, project_value_indexes: emptyIndexes, unit_ids: { ...properties.unit_ids, minItems: 1 } })] : []),
+    ...refs.flatMap(ref => {
+      const candidates = identifierCandidates(ref, catalog)
+      return candidates.length ? [variant({ numeric_id: { type: 'string', enum: [ref.id] },
+        classification: { type: 'string', enum: ['unit_identifier'] },
+        factual_value_indexes: emptyIndexes, project_value_indexes: emptyIndexes,
+        unit_ids: { ...properties.unit_ids, minItems: 1, maxItems: candidates.length, items: { type: 'string', enum: candidates } } })] : []
+    }),
     variant({ classification: { type: 'string', enum: ['lead_context', 'contextual_guidance', 'not_quantity'] },
       factual_value_indexes: emptyIndexes, project_value_indexes: emptyIndexes, unit_ids: emptyUnits }),
   ]
@@ -129,12 +145,16 @@ export function numericCoverageIssues(review: Row, refs: NumericReference[], cat
     } else if (kind === 'unit_identifier') {
       const units = unitIds.map(id => catalog.find(row => row.id === id && !row.aggregation))
       const identifiers = units.map(unit => unit ? numericMentions(text(unit.unit_number)) : [])
-      const literal = ref.text.trim().replace(/[.,]$/, '')
-      const possibleValues = [[ref.value], ...(/^\d+(?:,\d+)+$/.test(literal) ? [literal.split(',').map(Number)] : [])]
+      const possibleValues = identifierValues(ref)
       const actual = identifiers.map(values => values[0]?.value).sort((a, b) => a - b)
       const exact = possibleValues.some(values => values.length === actual.length && [...values].sort((a, b) => a - b).every((value, index) => value === actual[index]))
       if (links.length || !unitIds.length || identifiers.some(values => values.length !== 1) || !exact)
-        fail('numeric_unit_identifier_unverified', ref, { unit_ids: unitIds })
+        fail('numeric_unit_identifier_unverified', ref, { unit_ids: unitIds,
+          compared_field: 'unit_number', expected_identifiers: units.map(unit => ({ unit_id: unit?.id ?? null, unit_number: unit?.unit_number ?? null })),
+          candidate_attributes: units.flatMap(unit => unit ? ['floor_number', 'bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price']
+            .filter(field => unit[field] === ref.value).map(field => ({ unit_id: unit.id, field, value: unit[field] })) : []),
+          reason: 'La cifra fue declarada identificador, pero no coincide con unit_number de la fuente. Interprete su atributo real y repare el enlace a factual_values; las coincidencias de atributos son candidatos, no una decisión semántica del sistema. No cambie el borrador ni su cifra.',
+        })
     } else if (links.length || unitIds.length) fail('nonbusiness_numeric_has_business_binding', ref)
   }
   return issues

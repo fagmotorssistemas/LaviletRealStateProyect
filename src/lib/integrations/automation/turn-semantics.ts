@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { bedroomComparison, type BedroomComparison } from './bedroom-comparison'
 import { normalized } from './sdr-rules'
 import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
 
@@ -39,7 +40,7 @@ const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details'
 const profileQuestionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation'])
 const reservationKinds = new Set(['request', 'information', 'declined', 'none'])
 
-export type PropertyFilters = { floor_number: number | null; bedrooms: number | null; bedrooms_any?: number[]; bedrooms_required: boolean | null; min_area_m2: number | null; max_area_m2: number | null }
+export type PropertyFilters = BedroomComparison & { floor_number: number | null; bedrooms: number | null; bedrooms_any?: number[]; bedrooms_required: boolean | null; min_area_m2: number | null; max_area_m2: number | null }
 export const emptyPropertyFilters = (): PropertyFilters => ({ floor_number: null, bedrooms: null, bedrooms_required: null, min_area_m2: null, max_area_m2: null })
 const enumSchema = (values: Iterable<string>) => ({ type: 'string', enum: [...values] })
 const nullableEnumSchema = (values: Iterable<string>) => ({ type: ['string', 'null'], enum: [...values, null] })
@@ -63,8 +64,8 @@ export const TURN_SEMANTICS_SCHEMA = strictObject({
     excluded_categories: { type: 'array', items: enumSchema(propertyCategories) }, operation: enumSchema(operations),
     reference_kind: enumSchema(referenceKinds), unit_numbers: { type: 'array', items: { type: 'string' } },
     selector: nullableEnumSchema(unitSelectors), query_scope: nullableEnumSchema(queryScopes),
-    filters: strictObject({ floor_number: { type: ['integer', 'null'] }, bedrooms: { type: ['integer', 'null'] }, bedrooms_any: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 30 } }, bedrooms_required: { type: ['boolean', 'null'] }, min_area_m2: { type: ['number', 'null'] }, max_area_m2: { type: ['number', 'null'] } }),
-    filter_evidence: strictObject(Object.fromEntries(['floor_number', 'bedrooms', 'bedrooms_any', 'bedrooms_required', 'min_area_m2', 'max_area_m2'].map(key => [key, { type: 'string' }]))),
+    filters: strictObject({ floor_number: { type: ['integer', 'null'] }, bedrooms: { type: ['integer', 'null'] }, bedrooms_any: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 30 } }, bedrooms_operator: { type: ['string', 'null'], enum: ['eq', 'gte', 'lte', 'between', null] }, bedrooms_upper: { type: ['integer', 'null'], minimum: 1, maximum: 30 }, bedrooms_required: { type: ['boolean', 'null'] }, min_area_m2: { type: ['number', 'null'] }, max_area_m2: { type: ['number', 'null'] } }),
+    filter_evidence: strictObject(Object.fromEntries(['floor_number', 'bedrooms', 'bedrooms_any', 'bedrooms_operator', 'bedrooms_upper', 'bedrooms_required', 'min_area_m2', 'max_area_m2'].map(key => [key, { type: 'string' }]))),
     evidence: { type: 'string' }, confidence: confidenceSchema,
   }),
   budget: strictObject({ status: enumSchema(budgetStatuses), amount: { type: ['number', 'null'] }, evidence: { type: 'string' }, confidence: confidenceSchema }),
@@ -76,7 +77,7 @@ export function normalizedPropertyFilters(raw: unknown): PropertyFilters {
     && Number(row[key]) >= minimum && Number(row[key]) <= max && (!integer || Number.isInteger(row[key])) ? Number(row[key]) : null
   const choices = bedroomOptions(row.bedrooms_any)
   return { ...(choices.length > 1 ? { bedrooms_any: choices } : {}), floor_number: bounded('floor_number', 100, true), bedrooms: choices.length > 1 ? null : bounded('bedrooms', 30, true), bedrooms_required: typeof row.bedrooms_required === 'boolean' ? row.bedrooms_required : null,
-    min_area_m2: bounded('min_area_m2', 100000, false, 1), max_area_m2: bounded('max_area_m2', 100000, false, 1) }
+    min_area_m2: bounded('min_area_m2', 100000, false, 1), max_area_m2: bounded('max_area_m2', 100000, false, 1), ...bedroomComparison(row) }
 }
 
 /** Durable queries contain catalogue constraints, never a model-authored action. */
@@ -188,8 +189,8 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
     "unit_numbers":[],
     "selector":null,
     "query_scope":null,
-    "filters":{"floor_number":null,"bedrooms":null,"bedrooms_any":[],"bedrooms_required":null,"min_area_m2":null,"max_area_m2":null},
-    "filter_evidence":{"floor_number":"","bedrooms":"","bedrooms_any":"","bedrooms_required":"","min_area_m2":"","max_area_m2":""},
+    "filters":{"floor_number":null,"bedrooms":null,"bedrooms_any":[],"bedrooms_operator":null,"bedrooms_upper":null,"bedrooms_required":null,"min_area_m2":null,"max_area_m2":null},
+    "filter_evidence":{"floor_number":"","bedrooms":"","bedrooms_any":"","bedrooms_operator":"","bedrooms_upper":"","bedrooms_required":"","min_area_m2":"","max_area_m2":""},
     "evidence":"copia literal breve del mensaje actual o cadena vacía",
     "confidence":"high|medium|low"
   },
@@ -216,6 +217,7 @@ property.group distingue residential (vivienda en general) de commercial (locale
 property.operation distingue buscar opciones (search), preguntar cuáles son mayores/menores/baratas (rank), comparar (compare), elegir afirmativamente (select) y pedir detalles (details). «¿Cuál es la opción más grande?» es rank, NO select. «Prefiero la más grande de esas» es select. Un empate se puede mostrar como resultado de una consulta; no obliga al cliente a elegir antes de recibir información.
 property.filters expresa restricciones actuales: «5ta planta», «quinta planta» y «piso cinco» son floor_number=5; «de5habiataciones» expresa bedrooms=5. Corrija errores evidentes sin inventar datos. Una restricción no es un número de unidad ni una negativa a la pregunta anterior. «No tiene opciones de 5 habitaciones» pregunta disponibilidad, no rechaza presupuesto.
 bedrooms_required=true solo si declara indispensable/exacta esa cantidad; false solo si acepta expresamente otra cantidad; null si no expresa esa decisión. No insista con menos dormitorios cuando el requisito es indispensable.
+Conserve la comparación de dormitorios: bedrooms es el valor o extremo inferior; bedrooms_operator=eq significa exactamente, gte al menos/mínimo, lte como máximo y between un intervalo inclusivo cuyo extremo superior va en bedrooms_upper. Interprete el significado aunque use otras palabras o errores de escritura. No transforme «mínimo 2» en exactamente 2: admite también 3 o más. «Entre 2 y 4» usa bedrooms=2, bedrooms_operator=between, bedrooms_upper=4. Cite el fragmento actual en filter_evidence para cada campo; bedrooms_upper=null fuera de between. bedrooms_required indica flexibilidad, no sustituye la comparación. Si usa bedrooms_any, deje operador y extremo superior null. Plantas altas expresa preferencia relativa: no invente una planta numérica exacta.
 Si admite varias cantidades de dormitorios, conserve todas en bedrooms_any y bedrooms=null; por ejemplo «cinco o seis cuartos» produce [5,6]. Sin alternativas explícitas use bedrooms_any=[]. Distinga alternativas admitidas de cantidades negadas, rangos y números de unidades. No restaure requisitos anteriores si está aceptando alternativas ofrecidas; conserve el referente de la pregunta pendiente.
 query_scope=catalog para buscar o consultar máximos sin lista concreta, offered para «de esas opciones», comparison para la comparación activa, selected para la elegida. Preserve null si no aplica. La memoria conserva filtros previos; no los extraiga otra vez como declaraciones nuevas.
 pregunta_pendiente.act, target_ids y candidate_ids expresan el foco real. «Sí prefiero esa opción» tras ofrecer detalles del 502 acepta esa oferta sobre 502 aunque antes se mencionara 504; es referencia followup, no explicit. No convierta aceptar detalles o un recorrido en visita, compra o reserva.

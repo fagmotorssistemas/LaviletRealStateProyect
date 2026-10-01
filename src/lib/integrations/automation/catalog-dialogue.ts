@@ -5,6 +5,7 @@ import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { factualValueIssues, reviewedCatalogDenials, reviewedContextualGuidance } from './semantic-review'
 import { turnEvidence } from './turn-evidence'
 import { bedroomOptions } from './bedroom-options'
+import { bedroomComparison, bedroomCondition, matchesBedrooms, type BedroomComparison } from './bedroom-comparison'
 import { verifiedAbsenceReply } from './catalog-absence'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
@@ -14,7 +15,7 @@ export type CatalogQuery = {
   operation: Operation
   selector: string | null
   scope: string
-  filters: { bedrooms: number | null; bedrooms_any?: number[]; bedrooms_required: boolean | null; floor_number: number | null; min_area_m2: number | null; max_area_m2: number | null }
+  filters: BedroomComparison & { bedrooms: number | null; bedrooms_any?: number[]; bedrooms_required: boolean | null; floor_number: number | null; min_area_m2: number | null; max_area_m2: number | null }
 }
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : []
@@ -45,7 +46,7 @@ export function catalogQuery(value: unknown): CatalogQuery {
     selector: text(input.selector) || null,
     scope: text(input.scope || input.query_scope) || 'catalog',
     filters: { ...(bedroomOptions(filters.bedrooms_any).length > 1 ? { bedrooms_any: bedroomOptions(filters.bedrooms_any) } : {}), bedrooms: bedroomOptions(filters.bedrooms_any).length > 1 ? null : finite(filters.bedrooms, 1), bedrooms_required: typeof filters.bedrooms_required === 'boolean' ? filters.bedrooms_required : null,
-      floor_number: finite(filters.floor_number), min_area_m2: finite(filters.min_area_m2, 0.01), max_area_m2: finite(filters.max_area_m2, 0.01) },
+      floor_number: finite(filters.floor_number), min_area_m2: finite(filters.min_area_m2, 0.01), max_area_m2: finite(filters.max_area_m2, 0.01), ...bedroomComparison(filters) },
   }
 }
 
@@ -54,7 +55,7 @@ export function filterCatalog(catalog: Row[], query: CatalogQuery, scopedIds?: s
     .filter(unit => !scopedIds || scopedIds.includes(text(unit.id)))
     .filter(unit => !query.group || (query.group === 'residential' ? residential.has(text(unit.category)) : unit.category === 'local'))
     .filter(unit => !query.category || unit.category === query.category)
-    .filter(unit => query.filters.bedrooms_any?.length ? query.filters.bedrooms_any.includes(Number(unit.bedrooms)) : query.filters.bedrooms === null || measurement(unit.bedrooms) === query.filters.bedrooms)
+    .filter(unit => matchesBedrooms(measurement(unit.bedrooms), query.filters))
     .filter(unit => query.filters.floor_number === null || unit.floor_number !== null && unit.floor_number !== undefined && Number(unit.floor_number) === query.filters.floor_number)
     .filter(unit => query.filters.min_area_m2 === null || (measurement(unit.area_internal_m2) ?? -Infinity) >= query.filters.min_area_m2)
     .filter(unit => query.filters.max_area_m2 === null || (measurement(unit.area_internal_m2) ?? Infinity) <= query.filters.max_area_m2)
@@ -199,7 +200,8 @@ export function validateCatalogReply(reply: string, audit: Row): { valid: boolea
   return { valid: true }
 }
 
-const facts = (unit: Row) => ({ id: unit.id, unit_number: unit.unit_number, category: unit.category, bedrooms: unit.bedrooms,
+const facts = (unit: Row, pricesAllowed: boolean) => ({ id: unit.id, unit_number: unit.unit_number, category: unit.category, bedrooms: unit.bedrooms,
+  ...(pricesAllowed ? { published_commercial_price: unit.published_commercial_price } : {}),
   floor_number: unit.floor_number, floor: unit.floor, area_internal_m2: unit.area_internal_m2, area_exterior_m2: unit.area_exterior_m2,
   bathrooms_full: unit.bathrooms_full, description: unit.description, spaces: unit.spaces })
 function details(unit: Row) {
@@ -278,6 +280,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const semantic = object(object(info.semantica_turno).property)
   const raw = object(reference.query || context.query || (semantic.confidence === 'high' ? semantic : {}))
   const query = catalogQuery(raw)
+  if (query.filters.bedrooms_operator === 'between' && query.filters.bedrooms_upper == null) return null
   // A relative price choice needs a complete price ranking before selecting a unit.
   if (query.operation === 'select' && ['cheapest', 'most_expensive'].includes(query.selector || '')) query.operation = 'rank'
   if (query.operation === 'none') return null
@@ -304,7 +307,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const missingIds = (scopedIds || []).filter(id => !availableIds.has(id))
   const baseAudit: Row = { query_transition: object(context.query_transition), filter_resolution: object(context.filter_resolution),
     reference_resolution: object(context.reference_resolution), source: `catalog_${query.operation}`, verified_catalog: true, catalog_query: query,
-    catalog_results: { unit_ids: unitIds(units), units: units.map(facts), complete: true, unknown_unit_ids: [] },
+    catalog_results: { unit_ids: unitIds(units), units: units.map(unit => facts(unit, object(info.politica_comercial).precios_autorizados === true)), complete: true, unknown_unit_ids: [] },
     covered_requests: [`catalog_${query.operation}`], coverage_complete: false, catalog_excluded_categories: excluded,
     offered_unit_ids: [], focused_unit_ids: [], selected_unit_ids: [],
     catalog_coverage: { operation: query.operation, status: units.length ? 'answered' : 'no_results', result_unit_ids: unitIds(units),
@@ -326,7 +329,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   }
   if (!units.length) {
     const subject = query.category ? plural[query.category] : query.group === 'commercial' ? 'locales comerciales' : 'viviendas'
-    const conditions = [query.filters.bedrooms_any?.length ? `de ${query.filters.bedrooms_any.join(' o ')} dormitorios` : query.filters.bedrooms !== null ? `de ${query.filters.bedrooms} dormitorios` : '', query.filters.floor_number !== null ? `en la planta ${query.filters.floor_number}` : ''].filter(Boolean).join(' ')
+    const conditions = [bedroomCondition(query.filters), query.filters.floor_number !== null ? `en la planta ${query.filters.floor_number}` : ''].filter(Boolean).join(' ')
     const opening = verifiedAbsenceReply(baseAudit) || `Actualmente no contamos con ${subject} disponibles${conditions ? ` ${conditions}` : ''}.`
     if (query.filters.bedrooms_required === true) return respond(opening)
     let proposed = catalogQuery({ ...query, operation: 'search', scope: 'catalog', selector: null,
@@ -341,7 +344,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     if ((query.filters.bedrooms !== null || query.filters.bedrooms_any?.length) && wider.length) {
       const maxBedrooms = Math.max(...wider.map(unit => measurement(unit.bedrooms) || 0))
       if (maxBedrooms > 0) {
-        proposed = { ...proposed, filters: { ...proposed.filters, bedrooms: maxBedrooms, bedrooms_required: false } }
+        proposed = { ...proposed, filters: { ...proposed.filters, bedrooms: maxBedrooms, bedrooms_required: false, bedrooms_operator: undefined, bedrooms_upper: undefined } }
         wider = wider.filter(unit => measurement(unit.bedrooms) === maxBedrooms)
       }
     }
@@ -349,7 +352,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     const overview = alternativeOverview(wider)
     const next = '¿Le gustaría revisar las alternativas disponibles?'
     return respond(`${opening} Podemos ofrecerle estas alternativas: ${overview.reply} ${next}`,
-      { original_query: query, alternative_results: { query: proposed, unit_ids: unitIds(wider), units: wider.map(facts) },
+      { original_query: query, alternative_results: { query: proposed, unit_ids: unitIds(wider), units: wider.map(unit => facts(unit, object(info.politica_comercial).precios_autorizados === true)) },
         alternative_presentation: { kind: 'category_overview', groups: overview.groups },
         pending_question: { ...question('property_category', 'explore_alternatives', next, [], wider), proposed_query: proposed } })
   }

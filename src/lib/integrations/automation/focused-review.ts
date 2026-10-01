@@ -29,6 +29,8 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   if (['share_now', 'offer_after_profile'].includes(text(object(stage.brochure).accion))) obligations.push({ id: 'brochure_sequence',
     instruction: 'Evalúe el TEXTO del borrador según estado_comercial.brochure. Con share_now debe incluir el enlace autorizado. Con offer_after_profile basta ofrecer el brochure al pedir los datos pendientes: eso CUMPLE la obligación, sin esperar datos del cliente ni comprobante de envío. No exija entregar el brochure en una etapa que solo pide ofrecerlo.' })
   const policy = object(verified.politica_comercial)
+  if (verified.presupuesto_del_turno) obligations.push({ id: 'current_budget_answer',
+    instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si hay precios autorizados, debe explicar su relación con el presupuesto; si faltan o no están autorizados, debe comunicar esa limitación o aclarar el dato necesario. Enumerar características y preguntar planta sin atender el presupuesto incumple. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
   if (policy.precios_aproximados === true) obligations.push({ id: 'price_conditions',
     instruction: 'Si el borrador comunica precios, preserve su carácter referencial de lanzamiento y posibilidad de cambio, con cualquier redacción equivalente. Si no comunica precios, esta obligación está cumplida.' })
   if (contract.decisiones_protegidas === true || audit.action || audit.visit_result || audit.reservation
@@ -136,7 +138,7 @@ export function focusedReviewContext(context: Row, obligations: Row[]): Row {
     .filter(path => path[0] === 'contexto_verificado').map(path => path[1]))
   const operationalKeys = new Set(rows(context.evidencia_afirmaciones).map(row => text(row.path).split('.'))
     .filter(path => path[0] === 'estado_operativo').map(path => path[1]))
-  for (const key of ['perfil_lead', 'politica_comercial', 'catalog_context_scope', 'limite_alcance', 'business_policy_context', 'fecha']) sourceKeys.add(key)
+  for (const key of ['perfil_lead', 'politica_comercial', 'catalog_context_scope', 'limite_alcance', 'business_policy_context', 'fecha', 'presupuesto_del_turno']) sourceKeys.add(key)
   for (const key of ['source', 'action', 'registration_verified', 'profile_introduction']) operationalKeys.add(key)
   return {
     mensaje_actual: context.mensaje_actual, referencias_solicitud: context.referencias_solicitud,

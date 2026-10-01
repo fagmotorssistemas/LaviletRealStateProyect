@@ -11,6 +11,7 @@ import { asksForHouse } from './product-fit'
 import { unitAlternative } from './unit-alternatives'
 import { catalogQuery, filterCatalog, validateCatalogReply } from './catalog-dialogue'
 import { propertyFiltersFromText, propertyFiltersWithQuantityMeaning } from './turn-semantics'
+import { replaceBedroomComparison } from './bedroom-comparison'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 function unitPurchaseClause(clause: string) {
@@ -111,9 +112,10 @@ function priceSelection(info: Row, current: string, summary: Row) {
   const freshCategoryQuery = !resolvedQuery && !!literalCategory && asksUnitPrice(current, true)
   const currentFilters = propertyFiltersWithQuantityMeaning(propertyFiltersFromText(current, text(object(propertyContext.pending_question).id)), info.semantica_turno)
   const semanticFilters = object(semanticProperty.filters)
-  const filters = { ...(freshCategoryQuery ? {} : object(sharedQuery.filters)),
+  const filters = replaceBedroomComparison({ ...(freshCategoryQuery ? {} : object(sharedQuery.filters)),
     ...Object.fromEntries(Object.entries(semanticFilters).filter(([, value]) => value !== null && value !== undefined)),
-    ...Object.fromEntries(Object.entries(currentFilters).filter(([, value]) => value !== null && value !== undefined)) }
+    ...Object.fromEntries(Object.entries(currentFilters).filter(([, value]) => value !== null && value !== undefined)) },
+    semanticFilters.bedrooms != null || Array.isArray(semanticFilters.bedrooms_any) && semanticFilters.bedrooms_any.length ? semanticFilters : currentFilters)
   if (currentFilters.bedrooms !== null || semanticFilters.bedrooms != null && !(Array.isArray(semanticFilters.bedrooms_any) && semanticFilters.bedrooms_any.length > 1)) delete filters.bedrooms_any
   else if (Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length > 1) filters.bedrooms = null
   const query = catalogQuery(resolvedQuery ? reference.query : { ...sharedQuery,

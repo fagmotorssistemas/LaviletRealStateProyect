@@ -119,9 +119,10 @@ test('classification-specific schema prevents incompatible numeric bindings and 
   for (const row of [check('N1', 'business_quantity', { factual_value_indexes: [0] }),
     check('N1', 'business_quantity', { project_value_indexes: [0] }),
     check('N1', 'business_quantity', { factual_value_indexes: [0], project_value_indexes: [0] }),
-    check('N1', 'unit_identifier', { unit_ids: ['u602'] }), check('N1', 'not_quantity')])
+    check('N1', 'not_quantity')])
     assert.equal(validate({ numeric_checks: [row] }), true, JSON.stringify(validate.errors))
   for (const row of [check('N1', 'business_quantity'),
+    check('N1', 'unit_identifier', { unit_ids: ['u602'] }),
     check('N1', 'business_quantity', { factual_value_indexes: [0], unit_ids: ['u602'] }),
     check('N1', 'unit_identifier'), check('N1', 'unit_identifier', { unit_ids: ['u602'], factual_value_indexes: [0] }),
     check('N1', 'lead_context', { factual_value_indexes: [0] }), check('N1', 'not_quantity', { unit_ids: ['u602'] })])
