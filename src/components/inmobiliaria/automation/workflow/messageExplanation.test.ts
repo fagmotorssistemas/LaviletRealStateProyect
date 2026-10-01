@@ -6,6 +6,120 @@ import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 import { responseAttempts } from './attemptHistory'
 
+test('focused numeric explanations separate a bad extraction from a false statement about every unit', () => {
+  for (const [code, kind, expected] of [
+    ['review_number_not_in_draft', 'review_metadata', /valor que este no expresa.*corregirse la extracción/],
+    ['invalid_numeric_value_scope', 'review_metadata', /una unidad, a cada miembro o a un resumen/],
+    ['individual_value_uses_group', 'review_metadata', /fuente de grupo.*unidad individual/],
+    ['group_value_uses_individual', 'review_metadata', /una sola unidad.*grupo completo/],
+    ['each_member_value_mismatch', 'catalog_data', /no se cumple en todos los miembros/],
+  ]) {
+    const output = { status: 'rejected_review', semantic_review: { review_contract: 'focused-review-v1',
+      validation_details: [{ code, kind, owner: 'system', repair_owner: kind === 'catalog_data' ? 'writer' : 'reviewer' }],
+    } }
+    const decision = reviewDecision(output)
+    assert.match(decision.causes.join(' '), expected)
+    assert.match(decision.details.join(' '), expected)
+    assert.match(decision.details.join(' '), /Responsable registrado: Sistema/)
+    assert.match(decision.details.join(' '), kind === 'catalog_data' ? /Encargado de corregir: Redactor IA/ : /Encargado de corregir: Revisor IA/)
+    assert.match(humanValue(code), expected)
+    assert.equal(decision.tone, kind === 'catalog_data' ? 'rejected' : 'metadata')
+  }
+})
+
+test('unfinished numeric or claim repair stays a technical review issue with recorded owners', () => {
+  for (const code of ['invalid_claim_repair_resolution', 'invalid_numeric_coverage', 'unreviewed_numeric_reference',
+    'duplicate_numeric_reference', 'unknown_numeric_reference', 'invalid_numeric_classification', 'invalid_numeric_bindings',
+    'numeric_business_binding_missing', 'numeric_binding_not_in_sentence', 'numeric_binding_value_mismatch',
+    'numeric_unit_identifier_unverified', 'nonbusiness_numeric_has_business_binding', 'numeric_repair_outside_scope']) {
+    const decision = reviewDecision({ status: 'rejected_review', semantic_review: { review_contract: 'focused-review-v1',
+      validation_details: [{ code, kind: 'review_metadata', owner: 'system', repair_owner: 'reviewer' }],
+    } })
+    assert.equal(decision.tone, 'metadata', code)
+    assert.doesNotMatch(humanValue(code), /_/, code)
+    assert.match(decision.details.join(' '), /Responsable registrado: Sistema.*Encargado de corregir: Revisor IA/, code)
+    assert.match(decision.explanation, /no demuestra.*datos incorrectos/, code)
+  }
+})
+
+test('focused commercial labels name pending profile data and explain why an identical draft was not reviewed again', () => {
+  const item = step(1, 'response_coverage', { status: 'rejected_review', issues: ['writer_repair_unchanged'],
+    semantic_review: { review_contract: 'focused-review-v1', obligation_checks: [
+      { id: 'profile_full_name', verdict: 'violated', reason: 'Falta preguntar el nombre.' },
+      { id: 'profile_current_residence', verdict: 'met', reason: '' },
+      { id: 'profile_collection', verdict: 'met', reason: '' },
+      { id: 'brochure_sequence', verdict: 'met', reason: '' },
+    ], validation_details: [{ code: 'commercial_obligation_violated', kind: 'commercial_content', obligation_id: 'profile_full_name',
+      owner: 'reviewer', repair_owner: 'writer', reason: 'Falta preguntar el nombre.' }] },
+  })
+  const section = explainStep(execution([item]), item).coverageSections!.find(section => section.title === 'Obligaciones comerciales comprobadas')!
+  assert.deepEqual(section.facts.map(fact => fact.label), ['Solicitar el nombre pendiente', 'Solicitar o confirmar la residencia actual',
+    'Recoger los datos pendientes con el propósito de brochure y guía personalizada', 'Ofrecer o entregar el brochure según la etapa'])
+  const decision = reviewDecision(item.output)
+  assert.match(decision.details.join(' '), /obligación comercial «Solicitar el nombre pendiente»/)
+  assert.match(decision.details.join(' '), /Responsable registrado: Revisor IA.*Encargado de corregir: Redactor IA/)
+  assert.match(decision.causes.join(' '), /redactor repitió.*sistema mantuvo.*evitó otra revisión/)
+  assert.doesNotMatch(humanValue('writer_repair_unchanged'), /writer_repair/)
+})
+
+test('focused review distinguishes a pending technical check from incorrect commercial data and names its owners', () => {
+  const output = { status: 'rejected_review', semantic_review: { review_contract: 'focused-review-v1',
+    sentence_references: [{ id: 'S1', text: 'Gracias por su interés.' }, { id: 'S2', text: 'El proyecto está en Cuenca.' }],
+    coverage: { reviewed_sentence_ids: ['S1'], non_factual_sentence_ids: ['S1'], pending_sentence_ids: ['S2'] },
+    obligation_checks: [{ id: 'collect_lead_profile', verdict: 'pending', sentence_ids: [], reason: 'No se completó la comprobación.' }],
+    validation_details: [{ code: 'review_sentence_pending', kind: 'review_metadata', sentence_id: 'S2', owner: 'system', repair_owner: 'reviewer', reason: 'Falta vincular la ubicación con su fuente.' }],
+  }, repair_attempts: [{ target: 'review_metadata', focused_sentence_ids: ['S2'], preserved_sentence_ids: ['S1'], repair_owner: 'reviewer', final_status: 'rejected_review' }] }
+  const decision = reviewDecision(output)
+  assert.equal(decision.tone, 'metadata')
+  assert.match(decision.title, /Comprobación pendiente/)
+  assert.match(decision.explanation, /no demuestra.*datos incorrectos/)
+  assert.doesNotMatch(decision.explanation, /Conservó la respuesta de respaldo/)
+  assert.match(decision.details[0], /S2: «El proyecto está en Cuenca\.»/)
+  assert.match(decision.details[0], /Responsable registrado: Sistema.*Encargado de corregir: Revisor IA/)
+  const item = step(1, 'response_coverage', output)
+  const sections = explainStep(execution([item]), item).coverageSections!
+  const scope = sections.find(section => section.title === 'Alcance y responsables de la revisión')!
+  assert.match(scope.facts.find(fact => fact.label === 'Segmentos pendientes de comprobación')!.value, /S2.*Cuenca/)
+  assert.match(scope.facts.find(fact => fact.label === 'Segmentos sin hechos del negocio según el revisor')!.value, /S1.*Gracias/)
+  const obligations = sections.find(section => section.title === 'Obligaciones comerciales comprobadas')!
+  assert.match(obligations.facts[0].value, /pendiente; no acredita un incumplimiento/)
+  const repair = sections.find(section => section.title === 'Intento de reparación')!
+  assert.equal(repair.facts.find(fact => fact.label === 'Intento 1 · Segmentos por reparar')!.value, 'S2')
+  assert.equal(repair.facts.find(fact => fact.label === 'Intento 1 · Revisiones conservadas')!.value, 'S1')
+})
+
+test('focused pending metadata does not mask factual or commercial failures', () => {
+  const review = { review_contract: 'focused-review-v1', coverage: { pending_sentence_ids: ['S1'] },
+    validation_details: [{ code: 'unreviewed_sentence', kind: 'review_metadata', sentence_id: 'S1', owner: 'system', repair_owner: 'reviewer' }] }
+  for (const detail of [
+    { code: 'catalog_value_mismatch', kind: 'factual', unit_id: 'u1', field: 'bedrooms', received: 5, expected: 3, owner: 'system', repair_owner: 'writer' },
+    { code: 'commercial_obligation_violated', kind: 'commercial', obligation_id: 'collect_lead_profile', reason: 'Falta solicitar el nombre.', owner: 'reviewer', repair_owner: 'writer' },
+  ]) {
+    const decision = reviewDecision({ status: 'rejected_review', issues: ['invalid_review_metadata'], semantic_review: {
+      ...review, validation_details: [...review.validation_details, detail],
+    } })
+    assert.equal(decision.tone, 'rejected')
+    assert.doesNotMatch(decision.title, /Comprobación pendiente/)
+    assert.match(decision.details[0], /No quedó registrada una comprobación/)
+    assert.match(decision.details[1], detail.code === 'catalog_value_mismatch' ? /recibido: 5; catálogo: 3/ : /incumplimiento.*nombre/)
+  }
+  assert.equal(reviewDecision({ status: 'rejected_review', semantic_review: { ...review,
+    obligation_checks: [{ id: 'collect_lead_profile', verdict: 'violated', reason: 'Falta el nombre.' }],
+  } }).tone, 'rejected')
+})
+
+test('focused review never invents missing coverage, historical owners or send confirmation', () => {
+  const current = step(1, 'response_coverage', { status: 'checked', semantic_review: { review_contract: 'focused-review-v1' } })
+  const sections = explainStep(execution([current]), current).coverageSections!
+  const scope = sections.find(section => section.title === 'Alcance y responsables de la revisión')!
+  assert.ok(scope.facts.every(fact => fact.value === 'No conservado en el registro.'))
+  assert.match(reviewDecision(current.output).explanation, /envío definitivo se verifica/)
+  const historical = step(2, 'response_coverage', { status: 'rejected_review', issues: ['invalid_review_metadata'] })
+  const oldSections = explainStep(execution([historical]), historical).coverageSections!
+  assert.equal(oldSections.some(section => section.title === scope.title), false)
+  assert.equal(reviewDecision(historical.output).title, 'Propuesta descartada · Falló la ficha interna')
+})
+
 test('accepted responses show auxiliary follow-up warnings without a rejection banner', () => {
   const item = step(1, 'response_coverage', { status: 'checked', follow_up: { usable: false,
     warnings: [{ code: 'invalid_review_question_metadata', reason: 'No se identificó el dato de seguimiento.' }] } })

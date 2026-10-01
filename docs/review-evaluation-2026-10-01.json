@@ -1,0 +1,1486 @@
+{
+  "contract": "focused-review-v1",
+  "scope": "Isolated synthetic fixtures; no CRM or WhatsApp transport; costs include only measured AI roles",
+  "limitations": [
+    "The 22-case matrix preceded the final pending-check retention guard. Four cases were repeated after that guard; deterministic tests cover its merge invariants.",
+    "Writer smoke used fixed default tone and synthetic facts; production configuration and full webhook were not exercised.",
+    "A small regression set is not a universal model accuracy estimate."
+  ],
+  "matrix": {
+    "report_file": ".tmp-review-release-matrix.json",
+    "generated_at": "2026-10-01T05:20:22.573Z",
+    "model": "gpt-5-mini",
+    "reviewer_reasoning_effort": "low",
+    "fixtures_sha256": "f93c033286cc8e3a74bc197536dfe99df05d38a63b4d38109f34142cc353c9ad",
+    "totals": {
+      "calls": 28,
+      "measuredCalls": 28,
+      "pricedCalls": 28,
+      "inputTokens": 220614,
+      "cachedInputTokens": 33792,
+      "outputTokens": 36562,
+      "totalTokens": 257176,
+      "estimatedUsd": 0.12067429999999998,
+      "priceVersion": "2026-09-30",
+      "priceSnapshots": [
+        {
+          "model": "gpt-5-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+        }
+      ],
+      "complete": true
+    },
+    "model_costs": {
+      "gpt-5-mini": {
+        "calls": 28,
+        "measuredCalls": 28,
+        "pricedCalls": 28,
+        "inputTokens": 220614,
+        "cachedInputTokens": 33792,
+        "outputTokens": 36562,
+        "totalTokens": 257176,
+        "estimatedUsd": 0.12067429999999998,
+        "priceVersion": "2026-09-30",
+        "priceSnapshots": [
+          {
+            "model": "gpt-5-mini",
+            "version": "2026-09-30",
+            "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+          }
+        ],
+        "complete": true
+      }
+    },
+    "database_reads": 0,
+    "database_writes": 0,
+    "outbound_sends": 0,
+    "runs": [
+      {
+        "case": "greeting-1753",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 5281,
+          "cachedInputTokens": 0,
+          "outputTokens": 1258,
+          "totalTokens": 6539,
+          "estimatedUsd": 0.00383625,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 9760,
+        "prompt_hashes": [
+          "0f8e3f43107434f9160662c2a62b442fa5dd9e299869ffbc26f2e6bd2d502d36"
+        ]
+      },
+      {
+        "case": "greeting-paraphrase",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 5133,
+          "cachedInputTokens": 0,
+          "outputTokens": 1208,
+          "totalTokens": 6341,
+          "estimatedUsd": 0.00369925,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 8130,
+        "prompt_hashes": [
+          "b862d427d07ddb08c925ec4823dc0b2648c710debdda12beb88cbf978cba3f6e"
+        ]
+      },
+      {
+        "case": "greeting-ambiguous-context",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 9366,
+          "cachedInputTokens": 0,
+          "outputTokens": 1442,
+          "totalTokens": 10808,
+          "estimatedUsd": 0.0052255,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 10297,
+        "prompt_hashes": [
+          "d65b73edcb8051e6e6ca81f279b882518bce40e6c055b1a428348d99f865c4d1"
+        ]
+      },
+      {
+        "case": "mandatory-name-omitted",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "commercial_obligation_violated",
+            "kind": "commercial_content",
+            "obligation_id": "profile_full_name",
+            "sentence_ids": [
+              "S1",
+              "S2"
+            ],
+            "reason": "No se pregunta ni confirma el nombre completo del lead en ninguna oración del borrador.",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 5094,
+          "cachedInputTokens": 2816,
+          "outputTokens": 1217,
+          "totalTokens": 6311,
+          "estimatedUsd": 0.0030739,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 8678,
+        "prompt_hashes": [
+          "3c3d7298e8db51c4ecf1823a6a393a2404fe33876a4d6ebf3ff8c91f1115a072"
+        ]
+      },
+      {
+        "case": "premature-categories",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "lead_profile_categories_premature",
+            "kind": "commercial_content",
+            "obligation_id": "opening_scope",
+            "sentence_ids": [
+              "S1"
+            ],
+            "reason": "El borrador presenta tipos de inmuebles (departamentos y penthouses), pero la instrucción prohíbe presentar tipos de inmuebles; por tanto incumple esta obligación.",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          },
+          {
+            "index": 0,
+            "subject": "tipos de inmueble: departamentos y penthouses",
+            "fragment": "La Vilet tiene departamentos y penthouses.",
+            "code": "claim_unsupported",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 5100,
+          "cachedInputTokens": 4864,
+          "outputTokens": 1456,
+          "totalTokens": 6556,
+          "estimatedUsd": 0.0030926,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 10532,
+        "prompt_hashes": [
+          "1c9eeb1adc212f16780faba880f88cf1bebc7e8a02badb2be9c20ca4acf83a23"
+        ]
+      },
+      {
+        "case": "exact-price-floor",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 8750,
+          "cachedInputTokens": 0,
+          "outputTokens": 1993,
+          "totalTokens": 10743,
+          "estimatedUsd": 0.0061735,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 14669,
+        "prompt_hashes": [
+          "521a6c44a871a7fe903689c92f59e9a4cd9cb0702135d26e26a94505e31b8280"
+        ]
+      },
+      {
+        "case": "all-penthouses-same-price",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 8635,
+          "cachedInputTokens": 0,
+          "outputTokens": 1689,
+          "totalTokens": 10324,
+          "estimatedUsd": 0.00553675,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 13464,
+        "prompt_hashes": [
+          "a74aaa9f7bc02d9b5289bd2b2a23a08c2ea6bfbbd899e30879ed8f88415b7cd7"
+        ]
+      },
+      {
+        "case": "wrong-price",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "catalog_value_mismatch",
+            "kind": "catalog_data",
+            "unit_id": "eval-d202",
+            "field": "published_commercial_price",
+            "received": 249000,
+            "expected": 250000,
+            "fragment": "El departamento 202 tiene un precio referencial de lanzamiento de $249.000 USD, sujeto a cambios.",
+            "owner": "system",
+            "repair_owner": "writer"
+          },
+          {
+            "index": 0,
+            "subject": "published_commercial_price (valor exacto comunicado)",
+            "fragment": "El departamento 202 tiene un precio referencial de lanzamiento de $249.000 USD, sujeto a cambios.",
+            "code": "claim_contradicted",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 14747,
+          "cachedInputTokens": 0,
+          "outputTokens": 4743,
+          "totalTokens": 19490,
+          "estimatedUsd": 0.01317275,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 32953,
+        "prompt_hashes": [
+          "ebd38761ba27191036fd51d04f753672266b86eb2c6c5b281396292dcc8755e5",
+          "20acf66a3a8252a67a889163fc2c0dd16c0a3a04e19cfc08a4e1608c6a8a612c"
+        ]
+      },
+      {
+        "case": "exact-dimensions",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 6973,
+          "cachedInputTokens": 3840,
+          "outputTokens": 1040,
+          "totalTokens": 8013,
+          "estimatedUsd": 0.00295925,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 6963,
+        "prompt_hashes": [
+          "20625a8bf74b12db44ff689b43587b234e8f70a2b1685ee9ae65344b2b9fe892"
+        ]
+      },
+      {
+        "case": "compound-exact-facts",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 7116,
+          "cachedInputTokens": 0,
+          "outputTokens": 1484,
+          "totalTokens": 8600,
+          "estimatedUsd": 0.004747,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 10988,
+        "prompt_hashes": [
+          "1eb063773fe317dc520f4f32c90ee9cdfb9a83ecae12020c8c8484251b6013ec"
+        ]
+      },
+      {
+        "case": "invented-feature",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "invalid_claim_repair_resolution",
+            "kind": "review_metadata",
+            "owner": "system",
+            "repair_owner": "reviewer",
+            "claim_id": "C1",
+            "reason": "El reemplazo debe señalar afirmaciones nuevas válidas y no puede reutilizarse para borrar otras afirmaciones."
+          },
+          {
+            "index": 1,
+            "subject": "piscina privada",
+            "fragment": "El departamento 202 tiene 120,83 m² interiores y una piscina privada, con un precio referencial de lanzamiento de $250.000 USD, sujeto a cambios.",
+            "code": "claim_unsupported",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 15199,
+          "cachedInputTokens": 3840,
+          "outputTokens": 3486,
+          "totalTokens": 18685,
+          "estimatedUsd": 0.00990775,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 24435,
+        "prompt_hashes": [
+          "3ea293701ba0c28028e74cf1600f735de2cba73b5a69835c185460fde770cc89",
+          "dc18591c3499fcfa96d1044b6248e398df687e0c12ef65583012cfb1b756f5d7"
+        ]
+      },
+      {
+        "case": "rounded-dimensions",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "catalog_value_mismatch",
+            "kind": "catalog_data",
+            "unit_id": "eval-d202",
+            "field": "area_internal_m2",
+            "received": 121,
+            "expected": 120.83,
+            "fragment": "El departamento 202 tiene 121 m² interiores y 27 m² exteriores.",
+            "owner": "system",
+            "repair_owner": "writer"
+          },
+          {
+            "code": "catalog_value_mismatch",
+            "kind": "catalog_data",
+            "unit_id": "eval-d202",
+            "field": "area_exterior_m2",
+            "received": 27,
+            "expected": 27.03,
+            "fragment": "El departamento 202 tiene 121 m² interiores y 27 m² exteriores.",
+            "owner": "system",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 14555,
+          "cachedInputTokens": 5888,
+          "outputTokens": 1878,
+          "totalTokens": 16433,
+          "estimatedUsd": 0.00606995,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 14204,
+        "prompt_hashes": [
+          "08b7f24ac63ed7b2d3a4b383160e684a95c83f69ea8c6434b9c5aae7962e022d",
+          "e0b7490cc9cbfc01a81c84bdb577a3d6affae3b01383f6156d8342d5f043c212"
+        ]
+      },
+      {
+        "case": "wrong-floor",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "catalog_value_mismatch",
+            "kind": "catalog_data",
+            "unit_id": "eval-d202",
+            "field": "floor_number",
+            "received": 3,
+            "expected": 2,
+            "fragment": "El departamento 202 está en la tercera planta alta.",
+            "owner": "system",
+            "repair_owner": "writer"
+          },
+          {
+            "index": 0,
+            "subject": "floor_number",
+            "fragment": "El departamento 202 está en la tercera planta alta.",
+            "code": "claim_contradicted",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 14487,
+          "cachedInputTokens": 0,
+          "outputTokens": 3100,
+          "totalTokens": 17587,
+          "estimatedUsd": 0.00982175,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 22560,
+        "prompt_hashes": [
+          "105413b01140d6ae74101a1c97dbd4b508dfc05c58d24c167cbea85e93f852e7",
+          "830e4d345fd61a4373a90a3d41b896d7cf47e034818922255b83229e674c3706"
+        ]
+      },
+      {
+        "case": "exact-range",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 9654,
+          "cachedInputTokens": 0,
+          "outputTokens": 1181,
+          "totalTokens": 10835,
+          "estimatedUsd": 0.0047755,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 9245,
+        "prompt_hashes": [
+          "c6a40fb4d458f5fb7e2bd15ad3de3a1d70a22b357dc7324cf34807aa2e0d907c"
+        ]
+      },
+      {
+        "case": "range-as-every-unit",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "fragment": "Todos los departamentos cuestan $250.000 USD cada uno como precio referencial de lanzamiento, sujeto a cambios.",
+            "unit_id": "group:departamento:all:min",
+            "field": "published_commercial_price",
+            "value_scope": "each_member",
+            "received": 250000,
+            "owner": "system",
+            "repair_owner": "reviewer",
+            "code": "each_member_value_mismatch",
+            "kind": "catalog_data",
+            "expected_members": [
+              {
+                "unit_id": "eval-d202",
+                "value": 250000
+              },
+              {
+                "unit_id": "eval-d302",
+                "value": 275000
+              }
+            ],
+            "failing_member_ids": [
+              "eval-d302"
+            ],
+            "reason": "La relación numérica afirmada para cada unidad no se cumple en todos los miembros del grupo. Un mínimo o máximo del conjunto no demuestra igualdad entre sus unidades."
+          },
+          {
+            "index": 0,
+            "subject": "todos los departamentos cuestan $250.000 USD cada uno",
+            "fragment": "Todos los departamentos cuestan $250.000 USD cada uno como precio referencial de lanzamiento, sujeto a cambios.",
+            "code": "claim_contradicted",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 20094,
+          "cachedInputTokens": 4864,
+          "outputTokens": 2749,
+          "totalTokens": 22843,
+          "estimatedUsd": 0.0094271,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 20467,
+        "prompt_hashes": [
+          "72fbe41518b1db6fe983dbc9ac622e39e4587505c5637265b141e792c39fd8b0",
+          "b3a07fae5b8837330e24e1969e22d0533967f769bc9fc64fcef41ed69a491502"
+        ]
+      },
+      {
+        "case": "family-guidance",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 8836,
+          "cachedInputTokens": 0,
+          "outputTokens": 1600,
+          "totalTokens": 10436,
+          "estimatedUsd": 0.005409,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 10617,
+        "prompt_hashes": [
+          "8f963d7b4163166a2daa1b8f1b7ff25e0571d37051635a679a3a29978c5796fb"
+        ]
+      },
+      {
+        "case": "unsupported-operation",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "commercial_obligation_violated",
+            "kind": "commercial_content",
+            "obligation_id": "current_operation",
+            "sentence_ids": [
+              "S1"
+            ],
+            "reason": "El borrador afirma que una cita está confirmada para mañana sin evidencia operativa de reserva o confirmación en estado_operativo; la única acción verificada es profile_updated (E26), que no respalda la cita.",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          },
+          {
+            "index": 0,
+            "subject": "cita confirmada para mañana",
+            "fragment": "Su cita ya está confirmada para mañana.",
+            "code": "claim_unsupported",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 8834,
+          "cachedInputTokens": 0,
+          "outputTokens": 806,
+          "totalTokens": 9640,
+          "estimatedUsd": 0.0038205,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 9162,
+        "prompt_hashes": [
+          "46c580caa1c42ce32b0f7727f5cf475cd1fdcfe96031e92af8087ad1d713fa24"
+        ]
+      },
+      {
+        "case": "personal-acknowledgement",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 8678,
+          "cachedInputTokens": 0,
+          "outputTokens": 441,
+          "totalTokens": 9119,
+          "estimatedUsd": 0.0030515,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 3848,
+        "prompt_hashes": [
+          "24f583dcbe125a63f108c3552b82be63e6306fbe396a8f92d5ef2cdddb474a89"
+        ]
+      },
+      {
+        "case": "unsupported-purchase-policy",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "review_sentence_pending",
+            "kind": "review_metadata",
+            "owner": "reviewer",
+            "repair_owner": "reviewer",
+            "sentence_id": "S1",
+            "fragment": "Puede reservar y comprar desde Portugal sin ninguna restricción ni documentación adicional.",
+            "reason": "Falta una fuente explícita (política comercial, procedimiento de ventas o requisito legal) que confirme requisitos y trámites para compras desde el extranjero; se requiere esa fuente para apoyar o contradecir la afirmación."
+          },
+          {
+            "index": 0,
+            "subject": "posibilidad de reservar y comprar desde Portugal sin restricciones ni documentación adicional",
+            "fragment": "Puede reservar y comprar desde Portugal sin ninguna restricción ni documentación adicional.",
+            "code": "claim_unsupported",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 17877,
+          "cachedInputTokens": 3840,
+          "outputTokens": 1683,
+          "totalTokens": 19560,
+          "estimatedUsd": 0.00697125,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 13911,
+        "prompt_hashes": [
+          "af57b44298ffb1c86141de4e9b476e327096d23ce91979d4ad1e07ad9a408f45",
+          "37b9ff3fe0081dd7776511aa41e63741fdcc5cc176581e1da259aadbe43a453d"
+        ]
+      },
+      {
+        "case": "holdout-personal-update-ack",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 8726,
+          "cachedInputTokens": 3840,
+          "outputTokens": 394,
+          "totalTokens": 9120,
+          "estimatedUsd": 0.0021055,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 3448,
+        "prompt_hashes": [
+          "70b9aa4a3fbe45e0bc2011f73752e1dd8d145cec1e058038ebe93fda8fcfd033"
+        ]
+      },
+      {
+        "case": "holdout-remote-information-policy",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 8769,
+          "cachedInputTokens": 0,
+          "outputTokens": 604,
+          "totalTokens": 9373,
+          "estimatedUsd": 0.00340025,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 6305,
+        "prompt_hashes": [
+          "a0b605b922c283e2f198223c6812a455ae0360fa3d90b3f448dc19f38a355ba2"
+        ]
+      },
+      {
+        "case": "holdout-outside-project-offer",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "commercial_obligation_violated",
+            "kind": "commercial_content",
+            "obligation_id": "business_scope",
+            "sentence_ids": [
+              "S2"
+            ],
+            "reason": "El borrador propone orientar sobre viviendas en otros proyectos (S2), acción expresamente prohibida por la obligación business_scope.",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          },
+          {
+            "index": 1,
+            "subject": "ofrecer orientación sobre viviendas en otros proyectos",
+            "fragment": "Si sus opciones no se ajustan a lo que busca, puedo orientarle sobre viviendas en otros proyectos.",
+            "code": "claim_unsupported",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 8710,
+          "cachedInputTokens": 0,
+          "outputTokens": 1110,
+          "totalTokens": 9820,
+          "estimatedUsd": 0.0043975,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 8125,
+        "prompt_hashes": [
+          "6a1e0b842fb32e81b087994f089f166e699580ef0f60aaf6385b9e2b8fa72d50"
+        ]
+      }
+    ]
+  },
+  "after_pending_guard": {
+    "report_file": ".tmp-review-repair-final.json",
+    "generated_at": "2026-10-01T05:22:46.220Z",
+    "model": "gpt-5-mini",
+    "reviewer_reasoning_effort": "low",
+    "fixtures_sha256": "f93c033286cc8e3a74bc197536dfe99df05d38a63b4d38109f34142cc353c9ad",
+    "totals": {
+      "calls": 5,
+      "measuredCalls": 5,
+      "pricedCalls": 5,
+      "inputTokens": 37863,
+      "cachedInputTokens": 27392,
+      "outputTokens": 5989,
+      "totalTokens": 43852,
+      "estimatedUsd": 0.01528055,
+      "priceVersion": "2026-09-30",
+      "priceSnapshots": [
+        {
+          "model": "gpt-5-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+        }
+      ],
+      "complete": true
+    },
+    "model_costs": {
+      "gpt-5-mini": {
+        "calls": 5,
+        "measuredCalls": 5,
+        "pricedCalls": 5,
+        "inputTokens": 37863,
+        "cachedInputTokens": 27392,
+        "outputTokens": 5989,
+        "totalTokens": 43852,
+        "estimatedUsd": 0.01528055,
+        "priceVersion": "2026-09-30",
+        "priceSnapshots": [
+          {
+            "model": "gpt-5-mini",
+            "version": "2026-09-30",
+            "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+          }
+        ],
+        "complete": true
+      }
+    },
+    "database_reads": 0,
+    "database_writes": 0,
+    "outbound_sends": 0,
+    "runs": [
+      {
+        "case": "greeting-1753",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 5281,
+          "cachedInputTokens": 5120,
+          "outputTokens": 1267,
+          "totalTokens": 6548,
+          "estimatedUsd": 0.00270225,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 8881,
+        "prompt_hashes": [
+          "0f8e3f43107434f9160662c2a62b442fa5dd9e299869ffbc26f2e6bd2d502d36"
+        ]
+      },
+      {
+        "case": "exact-dimensions",
+        "expected": "accept",
+        "outcome": "pass",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "passed",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 6973,
+          "cachedInputTokens": 6912,
+          "outputTokens": 1201,
+          "totalTokens": 8174,
+          "estimatedUsd": 0.00259005,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 9065,
+        "prompt_hashes": [
+          "20625a8bf74b12db44ff689b43587b234e8f70a2b1685ee9ae65344b2b9fe892"
+        ]
+      },
+      {
+        "case": "invented-feature",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "index": 1,
+            "subject": "piscina privada",
+            "fragment": "El departamento 202 tiene 120,83 m² interiores y una piscina privada, con un precio referencial de lanzamiento de $250.000 USD, sujeto a cambios.",
+            "code": "claim_unsupported",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 1,
+          "measuredCalls": 1,
+          "pricedCalls": 1,
+          "inputTokens": 7074,
+          "cachedInputTokens": 6912,
+          "outputTokens": 1921,
+          "totalTokens": 8995,
+          "estimatedUsd": 0.0040553,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 11855,
+        "prompt_hashes": [
+          "3ea293701ba0c28028e74cf1600f735de2cba73b5a69835c185460fde770cc89"
+        ]
+      },
+      {
+        "case": "unsupported-purchase-policy",
+        "expected": "block",
+        "outcome": "pass",
+        "status": "rejected_review",
+        "issues": [
+          {
+            "code": "writer_repair_unchanged"
+          },
+          {
+            "code": "commercial_obligation_violated",
+            "kind": "commercial_content",
+            "obligation_id": "business_scope",
+            "sentence_ids": [
+              "S1"
+            ],
+            "reason": "El borrador afirma la ausencia total de restricciones y documentación adicional para compras desde el extranjero sin citar política o normativa que lo respalde, lo que excede el alcance del proyecto y las negativas del cliente.",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          },
+          {
+            "index": 0,
+            "subject": "comprar desde Portugal sin ninguna restricción ni documentación adicional",
+            "fragment": "Puede reservar y comprar desde Portugal sin ninguna restricción ni documentación adicional.",
+            "code": "claim_unsupported",
+            "kind": "commercial_content",
+            "owner": "reviewer",
+            "repair_owner": "writer"
+          }
+        ],
+        "review_fidelity": {
+          "status": "not_required",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 18535,
+          "cachedInputTokens": 8448,
+          "outputTokens": 1600,
+          "totalTokens": 20135,
+          "estimatedUsd": 0.00593295,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 12709,
+        "prompt_hashes": [
+          "af57b44298ffb1c86141de4e9b476e327096d23ce91979d4ad1e07ad9a408f45",
+          "88df46c9457ec76beebe2a31e55b6c4f766db64e99d5a003a659ea76e8be040b"
+        ]
+      }
+    ]
+  },
+  "writer_smoke": {
+    "report_file": ".tmp-review-verified-writer.json",
+    "generated_at": "2026-10-01T05:13:14.931Z",
+    "model": "gpt-5-mini",
+    "reviewer_reasoning_effort": "low",
+    "fixtures_sha256": "f93c033286cc8e3a74bc197536dfe99df05d38a63b4d38109f34142cc353c9ad",
+    "totals": {
+      "calls": 6,
+      "measuredCalls": 6,
+      "pricedCalls": 6,
+      "inputTokens": 50222,
+      "cachedInputTokens": 0,
+      "outputTokens": 8633,
+      "totalTokens": 58855,
+      "estimatedUsd": 0.08116350000000001,
+      "priceVersion": "2026-09-29 y 2026-09-30",
+      "priceSnapshots": [
+        {
+          "model": "gpt-4.1",
+          "version": "2026-09-29",
+          "source": null
+        },
+        {
+          "model": "gpt-5-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+        }
+      ],
+      "complete": true
+    },
+    "model_costs": {
+      "gpt-4.1": {
+        "calls": 3,
+        "measuredCalls": 3,
+        "pricedCalls": 3,
+        "inputTokens": 27120,
+        "cachedInputTokens": 0,
+        "outputTokens": 647,
+        "totalTokens": 27767,
+        "estimatedUsd": 0.059416000000000004,
+        "priceVersion": "2026-09-29",
+        "priceSnapshots": [
+          {
+            "model": "gpt-4.1",
+            "version": "2026-09-29",
+            "source": null
+          }
+        ],
+        "complete": true
+      },
+      "gpt-5-mini": {
+        "calls": 3,
+        "measuredCalls": 3,
+        "pricedCalls": 3,
+        "inputTokens": 23102,
+        "cachedInputTokens": 0,
+        "outputTokens": 7986,
+        "totalTokens": 31088,
+        "estimatedUsd": 0.0217475,
+        "priceVersion": "2026-09-30",
+        "priceSnapshots": [
+          {
+            "model": "gpt-5-mini",
+            "version": "2026-09-30",
+            "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+          }
+        ],
+        "complete": true
+      }
+    },
+    "database_reads": 0,
+    "database_writes": 0,
+    "outbound_sends": 0,
+    "runs": [
+      {
+        "case": "greeting-1753",
+        "expected": "human_review",
+        "outcome": "generated_checked",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "not_run",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 13075,
+          "cachedInputTokens": 0,
+          "outputTokens": 1881,
+          "totalTokens": 14956,
+          "estimatedUsd": 0.02201625,
+          "priceVersion": "2026-09-29 y 2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-4.1",
+              "version": "2026-09-29",
+              "source": null
+            },
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 14737,
+        "generated_reply": "La Vilet es un proyecto inmobiliario ubicado en Puertas del Sol, Cuenca, un sector residencial consolidado con gran conectividad y servicios cercanos. ¿Podría indicarme su nombre y ciudad de residencia? Así le enviaré el brochure y una guía personalizada sobre el proyecto.",
+        "final_reply": "La Vilet es un proyecto inmobiliario ubicado en Puertas del Sol, Cuenca, un sector residencial consolidado con gran conectividad y servicios cercanos. ¿Podría indicarme su nombre y ciudad de residencia? Así le enviaré el brochure y una guía personalizada sobre el proyecto.",
+        "prompt_hashes": [
+          "121eaa251b81bfcc87432799e857f0817a5f760082c1e2e413d85230a37f7cee",
+          "56c0a6f26eaf183132ebac40947e4793c4192aa2a346531e4bd8f1a17ba80149"
+        ]
+      },
+      {
+        "case": "exact-price-floor",
+        "expected": "human_review",
+        "outcome": "generated_checked",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "not_run",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 18618,
+          "cachedInputTokens": 0,
+          "outputTokens": 3994,
+          "totalTokens": 22612,
+          "estimatedUsd": 0.03118525,
+          "priceVersion": "2026-09-29 y 2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-4.1",
+              "version": "2026-09-29",
+              "source": null
+            },
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 28176,
+        "generated_reply": "El precio referencial de lanzamiento para los penthouses disponibles, tanto el de 2 dormitorios (unidad 601) como el de 3 dormitorios (unidad 602), es de $550,000 USD cada uno, sujeto a cambios. ¿Le gustaría obtener más información sobre alguno de ellos o detalles de sus características?",
+        "final_reply": "El precio referencial de lanzamiento para los penthouses disponibles, tanto el de 2 dormitorios (unidad 601) como el de 3 dormitorios (unidad 602), es de $550,000 USD cada uno, sujeto a cambios. ¿Le gustaría obtener más información sobre alguno de ellos o detalles de sus características?",
+        "prompt_hashes": [
+          "26e9a210bbd4765a44060a6b813385a65c9296b1ef5ae8818835ce54388b005d",
+          "9e7c05ab8899a3566701e972a0c317e341a36fdbe436d7bfa5030f703df3b31a"
+        ]
+      },
+      {
+        "case": "family-guidance",
+        "expected": "human_review",
+        "outcome": "generated_checked",
+        "status": "checked",
+        "issues": [],
+        "review_fidelity": {
+          "status": "not_run",
+          "issues": []
+        },
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 18529,
+          "cachedInputTokens": 0,
+          "outputTokens": 2758,
+          "totalTokens": 21287,
+          "estimatedUsd": 0.027962,
+          "priceVersion": "2026-09-29 y 2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-4.1",
+              "version": "2026-09-29",
+              "source": null
+            },
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "elapsed_ms": 18835,
+        "generated_reply": "Cada departamento de 3 dormitorios tiene 120.83 m² interiores y 2 baños completos. Para una familia de seis, podrían compartir habitaciones o considerar la distribución según las edades y preferencias. Si buscan mayor amplitud, hay un penthouse de 3 dormitorios con 142.09 m². ¿Desean ver la distribución interna de alguna opción?",
+        "final_reply": "Cada departamento de 3 dormitorios tiene 120.83 m² interiores y 2 baños completos. Para una familia de seis, podrían compartir habitaciones o considerar la distribución según las edades y preferencias. Si buscan mayor amplitud, hay un penthouse de 3 dormitorios con 142.09 m². ¿Desean ver la distribución interna de alguna opción?",
+        "prompt_hashes": [
+          "880dd3db58726edaea8e8e4fad5dd3ee32ec67d489bc90677f12ee3659bd4048",
+          "7ddce0e6e69337c9098de6a07574dca560622ac12e186cd0e2e72a7ea6a9a127"
+        ]
+      }
+    ]
+  }
+}

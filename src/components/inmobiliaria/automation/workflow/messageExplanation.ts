@@ -1,5 +1,5 @@
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
-import { repairBudgetFacts, repairTargetLabel, reviewDecision } from './reviewDecision'
+import { repairBudgetFacts, repairTargetLabel, reviewDecision, reviewOwnerLabel, reviewObligationLabel, reviewIssueLabels } from './reviewDecision'
 
 type Row = Record<string, unknown>
 export type ExplanationFact = { label: string; value: string }
@@ -61,6 +61,7 @@ const labels: Record<string, string> = {
   bedrooms_any: 'Cantidades de dormitorios admitidas',
 }
 const values: Record<string, string> = {
+  ...reviewIssueLabels,
   request_reservation: 'Solicitar el inicio de una reserva con un asesor', ask_reservation: 'Consultar los requisitos o pasos de una reserva',
   reservation_handoff: 'Solicitar reserva y tramitar atención con un asesor', reservation_information: 'Información del proceso de reserva',
   current_reservation: 'Solicitud de reserva interpretada en el mensaje actual', extractor: 'Interpretación del extractor', lexical_fallback: 'Interpretación de respaldo por texto',
@@ -406,6 +407,35 @@ function editorialSections(output: Row): ExplanationSection[] {
   ]
 }
 
+function focusedReviewSections(output: Row): ExplanationSection[] {
+  const review = row(output.semantic_review)
+  if (review.review_contract !== 'focused-review-v1') return []
+  const coverage = row(review.coverage)
+  const references = rows(review.sentence_references)
+  const segments = (value: unknown) => !Array.isArray(value) ? 'No conservado en el registro.' : value.length === 0 ? 'Ninguno registrado.'
+    : value.filter(item => typeof item === 'string').map(id => {
+      const reference = references.find(item => item.id === id)
+      return reference && str(reference.text) ? `${id}: «${str(reference.text)}»` : `${id} (texto no conservado)`
+    }).join('\n')
+  const obligations = rows(review.obligation_checks)
+  const details = rows(review.validation_details)
+  const verdicts: Record<string, string> = { met: 'Cumplida según el revisor', violated: 'Incumplimiento señalado por el revisor', pending: 'Comprobación pendiente; no acredita un incumplimiento' }
+  return [{ title: 'Alcance y responsables de la revisión',
+    description: 'El revisor IA comprueba hechos del negocio, promesas y obligaciones comerciales del turno. El sistema contrasta datos exactos y aplica la decisión. Una revisión registrada no equivale a una aprobación ni a un envío.',
+    facts: [
+      fact('Segmentos con revisión registrada', segments(coverage.reviewed_sentence_ids)),
+      fact('Segmentos sin hechos del negocio según el revisor', segments(coverage.non_factual_sentence_ids)),
+      fact('Segmentos pendientes de comprobación', segments(coverage.pending_sentence_ids)),
+      ...details.map(detail => fact('Control y responsables', `${humanValue(detail.code) || 'Control no identificado'}. Responsable registrado: ${reviewOwnerLabel(detail.owner)}. Encargado de corregir: ${reviewOwnerLabel(detail.repair_owner)}.${str(detail.reason) ? ` Motivo registrado: ${str(detail.reason)}` : ''}`)),
+    ],
+  }, { title: 'Obligaciones comerciales comprobadas',
+    description: 'Se muestran solamente las obligaciones de esta ejecución. Una comprobación pendiente es distinta de un incumplimiento identificado.',
+    facts: Array.isArray(review.obligation_checks) ? obligations.length ? obligations.map(check => fact(reviewObligationLabel(check.id),
+      `${verdicts[str(check.verdict)] || 'Resultado no conservado'}.${str(check.reason) ? ` ${str(check.reason)}` : ''}${Array.isArray(check.sentence_ids) && check.sentence_ids.length ? ` Segmentos: ${segments(check.sentence_ids)}` : ''}`))
+      : [fact('Obligaciones registradas', 'No se registraron comprobaciones de obligaciones en este paso.')] : [fact('Obligaciones registradas', 'Este registro no conserva las comprobaciones de obligaciones.')],
+  }]
+}
+
 function interestDecisionFacts(output: Row): ExplanationFact[] {
   const sources: Record<string, string> = { apply_lead_events: 'Resultado conservado del motor de puntaje', no_new_signals: 'Evaluación sin nuevas señales comerciales', historical_snapshot: 'Reconstrucción desde la evidencia y las reglas originales, sin volver a puntuar', legacy_without_receipt: 'Registro anterior sin resultado de decisión disponible' }
   return [
@@ -488,6 +518,7 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
     ...interpretationSections(row(output.resolved_turn_intent).interpretation || output.interpretation),
     ...reservationSections(output.reservation, snapshots, output.operational_action_verified),
     ...editorialSections(output),
+    ...focusedReviewSections(output),
     ...leadProfileSections(row(output.profile_introduction).profile_state, output.profile_introduction),
     ...progressiveSelectionSections(output, snapshots),
     ...transformationSections(output),
@@ -534,9 +565,12 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
       { label: 'Afirmaciones contrastadas', value: output.semantic_review ? humanValue(output.semantic_review) : 'Este registro no incluye revisión por afirmaciones.' },
     ] },
     { title: 'Intento de reparación', description: 'Distingue la corrección del mensaje comercial de la reparación de una ficha interna. Los límites se muestran solo cuando quedaron registrados; no se deduce el destino de intentos históricos.', facts: [
-      ...(attempts.length ? attempts.map((attempt, index) => ({
+      ...(attempts.length ? attempts.flatMap((attempt, index) => [{
         label: `Intento ${index + 1} · ${repairTargetLabel(attempt.target)}`, value: `Error inicial: ${humanValue(attempt.status)}. Controles: ${humanValue(attempt.issues)}. Resultado final: ${attempt.final_status ? humanValue(attempt.final_status) : 'No registrado; consulte el resultado general de este paso.'}${attempt.failure ? ` Fallo de la reparación: ${humanValue(attempt.failure)}.` : ''}`,
-      })) : [{ label: 'Reparaciones registradas', value: 'No se registró ningún intento de reparación en esta ejecución.' }]),
+      }, ...(Array.isArray(attempt.focused_sentence_ids) ? [fact(`Intento ${index + 1} · Segmentos por reparar`, attempt.focused_sentence_ids.filter(item => typeof item === 'string').join(', ') || 'Ninguno registrado.')] : []),
+      ...(Array.isArray(attempt.preserved_sentence_ids) ? [fact(`Intento ${index + 1} · Revisiones conservadas`, attempt.preserved_sentence_ids.filter(item => typeof item === 'string').join(', ') || 'Ninguna registrada.')] : []),
+      ...(str(attempt.repair_owner) ? [fact(`Intento ${index + 1} · Encargado de corregir`, reviewOwnerLabel(attempt.repair_owner))] : []),
+      ]) : [{ label: 'Reparaciones registradas', value: 'No se registró ningún intento de reparación en esta ejecución.' }]),
       { label: 'Resumen de reparaciones', value: decision.repair },
       ...repairBudgetFacts(output),
     ] },

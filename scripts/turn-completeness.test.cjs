@@ -36,19 +36,26 @@ test('published business policies reach writer and reviewer with the same versio
     ...emptyPolicy(), title: 'Información a distancia', content: reply, scope: 'Solo información, sin confirmar condiciones de compra.', source: 'Equipo comercial',
   } }, 'admin', '2026-09-30T16:00:00Z')
   const policies = publishedBusinessPolicies(stored, 'preventa', '2026-09-30T16:00:00Z')
-  let calls = 0
+  let calls = 0, modelAssertionError
   const result = await completeTurnReply({ current, baseReply: reply, verified: { politicas_negocio: policies }, audit: { semantic_review_enabled: true } }, async (instructions, context) => {
+    try {
     calls++
     assert.deepEqual(context.contexto_verificado.politicas_negocio, policies)
-    assert.match(instructions, /Residencia en el extranjero y nacionalidad son conceptos distintos/)
-    if (calls === 1) return { reply, requests: [covered(current)], question: noQuestion }
+    if (calls === 1) {
+      assert.match(instructions, /Residencia en el extranjero y nacionalidad son conceptos distintos/)
+      return { reply, requests: [covered(current)], question: noQuestion }
+    }
+    assert.match(instructions, /Respalde garantías, requisitos y condiciones en las políticas/)
     const source = context.evidencia_afirmaciones.find(item => item.path === 'contexto_verificado.politicas_negocio.0')
-    assert.equal(source.value.version, 1)
+    assert.deepEqual(source.value, { ref: 'contexto_verificado.politicas_negocio.0' })
+    assert.equal(context.contexto_verificado.politicas_negocio[0].version, 1)
     return { ...approved, question: { ...noQuestion, clarifies: [] }, review_issues: [], claims: [{ fragment: 'S1', subject: 'Información a distancia',
       polarity: 'affirmation', claim_kind: 'project_fact', verdict: 'supported', evidence: 'Política publicada de información a distancia',
       evidence_source: 'verified_context', evidence_ids: [source.id] }] }
+    } catch (error) { modelAssertionError = error; throw error }
   })
-  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit.semantic_review))
+  if (modelAssertionError) throw modelAssertionError
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, reply)
   assert.equal(calls, 2)
   assert.deepEqual(result.audit.business_policy_sources, policies)
@@ -1171,7 +1178,8 @@ test('empty search retains verified alternatives for writer, reviewer, aggregate
  assert.deepEqual(evidence.query_result_ids,[]);assert.deepEqual(evidence.alternative_ids,units.map(u=>u.id));
  assert.equal(evidence.groups.find(g=>g.id==='group:penthouse:3:max').area_internal_m2,142.09);
  assert.equal(evidence.groups.find(g=>g.id==='group:penthouse:3:min').area_internal_m2,140.53);
- for(const call of mock.calls) assert.deepEqual(call[1].evidencia_turno.units.map(u=>u.id),units.map(u=>u.unit_number));
+ for(const call of mock.calls) assert.deepEqual(call[1].evidencia_turno.units.map(u=>u.id),
+  units.map(u=>call[6]==='review'?u.id:u.unit_number));
 });
 
 test('reference normalization never changes numbers or resolves ambiguous unit numbers', () => {
@@ -1292,7 +1300,7 @@ test('current authorized price quote supplies exact ranges despite unpriced or u
  const groups=mock.calls[1][1].evidencia_turno.groups;
  assert.equal(groups.find(group=>group.id==='group:context:all:range').published_commercial_price,undefined);
  const quoted=groups.find(group=>group.id==='group:price_quote:all:range');
- assert.deepEqual(quoted.member_ids,['101','605']);
+ assert.deepEqual(quoted.member_ids,['priced-low','priced-high']);
  assert.equal(quoted.published_commercial_price,145000);
  assert.equal(quoted.upper_values.published_commercial_price,550000);
  assert.equal(quoted.source_scope,'current_price_quote');

@@ -3,6 +3,7 @@ import test from 'node:test'
 import { compactTurnPromptContext } from './turn-prompt-context'
 import { normalizeReviewReferences } from './turn-evidence'
 import { factualValueIssues } from './semantic-review'
+import { structuredReviewSchema } from './structured-facts'
 
 test('prompt projection keeps one authoritative catalog and preserves every unit and range', () => {
   const units = Array.from({ length: 65 }, (_, index) => ({
@@ -50,6 +51,34 @@ test('model unit aliases resolve back to exact catalog identity and still reject
   }
 })
 
+test('reviewer projection retains source UUIDs consistent with its strict factual schema', () => {
+  const units = [
+    { id: '7e14b9fb-a318-43f2-9f8d-475be12140d1', unit_number: '202', published_commercial_price: 250000 },
+    { id: '3a27abf1-a424-44a1-bdcd-7a893af3672c', unit_number: '302', published_commercial_price: 290000 },
+  ]
+  const group = { id: 'group:departamento:all:range', aggregation: 'range', member_ids: units.map(unit => unit.id),
+    published_commercial_price: 250000, upper_values: { published_commercial_price: 290000 } }
+  const context = { evidencia_turno: { units, groups: [group] }, contexto_verificado: { catalogo: units },
+    evidencia_afirmaciones: units.map((unit, index) => ({ id: `E${index + 1}`, kind: 'project_fact',
+      path: `evidencia_turno.units.${index}`, reference_id: unit.id, reference_label: unit.unit_number })) }
+  const schema = structuredReviewSchema({ properties: {}, required: [] }, ['S1'], [...units, group], [])
+  const projected = compactTurnPromptContext(context, { preserveUnitIds: true }) as typeof context
+  const values = (schema.properties as Record<string, { items: { anyOf: { properties: { unit_id: { enum: string[] } } }[] } }>).factual_values
+  const allowed = new Set(values.items.anyOf.flatMap(variant => variant.properties.unit_id.enum))
+  assert.deepEqual(projected.evidencia_turno.units, units)
+  assert.deepEqual(projected.evidencia_turno.groups[0].member_ids, units.map(unit => unit.id))
+  assert.deepEqual(projected.contexto_verificado.catalogo, units.map(unit => ({ unit_ref: unit.id })))
+  for (const [index, unit] of projected.evidencia_turno.units.entries()) {
+    assert.ok(allowed.has(unit.id), 'the model sees the exact identifier accepted by the strict schema')
+    assert.equal(projected.evidencia_afirmaciones[index].reference_id, unit.id)
+    assert.equal(projected.evidencia_afirmaciones[index].reference_label, unit.unit_number)
+    assert.equal(allowed.has(unit.unit_number), false)
+  }
+  assert.ok(allowed.has(projected.evidencia_turno.groups[0].id))
+  assert.deepEqual((compactTurnPromptContext(context).evidencia_turno as typeof context.evidencia_turno).units.map(unit => unit.id),
+    ['202', '302'], 'writer projection still supports compact labels')
+})
+
 test('projection preserves differing evidence and avoids ambiguous identity aliases', () => {
   const units = [{ id: 'unit-a', unit_number: '202', published_commercial_price: 250000 },
     { id: 'unit-b', unit_number: '202', published_commercial_price: 300000 }]
@@ -89,4 +118,26 @@ test('unit aliases never rewrite customer messages or literal review fragments',
   assert.equal(result.respuesta_base, id)
   assert.deepEqual(result.cobertura_propuesta, [{ fragment: id, evidence: id }])
   assert.deepEqual(result.property_context, { selected_ids: ['202'] })
+})
+
+test('source payloads reference identical authoritative facts and preserve missing or conflicting paths', () => {
+  const policy = { id: 'policy-1', text: 'El asesor revisará los requisitos para comprar desde el extranjero.' }
+  const action = { status: 'requested', advisor_assigned: false }
+  const source = { contexto_verificado: { politicas_negocio: [policy] }, estado_operativo: { reservation: action },
+    evidencia_afirmaciones: [
+      { id: 'E1', kind: 'project_fact', path: 'contexto_verificado.politicas_negocio.0', value: policy },
+      { id: 'E2', kind: 'operational_fact', path: 'estado_operativo.reservation', value: action },
+      { id: 'E3', kind: 'project_fact', path: 'contexto_verificado.politicas_negocio.0', value: { ...policy, text: 'Compra aprobada.' } },
+      { id: 'E4', kind: 'project_fact', path: 'contexto_verificado.politicas_negocio.9', value: policy },
+      { id: 'E5', kind: 'project_fact', path: 'materiales_configurados.brochure', value: { url: 'https://example.org/brochure.pdf' } },
+    ] }
+  const original = JSON.stringify(source)
+  const result = compactTurnPromptContext(source)
+  const sources = result.evidencia_afirmaciones as Record<string, unknown>[]
+  assert.deepEqual(sources[0], { ...source.evidencia_afirmaciones[0], value: { ref: 'contexto_verificado.politicas_negocio.0' } })
+  assert.deepEqual(sources[1], { ...source.evidencia_afirmaciones[1], value: { ref: 'estado_operativo.reservation' } })
+  assert.deepEqual(sources.slice(2), source.evidencia_afirmaciones.slice(2))
+  assert.deepEqual(result.contexto_verificado, source.contexto_verificado)
+  assert.deepEqual(result.estado_operativo, source.estado_operativo)
+  assert.equal(JSON.stringify(source), original)
 })

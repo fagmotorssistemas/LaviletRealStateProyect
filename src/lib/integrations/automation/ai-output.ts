@@ -37,7 +37,22 @@ export function aiOutputBudget(schema: unknown, task: string, input: unknown): n
     return total + numericValues * Math.max(1, namedUnits)
   }, 0))
   const claims = Math.min(16, sentences.length)
-  const allowance = 1600 + claims * 140 + Math.ceil(draft.length / 2) + relations * 170
+  const baseAllowance = 1600 + claims * 140 + Math.ceil(draft.length / 2) + relations * 170
+  const contractVersions = row(properties.review_contract).enum
+  const focused = Array.isArray(contractVersions) && contractVersions.includes('focused-review-v1')
+  const count = (value: unknown, limit: number) => Array.isArray(value) ? Math.min(limit, value.length) : 0
+  // The focused contract adds one classification for every numeric reference,
+  // one verdict per active obligation, and explicit resolutions during repair.
+  // These required output rows caused a measured 2200-token truncation despite
+  // a short draft. Reserve for the rows, not for unused catalogue evidence.
+  // A real two-attribute review exhausted 2750 tokens (320 reasoning tokens).
+  // Leave bounded completion room for factual rows and their explanations;
+  // reserved output is a ceiling, not automatically consumed or billed.
+  const focusedRows = focused ? count(data.referencias_numericas, 80) * 110
+    + count(data.obligaciones_aplicables, 24) * 70
+    + count(row(row(data.reparacion_revision).ficha_anterior).claims, 80) * 90
+    + count(row(row(data.reparacion_revision).ficha_anterior).pending_checks, 80) * 90 : 0
+  const allowance = focused ? Math.max(3500, baseAllowance) + focusedRows : baseAllowance
   return Math.min(12000, Math.max(2200, Math.ceil(allowance / 250) * 250))
 }
 

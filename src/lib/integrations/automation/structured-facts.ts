@@ -49,8 +49,12 @@ export function structuredFactIssues(input: unknown, catalog: Row[]): Row[] {
     } else {
       if (source.aggregation === 'min' && !['eq', 'gte'].includes(text(fact.operator))
         || source.aggregation === 'max' && !['eq', 'lte'].includes(text(fact.operator))) return fail('aggregate_operator_mismatch')
+      // Structured business values are exact. The tolerance retained by legacy
+      // prose helpers must never permit rounding an interpreted catalogue fact.
+      const matches = fact.operator === 'eq' ? expected === fact.value
+        : satisfiesNumeric(expected, fact.value, fact.operator, fact.upper_value)
       if ((source.aggregation && fact.value !== expected)
-        || !satisfiesNumeric(expected, fact.value, fact.operator, fact.upper_value)) return fail('catalog_value_mismatch', 'catalog_data')
+        || !matches) return fail('catalog_value_mismatch', 'catalog_data')
     }
     return []
   })

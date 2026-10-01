@@ -1,11 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 import type { AutomationExecutionTrace } from './execution-trace'
-import { aiRequestRole } from './ai-model-routing'
+import { aiRequestRole, type ReviewReasoningEffort } from './ai-model-routing'
 import type { ModelResponseDiagnostics } from './ai-output'
 
 type Context = { trace: AutomationExecutionTrace; calls: number }
-type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
+type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: number;
+  input_tokens_details?: { cached_tokens?: number }; output_tokens_details?: { reasoning_tokens?: number } }
 const active = new AsyncLocalStorage<Context>()
 
 export function recordDraftDecision(reply: string, attempt: number, approved: boolean, review: unknown, codeIssues: string[]) {
@@ -24,7 +25,7 @@ export function withAIExecutionTrace<T>(trace: AutomationExecutionTrace, work: (
 }
 
 /** Hash actual composed instructions; retain protected writer inputs for diagnosis. */
-export function beginModelTrace(instructions: string, model: string, task: string, input?: unknown, schema?: unknown, attachments = false, outputBudget?: number) {
+export function beginModelTrace(instructions: string, model: string, task: string, input?: unknown, schema?: unknown, attachments = false, outputBudget?: number, reasoningEffort?: ReviewReasoningEffort) {
   const context = active.getStore()
   if (!context) return { finish: (_error?: unknown, _usage?: Usage, _result?: unknown, _diagnostics?: ModelResponseDiagnostics) => { void _error; void _usage; void _result; void _diagnostics } }
   const role = aiRequestRole(schema, task, attachments)
@@ -35,12 +36,16 @@ export function beginModelTrace(instructions: string, model: string, task: strin
   const order = context.trace.start('model_request', purpose, 'ai', 'ai.ts', {
     task, ai_role: role, model, attachments_omitted: attachments, prompt_revision: revision, ...(parent ? { caused_by_step: parent } : {}),
     ...(outputBudget !== undefined ? { configured_max_output_tokens: outputBudget } : {}),
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     prompt_snapshot: { instructions, user_prefix: 'Responda en JSON. Datos de entrada:\n', data: input, response_schema: schema },
   })
   return { finish: (error?: unknown, usage?: Usage, result?: unknown, diagnostics?: ModelResponseDiagnostics) => context.trace.finish(order, error ? 'failed' : 'succeeded', {
     model, prompt_revision: revision, task, result: error ? 'failed' : 'structured_result_received',
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     ...(result !== undefined ? { output_snapshot: { data: result } } : {}),
     ...(diagnostics ? { provider_diagnostics: diagnostics } : {}),
-    ...(usage ? { token_usage: { input_tokens: usage.input_tokens ?? null, output_tokens: usage.output_tokens ?? null, total_tokens: usage.total_tokens ?? null, cached_input_tokens: usage.input_tokens_details?.cached_tokens ?? null } } : {}),
+    ...(usage ? { token_usage: { input_tokens: usage.input_tokens ?? null, output_tokens: usage.output_tokens ?? null,
+      total_tokens: usage.total_tokens ?? null, cached_input_tokens: usage.input_tokens_details?.cached_tokens ?? null,
+      ...(usage.output_tokens_details?.reasoning_tokens !== undefined ? { reasoning_tokens: usage.output_tokens_details.reasoning_tokens } : {}) } } : {}),
   }, error) }
 }

@@ -62,7 +62,9 @@ test('residential continuation accepts approved prose despite the old paraphrase
     assert.deepEqual(result.audit.repair_attempts, [])
     assert.equal(mock.calls.length, 2)
     assert.ok(!result.audit.question.clarifies.includes('busca un departamento para vivir'))
-    assert.deepEqual(mock.calls[1][2].properties.question.properties.clarifies_request_ids.items.enum, ['R1'])
+    assert.equal(mock.calls[1][2].properties.question, undefined, 'The factual reviewer no longer repeats writer question metadata')
+    assert.ok(mock.calls[1][2].required.includes('review_contract'))
+    assert.deepEqual(mock.calls[1][1].referencias_solicitud.map(row => row.id), ['R1'])
   }
 })
 
@@ -185,7 +187,7 @@ test('foreign-residence reply with brochure gets an empty numeric review despite
   const reply = 'Mucho gusto, Carlos. Puede revisar la información desde Colombia. Le comparto el brochure: https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf. Podemos brindarle una guía personalizada.'
   const question = { purpose: 'none', missing_datum: '', next_decision: '' }
   const mock = sequence({ reply, requests: [covered(message)], question }, (_rules, context, schema) => {
-    assert.deepEqual(context.cifras_del_borrador, [])
+    assert.equal(context.cifras_del_borrador, undefined, 'The focused reviewer extracts the actual assertions rather than receiving redundant numeric guesses')
     assert.equal(schema.properties.factual_values.maxItems, 80)
     return { ...approved, question: { ...question, clarifies: [] }, claims: [], factual_values: [] }
   })
@@ -220,9 +222,19 @@ test('a commercial opening repair does not spend the independent reviewer metada
     assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 1 }, review_metadata: { limit: 1, used: 1 } })
     assert.equal(mock.calls[3][1].respuesta_propuesta, goodReply)
     assert.equal(mock.calls[4][1].respuesta_propuesta, goodReply)
-    for (const call of [mock.calls[3], mock.calls[4]])
-      for (const variant of call[2].properties.claims.items.anyOf)
+    for (const call of [mock.calls[3], mock.calls[4]]) {
+      const variants = call[2].properties.claims.items.anyOf
+      assert.ok(Array.isArray(variants) && variants.length)
+      for (const variant of variants) {
         assert.deepEqual(variant.properties.fragment.enum, ['S1', 'S2'])
+        const { claim_kind: kinds, verdict: verdicts, evidence_ids: ids } = variant.properties
+        assert.equal(kinds.enum.includes('lead_statement'), false)
+        if (verdicts.enum.includes('supported') && !kinds.enum.includes('contextual_guidance')) {
+          assert.equal(ids.minItems, 1)
+          for (const id of ids.items.enum) assert.ok(call[1].evidencia_afirmaciones.some(source => source.id === id && kinds.enum.includes(source.kind)))
+        } else assert.equal(ids.maxItems, 0)
+      }
+    }
     assert.equal(result.audit.status, repaired ? 'checked' : 'rejected_review', JSON.stringify(result.audit))
     assert.equal(result.needsAdvisor, false)
     if (repaired) {

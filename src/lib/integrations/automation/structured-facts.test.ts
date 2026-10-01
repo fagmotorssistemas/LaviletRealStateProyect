@@ -38,6 +38,30 @@ test('exact field/value/source comparisons do not consume or interpret prose', (
   assert.equal(structuredFactIssues([{...fact('area_internal_m2',120.83,'m2'),unit_id:'invented'}],units)[0].code,'invalid_unit_fact')
 })
 
+test('individual values reject sub-centesimal discrepancies without constraining normalized expression', () => {
+  for (const value of [120.834, 120.826, 120.830001]) {
+    const issues = structuredFactIssues([fact('area_internal_m2', value, 'm2')], units)
+    assert.equal(issues[0].code, 'catalog_value_mismatch')
+    assert.equal(issues[0].kind, 'catalog_data')
+    assert.equal(issues[0].expected, 120.83)
+    assert.equal(issues[0].received, value)
+  }
+  for (const fragment of ['120,83 m²', '120.83 m2', 'ciento veinte coma ochenta y tres metros cuadrados'])
+    assert.deepEqual(structuredFactIssues([{ ...fact('area_internal_m2', 120.83, 'm2'), fragment }], units), [])
+  for (const f of [fact('floor_number', 2.001, 'floor'), fact('published_commercial_price', 250000.004, 'USD')])
+    assert.equal(structuredFactIssues([f], units)[0].code, 'catalog_value_mismatch')
+})
+
+test('numeric inequalities and intervals use exact boundaries without an equality tolerance', () => {
+  const sample = fact('area_internal_m2', 120.83, 'm2')
+  for (const operator of ['gte', 'lte']) assert.deepEqual(structuredFactIssues([{ ...sample, operator }], units), [])
+  for (const operator of ['gt', 'lt']) assert.equal(structuredFactIssues([{ ...sample, operator }], units)[0].code, 'catalog_value_mismatch')
+  assert.deepEqual(structuredFactIssues([{ ...sample, operator: 'between', upper_value: 120.83 }], units), [])
+  for (const change of [{ operator: 'gte', value: 120.834 }, { operator: 'lte', value: 120.826 },
+    { operator: 'between', value: 120.834, upper_value: 121 }, { operator: 'between', value: 120, upper_value: 120.826 }])
+    assert.equal(structuredFactIssues([{ ...sample, ...change }], units)[0].code, 'catalog_value_mismatch')
+})
+
 test('range and extrema must match their exact scoped aggregates', () => {
   const group = {id:'range',aggregation:'range',published_commercial_price:145000,upper_values:{published_commercial_price:550000}}
   const f = {...fact('published_commercial_price',145000,'USD'),unit_id:'range',operator:'between',upper_value:550000}

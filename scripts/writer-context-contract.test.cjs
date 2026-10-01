@@ -21,6 +21,50 @@ const units = [{ id: 'd804', unit_number: '804', category: 'departamento', bedro
   area_internal_m2: 118.4, area_exterior_m2: 15.2, floor_number: 8, published_commercial_price: 320000 }]
 const memory = { mentioned_benefits: ['piscina'], deferred_fields: [] }
 
+test('a verified generic introduction omits units while preserving business and operational evidence', () => {
+  const catalogo = Array.from({ length: 65 }, (_, index) => ({ id: `unit-${index}`, category: 'departamento',
+    published_commercial_price: 250000, bedrooms: 3 }))
+  const intent = { objective: 'project_information', required_facts: [], subject: { category: null,
+    unit_numbers: [], filters: { bedrooms: null, bedrooms_any: [] } }, scope: { kind: 'property' },
+    requests: [{ domain: 'property', confidence: 'high', request: 'esoty interesado en el proyecto' }] }
+  const verified = { catalogo, proyecto: { address: 'Puertas del Sol, Cuenca' },
+    contexto_sector: [{ safe_sales_text: 'Sector residencial consolidado' }],
+    politicas_negocio: [{ id: 'policy', title: 'Compra desde el exterior' }],
+    perfil_lead: { name_status: 'unknown', residence_status: 'unknown' },
+    estado_operativo: { action_result: { status: 'requested' } },
+    semantica_turno: { confidence: 'high', primary_intent: 'project_information', housing_quantities: [],
+      property: { operation: 'none', reference_kind: 'none', filters: { bedrooms: null } } } }
+  const audit = { source: 'project_overview', resolved_turn_intent: intent,
+    profile_introduction: { generic_introduction: true } }
+  const scoped = scopeTurnCatalog(verified, audit)
+  assert.deepEqual(scoped.catalogo, [])
+  assert.equal(scoped.catalog_context_scope.kind, 'project_overview')
+  assert.equal(scoped.catalog_context_scope.catalog_status, 'not_applicable')
+  for (const key of ['proyecto', 'contexto_sector', 'politicas_negocio', 'perfil_lead', 'estado_operativo'])
+    assert.equal(scoped[key], verified[key])
+  assert.equal(verified.catalogo.length, 65, 'saved evidence is not mutated')
+  assert.ok(JSON.stringify(scoped).length < JSON.stringify(verified).length * 0.3)
+
+  for (const change of [{ required_facts: ['price'] }, { objective: 'ask_price' },
+    { requests: [...intent.requests, { domain: 'property', confidence: 'high', request: 'cinco dormitorios' }] },
+    { requests: [{ domain: 'property', confidence: 'medium' }] }, { scope: { kind: 'mixed' } },
+    { subject: { category: 'departamento' } }, { subject: { filters: { bedrooms: 5 } } },
+    { subject: { unit_numbers: ['202'] } }]) {
+    assert.equal(scopeTurnCatalog(verified, { ...audit, resolved_turn_intent: { ...intent, ...change } }), verified)
+  }
+  for (const change of [{ profile_introduction: { generic_introduction: false } }, { verified_catalog: true },
+    { catalog_results: { units: [], complete: true } }, { unit_model: { url: 'https://example.org/tour' } },
+    { source: 'reservation_handoff' }]) assert.equal(scopeTurnCatalog(verified, { ...audit, ...change }), verified)
+  for (const change of [{ limite_alcance: { kind: 'mixed' } }, { property_context: { selected_ids: ['unit-1'] } },
+    { referencia_unidad: { needsClarification: true } },
+    { semantica_turno: { ...verified.semantica_turno, housing_quantities: [{ dimension: 'people', values: [6] }] } },
+    { semantica_turno: { ...verified.semantica_turno, property: { operation: 'details', reference_kind: 'followup' } } },
+    { semantica_turno: { ...verified.semantica_turno, confidence: 'medium' } }]) {
+    const other = { ...verified, ...change }
+    assert.equal(scopeTurnCatalog(other, audit), other)
+  }
+})
+
 test('context scoping retains complete category evidence and preserves mixed or ambiguous requests', () => {
   const catalogo = [{ id: 'p1', category: 'penthouse' }, { id: 'p2', category: 'penthouse' }, { id: 'd1', category: 'departamento' }]
   const verified = { catalogo, politicas_negocio: [{ id: 'policy' }], perfil_lead: { residence_status: 'unknown' } }

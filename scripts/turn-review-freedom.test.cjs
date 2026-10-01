@@ -26,8 +26,9 @@ test('price ranges and equivalent launch disclosures survive the full review pip
   ]
   for (const disclosure of ['Son valores referenciales de lanzamiento y podrían variar.', 'Los valores de lanzamiento son orientativos y están sujetos a modificaciones.']) {
     const reply = `Los precios van desde $145.000 hasta $550.000 USD. ${disclosure}`
-    const mock = sequence(candidate(current, reply), (rules, context, schema) => {
-      assert.match(rules, /podrían variar/)
+    const mock = sequence(candidate(current, reply), (_rules, context, schema) => {
+      assert.ok(context.obligaciones_aplicables.some(rule => rule.id === 'price_conditions'
+        && /cualquier redacción equivalente/.test(rule.instruction)))
       const variants = schema.properties.factual_values.items.anyOf
       assert.ok(variants.every(v => v.properties.upper_value.type === 'null'
         || JSON.stringify(v.properties.operator.enum) === '["between"]'))
@@ -68,14 +69,14 @@ test('semantic policies replace phrase vetoes without waiving a real policy viol
   assert.notEqual(result.reply, reply)
 })
 
-test('personal acknowledgements reach the reviewer and pass with lead evidence, including during a handoff', async () => {
+test('personal acknowledgements reach the focused reviewer without a redundant profile extraction, including during a handoff', async () => {
   const current = 'Me llamo Ernesto y me mudé a Guayaquil'
   for (const reply of ['He registrado su nombre y su residencia en Guayaquil.', 'Tomo nota de sus datos, Ernesto.']) {
     const mock = sequence(candidate(current, reply), (rules, context) => {
-      assert.match(rules, /Reconocer el nombre, residencia/)
-      return { ...approved, claims: [{ fragment: 'S1', subject: 'Datos personales', polarity: 'affirmation',
-        claim_kind: 'lead_statement', verdict: 'supported', evidence: 'Reconoce los datos declarados.',
-        evidence_source: 'lead_declaration', evidence_ids: [context.evidencia_afirmaciones.find(source => source.path === 'mensaje_actual').id] }] }
+      assert.match(rules, /El acuse de datos del perfil es conversación/)
+      return { review_contract: 'focused-review-v1', claims: [], factual_values: [], project_values: [], numeric_checks: [],
+        non_factual_sentence_ids: ['S1'], pending_checks: [],
+        obligation_checks: context.obligaciones_aplicables.map(rule => ({ id: rule.id, verdict: 'met', sentence_ids: ['S1'], reason: 'Acuse de los datos declarados, sin afirmar una gestión comercial.' })) }
     })
     const result = await completeTurnReply({ current, baseReply: 'Gracias.', verified: {},
       audit: { semantic_review_enabled: true, reservation: { handoff_verified: false } } }, mock.generate)
@@ -246,16 +247,19 @@ test('request IDs preserve the exact customer text and a real missing policy rem
     assert.equal(context.referencias_solicitud[0].text, current)
     return { ...candidate(current, reply), question, requests: [{ fragment: 'R1', intent: 'Consultar política',
       request_type: 'specific_fact', status: 'missing_fact', evidence: 'No hay política publicada.', fact_key: 'policy' }] }
-  }, (_rules, _context, schema) => {
-    assert.deepEqual(schema.properties.missing_fact_fragments.items.enum, ['R1'])
-    return { ...approved, question: { ...question, clarifies_request_ids: [] }, missing_fact_fragments: ['R1'] }
+  }, (_rules, context, schema) => {
+    assert.equal(schema.properties.missing_fact_fragments, undefined, 'The reviewer does not reinterpret the writer request inventory')
+    return { review_contract: 'focused-review-v1', claims: [], factual_values: [], project_values: [], numeric_checks: [],
+      non_factual_sentence_ids: ['S1', 'S2'], pending_checks: [],
+      obligation_checks: context.obligaciones_aplicables.map(rule => ({ id: rule.id, verdict: 'met', sentence_ids: [], reason: '' })) }
   })
   const result = await completeTurnReply({ current, baseReply: reply, verified: {}, audit: { semantic_review_enabled: true } }, mock.generate)
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, reply)
   assert.equal(result.needsAdvisor, true)
   assert.deepEqual(result.unresolved, [current])
-  assert.deepEqual(result.audit.missing_fact_fragments, [current])
+  assert.deepEqual(result.audit.missing_fact_fragments, [], 'The focused reviewer no longer duplicates missing-fact detection')
+  assert.deepEqual(result.audit.requests.filter(request => request.status === 'missing_fact').map(request => request.fragment), [current])
   assert.equal(mock.calls.length, 2)
 })
 
@@ -318,7 +322,9 @@ test('family suitability guidance survives the full writer/reviewer/catalogue pi
   assert.equal(mock.calls.length, 2)
   assert.equal(mock.calls[0][1].respuesta_base, undefined)
   assert.equal(mock.calls[0][2].properties.requests.items.required.includes('base_status'), false)
-  assert.equal(mock.calls[1][2].required.includes('review_issues'), true)
+  assert.equal(mock.calls[1][2].required.includes('review_issues'), false)
+  assert.equal(mock.calls[1][2].required.includes('review_contract'), true)
+  assert.equal(mock.calls[1][2].required.includes('pending_checks'), true)
 })
 
 test('an unexplained reviewer veto is repaired as metadata while preserving the draft byte for byte', async () => {
@@ -446,13 +452,17 @@ test('scoped exact area endpoints survive a range citation without another write
     return candidate(current, reply)
   }, (_rules, context, schema) => {
     assert.deepEqual(context.contrato_redaccion.estado_comercial, writerState)
-    assert.ok(schema.properties.claims.items.anyOf.length)
+    const claimKinds = schema.properties.claims.items.anyOf.flatMap(item => item.properties.claim_kind.enum)
+    assert.ok(claimKinds.includes('project_fact'))
+    assert.ok(!claimKinds.includes('lead_statement'))
     const groups = ['group:departamento:2:range', 'group:departamento:3:range']
     return { ...approved, claims: [{ fragment: 'S1', subject: 'Áreas de departamentos por dormitorios', polarity: 'affirmation',
       claim_kind: 'project_fact', verdict: 'supported', evidence: 'Extremos exactos por grupo.', evidence_source: 'verified_context',
       evidence_ids: groups.map(id => context.evidencia_afirmaciones.find(s => s.reference_id === id).id) }],
-    factual_values: groups.map((unit_id, i) => ({ fragment: 'S1', unit_id, field: 'area_internal_m2',
-      value: i ? 120.83 : 109.69, operator: i ? 'lte' : 'gte', upper_value: null, measurement_unit: 'm2' })) }
+    factual_values: [...groups.map((unit_id, i) => ({ fragment: 'S1', unit_id, field: 'area_internal_m2',
+      value: i ? 120.83 : 109.69, operator: i ? 'lte' : 'gte', upper_value: null, measurement_unit: 'm2' })),
+      { fragment: 'S1', unit_id: 'group:departamento:2:min', field: 'bedrooms', value: 2, operator: 'eq', upper_value: null },
+      { fragment: 'S1', unit_id: 'group:departamento:3:max', field: 'bedrooms', value: 3, operator: 'eq', upper_value: null }] }
   })
   const result = await completeTurnReply({ current, baseReply: 'Respuesta base', verified: { catalogo: units,
     perfil_lead: { full_name: 'Nathaly Caballero', residence_city: 'Cuenca', residence_status: 'confirmed',
@@ -462,7 +472,7 @@ test('scoped exact area endpoints survive a range citation without another write
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.deepEqual(result.audit.repair_attempts, [])
   assert.equal(mock.calls.length, 2)
-  assert.deepEqual(result.audit.semantic_review.factual_values.map(f => f.unit_id), ['group:departamento:2:min', 'group:departamento:3:max'])
+  assert.deepEqual(result.audit.semantic_review.factual_values.filter(f => f.field === 'area_internal_m2').map(f => f.unit_id), ['group:departamento:2:min', 'group:departamento:3:max'])
   assert.equal(result.audit.semantic_review.reference_corrections.filter(c => c.code === 'range_endpoint_reference_resolved').length, 2)
 })
 
