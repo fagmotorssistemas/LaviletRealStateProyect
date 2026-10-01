@@ -1,5 +1,19 @@
 'use client'
 
+import { canonicalFinishSlug } from '@/lib/tour/roomScene'
+
+/** Blanco y verde agua: los dos acabados que se muestran en la galería. */
+export function galleryFinishPresentation(slug: string, index: number): { name: string; color: string } {
+  const canonical = canonicalFinishSlug(slug)
+  if (canonical === 'acabado-2' || (canonical == null && index === 1)) {
+    return { name: 'Verde agua', color: '#6ec4b8' }
+  }
+  if (canonical === 'acabado-1' || index === 0) {
+    return { name: 'Blanco', color: '#f4f1eb' }
+  }
+  return { name: `Acabado ${index + 1}`, color: '#d9d2c5' }
+}
+
 /**
  * Estilo de muestra para terminaciones sin swatch_url.
  */

@@ -80,7 +80,7 @@ const TypologyHotspotEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-[420px] items-center justify-center rounded-md bg-[#1a1814] text-sm text-white/70">
+      <div className="flex h-[min(68dvh,720px)] min-h-[520px] items-center justify-center rounded-md bg-[#1a1814] text-sm text-white/70">
         Cargando visor 360°…
       </div>
     ),
@@ -766,23 +766,30 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
               ) : null}
               <div className="space-y-5">
                 {roomSlots.map((item) => {
+                  const isBedroom = item.slug === 'dormitorio' || item.slug.startsWith('dormitorio-')
                   const filled = combos.flatMap((combo) => {
                     const asset = findSlotAsset(item.slug, combo.finish, combo.light)
                     return asset ? [{ combo, asset }] : []
                   })
-                  if (filled.length === 0) return null
+                  const cards = isBedroom
+                    ? combos.map((combo) => ({
+                        combo,
+                        asset: findSlotAsset(item.slug, combo.finish, combo.light) ?? null,
+                      }))
+                    : filled
+                  if (cards.length === 0) return null
                   return (
                   <div key={item.slug} className="space-y-2">
                     <p className="text-sm text-[#3a3d36]">{item.label}</p>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                      {filled.map(({ combo, asset }) => {
+                      {cards.map(({ combo, asset }) => {
                         const slot: SceneSlot = {
                           room: item.slug,
                           finish: combo.finish,
                           light: combo.light,
                           label: combo.label,
                         }
-                        const fallback = Boolean(isLegacySceneFile(asset.file_name, item.slug))
+                        const fallback = Boolean(asset && isLegacySceneFile(asset.file_name, item.slug))
                         const busy = uploadingRoom === `${item.slug}:${combo.finish ?? ''}:${combo.light}`
                         return (
                           <button
@@ -1000,16 +1007,18 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
         {tab === 'puntos' && (
           <TypologyHotspotEditor
             typologyCode={code}
-            rooms={roomSlots.map((item) => ({
-              slug: item.slug,
-              label: item.label,
-              url:
-                combos
-                  .map((combo) => findSlotAsset(item.slug, combo.finish, combo.light)?.public_url)
-                  .find(Boolean) ??
-                findLegacyRoomAsset(assets, item.slug)?.public_url ??
-                (item.slug === TOUR_HOME_SLUG ? catalogPanoUrl : null),
-            }))}
+            rooms={roomSlots
+              .map((item) => ({
+                slug: item.slug,
+                label: item.label,
+                url:
+                  combos
+                    .map((combo) => findSlotAsset(item.slug, combo.finish, combo.light)?.public_url)
+                    .find(Boolean) ??
+                  findLegacyRoomAsset(assets, item.slug)?.public_url ??
+                  (item.slug === TOUR_HOME_SLUG ? catalogPanoUrl : null),
+              }))
+              .filter((item) => Boolean(item.url))}
           />
         )}
 

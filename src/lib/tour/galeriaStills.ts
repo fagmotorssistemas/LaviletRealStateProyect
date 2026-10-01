@@ -27,6 +27,10 @@ export type GaleriaStillsOptions = {
   randomPerRoom?: boolean
   /** Semilla estable para no cambiar la foto al re-render. */
   seed?: number
+  /** Solo la escena exacta de acabado y luz. Si no está, el ambiente no entra. */
+  strict?: boolean
+  /** La etiqueta es el nombre del ambiente, sin día, noche ni acabado. */
+  roomLabelOnly?: boolean
 }
 
 function finishLabel(finishes: TourFinishOption[] | undefined, slug: string | null) {
@@ -138,18 +142,27 @@ export function buildGaleriaStills(
 
     if (!allScenes && (filterFinish != null || filterLight != null)) {
       const light = (filterLight ?? 'dia') as TourLightMode
-      const scene =
-        pickRoomScene(scenes, filterFinish, light) ??
-        (scenes.length
-          ? scenes.find((s) => (filterLight ? s.light === filterLight : true) && finishesMatch(s.finish, filterFinish ?? null))
-          : undefined)
-      const url = pickSceneUrl(scene) ?? scene?.url ?? room.url
+      const exact = scenes.find(
+        (scene) =>
+          Boolean(pickSceneUrl(scene) ?? scene.url) &&
+          (filterLight == null || scene.light === filterLight) &&
+          (filterFinish == null || finishesMatch(scene.finish, filterFinish)),
+      )
+      const scene = options?.strict
+        ? exact
+        : (pickRoomScene(scenes, filterFinish, light) ??
+          (scenes.length
+            ? scenes.find((s) => (filterLight ? s.light === filterLight : true) && finishesMatch(s.finish, filterFinish ?? null))
+            : undefined))
+      const url = pickSceneUrl(scene) ?? scene?.url ?? (options?.strict ? null : room.url)
       if (!url) continue
-      const parts = [
-        room.label,
-        finishLabel(finishes, scene?.finish ?? filterFinish),
-        lightLabel(scene?.light ?? filterLight),
-      ].filter(Boolean)
+      const parts = options?.roomLabelOnly
+        ? [room.label]
+        : [
+            room.label,
+            finishLabel(finishes, scene?.finish ?? filterFinish),
+            lightLabel(scene?.light ?? filterLight),
+          ].filter(Boolean)
       add(`${room.slug}:${filterFinish ?? 'x'}:${filterLight ?? 'x'}`, parts.join(' · ') || room.label, url, {
         roomSlug: room.slug,
         finish: scene?.finish ?? filterFinish,

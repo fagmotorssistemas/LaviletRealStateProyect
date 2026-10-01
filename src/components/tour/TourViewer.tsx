@@ -68,6 +68,7 @@ import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGy
 import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
 import { pickRoomScene, pickSceneUrl, finishesMatch, hasImagesInBothFinishes } from '@/lib/tour/roomScene'
 import { buildGaleriaStills } from '@/lib/tour/galeriaStills'
+import { galleryFinishPresentation } from '@/lib/tour/finishSwatch'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
 import {
   getTourUnitTypeSlug,
@@ -247,7 +248,7 @@ function StillFrame({
 }
 
 type TourViewMode = 'tour' | 'galeria' | 'planos-2d' | 'planos-3d'
-type StillItem = { id: string; label: string; url: string }
+type StillItem = { id: string; label: string; url: string; roomSlug?: string }
 
 function stillLabelFromFile(fileName: string) {
   return fileName
@@ -1744,18 +1745,40 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       if (comparePoseLockRef.current === 'side') comparePoseLockRef.current = null
     })
   }, [])
+  const galleryFinishSlug = finish || catalogFinishes[0]?.slug || null
   const galeriaImages = useMemo(
     () =>
-      buildGaleriaStills(currentTypology, publicCatalog?.finishes, {
-        randomPerRoom: true,
-        seed: galeriaSeed,
+      buildGaleriaStills(currentTypology, catalogFinishes, {
+        finish: galleryOnly ? null : galleryFinishSlug,
+        light: galleryOnly ? null : light,
+        strict: !galleryOnly,
+        roomLabelOnly: !galleryOnly,
         rendersOnly: galleryOnly,
       }).map((item) => ({
         id: item.id,
         label: item.label,
         url: item.url,
+        roomSlug: item.roomSlug,
       })),
-    [currentTypology, publicCatalog?.finishes, galeriaSeed, galleryOnly],
+    [currentTypology, catalogFinishes, galleryFinishSlug, light, galleryOnly],
+  )
+  const galleryPanelRooms = useMemo(() => {
+    const seen = new Set<string>()
+    const rooms: { slug: string; label: string }[] = []
+    for (const item of galeriaImages) {
+      if (!item.roomSlug || seen.has(item.roomSlug)) continue
+      seen.add(item.roomSlug)
+      rooms.push({ slug: item.roomSlug, label: item.label })
+    }
+    return rooms
+  }, [galeriaImages])
+  const galleryFinishOptions = useMemo(
+    () =>
+      catalogFinishes.map((item, index) => {
+        const look = galleryFinishPresentation(item.slug, index)
+        return { slug: item.slug, name: look.name, color: look.color }
+      }),
+    [catalogFinishes],
   )
 
   const galeriaImagesAll = useMemo(
@@ -1898,10 +1921,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     !isFinishCompare &&
     (!isComparador || compareContentMode === 'galeria')
   useEffect(() => {
+    if (viewMode === 'galeria') return
     if (tourRooms.some((item) => item.slug === room)) return
     const aliased = resolveTourRoomSlug(room, tourRooms, (slug) => Boolean(urlForRoom(slug)))
     setRoom(aliased !== room && tourRooms.some((item) => item.slug === aliased) ? aliased : homeSlug)
-  }, [tourRooms, room, homeSlug, urlForRoom])
+  }, [tourRooms, room, homeSlug, urlForRoom, viewMode])
 
   useEffect(() => {
     if (galeriaImages.length === 0) {
@@ -1929,9 +1953,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     const current = galeriaImages[Math.min(galeriaIndex, Math.max(galeriaImages.length - 1, 0))]
     if (!current?.id) return
-    galeriaRoomKeyRef.current = current.id.split(':')[0] ?? current.id
+    galeriaRoomKeyRef.current = current.roomSlug ?? current.id.split(':')[0] ?? current.id
+    if (viewMode === 'galeria' && current.roomSlug && current.roomSlug !== room) {
+      setRoom(current.roomSlug)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar de slide
-  }, [galeriaIndex])
+  }, [galeriaIndex, galeriaImages, viewMode])
   useEffect(() => {
     if (galeriaRoomKeyRef.current || galeriaImages.length === 0) return
     const first = galeriaImages[0]
@@ -1942,8 +1969,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (viewMode !== 'galeria' || galeriaImages.length === 0) return
     const roomKey = galeriaRoomKeyRef.current
     if (!roomKey) return
-    const matched = galeriaImages.findIndex((item) => (item.id.split(':')[0] ?? item.id) === roomKey)
-    if (matched < 0) return
+    const matched = galeriaImages.findIndex(
+      (item) => (item.roomSlug ?? item.id.split(':')[0] ?? item.id) === roomKey,
+    )
+    if (matched < 0) {
+      setGaleriaIndex(0)
+      return
+    }
     setGaleriaIndex((prev) => (prev === matched ? prev : matched))
   }, [finish, light, galeriaImages, viewMode])
 
@@ -2753,7 +2785,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 stepStill(1)
               }}
               onPointerDown={(event) => event.stopPropagation()}
-              className="pointer-events-auto absolute top-1/2 right-[max(0.4rem,env(safe-area-inset-right))] z-[2] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:right-[max(0.5rem,env(safe-area-inset-right))] sm:h-11 sm:w-11"
+              className={cn(
+                'pointer-events-auto absolute top-1/2 z-[2] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:h-11 sm:w-11',
+                terminacionesUiOpen
+                  ? 'right-[min(21rem,calc(100%-2.75rem))]'
+                  : 'right-[max(0.4rem,env(safe-area-inset-right))] sm:right-[max(0.5rem,env(safe-area-inset-right))]',
+              )}
               aria-label={t("Imagen siguiente")}
             >
               <ChevronRight size={20} strokeWidth={2} className="sm:hidden" />
@@ -2953,7 +2990,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   setFichaOpen(false)
                   setFichaExpanded(false)
                   setCompareOpen(false)
-                  setViewMode('tour')
+                  setFinishCompareOpen(false)
+                  setViewMode('galeria')
                   setTerminacionesFocus(true)
                 }}
                 onComparador={() => {
@@ -3116,7 +3154,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                     setFichaOpen(false)
                     setFichaExpanded(false)
                     setCompareOpen(false)
-                    setViewMode('tour')
+                    setFinishCompareOpen(false)
+                    setViewMode('galeria')
                     setTerminacionesFocus(true)
                     setMobilePanel(null)
                   }}
@@ -3314,50 +3353,24 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               setFinishCompareOpen(false)
             }}
             contained={embedded && !immersive}
-            rooms={tourRooms}
+            rooms={galleryPanelRooms}
             room={room}
             onRoomChange={(slug) => {
-              setViewMode('tour')
+              setViewMode('galeria')
               setRoom(slug)
+              const index = galeriaImages.findIndex((item) => item.roomSlug === slug)
+              if (index >= 0) setGaleriaIndex(index)
             }}
-            finishes={sceneFinishes}
-            finish={finish}
+            finishes={galleryFinishOptions}
+            finish={finish || galleryFinishOptions[0]?.slug || ''}
             onFinishChange={(slug) => {
-              setViewMode('tour')
+              setViewMode('galeria')
               onFinish(slug)
             }}
-            compare={isFinishCompare}
-            onCompareChange={(value) => {
-              if (value) {
-                setCompareOpen(false)
-                setCompareUnitBId(null)
-                setViewMode('tour')
-                setFinishCompareSplit(50)
-                const other = sceneFinishes.find((item) => item.slug !== finish)
-                if (other) setFinishRight(other.slug)
-                else if (sceneFinishes[0]) setFinishRight(sceneFinishes[0].slug)
-                setFinishCompareOpen(true)
-                setTerminacionesFocus(true)
-              } else {
-                setFinishCompareOpen(false)
-              }
-            }}
-            finishLeft={finish}
-            finishRight={finishRight || finishRightOption?.slug || finish}
-            onFinishLeftChange={(slug) => {
-              setViewMode('tour')
-              onFinish(slug)
-              if (slug === finishRight) {
-                const other = sceneFinishes.find((item) => item.slug !== slug)
-                if (other) setFinishRight(other.slug)
-              }
-            }}
-            onFinishRightChange={(slug) => {
-              setFinishRight(slug)
-              if (slug === finish) {
-                const other = sceneFinishes.find((item) => item.slug !== slug)
-                if (other) onFinish(other.slug)
-              }
+            light={light}
+            onLightChange={(next) => {
+              setViewMode('galeria')
+              onLight(next)
             }}
           />
         ) : null}
