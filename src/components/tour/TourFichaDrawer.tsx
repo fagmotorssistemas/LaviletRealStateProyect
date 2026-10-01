@@ -150,12 +150,12 @@ function SpecRow({
 
   if (tile) {
     return (
-      <div className="flex h-full min-h-[5.75rem] flex-col justify-between rounded-2xl bg-[#f6f3ee] px-3.5 py-3.5">
-        <span className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.14em] text-[#8a7760] uppercase">
-          {icon ? <span className="text-[#8e7654]">{t(icon)}</span> : null}
+      <div className="flex min-h-[8rem] flex-col justify-between rounded-2xl bg-[#f6f3ee] px-3.5 py-3.5">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold leading-none tracking-normal text-[#8a7760] uppercase">
+          {icon ? <span className="shrink-0 text-[#8e7654]">{t(icon)}</span> : null}
           {t(label)}
         </span>
-        <p className="mt-3 text-[1.05rem] leading-tight font-semibold text-[#1a2744]">{t(value)}</p>
+        <p className="mt-2 text-xl leading-tight font-semibold text-[#1a2744]">{t(value)}</p>
       </div>
     )
   }
@@ -178,12 +178,12 @@ function SpecRow({
 function specIcon(label: string): ReactNode {
   const key = label.toLowerCase()
   if (key.includes('superficie') || key.includes('terraza')) {
-    return <Ruler size={16} strokeWidth={1.6} />
+    return <Ruler size={15} strokeWidth={1.6} />
   }
-  if (key.includes('dormitorio')) return <BedDouble size={16} strokeWidth={1.6} />
-  if (key.includes('baño')) return <Bath size={16} strokeWidth={1.6} />
-  if (key.includes('piso') || key.includes('tipolog')) return <Layers size={16} strokeWidth={1.6} />
-  return <Ruler size={16} strokeWidth={1.6} />
+  if (key.includes('dormitorio')) return <BedDouble size={15} strokeWidth={1.6} />
+  if (key.includes('baño')) return <Bath size={15} strokeWidth={1.6} />
+  if (key.includes('piso') || key.includes('tipolog')) return <Layers size={15} strokeWidth={1.6} />
+  return <Ruler size={15} strokeWidth={1.6} />
 }
 
 function preloadUrl(url: string) {
@@ -667,7 +667,7 @@ export function TourFichaDrawer({
                       {t(" Especificaciones ")}</p>
                   ) : null}
 
-                  <div className={expanded ? 'mt-3' : 'mt-4 grid flex-1 auto-rows-fr grid-cols-2 gap-2.5'}>
+                  <div className={expanded ? 'mt-3' : 'mt-4 grid grid-cols-2 gap-2.5'}>
                     {displayRows.map((row) => (
                       <SpecRow
                         key={row.label}

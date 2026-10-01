@@ -878,6 +878,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const openingPlanFloor = FLOOR_PLAN_LEVELS.find((level) => level.storageKey === 'terraza')?.id ?? 7
   const [planFloor, setPlanFloor] = useState(openingPlanFloor)
   const [planEntryOpen, setPlanEntryOpen] = useState(() => !readUnitQueryParam())
+  const [entryVideo, setEntryVideo] = useState(false)
   const [planMediaReady, setPlanMediaReady] = useState(false)
   const enterRequestedRef = useRef(false)
 
@@ -2583,7 +2584,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
-        onHome={(view)=>{setAmenitiesOpen(false);setLocationOpen(false);setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onHome={(view)=>{setAmenitiesOpen(false);setLocationOpen(false);setEntryVideo(false);setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onAmenities={()=>{setLocationOpen(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onLocation={()=>{setAmenitiesOpen(false);setLocationOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onPick={unit=>{setAmenitiesOpen(false);setLocationOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
@@ -2790,7 +2791,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           contain={isPlanosMode(viewMode)}
           fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
         />
-        {selectedUnit && showStill?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{t(overlayUrl?'Recurso de tipología. No acredita la vista exterior de esta unidad.':'Esta unidad no tiene un recurso disponible para esta vista.')}</p>:null}
+        {selectedUnit && showStill && !overlayUrl?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{t('Esta unidad no tiene un recurso disponible para esta vista.')}</p>:null}
         {viewMode !== 'tour' && stillItems.length > 1 ? (
           <>
             <button
@@ -3779,25 +3780,53 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {planEntryOpen && shellMode === 'plan' ? (
         <div className="absolute inset-0 z-[30] bg-black">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/tour/ingreso.png"
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              if (planMediaReady) {
-                setPlanEntryOpen(false)
-                return
-              }
-              enterRequestedRef.current = true
-            }}
-            className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
-          >
-            {t('Ingresar')}
-          </button>
+          {entryVideo ? (
+            <video
+              src="/tour/ingreso.mp4?v=2560"
+              autoPlay
+              playsInline
+              onEnded={() => {
+                setEntryVideo(false)
+                if (planMediaReady) setPlanEntryOpen(false)
+                else enterRequestedRef.current = true
+              }}
+              onError={() => {
+                setEntryVideo(false)
+                if (planMediaReady) setPlanEntryOpen(false)
+                else enterRequestedRef.current = true
+              }}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/tour/ingreso.png"
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => setEntryVideo(true)}
+                className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
+              >
+                {t('Ingresar')}
+              </button>
+            </>
+          )}
+          {entryVideo ? (
+            <button
+              type="button"
+              onClick={() => {
+                setEntryVideo(false)
+                if (planMediaReady) setPlanEntryOpen(false)
+                else enterRequestedRef.current = true
+              }}
+              className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-10 rounded-full bg-[#29251e]/80 px-4 py-2 text-xs text-[#f7f3ee]"
+            >
+              {t('Saltar')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
