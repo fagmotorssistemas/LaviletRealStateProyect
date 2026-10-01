@@ -36,7 +36,7 @@ import {
   type TourPhoneUnlockIntent,
 } from '@/components/tour/TourPhoneUnlockModal'
 import { TourFloorPlan } from '@/components/tour/TourFloorPlan'
-import { TourComparador, TourFinishLightControls } from '@/components/tour/TourComparador'
+import { TourComparador } from '@/components/tour/TourComparador'
 import { TourFinishCompareOverlay } from '@/components/tour/TourFinishCompareOverlay'
 import type { ComparePanoPose } from '@/components/tour/CompareSidePano'
 import { TourSaveUnitModal } from '@/components/tour/TourSaveUnitModal'
@@ -47,6 +47,7 @@ import { TourFavoritesPanel } from '@/components/tour/TourFavoritesPanel'
 import { TourNavModeModal, type TourNavMode } from '@/components/tour/TourNavModeModal'
 import { TourVoiceAssist } from '@/components/tour/TourVoiceAssist'
 import { ShowroomMenu } from '@/components/tour/ShowroomMenu'
+import { TourAmenitiesGallery } from '@/components/tour/TourAmenitiesGallery'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
@@ -65,7 +66,7 @@ import {
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
 import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
-import { pickRoomScene, pickSceneUrl, finishesMatch } from '@/lib/tour/roomScene'
+import { pickRoomScene, pickSceneUrl, finishesMatch, hasImagesInBothFinishes } from '@/lib/tour/roomScene'
 import { buildGaleriaStills } from '@/lib/tour/galeriaStills'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
 import {
@@ -90,6 +91,7 @@ import {
 } from '@/lib/tour/unitDeepLink'
 import { FLOOR_PLAN_DEFAULT_FLOOR, FLOOR_PLAN_FLOORS, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import { fetchFloorPlanReady, prefetchFloorPlans, warmFloorPlans } from '@/lib/tour/floorPlanClientCache'
+import { preloadStill, warmStills } from '@/lib/tour/stillPreload'
 import { isGalleryOnlyTypology } from '@/lib/tour/localesTypology'
 import { normalizeUnitCategory } from '@/types/inmobiliaria'
 import type {
@@ -164,8 +166,7 @@ function CrossfadeStill({
       setPrevious(null)
       return
     }
-    const preload = new Image()
-    preload.src = url
+    void preloadStill(url)
     setCurrent((prev) => {
       if (prev === url) return prev
       setPrevious(prev)
@@ -232,6 +233,8 @@ function StillFrame({
         src={src}
         alt={t(alt)}
         draggable={false}
+        decoding="async"
+        fetchPriority="high"
         className={cn(
             contain
               ? 'h-full w-full object-contain object-center'
@@ -462,6 +465,7 @@ function modeButtonsForView(input: {
   viewMode: TourViewMode
   terminacionesFocus: boolean
   galleryOnly?: boolean
+  showTerminaciones?: boolean
 }): {
   galeria: boolean
   planos: boolean
@@ -479,16 +483,16 @@ function modeButtonsForView(input: {
   if (input.terminacionesFocus) {
     return { galeria: false, planos: false, tour: true, terminaciones: true, comparador: false }
   }
-  // Galería: comparador galería↔galería (sin terminaciones).
+  // Galería: terminaciones solo si los dos acabados tienen imagen.
   if (input.viewMode === 'galeria') {
-    return { galeria: true, planos: false, tour: true, terminaciones: false, comparador: true }
+    return { galeria: true, planos: false, tour: true, terminaciones: Boolean(input.showTerminaciones), comparador: true }
   }
   // Planos tipología (stills): no mezclar con menú de modos del edificio.
   if (isPlanosMode(input.viewMode)) {
     return { galeria: true, planos: false, tour: true, terminaciones: false, comparador: false }
   }
-  // Tour 360°: todo lo del recorrido (sin planos tipología en el menú).
-  return { galeria: true, planos: false, tour: true, terminaciones: true, comparador: true }
+  // Tour 360°: terminaciones solo si los dos acabados tienen 360.
+  return { galeria: true, planos: false, tour: true, terminaciones: Boolean(input.showTerminaciones), comparador: true }
 }
 
 
@@ -843,6 +847,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
   const [fichaOpen, setFichaOpen] = useState(() => Boolean(readUnitQueryParam()))
+  const [amenitiesOpen, setAmenitiesOpen] = useState(false)
   const [showroomReady, setShowroomReady] = useState(false)
   const [fichaExpanded, setFichaExpanded] = useState(() => Boolean(readUnitQueryParam()))
   const [simulatorOpen, setSimulatorOpen] = useState(false)
@@ -1511,11 +1516,19 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const galleryOnly =
     isGalleryOnlyTypology(currentTypology) ||
     normalizeUnitCategory(selectedUnit?.category) === 'local'
+  const catalogFinishes = publicCatalog?.finishes?.length
+    ? publicCatalog.finishes
+    : catalog?.finishes ?? []
+  const terminacionesReady = hasImagesInBothFinishes(
+    viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms,
+    catalogFinishes,
+  )
   const modeButtons = modeButtonsForView({
     shellMode,
     viewMode,
     terminacionesFocus,
     galleryOnly,
+    showTerminaciones: terminacionesReady,
   })
 
   const tourRooms = useMemo(() => {
@@ -1541,6 +1554,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (terminacionesFocus) setTerminacionesFocus(false)
     if (navChooserOpen) setNavChooserOpen(false)
   }, [galleryOnly, shellMode, viewMode, compareOpen, finishCompareOpen, terminacionesFocus, navChooserOpen])
+
+  useEffect(() => {
+    if (terminacionesReady) return
+    if (terminacionesFocus) setTerminacionesFocus(false)
+    if (finishCompareOpen) setFinishCompareOpen(false)
+  }, [terminacionesReady, terminacionesFocus, finishCompareOpen])
 
   const photoBySlug = useMemo(() => {
     const map: Record<string, string | null> = {}
@@ -1779,6 +1798,37 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       })),
     [galeriaImagesAll],
   )
+
+  const warmTypologyStills = useCallback(
+    (unit: TourUnitSummary) => {
+      const code = (unit.typology_code || '').trim()
+      const typeId = unit.unit_type_id ?? null
+      const typologies = publicCatalog?.typologies ?? []
+      const typ =
+        (typeId ? typologies.find((item) => item.id === typeId) : null) ??
+        typologies.find((item) => item.code === code) ??
+        (code && code === selectedTypology ? currentTypology : null)
+      if (!typ) return
+      const stills = buildGaleriaStills(typ, publicCatalog?.finishes, {
+        allScenes: true,
+        rendersOnly: isGalleryOnlyTypology(typ),
+      })
+      const urls = stills.map((item) => item.url)
+      warmStills(urls.slice(0, 4))
+    },
+    [publicCatalog, selectedTypology, currentTypology],
+  )
+
+  useEffect(() => {
+    if (!fichaOpen && shellMode !== 'unit') return
+    const urls = [
+      ...fichaImages.map((item) => item.url),
+      ...planoImages.map((item) => item.url),
+    ]
+    const index = Math.min(galeriaIndex, Math.max(urls.length - 1, 0))
+    const priority = [urls[index], urls[index + 1], urls[index - 1], activePanoUrl]
+    warmStills(urls, priority)
+  }, [fichaOpen, shellMode, fichaImages, planoImages, galeriaIndex, activePanoUrl])
 
   const onSelectRoom = useCallback(
     (roomId: string) => {
@@ -2479,9 +2529,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
-        onHome={()=>{setShellMode('plan');setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false)}}
-        onPick={unit=>{setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
+        onHome={()=>{setAmenitiesOpen(false);setShellMode('plan');setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false)}}
+        onAmenities={()=>{setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
+          setAmenitiesOpen(false)
           setSelectedUnitId(unit.id)
           if(unit.typology_code)setSelectedTypology(unit.typology_code)
           const local = isGalleryOnlyTypology({ code: unit.typology_code, category: unit.category })
@@ -2502,6 +2554,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setNavChooserOpen(true)
         }}
       />
+      <TourAmenitiesGallery open={amenitiesOpen} />
       <div
         className="absolute inset-0 overflow-hidden"
         style={
@@ -2653,23 +2706,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         />
       ) : null}
 
-      {/* Comparador 360: Acabado + Luz compartidos. En galería solo se navega por ambiente. */}
-      {isComparador && showUnitChrome && !booting && compareContentMode === 'tour' ? (
-        <div className="tour-compare-scene-controls pointer-events-none absolute inset-x-0 bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+3.75rem))] z-[130] flex justify-center px-2 sm:bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+5rem))] sm:px-3">
-          <div className="pointer-events-auto w-full max-w-[min(100%,18rem)] sm:max-w-[min(100%,28rem)]">
-            <TourFinishLightControls
-              finishes={sceneFinishes}
-              finish={finish}
-              light={light}
-              onFinish={onFinish}
-              onLight={(next) => onLight(next)}
-              tone="neutral"
-              compact
-            />
-          </div>
-        </div>
-      ) : null}
-
       <div
         className={cn(
           'tour-layer-fade tour-still-layer absolute inset-0 z-10 overflow-hidden select-none',
@@ -2813,6 +2849,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             setSelectedUnitId(null)
           }}
           selectedUnitId={selectedUnitId}
+          onPrefetchUnit={warmTypologyStills}
           onSelectUnit={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
@@ -2857,7 +2894,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       ) : null}
 
       {/* Modos PC / móvil: no en el plano del edificio (ahí solo 2D/3D). */}
-      {!booting && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell ? (
+      {!booting && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell && !amenitiesOpen ? (
         <div
           className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top))] right-0 z-[130] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))]"
         >

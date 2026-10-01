@@ -765,19 +765,24 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 </p>
               ) : null}
               <div className="space-y-5">
-                {roomSlots.map((item) => (
+                {roomSlots.map((item) => {
+                  const filled = combos.flatMap((combo) => {
+                    const asset = findSlotAsset(item.slug, combo.finish, combo.light)
+                    return asset ? [{ combo, asset }] : []
+                  })
+                  if (filled.length === 0) return null
+                  return (
                   <div key={item.slug} className="space-y-2">
                     <p className="text-sm text-[#3a3d36]">{item.label}</p>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                      {combos.map((combo) => {
+                      {filled.map(({ combo, asset }) => {
                         const slot: SceneSlot = {
                           room: item.slug,
                           finish: combo.finish,
                           light: combo.light,
                           label: combo.label,
                         }
-                        const asset = findSlotAsset(item.slug, combo.finish, combo.light)
-                        const fallback = Boolean(asset && isLegacySceneFile(asset.file_name, item.slug))
+                        const fallback = Boolean(isLegacySceneFile(asset.file_name, item.slug))
                         const busy = uploadingRoom === `${item.slug}:${combo.finish ?? ''}:${combo.light}`
                         return (
                           <button
@@ -839,7 +844,8 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                       })}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           </div>

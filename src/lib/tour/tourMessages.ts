@@ -100,6 +100,8 @@ export const tourEnglish: Record<string, string> = {
   'Recurso de tipología. No acredita la vista exterior de esta unidad.': 'Layout reference. This does not show a verified exterior view from this unit.',
   'Esta unidad no tiene un recurso disponible para esta vista.': 'This unit has no resource available for this view.', 'Falta el 360': '360° tour unavailable',
   'Aún no hay imágenes de galería en esta tipología.': 'No gallery images are available for this layout yet.', 'Planos 3D': '3D floor plans', 'Planos 2D': '2D floor plans',
+  'No se pudieron consultar las instalaciones.': 'Facilities could not be loaded.',
+  'Aún no hay fotos de amenidades.': 'No amenity photos have been added yet.',
   'Aún no hay planos en esta tipología.': 'No floor plans are available for this layout yet.', 'Reintentar': 'Try again',
   'Abrir asistente de voz': 'Open voice assistant', 'Asistente de voz': 'Voice assistant', 'Abrir modos de vista': 'Open view modes',
   'Modos': 'View modes', 'Volver a los pisos': 'Back to floors', 'Menú': 'Menu', 'Pisos': 'Floors', 'Ficha': 'Details', 'Financiar': 'Finance',

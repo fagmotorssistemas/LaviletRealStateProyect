@@ -153,6 +153,28 @@ export function fileMatchesScene(
   return finishesMatch(parsed.finish, finish)
 }
 
+/** Los dos acabados tienen al menos una imagen con URL. */
+export function hasImagesInBothFinishes(
+  rooms: Array<{ scenes?: Array<{ finish: string | null; url?: string | null }> }> | undefined,
+  finishes: Array<{ slug: string }> | undefined,
+): boolean {
+  const wanted = [
+    ...new Set(
+      (finishes ?? []).map((item) => canonicalFinishSlug(item.slug)).filter((slug): slug is string => Boolean(slug)),
+    ),
+  ]
+  if (wanted.length < 2) return false
+  const present = new Set<string>()
+  for (const room of rooms ?? []) {
+    for (const scene of room.scenes ?? []) {
+      if (!scene.url) continue
+      const slug = canonicalFinishSlug(scene.finish)
+      if (slug) present.add(slug)
+    }
+  }
+  return wanted.every((slug) => present.has(slug))
+}
+
 export function sceneCombos(
   finishes: Array<{ slug: string; name?: string }>,
 ): Array<{ finish: string | null; light: TourLightMode; label: string }> {

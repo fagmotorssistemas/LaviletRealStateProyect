@@ -5,7 +5,6 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Box, Minus, Plus, Square } from 'lucide-react'
 import {
-  FLOOR_PLAN_FLOORS,
   floorPlanLevelLabel,
   floorPlanLevelShort,
   unitFloorNumber,
@@ -42,6 +41,8 @@ type TourFloorPlanProps = {
   onFloorChange: (floor: number) => void
   selectedUnitId: string | null
   onSelectUnit: (unit: TourUnitSummary, slotId: string) => void
+  /** Empieza a bajar las fotos de la unidad al pasar el cursor, sin cambiar la selección. */
+  onPrefetchUnit?: (unit: TourUnitSummary) => void
   onWhatsAppClick?: () => void
   /** Overlay dentro del marco del plano (p. ej. modos en desktop). */
   railLeading?: ReactNode
@@ -302,8 +303,8 @@ export function TourFloorPlan({
   units,
   floor,
   onFloorChange,
-  selectedUnitId,
   onSelectUnit,
+  onPrefetchUnit,
   onWhatsAppClick,
   railLeading,
   railTrailing,
@@ -346,6 +347,9 @@ export function TourFloorPlan({
   >({})
   const onSelectUnitRef = useRef(onSelectUnit)
   onSelectUnitRef.current = onSelectUnit
+  const onPrefetchUnitRef = useRef(onPrefetchUnit)
+  onPrefetchUnitRef.current = onPrefetchUnit
+  const prefetchedUnitRef = useRef<string | null>(null)
   const floorRef = useRef(floor)
   floorRef.current = floor
   const displaySlotsRef = useRef<DisplaySlot[]>([])
@@ -771,23 +775,12 @@ export function TourFloorPlan({
     [activeHtmlFloor],
   )
 
-  useEffect(() => {
-    if (!htmlInteractive) return
-    const selected =
-      displaySlots.find((item) => item.unit && item.unit.id === selectedUnitId) ?? null
-    if (selected?.unit) {
-      elevateHtmlUnit(selected.id || selected.unit.unit_number, selected.unit)
-    }
-  }, [htmlInteractive, selectedUnitId, displaySlots, elevateHtmlUnit])
-
   const handleSelectSlot = (slot: DisplaySlot) => {
     if (!slot.unit) return
     const now = Date.now()
     // Evita open doble (pointerup + click sintético) que a veces pelea con el drawer.
     if (now - lastHtmlOpenAtRef.current < 400) return
     lastHtmlOpenAtRef.current = now
-    // Elevación nativa del HTML + ficha lateral.
-    elevateHtmlUnit(slot.id || slot.unit.unit_number, slot.unit)
     onSelectUnit(slot.unit, slot.id)
   }
 
@@ -800,6 +793,7 @@ export function TourFloorPlan({
 
   const onSlotPointerDown = (slot: DisplaySlot, event: PointerEvent) => {
     if (!slot.unit) return
+    prefetchSlotUnit(slot.unit)
     if (event.pointerType === 'mouse' && event.button !== 0) return
     slotPointerRef.current = {
       slotId: slot.id,
@@ -827,12 +821,21 @@ export function TourFloorPlan({
     handleSelectSlot(slot)
   }
 
+  const prefetchSlotUnit = (unit: TourUnitSummary) => {
+    if (prefetchedUnitRef.current === unit.id) return
+    prefetchedUnitRef.current = unit.id
+    onPrefetchUnitRef.current?.(unit)
+  }
+
   const handleHoverSlot = (slot: DisplaySlot | null) => {
     if (!slot?.unit) {
       setHoverSlot(null)
+      elevateHtmlUnit(null)
       return
     }
     setHoverSlot(slot.id)
+    elevateHtmlUnit(slot.id || slot.unit.unit_number, slot.unit)
+    prefetchSlotUnit(slot.unit)
   }
 
   const zoomOut = () =>
@@ -923,7 +926,7 @@ export function TourFloorPlan({
   return (
     <div
       className={cn(
-        'absolute inset-x-0 bottom-0 top-[calc(4rem+env(safe-area-inset-top))] z-[18] bg-[#14110e]',
+        'absolute inset-0 z-[18] bg-[#14110e]',
         'pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]',
         'pl-[max(0px,env(safe-area-inset-left))] pr-[max(0px,env(safe-area-inset-right))]',
       )}
@@ -938,7 +941,9 @@ export function TourFloorPlan({
             <div
               className={cn(
                 'pointer-events-auto absolute z-30 flex rounded-full border border-[#bda27e]/40 bg-[#14110e]/55 p-0.5 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
-                landscapeFill ? 'top-1.5 left-1.5' : 'top-3 left-3 sm:top-4 sm:left-4',
+                landscapeFill
+                  ? 'top-[calc(4rem+env(safe-area-inset-top)+0.25rem)] left-1.5'
+                  : 'top-[calc(4rem+env(safe-area-inset-top)+0.75rem)] left-3 sm:left-4',
               )}
             >
               {(['2d', '3d'] as const).map((item) => {
@@ -975,7 +980,7 @@ export function TourFloorPlan({
           ) : null}
 
           {railLeading ? (
-            <div className="pointer-events-auto absolute top-3 right-3 z-30 sm:top-4 sm:right-4">
+            <div className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top)+0.75rem)] right-3 z-30 sm:right-4">
               {t(railLeading)}
             </div>
           ) : null}
@@ -1118,8 +1123,7 @@ export function TourFloorPlan({
                 onMouseLeave={() => setHoverSlot(null)}
               >
               {displaySlots.map((slot) => {
-                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
-                const hovered = hoverSlot === slot.id
+                const hovered = hoverSlot === slot.id && Boolean(slot.unit)
                 return (
                   <polygon
                     key={slot.id}
@@ -1130,28 +1134,24 @@ export function TourFloorPlan({
                     )}
                     fill={
                       showSegmentation
-                        ? selected
-                          ? 'rgba(61,155,74,0.58)'
-                          : hovered && slot.unit
-                            ? 'rgba(61,155,74,0.42)'
-                            : 'rgba(255,255,255,0.04)'
+                        ? hovered
+                          ? 'rgba(61,155,74,0.42)'
+                          : 'rgba(255,255,255,0.04)'
                         : 'rgba(255,255,255,0.001)'
                     }
                     stroke={
                       showSegmentation
-                        ? selected
-                          ? 'rgba(46,140,58,1)'
-                          : hovered && slot.unit
-                            ? 'rgba(61,155,74,0.95)'
-                            : 'rgba(255,255,255,0.28)'
+                        ? hovered
+                          ? 'rgba(61,155,74,0.95)'
+                          : 'rgba(255,255,255,0.28)'
                         : 'rgba(0,0,0,0)'
                     }
-                    strokeWidth={showSegmentation ? (selected || hovered ? 0.85 : 0.35) : 0.01}
+                    strokeWidth={showSegmentation ? (hovered ? 0.85 : 0.35) : 0.01}
                     vectorEffect="non-scaling-stroke"
                     style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
-                    onMouseEnter={() => {
-                      if (!slot.unit) return
-                      setHoverSlot(slot.id)
+                    onMouseEnter={() => handleHoverSlot(slot)}
+                    onMouseLeave={() => {
+                      setHoverSlot((current) => (current === slot.id ? null : current))
                     }}
                     onPointerDown={(event) => onSlotPointerDown(slot, event)}
                     onPointerUp={(event) => onSlotPointerUp(slot, event)}
@@ -1169,8 +1169,7 @@ export function TourFloorPlan({
             <div className="pointer-events-none absolute inset-0 z-[2]">
               {displaySlots.map((slot) => {
                 const { cx, cy } = slotCentroid(slot.points)
-                const selected = Boolean(slot.unit && slot.unit.id === selectedUnitId)
-                const hovered = hoverSlot === slot.id
+                const hovered = hoverSlot === slot.id && Boolean(slot.unit)
                 const label = slot.unit?.unit_number ?? slot.label
 
                 return (
@@ -1192,7 +1191,7 @@ export function TourFloorPlan({
                       slot.unit
                         ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
                         : 'cursor-not-allowed opacity-55',
-                      (selected || hovered) && slot.unit && 'ring-2 ring-[#3d9b4a]/80',
+                      hovered && 'ring-2 ring-[#3d9b4a]/80',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
                     aria-label={t(slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
@@ -1239,6 +1238,10 @@ export function TourFloorPlan({
                   style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
                   className={slot.unit ? 'cursor-pointer' : undefined}
                   onMouseEnter={() => handleHoverSlot(slot)}
+                  onMouseLeave={() => {
+                    setHoverSlot((current) => (current === slot.id ? null : current))
+                    elevateHtmlUnit(null)
+                  }}
                   onPointerDown={(event) => onSlotPointerDown(slot, event)}
                   onPointerUp={(event) => onSlotPointerUp(slot, event)}
                   onPointerCancel={() => {
@@ -1283,7 +1286,8 @@ export function TourFloorPlan({
 
       <div
         className={cn(
-          'pointer-events-none absolute inset-y-0 right-0 z-30 flex h-full min-h-0 w-[3.15rem] flex-col items-stretch self-stretch sm:w-[3.35rem]',
+          'pointer-events-none absolute right-0 bottom-0 z-30 flex min-h-0 w-[3.15rem] flex-col items-stretch self-stretch sm:w-[3.35rem]',
+          'top-[calc(4rem+env(safe-area-inset-top))]',
           landscapeFill ? 'py-1 pr-1' : 'py-2 pr-1.5 sm:gap-2 sm:py-3 sm:pr-2',
           '[@media(max-height:520px)]:w-[2.85rem] [@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:py-1 [@media(max-height:520px)]:pr-1',
         )}
@@ -1299,7 +1303,7 @@ export function TourFloorPlan({
             onWheel={(event) => event.stopPropagation()}
             onTouchMove={(event) => event.stopPropagation()}
           >
-            {FLOOR_PLAN_FLOORS.map((item) => {
+            {[-2, -1, 0, 1, 2, 3, 4, 5, 6, 7].map((item) => {
               const active = item === floor
               const short = floorPlanLevelShort(item)
               const isTerraza = item === 7

@@ -23,6 +23,7 @@ import {
 import { UNIT_STATUS_OPTIONS, type UnitStatus } from '@/types/inmobiliaria'
 import type { TourUnitSummary } from '@/types/tour'
 import { buildFichaSpecRows, formatAreaM2 } from '@/lib/tour/fichaSpecs'
+import { preloadStill } from '@/lib/tour/stillPreload'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -172,10 +173,7 @@ function specIcon(label: string): ReactNode {
 }
 
 function preloadUrl(url: string) {
-  if (typeof window === 'undefined' || !url) return
-  const img = new window.Image()
-  img.decoding = 'async'
-  img.src = url
+  void preloadStill(url)
 }
 
 export function TourFichaDrawer({
