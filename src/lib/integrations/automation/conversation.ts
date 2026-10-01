@@ -745,6 +745,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     propertyTurn = residualReference
     currentSemantics = residualSemantics
     const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind,
+      final_review_follows: true,
       historial: context.historial, financiamiento: finance, referencia_unidad: residualReference,
       property_context: residualReference.context, semantica_turno: residualSemantics,
       resultado_visita: { action: 'confirmed', request_id: proposal.request_id || proposal.id } }
@@ -1077,6 +1078,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       else {
         const model = reference.needsClarification ? null : unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
         const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, propuestas: proposals,
+          final_review_follows: true,
           contrato_turno: turnIntent,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
           referencia_unidad:reference, property_context: reference.context, semantica_turno: turnSemantics, archivos_no_leidos:inbound.mediaErrors,
@@ -1213,7 +1215,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         setting: audit.verified_catalog === true
           ? { kind: 'code', label: 'Presentación del catálogo', source: 'catalog-dialogue.ts' }
           : commercialPromptRoute
-            ? { kind: 'prompt', label: 'Conversación y orientación comercial', href: '/inmobiliaria/automatizacion/guion#respuestas', source: 'sdr.ts · respuesta_comercial · revisor_respuesta' }
+            ? { kind: 'prompt', label: 'Conversación y orientación comercial', href: '/inmobiliaria/automatizacion/guion#respuestas', source: 'sdr.ts · respuesta_comercial' }
             : { kind: 'code', label: 'Ruta especializada de respuesta', source: `conversation.ts · ruta ${text(audit.source)}` } }) })
   if (!finalNotice && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'vehicle_out_of_scope', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
@@ -1241,7 +1243,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       catalog_coverage: audit.catalog_coverage,
     })
     const reviewed = await completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: reply,
-      verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true },
+      verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
       preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
     // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
     const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
@@ -1258,7 +1260,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         reviewedText = reply
         reviewFinalContent = candidate => completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: candidate,
           verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [], avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
-          audit: { ...audit, semantic_review_enabled: true },
+          audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
         })
       }
     }

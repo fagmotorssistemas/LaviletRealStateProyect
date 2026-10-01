@@ -51,7 +51,8 @@ const replacements: Partial<Record<keyof typeof CURRENT_TONE, string>> = {
   openingOptional: 'Adapte la apertura al perfil seleccionado y al mensaje actual.',
 }
 export async function configuredToneInstructions(instructions: string, override?: ToneSettings, task: ToneTask = 'data') {
-  if (task === 'data') return instructions
+  // Reviewers receive facts and turn obligations, never the writer's tone profile.
+  if (task === 'data' || task === 'review') return instructions
   const snapshot = override ? null : turnTone.getStore() ?? await readSnapshot()
   const settings = override ?? snapshot!.settings
   if (snapshot) snapshot.applied = true

@@ -23,6 +23,8 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
         instruction: 'El nombre del lead sigue pendiente. Evalúe SOLO si el borrador pregunta o confirma SU NOMBRE. Preguntar únicamente dónde vive NO cumple esta obligación. Acepte cualquier formulación equivalente; no espere que el lead ya haya respondido.' })
       if (datum === 'current_residence') obligations.push({ id: 'profile_current_residence',
         instruction: 'La residencia actual del lead sigue pendiente. Evalúe SOLO si el borrador pregunta o confirma DÓNDE VIVE ACTUALMENTE. Preguntar únicamente su nombre NO cumple esta obligación. Origen, nacionalidad y visita no sustituyen residencia. Acepte cualquier formulación equivalente.' })
+      if (datum === 'phone' || datum === 'phone_number') obligations.push({ id: 'profile_phone',
+        instruction: 'El teléfono del lead sigue pendiente según la configuración de esta etapa. Compruebe que el borrador lo solicite o confirme; acepte cualquier formulación equivalente.' })
     }
   }
   if (introduction.generic_introduction === true) obligations.push({ id: 'opening_scope',
@@ -32,6 +34,8 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   const policy = object(verified.politica_comercial)
   if (verified.presupuesto_del_turno) obligations.push({ id: 'current_budget_answer',
     instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si hay precios autorizados, debe explicar su relación con el presupuesto; si faltan o no están autorizados, debe comunicar esa limitación o aclarar el dato necesario. Enumerar características y preguntar planta sin atender el presupuesto incumple. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
+  if (object(verified.presupuesto_del_turno).status === 'below_available_prices') obligations.push({ id: 'budget_continuation',
+    instruction: 'Después de explicar que el presupuesto no alcanza las opciones verificadas, mantenga una continuación útil: una alternativa más económica del catálogo si existe, material autorizado o una aclaración pertinente. No invente una opción ni financiación y no cierre la conversación con un simple rechazo.' })
   if (policy.precios_aproximados === true) obligations.push({ id: 'price_conditions',
     instruction: 'Si el borrador comunica precios, preserve su carácter referencial de lanzamiento y posibilidad de cambio, con cualquier redacción equivalente. Si no comunica precios, esta obligación está cumplida.' })
   if (contract.decisiones_protegidas === true || audit.action || audit.visit_result || audit.reservation

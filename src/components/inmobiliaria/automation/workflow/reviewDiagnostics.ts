@@ -54,7 +54,9 @@ export function reviewDiagnostics(step: WorkflowExecutionStep): ReviewDiagnostic
     result.push({ code, field: bound || text(issue.field) || text(issue.numeric_id) || text(issue.sentence_id) || 'Detalle de validación',
       owner: issue.owner === 'system' ? 'Sistema · comprobación de la ficha' : text(issue.owner) || 'Responsable no registrado',
       repairOwner: issue.repair_owner === 'reviewer' ? 'Revisor IA' : text(issue.repair_owner) || undefined,
-      message: code === 'numeric_binding_not_in_sentence'
+      message: ['hard_fact', 'business_guardrail', 'turn_goal'].includes(code) && text(issue.reason)
+        ? `${text(issue.statement) ? `${text(issue.statement)}. ` : ''}${text(issue.reason)}`
+        : code === 'numeric_binding_not_in_sentence'
         ? `La referencia ${bound || 'numérica'} no existe o no pertenece a la oración indicada. Es un fallo de enlace en la ficha; por sí solo no demuestra que la cifra comercial sea falsa.`
         : code === 'numeric_binding_value_mismatch' ? 'La cifra enlazada en la ficha no coincide con la cifra de la referencia numérica registrada.'
           : 'El registro identifica este control como fallido. Consulte el campo y el fragmento asociados; no se deduce otro motivo.',

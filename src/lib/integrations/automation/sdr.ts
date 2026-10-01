@@ -240,8 +240,11 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (info.posicionamiento_proyecto && /asegur|garanti/i.test(current) && /precio|rentab|subir|plusval|valori/i.test(current)) {
     return { reply: 'La ubicación en Puertas del Sol es parte del atractivo para invertir. Podemos comparar las opciones según sus objetivos, pero no podemos garantizar que el precio suba ni una rentabilidad futura.', audit: { source: 'investment_expectations', rewritten: false, review_reasons: [], fallback: false } }
   }
-  const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'), activePrompt('revisor_respuesta')])
-  const input = { ...experienceContext(info, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
+  const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'),
+    info.final_review_follows === true ? Promise.resolve('') : activePrompt('revisor_respuesta')])
+  const writerInfo = { ...info }
+  delete writerInfo.final_review_follows
+  const input = { ...experienceContext(writerInfo, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
   const rules = NATURAL_CONVERSATION_RULES + '\n' + TURN_INTENT_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
     + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
@@ -251,6 +254,12 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'
     + '\nEl campo modelo_3d indica que el sistema añadirá el enlace al tour en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Procure brevedad sin omitir solicitudes. No ofrezca enviarlo después ni invente otro enlace: el sistema añade texto_de_entrega. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
     + `\nLas indicaciones de tono, longitud sugerida, saludo, cantidad de preguntas y continuación comercial son recomendaciones editoriales: no rechace una respuesta por variar esas formas. El límite técnico de entrega es ${MAX_REPLY_CHARACTERS} caracteres. Compruebe los hechos, las acciones autorizadas, la selección y la cobertura de la solicitud actual. Una pregunta tiene que ser pertinente y útil; no depende de copiar la propuesta del guion.`
+  // Conversation always runs completeTurnReply after this draft. Its one
+  // business-risk review owns approval; this older gate serves direct callers.
+  if (info.final_review_follows === true) {
+    await guard()
+    return finish(await draftReply(prompt + rules, input), { rewritten: false, review_reasons: [], fallback: false, ai_draft_preserved: true })
+  }
   const reasons: string[] = []
   const editorialCodes = new Set(['style', 'repeated_greeting', 'repeated_question', 'missing_next_step'])
   let reply = await draftReply(prompt + rules, input)

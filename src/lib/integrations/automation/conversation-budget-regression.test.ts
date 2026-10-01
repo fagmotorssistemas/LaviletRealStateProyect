@@ -1,13 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import Ajv from 'ajv'
-import { object, text, type Row } from './data'
+import { object, type Row } from './data'
 import { normalizeTurnSemantics } from './turn-semantics'
 import { resolvePropertyTurn } from './property-context'
 import { catalogDialogueReply, catalogQuery, filterCatalog } from './catalog-dialogue'
 import { completeTurnReply } from './turn-completeness'
 import { turnBudgetAssessment } from './turn-budget'
-import { FOCUSED_REVIEW_VERSION } from './focused-review'
+import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
 import { buildNumericReferences, numericCoverageSchema, numericCoverageIssues } from './focused-numeric-coverage'
 import { structuredFactIssues } from './structured-facts'
 import { verifiedAbsenceReply } from './catalog-absence'
@@ -129,26 +129,12 @@ test('multi-turn budget and floor response passes exact review; omitting the bud
               status: 'answered', evidence: 'Información de las opciones solicitadas', fact_key: null })),
             question: { role: 'optional_continuation', purpose: 'choose_property', missing_datum: '', next_decision: 'Revisar opciones tras explicar el presupuesto.' } }
         } else {
-          assert.ok(rows(context.obligaciones_aplicables).some(row => row.id === 'current_budget_answer'))
+          assert.ok(rows(context.obligaciones_del_turno).some(row => row.id === 'current_budget_answer'))
           const missing = omitBudget && writers === 1
-          const sentences = rows(context.oraciones_borrador)
-          const facts = sentences.flatMap(sentence => {
-            const common = { fragment: sentence.id, subject_category: 'departamento', operator: 'eq', upper_value: null, value_scope: 'individual' }
-            if (text(sentence.text).includes('dormitorios')) return [{ ...common, unit_id: 'group:departamento:all:min', field: 'bedrooms', value: 2, operator: 'gte', value_scope: 'each_member', measurement_unit: 'count' }]
-            if (text(sentence.text).includes('tercera')) return [3, 4, 5].map(value => ({ ...common, unit_id: `d${value}04`, field: 'floor_number', value, measurement_unit: 'floor' }))
-            if (text(sentence.text).includes('180.000')) return [{ ...common, unit_id: 'group:departamento:all:min', field: 'published_commercial_price', value: 180000, value_scope: 'group_summary', measurement_unit: 'USD' }]
-            return []
-          })
-          answer = { review_contract: FOCUSED_REVIEW_VERSION, claims: [], factual_values: facts, project_values: [], pending_checks: [],
-            non_factual_sentence_ids: sentences.filter(row => text(row.text).includes('¿')).map(row => row.id),
-            obligation_checks: rows(context.obligaciones_aplicables).map(row => ({ id: row.id,
-              verdict: row.id === 'current_budget_answer' && missing ? 'violated' : 'met', sentence_ids: ['R1'],
-              reason: row.id === 'current_budget_answer' && missing ? 'Falta responder al presupuesto, aunque enumera características.' : 'Atiende el requisito aplicable.' })),
-            numeric_checks: rows(context.referencias_numericas).map(ref => {
-              const index = facts.findIndex(row => row.value === ref.value && row.fragment === ref.sentence_id)
-              return { numeric_id: ref.id, classification: ref.value === 50000 ? 'lead_context' : 'business_quantity',
-                factual_value_indexes: index >= 0 ? [index] : [], project_value_indexes: [], unit_ids: [], reason: 'Vínculo con el atributo extraído o el presupuesto declarado.' }
-            }) }
+          answer = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: missing ? 'block' : 'pass',
+            findings: missing ? [{ category: 'turn_goal', statement: 'El borrador omite el presupuesto.',
+              reason: 'Enumera características sin responder si el presupuesto alcanza.',
+              authoritative_fact: 'La obligación current_budget_answer exige atender el presupuesto actual.' }] : [] }
         }
         const validate = ajv.compile(schema)
         assert.ok(validate(answer), ajv.errorsText(validate.errors))
@@ -156,7 +142,7 @@ test('multi-turn budget and floor response passes exact review; omitting the bud
       } catch (error) { failures.push(String(error)); throw error }
     }
     const result = await completeTurnReply({ current, history, baseReply: route.reply, verified,
-      audit: { ...route.audit, semantic_review_enabled: true } }, generate)
+      audit: { ...route.audit, semantic_review_enabled: true, business_risk_review_enabled: true } }, generate)
     assert.deepEqual(failures, [])
     assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
     assert.equal(result.reply, reply)

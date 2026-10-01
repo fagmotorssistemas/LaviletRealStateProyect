@@ -1353,7 +1353,10 @@ function conversationHarness(options = {}) {
     './operational-copy': { operationalReply: async reply => ({ reply: options.operationalCopy || reply, generated: !!options.operationalCopy }) },
     './turn-completeness': { protectedSentences: require('../src/lib/integrations/automation/turn-completeness.ts').protectedSentences, completeTurnReply: async input => {
       calls.push({ name: 'completeTurnReply', args: input })
-      return typeof options.turnComplete === 'function' ? options.turnComplete(input) : options.turnComplete || { reply: input.baseReply, changed: false, needsAdvisor: false, unresolved: [], audit: {} }
+      // Older integration fixtures still simulate the previous reviewer sheet.
+      // The live business-risk contract is covered by focused-review-pipeline.test.ts.
+      const legacyFixtureInput = { ...input, audit: { ...input.audit, business_risk_review_enabled: false } }
+      return typeof options.turnComplete === 'function' ? options.turnComplete(legacyFixtureInput) : options.turnComplete || { reply: input.baseReply, changed: false, needsAdvisor: false, unresolved: [], audit: {} }
     } },
     './visit-escalation': {
       declinesAllVisitAlternatives: require('../src/lib/integrations/automation/visit-escalation.ts').declinesAllVisitAlternatives,
@@ -1414,7 +1417,7 @@ function conversationHarness(options = {}) {
     },
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => { if (options.financeReadFails) throw Error('FINANCING_CONTEXT_FAILED'); return options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) } },
     './sdr': { publishedUnitCatalog: async () => { if (options.catalogReadFails) throw Error('CATALOG_CONTEXT_FAILED'); return options.catalog || [] }, commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
-      commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? (options.commercialAi ? load('src/lib/integrations/automation/sdr.ts',{'./ai':options.commercialAi}) : require('../src/lib/integrations/automation/sdr.ts')).commercialReply(info, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
+      commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? (options.commercialAi ? load('src/lib/integrations/automation/sdr.ts',{'./ai':options.commercialAi}) : require('../src/lib/integrations/automation/sdr.ts')).commercialReply({ ...info, final_review_follows: false }, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error(options.mediaFailureCode || 'MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })

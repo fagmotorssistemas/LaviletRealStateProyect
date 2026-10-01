@@ -160,7 +160,7 @@ test('focused factual reviewer bypasses tone lookup and sends only its review co
   }
 })
 
-test('writer and legacy reviewer retain configured tone while the new reviewer does not inherit it', async t => {
+test('writer inherits configured tone while all reviewers remain factual', async t => {
   for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL']) {
     const previous = process.env[key]
     process.env[key] = 'synthetic'
@@ -175,13 +175,14 @@ test('writer and legacy reviewer retain configured tone while the new reviewer d
   const focused = { properties: { review_contract: { type: 'string', enum: ['focused-review-v1'] }, claims: {}, factual_values: {} } }
   for (const [candidate, task] of [[schema, 'writing'], [schema, 'review'], [focused, 'review']] as const)
     await aiJson('Base de la tarea.', input, candidate, undefined, undefined, settings, task)
-  for (const request of sent.slice(0, 2)) {
-    assert.ok(String(request.instructions).includes(toneDirection(settings)))
-    assert.ok(String(request.instructions).includes(ACTION_INVITATION_RULE))
-    assert.ok(String(request.instructions).includes(DIRECT_CONVERSATION_RULE))
+  assert.ok(String(sent[0].instructions).includes(toneDirection(settings)))
+  assert.ok(String(sent[0].instructions).includes(ACTION_INVITATION_RULE))
+  assert.ok(String(sent[0].instructions).includes(DIRECT_CONVERSATION_RULE))
+  for (const request of sent.slice(1)) {
+    assert.ok(!String(request.instructions).includes(toneDirection(settings)))
+    assert.ok(!String(request.instructions).includes(ACTION_INVITATION_RULE))
+    assert.ok(!String(request.instructions).includes(DIRECT_CONVERSATION_RULE))
   }
-  assert.ok(!String(sent[2].instructions).includes(toneDirection(settings)))
-  assert.ok(!String(sent[2].instructions).includes(ACTION_INVITATION_RULE))
 })
 
 test('GPT-5 mini reviewer sends low reasoning and traces effort and reasoning usage without enlarging output budget', async t => {

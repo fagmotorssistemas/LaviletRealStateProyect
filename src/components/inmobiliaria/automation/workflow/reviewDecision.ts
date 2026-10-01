@@ -98,7 +98,8 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     && !list(review.obligation_checks).some(check => check.verdict === 'violated')
     && !quantityChecks.some(check => check.outcome === 'contradicted')
     && !list(row(output.final_validation).details).some(detail => detail.kind && detail.kind !== 'review_metadata')
-  const metadata = rejected && (focused ? focusedPending : status === 'invalid_coverage' || issues.includes('invalid_review_metadata'))
+  const metadata = rejected && (focused ? focusedPending : status === 'invalid_coverage'
+    || issues.includes('invalid_review_metadata') || issues.includes('invalid_business_risk_review'))
   const tone = status === 'checked' ? 'accepted' : metadata ? 'metadata' : rejected ? 'rejected' : 'unknown'
   const title = recoveredCatalog ? 'Borrador descartado · Resultado de catálogo verificado' : recoveryPending ? 'Propuesta sin aprobar · Recuperación pendiente' : tone === 'accepted' ? 'Propuesta aprobada en este paso' : focusedPending ? 'Propuesta sin aprobar · Comprobación pendiente' : metadata ? 'Propuesta descartada · Falló la ficha interna'
     : rejected ? 'Propuesta descartada · Falló una validación' : 'Decisión sobre el borrador sin confirmar'
@@ -111,6 +112,10 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     const ref = text(error.unit_id), field = fields[text(error.field)] || text(error.field) || 'dato no identificado'
     const location = typeof error.index === 'number' ? `factual_values[${error.index}]` : 'Ficha del revisor'
     const quote = text(error.fragment) ? ` Fragmento: «${text(error.fragment)}».` : ''
+    if (review.review_contract === 'business-risk-v1' && ['hard_fact', 'business_guardrail', 'turn_goal'].includes(text(error.code))) {
+      const labels: Record<string, string> = { hard_fact: 'Dato comercial', business_guardrail: 'Restricción comercial', turn_goal: 'Objetivo del turno' }
+      return `${labels[text(error.code)]}: ${text(error.statement)}. ${text(error.reason)}`.trim()
+    }
     if (focused && (error.kind === 'review_metadata' || pendingReviewCodes[text(error.code)])) {
       const sentenceIds = [...new Set([text(error.sentence_id), ...ids(error.sentence_ids)].filter(Boolean))]
       const segments = sentenceIds.map(id => {

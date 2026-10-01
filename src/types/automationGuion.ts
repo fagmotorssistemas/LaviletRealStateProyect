@@ -44,11 +44,11 @@ export const ENGINEER_PROMPT_NAMES = [
   'revisor_respuesta',
 ] as const
 
-export const SDR_PROMPT_ORDER = ['respuesta_comercial', 'saludo_inicial', 'revisor_respuesta', 'resumen_conversacion', 'extractor_eventos']
+export const SDR_PROMPT_ORDER = ['respuesta_comercial', 'saludo_inicial', 'resumen_conversacion', 'extractor_eventos']
 export function topicPromptHelp(name: string) {
   if (name === 'respuesta_comercial') return 'Edite aquí el tono, la orientación de venta y los ejemplos de conversación. El catálogo y las reglas de citas determinan qué puede ofrecer.'
   if (name === 'saludo_inicial') return 'Texto literal para el primer saludo breve del cliente. En los siguientes saludos se retoma la conversación.'
-  if (name === 'revisor_respuesta') return 'Revisa el borrador antes de enviarlo. Conserve el formato JSON con aprobada y motivos.'
+  if (name === 'revisor_respuesta') return 'Plantilla anterior sin uso. La revisión final de riesgos comerciales está definida en el sistema y consulta el catálogo y las políticas vigentes.'
   if (name === 'resumen_conversacion') return 'Conserva el contexto y los datos respondidos. Mantenga el formato JSON indicado en el texto.'
   if (name === 'extractor_eventos') return 'Detecta preferencias y solicitudes. Mantenga las propiedades JSON y las reglas de evidencia y consentimiento.'
   return 'Plantilla de referencia guardada. El SDR actual no la consulta por separado; incorpore las instrucciones necesarias en Conversación y orientación comercial.'
@@ -80,7 +80,7 @@ export const DEFAULT_SCRIPT_QUESTIONS: { stage: ScriptStage; sort_order: number;
 const TOPIC_LABELS: Record<string, string> = {
   respuesta_comercial: 'Conversación y orientación comercial',
   saludo_inicial: 'Primera bienvenida (solo una vez)',
-  revisor_respuesta: 'Revisión antes del envío',
+  revisor_respuesta: 'Revisor anterior (sin uso)',
   resumen_conversacion: 'Memoria y continuidad',
   extractor_eventos: 'Datos y solicitudes del cliente',
   clasificador_intenciones: 'Clasificador heredado (no utilizado por el nuevo SDR)',

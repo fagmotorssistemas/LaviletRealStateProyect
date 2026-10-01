@@ -6,6 +6,15 @@ import { promptContextParts } from './promptContext'
 import { reviewDecision } from './reviewDecision'
 import { responseAttempts } from './attemptHistory'
 
+test('business-risk rejection explains the concrete commercial reason without a source-ID sheet', () => {
+  const decision = reviewDecision({ status: 'rejected_review', semantic_review: { review_contract: 'business-risk-v1',
+    validation_details: [{ code: 'hard_fact', kind: 'commercial_content', statement: 'Precio anunciado de $245.124',
+      reason: 'La ficha del departamento 202 publica $245.123.', owner: 'reviewer', repair_owner: 'writer' }] } })
+  assert.match(decision.details.join(' '), /Precio anunciado de \$245\.124/)
+  assert.match(decision.details.join(' '), /publica \$245\.123/)
+  assert.doesNotMatch(decision.details.join(' '), /factual_values|S1|E1/)
+})
+
 test('focused numeric explanations separate a bad extraction from a false statement about every unit', () => {
   for (const [code, kind, expected] of [
     ['review_number_not_in_draft', 'review_metadata', /valor que este no expresa.*corregirse la extracción/],
