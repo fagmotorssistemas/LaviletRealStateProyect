@@ -7,8 +7,10 @@ const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$
  * This is a bounded output allowance, not a prediction of tokens billed. */
 export function aiOutputBudget(schema: unknown, task: string, input: unknown): number {
   const properties = row(row(schema).properties)
+  const numericContract = row(properties.numeric_contract).enum
+  const inline = Array.isArray(numericContract) && numericContract.includes('numeric-inline-v1')
   if (properties.turn_semantics) return 4200
-  if (task !== 'review' || !properties.factual_values || !properties.claims) return 2200
+  if (task !== 'review' || !inline && (!properties.factual_values || !properties.claims)) return 2200
   const data = row(input), draft = string(data.respuesta_propuesta).trim()
   if (!draft) return 2200
   // Only explicit references in the draft can multiply a shared numeric claim.
@@ -21,7 +23,9 @@ export function aiOutputBudget(schema: unknown, task: string, input: unknown): n
   // must not accidentally become a large set of named units.
   const unitPattern = unitNumbers.map(escapeRegex).join('|')
   const compactList = unitPattern ? new RegExp(`(?<![\\p{L}\\p{N}$.,])(?:${unitPattern})(?:\\s*,\\s*(?:${unitPattern}))+(?![\\p{L}\\p{N}]|[.,]\\d)`, 'gu') : null
-  const sentences = draft.split(/(?<=[.!?])\s+|\n+/).filter(Boolean)
+  const scopedDraft = inline && data.reparacion_numerica && Array.isArray(data.oraciones_borrador)
+    ? data.oraciones_borrador.map(s => string(row(s).text)).join('\n') : draft
+  const sentences = scopedDraft.split(/(?<=[.!?])\s+|\n+/).filter(Boolean)
   const relations = Math.min(80, sentences.reduce((total, sentence) => {
     let attributes = sentence.replace(/https?:\/\/\S+/g, '')
     if (compactList) attributes = attributes.replace(compactList, list => list.replaceAll(',', ', '))
@@ -37,6 +41,12 @@ export function aiOutputBudget(schema: unknown, task: string, input: unknown): n
     return total + numericValues * Math.max(1, namedUnits)
   }, 0))
   const claims = Math.min(16, sentences.length)
+  // A numeric patch emits no narrative claims or obligations. Reserve bounded
+  // reasoning/completion room for its own checks, not the unrelated sentence.
+  if (inline && data.reparacion_numerica) {
+    const checks = Array.isArray(data.referencias_numericas) ? data.referencias_numericas.length : 0
+    return Math.min(12000, Math.ceil(Math.max(2500, 1600 + checks * 450 + relations * 170) / 250) * 250)
+  }
   const baseAllowance = 1600 + claims * 140 + Math.ceil(draft.length / 2) + relations * 170
   const contractVersions = row(properties.review_contract).enum
   const focused = Array.isArray(contractVersions) && contractVersions.includes('focused-review-v1')
@@ -48,7 +58,7 @@ export function aiOutputBudget(schema: unknown, task: string, input: unknown): n
   // A real two-attribute review exhausted 2750 tokens (320 reasoning tokens).
   // Leave bounded completion room for factual rows and their explanations;
   // reserved output is a ceiling, not automatically consumed or billed.
-  const focusedRows = focused ? count(data.referencias_numericas, 80) * 110
+  const focusedRows = focused ? count(data.referencias_numericas, 80) * (inline ? 260 : 110)
     + count(data.obligaciones_aplicables, 24) * 70
     + count(row(row(data.reparacion_revision).ficha_anterior).claims, 80) * 90
     + count(row(row(data.reparacion_revision).ficha_anterior).pending_checks, 80) * 90 : 0

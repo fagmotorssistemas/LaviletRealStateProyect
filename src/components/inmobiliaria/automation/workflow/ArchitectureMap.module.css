@@ -18,6 +18,7 @@
 .node[data-kind='decision'] { border-top: 4px solid #bf8b31; }
 .node[data-state='observed'] { border-left-color: #287047; background: #edf7ee; }
 .node[data-state='failed'] { border-left-color: #be4545; background: #fff0ef; }
+.node[data-state='rejected'] { border-left-color: #be4545; background: #fff0ef; }
 .node[data-state='paused'] { border-left-color: #bf8b31; background: #fff6e8; }
 .node[data-state='not_selected'] { background: #f2f3f2; color: #69756e; }
 .node[data-selected='true'] { outline: 3px solid #486c9e; outline-offset: 3px; }

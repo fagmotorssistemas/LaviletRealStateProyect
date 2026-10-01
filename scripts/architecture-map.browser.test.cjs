@@ -16,7 +16,12 @@ const executions = [execution('2', '¿Qué precio tiene el departamento?', [
   step(4, 'model_request', { output_snapshot: { data: { reply: 'Primer borrador conservado' } } }, { ai_role: 'writer', caused_by_step: 3 }),
   step(5, 'model_request', {}, { ai_role: 'reviewer', caused_by_step: 3 }),
   step(6, 'model_request', { output_snapshot: { data: { reply: 'Segundo borrador conservado' } } }, { ai_role: 'writer', caused_by_step: 3 }),
-]), execution('1', 'Tengo un presupuesto de 50 mil dólares', [step(1, 'turn_intent', { objective: 'discuss_budget' }), step(2, 'budget_resolution', { status: 'incomplete_prices', price_evidence_complete: false }, { amount: 50000, currency: 'USD' })])]
+]), execution('1', 'Tengo un presupuesto de 50 mil dólares', [step(1, 'turn_intent', { objective: 'discuss_budget' }), step(2, 'budget_resolution', { status: 'incomplete_prices', price_evidence_complete: false }, { amount: 50000, currency: 'USD' })]),
+execution('3', 'Diagnóstico de ficha del revisor', [
+  step(1, 'response_coverage', { status: 'rejected_review', recovery: { pending: true }, repair_attempts: [{ issues: [{ code: 'numeric_binding_not_in_sentence', binding: { key: 'factual_values', index: 0 }, numeric_id: 'N4', sentence_id: 'S3', received: 24, owner: 'system', repair_owner: 'reviewer' }] }] }),
+  step(2, 'model_request', { output_snapshot: { data: { factual_values: [], project_values: [], claims: [{ verdict: 'supported', fragment: 'S3', evidence_ids: ['E9'] }], numeric_checks: [{ numeric_id: 'N4', factual_value_indexes: [0], project_value_indexes: [] }] } } },
+    { ai_role: 'reviewer', caused_by_step: 1, prompt_snapshot: { data: { oraciones_borrador: [{ id: 'S3', text: 'Seguridad 24h.' }], evidencia_afirmaciones: [{ id: 'E9', path: 'instalaciones.6', value: 'Seguridad 24h.' }], referencias_numericas: [{ id: 'N4', sentence_id: 'S3', text: '24', value: 24 }] } } }),
+])]
 
 async function main() {
   const loader = path.join(dir, 'ts-loader.cjs'), cssLoader = path.join(dir, 'css-loader.cjs'), entry = path.join(dir, 'entry.tsx')
@@ -45,6 +50,7 @@ async function main() {
       await page.goto(`http://127.0.0.1:${server.address().port}`)
       const selector = page.getByLabel('Mensaje del mapa', { exact: true })
       try { await selector.waitFor({ timeout: 10000 }) } catch (error) { console.error((await page.locator('body').innerText()).slice(0, 1600)); throw error }
+      await selector.selectOption({ label: await selector.locator('option').filter({ hasText: '¿Qué precio' }).innerText() })
       await page.getByRole('button', { name: 'Objetivos', exact: true }).click()
       await page.locator('[data-id="intent_ask_price"]').click()
       await page.getByRole('complementary').getByText('objective = ask_price').waitFor()
@@ -61,6 +67,15 @@ async function main() {
       await page.locator('[data-id="budget_incomplete_prices"]').click()
       await inspector.getByText('status = incomplete_prices').waitFor()
       assert.equal(await page.locator('[data-id="intent_ask_price"] [data-state="not_selected"]').count(), 1)
+      await selector.selectOption({ label: await selector.locator('option').filter({ hasText: 'Diagnóstico de ficha' }).innerText() })
+      await page.getByRole('button', { name: 'Ir al primer error', exact: true }).click()
+      assert.equal(await page.locator('[data-id="coverage"] [data-state="rejected"]').count(), 1)
+      await inspector.getByText('Qué falló y en qué campo').waitFor()
+      await page.getByRole('button', { name: 'Redacción y revisión', exact: true }).click()
+      await page.locator('[data-id="reviewer"]').click()
+      await inspector.locator('[data-invalid-field="output_snapshot.data.numeric_checks.0.factual_value_indexes.0"]').waitFor()
+      await inspector.getByText('Qué significan E, S y N en esta llamada').click()
+      await inspector.getByText('E9 · instalaciones.6').waitFor()
       await page.screenshot({ path: path.join(dir, `architecture-${width}.png`), fullPage: false })
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), `Horizontal overflow at ${width}`)
       assert.deepEqual(errors, [])

@@ -1,5 +1,6 @@
 import type { WorkflowExecutionStep } from './executionWorkflow'
 import { WORKFLOWS } from './workflowDefinitions'
+import { reviewStepRejected, reviewDiagnostics } from './reviewDiagnostics'
 
 type Step = WorkflowExecutionStep
 export type ArchitectureNode = {
@@ -156,6 +157,7 @@ export function nodeEvidence(node: ArchitectureNode, steps: Step[]): Step[] {
 export function nodeState(node: ArchitectureNode, steps: Step[]) {
   const evidence = nodeEvidence(node, steps)
   if (evidence.length) return evidence.some(s => s.status === 'failed') ? 'failed'
+    : evidence.some(s => reviewStepRejected(s) || s.key === 'model_request' && reviewDiagnostics(s).length > 0) ? 'rejected'
     : evidence.some(s => s.status === 'paused') ? 'paused'
       : evidence.every(s => s.status === 'skipped') ? 'skipped' : 'observed'
   // Only an explicit value of the same decision proves this alternative was not selected.

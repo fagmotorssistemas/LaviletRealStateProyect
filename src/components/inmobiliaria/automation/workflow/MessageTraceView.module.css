@@ -47,6 +47,7 @@
 .steps button { display: flex; height: 100%; width: 100%; min-height: 64px; align-items: center; gap: 9px; padding: 10px; border: 1px solid #dce3d6; border-radius: 6px; color: #344139; background: white; text-align: left; }
 .steps button[aria-pressed='true'] { background: #edf4e5; border-color: #728d61; box-shadow: inset 0 0 0 1px #728d61; }
 .steps button[data-status='failed'] { border-left: 3px solid #ad6f55; }
+.steps button[data-review-error='true'] { border-left: 4px solid #c43232; background: #fff0ef; }
 .steps button[data-status='paused'] { border-left: 3px solid #aa8742; }
 .steps button > span:nth-child(2) { flex: 1; min-width: 0; }
 .steps strong, .steps small { display: block; }

@@ -11,6 +11,8 @@ import { promptContextParts } from './promptContext'
 import { executionCost } from './executionCost'
 import { responseAttempts } from './attemptHistory'
 import { ArchitectureMap } from './ArchitectureMap'
+import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './ReviewDiagnosticsPanel'
+import { reviewDiagnostics, reviewStepRejected } from './reviewDiagnostics'
 
 const formatUsd = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value)
 
@@ -131,7 +133,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
             <p>El resultado disponible no permite reconstruir qué interpretó el bot, qué datos consultó ni por qué tomó una decisión. La ruta histórica sería inferida y no se presenta como observada.</p>
           </div> : <>
             <ol className={styles.steps} aria-label="Pasos observados de este mensaje">{steps.map(item => <li key={item.order}>
-              <button type="button" aria-pressed={item.order === step?.order} onClick={() => setStepOrder(item.order)} data-status={item.status} data-ai={item.key === 'model_request'}>
+              <button type="button" aria-pressed={item.order === step?.order} onClick={() => setStepOrder(item.order)} data-status={item.status} data-review-error={reviewStepRejected(item) || item.key === 'model_request' && reviewDiagnostics(item).length > 0} data-ai={item.key === 'model_request'}>
                 <span className={styles.stepNumber}>{item.order.toString().padStart(2, '0')}</span><span><strong>{stepTitle(item)}</strong><small>{statusLabel(item.status)} · {duration(item.durationMs)}</small>
                   {item.key === 'response_coverage' && <small className={styles.verdictBadge} data-tone={reviewDecision(item.output).tone}>{reviewDecision(item.output).title}</small>}
                 </span><ChevronRight size={14} />
@@ -140,6 +142,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
             {explanation && step && <section className={styles.detail} ref={panel} tabIndex={-1} aria-label="Explicación del paso seleccionado" aria-live="polite">
               <header><div><span className={styles.eyebrow}>Paso {step.order} · {statusLabel(step.status)}</span><h4>{explanation.title}</h4></div><span className={styles.badge} data-tone="observed">Observado en el registro</span></header>
               <p className={styles.summary}>{explanation.summary}</p>
+              <ReviewDiagnostics step={step} />
               {step.key === 'response_coverage' && <ReviewDecision output={step.output} catalog={catalogSnapshots(execution, step)} />}
               {step.key === 'response_coverage' && attempts.length > 0 && <section className={styles.attemptHistory} aria-label="Borradores y revisiones de esta respuesta">
                 <h5>Borradores y revisiones, en orden</h5>
@@ -207,6 +210,7 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
     {typeof input.borrador_rechazado === 'string' && <DraftDecision data={{ borrador_evaluado: input.borrador_rechazado, decision: 'Rechazado antes de esta corrección', motivos_registrados: input.correcciones_requeridas, siguiente_accion: 'Esta llamada intenta corregir ese borrador' }} />}
     <h5>Entrada y salida de esta llamada a IA</h5>
     <p>Modelo: {String(step.input.model || 'No registrado')}. Copia protegida: puede ocultar datos sensibles.</p>
+    <ReviewReferenceLegend step={step} />
     {attempts.length > 0 && <details className={styles.technical} open={step.status === 'failed'}>
       <summary>Conexión con la IA · {attempts.length} intento(s)</summary>
       <p>Los reintentos repiten esta llamada a la IA. No repiten el envío al lead.</p>
@@ -237,7 +241,7 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
       </> : <p>Esta ejecución no conservó la entrada. No se reconstruye a partir del hash del prompt.</p>}
     </details>
     <details className={styles.technical} open><summary>2. Salida · resultado devuelto por la IA</summary>
-      {step.output.output_snapshot ? <pre>{JSON.stringify(output.data, null, 2)}</pre> : <p>No se conservó una salida estructurada. Puede ser un registro antiguo o una llamada que falló antes de obtener un JSON válido.</p>}
+      {step.output.output_snapshot ? <DiagnosticJson value={output.data} paths={reviewDiagnostics(step).flatMap(issue => issue.outputPaths || [])} /> : <p>No se conservó una salida estructurada. Puede ser un registro antiguo o una llamada que falló antes de obtener un JSON válido.</p>}
     </details>
     <h5>3. Uso del resultado por el sistema</h5>
     <p>Una llamada completada no significa que su propuesta se haya enviado al lead. Consulte la aceptación, corrección o descarte en el paso que utiliza este resultado.</p>

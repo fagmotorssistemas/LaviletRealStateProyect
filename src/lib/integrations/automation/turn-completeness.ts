@@ -7,6 +7,7 @@ import { focusedValueScopeIssues } from './focused-value-scope'
 import { numericSubjectIssues } from './focused-subject-scope'
 import { concreteReviewRepairs, numericRepairProgress, repairReviewSummary } from './review-repair'
 import { buildNumericReferences, numericCoverageIssues, numericReferencesForPrompt } from './focused-numeric-coverage'
+import { numericPatchScope, numericPatchSchema, mergeNumericPatch, NUMERIC_PATCH_RULES } from './atomic-numeric-review'
 import { sentenceInventoryIssues, SENTENCE_INVENTORY_RULES } from './review-inventory'
 import { FOCUSED_REVIEW_VERSION, FOCUSED_REVIEW_RULES, FOCUSED_EVIDENCE_RULES, reviewObligations, focusedReviewSchema, focusedReviewContext,
   focusedReviewIssues, adaptFocusedReview, focusedRepairScope, mergeFocusedRepair, rowsForRepair, observedNumericIssues, claimReferencesForRepair,
@@ -649,6 +650,24 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
             proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) }
           repairAttempts.push(repair)
           const previous = evaluated
+          const numericScope = previous.focused ? numericPatchScope(previous.issues, previous.review, numericReferences) : null
+          if (numericScope) {
+            const unchangedDraft = reply
+            const sentenceIds = [...new Set(numericScope.map(ref => ref.sentence_id))]
+            Object.assign(repair, { scope: 'numeric_checks_only', focused_numeric_ids: numericScope.map(ref => ref.id),
+              focused_sentence_ids: sentenceIds, preserved_claims: true, preserved_obligations: true, owner: 'system', repair_owner: 'reviewer' })
+            const patch = await generate(NUMERIC_PATCH_RULES, {
+              respuesta_propuesta: unchangedDraft,
+              oraciones_borrador: sentenceReferences.filter(sentence => sentenceIds.includes(text(sentence.id))),
+              referencias_numericas: numericReferencesForPrompt(numericScope),
+              evidencia_turno: { units: sharedEvidence.units, groups: sharedEvidence.groups, project_facts: sharedEvidence.project_facts },
+              reparacion_numerica: { numeric_ids: numericScope.map(ref => ref.id), errores: previous.issues,
+                instrucciones: 'Devuelva únicamente las comprobaciones indicadas. Las afirmaciones, obligaciones y demás comprobaciones ya revisadas se conservan y no se solicitan de nuevo.' },
+            }, numericPatchSchema(activeReviewSchema, numericScope.map(ref => ref.id), sentenceIds), undefined, undefined, undefined, 'review')
+            evaluated = evaluateReview(mergeNumericPatch(previous.review, patch, numericScope, unchangedDraft, reply))
+            evaluated.corrections.unshift(...previous.corrections)
+            repair.remaining_issues = evaluated.issues
+          } else {
           const focusedScope = previous.focused ? focusedRepairScope(previous.issues, sentenceReferences, obligations) : null
           if (focusedScope) Object.assign(repair, { focused_sentence_ids: focusedScope.focused_sentence_ids,
             preserved_sentence_ids: focusedScope.preserved_sentence_ids, focused_obligation_ids: focusedScope.obligations.map(row => row.id),
@@ -709,6 +728,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           if (focusedScope) repair.pending_resolutions = evaluated.review.pending_resolutions || []
           // The reviewer re-extracts the inventory; a malformed earlier sheet is not evidence.
           repair.remaining_issues = evaluated.issues
+          }
         }
       const { review, checked, decision, issues: reviewIssues } = evaluated
         const draftRepair = repairAttempts.findLast(row => row.target === 'commercial_draft')

@@ -1,0 +1,15 @@
+.diagnostics { margin: 16px 0; border: 1px solid #d96060; border-left: 5px solid #c43232; background: #fff3f2; color: #872828; border-radius: 6px; padding: 16px; }
+.diagnostics h5 { font-size: 16px; font-weight: 650; margin-bottom: 12px; }
+.diagnostics p { margin: 7px 0; line-height: 1.6; font-size: 13px; }
+.issue + .issue { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eab8b8; }
+.issue { overflow-wrap: anywhere; }
+.issue code, .badField { background: #ffe0df; color: #9d2020; font-weight: 650; }
+.issue blockquote { margin: 10px 0; border-left: 3px solid #c65353; padding-left: 12px; font-size: 13px; }
+.diagnostics[data-historical='true'] { background: #fff9ed; border-color: #d3b276; color: #795319; }
+.diagnostics[data-historical='true'] code { background: #f8eccf; color: #795319; }
+.references { margin: 16px 0; background: #f7f8f5; border: 1px solid #dbe0d5; padding: 14px; border-radius: 6px; }
+.references summary { cursor: pointer; font-weight: 600; }
+.references p { line-height: 1.6; font-size: 13px; margin: 8px 0; }
+.references details { font-size: 12px; margin: 8px 0; overflow-wrap: anywhere; }
+.references pre, .json { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 520px; overflow: auto; padding: 12px; }
+.badField { box-shadow: inset 3px 0 #bd3232; padding-left: 5px; }

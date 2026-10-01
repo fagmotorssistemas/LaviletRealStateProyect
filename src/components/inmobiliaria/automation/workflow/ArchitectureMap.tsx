@@ -8,9 +8,11 @@ import { ARCHITECTURE_LINKS, ARCHITECTURE_NODES, linkObserved, nodeEvidence, nod
 import { executionCost } from './executionCost'
 import { statusLabel, stepTitle } from './messageExplanation'
 import styles from './ArchitectureMap.module.css'
+import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './ReviewDiagnosticsPanel'
+import { reviewDiagnostics } from './reviewDiagnostics'
 
 type MapNode = Node<{ spec: ArchitectureNode; state: string; count: number }, 'architecture'>
-const stateLabels: Record<string, string> = { observed: 'Con registro', failed: 'Error registrado', paused: 'Detenido', skipped: 'Omitido explícitamente', not_selected: 'Alternativa no elegida', unknown: 'Sin registro' }
+const stateLabels: Record<string, string> = { observed: 'Con registro', failed: 'Error registrado', rejected: 'Revisión con errores', paused: 'Detenido', skipped: 'Omitido explícitamente', not_selected: 'Alternativa no elegida', unknown: 'Sin registro' }
 function DecisionNode({ data, selected }: NodeProps<MapNode>) {
   return <div className={styles.node} data-state={data.state} data-kind={data.spec.kind} data-selected={selected}>
     <Handle type="target" position={Position.Left} />
@@ -57,9 +59,13 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     <header><div><h2>Mapa de decisiones y rutas</h2><p>Todos los caminos permanecen visibles. Las conexiones punteadas describen posibilidades; no prueban que se ejecutaron.</p></div>
       <label><input type="checkbox" checked={showSequence} onChange={e => setShowSequence(e.target.checked)} disabled={!steps.length} /> Mostrar orden registrado</label></header>
     <p className={styles.notice}>{execution ? `Mensaje seleccionado: ${execution.message || execution.id}` : 'Vista general: seleccione un mensaje para superponer sus registros.'}</p>
-    <div className={styles.legend}><span>Verde: registro observado</span><span>Rojo: error del paso</span><span>Gris: sin registro o alternativa no elegida</span><span>Azul: orden temporal, no causalidad</span></div>
+    <div className={styles.legend}><span>Verde: registro observado, no aprobación automática</span><span>Rojo: error de ejecución o revisión</span><span>Gris: sin registro o alternativa no elegida</span><span>Azul: orden temporal, no causalidad</span></div>
     <nav className={styles.navigation} aria-label="Acercar a una parte del mapa">
       <button type="button" onClick={() => void flow?.fitView({ padding: 0.08, duration: 300 })}>Ver todo</button>
+      {nodes.some(n => ['failed', 'rejected'].includes(n.data.state)) && <button type="button" onClick={() => {
+        const first = nodes.find(n => ['failed', 'rejected'].includes(n.data.state))!
+        setSelectedId(first.id); void flow?.fitView({ nodes: [{ id: first.id }], padding: 0.5, duration: 300, maxZoom: 0.9 })
+      }}>Ir al primer error</button>}
       {[
         ['Inicio', ['message', 'permission', 'context']], ['Alcance', ['scope_ai', 'scope', 'scope_property', 'scope_uncertain']],
         ['Objetivos', ['intent', ...ARCHITECTURE_NODES.filter(n => n.id.startsWith('intent_')).map(n => n.id)]],
@@ -74,7 +80,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
       <div className={styles.canvas}>
         <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onInit={setFlow} defaultViewport={{ x: 20, y: -380, zoom: 0.65 }} minZoom={0.02} maxZoom={1.5}
           nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, node) => setSelectedId(node.id)}>
-          <Background gap={24} /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={n => n.data.state === 'observed' ? '#43845d' : n.data.state === 'failed' ? '#ba4141' : '#bec5c2'} />
+          <Background gap={24} /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={n => n.data.state === 'observed' ? '#43845d' : ['failed', 'rejected'].includes(String(n.data.state)) ? '#ba4141' : '#bec5c2'} />
         </ReactFlow>
       </div>
       <aside className={styles.inspector} aria-live="polite">
@@ -87,8 +93,9 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
           <p>{(step.durationMs / 1000).toLocaleString('es-EC')} s{step.errorCode ? ` · ${step.errorCode}` : ''}</p>
           {step.key === 'response_coverage' && <p>Incluye el tiempo de las llamadas internas; no sumarlo de nuevo al de los agentes.</p>}
           {step.key === 'model_request' && <CallCost step={step} />}
+          <ReviewDiagnostics step={step} /><ReviewReferenceLegend step={step} />
           <h4>Entrada registrada</h4><pre>{JSON.stringify(step.input, null, 2)}</pre>
-          <h4>Salida registrada</h4><pre>{JSON.stringify(step.output, null, 2)}</pre>
+          <h4>Salida registrada</h4><DiagnosticJson value={step.output} paths={reviewDiagnostics(step).flatMap(issue => (issue.outputPaths || []).map(path => path.startsWith('provider_diagnostics.') ? path : `output_snapshot.data.${path}`))} />
           {onStep && <button type="button" onClick={() => onStep(step.order)}>Ver explicación y borrador de este paso</button>}
         </details>)}
       </aside>

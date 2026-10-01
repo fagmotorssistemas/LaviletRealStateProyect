@@ -40,7 +40,7 @@ test('two observed agents do not prove a causal edge; every retry remains access
   assert.equal(linkObserved({ from: 'writer', to: 'reviewer' }, steps), true)
 })
 test('recovery is read from its structured result, never inferred from an error string', () => {
-  assert.equal(nodeState(node('review_recovery'), [step('response_coverage', { recovery: { pending: true } })]), 'observed')
+  assert.equal(nodeState(node('review_recovery'), [step('response_coverage', { recovery: { pending: true } })]), 'rejected')
   assert.equal(nodeState(node('review_recovery'), [step('response_coverage', { issues: ['invalid_review_metadata'] })]), 'unknown')
   const steps = [step('response_coverage', { repair_attempts: [{ target: 'review_metadata' }] })]
   assert.equal(nodeEvidence(node('repair_metadata'), steps).length, 1)
