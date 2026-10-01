@@ -11,6 +11,8 @@ const { configuredToneInstructions } = require('../src/lib/integrations/automati
 const { DEFAULT_TONE } = require('../src/lib/inmobiliaria/conversationTone.ts')
 const { aiOutputBudget, modelResponseDiagnostics } = require('../src/lib/integrations/automation/ai-output.ts')
 const { automationModelForRole, automationReasoningEffortForRole } = require('../src/lib/integrations/automation/ai-model-routing.ts')
+const { aiRequestPolicy } = require('../src/lib/integrations/automation/ai-request-policy.ts')
+const { requestOpenAI } = require('../src/lib/integrations/automation/openai-request.ts')
 const { executionCost } = require('../src/components/inmobiliaria/automation/workflow/executionCost.ts')
 const fixtures = require('./fixtures/review-contract-evals.cjs')
 const { reviewFidelity } = require('./fixtures/review-contract-oracle.cjs')
@@ -106,26 +108,29 @@ async function main() {
           : context.reparacion_revision ? 'metadata_repair' : 'review', estimated_request_ceiling_usd: bound }
       observations.push(observation)
       if (!live) { stopped = true; throw Error('DRY_RUN_CAPTURED_REVIEW') }
-      if (metrics.length >= maxCalls || cost().estimatedUsd + unresolvedRequestReserve + bound > maxUsd) { stopped = true; throw Error('EVAL_BUDGET_STOP') }
-      unresolvedRequestReserve += bound
       const callStarted = Date.now()
-      metrics.push({ case: fixture.id, iteration, model: callModel, role: observation.role,
-        usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 }, pending: true })
-      const measurement = metrics.at(-1)
+      let measurement
       try {
-        const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST',
+        const output = await requestOpenAI('https://api.openai.com/v1/responses', { method: 'POST',
           headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(60000), body: JSON.stringify({ model: callModel, store: false, max_output_tokens: outputLimit,
+          body: JSON.stringify({ model: callModel, store: false, max_output_tokens: outputLimit,
             ...(task === 'review' && reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
             instructions, input: [{ role: 'user', content: [{ type: 'input_text', text: content }] }],
-            text: { format: { type: 'json_schema', name: 'lavilet_review_eval', strict: true, schema } } }) })
-        if (!response.ok) {
-          const problem = await response.json().catch(() => ({}))
-          observation.provider_error = { code: problem.error?.code, param: problem.error?.param,
-            message: String(problem.error?.message || '').slice(0,1200) }
-          throw Error(`OPENAI_HTTP_${response.status}`)
-        }
-        const output = await response.json()
+            text: { format: { type: 'json_schema', name: 'lavilet_review_eval', strict: true, schema } } }) }, {}, response => response.json(), {
+          policy: aiRequestPolicy(observation.role),
+          onDiagnostics: value => { observation.request_diagnostics = value },
+          beforeAttempt: async () => {
+            // Count and reserve every HTTP attempt, including retries whose usage
+            // cannot be measured. Production retries must not bypass eval limits.
+            if (metrics.length >= maxCalls || cost().estimatedUsd + unresolvedRequestReserve + bound > maxUsd) {
+              stopped = true; throw Error('EVAL_BUDGET_STOP')
+            }
+            unresolvedRequestReserve += bound
+            measurement = { case: fixture.id, iteration, model: callModel, role: observation.role,
+              usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 }, pending: true }
+            metrics.push(measurement)
+          },
+        })
         measurement.usage = { input_tokens: output.usage?.input_tokens || 0, output_tokens: output.usage?.output_tokens || 0,
           cached_input_tokens: output.usage?.input_tokens_details?.cached_tokens || 0,
           reasoning_tokens: output.usage?.output_tokens_details?.reasoning_tokens || 0 }
@@ -148,7 +153,14 @@ async function main() {
         throw error
       } finally { observation.elapsed_ms = Date.now() - callStarted }
     }
-    const result = await completeTurnReply(structuredClone(fixture.input), generate)
+    let result
+    try { result = await completeTurnReply(structuredClone(fixture.input), generate) }
+    catch (error) {
+      // Production delegates exhausted transport to advisor recovery. This
+      // isolated harness records an inconclusive run and never calls the CRM.
+      networkFailure = true
+      result = { reply: '', audit: { status: 'unavailable', issues: [error.message] } }
+    }
     const finalDraftPreserved = result.reply === fixture.draft
     const accepted = result.audit?.status === 'checked' && (liveWriter || finalDraftPreserved)
     const reasons = issues(result)

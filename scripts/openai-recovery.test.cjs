@@ -15,6 +15,7 @@ function load(file, mocks) {
   return mod.exports
 }
 const { requestOpenAI, OpenAIRequestError } = require('../src/lib/integrations/automation/openai-request.ts')
+const { aiRequestPolicy } = require('../src/lib/integrations/automation/ai-request-policy.ts')
 function requests(sequence) {
   const calls = [], waits = []; let clock = 0
   return { calls, waits, dependencies: { now: () => clock, random: () => 0, sleep: async ms => { waits.push(ms); clock += ms },
@@ -70,14 +71,14 @@ test('a timeout while reading the response body is retried and remains a typed g
   await assert.rejects(
     () => requestOpenAI('https://api.openai.com/v1/responses', {}, exhausted.dependencies, response => response.json()),
     error => error instanceof OpenAIRequestError && error.retryable && error.attempts === 3
-      && error.message === 'OPENAI_NETWORK_ERROR_RESPONSE_BODY_TIMEOUT',
+      && error.message === 'OPENAI_TIMEOUT_RESPONSE_BODY',
   )
 
   const invalid = requests([{ ok: true, json: async () => { throw new SyntaxError('invalid JSON') } }])
   await assert.rejects(
     () => requestOpenAI('https://api.openai.com/v1/responses', {}, invalid.dependencies, response => response.json()),
     error => error instanceof OpenAIRequestError && !error.retryable && error.attempts === 1
-      && error.message === 'OPENAI_NETWORK_ERROR_INVALID_RESPONSE_BODY',
+      && error.message === 'OPENAI_INVALID_RESPONSE_BODY',
   )
   assert.equal(invalid.calls.length, 1)
 })
@@ -85,6 +86,102 @@ test('a timeout while reading the response body is retried and remains a typed g
 test('a scope-classifier outage is propagated instead of blaming the customer message', async () => {
   const scope = load('src/lib/integrations/automation/business-scope.ts', { './ai': { aiJson: async () => { throw new OpenAIRequestError(503, true, 3) } } })
   await assert.rejects(() => scope.classifyBusinessScope('Tiene la distribución?'), OpenAIRequestError)
+})
+
+function timedRequests(sequence) {
+  const calls = [], timeouts = [], waits = []; let clock = 0
+  return { calls, timeouts, waits, dependencies: {
+    now: () => clock, random: () => 0,
+    sleep: async ms => { waits.push(ms); clock += ms },
+    timeoutSignal: ms => { timeouts.push(ms); return new AbortController().signal },
+    fetch: async (url, init) => {
+      calls.push({ url, init })
+      const next = sequence.shift()
+      assert.ok(next, 'No additional provider attempt was expected')
+      clock += next.elapsed || 0
+      if (next.error) throw next.error
+      return next.response || new Response('{"status":"completed"}')
+    },
+  } }
+}
+
+test('a review can finish after 45 seconds without a retry; only reviewer receives the longer policy', async () => {
+  const h = timedRequests([{ elapsed: 52_000 }]); let diagnostic
+  const result = await requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, response => response.json(), {
+    policy: aiRequestPolicy('reviewer'), onDiagnostics: value => { diagnostic = value },
+  })
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(h.timeouts, [60_000])
+  assert.equal(diagnostic.attempts[0].duration_ms, 52_000)
+  assert.equal(diagnostic.stop_reason, 'completed')
+  for (const role of ['writer', 'scope', 'extractor', 'interpretation', 'media', 'draft']) {
+    assert.deepEqual(aiRequestPolicy(role), aiRequestPolicy())
+    assert.equal(aiRequestPolicy(role).totalTimeoutMs, 45_000)
+  }
+})
+
+test('review timeout retries the identical request with a full window and renewed lease', async () => {
+  const h = timedRequests([{ elapsed: 60_000, error: new DOMException('private prompt', 'TimeoutError') }, { elapsed: 50_000 }])
+  let diagnostic, guards = 0
+  await requestOpenAI('https://api.openai.com/v1/responses', { method: 'POST', body: '{"draft":"same"}' }, h.dependencies,
+    response => response.json(), { policy: aiRequestPolicy('reviewer'), beforeAttempt: async () => { guards++ },
+      onDiagnostics: value => { diagnostic = value } })
+  assert.deepEqual(h.timeouts, [60_000, 60_000])
+  assert.equal(guards, 2)
+  assert.equal(h.calls[0].init.body, h.calls[1].init.body)
+  assert.deepEqual(diagnostic.attempts.map(a => a.outcome), ['timeout', 'succeeded'])
+  assert.equal(diagnostic.total_ms, 110_750)
+  assert.doesNotMatch(JSON.stringify(diagnostic), /private prompt|draft|same/)
+})
+
+test('two exhausted reviewer attempts retain precise timeout diagnostics', async () => {
+  const h = timedRequests(Array.from({ length: 2 }, () => ({ elapsed: 60_000, error: new DOMException('timeout', 'TimeoutError') })))
+  await assert.rejects(() => requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, response => response.json(), {
+    policy: aiRequestPolicy('reviewer'),
+  }), error => {
+    assert.equal(error.message, 'OPENAI_TIMEOUT')
+    assert.equal(error.attempts, 2)
+    assert.equal(error.diagnostics.stop_reason, 'max_attempts')
+    assert.equal(error.diagnostics.total_ms, 120_750)
+    return true
+  })
+  assert.deepEqual(h.timeouts, [60_000, 60_000])
+})
+
+test('reviewer refuses a short retry window and honors long Retry-After without extra calls', async () => {
+  for (const h of [
+    timedRequests([{ elapsed: 60_000, error: new DOMException('timeout', 'TimeoutError') }]),
+    timedRequests([{ elapsed: 1_000, response: fail(503, '', { 'Retry-After': '120' }) }]),
+  ]) {
+    await assert.rejects(() => requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, response => response.json(), {
+      policy: aiRequestPolicy('reviewer'), deadlineAt: 90_000,
+    }), error => error.diagnostics.stop_reason === 'deadline')
+    assert.equal(h.calls.length, 1)
+    assert.equal(h.waits.length, 0)
+  }
+})
+
+test('cancellation and a lost worker lease stop inference instead of starting provider recovery', async () => {
+  const controller = new AbortController(); controller.abort()
+  const h = timedRequests([])
+  await assert.rejects(() => requestOpenAI('https://api.openai.com/v1/responses', { signal: controller.signal }, h.dependencies),
+    error => error.kind === 'cancelled' && !error.retryable && error.attempts === 0)
+  const { AIRequestGuardError } = require('../src/lib/integrations/automation/openai-request.ts')
+  await assert.rejects(() => requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, undefined, {
+    beforeAttempt: async () => { throw Error('WORKER_LEASE_LOST') },
+  }), AIRequestGuardError)
+  assert.equal(h.calls.length, 0)
+})
+
+test('HTTP failure diagnostics distinguish billing, server errors and response body failures', async () => {
+  for (const [response, kind, status] of [[fail(429, 'insufficient_quota'), 'http', 429],
+    [{ ok: false, status: 401, headers: new Headers(), json: async () => { throw new DOMException('timeout', 'TimeoutError') } }, 'http', 401],
+    [{ ok: true, status: 200, json: async () => { throw new TypeError('private network details') } }, 'network', 0]]) {
+    const h = timedRequests([{ response }])
+    await assert.rejects(() => requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, res => res.json(), {
+      policy: { ...aiRequestPolicy('reviewer'), maxAttempts: 1 },
+    }), error => error.kind === kind && error.status === status && error.diagnostics.attempts[0].outcome === kind)
+  }
 })
 
 function recoveryHarness(options = {}) {

@@ -6,8 +6,9 @@ import { object, text, rpc, db, scope, type Row } from './data'
 import type { Inbound } from './webhook'
 import { downloadMedia } from './media-download'
 import { audioExtensions, clearAudioTranscript, wavHasSignal } from './media-format'
-import { requestOpenAI } from './openai-request'
-import { beginModelTrace } from './ai-execution-trace'
+import { requestOpenAI, type OpenAIRequestDiagnostics } from './openai-request'
+import { aiRequestPolicy } from './ai-request-policy'
+import { beginModelTrace, aiExecutionRequestOptions } from './ai-execution-trace'
 import { aiRequestRole, automationModelForRole, automationReasoningEffortForRole } from './ai-model-routing'
 import { aiOutputBudget, modelResponseDiagnostics, type ModelResponseDiagnostics } from './ai-output'
 
@@ -29,6 +30,7 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
   const observation = beginModelTrace(instructions, model, task, input, schema, !!(image || file), outputBudget, reasoningEffort)
   let usage: Row | undefined
   let diagnostics: ModelResponseDiagnostics | undefined
+  let transport: OpenAIRequestDiagnostics | undefined
   try {
     const result = object(await requestOpenAI('https://api.openai.com/v1/responses', { method: 'POST', redirect: 'error',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -39,7 +41,8 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
           ...(image ? [{ type: 'input_image', image_url: image, detail: 'high' }] : []),
           ...(file ? [{type:'input_file', filename:file.name, file_data:file.data}] : [])] }],
         text: { format: schema ? { type: 'json_schema', name: 'lavilet_result', strict: true, schema } : { type: 'json_object' } } }),
-    }, {}, response => response.json()))
+    }, {}, response => response.json(), { ...aiExecutionRequestOptions(), policy: aiRequestPolicy(role),
+      onDiagnostics: value => { transport = value } }))
     usage = Object.keys(object(result.usage)).length ? object(result.usage) : undefined
     diagnostics = modelResponseDiagnostics(result, outputBudget)
     if (result.status !== 'completed') throw new Error('OPENAI_INCOMPLETE')
@@ -49,10 +52,10 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
     if (!output || output.length > 30_000) throw new Error('OPENAI_INVALID_OUTPUT')
     const parsed: unknown = JSON.parse(output)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('OPENAI_INVALID_JSON')
-    observation.finish(undefined, usage, parsed, diagnostics)
+    observation.finish(undefined, usage, parsed, diagnostics, transport)
     return parsed as Row
   } catch (error) {
-    observation.finish(error, usage, undefined, diagnostics)
+    observation.finish(error, usage, undefined, diagnostics, transport)
     throw error
   }
 }

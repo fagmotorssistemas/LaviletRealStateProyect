@@ -143,11 +143,11 @@ async function register(events: Inbound[], guard: Guard) {
   return { registration, hasNew, mediaFailed, mediaErrors, normalized, stopped: botStopped(kommo) }
 }
 
-export async function processConversation(rows: Row[], guard: Guard) {
+export async function processConversation(rows: Row[], guard: Guard, inferenceDeadlineAt?: number) {
   const trace = traceForEvents(rows)
   const delivery = { replyWriteAttempted: false }
   try {
-    const result = await withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)))
+    const result = await withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)), guard, inferenceDeadlineAt)
     trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
       ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
       { action: result.action, reason: object(result).reason || result.action })

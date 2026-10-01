@@ -7,9 +7,42 @@ import { withAIExecutionTrace } from './ai-execution-trace'
 import * as toneSettings from './tone-settings'
 import { toneDirection, type ToneSettings } from '@/lib/inmobiliaria/conversationTone'
 import { ACTION_INVITATION_RULE, DIRECT_CONVERSATION_RULE } from './direct-conversation-rule'
+import { OpenAIRequestError } from './openai-request'
 
 const schema = { properties: { claims: {}, factual_values: {} } }
 const input = { respuesta_propuesta: 'Hola. Los valores referenciales van desde $145.000 hasta $550.000 USD, sujetos a cambios. Para compartirle el brochure y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?' }
+
+test('failed reviewer call records transport policy and sanitized diagnostics even without a model result', async t => {
+  const previousKey = process.env.OPENAI_API_KEY
+  process.env.OPENAI_API_KEY = 'synthetic'
+  t.after(() => { if (previousKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previousKey })
+  let calls = 0, guards = 0
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++
+    return new Response(JSON.stringify({ error: { code: 'insufficient_quota', message: 'private provider detail' } }), { status: 429 })
+  })
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([{ id: '00000000-0000-4000-8000-000000000001' }], {
+    persist: async rows => { stored = rows; return { error: null } },
+  })
+  const focusedSchema = { type: 'object', properties: { review_contract: { enum: ['focused-review-v1'] } } }
+  await withAIExecutionTrace(trace, () => assert.rejects(
+    () => aiJson('Review facts', {}, focusedSchema, undefined, undefined, undefined, 'review'), OpenAIRequestError,
+  ), async () => { guards++ })
+  await trace.flush()
+  assert.equal(calls, 1)
+  assert.equal(guards, 1)
+  const request = stored.find(step => step.step_key === 'model_request')!
+  const output = request.output_summary as Record<string, unknown>
+  const transport = output.request_diagnostics as Record<string, unknown>
+  assert.equal(request.error_code, 'OPENAI_HTTP_429_INSUFFICIENT_QUOTA')
+  assert.equal((transport.policy as Record<string, unknown>).attemptTimeoutMs, 60_000)
+  assert.equal(transport.stop_reason, 'non_retryable')
+  assert.equal((transport.attempts as Record<string, unknown>[])[0].http_status, 429)
+  assert.equal(output.output_snapshot, undefined)
+  assert.equal(output.token_usage, undefined)
+  assert.doesNotMatch(JSON.stringify(stored), /private provider detail|Bearer synthetic/)
+})
 
 test('review budget follows the current draft and leaves other role budgets unchanged', () => {
   const budget = aiOutputBudget(schema, 'review', input)

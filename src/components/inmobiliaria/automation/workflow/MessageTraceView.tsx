@@ -194,10 +194,24 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
   const output = (step.output.output_snapshot || {}) as Record<string, unknown>
   const input = (snapshot.data || {}) as Record<string, unknown>
   const usage = (step.output.token_usage || {}) as Record<string, unknown>
+  const transport = (step.output.request_diagnostics || {}) as Record<string, unknown>
+  const attempts = Array.isArray(transport.attempts) ? transport.attempts as Record<string, unknown>[] : []
+  const transportLabels: Record<string, string> = { succeeded: 'Respuesta recibida', timeout: 'Tiempo de espera agotado',
+    network: 'Fallo de conexión', http: 'Error del proveedor', invalid_response: 'Respuesta ilegible', cancelled: 'Llamada cancelada' }
   return <div className={styles.aiExchange}>
     {typeof input.borrador_rechazado === 'string' && <DraftDecision data={{ borrador_evaluado: input.borrador_rechazado, decision: 'Rechazado antes de esta corrección', motivos_registrados: input.correcciones_requeridas, siguiente_accion: 'Esta llamada intenta corregir ese borrador' }} />}
     <h5>Entrada y salida de esta llamada a IA</h5>
     <p>Modelo: {String(step.input.model || 'No registrado')}. Copia protegida: puede ocultar datos sensibles.</p>
+    {attempts.length > 0 && <details className={styles.technical} open={step.status === 'failed'}>
+      <summary>Conexión con la IA · {attempts.length} intento(s)</summary>
+      <p>Los reintentos repiten esta llamada a la IA. No repiten el envío al lead.</p>
+      <ul>{attempts.map((attempt, index) => <li key={index}>
+        Intento {String(attempt.attempt)}: {transportLabels[String(attempt.outcome)] || String(attempt.outcome)}.
+        {' '}Duración: {(Number(attempt.duration_ms) / 1000).toFixed(1)} s; límite: {(Number(attempt.timeout_ms) / 1000).toFixed(1)} s.
+        {typeof attempt.http_status === 'number' && ` HTTP ${attempt.http_status}.`}
+      </li>)}</ul>
+      {!step.output.output_snapshot && step.status === 'failed' && <p>Esta llamada no devolvió una evaluación utilizable. Esto no constituye un rechazo del contenido por parte de la IA.</p>}
+    </details>}
     <p>Los mensajes nuevos no se ocultan por mencionar presupuestos. Las credenciales y los identificadores personales siguen protegidos.</p>
     {JSON.stringify([snapshot, output]).includes('[contenido personal protegido]') && <p className={styles.notice}>Este registro antiguo se guardó con el texto oculto. Cambiar la vista no recupera lo que no se conservó; las capturas nuevas mantienen el texto comercial.</p>}
     {typeof usage.input_tokens === 'number' && <p>Tokens de entrada: {usage.input_tokens.toLocaleString('es-EC')}. Reutilizados desde caché: {typeof usage.cached_input_tokens === 'number' ? usage.cached_input_tokens.toLocaleString('es-EC') : 'No registrado'}. Tokens de salida: {typeof usage.output_tokens === 'number' ? usage.output_tokens.toLocaleString('es-EC') : 'No registrado'}.</p>}

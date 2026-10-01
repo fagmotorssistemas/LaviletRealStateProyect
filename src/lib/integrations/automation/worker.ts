@@ -30,6 +30,7 @@ async function scheduleTasks() {
 }
 
 export async function runAutomation(testContact?: string) {
+  const inferenceDeadlineAt = Date.now() + 240_000
   const settings = automationSettings()
   if (settings.mode === 'off') return { mode: 'off', processed: 0 }
   if (settings.mode === 'preview') return { mode: 'preview', databaseWrites: false, visits: await previewVisits() }
@@ -69,7 +70,7 @@ export async function runAutomation(testContact?: string) {
           await cancelNutrition24h(Number(object(first.payload).kommoId))
           await cancelNutritionWeekOne(Number(object(first.payload).kommoId))
           await cancelNutritionLater(Number(object(first.payload).kommoId))
-          result = await processConversation(batch, guard)
+          result = await processConversation(batch, guard, inferenceDeadlineAt)
         }
         else if (first.kind === 'maintenance' && NUTRITION_TASKS.includes(text(object(first.payload).task))) {
           result = object(first.payload).task === 'nutrition_week_one' ? await sendNutritionWeekOne(first, guard)
@@ -106,7 +107,7 @@ export async function runAutomation(testContact?: string) {
       } catch (error) {
         const preReplySend = error instanceof PreReplySendError
         const original = preReplySend ? error.original : error
-        const generationFailure = original instanceof OpenAIRequestError
+        const generationFailure = original instanceof OpenAIRequestError && original.kind !== 'cancelled'
         let failure = original, recoveryUncertain = false
         if (generationFailure && first.kind === 'inbound') {
           try {

@@ -22,6 +22,7 @@ import { progressiveQuestionObservations, PROGRESSIVE_OPTIONS_RULES } from './pr
 import { TURN_INTENT_RULES, turnIntentIssues } from './turn-intent'
 import { isCategoryOverview, validateCatalogReply } from './catalog-dialogue'
 import { pendingTurnReply } from './delivery-integrity'
+import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
 import { projectQuantityEvidence, validateProjectQuantities, withoutSupportedQuantities } from './project-quantities'
 import { turnEvidence, normalizeReviewReferences, replyReferences, sentenceReferenceReviewSchema, verifiedClaimSources, draftNumericCandidates } from './turn-evidence'
 import { compactTurnPromptContext, TURN_CONTEXT_REFERENCE_RULES } from './turn-prompt-context'
@@ -764,7 +765,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         base_preview: traceText(originalBase, MAX_REPLY_CHARACTERS), proposed_preview: traceText(proposedReply, MAX_REPLY_CHARACTERS), final_preview: traceText(reply, MAX_REPLY_CHARACTERS) } }
     }
     return fallback('unavailable', requests)
-  } catch {
+  } catch (error) {
+    // A provider outage has no review verdict. Let the worker's guarded advisor
+    // recovery handle it after inference retries, including metadata repair calls.
+    if (error instanceof OpenAIRequestError || error instanceof AIRequestGuardError) throw error
     const lastRepair = repairAttempts.at(-1)
     if (lastRepair) {
       lastRepair.failure = 'repair_call_failed'

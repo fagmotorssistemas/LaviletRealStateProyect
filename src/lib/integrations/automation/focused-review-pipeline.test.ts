@@ -4,6 +4,7 @@ import Ajv from 'ajv'
 import { completeTurnReply } from './turn-completeness'
 import { object, text, type Row } from './data'
 import { FOCUSED_REVIEW_VERSION } from './focused-review'
+import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const unit = { id: 'd202', unit_number: '202', category: 'departamento', status: 'disponible', is_published: true,
@@ -59,6 +60,33 @@ function harness(handle: (context: Row, schema: Row, task: string) => Row) {
   }
   return { generate, calls, failures }
 }
+
+test('review transport exhaustion reaches recovery without discarding or rewriting the draft', async () => {
+  for (const failure of [new OpenAIRequestError(0, true, 2, '', 'timeout'), new OpenAIRequestError(503, true, 2), new AIRequestGuardError()]) {
+    const mock = harness((context, _schema, task) => {
+      if (task === 'writing') return writer(context, 'La Vilet se encuentra en Cuenca.')
+      throw failure
+    })
+    await assert.rejects(() => completeTurnReply({ current: 'Me interesa el proyecto.', baseReply: 'Información del proyecto.',
+      verified: { proyecto: { ubicacion: 'Cuenca' } }, audit: { semantic_review_enabled: true },
+    }, mock.generate), error => error === failure)
+    assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review'])
+  }
+})
+
+test('a transport failure during reviewer metadata repair also reaches recovery', async () => {
+  const failure = new OpenAIRequestError(0, true, 2, '', 'timeout')
+  const mock = harness((context, _schema, task) => {
+    if (task === 'writing') return writer(context, 'La Vilet se encuentra en Cuenca.')
+    if (context.reparacion_revision) throw failure
+    // An omitted factual sentence triggers the existing metadata repair.
+    return reviewer(context)
+  })
+  await assert.rejects(() => completeTurnReply({ current: 'Me interesa el proyecto.', baseReply: 'Información del proyecto.',
+    verified: { proyecto: { ubicacion: 'Cuenca' } }, audit: { semantic_review_enabled: true },
+  }, mock.generate), error => error === failure)
+  assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review', 'review'])
+})
 
 test('focused pipeline approves a grounded project presentation and profile question through the real dynamic schema', async () => {
   const current = 'como esta, esoty interesado en el proyecto'
