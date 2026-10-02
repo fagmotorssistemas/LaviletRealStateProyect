@@ -17,7 +17,9 @@ export function concreteReviewRepairs(issues: unknown, review: Row, catalog: Row
     return {
       defect_id: `D${index + 1}`, code: issue.code, owner: issue.owner || 'system',
       repair_owner: issue.repair_owner || (issue.kind === 'review_metadata' ? 'reviewer' : 'writer'),
-      fragment: issue.fragment, reason: issue.reason || issue.subject || issue.code,
+      fragment: issue.fragment || issue.statement, reason: issue.reason || issue.subject || issue.code,
+      ...(issue.statement ? { statement: issue.statement, authoritative_fact: issue.authoritative_fact,
+        scope: 'affected_statement_only' } : {}),
       ...(numeric ? {
         instruction: 'Corrija esta relación usando la fuente y los valores exactos indicados, con redacción libre. No use una cifra individual como extremo del grupo ni cambie el grupo para justificarla. Si omite un dato opcional, siga atendiendo la consulta; no lo declare corregido si solo reformuló la frase.',
         source: { id: source.id, category: source.category ?? null, bedrooms_filter: source.bedrooms_filter ?? null,

@@ -11,8 +11,59 @@ import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
 import { buildNumericReferences, numericCoverageSchema, numericCoverageIssues } from './focused-numeric-coverage'
 import { structuredFactIssues } from './structured-facts'
 import { verifiedAbsenceReply } from './catalog-absence'
+import { NUMERIC_RELATION_WRITING_RULES } from './commercial-accuracy'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
+
+test('inclusive price endpoints reach the first writer and a real comparison defect repairs only its statement', async () => {
+  const statement = 'Los departamentos de 3 dormitorios superan los $250.000.'
+  const correctStatement = 'Los departamentos de 3 dormitorios parten de $250.000.'
+  const continuation = 'Podemos revisar alternativas de financiamiento y acompañarle en el proceso.'
+  const catalog = [250000, 310000].map((price, index) => ({ id: `d${index}`, unit_number: `${index + 2}02`,
+    category: 'departamento', bedrooms: 3, published_commercial_price: price }))
+  for (const needsCorrection of [false, true]) {
+    const tasks: string[] = [], failures: string[] = []
+    let writers = 0
+    const reply = `${correctStatement} ${continuation}`
+    const result = await completeTurnReply({ current: 'Me interesan los departamentos y el financiamiento', baseReply: reply,
+      verified: { catalogo: catalog }, audit: { semantic_review_enabled: true, business_risk_review_enabled: true } },
+    async (instructions, input, _schema, _image, _file, _tone, task = 'data') => {
+      try {
+        tasks.push(task)
+        const context = object(input)
+        if (task === 'writing') {
+          writers++
+          assert.ok(instructions.includes(NUMERIC_RELATION_WRITING_RULES))
+          const group = rows(object(context.evidencia_turno).groups).find(row => row.id === 'group:departamento:3:range')!
+          assert.equal(group.published_commercial_price, 250000)
+          assert.equal(object(group.upper_values).published_commercial_price, 310000)
+          if (writers === 2) {
+            const repair = object(context.reparacion), corrections = rows(repair.correcciones_concretas)
+            assert.equal(corrections.length, 1)
+            assert.equal(corrections[0].statement, statement)
+            assert.equal(corrections[0].fragment, statement)
+            assert.equal(corrections[0].scope, 'affected_statement_only')
+            assert.equal(corrections[0].authoritative_fact, 'El precio mínimo del grupo es 250000 USD, incluido ese valor.')
+            assert.match(String(repair.instruccion), /Conserve literalmente las demás frases/)
+            assert.equal(repair.borrador, `${statement} ${continuation}`)
+          }
+          return { reply: needsCorrection && writers === 1 ? `${statement} ${continuation}` : reply,
+            requests: [{ fragment: 'R1', intent: 'Opciones y financiamiento', request_type: 'general_information', status: 'answered', evidence: 'Catálogo', fact_key: 'price' }],
+            question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' } }
+        }
+        const blocked = needsCorrection && writers === 1
+        return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: blocked ? 'block' : 'pass', findings: blocked ? [{
+          category: 'hard_fact', statement, reason: 'El mínimo está incluido; no todas las unidades lo superan.',
+          authoritative_fact: 'El precio mínimo del grupo es 250000 USD, incluido ese valor.',
+        }] : [] }
+      } catch (error) { failures.push(String(error)); throw error }
+    })
+    assert.deepEqual(failures, [])
+    assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+    assert.equal(result.reply, reply)
+    assert.deepEqual(tasks, needsCorrection ? ['writing', 'review', 'writing', 'review'] : ['writing', 'review'])
+  }
+})
 const units = [
   { id: 'd304', unit_number: '304', category: 'departamento', floor_number: 3, bedrooms: 2, published_commercial_price: 180000 },
   { id: 'd404', unit_number: '404', category: 'departamento', floor_number: 4, bedrooms: 2, published_commercial_price: 185000 },

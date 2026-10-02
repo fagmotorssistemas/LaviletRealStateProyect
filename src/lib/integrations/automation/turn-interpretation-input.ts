@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { confirmedInterpretationMemory } from './interpretation-memory'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key => row[key] !== undefined).map(key => [key, row[key]]))
@@ -36,6 +37,7 @@ export function interpretationInput(input: Row, current: string): Row {
     'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'financiamiento'])
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
   return { ...result,
+    hechos_confirmados: confirmedInterpretationMemory(summary),
     resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step']),
       _turn_intent: pick(object(summary._turn_intent), ['objective', 'subject', 'continuation_goal', 'pending_question']) },
     contexto_propiedades: pick(object(input.contexto_propiedades), ['query', 'selected_ids', 'candidate_ids', 'comparison_ids',
@@ -90,4 +92,5 @@ export class TurnInterpretationError extends Error {
 export const CURRENT_TURN_INTERPRETATION_RULE = `
 FUENTE PRINCIPAL: interprete mensaje_actual completo, aunque contenga errores ortográficos, varias solicitudes o cantidades muy bajas. Recorra sus necesidades, composición familiar, presupuesto, preferencias y preguntas antes de responder. El historial solo resuelve referencias: nunca extraiga una pregunta histórica como solicitud nueva ni copie su evidencia. No convierta personas en dormitorios ni un importe bajo en miles de dólares. Una cifra no especificada como entrada o cuota no autoriza a asumir esa finalidad.
 La clasificación de alcance recibida es provisional. Interprete de forma independiente las solicitudes actuales; una etiqueta incierta no vuelve desconocida una petición inmobiliaria explícita. No necesita el catálogo de precios para extraer el presupuesto del cliente. La evidencia conserva el texto original con sus errores; el valor estructurado expresa su significado. No corrija la ortografía de una cita.
+SEPARACIÓN ENTRE MEMORIA Y NOVEDADES: hechos_confirmados conserva declaraciones ya aceptadas. Su salida contiene únicamente novedades del mensaje actual; no reconstruya el perfil completo. Si un presupuesto conocido no se vuelve a declarar, budget.status=not_discussed, amount=null y evidence=""; esto significa «sin actualización», no que el sistema olvide el presupuesto. Lo mismo aplica a cantidades familiares, preferencias, qualification y perfil: sin declaración nueva, use el valor neutro del esquema. La memoria se conserva por separado. Si el cliente cambia, niega o precisa un dato, extraiga esa novedad con evidencia actual aunque contradiga la memoria. Una consulta de financiamiento puede continuar con datos conocidos sin volver a declararlos. Ninguna memoria autoriza una gestión o consentimiento nuevo.
 `

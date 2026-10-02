@@ -6,6 +6,7 @@ import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
 import { promptSections } from './prompt-sections'
+import { reconcileHistoricalInterpretation, rememberInterpretationFacts } from './interpretation-memory'
 import { interpretationInput, interpretationSourceIssues, normalizeInactiveInterpretation, mergeInterpretationRepair, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
 
 export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v3'
@@ -95,6 +96,12 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   const readable = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const method = !readable ? 'unreadable_input' : isGreetingOnly(readable) ? 'literal_greeting' : 'model'
   let raw: Row = {}, promptRevision: string | null = null
+  const historicalFields = new Set<string>()
+  const reconcile = (value: Row) => {
+    const result = reconcileHistoricalInterpretation(value, readable, object(input.resumen))
+    result.fields.forEach(field => historicalFields.add(field))
+    return normalizeInactiveInterpretation(result.raw)
+  }
   let recoveryIssues: string[] = []
   if (method === 'model') {
     const prompt = await dependencies.activePrompt('extractor_eventos')
@@ -126,20 +133,25 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
     promptRevision = createHash('sha256').update(currentInstructions).digest('hex').slice(0, 16)
     dependencies.onPromptRevision?.(promptRevision)
     const modelInput = interpretationInput(input, readable)
-    raw = normalizeInactiveInterpretation(await dependencies.aiJson(currentInstructions, modelInput, TURN_EXTRACTION_SCHEMA))
+    raw = reconcile(await dependencies.aiJson(currentInstructions, modelInput, TURN_EXTRACTION_SCHEMA))
     recoveryIssues = interpretationSourceIssues(raw, readable)
     if (recoveryIssues.length) {
       const repaired = await dependencies.aiJson(currentInstructions, { ...modelInput, recuperacion_interpretacion: {
         issues: recoveryIssues, instruction: 'Revise los campos señalados usando mensaje_actual. missing_current_evidence significa que falta una cita para un dato afirmado; non_current_evidence significa que la cita no pertenece al mensaje actual; invalid_budget_amount significa que falta una cantidad válida. Un bloque sin datos ni acción no necesita evidencia. Conserve la información válida del turno y devuelva el esquema completo. El historial solo resuelve referencias, no aporta declaraciones nuevas.' },
         mensaje_actual: readable }, TURN_EXTRACTION_SCHEMA)
-      raw = normalizeInactiveInterpretation(mergeInterpretationRepair(raw, repaired, recoveryIssues))
+      raw = reconcile(mergeInterpretationRepair(raw, repaired, recoveryIssues))
       const remaining = interpretationSourceIssues(raw, readable)
       if (remaining.length) throw new TurnInterpretationError(remaining)
     }
   }
-  const result = normalizeInterpretation(input, raw, readable, method, promptRevision)
-  result.diagnostic.interpretation_recovery = { attempted: recoveryIssues.length > 0, issues: recoveryIssues, status: recoveryIssues.length ? 'recovered' : 'not_needed' }
-  return result
+  const withDiagnostics = (result: TurnInterpretation): TurnInterpretation => {
+    result.diagnostic.interpretation_recovery = { attempted: recoveryIssues.length > 0, issues: recoveryIssues, status: recoveryIssues.length ? 'recovered' : 'not_needed' }
+    result.diagnostic.historical_reconciliation = { status: historicalFields.size ? 'confirmed_facts_preserved' : 'not_needed', fields: [...historicalFields] }
+    const rebind = result.withActionMessage
+    if (rebind) result.withActionMessage = message => withDiagnostics(rebind(message))
+    return result
+  }
+  return withDiagnostics(normalizeInterpretation(input, raw, readable, method, promptRevision))
 }
 
 /** Reuse the same extraction after scope arbitration. No second model call and
@@ -201,11 +213,12 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
 }
 
 /** Structured continuity replaces an additional free-form summary inference on every turn. */
-export function rememberInterpretedTurn(previous: Row, current: string, extracted: Row): Row {
+export function rememberInterpretedTurn(previous: Row, current: string, extracted: Row, semantics: Row = object(extracted.turn_semantics)): Row {
   const facts = { ...object(previous.datos_confirmados) }
   if (extracted.preferred_category) facts.categoria = extracted.preferred_category
   if (extracted.purchase_purpose) facts.proposito = extracted.purchase_purpose
   if (object(extracted.household).confidence === 'high') facts.household = extracted.household
   return { ...previous, solicitud_actual: current.slice(0, 1200), datos_confirmados: facts,
+    _interpretation_memory: rememberInterpretationFacts(previous, current, extracted, semantics),
     _turn_contract: CONVERSATION_CONTRACT_VERSION }
 }

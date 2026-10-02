@@ -552,7 +552,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   currentSemantics = turnSemantics
   const unresolvedPropertyScope = businessScope.uncertain || businessScope.kind === 'out_of_scope'
   summary = { ...rememberInterpretedTurn(previousSummary, originalTurn, unresolvedPropertyScope
-    ? { ...extracted, preferred_category: null, purchase_purpose: null } : extracted),
+    ? { ...extracted, preferred_category: null, purchase_purpose: null } : extracted, unresolvedPropertyScope ? {} : turnSemantics),
     _turn_intent: turnIntent,
     _unit_reference: minimalTurn || unresolvedPropertyScope ? previousSummary._unit_reference || {} : reference.memory,
     _property_context: minimalTurn || unresolvedPropertyScope ? previousPropertyContext : reference.context }
