@@ -36,6 +36,8 @@ export function TypologyHotspotEditor({
   const here = current?.slug ?? ''
   const targets = withPano.filter((item) => item.slug !== here)
   const herePoints = hotspots.filter((item) => item.from === here)
+  const herePointsRef = useRef(herePoints)
+  herePointsRef.current = herePoints
 
   const persist = useCallback(
     async (next: TourPlacedHotspot[]) => {
@@ -117,6 +119,20 @@ export function TypologyHotspotEditor({
           plugins: [MarkersPlugin.withConfig({})],
         })
         viewerRef.current = viewer
+        const paint = () => {
+          const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
+          markers?.setMarkers(
+            herePointsRef.current.map((item) => ({
+              id: item.id,
+              position: { yaw: item.yaw, pitch: item.pitch },
+              html: roomHotspotHtml(item.label, item.kind === 'look' ? 'look' : 'go'),
+              anchor: 'center center' as const,
+              size: { width: 92, height: 78 },
+              tooltip: item.label,
+            })),
+          )
+        }
+        viewer.addEventListener(events.ReadyEvent.type, paint)
         viewer.addEventListener(events.ClickEvent.type, (event) => {
           if (event.data.rightclick || event.data.marker) return
           setPending({ yaw: event.data.yaw, pitch: event.data.pitch })

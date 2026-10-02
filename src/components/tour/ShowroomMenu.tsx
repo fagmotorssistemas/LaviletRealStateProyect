@@ -1,6 +1,7 @@
 'use client'
 /* eslint-disable @next/next/no-img-element -- QR is generated locally as a data URL. */
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 import type { TourLocale } from '@/lib/tour/tourMessages'
 import { Menu, X, Maximize, Minimize, ArrowLeft, Home, Search, Store, Scan, Trees, HardHat, MapPin, ChevronRight, ChevronDown, Mail, Ruler, BedDouble, Images, QrCode, Box } from 'lucide-react'
@@ -82,13 +83,14 @@ function statusTone(status: string) {
   if (key.includes('vend')) return 'bg-[#ece7e1] text-[#6d645b]'
   return 'bg-[#efe8dc] text-[#756044]'
 }
-export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,onAmenities,onLocation,onClosePanels,root}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onLocation:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>}){
+export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,onAmenities,onClosePanels,root}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>}){
  const [content,setContent]=useState(false)
  const [open,setOpen]=useState(false),[section,setSection]=useState<Section>('home')
  const {locale:lang,setLocale:setLang,t:translate}=useTourLanguage()
  const [filters,setFilters]=useState(emptyUnitFilters),[full,setFull]=useState(false),[notice,setNotice]=useState(''),[share,commitShare]=useState<TourUnitSummary|null>(null),[qr,setQr]=useState('')
  const shareUrl=share?publicShowroomUrl(share.unit_number,UNIT_MODEL_ORIGIN)+(lang==='en'?'&lang=en':''):''
  const setShare=(unit:TourUnitSummary|null)=>{setQr('');commitShare(unit)}
+ const router=useRouter()
  const button=useRef<HTMLButtonElement>(null)
  const t=(es:string,en:string)=>lang==='es'?es:en
  useEffect(()=>{const sync=()=>setFull(!!document.fullscreenElement);document.addEventListener('fullscreenchange',sync);return()=>document.removeEventListener('fullscreenchange',sync)},[])
@@ -100,7 +102,7 @@ export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,
  const filtered=filterShowroomUnits(units,filters,section==='shops')
  const floorGroups=[...filtered.reduce((groups,unit)=>{const floor=unit.floor||'';const list=groups.get(floor)??[];list.push(unit);groups.set(floor,list);return groups},new Map<string,TourUnitSummary[]>())].sort(([a],[b])=>(section==='shops'?shopFloorRank(a)-shopFloorRank(b):floorRank(a)-floorRank(b))||a.localeCompare(b,'es'))
  const close=()=>{setOpen(false);button.current?.focus()}
- const go=(next:Section)=>{setShare(null);setNotice('');if(next==='amenities'){onAmenities();close();return}if(next==='contact'){onLocation();close();return}setContent(true);setSection(next);if(next==='units'||next==='shops'||next==='tour')setFilters(emptyUnitFilters);if(next==='home'){onHome();close()}else onClosePanels()}
+ const go=(next:Section)=>{setShare(null);setNotice('');if(next==='amenities'){onAmenities();close();return}if(next==='contact'){router.push('/ubicanos');close();return}setContent(true);setSection(next);if(next==='units'||next==='shops'||next==='tour')setFilters(emptyUnitFilters);if(next==='home'){onHome();close()}else onClosePanels()}
  async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else if(root.current?.requestFullscreen)await root.current.requestFullscreen();else setNotice(t('Este navegador no permite pantalla completa.','Fullscreen is unavailable in this browser.'))}catch{setNotice(t('No se pudo cambiar a pantalla completa.','Fullscreen could not be changed.'))}}
  const fields=[['floor',t('Piso','Floor')],['bedrooms',t('Dormitorios','Bedrooms')],['category',t('Tipo','Type')],['status',t('Disponibilidad','Availability')]] as const
  return <>
