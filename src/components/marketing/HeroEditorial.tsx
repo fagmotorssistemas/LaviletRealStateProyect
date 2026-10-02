@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight, Building2, DoorOpen, ScanLine } from 'lucide-react'
 import { notifyHeroLocked } from './heroLock'
@@ -24,13 +23,16 @@ export function HeroEditorial() {
   return (
     <section id="inicio" className="sticky top-0 z-0 h-svh overflow-hidden bg-[#e4e4de] lg:bg-[#1a1410] text-[#3f3d2e]">
       <div className="absolute top-0 inset-x-0 h-[48svh] sm:h-[55svh] lg:h-full">
-        <Image
-          src={PHOTO}
-          alt="Fachada Lavilet al atardecer"
-          fill
-          priority
-          className="object-cover object-[65%_center] lg:object-center"
-          sizes="100vw"
+        <video
+          src="/inicio/portada.mp4"
+          poster={PHOTO}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-label="Fachada Lavilet del día a la noche"
+          className="absolute inset-0 h-full w-full object-cover object-[65%_center] lg:object-center"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#e4e4de] via-[#e4e4de]/20 to-transparent lg:hidden" />
       </div>

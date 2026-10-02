@@ -12,6 +12,7 @@ test('filters distinguish homes and commercial units with real attributes',()=>{
  assert.deepEqual(filterShowroomUnits(units,emptyUnitFilters,true).map(u=>u.id),['c'])
  assert.deepEqual(filterShowroomUnits(units,{...emptyUnitFilters,status:'reservado'}).map(u=>u.id),['b'])
  assert.equal(filterShowroomUnits(units,{...emptyUnitFilters,min:'200'}).length,0)
+ assert.deepEqual(filterShowroomUnits(units,{...emptyUnitFilters,category:'local'}).map(u=>u.id),['c'])
 })
 test('deep links never pick another unit from a partial number and QR has no CRM path',()=>{
  assert.equal(findUnitByNumber(units,'20'),null)

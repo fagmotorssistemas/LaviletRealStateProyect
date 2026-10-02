@@ -2,7 +2,8 @@ import type { TourUnitSummary } from '@/types/tour'
 export type UnitFilters={floor:string;bedrooms:string;category:string;status:string;min:string;max:string;query:string}
 export const emptyUnitFilters:UnitFilters={floor:'',bedrooms:'',category:'',status:'',min:'',max:'',query:''}
 export function filterShowroomUnits(units:TourUnitSummary[],filters:UnitFilters,commercial=false){
- return units.filter(u=>(commercial?u.category==='local':u.category!=='local')
+ const homesOnly=!commercial && filters.category!=='local'
+ return units.filter(u=>(commercial?u.category==='local':homesOnly?u.category!=='local':true)
   && (!filters.floor || u.floor===filters.floor)
   && (!filters.category || u.category===filters.category)
   && (!filters.status || u.status===filters.status)

@@ -3799,10 +3799,14 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             />
           ) : (
             <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/tour/ingreso.png"
-                alt=""
+              <video
+                src="/inicio/portada.mp4"
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="auto"
+                aria-label={t('Fachada Lavilet del día a la noche')}
                 className="absolute inset-0 h-full w-full object-cover"
               />
               <button
