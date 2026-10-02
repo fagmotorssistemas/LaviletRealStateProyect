@@ -282,7 +282,7 @@ export function buildRoomScenes(
     }
     groups.set(key, current)
   }
-  return [...groups.values()].map((scene) => {
+  return [...groups.values()].flatMap((scene): TourRoomScene[] => {
     const baseVersion = /\.png(?:$|\?)/i.test(scene.url) ? 0 : publicAssetVersion(scene.url)
     const widths = Object.fromEntries(
       Object.entries(scene.widths ?? {})
@@ -295,20 +295,20 @@ export function buildRoomScenes(
         .map(([key, value]) => [key, value ? tourDisplayUrl(value) : value]),
     )
     const webpWidths = Object.fromEntries(
-      Object.entries(widths).filter(([, value]) => value && !/\.png(?:$|\?)/i.test(value)),
+      Object.entries(widths).filter(([, value]) => typeof value === 'string' && !/\.png(?:$|\?)/i.test(value)),
     ) as TourRoomScene['widths']
     const pngBase = /\.png(?:$|\?)/i.test(scene.url)
     const url = pngBase
       ? webpWidths?.['8192'] || webpWidths?.['4096'] || webpWidths?.['2048'] || ''
       : scene.url || webpWidths?.['8192'] || webpWidths?.['4096'] || webpWidths?.['2048'] || ''
-    if (!url || /\.png(?:$|\?)/i.test(url)) return null
-    return {
+    if (!url || /\.png(?:$|\?)/i.test(url)) return []
+    return [{
       ...scene,
       url: tourDisplayUrl(url),
       file_name: pngBase ? url : scene.file_name,
       widths: webpWidths,
-    }
-  }).filter((scene): scene is TourRoomScene => Boolean(scene))
+    }]
+  })
 }
 
 export function pickSceneUrl(
