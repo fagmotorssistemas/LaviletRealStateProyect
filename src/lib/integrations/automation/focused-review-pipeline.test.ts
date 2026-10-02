@@ -13,9 +13,10 @@ const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object)
 const unit = { id: 'd202', unit_number: '202', category: 'departamento', status: 'disponible', is_published: true,
   area_internal_m2: 120.83, bedrooms: 3, floor_number: 2, published_commercial_price: 245123 }
 const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' }
-const pass = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [] }
+const pass = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
 const block = (category: string, statement: string, reason: string, authoritative_fact: string) => ({
   review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'block',
+  facts: [], question: null,
   findings: [{ category, statement, reason, authoritative_fact }],
 })
 function writer(context: Row, reply: string): Row {
@@ -119,13 +120,16 @@ test('an approved model verdict cannot send a rounded surface absent from author
   const rounded = 'El departamento 202 tiene 121 m² interiores.'
   const exact = 'El departamento 202 tiene 120,83 m² interiores.'
   let writes = 0
-  const mock = harness((context, task) => task === 'writing' ? writer(context, ++writes === 1 ? rounded : exact) : pass)
+  const mock = harness((context, task) => task === 'writing' ? writer(context, ++writes === 1 ? rounded : exact)
+    : { ...pass, facts: [{ statement: context.borrador, kind: 'catalog_value', subject_id: unit.id,
+      field: 'area_internal_m2', value: writes === 1 ? 121 : 120.83, upper_value: null, relation: 'eq', unit: 'm2' }] })
   const result = await completeTurnReply({ current: '¿Qué superficie tiene el departamento 202?', baseReply: exact,
     verified: { catalogo: [unit] }, audit: { semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate)
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, exact)
-  assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review', 'writing', 'review'])
-  assert.equal(rows(rows(result.audit.repair_attempts)[0].issues)[0].owner, 'system')
+  assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review', 'review', 'writing', 'review'])
+  assert.equal(rows(result.audit.repair_attempts)[0].target, 'review_metadata')
+  assert.equal(rows(rows(result.audit.repair_attempts)[1].issues)[0].owner, 'system')
 })
 
 test('a material price error that remains unchanged is never sent', async () => {

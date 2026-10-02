@@ -52,7 +52,7 @@ test('inclusive price endpoints reach the first writer and a real comparison def
             question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' } }
         }
         const blocked = needsCorrection && writers === 1
-        return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: blocked ? 'block' : 'pass', findings: blocked ? [{
+        return { review_contract: BUSINESS_RISK_REVIEW_VERSION, facts: [], question: null, verdict: blocked ? 'block' : 'pass', findings: blocked ? [{
           category: 'hard_fact', statement, reason: 'El mínimo está incluido; no todas las unidades lo superan.',
           authoritative_fact: 'El precio mínimo del grupo es 250000 USD, incluido ese valor.',
         }] : [] }
@@ -182,7 +182,7 @@ test('multi-turn budget and floor response passes exact review; omitting the bud
         } else {
           assert.ok(rows(context.obligaciones_del_turno).some(row => row.id === 'current_budget_answer'))
           const missing = omitBudget && writers === 1
-          answer = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: missing ? 'block' : 'pass',
+          answer = { review_contract: BUSINESS_RISK_REVIEW_VERSION, facts: [], question: null, verdict: missing ? 'block' : 'pass',
             findings: missing ? [{ category: 'turn_goal', statement: 'El borrador omite el presupuesto.',
               reason: 'Enumera características sin responder si el presupuesto alcanza.',
               authoritative_fact: 'La obligación current_budget_answer exige atender el presupuesto actual.' }] : [] }

@@ -10,6 +10,12 @@ export function aiOutputBudget(schema: unknown, task: string, input: unknown): n
   const numericContract = row(properties.numeric_contract).enum
   const inline = Array.isArray(numericContract) && numericContract.includes('numeric-inline-v1')
   if (properties.turn_semantics) return 4200
+  if (task === 'review' && properties.facts && properties.findings) {
+    // Room for extracted facts and reasoning; never parse the draft's numbers
+    // or scale output by the catalogue size. This is only a completion ceiling.
+    const length = string(row(input).borrador).length
+    return Math.min(12000, Math.ceil(Math.max(4000, 2200 + length * 1.5) / 250) * 250)
+  }
   if (task !== 'review' || !inline && (!properties.factual_values || !properties.claims)) return 2200
   const data = row(input), draft = string(data.respuesta_propuesta).trim()
   if (!draft) return 2200

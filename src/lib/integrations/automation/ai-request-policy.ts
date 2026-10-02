@@ -9,6 +9,7 @@ export type AIRequestPolicy = {
 
 /** Shared by production and the isolated evaluation harness. */
 export function aiRequestPolicy(role?: AIRequestRole): AIRequestPolicy {
+  if (role === 'extractor') return { attemptTimeoutMs: 30_000, totalTimeoutMs: 65_000, maxAttempts: 2, minimumRetryWindowMs: 30_000 }
   return role === 'reviewer'
     ? { attemptTimeoutMs: 60_000, totalTimeoutMs: 125_000, maxAttempts: 2, minimumRetryWindowMs: 60_000 }
     : { attemptTimeoutMs: 30_000, totalTimeoutMs: 45_000, maxAttempts: 3, minimumRetryWindowMs: 1_000 }

@@ -10,6 +10,14 @@ import { ACTION_INVITATION_RULE, DIRECT_CONVERSATION_RULE } from './direct-conve
 import { OpenAIRequestError } from './openai-request'
 
 const schema = { properties: { claims: {}, factual_values: {} } }
+test('business fact extraction has bounded output room independent of catalogue size', () => {
+  const contract = { properties: { facts: {}, findings: {} } }
+  const context = { borrador: 'Una respuesta con características. '.repeat(60) }
+  const budget = aiOutputBudget(contract, 'review', context)
+  assert.ok(budget >= 4000 && budget <= 12000)
+  assert.equal(aiOutputBudget(contract, 'review', { ...context, catalogo: Array(500).fill({ price: 145000 }) }), budget)
+  assert.equal(aiOutputBudget(contract, 'review', { borrador: 'x'.repeat(30000) }), 12000)
+})
 const input = { respuesta_propuesta: 'Hola. Los valores referenciales van desde $145.000 hasta $550.000 USD, sujetos a cambios. Para compartirle el brochure y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?' }
 
 test('failed reviewer call records transport policy and sanitized diagnostics even without a model result', async t => {

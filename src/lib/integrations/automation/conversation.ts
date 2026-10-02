@@ -6,6 +6,8 @@ import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness
 import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
 import { OpenAIRequestError } from './openai-request'
+import { unansweredInbound } from './pending-inbound'
+import { confirmedInterpretationMemory } from './interpretation-memory'
 import { assertLive, automationSettings } from './config'
 import { normalizedVisitPreference, validateIntent, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
@@ -147,14 +149,26 @@ async function register(events: Inbound[], guard: Guard) {
 export async function processConversation(rows: Row[], guard: Guard, inferenceDeadlineAt?: number) {
   const trace = traceForEvents(rows)
   const delivery = { replyWriteAttempted: false }
+  let superseded = false
+  const inferenceGuard = async () => {
+    await guard()
+    const latest = rows.map(row => inboundFromRow(row.payload)).sort((a, b) => a.sentAt.localeCompare(b.sentAt)).at(-1)
+    if (!latest) return
+    const { count, error } = await db().from('lv_integration_events').select('id', { count: 'exact', head: true })
+      .match(scope).eq('contact_key', `${latest.kommoId}:${latest.contactId}`).eq('status', 'pending')
+      .gt('payload->>sentAt', latest.sentAt)
+    if (error) throw new Error('NEW_INPUT_CHECK_FAILED')
+    if (count) { superseded = true; throw new Error('NEW_INPUT_PENDING') }
+  }
   try {
-    const result = await withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)), guard, inferenceDeadlineAt)
+    const result = await withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)), inferenceGuard, inferenceDeadlineAt)
     trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
       ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
       { action: result.action, reason: object(result).reason || result.action })
     return result
   } catch (error) {
     trace.failOpenSteps(error)
+    if (superseded && !delivery.replyWriteAttempted) return { action: 'superseded_or_paused', reason: 'NEW_INPUT_PENDING' }
     throw delivery.replyWriteAttempted ? error : new PreReplySendError(error)
   } finally {
     await trace.flush()
@@ -346,10 +360,21 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     lead_id: text(lead.id),
   })
   const context = object(await rpc('lv_app_conversation_context', { p_lead: lead.id, p_message: activeLast.externalId }))
+  const pendingRead = await db().from('messages').select('id,external_message_id,role,content,sent_at,model_used,answered_ids:tool_calls->answered_message_ids,provider_status:tool_calls->>provider_status,recovery_source:tool_calls->>source,recovery_pending:tool_calls->turn_completeness->recovery->>pending')
+    .eq('conversation_id', conversationBefore.id).lte('sent_at', activeLast.sentAt)
+    .order('sent_at', { ascending: false }).order('id', { ascending: false }).limit(80)
+  if (pendingRead.error) throw new Error('PENDING_INPUT_READ_FAILED')
+  const pendingInputs = unansweredInbound((pendingRead.data || []).reverse().map(message => ({ ...message,
+    tool_calls: { ...(Array.isArray(message.answered_ids) ? { answered_message_ids: message.answered_ids } : {}),
+      provider_status: message.provider_status, source: message.recovery_source,
+      turn_completeness: { recovery: { pending: message.recovery_pending === 'true' } } },
+  })), inbound.normalized.map(event => event.externalId))
+  context.consultas_pendientes = pendingInputs
   trace.finish(contextStep, 'succeeded', {
     history_messages: Array.isArray(context.historial) ? context.historial.length : 0,
     has_project_context: Boolean(context.proyecto),
     has_visit_context: Boolean(context.cita || context.propuesta_visita),
+    pending_message_ids: pendingInputs.map(message => message.message_id),
   })
   const continuation = !inbound.mediaFailed ? nutritionContinuation(current, context.historial) : null
   if (continuation) current = continuation.message
@@ -359,7 +384,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let interestDecision: Row | null = null
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
   let turnCatalog: Row[] = [], propertyTurn: Row = {}, currentSemantics: Row = {}
-  let greeting = !inbound.mediaFailed && isGreetingOnly(current)
+  let greeting = !inbound.mediaFailed && !pendingInputs.length && isGreetingOnly(current)
   const storedSummary = object(conversationBefore.summary)
   const previousSummary: Row = { ...storedSummary, _lead_profile: confirmedLeadProfile(storedSummary._lead_profile) }
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
@@ -493,6 +518,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     ? rememberedQuestion
     : pendingQuestionFromReply(lastResponse)
   let interpretation = await interpretConversationTurn({
+    consultas_pendientes: pendingInputs,
     resumen: previousSummary, historial: context.historial,
     perfil_inicial: { ...object(previousSummary._lead_profile), awaiting: object(previousSummary._lead_introduction).status === 'pending',
       missing: ['full_name', 'residence_city', 'residence_country'].filter(key => !text(object(previousSummary._lead_profile)[key])) },
@@ -1184,7 +1210,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   // Action parsing uses only verified property fragments. Writing/review sees
   // the full mixed message and its boundary together, before any final send.
-  const writingCurrent = businessScope.kind === 'mixed' ? originalTurn : current
+  const writingCurrent = [...new Set([
+    ...interpretation.requests.filter(request => request.source === 'pending').map(request => text(request.evidence)),
+    businessScope.kind === 'mixed' ? originalTurn : current,
+  ])].join('\n')
   const needsScopeCopy = businessScope.uncertain || ['out_of_scope', 'mixed'].includes(businessScope.kind)
   const scopeOnlyReview = businessScope.uncertain || businessScope.kind === 'out_of_scope'
   const scopeContract = needsScopeCopy ? scopeWritingContract(businessScope, previousSummary._brand_introduced === true) : null
@@ -1226,6 +1255,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile) : {}
     commercialInfo.estado_conversacion = { brochure_sent: object(previousSummary._lead_introduction).brochure_sent === true,
       introduction_status: object(previousSummary._lead_introduction).status || null }
+    commercialInfo.hechos_confirmados = confirmedInterpretationMemory(Object.keys(summary).length ? summary : previousSummary)
+    commercialInfo.consultas_pendientes = pendingInputs
     const info: Row = scopeOnlyReview
       ? { ...scopePolicyContext({ ...commercialInfo, financiamiento: finance, semantica_turno: currentSemantics,
         property_context: propertyTurn.context, referencia_unidad: propertyTurn,
@@ -1477,7 +1508,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (continuation) audit.nutrition_continuation = { topic: continuation.topic, source_message_id: continuation.sourceMessageId }
   audit.conversation_tone = conversationToneAudit()
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
-    p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId, provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
+    p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId,
+      answered_message_ids: recoveringTurn() ? [] : [...pendingInputs.map(message => message.message_id), ...inbound.normalized.map(event => event.externalId)],
+      provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
   trace.finish(deliveryStep, 'succeeded', {
     action: 'accepted', provider: 'kommo_salesbot', response_registered: true, delivery_confirmed: false,
   })
@@ -1488,6 +1521,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const sentModel = object(audit.unit_model)
   const sentModelId = text(sentModel.url) && reply.includes(text(sentModel.url)) ? text(sentModel.unit_id) : ''
   const pendingRecovery = recoveringTurn()
+  const reviewedOffer = text(object(object(audit.turn_completeness).semantic_review).offered_action)
   const interpretedPropertyContext = object(summary._property_context)
   const previousOfferedIds = Array.isArray(previousPropertyContext.offered_ids) ? previousPropertyContext.offered_ids : []
   const stillRelevantOffers = new Set(filterCatalog(turnCatalog, catalogQuery(interpretedPropertyContext.query)).map(unit => unit.id))
@@ -1509,7 +1543,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _pending_requests: pendingRecovery ? pendingRequests : [],
     _response_recovery: pendingRecovery ? { ...object(object(audit.turn_completeness).recovery), source_message_id: activeLast.externalId,
       current_request: writingCurrent, objective: turnIntent.objective } : {},
-    _last_operational_step: !canTrackFollowUp ? {} : pendingRecovery ? object(summary._last_operational_step || previousSummary._last_operational_step)
+    _last_operational_step: !canTrackFollowUp ? { kind: 'unverified_offer', reply } : pendingRecovery ? object(summary._last_operational_step || previousSummary._last_operational_step)
+      : reviewedOffer === 'ambiguous' ? { kind: 'ambiguous_offer', reply }
+      : reviewedOffer === 'information' ? { kind: 'information_offer', reply }
+      : reviewedOffer === 'internal_advisor' ? { kind: 'internal_advisor_offer', reply }
+      : reviewedOffer === 'financing_review' ? { kind: 'financing_consent', reply }
       : ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'financing_question' || audit.source === 'budget_financing_guidance') && /(?:iniciar|iniciemos|revisión|revisemos)/i.test(reply) && /\?/.test(reply)
       ? { kind: 'financing_consent', reply } : {},
     ...(pendingRecovery ? { _unit_reference: propertyTurn.explicit === true && !propertyTurn.needsClarification

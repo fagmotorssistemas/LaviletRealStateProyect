@@ -57,7 +57,7 @@ test('final writer gets one precision block and the same obligations as the busi
       }
       assert.deepEqual(context.obligaciones_del_turno, writerObligations)
       assert.match(instructions, /No cree obligaciones adicionales/)
-      return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [] }
+      return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
     } catch (error) { errors.push(String(error)); throw error }
   })
   assert.deepEqual(errors, [])

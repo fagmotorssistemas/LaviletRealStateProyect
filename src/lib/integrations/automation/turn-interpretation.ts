@@ -6,6 +6,7 @@ import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
 import { promptSections } from './prompt-sections'
+import { PENDING_REQUEST_RULES } from './pending-inbound'
 import { reconcileHistoricalInterpretation, rememberInterpretationFacts } from './interpretation-memory'
 import { interpretationInput, interpretationSourceIssues, normalizeInactiveInterpretation, mergeInterpretationRepair, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
 
@@ -93,8 +94,9 @@ function evidencedActions(raw: Row, current: string) {
 /** Called for every authorized turn, before a response route or operational decision is selected. */
 export async function interpretConversationTurn(input: Row, dependencies: Dependencies): Promise<TurnInterpretation> {
   const current = text(input.mensaje_actual)
+  const pending = (Array.isArray(input.consultas_pendientes) ? input.consultas_pendientes : []).map(object)
   const readable = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
-  const method = !readable ? 'unreadable_input' : isGreetingOnly(readable) ? 'literal_greeting' : 'model'
+  const method = !readable ? 'unreadable_input' : isGreetingOnly(readable) && !pending.length ? 'literal_greeting' : 'model'
   let raw: Row = {}, promptRevision: string | null = null
   const historicalFields = new Set<string>()
   const reconcile = (value: Row) => {
@@ -107,7 +109,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     const prompt = await dependencies.activePrompt('extractor_eventos')
     const requestRules = `
 Contrato ${CONVERSATION_CONTRACT_VERSION}. Devuelva todos los campos del esquema; null significa desconocido.
-Enumere en requests TODAS las solicitudes actuales, incluidas dudas adicionales, correcciones, peticiones de asesor y no recibir más mensajes. Cada evidence debe ser literal del mensaje actual. No rellene solicitudes del historial.
+Enumere en requests TODAS las solicitudes actuales, incluidas dudas adicionales, correcciones, peticiones de asesor y no recibir más mensajes. Cada evidence debe ser literal del mensaje actual. Las consultas informativas sin respuesta de consultas_pendientes son la única fuente adicional de requests; cite allí su evidencia original. No rellene solicitudes desde el historial general.
 Si el mensaje corrige un sustantivo anterior («los departamentos, perdón»), conserve el propósito de la solicitud que corrige: «cómo puedo verlos» sigue siendo visualización, no una nueva búsqueda por categoría. Use el historial para resolver el sentido, pero cite solo el texto actual como evidencia. No afirme pluralidad de edificios por repetir una expresión corregida del cliente.
 resumen._turn_intent conserva el objetivo del turno previo. Si el lead aclara la categoría o unidad de una consulta de precio («Precio» → «sobre suites»), interprete la petición como precio de esa categoría, no solo listado de características. En requests describa ese sentido y cite como evidence únicamente el fragmento actual. Un objetivo previo no prevalece sobre un cambio de tema explícito, ni autoriza acciones. Dar nombre o residencia tampoco declara interés en una categoría.
 Separe las solicitudes independientes y asigne domain: property para catálogo, precios, características y datos del proyecto; visit para coordinar, aceptar, cambiar, cancelar o consultar una visita inmobiliaria; financing para consulta o revisión financiera; advisor para atención humana explícita; tracking para alta/baja de mensajes; courtesy para agradecimientos, despedidas y cortesía sin consulta nueva; other para temas ajenos o sin dominio resoluble. «Sí, confirmo la cita; además, ¿admiten mascotas?» contiene una solicitud visit y otra property. «Sí, confirmo la cita, muchas gracias» contiene una aceptación visit y cortesía courtesy, sin nueva consulta comercial. No absorba consultas adicionales dentro de visit ni clasifique una cita ajena al proyecto como visita inmobiliaria. El dominio describe la solicitud, nunca acredita una acción realizada.
@@ -125,6 +127,7 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
       ['Función y configuración del extractor', prompt],
       ['Fuente del turno y separación del historial', CURRENT_TURN_INTERPRETATION_RULE],
       ['Solicitudes, continuidad y autorizaciones', requestRules],
+      ['Consultas pendientes sin respuesta', PENDING_REQUEST_RULES],
       ['Interpretación del perfil', LEAD_PROFILE_EXTRACTION_RULES],
       ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
       ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
@@ -134,13 +137,13 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
     dependencies.onPromptRevision?.(promptRevision)
     const modelInput = interpretationInput(input, readable)
     raw = reconcile(await dependencies.aiJson(currentInstructions, modelInput, TURN_EXTRACTION_SCHEMA))
-    recoveryIssues = interpretationSourceIssues(raw, readable)
+    recoveryIssues = interpretationSourceIssues(raw, readable, pending)
     if (recoveryIssues.length) {
       const repaired = await dependencies.aiJson(currentInstructions, { ...modelInput, recuperacion_interpretacion: {
         issues: recoveryIssues, instruction: 'Revise los campos señalados usando mensaje_actual. missing_current_evidence significa que falta una cita para un dato afirmado; non_current_evidence significa que la cita no pertenece al mensaje actual; invalid_budget_amount significa que falta una cantidad válida. Un bloque sin datos ni acción no necesita evidencia. Conserve la información válida del turno y devuelva el esquema completo. El historial solo resuelve referencias, no aporta declaraciones nuevas.' },
         mensaje_actual: readable }, TURN_EXTRACTION_SCHEMA)
       raw = reconcile(mergeInterpretationRepair(raw, repaired, recoveryIssues))
-      const remaining = interpretationSourceIssues(raw, readable)
+      const remaining = interpretationSourceIssues(raw, readable, pending)
       if (remaining.length) throw new TurnInterpretationError(remaining)
     }
   }
@@ -185,11 +188,15 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   if (['request', 'information'].includes(text(object(semantics.reservation).kind))) {
     extracted.events = [...new Set([...(Array.isArray(extracted.events) ? extracted.events : []), 'asked_reservation'])]
   }
+  const pending = (Array.isArray(input.consultas_pendientes) ? input.consultas_pendientes : []).map(object)
+  const pendingSource = (request: Row) => ['property', 'financing'].includes(text(request.domain))
+    ? pending.find(message => evidenceMatches(text(request.evidence), text(message.content))) : undefined
   const requests = (Array.isArray(raw.requests) ? raw.requests : []).map(object)
-    .filter(request => text(request.request).trim() && evidenceMatches(text(request.evidence), readable))
+    .filter(request => text(request.request).trim() && (evidenceMatches(text(request.evidence), readable) || pendingSource(request)))
     .slice(0, 12).map(request => ({ request: text(request.request).slice(0, 500),
       domain: requestDomains.includes(text(request.domain).trim().toLowerCase() as typeof requestDomains[number]) ? text(request.domain).trim().toLowerCase() : 'other',
-      evidence: text(request.evidence), confidence: ['high', 'medium', 'low'].includes(text(request.confidence)) ? request.confidence : 'low' }))
+      evidence: text(request.evidence), confidence: ['high', 'medium', 'low'].includes(text(request.confidence)) ? request.confidence : 'low',
+      ...(!evidenceMatches(text(request.evidence), readable) ? { source_message_id: pendingSource(request)?.message_id, source: 'pending' } : {}) }))
   const property = object(semantics.property)
   return { extracted, semantics, requests, method, promptRevision,
     withActionMessage: message => normalizeInterpretation({ ...input, mensaje_accion: message }, raw, readable, method, promptRevision),

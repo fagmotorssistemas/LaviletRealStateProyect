@@ -112,7 +112,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []) {
     const ref = text(error.unit_id), field = fields[text(error.field)] || text(error.field) || 'dato no identificado'
     const location = typeof error.index === 'number' ? `factual_values[${error.index}]` : 'Ficha del revisor'
     const quote = text(error.fragment) ? ` Fragmento: «${text(error.fragment)}».` : ''
-    if (review.review_contract === 'business-risk-v1' && ['hard_fact', 'business_guardrail', 'turn_goal'].includes(text(error.code))) {
+    if (['business-risk-v1', 'business-risk-v2'].includes(text(review.review_contract)) && ['hard_fact', 'business_guardrail', 'turn_goal'].includes(text(error.code))) {
       const labels: Record<string, string> = { hard_fact: 'Dato comercial', business_guardrail: 'Restricción comercial', turn_goal: 'Objetivo del turno' }
       return `${labels[text(error.code)]}: ${text(error.statement)}. ${text(error.reason)}`.trim()
     }

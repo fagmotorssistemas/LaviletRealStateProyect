@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:budget-financing-recovery": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/business-facts.test.ts src/lib/integrations/automation/pending-inbound.test.ts src/lib/integrations/automation/conversation-budget-regression.test.ts src/lib/integrations/automation/focused-review-pipeline.test.ts src/lib/integrations/automation/interpretation-memory.test.ts src/lib/integrations/automation/ai-output.test.ts scripts/openai-recovery.test.cjs",
     "test:prompts": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/prompt-assembly.test.ts src/lib/integrations/automation/ai-output.test.ts src/lib/integrations/automation/execution-trace.test.ts",
     "test:turn-recovery": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/turn-recovery.test.ts src/lib/integrations/automation/interpretation-neutral.test.ts src/lib/integrations/automation/interpretation-memory.test.ts scripts/turn-interpretation.test.cjs scripts/business-scope.test.cjs src/lib/integrations/automation/conversation-budget-regression.test.ts",
     "dev": "node scripts/print-env-banner.cjs && next dev",

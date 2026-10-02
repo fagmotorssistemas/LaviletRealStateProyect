@@ -37,6 +37,7 @@ export function interpretationInput(input: Row, current: string): Row {
     'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'financiamiento'])
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
   return { ...result,
+    consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
     resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step']),
       _turn_intent: pick(object(summary._turn_intent), ['objective', 'subject', 'continuation_goal', 'pending_question']) },
@@ -51,13 +52,14 @@ export function interpretationInput(input: Row, current: string): Row {
 }
 
 /** Source integrity, never a dictionary interpreting the customer's vocabulary. */
-export function interpretationSourceIssues(raw: Row, current: string): string[] {
+export function interpretationSourceIssues(raw: Row, current: string, pending: Row[] = []): string[] {
   raw = normalizeInactiveInterpretation(raw)
   const semantics = object(raw.turn_semantics), property = object(semantics.property), budget = object(semantics.budget)
   const requests = rows(raw.requests)
   // Normalization already discards stray historical requests. Recover only when
   // none is grounded, or a core interpretation below contradicts this turn.
-  const hasCurrentRequest = requests.some(request => text(request.evidence).trim() && matches(request.evidence, current))
+  const hasCurrentRequest = requests.some(request => text(request.evidence).trim() && (matches(request.evidence, current)
+    || ['property', 'financing'].includes(text(request.domain)) && pending.some(message => matches(request.evidence, text(message.content)))))
   const evidence: [string, unknown][] = hasCurrentRequest ? [] : requests.map((request, index) => [`requests.${index}`, request.evidence])
   if (semantics.confidence === 'high' && semantics.primary_intent !== 'other') evidence.push(['primary_intent', semantics.primary_evidence])
   if (property.confidence === 'high') evidence.push(['property', property.evidence])

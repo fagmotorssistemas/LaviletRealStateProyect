@@ -25,6 +25,7 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
   const reviewContract = object(object(object(schema).properties).review_contract).enum
   const focusedReview = task === 'review' && Array.isArray(reviewContract)
     && reviewContract.length === 1 && reviewContract[0] === 'focused-review-v1'
+  const structuredBusinessReview = task === 'review' && Array.isArray(reviewContract) && reviewContract.includes('business-risk-v2')
   if (focusedReview && schema) {
     schema = atomicNumericSchema(schema)
     instructions = instructions.replace(FOCUSED_NUMERIC_COVERAGE_RULES,
@@ -61,14 +62,14 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
     const output = (Array.isArray(result.output) ? result.output : []).map(object)
       .flatMap(item => Array.isArray(item.content) ? item.content.map(object) : [])
       .filter(item => item.type === 'output_text').map(item => text(item.text)).join('')
-    if (!output || output.length > (focusedReview ? 120_000 : 30_000)) throw new Error('OPENAI_INVALID_OUTPUT')
+    if (!output || output.length > (focusedReview || structuredBusinessReview ? 120_000 : 30_000)) throw new Error('OPENAI_INVALID_OUTPUT')
     const parsed: unknown = JSON.parse(output)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('OPENAI_INVALID_JSON')
     observation.finish(undefined, usage, parsed, diagnostics, transport)
     return focusedReview ? materializeNumericReview(parsed as Row) : parsed as Row
   } catch (error) {
     observation.finish(error, usage, undefined, diagnostics, transport)
-    if (focusedReview && completionAttempt === 0 && diagnostics?.incomplete_reason === 'max_output_tokens'
+    if ((focusedReview || structuredBusinessReview) && completionAttempt === 0 && diagnostics?.incomplete_reason === 'max_output_tokens'
       && outputBudget < 12000 && deadlineAt - Date.now() >= policy.attemptTimeoutMs) {
       const priorBudget = outputBudget
       outputBudget = Math.min(12000, Math.ceil(outputBudget * 1.5 / 250) * 250)

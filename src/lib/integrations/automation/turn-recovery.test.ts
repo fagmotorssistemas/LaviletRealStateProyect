@@ -146,7 +146,7 @@ test('writer and reviewer receive the same budget and financing obligation; a su
       assert.ok(rows(model.obligaciones_del_turno).some(row => row.id === 'budget_continuation' && row.action === 'offer_financing'))
       assert.ok(JSON.stringify(model).includes('Entidad autorizada'))
       assert.ok(JSON.stringify(model).includes('145000'))
-      return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [] }
+      return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
     } catch (error) { failures.push(String(error)); throw error }
   })
   assert.deepEqual(failures, [])

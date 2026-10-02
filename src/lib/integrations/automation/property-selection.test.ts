@@ -192,8 +192,8 @@ describe('budget and price timing', () => {
     assert.match(reply, /por planta y valor/i)
   })
 
-  it('rejects unsolicited prices in a generated category-choice reply', () => {
+  it('treats an unsolicited authorized price as editorial, not a false catalogue fact', () => {
     const issues = priceReplyIssues('Las opciones tienen un valor referencial de lanzamiento desde $210.000.', baseInfo({ lead: { preferred_category: 'suite' } }), 'Prefiero una suite')
-    assert.deepEqual(issues, ['unsupported_fact'])
+    assert.deepEqual(issues, ['style'])
   })
 })

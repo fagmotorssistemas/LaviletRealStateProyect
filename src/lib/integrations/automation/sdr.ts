@@ -1,5 +1,6 @@
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import 'server-only'
+import { confirmedInterpretationMemory } from './interpretation-memory'
 import { activePrompt, aiJson, draftReply } from './ai'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
 import { isTestPhone } from '@/lib/inmobiliaria/testResponseMode'
@@ -110,6 +111,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  info = { ...info, hechos_confirmados: confirmedInterpretationMemory(summary) }
   // Explicit project information wins over an inferred or remembered catalogue query.
   const overview = projectInformationReply(info, current, BROCHURE_URL)
   if (overview) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }

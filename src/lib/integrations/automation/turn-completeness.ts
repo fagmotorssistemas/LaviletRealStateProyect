@@ -1,7 +1,7 @@
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
-import { turnBudgetAssessment, BUDGET_CONTINUATION_RULES } from './turn-budget'
+import { turnBudgetAssessment, effectiveTurnBudget, BUDGET_CONTINUATION_RULES } from './turn-budget'
 import { recordBudgetDecision } from './ai-execution-trace'
 import { focusedValueScopeIssues } from './focused-value-scope'
 import { numericSubjectIssues } from './focused-subject-scope'
@@ -54,7 +54,8 @@ import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price
 import { decidedOpening, replyOpening, recentReplyOpenings } from './response-openings'
 import { claimSchema, CLAIM_RULES, reviewClaims, factualValuesSchema, reviewedContextualGuidance, groundedClaimReviewSchema } from './semantic-review'
 import { BUSINESS_RISK_REVIEW_RULES, businessRiskReviewSchema, businessRiskDecision, businessRiskContext,
-  BUSINESS_RISK_REVIEW_VERSION, unverifiedHardNumbers } from './business-risk-review'
+  BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { validateBusinessFacts, factFindings, availableAssistance, ASSISTANCE_RULES } from './business-facts'
 
 export type TurnCompletenessInput = {
   current: string
@@ -463,6 +464,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const context = { contrato_turno: turnIntent, property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: sharedEvidence, evidencia_afirmaciones: claimSources, apertura_decidida: opening, contrato_redaccion: writerContract, mensaje_actual: input.current, historial_reciente: history,
     contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     referencias_solicitud: writerRequestRefs, obligaciones_del_turno: turnObligations,
+    capacidades_disponibles: availableAssistance(input.verified),
     material_protegido: { cifras_obligatorias: writerContract.cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(verifiedText(input.verified)), ...numbers(input.current), ...queryConstraintNumbers(input.audit)])],
       enlaces_obligatorios: linkContract.required_links, enlaces_permitidos: linkContract.allowed_links } }
   let requests: Coverage[] = []
@@ -495,6 +497,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Prioridades y obligaciones del turno', TURN_INTENT_RULES + '\n' + FINAL_WRITER_RULES
         + '\nCumpla obligaciones_del_turno con redacción libre. Esta lista también se entrega al revisor. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
       ['Fuentes, políticas y precisión', BUSINESS_POLICY_RULES + visitRules],
+      ['Ayudas disponibles y preguntas', ASSISTANCE_RULES],
+      ['Consultas pendientes', 'contexto_verificado.consultas_pendientes contiene mensajes del cliente aún sin respuesta. Atienda sus consultas informativas junto con mensaje_actual, salvo que el cliente las haya cancelado o sustituido. No repita gestiones ni reutilice consentimientos del pasado.'],
       ['Comparaciones, mínimos y máximos', NUMERIC_RELATION_WRITING_RULES],
       ['Reglas aplicables a esta respuesta', writingRules + '\n' + passiveSalesRules(engagement) + ACTION_INVITATION_RULE],
       ['Continuidad residencial', RESIDENTIAL_CONTINUITY_RULES],
@@ -575,27 +579,67 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       let rawReview = await generate(BUSINESS_RISK_REVIEW_RULES, riskContext, businessRiskReviewSchema,
         undefined, undefined, undefined, 'review')
       let riskDecision = businessRiskDecision(rawReview)
-      if (!riskDecision.valid) {
-        rawReview = await generate(BUSINESS_RISK_REVIEW_RULES + '\nLa salida anterior incumplió el contrato JSON. Devuelva solo pass con findings vacío o block con hallazgos comerciales concretos.',
-          riskContext, businessRiskReviewSchema, undefined, undefined, undefined, 'review')
-        riskDecision = businessRiskDecision(rawReview)
+      const checkFacts = (facts: unknown) => validateBusinessFacts(facts, sharedEvidence.units, sharedEvidence.groups, effectiveTurnBudget(input.verified))
+      let factChecks = checkFacts(rawReview.facts)
+      const originalChecks = factChecks
+      const repairableChecks = factChecks.filter(check => check.status === 'contradiction' || check.repairable)
+      if (!riskDecision.valid || repairableChecks.length) {
+        const originalReview = rawReview
+        let repairError = ''
+        try {
+          rawReview = await generate(BUSINESS_RISK_REVIEW_RULES + '\nREPARE SOLO LA REVISIÓN del mismo borrador, sin redactar otro mensaje. Compruebe si las observaciones señaladas interpretan fielmente lo escrito. Si la extracción es correcta y el dato del borrador es falso, mantenga ese dato y señale el riesgo. Si era un error de ficha, corrija kind, referencia o relación. Conserve statement para vincular cada reparación; no elimine una contradicción sin resolverla. Conserve las observaciones no afectadas y las obligaciones. Un cálculo no soportado por código no es por sí mismo un error comercial.',
+            { ...riskContext, revision_anterior: originalReview, comprobaciones_a_revisar: repairableChecks },
+            businessRiskReviewSchema, undefined, undefined, undefined, 'review')
+        } catch (error) {
+          // A previously approved draft does not become false because optional
+          // metadata recovery timed out. Never waive a contradiction or guard.
+          if (!riskDecision.approved || originalChecks.some(check => check.status === 'contradiction')
+            || !(error instanceof OpenAIRequestError || error instanceof Error && /^OPENAI_(?:INCOMPLETE|INVALID_OUTPUT|INVALID_JSON)$/.test(error.message))) throw error
+          repairError = error instanceof Error ? error.message : 'REVIEW_METADATA_UNAVAILABLE'
+          rawReview = originalReview
+        }
+        const repairedDecision = businessRiskDecision(rawReview)
+        if (!repairedDecision.valid && riskDecision.valid) {
+          repairError = 'INVALID_REPAIRED_METADATA'
+          rawReview = originalReview
+        } else riskDecision = repairedDecision
+        // A missing repaired row cannot erase an earlier concrete contradiction.
+        const repaired = Array.isArray(rawReview.facts) ? rawReview.facts.map(object) : []
+        if (Array.isArray(originalReview.facts)) {
+          const original = originalReview.facts.map(object)
+          rawReview = { ...rawReview, facts: [...original.map(fact => repaired.find(row => row.statement === fact.statement) || fact),
+            ...repaired.filter(fact => !original.some(row => row.statement === fact.statement))] }
+        }
+        factChecks = checkFacts(rawReview.facts)
+        repairAttempts.push({ target: 'review_metadata', status: repairError ? 'semantic_review_preserved' : riskDecision.valid ? 'review_completed' : 'invalid_review',
+          ...(repairError ? { error_code: repairError } : {}),
+          issues: repairableChecks, original_review: originalReview, repaired_review: rawReview,
+          proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) })
       }
-      const numericFindings = unverifiedHardNumbers(reply, input.current, sharedEvidence.units, claimSources)
+      const numericFindings = factFindings(factChecks)
       const riskFindings = [...riskDecision.findings, ...numericFindings]
       const approved = riskDecision.approved && numericFindings.length === 0
       const riskIssues = riskFindings.map(finding => ({ code: text(finding.category),
         kind: 'commercial_content', statement: text(finding.statement),
         reason: [text(finding.reason), text(finding.authoritative_fact) && `Dato o regla autorizada: ${text(finding.authoritative_fact)}`].filter(Boolean).join(' '),
         authoritative_fact: text(finding.authoritative_fact), owner: numericFindings.includes(finding) ? 'system' : 'reviewer', repair_owner: 'writer' }))
+      const questionErrors: string[] = []
+      const reviewedQuestion = rawReview.question ? questionRow(rawReview.question, reply, questionErrors) : null
+      if (reviewedQuestion && !questionErrors.length) question = reviewedQuestion
+      proposedQuestion = question
+      const usableQuestion = !question.text || (!!question.purpose && question.purpose !== 'none' && question.role !== 'none')
+      const offeredAction = text(object(rawReview.question).offered_action)
       semanticReview = { status: riskDecision.valid ? approved ? 'checked' : 'rejected' : 'invalid_review',
         review_contract: BUSINESS_RISK_REVIEW_VERSION, validation_owner: BUSINESS_RISK_REVIEW_VERSION,
         findings: riskFindings, validation_details: riskIssues, query: input.audit?.catalog_query || null,
-        claims: [], factual_values: [], quality_checks: 'not_requested',
-        acceptance: { content_approved: approved, follow_up_usable: riskDecision.valid } }
+        claims: [], factual_values: [], extracted_facts: rawReview.facts || [], fact_checks: JSON.parse(JSON.stringify(factChecks)),
+        original_fact_checks: JSON.parse(JSON.stringify(originalChecks)), question, offered_action: offeredAction, quality_checks: 'not_requested',
+        acceptance: { content_approved: approved, follow_up_usable: riskDecision.valid && usableQuestion } }
       continuationChecks = { all_requests_considered: approved, answered_content_preserved: approved,
         question_has_purpose: approved, answers_supported: approved,
         operational_goal_preserved: approved }
-      followUp = { usable: riskDecision.valid, warnings: [], writer_metadata_observations: writerQuestionWarnings }
+      followUp = { usable: riskDecision.valid && usableQuestion,
+        warnings: [...questionErrors, ...(!usableQuestion ? ['question_metadata_unusable'] : [])], writer_metadata_observations: writerQuestionWarnings }
       if (!riskDecision.valid) return fallback('rejected_review', requests, ['invalid_business_risk_review'])
       if (!approved) {
         if (attempt === 0) {

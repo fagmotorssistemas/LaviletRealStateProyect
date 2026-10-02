@@ -1,7 +1,8 @@
 import { object, text, type Row } from './data'
-import { numericMentions } from './semantic-review'
+import { BUSINESS_FACT_RULES, businessFactSchema, availableAssistance, ASSISTANCE_RULES } from './business-facts'
+import { effectiveTurnBudget } from './turn-budget'
 
-export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v1'
+export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
 // A finding describes a commercial risk, not an inventory of every sentence or
 // number in the draft. The authoritative catalogue is supplied in the input.
@@ -10,6 +11,14 @@ export const businessRiskReviewSchema: Row = {
   properties: {
     review_contract: { type: 'string', enum: [BUSINESS_RISK_REVIEW_VERSION] },
     verdict: { type: 'string', enum: ['pass', 'block'] },
+    facts: { type: 'array', items: businessFactSchema },
+    question: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false,
+      properties: {
+        purpose: { type: 'string', enum: ['none', 'clarify_request', 'collect_lead_profile', 'choose_property', 'choose_financing_partner', 'collect_financing_required', 'coordinate_visit', 'offer_advisor', 'offer_verified_material', 'permission_to_continue'] },
+        role: { type: 'string', enum: ['none', 'necessary_clarification', 'required_collection', 'optional_continuation'] },
+        missing_datum: { type: 'string' }, next_decision: { type: 'string' },
+        offered_action: { type: 'string', enum: ['none', 'information', 'financing_review', 'internal_advisor', 'ambiguous'] },
+      }, required: ['purpose', 'role', 'missing_datum', 'next_decision', 'offered_action'] }] },
     findings: { type: 'array', maxItems: 8, items: {
       type: 'object', additionalProperties: false,
       properties: {
@@ -21,7 +30,7 @@ export const businessRiskReviewSchema: Row = {
       required: ['category', 'statement', 'reason', 'authoritative_fact'],
     } },
   },
-  required: ['review_contract', 'verdict', 'findings'],
+  required: ['review_contract', 'verdict', 'findings', 'facts', 'question'],
 }
 
 export const BUSINESS_RISK_REVIEW_RULES = `# Función del revisor
@@ -39,6 +48,7 @@ Bloquee promesas sin respaldo de reserva, precio congelado, descuento, aprobaci�
 ## 3. Obligaciones explícitas de este turno
 
 Compruebe únicamente obligaciones_del_turno. current_request exige atender las solicitudes actuales, incluso con una aclaración pertinente o explicando una limitación real de las fuentes. Para bloquear por turn_goal identifique en reason la obligación concreta omitida y su efecto. No cree obligaciones adicionales de preguntas, brochure, alternativas, perfilamiento o derivación. Una consulta atendida puede terminar sin pregunta si ninguna obligación exige hacerla. Acepte expresiones equivalentes; no espere que el cliente ya haya respondido una captura solicitada en el borrador.
+consultas_pendientes conserva mensajes sin respuesta: current_request incluye sus consultas informativas aún vigentes. Compruebe su atención junto con mensaje_actual; no repita acciones ni reabra consultas canceladas o sustituidas por el cliente. Un aviso de recuperación no las atiende.
 
 # Fuentes y alcance
 
@@ -46,11 +56,13 @@ Use unidades, grupos y presupuesto_del_turno para precios y comparaciones; hecho
 
 # Criterios excluidos
 
-No evalúe estilo, tono, elegancia, longitud sugerida, saludo, sintaxis ni número de frases. No cree fichas de cifras, operadores, oraciones o referencias cruzadas. Una respuesta clara que cumple las obligaciones y respeta los datos pasa aunque usted la redactaría distinto. Un error administrativo no demuestra un riesgo comercial.
+No evalúe estilo, tono, elegancia, longitud sugerida, saludo, sintaxis ni número de frases. No cree inventarios por oración ni referencias cruzadas complejas. Una respuesta clara que cumple las obligaciones y respeta los datos pasa aunque usted la redactaría distinto. Un error administrativo no demuestra un riesgo comercial.
 
 # Salida
 
-Devuelva únicamente el JSON del esquema. verdict=pass exige findings=[]. verdict=block exige hallazgos materiales que identifiquen la afirmación u obligación afectada, el perjuicio y el hecho o regla autorizada pertinente. No invente evidencia para justificar un bloqueo.`
+Devuelva únicamente el JSON del esquema. verdict=pass exige findings=[]. verdict=block exige hallazgos materiales que identifiquen la afirmación u obligación afectada, el perjuicio y el hecho o regla autorizada pertinente. No invente evidencia para justificar un bloqueo.
+${BUSINESS_FACT_RULES}
+${ASSISTANCE_RULES}`
 
 const categories = new Set(['hard_fact', 'business_guardrail', 'turn_goal'])
 
@@ -62,30 +74,6 @@ export function businessRiskDecision(raw: Row): { valid: boolean; approved: bool
     && findings.every(row => categories.has(text(row.category)) && text(row.statement).trim() && text(row.reason).trim())
     && (raw.verdict === 'pass' ? findings.length === 0 : findings.length > 0)
   return { valid, approved: valid && raw.verdict === 'pass', findings: valid ? findings : [] }
-}
-
-/** Catch a price or surface that is absent from every authorized source without
- * parsing prose into unit/field/ID bindings. The reviewer still checks scope. */
-export function unverifiedHardNumbers(reply: string, current: string, units: Row[], claimSources: Row[]): Row[] {
-  const leadValues = numericMentions(current).map(item => item.value)
-  const sourceValues = claimSources.filter(source => source.kind !== 'lead_statement')
-    .flatMap(source => numericMentions(JSON.stringify(source.value ?? '')).map(item => item.value))
-  const prices = [...leadValues, ...sourceValues, ...units.map(unit => Number(unit.published_commercial_price))]
-  const areas = [...leadValues, ...sourceValues, ...units.flatMap(unit => [Number(unit.area_internal_m2), Number(unit.area_exterior_m2)])]
-  const urls = [...reply.matchAll(/https?:\/\/\S+/g)].map(match => ({ start: match.index, end: match.index + match[0].length }))
-  return numericMentions(reply).flatMap(mention => {
-    if (urls.some(url => mention.index >= url.start && mention.index < url.end)) return []
-    const before = reply.slice(Math.max(0, mention.index - 7), mention.index)
-    const after = reply.slice(mention.end, mention.end + 22)
-    const price = /(?:\$|USD\s*)$/i.test(before) || /^\s*(?:USD|d[oó]lares?\b)/i.test(after)
-    const area = /^\s*(?:m²|m2\b|metros?\s+cuadrad[oa]s?\b)/i.test(after)
-    if (!price && !area) return []
-    const authorized = price ? prices : areas
-    if (authorized.some(value => Number.isFinite(value) && Math.abs(value - mention.value) < 1e-9)) return []
-    return [{ category: 'hard_fact', statement: `Cifra no verificada: ${mention.text}${area ? ' m²' : ''}`,
-      reason: `El valor ${mention.value} no aparece entre los ${price ? 'precios' : 'superficies'} autorizados ni en el mensaje del cliente.`,
-      authoritative_fact: `Consulte los ${price ? 'precios publicados' : 'metros cuadrados'} exactos de las unidades y políticas suministradas para este turno.` }]
-  })
 }
 
 export function businessRiskContext(input: {
@@ -106,6 +94,8 @@ export function businessRiskContext(input: {
     && source.kind !== 'lead_statement')
     .map(source => ({ kind: source.kind, path: source.path, value: source.value }))
   return {
+    capacidades_disponibles: availableAssistance(input.verified),
+    consultas_pendientes: input.verified.consultas_pendientes || [],
     mensaje_actual: input.current,
     borrador: input.reply,
     obligaciones_del_turno: input.obligations,
@@ -113,6 +103,7 @@ export function businessRiskContext(input: {
       unidades: input.units.map(pick), grupos: groups, hechos_con_cantidades: input.projectFacts,
       otros_hechos_y_politicas: sources, enlaces_permitidos: input.allowedLinks,
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
+      presupuesto_confirmado: effectiveTurnBudget(input.verified),
     },
     estado_del_turno: {
       consulta_catalogo: input.audit.catalog_query || null,

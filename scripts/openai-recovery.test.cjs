@@ -105,7 +105,7 @@ function timedRequests(sequence) {
   } }
 }
 
-test('a review can finish after 45 seconds without a retry; only reviewer receives the longer policy', async () => {
+test('a review can finish after 45 seconds without a retry; unrelated roles retain their policy', async () => {
   const h = timedRequests([{ elapsed: 52_000 }]); let diagnostic
   const result = await requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, response => response.json(), {
     policy: aiRequestPolicy('reviewer'), onDiagnostics: value => { diagnostic = value },
@@ -114,10 +114,36 @@ test('a review can finish after 45 seconds without a retry; only reviewer receiv
   assert.deepEqual(h.timeouts, [60_000])
   assert.equal(diagnostic.attempts[0].duration_ms, 52_000)
   assert.equal(diagnostic.stop_reason, 'completed')
-  for (const role of ['writer', 'scope', 'extractor', 'interpretation', 'media', 'draft']) {
+  for (const role of ['writer', 'scope', 'interpretation', 'media', 'draft']) {
     assert.deepEqual(aiRequestPolicy(role), aiRequestPolicy())
     assert.equal(aiRequestPolicy(role).totalTimeoutMs, 45_000)
   }
+})
+
+test('extractor retries with a full 30 second window and never uses a 14 second remainder', async () => {
+  const h = timedRequests([{ elapsed: 30_000, error: new DOMException('timeout', 'TimeoutError') }, { elapsed: 20_000 }])
+  let diagnostics
+  await requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, response => response.json(), {
+    policy: aiRequestPolicy('extractor'), onDiagnostics: value => { diagnostics = value },
+  })
+  assert.deepEqual(h.timeouts, [30_000, 30_000])
+  assert.equal(diagnostics.stop_reason, 'completed')
+  assert.equal(diagnostics.policy.totalTimeoutMs, 65_000)
+  assert.equal(diagnostics.policy.maxAttempts, 2)
+  const short = timedRequests([{ elapsed: 30_000, error: new DOMException('timeout', 'TimeoutError') }])
+  await assert.rejects(() => requestOpenAI('https://api.openai.com/v1/responses', {}, short.dependencies, response => response.json(), {
+    policy: aiRequestPolicy('extractor'), deadlineAt: 45_000,
+  }), error => error.diagnostics.stop_reason === 'deadline')
+  assert.equal(short.calls.length, 1)
+})
+
+test('a newer message detected before the extractor retry stops stale inference', async () => {
+  const h = timedRequests([{ elapsed: 30_000, error: new DOMException('timeout', 'TimeoutError') }])
+  let checks = 0
+  await assert.rejects(() => requestOpenAI('https://api.openai.com/v1/responses', {}, h.dependencies, response => response.json(), {
+    policy: aiRequestPolicy('extractor'), beforeAttempt: async () => { if (++checks === 2) throw new Error('NEW_INPUT_PENDING') },
+  }), error => error.message === 'AI_REQUEST_GUARD_FAILED')
+  assert.equal(h.calls.length, 1)
 })
 
 test('review timeout retries the identical request with a full window and renewed lease', async () => {

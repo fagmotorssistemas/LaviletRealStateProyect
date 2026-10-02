@@ -32,6 +32,7 @@ export function hasAffordabilityConcern(current: string) {
 }
 
 function asksFinancingConsent(lastReply: string, lastStep: Row) {
+  if (lastStep.reply === lastReply && ['ambiguous_offer', 'unverified_offer', 'information_offer', 'internal_advisor_offer'].includes(text(lastStep.kind))) return false
   // Nutrition offers information or a conversation, never authorization to apply.
   if (([2, 3] as const).some(week => {
     const [before, after] = LATER_ROUTES[week].body.split('{{1}}')
