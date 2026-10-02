@@ -785,6 +785,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const catalogWidthRef = useRef<TourWidth>(4096)
   const currentUrlRef = useRef('')
   const preloadedRef = useRef(new Set<string>())
+  const neighborChainRef = useRef<Promise<void>>(Promise.resolve())
+  const neighborQueuedRef = useRef(new Set<string>())
   const switchTokenRef = useRef(0)
   const pendingRotateRef = useRef<Position | null>(null)
   const unitTypeSlugRef = useRef(getTourUnitTypeSlug())
@@ -837,6 +839,17 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const droneRef = useRef<HTMLVideoElement>(null)
   const [planMediaReady, setPlanMediaReady] = useState(false)
   const enterRequestedRef = useRef(false)
+
+  useEffect(() => {
+    if (!entryVideo || !planEntryOpen || droneOn) return
+    const timer = window.setTimeout(() => {
+      droneRef.current?.pause()
+      setEntryVideo(false)
+      setDroneOn(false)
+      setPlanEntryOpen(false)
+    }, 3000)
+    return () => window.clearTimeout(timer)
+  }, [entryVideo, planEntryOpen, droneOn])
 
   useEffect(() => {
     let cancelled = false
@@ -937,17 +950,20 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const lookPromiseRef = useRef<PromiseLike<boolean> | null>(null)
 
   const preloadUrls = useCallback((viewer: Viewer, urls: string[]) => {
-    void Promise.all(
-      urls.map(async (url) => {
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return
+    for (const url of urls) {
+      if (!url || preloadedRef.current.has(url) || neighborQueuedRef.current.has(url)) continue
+      neighborQueuedRef.current.add(url)
+      neighborChainRef.current = neighborChainRef.current.then(async () => {
         if (preloadedRef.current.has(url)) return
         try {
           await viewer.textureLoader.preloadPanorama(url)
           preloadedRef.current.add(url)
         } catch {
-          /* on-demand */
+          neighborQueuedRef.current.delete(url)
         }
-      }),
-    )
+      })
+    }
   }, [])
 
   const preloadCurrentRoom = useCallback(
@@ -985,40 +1001,38 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         const nextNode = scene.nodes.find((n) => n.id === stayId) ?? scene.nodes[0]
         const nextUrl = String(nextNode?.panorama ?? '')
         if (nextUrl && !preloadedRef.current.has(nextUrl)) {
+          setLoading(true)
           try {
-            await viewer.textureLoader.preloadPanorama(nextUrl)
-            preloadedRef.current.add(nextUrl)
+            await Promise.race([
+              viewer.textureLoader.preloadPanorama(nextUrl).then(() => {
+                preloadedRef.current.add(nextUrl)
+              }),
+              sleep(2500),
+            ])
           } catch {
             /* sigue el cambio; el fade cubre la espera */
           }
         }
-        if (token !== switchTokenRef.current) return
-        const linked = (nextNode?.links ?? [])
-          .map((link) => scene.nodes.find((node) => node.id === link.nodeId))
-          .map((node) => (node ? String(node.panorama) : ''))
-          .filter((item): item is string => Boolean(item) && item !== nextUrl)
-        void Promise.all(
-          linked.map(async (linkedUrl) => {
-            if (preloadedRef.current.has(linkedUrl)) return
-            try {
-              await viewer.textureLoader.preloadPanorama(linkedUrl)
-              preloadedRef.current.add(linkedUrl)
-            } catch {
-              /* on demand */
-            }
-          }),
-        )
+        if (token !== switchTokenRef.current) {
+          setLoading(false)
+          return
+        }
 
         const startId = nextNode?.id ?? scene.startNodeId
         tour.setNodes(scene.nodes, startId)
         setNodes(scene.nodes)
         setLoading(false)
+        const linked = (nextNode?.links ?? [])
+          .map((link) => scene.nodes.find((node) => node.id === link.nodeId))
+          .map((node) => (node ? String(node.panorama) : ''))
+          .filter((item): item is string => Boolean(item) && item !== nextUrl)
+        preloadUrls(viewer, linked)
       } catch (error) {
         console.error(error)
         if (token === switchTokenRef.current) setLoading(false)
       }
     },
-    [room],
+    [room, preloadUrls],
   )
 
   useEffect(() => {
@@ -1168,7 +1182,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             renderMode: '3d',
             nodes: openingNodes,
             startNodeId: scene.startNodeId,
-            preload: true,
+            preload: false,
             showLinkTooltip: true,
             getLinkTooltip: (_content, _link, node) => translateTourText(node.name ?? '', localeRef.current),
             linksOnCompass: false,
@@ -2358,14 +2372,23 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         }
         if (token !== switchTokenRef.current) return
         if (!preloadedRef.current.has(url)) {
+          setLoading(true)
           try {
-            await viewer.textureLoader.preloadPanorama(url)
-            preloadedRef.current.add(url)
+            await Promise.race([
+              viewer.textureLoader.preloadPanorama(url).then(() => {
+                preloadedRef.current.add(url)
+              }),
+              sleep(2500),
+            ])
           } catch {
             /* el fade usa lo que haya */
           }
+          if (token !== switchTokenRef.current) {
+            setLoading(false)
+            return
+          }
+          setLoading(false)
         }
-        if (token !== switchTokenRef.current) return
       }
 
       setPanoHold(true)
@@ -2393,23 +2416,28 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       viewer.needsUpdate()
       walkingRef.current = false
       markers?.setMarkers(buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug, localeRef.current))
+      const neighborUrls = (currentTypology?.hotspots ?? [])
+        .filter((item) => item.from === room && item.kind !== 'look' && item.slug !== room)
+        .map((item) => urlForRoom(item.slug))
+        .filter((item): item is string => Boolean(item))
+      preloadUrls(viewer, neighborUrls)
       setPanoLeaving(false)
       setPanoEntering(false)
       setPanoGhost(null)
     }
 
     void run()
-  }, [booting, isPanoRoom, activePanoUrl, selectedTypology, viewMode, room, tourRooms, currentTypology?.hotspots, homeSlug])
+  }, [booting, isPanoRoom, activePanoUrl, selectedTypology, viewMode, room, tourRooms, currentTypology?.hotspots, homeSlug, urlForRoom, preloadUrls])
 
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer || booting || !isPanoRoom) return
+    if (!viewer || booting || !isPanoRoom || currentUrlRef.current !== activePanoUrl) return
     const urls = (currentTypology?.hotspots ?? [])
       .filter((item) => item.from === room && item.kind !== 'look' && item.slug !== room)
       .map((item) => urlForRoom(item.slug))
       .filter((item): item is string => Boolean(item))
     preloadUrls(viewer, urls)
-  }, [booting, isPanoRoom, room, urlForRoom, currentTypology?.hotspots, preloadUrls])
+  }, [booting, isPanoRoom, activePanoUrl, room, urlForRoom, currentTypology?.hotspots, preloadUrls])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -2555,6 +2583,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     >
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
+        place={locationOpen ? 'contact' : amenitiesOpen ? 'amenities' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
         onHome={(view)=>{setAmenitiesOpen(false);setLocationOpen(false);setEntryVideo(false);setDroneOn(false);droneRef.current?.pause();setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onAmenities={()=>{setLocationOpen(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}

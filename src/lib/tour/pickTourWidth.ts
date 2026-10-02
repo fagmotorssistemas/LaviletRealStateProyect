@@ -122,13 +122,13 @@ export function pickCatalogPanoUrl(
     pano.scenes?.[0]
   const variants = scene?.widths ?? pano.variants ?? {}
   const baseUrl = scene?.url ?? pano.url
-  if (width >= 8192 && variantIsCurrent(variants['8192'], baseUrl)) return tourDisplayUrl(variants['8192']!)
-  if (width >= 4096 && (variantIsCurrent(variants['4096'], baseUrl) || variantIsCurrent(variants['8192'], baseUrl))) {
-    const url = variantIsCurrent(variants['4096'], baseUrl) ? variants['4096']! : variants['8192']!
-    return tourDisplayUrl(url)
+  const take = (key: '2048' | '4096' | '8192') =>
+    variantIsCurrent(variants[key], baseUrl) ? tourDisplayUrl(variants[key]!) : null
+  const order: Array<'2048' | '4096' | '8192'> =
+    width >= 8192 ? ['8192', '4096', '2048'] : width >= 4096 ? ['4096', '2048'] : ['2048', '4096']
+  for (const key of order) {
+    const url = take(key)
+    if (url) return url
   }
-  if (variantIsCurrent(variants['2048'], baseUrl)) return tourDisplayUrl(variants['2048']!)
-  if (variantIsCurrent(variants['4096'], baseUrl)) return tourDisplayUrl(variants['4096']!)
-  if (variantIsCurrent(variants['8192'], baseUrl)) return tourDisplayUrl(variants['8192']!)
   return baseUrl ? tourDisplayUrl(baseUrl) : null
 }

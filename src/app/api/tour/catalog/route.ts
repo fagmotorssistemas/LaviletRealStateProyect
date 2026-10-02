@@ -170,7 +170,7 @@ async function toCatalogTypology(
     ? []
     : unionTourRooms(
         typeUnits.map((unit) => ({
-          bedrooms: unit.bedrooms ?? row.bedrooms,
+          bedrooms: Math.max(unit.bedrooms ?? 0, row.bedrooms ?? 0) || null,
           bathrooms_full: unit.bathrooms_full ?? unit.bathrooms,
           bathrooms_half: unit.bathrooms_half,
           spaces: sanitizeTourSpaces(unit.spaces),
