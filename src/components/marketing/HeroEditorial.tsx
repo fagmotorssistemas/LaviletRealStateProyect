@@ -3,11 +3,11 @@
 import { useEffect } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Building2, DoorOpen, ScanLine } from 'lucide-react'
+import { CmafVideo } from '@/components/media/CmafVideo'
 import { notifyHeroLocked } from './heroLock'
 import { LaviletLockup } from './LaviletLockup'
 
-const PHOTO =
-  'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_333.png'
+const PHOTO = '/inicio/portada-poster.jpg'
 
 const FEATURES = [
   { label: 'Viviendas sobre el área comercial', Icon: Building2 },
@@ -23,15 +23,11 @@ export function HeroEditorial() {
   return (
     <section id="inicio" className="sticky top-0 z-0 h-svh overflow-hidden bg-[#e4e4de] lg:bg-[#1a1410] text-[#3f3d2e]">
       <div className="absolute top-0 inset-x-0 h-[48svh] sm:h-[55svh] lg:h-full">
-        <video
-          src="/inicio/portada.mp4"
+        <CmafVideo
+          mp4="/inicio/portada.mp4?v=gop"
+          hls="/inicio/portada-hls/index.m3u8"
           poster={PHOTO}
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          aria-label="Fachada Lavilet del día a la noche"
+          label="Fachada Lavilet del día a la noche"
           className="absolute inset-0 h-full w-full object-cover object-[65%_center] lg:object-center"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#e4e4de] via-[#e4e4de]/20 to-transparent lg:hidden" />

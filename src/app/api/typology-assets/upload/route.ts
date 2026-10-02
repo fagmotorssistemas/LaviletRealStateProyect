@@ -9,6 +9,7 @@ import {
   typologyAssetStoragePath,
 } from '@/lib/typology-assets'
 import { isTourRoomSlug, isVistaRoomSlug, tourRoomFileName } from '@/lib/tour/tourRooms'
+import { storageCacheControl } from '@/lib/storage/cacheControl'
 import { fileMatchesScene, roomSceneFileName, withSceneRevision } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import {
@@ -150,7 +151,7 @@ async function handleUpload(request: Request) {
     const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
       upsert: upsertScene,
       contentType: type,
-      cacheControl: '0',
+      cacheControl: storageCacheControl(name),
     })
     if (upErr) {
       if (/bucket not found/i.test(upErr.message)) {

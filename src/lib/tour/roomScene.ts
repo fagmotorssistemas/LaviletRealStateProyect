@@ -22,12 +22,12 @@ export function sceneToken(finish: string | null | undefined, light: TourLightMo
 
 export function roomSceneFileName(
   key: RoomSceneKey,
-  width?: 4096 | 8192,
+  width?: 2048 | 4096 | 8192,
   ext: string = 'webp',
 ) {
   const safeExt = (ext.replace(/^\./, '').toLowerCase() || 'webp').replace(/jpeg/, 'jpg')
   const base = `${key.room}_${sceneToken(key.finish, key.light)}`
-  if (width === 8192) return `${base}_8192.${safeExt}`
+  if (width === 2048 || width === 4096 || width === 8192) return `${base}_${width}.${safeExt}`
   return `${base}.${safeExt}`
 }
 
@@ -101,7 +101,7 @@ export function fileMatchesRoom(fileName: string, room: string) {
 }
 
 export function isLegacySceneFile(fileName: string, room?: string) {
-  if (/_8192\b/i.test(fileName)) return false
+  if (/_(?:2048|4096|8192)\b/i.test(fileName)) return false
   const parsed = parseRoomSceneFileName(fileName)
   if (!parsed) return false
   if (room && !roomsShareSlot(parsed.room, room)) return false
@@ -122,7 +122,7 @@ export function findLegacyRoomAsset<T extends { file_name: string }>(assets: T[]
   if (parsedLegacy) return parsedLegacy
   if (room !== 'tour-360') return undefined
   return assets.find((item) => {
-    if (/_8192\b/i.test(item.file_name)) return false
+    if (/_(?:2048|4096|8192)\b/i.test(item.file_name)) return false
     const parsed = parseRoomSceneFileName(item.file_name)
     if (parsed?.finish || parsed?.light) return false
     return /(?:^|[._-])(360|pano|equirect|panorama)(?:[._-]|$)/i.test(item.file_name.replace(/\.[^.]+$/, ''))

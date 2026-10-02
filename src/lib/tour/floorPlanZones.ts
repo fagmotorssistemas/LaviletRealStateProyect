@@ -6,6 +6,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { floorPlanStorageKey } from '@/lib/tour/floorPlanHotspots'
+import { storageCacheControl } from '@/lib/storage/cacheControl'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import type { Apartment, Point } from '@/lib/floor-plan/types'
 import { densifyPolygon, normalizeCurves } from '@/lib/floor-plan/geometry'
@@ -444,8 +445,7 @@ export async function uploadFloorPlanImage(
   const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
     upsert: false,
     contentType,
-    // Sin cache largo: la URL ya es única por versión.
-    cacheControl: '0',
+    cacheControl: storageCacheControl(path),
   })
   if (error) throw new Error(error.message || 'No se pudo subir el plano del piso')
 
@@ -888,8 +888,7 @@ export async function saveFloorPlanZones(
     floorPlanZonesPath(doc.typologyCode, doc.floor),
     JSON.stringify(next),
     // El bucket typology-assets solo admite imágenes; mismo truco que hotspots.
-    // cacheControl bajo: el JSON se reescribe en cada subida y no debe quedar pegado.
-    { upsert: true, contentType: 'image/webp', cacheControl: '0' },
+    { upsert: true, contentType: 'image/webp', cacheControl: storageCacheControl(floorPlanZonesPath(doc.typologyCode, doc.floor), { json: true }) },
   )
   if (error) throw new Error(error.message || 'No se pudieron guardar las zonas del piso')
   return next

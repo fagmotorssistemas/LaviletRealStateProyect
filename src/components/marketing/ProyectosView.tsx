@@ -67,7 +67,7 @@ export function ProyectosView() {
           >
             <div className="relative aspect-[21/9] min-h-[240px] sm:min-h-[320px]">
               <Image
-                src="/CUENCA1.png"
+                src="/CUENCA1.webp"
                 alt="Cuenca y el entorno de La Vilet"
                 fill
                 priority

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { storageCacheControl } from '@/lib/storage/cacheControl'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import type { TourPlacedHotspot } from '@/types/tour'
 
@@ -87,7 +88,7 @@ export async function saveTypologyHotspots(
   const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(
     typologyHotspotsPath(typologyCode),
     JSON.stringify(next),
-    { upsert: true, contentType: 'image/webp', cacheControl: '0' },
+    { upsert: true, contentType: 'image/webp', cacheControl: storageCacheControl(typologyHotspotsPath(typologyCode), { json: true }) },
   )
   if (error) throw new Error(error.message || 'No se pudieron guardar los puntos')
   return next

@@ -84,7 +84,19 @@ const nextConfig: NextConfig = {
         ].join("; "),
       },
     ];
+    const mediaCache = [
+      { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+    ]
     return [
+      { source: "/inicio/:path*", headers: mediaCache },
+      { source: "/tour/ingreso.mp4", headers: mediaCache },
+      { source: "/tour/ingreso/:path*", headers: mediaCache },
+      { source: "/CUENCA1.webp", headers: mediaCache },
+      { source: "/CUENCA2.webp", headers: mediaCache },
+      { source: "/CUENCA4.webp", headers: mediaCache },
+      { source: "/lavilet-sala.webp", headers: mediaCache },
+      { source: "/lavilet-comedor.webp", headers: mediaCache },
+      { source: "/lavilet-exterior.webp", headers: mediaCache },
       {
         source: "/api/tour/floor-plan-html",
         headers: htmlPlanHeaders,

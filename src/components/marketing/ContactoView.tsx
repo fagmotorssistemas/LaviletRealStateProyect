@@ -95,7 +95,7 @@ export function ContactoView({ embedded = false }: { embedded?: boolean }) {
             <div className="relative overflow-hidden rounded-[2rem] ring-1 ring-[#72735A]/12">
               <div className="relative h-[320px] w-full sm:h-[380px] lg:h-[430px]">
                 <Image
-                  src="/CUENCA4.png"
+                  src="/CUENCA4.webp"
                   alt="El río Tomebamba en Cuenca"
                   fill
                   className="object-cover"

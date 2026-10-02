@@ -3,6 +3,7 @@
  * La original se conserva. Cada captura es una copia recortada en WebP sin pérdida.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { storageCacheControl } from '@/lib/storage/cacheControl'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import {
   DEFAULT_SURROUNDINGS_LAYER,
@@ -124,7 +125,7 @@ async function saveFloorPlanSurroundings(
   const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(
     floorPlanSurroundingsPath(doc.typologyCode),
     JSON.stringify(next),
-    { upsert: true, contentType: 'image/webp', cacheControl: '0' },
+    { upsert: true, contentType: 'image/webp', cacheControl: storageCacheControl(floorPlanSurroundingsPath(doc.typologyCode), { json: true }) },
   )
   if (error) throw new Error(error.message || 'No se pudo guardar la foto de alrededores')
   return next
@@ -164,7 +165,7 @@ export async function uploadFloorPlanSurroundingsOriginal(
     const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
       upsert: attempt > 0,
       contentType: 'image/webp',
-      cacheControl: '0',
+      cacheControl: storageCacheControl(path),
     })
     if (!error) {
       lastError = ''
@@ -339,7 +340,7 @@ export async function captureFloorPlanSurroundings(
     const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, image, {
       upsert: false,
       contentType: 'image/webp',
-      cacheControl: '0',
+      cacheControl: storageCacheControl(path),
     })
     if (!error) {
       const names = await listNames(supabase, typologyCode)
@@ -380,7 +381,7 @@ export async function uploadFloorPlanSurroundingsPlan(
     const { error } = await supabase.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(path, buffer, {
       upsert: attempt > 0,
       contentType: 'image/webp',
-      cacheControl: '0',
+      cacheControl: storageCacheControl(path),
     })
     if (!error) {
       lastError = ''

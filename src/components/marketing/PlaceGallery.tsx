@@ -25,7 +25,7 @@ type PhotoSlide = {
 const PHOTOS: PhotoSlide[] = [
   {
     kind: 'photo',
-    src: '/CUENCA2.png',
+    src: '/CUENCA2.webp',
     alt: 'Cuenca desde las alturas',
     kicker: 'Nosotros',
     title: 'Un lugar donde el tiempo se detiene',
@@ -35,7 +35,7 @@ const PHOTOS: PhotoSlide[] = [
   },
   {
     kind: 'photo',
-    src: '/CUENCA4.png',
+    src: '/CUENCA4.webp',
     alt: 'El río Tomebamba en Cuenca',
     kicker: 'El río',
     title: 'El Tomebamba, a unos pasos',
@@ -54,7 +54,7 @@ const PHOTOS: PhotoSlide[] = [
   },
   {
     kind: 'photo',
-    src: '/lavilet-exterior.jpg',
+    src: '/lavilet-exterior.webp',
     alt: 'Fachada de La Vilet',
     kicker: 'La Vilet',
     title: 'Puertas del Sol',

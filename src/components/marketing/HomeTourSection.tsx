@@ -66,7 +66,7 @@ export function HomeTourSection({
             </>
           }
           featured={{
-            src: '/lavilet-sala.jpg',
+            src: '/lavilet-sala.webp',
             alt: 'Sala de un departamento La Vilet',
             object: 'object-center',
             stepped: true,
@@ -79,7 +79,7 @@ export function HomeTourSection({
           }}
           cards={[
             {
-              src: '/lavilet-comedor.jpg',
+              src: '/lavilet-comedor.webp',
               alt: 'Comedor de un departamento La Vilet',
               title: 'La mesa, frente al paisaje',
             },

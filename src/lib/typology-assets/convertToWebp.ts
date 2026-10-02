@@ -1,4 +1,5 @@
 import { TYPOLOGY_ASSETS_BUCKET, typologyAssetStoragePath } from '@/lib/typology-assets'
+import { storageCacheControl } from '@/lib/storage/cacheControl'
 import { fileMatchesScene, roomSceneFileName, withSceneRevision } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import type { TypologyAssetKind } from '@/types/inmobiliaria'
@@ -28,9 +29,11 @@ export type ConvertSceneInput = {
   mode: 'lossless' | 'quality'
 }
 
+const TOUR_WIDTHS = [2048, 4096, 8192] as const
+
 /**
  * Descarga el original de Storage, lo convierte a WebP y deja la fila definitiva.
- * Para 360 (ambiente) usa lossless; para galería usa quality 90.
+ * 360: WebP q92 y variantes 2048 / 4096 / 8192. Galería: lado mayor 3200, q88.
  */
 export async function convertUploadedSceneToWebp(
   admin: SupabaseClient,
@@ -65,10 +68,19 @@ export async function convertUploadedSceneToWebp(
 
   const pipeline = sharp(sourceBuffer, SHARP_OPTS).rotate()
   const meta = await pipeline.metadata()
-  const webpBuffer =
+  const webpOptions =
     input.mode === 'lossless'
-      ? await sharp(sourceBuffer, SHARP_OPTS).rotate().webp({ lossless: true, effort: 4 }).toBuffer()
-      : await sharp(sourceBuffer, SHARP_OPTS).rotate().webp({ quality: 90, effort: 4 }).toBuffer()
+      ? { quality: 92, effort: 5, smartSubsample: true as const }
+      : { quality: 88, effort: 5, smartSubsample: true as const }
+  const webpBuffer = await sharp(sourceBuffer, SHARP_OPTS)
+    .rotate()
+    .resize(
+      input.mode === 'quality' ? 3200 : 8192,
+      input.mode === 'quality' ? 3200 : null,
+      { fit: 'inside', withoutEnlargement: true },
+    )
+    .webp(webpOptions)
+    .toBuffer()
 
   const revision = Date.now()
   const webpFileName = withSceneRevision(roomSceneFileName(input.sceneKey, undefined, 'webp'), revision)
@@ -91,46 +103,51 @@ export async function convertUploadedSceneToWebp(
   const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(webpPath, webpBuffer, {
     upsert: true,
     contentType: 'image/webp',
-    cacheControl: '0',
+    cacheControl: storageCacheControl(webpFileName),
   })
   if (upErr) {
     throw Object.assign(new Error(upErr.message || 'No se pudo guardar el WebP'), { status: 500 })
   }
 
-  let wroteHi = false
-  if (input.mode === 'lossless' && meta.width && meta.width >= 8192) {
-    const hiName = withSceneRevision(roomSceneFileName(input.sceneKey, 8192, 'webp'), revision)
-    const hiPath = typologyAssetStoragePath(input.typologyCode, input.persistKind, hiName)
-    const hiBuffer = await sharp(sourceBuffer, SHARP_OPTS)
-      .rotate()
-      .resize(8192, null, { fit: 'inside', withoutEnlargement: true })
-      .webp({ lossless: true, effort: 4 })
-      .toBuffer()
-    await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(hiPath, hiBuffer, {
-      upsert: true,
-      contentType: 'image/webp',
-      cacheControl: '0',
-    })
-    const existingHi = await findTypologyAssetByKey(
-      admin,
-      input.typologyCode,
-      input.persistKind,
-      hiName,
-    )
-    if (existingHi) {
-      await admin
-        .from('typology_assets')
-        .update({ created_at: new Date().toISOString(), storage_path: hiPath })
-        .eq('id', existingHi.id)
-    } else {
-      await insertTypologyAsset(admin, {
-        typology_code: input.typologyCode,
-        kind: input.persistKind,
-        file_name: hiName,
-        storage_path: hiPath,
+  const variantNames: string[] = []
+  if (input.mode === 'lossless') {
+    for (const width of TOUR_WIDTHS) {
+      const variantName = withSceneRevision(roomSceneFileName(input.sceneKey, width, 'webp'), revision)
+      const variantPath = typologyAssetStoragePath(input.typologyCode, input.persistKind, variantName)
+      const variantBuffer = await sharp(sourceBuffer, SHARP_OPTS)
+        .rotate()
+        .resize(width, null, { fit: 'inside', withoutEnlargement: true })
+        .webp(webpOptions)
+        .toBuffer()
+      const { error: variantErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(variantPath, variantBuffer, {
+        upsert: true,
+        contentType: 'image/webp',
+        cacheControl: storageCacheControl(variantName),
       })
+      if (variantErr) {
+        throw Object.assign(new Error(variantErr.message || 'No se pudo guardar la variante'), { status: 500 })
+      }
+      const existingVariant = await findTypologyAssetByKey(
+        admin,
+        input.typologyCode,
+        input.persistKind,
+        variantName,
+      )
+      if (existingVariant) {
+        await admin
+          .from('typology_assets')
+          .update({ created_at: new Date().toISOString(), storage_path: variantPath })
+          .eq('id', existingVariant.id)
+      } else {
+        await insertTypologyAsset(admin, {
+          typology_code: input.typologyCode,
+          kind: input.persistKind,
+          file_name: variantName,
+          storage_path: variantPath,
+        })
+      }
+      variantNames.push(variantName)
     }
-    wroteHi = true
   }
 
   // Si el original no era el .webp definitivo, borrar el archivo fuente.
@@ -160,12 +177,8 @@ export async function convertUploadedSceneToWebp(
     })
   }
 
-  // Limpiar otras extensiones / tamaños viejos de la misma escena (excepto _8192 recién creado).
   const all = await listTypologyAssets(admin, input.typologyCode)
-  const keepNames = new Set([webpFileName])
-  if (wroteHi) {
-    keepNames.add(withSceneRevision(roomSceneFileName(input.sceneKey, 8192, 'webp'), revision))
-  }
+  const keepNames = new Set([webpFileName, ...variantNames])
   const stale = all.filter((row) => {
     if (keepNames.has(row.file_name) || row.id === asset.id) return false
     if (row.kind !== input.persistKind) return false

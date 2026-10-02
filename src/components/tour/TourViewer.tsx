@@ -1,5 +1,7 @@
 'use client'
 
+import { useDualBuffer } from '@/components/tour/useDualBuffer'
+import { CmafVideo } from '@/components/media/CmafVideo'
 import { TourLocaleProvider, useTourLanguage } from '@/lib/tour/tourLocale'
 import { translateTourText, type TourLocale } from '@/lib/tour/tourMessages'
 
@@ -158,92 +160,54 @@ function CrossfadeStill({
   fit?: 'vistas' | 'planos'
 }) {
   const { t } = useTourLanguage()
-
-  const [current, setCurrent] = useState<string | null>(url)
-  const [previous, setPrevious] = useState<string | null>(null)
+  const { aRef, bRef, front, assigned } = useDualBuffer(url)
 
   useEffect(() => {
-    if (!url) {
-      setCurrent(null)
-      setPrevious(null)
-      return
-    }
     void preloadStill(url)
-    setCurrent((prev) => {
-      if (prev === url) return prev
-      setPrevious(prev)
-      return url
-    })
   }, [url])
 
-  useEffect(() => {
-    if (!previous) return
-    const done = window.setTimeout(() => setPrevious(null), 1100)
-    return () => window.clearTimeout(done)
-  }, [previous, current])
+  if (!assigned.a && !assigned.b) return null
 
-  if (!current && !previous) return null
+  const frame = (slot: 'a' | 'b', ref: typeof aRef) => {
+    const src = assigned[slot]
+    if (!src) return null
+    return (
+      <div
+        className={cn(
+          'pointer-events-none absolute inset-0 transition-opacity duration-[400ms] ease-linear',
+          front === slot ? 'opacity-100' : 'opacity-0',
+        )}
+      >
+        <div
+          className={cn(
+            'absolute inset-0',
+            contain && 'tour-still-fit',
+            contain && fit === 'planos' && 'tour-still-fit--planos',
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={ref}
+            src={src}
+            alt={front === slot ? t(alt) : ''}
+            draggable={false}
+            decoding="async"
+            fetchPriority={front === slot ? 'high' : 'low'}
+            className={cn(
+              contain
+                ? 'h-full w-full object-contain object-center'
+                : 'absolute inset-0 h-full w-full object-cover',
+            )}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="absolute inset-0 overflow-hidden bg-[#111]">
-      {previous ? (
-        <StillFrame key={`out-${previous}`} src={previous} alt={t("")} contain={contain} fit={fit} motion="out" />
-      ) : null}
-      {current ? (
-        <StillFrame key={`in-${current}`} src={current} alt={t(alt)} contain={contain} fit={fit} motion="in" />
-      ) : null}
-    </div>
-  )
-}
-
-function StillFrame({
-  src,
-  alt,
-  contain,
-  fit,
-  motion,
-}: {
-  src: string
-  alt: string
-  contain: boolean
-  fit: 'vistas' | 'planos'
-  motion: 'in' | 'out'
-}) {
-  const { t } = useTourLanguage()
-
-  return (
-    <div className={cn('pointer-events-none absolute inset-0', motion === 'in' ? 'tour-walk-in' : 'tour-walk-out')}>
-      {contain ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt={t("")}
-          aria-hidden
-          draggable={false}
-          className="absolute inset-0 h-full w-full scale-[1.25] object-cover blur-[22px] brightness-[0.92] saturate-150"
-        />
-      ) : null}
-      <div
-        className={cn(
-          'absolute inset-0',
-          contain && 'tour-still-fit',
-          contain && fit === 'planos' && 'tour-still-fit--planos',
-        )}
-      >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt={t(alt)}
-        draggable={false}
-        decoding="async"
-        fetchPriority="high"
-        className={cn(
-            contain
-              ? 'h-full w-full object-contain object-center'
-              : 'absolute inset-0 h-full w-full object-cover',
-          )}
-        />
-      </div>
+      {frame('a', aRef)}
+      {frame('b', bRef)}
     </div>
   )
 }
@@ -720,16 +684,6 @@ async function leaveTourFullscreen() {
   await unlockTourOrientation()
 }
 
-function capturePanoFrame(viewer: Viewer): string | null {
-  const canvas = viewer.container.querySelector('canvas')
-  if (!(canvas instanceof HTMLCanvasElement) || canvas.width < 2) return null
-  try {
-    return canvas.toDataURL('image/jpeg', 0.74)
-  } catch {
-    return null
-  }
-}
-
 function useSwipePages(enabled: boolean, count: number, onStep: (delta: -1 | 1) => void) {
   const startRef = useRef<{ x: number; y: number } | null>(null)
   const onStepRef = useRef(onStep)
@@ -879,6 +833,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [planFloor, setPlanFloor] = useState(openingPlanFloor)
   const [planEntryOpen, setPlanEntryOpen] = useState(() => !readUnitQueryParam())
   const [entryVideo, setEntryVideo] = useState(false)
+  const [droneOn, setDroneOn] = useState(false)
+  const droneRef = useRef<HTMLVideoElement>(null)
   const [planMediaReady, setPlanMediaReady] = useState(false)
   const enterRequestedRef = useRef(false)
 
@@ -905,6 +861,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   }, [planMediaReady])
 
   useEffect(() => {
+    if (planEntryOpen) return
     const ios = isIOSWebKit()
     // iOS: no precalentar todos los HTML 3D (varios WebGL al recargar tumba Safari).
     if (ios) {
@@ -913,9 +870,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     }
     prefetchFloorPlans([...FLOOR_PLAN_FLOORS])
     const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
-    const priority = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 2)
-    void warmFloorPlans([...FLOOR_PLAN_FLOORS], priority.length ? priority : [planFloor])
-  }, [])
+    const priority = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 1)
+    void warmFloorPlans(priority.length ? priority : [planFloor], [planFloor])
+  }, [planEntryOpen, planFloor])
 
   useEffect(() => {
     const sync = () => setShowroomIdentified(canAccessShowroomTools())
@@ -929,15 +886,16 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   }, [])
 
   useEffect(() => {
+    if (planEntryOpen) return
     const ios = isIOSWebKit()
     if (ios) {
       void warmFloorPlans([planFloor], [planFloor])
       return
     }
     const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
-    const neighbors = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 2)
+    const neighbors = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 1)
     void warmFloorPlans(neighbors, [planFloor])
-  }, [planFloor])
+  }, [planFloor, planEntryOpen])
 
   const [terminacionesFocus, setTerminacionesFocus] = useState(false)
   const [finishCompareOpen, setFinishCompareOpen] = useState(false)
@@ -1026,13 +984,35 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
         const nextNode = scene.nodes.find((n) => n.id === stayId) ?? scene.nodes[0]
         const nextUrl = String(nextNode?.panorama ?? '')
-        const ready = Boolean(nextUrl && preloadedRef.current.has(nextUrl))
-        if (!ready) setLoading(true)
+        if (nextUrl && !preloadedRef.current.has(nextUrl)) {
+          try {
+            await viewer.textureLoader.preloadPanorama(nextUrl)
+            preloadedRef.current.add(nextUrl)
+          } catch {
+            /* sigue el cambio; el fade cubre la espera */
+          }
+        }
+        if (token !== switchTokenRef.current) return
+        const linked = (nextNode?.links ?? [])
+          .map((link) => scene.nodes.find((node) => node.id === link.nodeId))
+          .map((node) => (node ? String(node.panorama) : ''))
+          .filter((item): item is string => Boolean(item) && item !== nextUrl)
+        void Promise.all(
+          linked.map(async (linkedUrl) => {
+            if (preloadedRef.current.has(linkedUrl)) return
+            try {
+              await viewer.textureLoader.preloadPanorama(linkedUrl)
+              preloadedRef.current.add(linkedUrl)
+            } catch {
+              /* on demand */
+            }
+          }),
+        )
 
         const startId = nextNode?.id ?? scene.startNodeId
         tour.setNodes(scene.nodes, startId)
         setNodes(scene.nodes)
-        if (ready) setLoading(false)
+        setLoading(false)
       } catch (error) {
         console.error(error)
         if (token === switchTokenRef.current) setLoading(false)
@@ -1188,7 +1168,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             renderMode: '3d',
             nodes: openingNodes,
             startNodeId: scene.startNodeId,
-            preload: false,
+            preload: true,
             showLinkTooltip: true,
             getLinkTooltip: (_content, _link, node) => translateTourText(node.name ?? '', localeRef.current),
             linksOnCompass: false,
@@ -2358,8 +2338,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     const run = async () => {
       const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
       setPanoEntering(false)
+      setPanoLeaving(false)
       setPanoGhost(null)
-      let ghost: string | null = null
 
       if (changing) {
         if (lookPromise) {
@@ -2377,25 +2357,22 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           ]).catch(() => undefined)
         }
         if (token !== switchTokenRef.current) return
-        markers?.setMarkers([])
-        ghost = capturePanoFrame(viewer)
-        if (ghost) {
-          setPanoGhost(ghost)
-          setPanoGhostKey((key) => key + 1)
-          await sleep(40)
-        } else {
-          setPanoLeaving(true)
-          await sleep(500)
+        if (!preloadedRef.current.has(url)) {
+          try {
+            await viewer.textureLoader.preloadPanorama(url)
+            preloadedRef.current.add(url)
+          } catch {
+            /* el fade usa lo que haya */
+          }
         }
+        if (token !== switchTokenRef.current) return
       }
-
-      if (changing && ghost) setPanoEntering(true)
 
       setPanoHold(true)
       try {
         await viewer.setPanorama(url, {
           showLoader: false,
-          transition: false,
+          transition: changing ? { effect: 'fade', speed: 400, rotation: false } : false,
           zoom: 0,
         })
       } catch {
@@ -2417,13 +2394,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       walkingRef.current = false
       markers?.setMarkers(buildTourMarkers(viewMode, room, tourRooms, currentTypology?.hotspots ?? [], homeSlug, localeRef.current))
       setPanoLeaving(false)
-      if (changing) {
-        if (!ghost) setPanoEntering(true)
-        await sleep(ghost ? 240 : 720)
-        if (token !== switchTokenRef.current) return
-        setPanoEntering(false)
-        setPanoGhost(null)
-      }
+      setPanoEntering(false)
+      setPanoGhost(null)
     }
 
     void run()
@@ -2584,7 +2556,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
-        onHome={(view)=>{setAmenitiesOpen(false);setLocationOpen(false);setEntryVideo(false);setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onHome={(view)=>{setAmenitiesOpen(false);setLocationOpen(false);setEntryVideo(false);setDroneOn(false);droneRef.current?.pause();setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onAmenities={()=>{setLocationOpen(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onLocation={()=>{setAmenitiesOpen(false);setLocationOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onPick={unit=>{setAmenitiesOpen(false);setLocationOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
@@ -3780,49 +3752,40 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {planEntryOpen && shellMode === 'plan' ? (
         <div className="absolute inset-0 z-[30] bg-black">
-          {entryVideo ? (
-            <video
-              src="/tour/ingreso.mp4?v=2560"
+          <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-0' : 'opacity-100'}`}>
+            <CmafVideo
+              mp4="/inicio/portada.mp4?v=gop"
+              hls="/inicio/portada-hls/index.m3u8"
+              poster="/inicio/portada-poster.jpg"
+              label={t('Fachada Lavilet del día a la noche')}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          </div>
+          <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'opacity-0'}`}>
+            <CmafVideo
+              mp4="/tour/ingreso.mp4?v=gop"
+              hls="/tour/ingreso-hls/index.m3u8"
               autoPlay
-              playsInline
+              defer={!entryVideo}
+              loop={false}
+              videoRef={droneRef}
+              onPlaying={() => setDroneOn(true)}
               onEnded={() => {
                 setEntryVideo(false)
-                if (planMediaReady) setPlanEntryOpen(false)
-                else enterRequestedRef.current = true
-              }}
-              onError={() => {
-                setEntryVideo(false)
+                setDroneOn(false)
                 if (planMediaReady) setPlanEntryOpen(false)
                 else enterRequestedRef.current = true
               }}
               className="absolute inset-0 h-full w-full object-cover"
             />
-          ) : (
-            <>
-              <video
-                src="/inicio/portada.mp4"
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="auto"
-                aria-label={t('Fachada Lavilet del día a la noche')}
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => setEntryVideo(true)}
-                className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
-              >
-                {t('Ingresar')}
-              </button>
-            </>
-          )}
+          </div>
           {entryVideo ? (
             <button
               type="button"
               onClick={() => {
                 setEntryVideo(false)
+                setDroneOn(false)
+                droneRef.current?.pause()
                 if (planMediaReady) setPlanEntryOpen(false)
                 else enterRequestedRef.current = true
               }}
@@ -3830,7 +3793,15 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             >
               {t('Saltar')}
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEntryVideo(true)}
+              className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
+            >
+              {t('Ingresar')}
+            </button>
+          )}
         </div>
       ) : null}
     </div>

@@ -14,7 +14,7 @@ const HEADLINE =
   'Un lugar donde el tiempo parece detenerse, y la vida simplemente sucede.'
 const WORDS = HEADLINE.split(' ')
 const WORD_STAGGER = 0.16
-const HERO_PHOTO = '/lavilet-exterior.jpg'
+const HERO_PHOTO = '/lavilet-exterior.webp'
 const BRAND_AT_MS = 6000
 
 const NUVIA_FEATURES = [
@@ -27,13 +27,13 @@ const INTERIOR_BASE =
   'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet'
 
 const NUVIA_LETTERS = [
-  { ch: 'L', src: '/lavilet-sala.jpg' },
+  { ch: 'L', src: '/lavilet-sala.webp' },
   { ch: 'A', src: `${INTERIOR_BASE}/cocina_lavilet.png` },
-  { ch: 'V', src: '/CUENCA2.png' },
-  { ch: 'I', src: '/CUENCA4.png' },
+  { ch: 'V', src: '/CUENCA2.webp' },
+  { ch: 'I', src: '/CUENCA4.webp' },
   { ch: 'L', src: '/CUENCA3.jpg' },
   { ch: 'Ē', src: `${INTERIOR_BASE}/lavilet_terraza.png` },
-  { ch: 'T', src: '/lavilet-comedor.jpg' },
+  { ch: 'T', src: '/lavilet-comedor.webp' },
 ] as const
 
 const NUVIA_LETTER_CLASS =

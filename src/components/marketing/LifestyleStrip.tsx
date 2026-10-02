@@ -8,25 +8,25 @@ import { ArrowRight, Pause, Play, Volume2, VolumeX, X } from 'lucide-react'
 
 const CLIPS = [
   {
-    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/0914(5).mov',
+    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/0914-5.mp4',
     title: 'Luz',
     poster:
       'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_terraza.png',
   },
   {
-    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/0914(1).mov',
+    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/0914-1.mp4',
     title: 'Tiempo',
-    poster: '/lavilet-comedor.jpg',
+    poster: '/lavilet-comedor.webp',
   },
   {
-    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/0914(2).mov',
+    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/0914-2.mp4',
     title: 'Espacio',
-    poster: '/lavilet-exterior.jpg',
+    poster: '/lavilet-exterior.webp',
   },
   {
-    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/0914(3).mov',
+    src: 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/0914-3.mp4',
     title: 'Agua',
-    poster: '/CUENCA4.png',
+    poster: '/CUENCA4.webp',
   },
 ] as const
 

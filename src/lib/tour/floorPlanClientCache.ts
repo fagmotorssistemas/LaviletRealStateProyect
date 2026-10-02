@@ -356,12 +356,15 @@ export function invalidateFloorPlanCache(floor?: number, typologyCode: string = 
 export function refetchFloorPlanDoc(
   floor: number,
   typologyCode: string = FLOOR_PLAN_SCOPE,
+  updatedAt?: string | null,
 ): Promise<FloorPlanZonesDoc | null> {
-  invalidateFloorPlanCache(floor, typologyCode)
   const key = cacheKey(typologyCode, floor)
+  const version = updatedAt ?? docCache.get(key)?.updatedAt ?? ''
+  invalidateFloorPlanCache(floor, typologyCode)
+  const versionQuery = version ? `&v=${encodeURIComponent(version)}` : ''
   const request = fetch(
-    `/api/tour/floor-plans?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}&_ts=${Date.now()}`,
-    { cache: 'no-store' },
+    `/api/tour/floor-plans?typology_code=${encodeURIComponent(typologyCode)}&floor=${floor}${versionQuery}`,
+    { cache: 'default' },
   )
     .then(async (res) => {
       if (!res.ok) return null

@@ -239,7 +239,7 @@ export function AboutEditorial() {
 }
 
 const INTERIOR = {
-  featured: '/lavilet-exterior.jpg',
+  featured: '/lavilet-exterior.webp',
   terraza:
     'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_terraza.png',
   wall:

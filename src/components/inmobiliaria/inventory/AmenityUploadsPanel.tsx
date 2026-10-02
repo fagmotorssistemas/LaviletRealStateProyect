@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { storageCacheControl } from '@/lib/storage/cacheControl'
 
 type AmenityItem = {
   name: string
@@ -67,7 +68,7 @@ export function AmenityUploadsPanel() {
     })
     const { error: upErr } = await uploadClient.storage.from(prep.bucket).uploadToSignedUrl(prep.path, prep.token, file, {
       contentType: prep.content_type || file.type || 'image/jpeg',
-      cacheControl: '0',
+      cacheControl: storageCacheControl(prep.file_name),
     })
     if (upErr) throw new Error(upErr.message || 'No se pudo subir el archivo')
 

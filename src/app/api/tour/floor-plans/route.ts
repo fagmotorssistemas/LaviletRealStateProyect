@@ -6,7 +6,7 @@ import { FLOOR_PLAN_FLOORS, isFloorPlanLevel } from '@/lib/tour/floorPlanHotspot
 export const runtime = 'nodejs'
 
 const CACHE_HEADERS = {
-  'Cache-Control': 'private, no-store',
+  'Cache-Control': 'public, max-age=60',
 }
 
 /** Lectura pública para el showroom (sin sesión CRM). */

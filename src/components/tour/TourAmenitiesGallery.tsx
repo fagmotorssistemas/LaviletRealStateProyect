@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
+import { useDualBuffer } from '@/components/tour/useDualBuffer'
 import { preloadStill } from '@/lib/tour/stillPreload'
 
 type AmenitySlide = {
@@ -19,6 +20,7 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
   const startRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
+    if (!open) return
     let cancelled = false
     setState((current) => (current === 'ready' ? current : 'loading'))
     void fetch('/api/tour/amenities')
@@ -31,7 +33,6 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         const next = data.items ?? []
         setItems(next)
         setState('ready')
-        for (const item of next) void preloadStill(item.imageUrl)
       })
       .catch(() => {
         if (!cancelled) setState('error')
@@ -39,7 +40,7 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [open])
 
   const count = items.length
   const step = useCallback(
@@ -60,10 +61,11 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
     void preloadStill(prev?.imageUrl)
   }, [open, items, index, count])
 
-  if (!open) return null
-
-  const slide = items[index]
+  const slide = open ? items[index] : undefined
   const caption = slide ? (locale === 'en' ? slide.titleEn : slide.title) : ''
+  const buffers = useDualBuffer(slide?.imageUrl ?? null)
+
+  if (!open) return null
 
   return (
     <div
@@ -86,16 +88,25 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
       }}
     >
       {slide ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={slide.imageUrl}
-          src={slide.imageUrl}
-          alt={caption}
-          draggable={false}
-          decoding="auto"
-          fetchPriority="high"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <>
+          {(['a', 'b'] as const).map((slot) => {
+            const src = buffers.assigned[slot]
+            if (!src) return null
+            return (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={slot}
+                ref={slot === 'a' ? buffers.aRef : buffers.bRef}
+                src={src}
+                alt={buffers.front === slot ? caption : ''}
+                draggable={false}
+                decoding="async"
+                fetchPriority={buffers.front === slot ? 'high' : 'low'}
+                className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-[400ms] ease-linear ${buffers.front === slot ? 'opacity-100' : 'opacity-0'}`}
+              />
+            )
+          })}
+        </>
       ) : (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-[#f7f3ee]">
           {state === 'error'

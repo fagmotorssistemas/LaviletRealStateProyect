@@ -18,14 +18,14 @@ const AMENITIES = [
     id: 'parques',
     kicker: 'Entorno',
     label: 'El río cercano',
-    image: '/CUENCA4.png',
+    image: '/CUENCA4.webp',
     detail: 'El Tomebamba y el parque lineal como parte del recorrido cotidiano.',
   },
   {
     id: 'comunales',
     kicker: 'Hogar',
     label: 'Espacios que conectan',
-    image: '/lavilet-sala.jpg',
+    image: '/lavilet-sala.webp',
     detail: 'Espacios para encontrarse: estar, jardines y la terraza en un mismo ritmo.',
   },
   {
@@ -296,7 +296,7 @@ export function ExperienceLiving() {
             className="pointer-events-none absolute top-0 left-0 z-[1] h-[50%] w-full lg:top-[-2%] lg:left-1/2 lg:h-[52%] lg:w-[min(38vw,22rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-15 lg:opacity-30"
           >
             <Image
-              src="/lavilet-exterior.jpg"
+              src="/lavilet-exterior.webp"
               alt=""
               fill
               className="object-cover object-center"
@@ -309,7 +309,7 @@ export function ExperienceLiving() {
             className="pointer-events-none absolute bottom-0 left-0 z-[1] h-[50%] w-full lg:bottom-[-4%] lg:left-1/2 lg:h-[50%] lg:w-[min(36vw,20rem)] lg:-translate-x-1/2 overflow-hidden lg:rounded-[1.4rem] opacity-10 lg:opacity-20"
           >
             <Image
-              src="/lavilet-comedor.jpg"
+              src="/lavilet-comedor.webp"
               alt=""
               fill
               className="object-cover object-center"

@@ -15,6 +15,7 @@ import { TypologyFloorZonesPanel } from '@/components/inmobiliaria/inventory/Typ
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { AmenityUploadsPanel } from '@/components/inmobiliaria/inventory/AmenityUploadsPanel'
+import { storageCacheControl } from '@/lib/storage/cacheControl'
 import { Select } from '@/components/ui/Select'
 import {
   isVistaRoomSlug,
@@ -133,6 +134,17 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const scrollRafRef = useRef(0)
   const displayFinishes = labeledFinishes(finishes)
   const combos = sceneCombos(displayFinishes)
+  const panoramaSlots = (() => {
+    const next = [...roomSlots]
+    if (!next.some((item) => item.slug === 'sala')) {
+      next.unshift({ slug: 'sala', label: 'Sala' })
+    }
+    if (!next.some((item) => item.slug === 'dormitorio' || item.slug.startsWith('dormitorio-'))) {
+      const salaAt = next.findIndex((item) => item.slug === 'sala')
+      next.splice(salaAt + 1, 0, { slug: 'dormitorio', label: 'Dormitorio' })
+    }
+    return next
+  })()
 
   const pickRoomFile = (slot: SceneSlot) => {
     if (!code || uploading) return
@@ -368,7 +380,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
       .from(prep.bucket)
       .uploadToSignedUrl(prep.path, prep.token, file, {
         contentType: prep.content_type || file.type || 'image/jpeg',
-        cacheControl: '0',
+        cacheControl: storageCacheControl(prep.file_name),
       })
     if (upErr) {
       throw new Error(upErr.message || 'No se pudo subir el archivo a Storage')
@@ -765,19 +777,17 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                   Se sube el original y luego se convierte a WebP sin pérdida en segundo plano (evita cortes en archivos pesados).
                 </p>
               </div>
-              {roomSlots.length === 0 ? (
-                <p className="text-sm text-[#8a8d87]">
-                  Esta tipología todavía no tiene unidades con espacios, habitaciones o baños cargados.
-                </p>
-              ) : null}
               <div className="space-y-5">
-                {roomSlots.map((item) => {
-                  const isBedroom = item.slug === 'dormitorio' || item.slug.startsWith('dormitorio-')
+                {panoramaSlots.map((item) => {
+                  const alwaysOpen =
+                    item.slug === 'sala' ||
+                    item.slug === 'dormitorio' ||
+                    item.slug.startsWith('dormitorio-')
                   const filled = combos.flatMap((combo) => {
                     const asset = findSlotAsset(item.slug, combo.finish, combo.light)
                     return asset ? [{ combo, asset }] : []
                   })
-                  const cards = isBedroom
+                  const cards = alwaysOpen
                     ? combos.map((combo) => ({
                         combo,
                         asset: findSlotAsset(item.slug, combo.finish, combo.light) ?? null,

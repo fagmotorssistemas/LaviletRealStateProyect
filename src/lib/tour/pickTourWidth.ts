@@ -61,7 +61,14 @@ export function tourDisplayUrl(publicUrl: string, _width?: TourWidth): string {
   }
 }
 
-/** Elige el mejor ancho disponible según GPU; por defecto prioriza nitidez. */
+function screenCap(): TourWidth {
+  if (typeof window === 'undefined') return 8192
+  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false
+  const small = Math.min(window.innerWidth, window.innerHeight) < 1024
+  return coarse || small ? 4096 : 8192
+}
+
+/** Elige el mejor ancho disponible según GPU y pantalla. */
 export function pickTourWidth(_params?: {
   maxTextureSize?: number
   screenPx?: number
@@ -69,9 +76,12 @@ export function pickTourWidth(_params?: {
   cap?: TourWidth
 }): TourWidth {
   const max = _params?.maxTextureSize ?? readMaxTextureSize()
-  const cap = _params?.cap
   let width: TourWidth = max >= 8192 ? 8192 : max >= 4096 ? 4096 : 2048
-  if (cap && width > cap) width = cap
+  const caps: TourWidth[] = [screenCap()]
+  if (_params?.cap) caps.push(_params.cap)
+  if (_params?.narrow) caps.push(4096)
+  const cap = caps.reduce((lowest, item) => (item < lowest ? item : lowest))
+  if (width > cap) width = cap
   return width
 }
 

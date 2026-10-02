@@ -1,6 +1,5 @@
 /**
- * Convierte cualquier imagen de plano de piso a WebP sin pérdida (máxima calidad).
- * Misma política que ambientes 360 (`convertUploadedSceneToWebp` mode lossless).
+ * Convierte el plano de piso a WebP quality 90 (alta, con peso menor que lossless).
  */
 
 const SHARP_OPTS = {
@@ -30,7 +29,7 @@ export async function convertFloorPlanToLosslessWebp(
   const meta = await rotated.metadata()
   const buffer = await sharp(sourceBuffer, SHARP_OPTS)
     .rotate()
-    .webp({ lossless: true, effort: 4 })
+    .webp({ quality: 90, effort: 5, smartSubsample: true })
     .toBuffer()
 
   const width = meta.width || 1
