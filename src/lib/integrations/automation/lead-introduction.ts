@@ -28,18 +28,22 @@ function profileQuestion(missing: string[], delivered: boolean) {
       : '¿podría indicarnos en qué ciudad o país reside actualmente?'
   return (delivered ? 'Con el brochure que le compartimos y para brindarle una guía personalizada, ' : BROCHURE_PURPOSE) + question
 }
-function greetingReplyOnly(content: string) {
-  const value = normalized(content)
-  return isGreetingOnly(content) || isCourtesyOnly(content)
-    || /^(?:(?:hola|buenos dias|buenas tardes|buenas noches) )?(?:un gusto saludarle )?(?:en que|como) (?:podemos|puedo) ayudarle$/.test(value)
+function requestedFields(prior: Row): string[] {
+  return Array.isArray(prior.requested_fields)
+    ? prior.requested_fields.filter((field): field is string => field === 'full_name' || field === 'residence') : []
 }
-function hasEarlierConversation(history: unknown, current: string) {
-  const messages = rows(history)
-  // Some callers include the current inbound message at the end of their history.
-  if (messages.at(-1)?.content === current && ['cliente', 'user'].includes(text(messages.at(-1)?.role))) messages.pop()
-  return messages.filter(row => text(row.content).trim()).some(row => ['bot', 'asesor', 'assistant'].includes(text(row.role))
-    ? !greetingReplyOnly(text(row.content))
-    : ['cliente', 'user'].includes(text(row.role)) && !isGreetingOnly(text(row.content)) && !isCourtesyOnly(text(row.content)))
+
+function profileRequestWasSent(prior: Row) {
+  // Legacy pending exchanges are retained; an old "complete" presentation or
+  // a brochure alone does not establish that any profile question was sent.
+  return prior.request_sent === true || requestedFields(prior).length > 0
+    || Number(prior.version || 2) < 3 && (prior.status === 'pending' || Number(prior.reminder_count) > 0 || prior.confirmation_asked === true)
+}
+
+function collectionStatus(profile: Row, prior: Row, declined = false) {
+  if (!missingFields(profile).length) return 'complete'
+  if (declined || prior.collection_status === 'declined' || prior.status === 'skipped') return 'declined'
+  return profileRequestWasSent(prior) ? prior.status === 'pending' ? 'awaiting' : 'deferred' : 'not_requested'
 }
 function withoutBrochure(reply: string, url: string) {
   return reply.split(/(?<=[.!?])\s+|\n+/).filter(sentence => !/brochure|folleto/i.test(sentence)
@@ -104,6 +108,43 @@ export function leadProfilePendingQuestion(reply: string, auditRaw: unknown): Ro
     : purpose === 'collect_profile' ? 'lead_profile' : purpose === 'collect_name' ? 'lead_profile_name' : 'lead_profile_residence'
   return { id, act: 'profile', question, ...(purpose === 'confirm_residence' ? { residence_candidate: object(plan.candidate) } : {}) }
 }
+
+/** Commit only after the provider accepted the reviewed response. Presentation
+ * progress and confirmed profile completeness are deliberately separate. */
+export function rememberLeadIntroduction(input: {
+  previous: unknown; planned: unknown; profile: unknown; reply: string; audit: unknown;
+  accepted: boolean; followUpUsable: boolean; recovery?: boolean;
+}): Row {
+  const previous = object(input.previous), audit = object(input.audit), plan = object(audit.profile_introduction)
+  if (!input.accepted || input.recovery || !input.followUpUsable || object(audit.turn_completeness).status !== 'checked') return previous
+  const profile = confirmedLeadProfile(input.profile), planned = object(input.planned)
+  if (!Object.keys(plan).length) return Object.keys(previous).length
+    ? { ...previous, collection_status: collectionStatus(profile, previous), missing_fields: missingFields(profile) } : previous
+  const question = leadProfilePendingQuestion(input.reply, audit)
+  const delivered = !!text(question.id), purpose = text(plan.question_purpose)
+  const expected = purpose && purpose !== 'none'
+  // An omitted question must not acquire a pending state or consume a reminder.
+  const state = delivered || !expected ? { ...previous, ...planned } : { ...previous }
+  const requested = delivered ? purpose === 'collect_profile' ? ['full_name', 'residence']
+    : purpose === 'collect_name' ? ['full_name'] : ['residence'] : []
+  state.version = 3
+  state.requested_fields = [...new Set([...requestedFields(previous), ...requested])]
+  state.request_sent = delivered || profileRequestWasSent(previous)
+  state.status = delivered ? 'pending' : expected ? previous.status || 'not_started' : state.status || 'not_started'
+  state.missing_fields = missingFields(profile)
+  if (!missingFields(profile).length) state.status = 'complete'
+  state.collection_status = collectionStatus(profile, state, plan.profile_declined === true)
+  state.brochure_sent = previous.brochure_sent === true || input.reply.includes(text(plan.brochure_url) || BROCHURE_URL)
+  state.reminder_count = delivered ? planned.reminder_count || 0 : previous.reminder_count || 0
+  state.confirmation_asked = question.id === 'lead_residence_confirmation' || previous.confirmation_asked === true
+  state.confirmation_candidate = question.id === 'lead_residence_confirmation'
+    ? question.residence_candidate : previous.confirmation_candidate || null
+  const acknowledgement = text(plan.name_acknowledgement)
+  if (acknowledgement && normalized(input.reply).includes(normalized(acknowledgement))) {
+    state.acknowledged_name = text(profile.full_name).trim().split(/\s+/)[0]
+  }
+  return state
+}
 function catalogFor(input: LeadIntroductionInput) {
   return rows(input.catalog || object(input.projectInfo).catalogo || object(object(input.audit).catalog_results).units)
     .filter(unit => !['vendido', 'sold', 'reservado', 'reserved', 'unavailable'].includes(text(unit.status)))
@@ -152,22 +193,27 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const acknowledgement = nameAcknowledgement(profile, prior)
   const suppliedCandidate = Boolean(object(currentProfile.residence_candidate).city || object(currentProfile.residence_candidate).country)
     && profile.residence_status === 'pending_confirmation'
-  const resumed = ['complete', 'skipped'].includes(text(prior.status)) && suppliedCandidate
+  const asked = profileRequestWasSent(prior)
+  const declined = declinedProfile(input.current) || prior.collection_status === 'declined' || prior.status === 'skipped'
+  const resumed = !declined && (suppliedCandidate
+    || suppliedProfile && missing.length > 0 && asked && Number(prior.reminder_count || 0) < 1)
   const acknowledgeOnly = () => {
     if (!acknowledgement || !text(currentProfile.full_name)) return unchanged
     return { ...unchanged, applied: true, reply: join(acknowledgement, input.reply),
       audit: { ...audit, profile_introduction: { profile_state: profile, question_purpose: 'none', name_acknowledgement: acknowledgement } } }
   }
-  if (['complete', 'skipped'].includes(text(prior.status)) && !resumed) return acknowledgeOnly()
+  if (prior.collection_status === 'declined' || prior.status === 'skipped') return acknowledgeOnly()
+  if (prior.status === 'complete' && !resumed && !declinedProfile(input.current)
+    && (asked || !missing.length && prior.brochure_sent === true)) return acknowledgeOnly()
   const pending = prior.status === 'pending' || resumed, onlyProfile = pending && isProfileOnlyTurn(input.current, extracted)
   const excluded = !commercialContinuationSources.has(text(audit.source)) && !['', 'commercial', 'project_overview', 'project_information_choice', 'catalog_search', 'catalog_select',
     'catalog_reference', 'unit_price', 'location', 'unit_model_request', 'virtual_showroom', 'brochure', 'price_option_unavailable'].includes(text(audit.source))
-  if ((excluded && !onlyProfile) || (!pending && hasEarlierConversation(input.history, input.current))) return acknowledgeOnly()
+  if (excluded && !onlyProfile) return acknowledgeOnly()
   const url = input.brochureUrl || BROCHURE_URL
   const category = categoryFor(input), overview = generalInformation(input.current, audit, extracted)
   if (!pending && !overview && !category && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
   const base = withoutBrochure(input.reply, url)
-  const deliver = pending || suppliedProfile || explicitBrochure(input.current) || missing.length === 0 || declinedProfile(input.current)
+  const deliver = pending || suppliedProfile || explicitBrochure(input.current) || missing.length === 0 || declined
   const deliverBrochure = deliver && (prior.brochure_sent !== true || explicitBrochure(input.current))
   const brochure = deliverBrochure ? `Aquí tiene el brochure digital completo del proyecto: ${url}` : ''
   const candidate = object(profile.residence_candidate)
@@ -176,10 +222,10 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   let question = '', purpose = 'none', result = '', reminderCount = Number(prior.reminder_count) || 0
   let state: Row
   if (!deliver) {
-    question = profileQuestion(missing, false)
+    question = profileQuestion(missing, prior.brochure_sent === true)
     purpose = questionPurpose(missing)
     result = join(overview ? PROJECT_INTRODUCTION : categoryIntroduction(input, category) || withoutLastQuestion(base), question)
-    state = { version: 2, status: 'pending', reminder_count: 0, brochure_sent: false,
+    state = { ...prior, version: 3, status: 'pending', reminder_count: 0, brochure_sent: prior.brochure_sent === true,
       category, continuation_reply: commercialContinuation(input, category, overview) }
   } else {
     const continuation = text(prior.continuation_reply) || commercialContinuation(input, category, overview)
@@ -189,25 +235,28 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
     const sameCandidate = normalized([text(priorCandidate.city), text(priorCandidate.country)].filter(Boolean).join(', ')) === normalized(candidatePlace)
     const confirm = needsConfirmation && suppliedProfile && !(prior.confirmation_asked === true && sameCandidate)
     const denial = object(currentProfile.residence_confirmation).decision === 'deny'
-    const remind = !declinedProfile(input.current) && (confirm || onlyProfile && missing.length > 0 && (reminderCount < 1 || denial && prior.denial_followup_asked !== true))
+    const firstCapture = !asked && missing.length > 0 && !explicitBrochure(input.current)
+    const remind = !declined && (confirm || firstCapture || onlyProfile && missing.length > 0 && (reminderCount < 1 || denial && prior.denial_followup_asked !== true))
     if (remind) {
       if (confirm) { question = `Entiendo que es de ${candidatePlace}. ¿Es también su lugar de residencia actual?`; purpose = 'confirm_residence' }
-      else { question = profileQuestion(missing, true); purpose = questionPurpose(missing); reminderCount += 1 }
+      else { question = profileQuestion(missing, true); purpose = questionPurpose(missing); if (asked) reminderCount += 1 }
     }
     const contextual = onlyProfile ? '' : overview && !pending ? PROJECT_INTRODUCTION : base
     result = join(remind ? withoutLastQuestion(contextual) : contextual, brochure, remind ? question : onlyProfile || overview ? continuation : '')
-    state = { ...prior, version: 2, status: remind ? 'pending' : 'complete', reminder_count: reminderCount,
+    state = { ...prior, version: 3, status: remind ? 'pending' : 'complete', reminder_count: reminderCount,
       brochure_sent: true, category: text(prior.category) || category, continuation_reply: continuation,
       ...(confirm ? { confirmation_asked: true, confirmation_candidate: candidate } : {}),
       ...(denial && remind ? { denial_followup_asked: true } : {}) }
   }
   result = join(acknowledgement, result)
-  const stage = !deliver ? 'request' : question ? 'reminder' : 'deliver'
+  state.collection_status = collectionStatus(profile, state, declined)
+  state.missing_fields = missing
+  const stage = question ? asked ? 'reminder' : 'request' : 'deliver'
   return { reply: result, state, applied: true, brochureDeferred: !deliver,
     audit: { ...audit, brochure_sent: deliverBrochure || prior.brochure_sent === true, profile_introduction: { stage, question, brochure_deferred: !deliver,
       brochure_required: deliverBrochure, brochure_url: url, generic_introduction: overview && !deliver,
       brochure_previously_sent: prior.brochure_sent === true,
-      missing_fields: missing, reminder_count: reminderCount, residence_meaning: 'current_residence',
+      missing_fields: missing, reminder_count: reminderCount, residence_meaning: 'current_residence', profile_declined: declined,
       profile_state: profile, question_purpose: purpose, candidate: needsConfirmation ? { ...candidate } : null,
       name_acknowledgement: acknowledgement || null,
       reason: needsConfirmation ? 'declared_place_requires_current_residence_confirmation' : pending ? 'continue_opening_profile_exchange' : 'first_substantive_project_contact' } } }
@@ -216,7 +265,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
 export const LEAD_INTRODUCTION_RULES = `
 APERTURA Y PERFIL DEL LEAD
 - Esta secuencia es una regla comercial obligatoria y prevalece sobre las sugerencias generales de presentación, libertad editorial o cierre sin pregunta. El sistema decide la etapa y los datos pendientes; el redactor elige cómo expresarlos y el revisor comprueba su significado en el mensaje real.
-- Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después formule una sola pregunta con question_purpose. Puede reformularla conservando los datos faltantes y el propósito de brochure más guía personalizada; no se exige copiar toda la frase. La ubicación solicitada es dónde reside actualmente, nunca desde dónde escribe ni el lugar donde quiere comprar.
+- Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después formule una sola pregunta con question_purpose. Puede reformularla conservando los datos faltantes y el propósito de brochure más guía personalizada; no se exige copiar toda la frase. Solicite únicamente nombre y ciudad o país de residencia actual, nunca dirección domiciliaria, desde dónde escribe ni el lugar donde quiere comprar. Un intercambio anterior sobre otro tema no acredita que estos datos ya se hayan solicitado.
 - full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si missing_fields incluye full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden los datos pendientes, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla.
 - declared_location conserva el lugar declarado; residence_candidate es una posibilidad pendiente, NO residencia confirmada. Con question_purpose=confirm_residence reconozca el lugar candidato y pregunte si es su residencia actual, sin pedir nuevamente una ciudad desde cero. «Soy de X» merece esta aclaración aunque responda a una pregunta de residencia. Si ya hay residencia confirmada en profile_state, no vuelva a preguntarla. Una ciudad de origen distinta puede conservarse sin contradecir la residencia actual.
 - Si name_acknowledgement tiene contenido, incluya «Mucho gusto, Nombre» usando ese nombre verificado, una sola vez. Es un reconocimiento del nombre recién declarado, no una cortesía opcional ni un saludo que deba suprimirse. No añada saludos adicionales.

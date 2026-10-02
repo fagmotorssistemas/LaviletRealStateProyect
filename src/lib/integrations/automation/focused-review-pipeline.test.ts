@@ -7,6 +7,7 @@ import { BUSINESS_RISK_REVIEW_VERSION, businessRiskDecision } from './business-r
 import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
 import { requireReviewedResponse, ResponseReviewRecoveryError } from './response-review-recovery'
 import { validateCatalogReply } from './catalog-dialogue'
+import { leadIntroductionTurn, rememberLeadIntroduction } from './lead-introduction'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const unit = { id: 'd202', unit_number: '202', category: 'departamento', status: 'disponible', is_published: true,
@@ -37,6 +38,38 @@ function harness(handle: (context: Row, task: string) => Row) {
   }
   return { calls, generate }
 }
+
+test('outside-to-property transition carries both profile obligations through the live review contract and delivery memory', async () => {
+  const current = 'disuculpe me equivoque de numero, si esta bien ayudame con informacion del prpyecto inmobiliario'
+  const history = [{ role: 'cliente', content: 'Hola quiero informacion sobre vehiculos' },
+    { role: 'bot', content: 'Solo puedo ofrecer información del proyecto inmobiliario La Vilet.' }]
+  const opening = leadIntroductionTurn({ current, history, summary: {}, extracted: {},
+    reply: 'La Vilet está en Cuenca.', audit: { source: 'project_overview' } })
+  const reply = 'La Vilet está en Cuenca. Para compartirle el brochure y darle una guía personalizada, ¿cómo se llama y dónde vive actualmente?'
+  const mock = harness((context, task) => {
+    const obligations = rows(context.obligaciones_del_turno).map(row => row.id)
+    assert.ok(obligations.includes('profile_full_name'))
+    assert.ok(obligations.includes('profile_current_residence'))
+    assert.equal(obligations.includes('profile_phone'), false)
+    if (task === 'review') return pass
+    return { ...writer(context, reply), question: { role: 'required_collection', purpose: 'collect_lead_profile',
+      missing_datum: 'Nombre y residencia actual', next_decision: 'Compartir el brochure y orientar al cliente' } }
+  })
+  const result = await completeTurnReply({ current, history, baseReply: opening.reply,
+    verified: { proyecto: { ubicacion: 'Cuenca' } },
+    audit: { ...opening.audit, semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, reply)
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review'])
+  const audit = { ...opening.audit, semantic_review_enabled: true, turn_completeness: result.audit }
+  assert.deepEqual(rememberLeadIntroduction({ previous: {}, planned: opening.state, profile: {}, reply, audit,
+    accepted: false, followUpUsable: true }), {})
+  const delivered = rememberLeadIntroduction({ previous: {}, planned: opening.state, profile: {}, reply, audit,
+    accepted: true, followUpUsable: true })
+  assert.equal(delivered.collection_status, 'awaiting')
+  assert.deepEqual(delivered.requested_fields, ['full_name', 'residence'])
+})
 
 test('a valid commercial draft passes the first review without sentence or numeric-ID sheets', async () => {
   const reply = 'El departamento 202 tiene 3 dormitorios, 120,83 m² interiores y un precio publicado de $245.123 USD.'

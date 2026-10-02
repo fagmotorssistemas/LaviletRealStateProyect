@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { leadIntroductionIssues, leadIntroductionReviewIssues, leadIntroductionReviewSchema, leadIntroductionRepairs,
-  leadIntroductionTurn, leadProfilePendingQuestion, PROFILE_INVITATION, type LeadIntroductionInput } from './lead-introduction'
+  leadIntroductionTurn, leadProfilePendingQuestion, rememberLeadIntroduction, PROFILE_INVITATION, type LeadIntroductionInput } from './lead-introduction'
 import { BROCHURE_URL } from './project-material'
 
 const catalog = [
@@ -81,7 +81,11 @@ describe('semantic opening stage review', () => {
     assert.match(String(repair.instruction), /conserve la pregunta de los datos pendientes/)
   })
 })
-const begin = () => leadIntroductionTurn(input())
+const begin = () => {
+  const turn = leadIntroductionTurn(input())
+  return { ...turn, state: rememberLeadIntroduction({ previous: {}, planned: turn.state, profile: {}, reply: turn.reply,
+    audit: { ...turn.audit, turn_completeness: { status: 'checked' } }, accepted: true, followUpUsable: true }) }
+}
 const pending = (overrides: Partial<LeadIntroductionInput> = {}) => input({
   current: 'Me llamo Juan', summary: { _lead_introduction: begin().state },
   extracted: { lead_profile: declaredName('Juan', 'Me llamo Juan') },
@@ -203,12 +207,11 @@ describe('progressive lead introduction', () => {
     assert.equal(turn.brochureDeferred, false)
     assert.equal(turn.state.status, 'complete')
   })
-  it('does not restart profiling in an existing conversation or interrupt an operational request', () => {
+  it('does not restart a delivered request or interrupt an operational request', () => {
     for (const override of [
-      { history: [{ role: 'cliente', content: 'Me interesa el 901' }, { role: 'bot', content: 'El 901 cuenta con 3 dormitorios.' }] },
       { audit: { source: 'visit_intake' }, current: 'Quiero una cita para mañana' },
       { audit: { source: 'financing' }, current: 'Quiero que revisen el crédito' },
-      { summary: { _lead_introduction: { status: 'complete' } } },
+      { summary: { _lead_introduction: { ...begin().state, status: 'complete' } } },
     ]) assert.equal(leadIntroductionTurn(input(override)).applied, false)
   })
   it('keeps verified category facts without copying promotional claims from the desired wording', () => {
@@ -297,6 +300,98 @@ describe('progressive lead introduction', () => {
       const next = leadIntroductionTurn(pending({ current, summary: { _lead_introduction: turn.state, _lead_profile: originProfile() },
         extracted: {}, reply: 'Las suites tienen precios referenciales desde $100.000.', audit: { source: 'unit_price' } }))
       assert.doesNotMatch(next.reply, /residencia|reside|soy de|Entiendo que es/)
+    }
+  })
+})
+
+describe('profile collection across delivered conversation turns', () => {
+  const history = [
+    { role: 'cliente', content: 'Hola quiero informacion sobre vehiculos' },
+    { role: 'bot', content: 'Solo puedo ofrecer información sobre el proyecto inmobiliario La Vilet.' },
+  ]
+  const commit = (turn: ReturnType<typeof leadIntroductionTurn>, previous = {}, profile = {}, reply = turn.reply,
+    options: { accepted?: boolean; followUpUsable?: boolean; recovery?: boolean; reviewStatus?: string } = {}) => rememberLeadIntroduction({
+    previous, planned: turn.state, profile, reply, accepted: options.accepted ?? true,
+    followUpUsable: options.followUpUsable ?? true, recovery: options.recovery,
+    audit: { ...turn.audit, semantic_review_enabled: true, turn_completeness: { status: options.reviewStatus || 'checked' } },
+  })
+
+  it('requests profile after the recorded outside exchange, answers price without repeating, then asks only missing residence', () => {
+    const first = leadIntroductionTurn(input({ history,
+      current: 'disuculpe me equivoque de numero, si esta bien ayudame con informacion del prpyecto inmobiliario' }))
+    assert.equal(first.applied, true)
+    assert.deepEqual((first.audit.profile_introduction as { missing_fields: string[] }).missing_fields, ['full_name', 'residence'])
+    const invited = commit(first)
+    assert.deepEqual(invited.requested_fields, ['full_name', 'residence'])
+    assert.equal(invited.collection_status, 'awaiting')
+    const price = leadIntroductionTurn(input({ history, current: 'interesante y que precio tiene?',
+      summary: { _lead_introduction: invited }, extracted: { turn_semantics: { primary_intent: 'ask_price', confidence: 'high' } },
+      audit: { source: 'unit_price' }, reply: 'Los precios referenciales van desde $145.000 hasta $550.000 y pueden cambiar.' }))
+    assert.match(price.reply, /145\.000.*550\.000/)
+    assert.doesNotMatch(price.reply, /su nombre|reside actualmente/)
+    const deferred = commit(price, invited)
+    assert.equal(deferred.collection_status, 'deferred')
+    assert.deepEqual(deferred.missing_fields, ['full_name', 'residence'])
+    assert.equal(leadIntroductionTurn(input({ summary: { _lead_introduction: deferred } })).applied, false)
+    const profile = declaredName('Carlos', 'Me llamo Carlos')
+    const name = leadIntroductionTurn(input({ current: 'Me llamo Carlos', summary: { _lead_introduction: deferred },
+      extracted: { lead_profile: profile }, audit: { source: 'commercial' } }))
+    assert.match(name.reply, /reside actualmente/)
+    assert.doesNotMatch(name.reply, /indicarnos su nombre/)
+    const partial = commit(name, deferred, profile)
+    assert.deepEqual(partial.missing_fields, ['residence'])
+    assert.equal(partial.reminder_count, 1)
+    const ignored = leadIntroductionTurn(input({ current: 'Me llamo Carlos',
+      summary: { _lead_introduction: partial, _lead_profile: profile }, extracted: { lead_profile: profile } }))
+    assert.doesNotMatch(ignored.reply, /reside actualmente/)
+    const completedProfile = { ...profile, residence_country: 'Ecuador' }
+    const residence = leadIntroductionTurn(input({ current: 'Vivo en Ecuador', summary: { _lead_introduction: partial, _lead_profile: profile },
+      extracted: { lead_profile: { residence_country: 'Ecuador' } } }))
+    assert.equal(commit(residence, partial, completedProfile).collection_status, 'complete')
+  })
+
+  it('existing chat and delivered material do not stand in for a profile request', () => {
+    for (const summary of [{}, { _lead_introduction: { status: 'complete', brochure_sent: true } }]) {
+      const turn = leadIntroductionTurn(input({ summary, history }))
+      assert.equal(turn.applied, true)
+      assert.match(turn.reply, /su nombre.*reside actualmente/)
+    }
+    const material = leadIntroductionTurn(input({ current: 'Envíeme el brochure', audit: { source: 'brochure' } }))
+    const state = commit(material)
+    assert.equal(state.collection_status, 'not_requested')
+    assert.equal(state.brochure_sent, true)
+    const next = leadIntroductionTurn(input({ summary: { _lead_introduction: state }, history }))
+    assert.match(next.reply, /Con el brochure que le compartimos/)
+    assert.match(next.reply, /su nombre.*reside actualmente/)
+  })
+
+  it('does not count rejected, unsent, omitted, or recovery questions as requests', () => {
+    const turn = leadIntroductionTurn(input({ history }))
+    for (const options of [{ accepted: false }, { followUpUsable: false }, { recovery: true }, { reviewStatus: 'rejected_review' }]) {
+      assert.deepEqual(commit(turn, {}, {}, turn.reply, options), {})
+    }
+    const omitted = commit(turn, {}, {}, 'La Vilet está en Cuenca.')
+    assert.deepEqual(omitted.requested_fields, [])
+    assert.equal(omitted.collection_status, 'not_requested')
+    assert.notEqual(omitted.status, 'pending')
+    assert.equal(leadIntroductionTurn(input({ history, summary: { _lead_introduction: omitted } })).applied, true)
+    const natural = commit(turn, {}, {}, 'Para compartirle el brochure y orientarle, ¿cómo se llama y dónde vive actualmente?')
+    assert.equal(natural.collection_status, 'awaiting')
+  })
+
+  it('respects refusal across later requests and accepts spontaneous partial data', () => {
+    const invited = begin().state
+    const refusal = leadIntroductionTurn(input({ current: 'Prefiero no dar mis datos', summary: { _lead_introduction: invited } }))
+    const state = commit(refusal, invited)
+    assert.equal(state.collection_status, 'declined')
+    const next = leadIntroductionTurn(input({ summary: { _lead_introduction: state }, history }))
+    assert.equal(next.applied, false)
+    for (const profile of [declaredName('Ana', 'Soy Ana'), { residence_country: 'Chile' }]) {
+      const turn = leadIntroductionTurn(input({ current: 'Quiero información', extracted: { lead_profile: profile }, history }))
+      const plan = turn.audit.profile_introduction as { missing_fields: string[] }
+      assert.deepEqual(plan.missing_fields, 'full_name' in profile ? ['residence'] : ['full_name'])
+      assert.equal((turn.reply.match(/\?/g) || []).length, 1)
+      assert.doesNotMatch(turn.reply, /dirección domiciliaria|calle|teléfono/)
     }
   })
 })

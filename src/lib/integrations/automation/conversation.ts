@@ -16,12 +16,12 @@ import { applyWhatsappAdsConsentFromClientMessage, evaluateWaLeadSubmittedForCur
 import { resolveRecentUnitOfferText } from '@/lib/meta/waLeadSubmittedOfferContext'
 import { isUnitOfferContext } from '@/lib/meta/waLeadSubmittedEligibility'
 import type { Guard } from './visits'
-import { isGreetingOnly, normalized, qualifiedFacts, sdrState } from './sdr-rules'
+import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
-import { isProfileOnlyTurn, leadIntroductionTurn, leadProfilePendingQuestion } from './lead-introduction'
+import { isProfileOnlyTurn, leadIntroductionTurn, leadProfilePendingQuestion, rememberLeadIntroduction } from './lead-introduction'
 import { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { progressivePendingQuestion } from './progressive-options'
 import { tourContinuation } from './tour-continuation'
@@ -1498,28 +1498,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     offered_ids: (Array.isArray(interpretedPropertyContext.offered_ids) ? interpretedPropertyContext.offered_ids : previousOfferedIds)
       .filter(id => previousOfferedIds.includes(id) && stillRelevantOffers.has(id)),
     last_reply: reply, pending_question: {} }
-  const introductionState = object(summary._lead_introduction)
-  const acknowledgement = text(object(audit.profile_introduction).name_acknowledgement)
-  const previousIntroduction = object(previousSummary._lead_introduction)
-  const deliveredProfileQuestion = text(object(audit.pending_question).id)
   const visitAlreadyHandled = audit.registration_verified === true || Object.keys(object(audit.completed_visit_action)).length > 0
   const pendingRequests = interpretation.requests.filter(request => !['tracking', 'courtesy'].includes(text(request.domain))
     && !(visitAlreadyHandled && request.domain === 'visit') && !(handoffNotice && request.domain === 'advisor'))
-  // Mark the introduction only after the actual message was accepted for delivery.
-  // A rejected/omitted question cannot leave a confirmation pending in memory.
-  if (pendingRecovery) summary._lead_introduction = previousIntroduction
-  else if (!canTrackFollowUp && audit.profile_introduction) summary._lead_introduction = { ...previousIntroduction,
-    status: previousIntroduction.status || 'pending',
-    brochure_sent: previousIntroduction.brochure_sent === true || reply.includes(text(object(audit.profile_introduction).brochure_url) || BROCHURE_URL) }
-  else if (audit.profile_introduction) summary._lead_introduction = { ...introductionState,
-    status: deliveredProfileQuestion.startsWith('lead_') ? 'pending' : 'complete',
-    brochure_sent: previousIntroduction.brochure_sent === true || reply.includes(text(object(audit.profile_introduction).brochure_url) || BROCHURE_URL),
-    reminder_count: deliveredProfileQuestion.startsWith('lead_') ? introductionState.reminder_count || 0 : previousIntroduction.reminder_count || 0,
-    confirmation_asked: deliveredProfileQuestion === 'lead_residence_confirmation' || previousIntroduction.confirmation_asked === true,
-    confirmation_candidate: deliveredProfileQuestion === 'lead_residence_confirmation'
-      ? object(audit.pending_question).residence_candidate : previousIntroduction.confirmation_candidate || null,
-    ...(acknowledgement && normalized(reply).includes(normalized(acknowledgement))
-      ? { acknowledged_name: text(object(summary._lead_profile).full_name).trim().split(/\s+/)[0] } : {}) }
+  summary._lead_introduction = rememberLeadIntroduction({ previous: previousSummary._lead_introduction,
+    planned: summary._lead_introduction, profile: summary._lead_profile, reply, audit,
+    accepted: true, followUpUsable: canTrackFollowUp, recovery: pendingRecovery })
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
     _follow_up_review: canTrackFollowUp ? {} : { usable: false, reply },
     _pending_requests: pendingRecovery ? pendingRequests : [],
