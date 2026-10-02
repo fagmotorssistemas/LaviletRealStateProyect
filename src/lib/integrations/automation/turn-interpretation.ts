@@ -6,7 +6,7 @@ import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
 import { promptSections } from './prompt-sections'
-import { interpretationInput, interpretationSourceIssues, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
+import { interpretationInput, interpretationSourceIssues, normalizeInactiveInterpretation, mergeInterpretationRepair, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
 
 export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v3'
 
@@ -126,12 +126,13 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
     promptRevision = createHash('sha256').update(currentInstructions).digest('hex').slice(0, 16)
     dependencies.onPromptRevision?.(promptRevision)
     const modelInput = interpretationInput(input, readable)
-    raw = await dependencies.aiJson(currentInstructions, modelInput, TURN_EXTRACTION_SCHEMA)
+    raw = normalizeInactiveInterpretation(await dependencies.aiJson(currentInstructions, modelInput, TURN_EXTRACTION_SCHEMA))
     recoveryIssues = interpretationSourceIssues(raw, readable)
     if (recoveryIssues.length) {
-      raw = await dependencies.aiJson(currentInstructions, { ...modelInput, recuperacion_interpretacion: {
-        issues: recoveryIssues, instruction: 'La extracción anterior usó evidencia ajena al mensaje actual o cantidades inválidas. Reinterprete TODO el mensaje_actual. No complete con declaraciones históricas ni reutilice la respuesta anterior. El historial solo resuelve referencias.' },
+      const repaired = await dependencies.aiJson(currentInstructions, { ...modelInput, recuperacion_interpretacion: {
+        issues: recoveryIssues, instruction: 'Revise los campos señalados usando mensaje_actual. missing_current_evidence significa que falta una cita para un dato afirmado; non_current_evidence significa que la cita no pertenece al mensaje actual; invalid_budget_amount significa que falta una cantidad válida. Un bloque sin datos ni acción no necesita evidencia. Conserve la información válida del turno y devuelva el esquema completo. El historial solo resuelve referencias, no aporta declaraciones nuevas.' },
         mensaje_actual: readable }, TURN_EXTRACTION_SCHEMA)
+      raw = normalizeInactiveInterpretation(mergeInterpretationRepair(raw, repaired, recoveryIssues))
       const remaining = interpretationSourceIssues(raw, readable)
       if (remaining.length) throw new TurnInterpretationError(remaining)
     }

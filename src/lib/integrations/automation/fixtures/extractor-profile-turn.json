@@ -1,0 +1,60 @@
+{
+  "events": [],
+  "preferred_category": null,
+  "purchase_purpose": null,
+  "declaration_evidence": { "preferred_category": null, "purchase_purpose": null },
+  "action_evidence": { "requested_advisor": null, "opt_out": null, "consent_granted": null },
+  "qualification": {
+    "actividad_comercial": null, "area_buscada": null, "prioridad": null,
+    "plazo_compra": null, "presupuesto_texto": null, "dormitorios_texto": null
+  },
+  "unit_id": null,
+  "preferred_visit_time_text": null,
+  "visit_needs_help": false,
+  "requested_advisor": false,
+  "opt_out": false,
+  "consent_granted": false,
+  "financing_consent": null,
+  "financing_partner": null,
+  "full_name": "Elena Diaz",
+  "residence_city": "Loja",
+  "residence_country": null,
+  "declared_location": null,
+  "residence_response": null,
+  "residence_confirmation": null,
+  "profile_evidence": { "full_name": "mi nombre es Elena Diaz", "residence_city": "vivo en Loja", "residence_country": null },
+  "applicant_type": null,
+  "national_id": null,
+  "employment_stability_months": null,
+  "job_title": null,
+  "monthly_income": null,
+  "ruc": null,
+  "visit_preference": null,
+  "visit_intent": { "kind": "none", "evidence": "", "confidence": "high" },
+  "requests": [],
+  "turn_semantics": {
+    "primary_intent": "answer_previous",
+    "primary_evidence": "claro, mi nombre es Elena Diaz y vivo en Loja",
+    "confidence": "high",
+    "housing_quantities": [],
+    "answer_to_previous": {
+      "question_id": "lead_profile", "kind": "value",
+      "evidence": "claro, mi nombre es Elena Diaz y vivo en Loja", "confidence": "high"
+    },
+    "reservation": { "kind": "none", "evidence": "", "unit_numbers": [], "confidence": "high" },
+    "property": {
+      "group": null, "category": null, "excluded_categories": [], "operation": "none",
+      "reference_kind": "none", "unit_numbers": [], "selector": null, "query_scope": null,
+      "filters": {
+        "floor_number": null, "bedrooms": null, "bedrooms_any": [], "bedrooms_operator": null,
+        "bedrooms_upper": null, "bedrooms_required": null, "min_area_m2": null, "max_area_m2": null
+      },
+      "filter_evidence": {
+        "floor_number": "", "bedrooms": "", "bedrooms_any": "", "bedrooms_operator": "",
+        "bedrooms_upper": "", "bedrooms_required": "", "min_area_m2": "", "max_area_m2": ""
+      },
+      "evidence": "", "confidence": "high"
+    },
+    "budget": { "status": "not_discussed", "amount": null, "evidence": "", "confidence": "high" }
+  }
+}

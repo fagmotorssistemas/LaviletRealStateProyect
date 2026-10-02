@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "test:prompts": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/prompt-assembly.test.ts src/lib/integrations/automation/ai-output.test.ts src/lib/integrations/automation/execution-trace.test.ts",
-    "test:turn-recovery": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/turn-recovery.test.ts scripts/turn-interpretation.test.cjs scripts/business-scope.test.cjs src/lib/integrations/automation/conversation-budget-regression.test.ts",
+    "test:turn-recovery": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/turn-recovery.test.ts src/lib/integrations/automation/interpretation-neutral.test.ts scripts/turn-interpretation.test.cjs scripts/business-scope.test.cjs src/lib/integrations/automation/conversation-budget-regression.test.ts",
     "dev": "node scripts/print-env-banner.cjs && next dev",
     "build": "next build",
     "start": "next start",
