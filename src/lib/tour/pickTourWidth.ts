@@ -34,6 +34,15 @@ export function publicAssetVersion(url: string | null | undefined): number {
   }
 }
 
+export function isPngAssetUrl(url: string | null | undefined) {
+  if (!url) return false
+  try {
+    return /\.png$/i.test(new URL(url, 'https://local.invalid').pathname)
+  } catch {
+    return /\.png(?:$|\?)/i.test(url)
+  }
+}
+
 function variantIsCurrent(url: string | undefined, baseUrl: string | undefined) {
   if (!url) return false
   const base = publicAssetVersion(baseUrl)
@@ -122,13 +131,18 @@ export function pickCatalogPanoUrl(
     pano.scenes?.[0]
   const variants = scene?.widths ?? pano.variants ?? {}
   const baseUrl = scene?.url ?? pano.url
-  const take = (key: '2048' | '4096' | '8192') =>
-    variantIsCurrent(variants[key], baseUrl) ? tourDisplayUrl(variants[key]!) : null
+  const versionBase = baseUrl && !isPngAssetUrl(baseUrl) ? baseUrl : undefined
+  const take = (key: '2048' | '4096' | '8192') => {
+    const raw = variants[key]
+    if (!raw || isPngAssetUrl(raw) || !variantIsCurrent(raw, versionBase)) return null
+    return tourDisplayUrl(raw)
+  }
   const order: Array<'2048' | '4096' | '8192'> =
     width >= 8192 ? ['8192', '4096', '2048'] : width >= 4096 ? ['4096', '2048'] : ['2048', '4096']
   for (const key of order) {
     const url = take(key)
     if (url) return url
   }
-  return baseUrl ? tourDisplayUrl(baseUrl) : null
+  if (!baseUrl || isPngAssetUrl(baseUrl)) return null
+  return tourDisplayUrl(baseUrl)
 }

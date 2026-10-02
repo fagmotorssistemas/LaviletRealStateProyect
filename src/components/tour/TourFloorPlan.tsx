@@ -1303,7 +1303,7 @@ export function TourFloorPlan({
             onWheel={(event) => event.stopPropagation()}
             onTouchMove={(event) => event.stopPropagation()}
           >
-            {[-2, -1, 0, 1, 2, 3, 4, 5, 6, 7].map((item) => {
+            {[7, 6, 5, 4, 3, 2, 1, 0, -1, -2].map((item) => {
               const active = item === floor
               const short = floorPlanLevelShort(item)
               const isTerraza = item === 7

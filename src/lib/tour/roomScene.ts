@@ -220,6 +220,12 @@ function preferSceneFile(
   nextUrl: string,
   nextName: string,
 ) {
+  const currentWebp = /\.webp$/i.test(currentName || '')
+  const nextWebp = /\.webp$/i.test(nextName)
+  const currentPng = /\.png$/i.test(currentName || '')
+  const nextPng = /\.png$/i.test(nextName)
+  if (currentWebp && nextPng) return false
+  if (currentPng && nextWebp) return true
   const currentVersion = publicAssetVersion(currentUrl)
   const nextVersion = publicAssetVersion(nextUrl)
   if (nextVersion !== currentVersion) return nextVersion > currentVersion
@@ -277,7 +283,7 @@ export function buildRoomScenes(
     groups.set(key, current)
   }
   return [...groups.values()].map((scene) => {
-    const baseVersion = publicAssetVersion(scene.url)
+    const baseVersion = /\.png(?:$|\?)/i.test(scene.url) ? 0 : publicAssetVersion(scene.url)
     const widths = Object.fromEntries(
       Object.entries(scene.widths ?? {})
         .filter(([, value]) => {
@@ -288,18 +294,21 @@ export function buildRoomScenes(
         })
         .map(([key, value]) => [key, value ? tourDisplayUrl(value) : value]),
     )
-    const url =
-      scene.url ||
-      widths['8192'] ||
-      widths['4096'] ||
-      widths['2048'] ||
-      ''
+    const webpWidths = Object.fromEntries(
+      Object.entries(widths).filter(([, value]) => value && !/\.png(?:$|\?)/i.test(value)),
+    ) as TourRoomScene['widths']
+    const pngBase = /\.png(?:$|\?)/i.test(scene.url)
+    const url = pngBase
+      ? webpWidths?.['8192'] || webpWidths?.['4096'] || webpWidths?.['2048'] || ''
+      : scene.url || webpWidths?.['8192'] || webpWidths?.['4096'] || webpWidths?.['2048'] || ''
+    if (!url || /\.png(?:$|\?)/i.test(url)) return null
     return {
       ...scene,
-      url: url ? tourDisplayUrl(url) : url,
-      widths,
+      url: tourDisplayUrl(url),
+      file_name: pngBase ? url : scene.file_name,
+      widths: webpWidths,
     }
-  })
+  }).filter((scene): scene is TourRoomScene => Boolean(scene))
 }
 
 export function pickSceneUrl(
@@ -309,19 +318,20 @@ export function pickSceneUrl(
   if (!scene) return null
   const widths = scene.widths ?? {}
   const prefer = width ?? 8192
-  const baseVersion = publicAssetVersion(scene.url)
+  const baseVersion = /\.png(?:$|\?)/i.test(scene.url) ? 0 : publicAssetVersion(scene.url)
   const usable = (url?: string) => {
     if (!url) return false
     const version = publicAssetVersion(url)
     if (baseVersion && version && version + 1500 < baseVersion) return false
     return true
   }
-  if (prefer >= 8192 && usable(widths['8192'])) return tourDisplayUrl(widths['8192']!)
-  if (prefer >= 4096 && (usable(widths['4096']) || usable(widths['8192']))) {
-    const url = usable(widths['4096']) ? widths['4096']! : widths['8192']!
+  const webp = (url?: string) => Boolean(url && usable(url) && !/\.png(?:$|\?)/i.test(url))
+  if (prefer >= 8192 && webp(widths['8192'])) return tourDisplayUrl(widths['8192']!)
+  if (prefer >= 4096 && (webp(widths['4096']) || webp(widths['8192']))) {
+    const url = webp(widths['4096']) ? widths['4096']! : widths['8192']!
     return tourDisplayUrl(url)
   }
-  if (usable(widths['2048'])) return tourDisplayUrl(widths['2048']!)
-  if (scene.url) return tourDisplayUrl(scene.url)
+  if (webp(widths['2048'])) return tourDisplayUrl(widths['2048']!)
+  if (scene.url && !/\.png(?:$|\?)/i.test(scene.url)) return tourDisplayUrl(scene.url)
   return null
 }

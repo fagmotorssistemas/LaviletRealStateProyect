@@ -426,32 +426,36 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
 
     // Conversión WebP en segundo plano (no bloquear; evita 504 en panoramas pesados).
     if (conf.convert_pending) {
-      void fetch('/api/typology-assets/convert', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          typology_code: prep.typology_code || code,
-          kind: prep.kind || nextKind,
-          file_name: prep.file_name,
-          storage_path: prep.storage_path,
-          room: room || null,
-          finish: finish ?? null,
-          light: light ?? null,
-        }),
-      })
-        .then(async (res) => {
-          if (!res.ok) {
+      const convertBody = {
+        typology_code: prep.typology_code || code,
+        kind: prep.kind || nextKind,
+        file_name: prep.file_name,
+        storage_path: prep.storage_path,
+        room: room || null,
+        finish: finish ?? null,
+        light: light ?? null,
+      }
+      void (async () => {
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            const res = await fetch('/api/typology-assets/convert', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(convertBody),
+            })
+            if (res.ok) {
+              if (code) void loadAssets(code)
+              return
+            }
             const raw = await res.text().catch(() => '')
-            console.warn('[typology-assets] convert background failed', res.status, raw.slice(0, 200))
-            return
+            console.warn('[typology-assets] convert pending', attempt, res.status, raw.slice(0, 200))
+          } catch (err) {
+            console.warn('[typology-assets] convert pending', attempt, err)
           }
-          // Refrescar listado cuando termine (si el modal sigue abierto).
-          if (code) void loadAssets(code)
-        })
-        .catch((err) => {
-          console.warn('[typology-assets] convert background error', err)
-        })
+          if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, 4000))
+        }
+      })()
     }
 
     return 'done'

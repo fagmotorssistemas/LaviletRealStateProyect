@@ -29,7 +29,7 @@ export type ConvertSceneInput = {
   mode: 'lossless' | 'quality'
 }
 
-const TOUR_WIDTHS = [2048, 4096, 8192] as const
+const TOUR_WIDTHS = [4096, 2048] as const
 
 /**
  * Descarga el original de Storage, lo convierte a WebP y deja la fila definitiva.
@@ -65,13 +65,14 @@ export async function convertUploadedSceneToWebp(
   if (typeof sharp !== 'function') {
     throw Object.assign(new Error('El conversor de imágenes no está disponible'), { status: 500 })
   }
+  sharp.concurrency(1)
 
   const pipeline = sharp(sourceBuffer, SHARP_OPTS).rotate()
   const meta = await pipeline.metadata()
   const webpOptions =
     input.mode === 'lossless'
-      ? { quality: 92, effort: 5, smartSubsample: true as const }
-      : { quality: 88, effort: 5, smartSubsample: true as const }
+      ? { quality: 92, effort: 4, smartSubsample: true as const }
+      : { quality: 88, effort: 4, smartSubsample: true as const }
   const webpBuffer = await sharp(sourceBuffer, SHARP_OPTS)
     .rotate()
     .resize(
@@ -84,7 +85,6 @@ export async function convertUploadedSceneToWebp(
 
   const revision = Date.now()
   const webpFileName = withSceneRevision(roomSceneFileName(input.sceneKey, undefined, 'webp'), revision)
-  const webpPath = typologyAssetStoragePath(input.typologyCode, input.persistKind, webpFileName)
 
   const stillSource = await findTypologyAssetByKey(
     admin,
@@ -100,81 +100,51 @@ export async function convertUploadedSceneToWebp(
     return stillSource ?? sourceRow
   }
 
-  const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(webpPath, webpBuffer, {
-    upsert: true,
-    contentType: 'image/webp',
-    cacheControl: storageCacheControl(webpFileName),
-  })
-  if (upErr) {
-    throw Object.assign(new Error(upErr.message || 'No se pudo guardar el WebP'), { status: 500 })
+  const publish = async (fileName: string, buffer: Buffer) => {
+    const storagePath = typologyAssetStoragePath(input.typologyCode, input.persistKind, fileName)
+    const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(storagePath, buffer, {
+      upsert: true,
+      contentType: 'image/webp',
+      cacheControl: storageCacheControl(fileName),
+    })
+    if (upErr) {
+      throw Object.assign(new Error(upErr.message || 'No se pudo guardar el WebP'), { status: 500 })
+    }
+    const existing = await findTypologyAssetByKey(admin, input.typologyCode, input.persistKind, fileName)
+    const stamped = new Date().toISOString()
+    if (existing) {
+      await admin.from('typology_assets').update({ created_at: stamped, storage_path: storagePath }).eq('id', existing.id)
+      return { ...existing, created_at: stamped, storage_path: storagePath }
+    }
+    return insertTypologyAsset(admin, {
+      typology_code: input.typologyCode,
+      kind: input.persistKind,
+      file_name: fileName,
+      storage_path: storagePath,
+    })
   }
 
+  let asset = await publish(webpFileName, webpBuffer)
   const variantNames: string[] = []
   if (input.mode === 'lossless') {
     for (const width of TOUR_WIDTHS) {
       const variantName = withSceneRevision(roomSceneFileName(input.sceneKey, width, 'webp'), revision)
-      const variantPath = typologyAssetStoragePath(input.typologyCode, input.persistKind, variantName)
       const variantBuffer = await sharp(sourceBuffer, SHARP_OPTS)
         .rotate()
         .resize(width, null, { fit: 'inside', withoutEnlargement: true })
         .webp(webpOptions)
         .toBuffer()
-      const { error: variantErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(variantPath, variantBuffer, {
-        upsert: true,
-        contentType: 'image/webp',
-        cacheControl: storageCacheControl(variantName),
-      })
-      if (variantErr) {
-        throw Object.assign(new Error(variantErr.message || 'No se pudo guardar la variante'), { status: 500 })
-      }
-      const existingVariant = await findTypologyAssetByKey(
-        admin,
-        input.typologyCode,
-        input.persistKind,
-        variantName,
-      )
-      if (existingVariant) {
-        await admin
-          .from('typology_assets')
-          .update({ created_at: new Date().toISOString(), storage_path: variantPath })
-          .eq('id', existingVariant.id)
-      } else {
-        await insertTypologyAsset(admin, {
-          typology_code: input.typologyCode,
-          kind: input.persistKind,
-          file_name: variantName,
-          storage_path: variantPath,
-        })
-      }
+      await publish(variantName, variantBuffer)
       variantNames.push(variantName)
     }
+    const fullName = withSceneRevision(roomSceneFileName(input.sceneKey, 8192, 'webp'), revision)
+    await publish(fullName, webpBuffer)
+    variantNames.push(fullName)
   }
 
-  // Si el original no era el .webp definitivo, borrar el archivo fuente.
+  const webpPath = typologyAssetStoragePath(input.typologyCode, input.persistKind, webpFileName)
   if (input.uploadedStoragePath !== webpPath) {
     await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).remove([input.uploadedStoragePath])
-  }
-
-  let asset = await findTypologyAssetByKey(
-    admin,
-    input.typologyCode,
-    input.persistKind,
-    webpFileName,
-  )
-  if (asset) {
-    const stamped = new Date().toISOString()
-    await admin
-      .from('typology_assets')
-      .update({ created_at: stamped, storage_path: webpPath })
-      .eq('id', asset.id)
-    asset = { ...asset, created_at: stamped, storage_path: webpPath }
-  } else {
-    asset = await insertTypologyAsset(admin, {
-      typology_code: input.typologyCode,
-      kind: input.persistKind,
-      file_name: webpFileName,
-      storage_path: webpPath,
-    })
   }
 
   const all = await listTypologyAssets(admin, input.typologyCode)

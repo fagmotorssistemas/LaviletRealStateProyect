@@ -5,14 +5,8 @@ import { canAccessPath, canWriteCrm } from '@/lib/inmobiliaria/roleAccess'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
 import { isTourRoomSlug, isVistaRoomSlug } from '@/lib/tour/tourRooms'
 import type { TourLightMode } from '@/types/tour'
-import {
-  findTypologyAssetByKey,
-  insertTypologyAsset,
-  listTypologyAssets,
-  deleteTypologyAsset,
-} from '@/services/inmobiliaria.service'
+import { findTypologyAssetByKey, insertTypologyAsset } from '@/services/inmobiliaria.service'
 import { isTypologyAssetKind, typologyAssetStoragePath } from '@/lib/typology-assets'
-import { fileMatchesScene, parseRoomSceneFileName } from '@/lib/tour/roomScene'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -89,26 +83,6 @@ export async function POST(request: Request) {
         file_name: fileName,
         storage_path: storagePath,
       })
-    }
-
-    const parsed = parseRoomSceneFileName(fileName)
-    if (shouldConvert && parsed?.light) {
-      const all = await listTypologyAssets(admin, typologyCode)
-      const stale = all.filter(
-        (row) =>
-          row.id !== asset.id &&
-          row.kind === persistKind &&
-          fileMatchesScene(row.file_name, parsed.room, parsed.finish, parsed.light ?? 'dia', {
-            exactRoom: true,
-          }),
-      )
-      for (const row of stale) {
-        try {
-          await deleteTypologyAsset(admin, row.id)
-        } catch (error) {
-          console.error('cleanup replaced scene asset', row.file_name, error)
-        }
-      }
     }
 
     return NextResponse.json({

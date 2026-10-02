@@ -5,13 +5,18 @@
  * Planos: WebP q90.
  *
  *   node scripts/reencode-existing-assets.mjs
- *   node scripts/reencode-existing-assets.mjs --apply
+ *   node scripts/reencode-existing-assets.mjs --apply --scene=1A:dormitorio_nogal_dia
+ *
+ * --apply sin --scene no toca Storage.
  */
 import fs from 'fs'
 import { createClient } from '@supabase/supabase-js'
 import sharp from 'sharp'
 
 const apply = process.argv.includes('--apply')
+const scenes = new Set(
+  process.argv.filter((arg) => arg.startsWith('--scene=')).map((arg) => arg.slice('--scene='.length)),
+)
 const env = {}
 for (const file of ['.env.local', '.env']) {
   if (!fs.existsSync(file)) continue
@@ -31,8 +36,9 @@ const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 })
 
-const WIDTHS = [2048, 4096, 8192]
+const WIDTHS = [4096, 2048]
 const SHARP_OPTS = { limitInputPixels: 268_402_689, failOn: 'none' }
+sharp.concurrency(1)
 
 function sceneBase(fileName) {
   return fileName.replace(/\.[^.]+$/, '').replace(/-r\d+$/i, '').replace(/_(2048|4096|8192)$/i, '')
@@ -42,20 +48,20 @@ async function toWebp(buffer, mode) {
   let pipeline = sharp(buffer, SHARP_OPTS).rotate()
   if (mode === 'quality') {
     pipeline = pipeline.resize(3200, 3200, { fit: 'inside', withoutEnlargement: true })
-    return pipeline.webp({ quality: 88, effort: 5, smartSubsample: true }).toBuffer()
+    return pipeline.webp({ quality: 88, effort: 4, smartSubsample: true }).toBuffer()
   }
   if (mode === 'plan') {
-    return pipeline.webp({ quality: 90, effort: 5, smartSubsample: true }).toBuffer()
+    return pipeline.webp({ quality: 90, effort: 4, smartSubsample: true }).toBuffer()
   }
   pipeline = pipeline.resize(8192, null, { fit: 'inside', withoutEnlargement: true })
-  return pipeline.webp({ quality: 92, effort: 5, smartSubsample: true }).toBuffer()
+  return pipeline.webp({ quality: 92, effort: 4, smartSubsample: true }).toBuffer()
 }
 
 async function variant(buffer, width) {
   return sharp(buffer, SHARP_OPTS)
     .rotate()
     .resize(width, null, { fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 92, effort: 5, smartSubsample: true })
+    .webp({ quality: 92, effort: 4, smartSubsample: true })
     .toBuffer()
 }
 
@@ -76,11 +82,21 @@ for (const row of rows ?? []) {
   groups.set(key, list)
 }
 
+if (apply && scenes.size === 0) {
+  console.error('Falta --scene=CODIGO:base. --apply sin escenas no modifica Storage.')
+  process.exit(1)
+}
+
 let planned = 0
 for (const [key, list] of groups) {
-  const master = list.find((row) => !/_(2048|4096|8192)(-r\d+)?\./i.test(row.file_name)) ?? list[0]
+  const [code, , baseName] = key.split(':')
+  if (scenes.size > 0 && !scenes.has(`${code}:${baseName}`)) continue
+  const unsized = list.filter((row) => !/_(2048|4096|8192)(-r\d+)?\./i.test(row.file_name))
+  const master =
+    unsized.find((row) => /\.(png|jpe?g)$/i.test(row.file_name)) ?? unsized[0] ?? list[0]
   if (!master?.storage_path) continue
-  const mode = master.kind === 'ambiente' ? 'lossless' : master.kind === 'plano' ? 'plan' : 'quality'
+  const panorama = /^(sala|dormitorio(?:-\d+)?)_/.test(baseName)
+  const mode = panorama || master.kind === 'ambiente' ? 'lossless' : master.kind === 'plano' ? 'plan' : 'quality'
   planned += 1
   console.log(`${apply ? 'procesa' : 'pendiente'} ${key} ← ${master.file_name} (${mode})`)
   if (!apply) continue
@@ -94,32 +110,36 @@ for (const [key, list] of groups) {
   const revision = Date.now()
   const base = sceneBase(master.file_name)
   const folder = master.storage_path.split('/').slice(0, -1).join('/')
-  const outputs = [{ name: `${base}-r${revision}.webp`, buffer: await toWebp(source, mode) }]
-  if (mode === 'lossless') {
-    for (const width of WIDTHS) {
-      outputs.push({ name: `${base}_${width}-r${revision}.webp`, buffer: await variant(source, width) })
-    }
-  }
   const keep = new Set()
-  for (const output of outputs) {
-    const path = `${folder}/${output.name}`
-    const { error: upErr } = await supabase.storage.from('typology-assets').upload(path, output.buffer, {
+  const publish = async (name, buffer) => {
+    const path = `${folder}/${name}`
+    const { error: upErr } = await supabase.storage.from('typology-assets').upload(path, buffer, {
       upsert: true,
       contentType: 'image/webp',
       cacheControl: '31536000',
     })
-    if (upErr) {
-      console.error('subida', path, upErr.message)
-      continue
-    }
-    keep.add(output.name)
+    if (upErr) throw new Error(upErr.message || name)
     const { error: insErr } = await supabase.from('typology_assets').insert({
       typology_code: master.typology_code,
       kind: master.kind,
-      file_name: output.name,
+      file_name: name,
       storage_path: path,
     })
-    if (insErr) console.error('fila', output.name, insErr.message)
+    if (insErr) throw new Error(insErr.message || name)
+    keep.add(name)
+  }
+  try {
+    const baseBuffer = await toWebp(source, mode)
+    await publish(`${base}-r${revision}.webp`, baseBuffer)
+    if (mode === 'lossless') {
+      for (const width of WIDTHS) {
+        await publish(`${base}_${width}-r${revision}.webp`, await variant(source, width))
+      }
+      await publish(`${base}_8192-r${revision}.webp`, baseBuffer)
+    }
+  } catch (error) {
+    console.error('pendiente', key, error instanceof Error ? error.message : error)
+    continue
   }
   for (const row of list) {
     if (keep.has(row.file_name)) continue

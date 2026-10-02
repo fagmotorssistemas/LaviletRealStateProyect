@@ -83,7 +83,7 @@ function ClipVideo({
         muted
         loop
         playsInline
-        preload="none"
+        preload="metadata"
         aria-hidden
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/15 to-black/25" />

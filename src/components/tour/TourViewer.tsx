@@ -2387,10 +2387,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             setLoading(false)
             return
           }
-          setLoading(false)
         }
       }
 
+      setLoading(true)
       setPanoHold(true)
       try {
         await viewer.setPanorama(url, {
@@ -2401,7 +2401,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       } catch {
         /* still land so the walk never freezes */
       } finally {
-        if (token === switchTokenRef.current) setPanoHold(false)
+        if (token === switchTokenRef.current) {
+          setPanoHold(false)
+          setLoading(false)
+        }
       }
 
       if (token !== switchTokenRef.current) {

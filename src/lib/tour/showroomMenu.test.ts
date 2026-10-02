@@ -22,6 +22,8 @@ test('deep links never pick another unit from a partial number and QR has no CRM
 test('mobile requested image size wins over larger available file',()=>{
  assert.equal(pickCatalogPanoUrl({url:'https://x.test/full',variants:{2048:'https://x.test/small',8192:'https://x.test/large'}},2048),'https://x.test/small')
  assert.equal(pickCatalogPanoUrl({url:'https://x.test/full',variants:{2048:'https://x.test/small',8192:'https://x.test/large'}},4096),'https://x.test/small')
+ assert.equal(pickCatalogPanoUrl({url:'https://x.test/full.png',variants:{2048:'https://x.test/small.webp'}},8192),'https://x.test/small.webp')
+ assert.equal(pickCatalogPanoUrl({url:'https://x.test/full.png',variants:{8192:'https://x.test/large.png'}},8192),null)
 })
 test('comparison uses both real rows, distinguishes missing information and unknown units',()=>{
  const catalog=toVoiceCatalog(units)

@@ -31,9 +31,19 @@ const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, serviceKey, {
 
 const BUCKETS = ['typology-assets', 'video-lavilet']
 
+function hasVersion(name) {
+  return (
+    /-r\d{6,}/i.test(name) ||
+    /-v\d{6,}/i.test(name) ||
+    /_v\d{6,}/i.test(name) ||
+    /(?:^|\/)\d{10,}-/.test(name)
+  )
+}
+
 function cacheControl(path) {
   const name = path.split('/').pop() || path
   if (/\.json$/i.test(name) || /tour-hotspots\.webp$/i.test(name)) return '60'
+  if (!hasVersion(name)) return '86400'
   return '31536000'
 }
 
@@ -73,6 +83,8 @@ for (const bucket of BUCKETS) {
   const files = await walk(bucket, '')
   console.log(`${bucket}: ${files.length} objetos`)
   for (const file of files) {
+    const name = file.path.split('/').pop() || ''
+    if (!/^vista-/i.test(name)) continue
     console.log(`${apply ? 'sube' : 'pendiente'} ${bucket}/${file.path} cache=${file.cache}`)
     if (!apply) continue
     const { data, error } = await supabase.storage.from(bucket).download(file.path)

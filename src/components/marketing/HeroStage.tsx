@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ArrowRight, Building2, Trees, Waves } from 'lucide-react'
 import { notifyHeroLocked, resetHeroLock } from './heroLock'
+import { CmafVideo } from '@/components/media/CmafVideo'
 import { HeroEditorial } from './HeroEditorial'
 import { LaviletLockup, useLockupDocked } from './LaviletLockup'
 import { useMarketingTheme } from './theme'
@@ -140,22 +141,22 @@ export function HeroStage() {
   return (
     <section id="inicio" className="relative min-h-svh scroll-mt-0">
       <div className="absolute inset-0 overflow-hidden">
-        <motion.video
-          ref={videoRef}
-          className="absolute inset-0 h-full w-full object-cover"
-          autoPlay
-          muted
-          playsInline
-          aria-hidden
-          onEnded={lockStill}
+        <motion.div
+          className="absolute inset-0"
           animate={{ opacity: showImage ? 0 : 1 }}
           transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
         >
-          <source
-            src="https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/video-lavilet/lavilet_video_principal_!.mp4"
-            type="video/mp4"
+          <CmafVideo
+            mp4="/inicio/portada.mp4?v=gop"
+            hls="/inicio/portada-hls/index.m3u8"
+            poster="/inicio/portada-poster.jpg"
+            label="Fachada Lavilet del día a la noche"
+            loop={false}
+            videoRef={videoRef}
+            onEnded={lockStill}
+            className="absolute inset-0 h-full w-full object-cover"
           />
-        </motion.video>
+        </motion.div>
 
         <motion.div
           className="absolute inset-0"
