@@ -88,8 +88,14 @@ export function CmafVideo({
       }
     }
     void start()
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || !autoPlay || video.ended) return
+      void video.play().catch(() => undefined)
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', onVisible)
       video.removeEventListener('error', onVideoError)
       detach()
     }
@@ -120,7 +126,14 @@ export function CmafVideo({
           setPlaying(true)
           onPlaying?.()
         }}
-        onEnded={onEnded}
+        onPause={() => {
+          const video = localRef.current
+          if (video && !video.ended) setPlaying(false)
+        }}
+        onEnded={() => {
+          if (!loop) setPlaying(false)
+          onEnded?.()
+        }}
         className={`${className ?? ''} transition-opacity duration-[400ms] ease-linear ${playing || !poster ? 'opacity-100' : 'opacity-0'}`}
       />
     </>

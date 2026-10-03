@@ -52,6 +52,8 @@ type TourFloorPlanProps = {
   preferredVariant?: FloorPlanVariant
   /** Cuando el usuario cambia 2D/3D dentro del plano. */
   onPreferredVariantChange?: (variant: FloorPlanVariant) => void
+  /** Ignora toques sobre el plano (p. ej. justo después de cerrar el ingreso). */
+  touchesLocked?: boolean
 }
 
 type DisplaySlot = {
@@ -310,6 +312,7 @@ export function TourFloorPlan({
   railTrailing,
   preferredVariant,
   onPreferredVariantChange,
+  touchesLocked = false,
 }: TourFloorPlanProps) {
   const { t, locale } = useTourLanguage()
 
@@ -338,6 +341,8 @@ export function TourFloorPlan({
   const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
   /** iOS/Safari: padding más chico en landscape bajo. */
   const [landscapeFill, setLandscapeFill] = useState(false)
+  /** Horizontal bajo: el micrófono no comparte columna con los pisos. */
+  const [shortLandscape, setShortLandscape] = useState(false)
   /** Área disponible del stage: para encajar el plano sin romper aspect-ratio. */
   const stageRef = useRef<HTMLDivElement>(null)
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 })
@@ -360,6 +365,20 @@ export function TourFloorPlan({
   useEffect(() => {
     const mq = window.matchMedia('(orientation: landscape) and (max-height: 560px)')
     const sync = () => setLandscapeFill(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    window.addEventListener('orientationchange', sync)
+    window.addEventListener('resize', sync)
+    return () => {
+      mq.removeEventListener('change', sync)
+      window.removeEventListener('orientationchange', sync)
+      window.removeEventListener('resize', sync)
+    }
+  }, [])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: landscape) and (max-height: 500px)')
+    const sync = () => setShortLandscape(mq.matches)
     sync()
     mq.addEventListener('change', sync)
     window.addEventListener('orientationchange', sync)
@@ -929,6 +948,7 @@ export function TourFloorPlan({
         'absolute inset-0 z-[18] bg-[#14110e]',
         'pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]',
         'pl-[max(0px,env(safe-area-inset-left))] pr-[max(0px,env(safe-area-inset-right))]',
+        touchesLocked && 'pointer-events-none',
       )}
     >
       <div
@@ -957,7 +977,8 @@ export function TourFloorPlan({
                     disabled={!available}
                     onClick={() => switchVariant(item)}
                     className={cn(
-                      'inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors sm:px-3 sm:text-[12px]',
+                      'tour-plan-variant inline-flex items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors sm:px-3 sm:text-[12px]',
+                      '[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11',
                       active
                         ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
                         : available
@@ -1257,15 +1278,18 @@ export function TourFloorPlan({
 
         <div
           className={cn(
-            'pointer-events-auto absolute z-30 flex flex-col gap-1.5',
-            landscapeFill ? 'bottom-1.5 left-1.5' : 'bottom-3 left-3 sm:bottom-4 sm:left-4',
+            'pointer-events-auto absolute z-30 flex items-end gap-2',
+            landscapeFill
+              ? 'bottom-[max(0.35rem,env(safe-area-inset-bottom))] left-[max(0.35rem,env(safe-area-inset-left))]'
+              : 'bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))]',
           )}
         >
+          <div className="flex flex-col gap-1.5">
           <button
             type="button"
             onClick={zoomIn}
             disabled={scale >= ZOOM_MAX}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40"
+            className="tour-zoom-btn inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             aria-label={t("Acercar plano")}
             title={t("Acercar")}
           >
@@ -1275,27 +1299,44 @@ export function TourFloorPlan({
             type="button"
             onClick={zoomOut}
             disabled={scale <= ZOOM_MIN}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40"
+            className="tour-zoom-btn inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             aria-label={t("Alejar plano")}
             title={t("Alejar")}
           >
             <Minus size={18} strokeWidth={2.25} />
           </button>
+          </div>
+          {shortLandscape && railTrailing ? (
+            <div className="pointer-events-auto">{railTrailing}</div>
+          ) : null}
+          {shortLandscape && SITE.whatsapp && whatsappHref ? (
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => onWhatsAppClick?.()}
+              className="tour-whatsapp-btn tour-glass pointer-events-auto"
+              aria-label={t("Consultar por WhatsApp")}
+              title={t("Consultar por WhatsApp")}
+            >
+              <WhatsAppIcon size={16} />
+            </a>
+          ) : null}
         </div>
       </div>
 
       <div
         className={cn(
-          'pointer-events-none absolute right-0 bottom-0 z-30 flex min-h-0 w-[3.15rem] flex-col items-stretch self-stretch sm:w-[3.35rem]',
-          'top-[calc(4rem+env(safe-area-inset-top))]',
+          'tour-floor-rail-wrap pointer-events-none absolute right-[env(safe-area-inset-right)] bottom-[env(safe-area-inset-bottom)] z-30 flex min-h-0 w-[3.15rem] flex-col items-stretch overflow-hidden self-stretch sm:w-[3.35rem]',
+          'top-[max(4rem,calc(env(safe-area-inset-top)+3.5rem))]',
           landscapeFill ? 'py-1 pr-1' : 'py-2 pr-1.5 sm:gap-2 sm:py-3 sm:pr-2',
           '[@media(max-height:520px)]:w-[2.85rem] [@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:py-1 [@media(max-height:520px)]:pr-1',
         )}
       >
-        <div className="pointer-events-auto flex min-h-0 flex-1 flex-col">
+        <div className="pointer-events-auto flex min-h-0 flex-1 flex-col overflow-hidden">
           <div
             className={cn(
-              'flex h-full min-h-0 flex-1 flex-col justify-between gap-0.5 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-1 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
+              'tour-floor-rail flex h-full min-h-0 flex-1 flex-col justify-start gap-0.5 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-1 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
               'sm:gap-1 sm:p-1.5',
               '[@media(max-height:520px)]:gap-0.5 [@media(max-height:520px)]:rounded-md [@media(max-height:520px)]:p-0.5',
             )}
@@ -1305,20 +1346,16 @@ export function TourFloorPlan({
           >
             {[7, 6, 5, 4, 3, 2, 1, 0, -1, -2].map((item) => {
               const active = item === floor
-              const short = floorPlanLevelShort(item)
-              const isTerraza = item === 7
+              const short = item === 7 ? 'T' : floorPlanLevelShort(item)
               return (
                 <button
                   key={item}
                   type="button"
                   onClick={() => onFloorChange(item)}
                   className={cn(
-                    'flex w-full min-h-[1.7rem] flex-1 items-center justify-center rounded-md px-0.5 font-semibold tracking-wide',
-                    isTerraza
-                      ? 'text-[9px] leading-tight sm:text-[10px]'
-                      : 'text-[11px] sm:text-[12px]',
-                    'sm:min-h-[1.9rem]',
-                    '[@media(max-height:520px)]:min-h-[1.4rem] [@media(max-height:520px)]:text-[10px]',
+                    'tour-floor-btn flex w-full shrink-0 items-center justify-center whitespace-nowrap rounded-md px-0.5 font-semibold tracking-wide',
+                    'min-h-[1.7rem] text-[11px] sm:min-h-[1.9rem] sm:text-[12px]',
+                    '[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 [@media(pointer:coarse)]:text-[12px]',
                     active
                       ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
                       : 'text-[#f7f3ee] hover:bg-white/10',
@@ -1333,12 +1370,12 @@ export function TourFloorPlan({
             })}
           </div>
         </div>
-        {railTrailing ? (
+        {!shortLandscape && railTrailing ? (
           <div className="pointer-events-auto flex shrink-0 flex-col items-center gap-1.5">
             {railTrailing}
           </div>
         ) : null}
-        {SITE.whatsapp && whatsappHref ? (
+        {SITE.whatsapp && whatsappHref && !shortLandscape ? (
           <a
             href={whatsappHref}
             target="_blank"

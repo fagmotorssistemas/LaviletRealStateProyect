@@ -2,8 +2,8 @@
   transition: opacity 1s cubic-bezier(0.22, 0.61, 0.36, 1), transform 1s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-.tour-still-layer {
-  transform-origin: center center;
+.tour-still-layer.is-handoff {
+  transition-duration: 300ms;
 }
 
 .tour-still-layer.is-on {
@@ -363,9 +363,10 @@
   }
 
   .tour-hotspot-label {
-    max-width: 5.5rem;
-    font-size: 8px;
-    letter-spacing: 0.14em;
+    max-width: 6.5rem;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
   }
 }
 
@@ -487,9 +488,10 @@
   z-index: 200 !important;
   /* No 100vw: en iOS landscape es más ancho que el área útil y “compacta” el contenido. */
   width: auto !important;
-  height: auto !important;
+  /* svh deja el “−” por encima de la barra de Safari; dvh lo acota cuando el viewport crece. */
+  height: 100svh !important;
+  max-height: 100dvh !important;
   max-width: none !important;
-  max-height: none !important;
 }
 
 /**
@@ -571,7 +573,7 @@ html.tour-is-force-landscape body {
 }
 
 .psv-container {
-  background: #111 !important;
+  background: transparent !important;
   touch-action: none;
 }
 
@@ -581,7 +583,7 @@ html.tour-is-force-landscape body {
 }
 
 .psv-canvas-container {
-  background: #111;
+  background: transparent;
   touch-action: none;
 }
 
@@ -696,9 +698,12 @@ html.tour-is-force-landscape body {
 
 .tour-hotspot-label {
   max-width: 8.5rem;
-  color: rgba(247, 243, 238, 0.9);
-  font: 500 10px/1.2 sans-serif;
-  letter-spacing: 0.2em;
+  color: rgba(247, 243, 238, 0.96);
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   text-align: center;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.75);
@@ -726,5 +731,88 @@ html.tour-is-force-landscape body {
     width: 36px;
     height: 36px;
     margin: -18px 0 0 -18px;
+  }
+}
+
+.tour-floor-rail {
+  max-height: min(calc(100dvh - 7rem), calc(100svh - 7rem));
+  overflow-y: auto;
+}
+
+.tour-entry-video {
+  object-fit: cover;
+  background: #14110e;
+}
+
+@media (orientation: portrait) {
+  .tour-entry-video {
+    object-fit: contain;
+  }
+}
+
+@media (pointer: coarse) {
+  .tour-floor-rail-wrap {
+    width: calc(44px + 1.15rem) !important;
+  }
+
+  .tour-whatsapp-btn,
+  .tour-mode-btn,
+  .tour-zoom-btn,
+  .tour-floor-btn,
+  .tour-plan-variant,
+  [data-tour-voice],
+  [data-showroom-menu] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .tour-mode-btn,
+  .tour-whatsapp-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .tour-mode-btn {
+    width: 100%;
+    height: 44px;
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  [data-showroom-toolbar] {
+    height: auto;
+    min-height: calc(44px + env(safe-area-inset-top, 0px));
+    align-items: center;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: 0;
+    padding-left: max(0.35rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.35rem, env(safe-area-inset-right, 0px));
+  }
+
+  [data-showroom-toolbar] > button,
+  [data-showroom-toolbar] > a {
+    box-sizing: border-box;
+    height: 44px;
+    max-height: 44px;
+    min-height: 44px;
+  }
+
+  [data-showroom-menu] {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    padding: 0;
+  }
+
+  .tour-floor-rail-wrap {
+    top: calc(48px + env(safe-area-inset-top, 0px)) !important;
+    right: env(safe-area-inset-right, 0px);
+    bottom: env(safe-area-inset-bottom, 0px);
+    max-height: min(calc(100dvh - 7rem), calc(100svh - 7rem));
+  }
+
+  .tour-floor-rail {
+    max-height: min(calc(100dvh - 7rem), calc(100svh - 7rem));
+    overflow-y: auto;
   }
 }

@@ -12,7 +12,7 @@ const TourViewer = dynamic(
 
 export function TourViewerLoader({ embedded = false }: { embedded?: boolean }) {
   return (
-    <div className={embedded ? 'h-full w-full' : 'h-[100dvh] w-full'}>
+    <div className={embedded ? 'h-full w-full' : 'h-[min(100dvh,100svh)] w-full'}>
       <TourViewer embedded={embedded} />
     </div>
   )

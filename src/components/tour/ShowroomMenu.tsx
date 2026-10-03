@@ -83,7 +83,7 @@ function statusTone(status: string) {
   if (key.includes('vend')) return 'bg-[#ece7e1] text-[#6d645b]'
   return 'bg-[#efe8dc] text-[#756044]'
 }
-export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,onAmenities,onClosePanels,root}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>}){
+export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,onAmenities,onClosePanels,root,hideWebReturn=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean}){
  const [content,setContent]=useState(false)
  const [open,setOpen]=useState(false),[section,setSection]=useState<Section>('home')
  const {locale:lang,setLocale:setLang,t:translate}=useTourLanguage()
@@ -106,14 +106,14 @@ export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,
  async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else if(root.current?.requestFullscreen)await root.current.requestFullscreen();else setNotice(t('Este navegador no permite pantalla completa.','Fullscreen is unavailable in this browser.'))}catch{setNotice(t('No se pudo cambiar a pantalla completa.','Fullscreen could not be changed.'))}}
  const fields=[['floor',t('Piso','Floor')],['bedrooms',t('Dormitorios','Bedrooms')],['category',t('Tipo','Type')],['status',t('Disponibilidad','Availability')]] as const
  return <>
-  <header aria-label="Controles del showroom" className="absolute inset-x-0 top-0 z-[90] flex h-[calc(4rem+env(safe-area-inset-top))] items-center gap-2 bg-transparent px-3 pt-[env(safe-area-inset-top)] text-[#f7f3ee] [text-shadow:0_1px_3px_rgba(20,17,14,0.85)] sm:px-5">
-   <button ref={button} type="button" aria-label={t('Abrir menú del showroom','Open showroom menu')} aria-expanded={open} onClick={()=>{onClosePanels();setContent(false);setShare(null);setNotice('');setOpen(true)}} className="rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-3 text-[#f7f3ee]"><Menu size={20}/></button>
-   <button type="button" aria-label={full?t('Salir de pantalla completa','Exit fullscreen'):t('Pantalla completa','Fullscreen')} onClick={()=>void fullscreen()} className="rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-3 text-[#f7f3ee]">{full?<Minimize size={20}/>:<Maximize size={20}/>}</button>
+  <div role="toolbar" aria-label="Controles del showroom" data-showroom-toolbar className="absolute inset-x-0 top-0 z-[90] flex h-[calc(4rem+env(safe-area-inset-top))] items-center gap-2 bg-transparent px-3 pt-[env(safe-area-inset-top)] text-[#f7f3ee] [text-shadow:0_1px_3px_rgba(20,17,14,0.85)] sm:px-5">
+   <button ref={button} type="button" data-showroom-menu aria-label={t('Abrir menú del showroom','Open showroom menu')} aria-expanded={open} onClick={()=>{onClosePanels();setContent(false);setShare(null);setNotice('');setOpen(true)}} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-0 text-[#f7f3ee]"><Menu size={20}/></button>
+   <button type="button" aria-label={full?t('Salir de pantalla completa','Exit fullscreen'):t('Pantalla completa','Fullscreen')} onClick={()=>void fullscreen()} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-0 text-[#f7f3ee]">{full?<Minimize size={20}/>:<Maximize size={20}/>}</button>
    <span className="ml-2 min-w-0 truncate font-serif text-sm tracking-[.22em] sm:text-lg">LA VILET</span>
-   <a href="/inicio" aria-label={t('Volver a la página web','Back to website')} title={t('Volver a la página web','Back to website')} className="ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 px-3 text-xs text-[#f7f3ee] [text-shadow:none] transition-colors hover:bg-[#3a342b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bda27e]">
+   {hideWebReturn ? null : <a href="/inicio" aria-label={t('Volver a la página web','Back to website')} title={t('Volver a la página web','Back to website')} className="ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 px-3 text-xs text-[#f7f3ee] [text-shadow:none] transition-colors hover:bg-[#3a342b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bda27e]">
     <ArrowLeft size={16} aria-hidden="true"/><span className="sm:hidden">{t('Volver','Back')}</span><span className="hidden sm:inline">{t('Volver a la web','Back to website')}</span>
-   </a>
-  </header>
+   </a>}
+  </div>
   {!open && notice?<p role="status" className="absolute left-3 top-20 z-[90] rounded bg-[#f7f3ee] p-2 text-xs text-[#29251e]">{notice}</p>:null}
   {open?<div className="absolute inset-0 z-[200] flex bg-black/30 p-2 sm:p-3" onClick={close}>
    <FocusScope contain restoreFocus autoFocus><aside role="dialog" aria-modal="true" aria-label={t('Menú La Vilet','La Vilet menu')} lang={lang} onClick={e=>e.stopPropagation()} className={`flex h-full w-full flex-col overflow-y-auto rounded-2xl bg-[#f7f3ee] p-5 text-[#29251e] shadow-2xl ${!content?'max-w-[calc(320px+1cm)]':'max-w-md'}`}>
