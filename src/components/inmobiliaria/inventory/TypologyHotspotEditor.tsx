@@ -109,7 +109,7 @@ export function TypologyHotspotEditor({
         return
       }
       try {
-        viewer = new Viewer({
+        const instance = new Viewer({
           container,
           panorama: panoUrl,
           navbar: false,
@@ -118,9 +118,10 @@ export function TypologyHotspotEditor({
           defaultZoomLvl: 0,
           plugins: [MarkersPlugin.withConfig({})],
         })
-        viewerRef.current = viewer
+        viewer = instance
+        viewerRef.current = instance
         const paint = () => {
-          const markers = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
+          const markers = instance.getPlugin<MarkersPlugin>(MarkersPlugin)
           markers?.setMarkers(
             herePointsRef.current.map((item) => ({
               id: item.id,
@@ -132,12 +133,12 @@ export function TypologyHotspotEditor({
             })),
           )
         }
-        viewer.addEventListener(events.ReadyEvent.type, paint)
-        viewer.addEventListener(events.ClickEvent.type, (event) => {
+        instance.addEventListener(events.ReadyEvent.type, paint)
+        instance.addEventListener(events.ClickEvent.type, (event) => {
           if (event.data.rightclick || event.data.marker) return
           setPending({ yaw: event.data.yaw, pitch: event.data.pitch })
         })
-        viewer.addEventListener(events.PanoramaErrorEvent.type, () => {
+        instance.addEventListener(events.PanoramaErrorEvent.type, () => {
           if (!cancelled) setPanoError(true)
         })
       } catch {
