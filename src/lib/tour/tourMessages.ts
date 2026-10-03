@@ -69,6 +69,7 @@ export const tourEnglish: Record<string, string> = {
   'Comparar terminaciones': 'Compare finishes', 'piso': 'floor', 'Ubicación en piso': 'Location on floor', 'Cargando plano 3D…': 'Loading 3D floor plan…',
   'Ubicación de La Vilet': 'La Vilet location', 'Cerrar ubicación': 'Close location', 'Saltar': 'Skip',
   'Gira tu teléfono para ver el showroom': 'Turn your phone to view the showroom',
+  'Ver en horizontal': 'View in landscape',
   'Este ambiente no tiene otra terminación': 'This room has no other finish',
   'En La Vilet lo cercano es parte del proyecto: el río, el parque lineal y el barrio de Puertas del Sol forman un sitio completo. Su ubicación en esquina crea vida peatonal, activación comercial y una conexión natural.': 'At La Vilet, what is nearby is part of the project: the river, the linear park and the Puertas del Sol neighborhood make a complete place. Its corner location brings street life, shops and a natural connection.',
   'ubicación': 'location',

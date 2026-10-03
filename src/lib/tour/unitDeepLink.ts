@@ -19,7 +19,8 @@ export function readUnitQueryParam(search?: string): string | null {
   const raw =
     search ??
     (typeof window !== 'undefined' ? window.location.search : '')
-  const value = new URLSearchParams(raw).get(UNIT_QUERY_KEY)?.trim()
+  const params = new URLSearchParams(raw)
+  const value = (params.get(UNIT_QUERY_KEY) || params.get('unit') || '').trim()
   return value || null
 }
 

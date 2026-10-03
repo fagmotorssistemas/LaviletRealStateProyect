@@ -49,6 +49,7 @@ async function readChrome(page) {
         w: r.width,
         h: r.height,
         inScroll,
+        rail: Boolean(el.closest('.tour-floor-rail')),
       })
     }
     const menu = document.querySelector('[data-showroom-menu]')
@@ -61,6 +62,11 @@ async function readChrome(page) {
       rootScrollWidth: root ? root.scrollWidth : 0,
       rootClientWidth: root ? root.clientWidth : 0,
       coarse: window.matchMedia('(pointer: coarse)').matches,
+      railFits: (() => {
+        const rail = document.querySelector('.tour-floor-rail')
+        if (!rail || window.innerHeight > 500) return true
+        return rail.scrollHeight <= rail.clientHeight + 2
+      })(),
       menu: menuBox ? { x: menuBox.left, y: menuBox.top, w: menuBox.width, h: menuBox.height, display: getComputedStyle(menu).display } : null,
       controls,
     }
@@ -119,8 +125,12 @@ function assertChrome(chrome, label) {
     }
   }
   assert.deepEqual(piled, [], `${label}: controles encimados ${JSON.stringify(controls.filter((item) => piled.some((pair) => pair.includes(item.name))).map((item) => ({ name: item.name, x: Math.round(item.x), y: Math.round(item.y), w: Math.round(item.w), h: Math.round(item.h) })))}`)
+  assert.ok(chrome.railFits, `${label}: la barra de pisos hace scroll`)
   if (chrome.coarse) {
-    const small = controls.filter((item) => item.w < 43 || item.h < 43)
+    const small = controls.filter((item) => {
+      const min = chrome.vh <= 500 && item.rail ? 35 : 43
+      return item.w < min || item.h < min
+    })
     assert.deepEqual(
       small.map((item) => `${item.name} ${Math.round(item.w)}x${Math.round(item.h)}`),
       [],
@@ -260,6 +270,61 @@ async function main() {
       await context.close()
       console.log('PASS', label)
     }
+
+    const androidUa = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+    for (const viewport of [
+      { width: 375, height: 812 },
+      { width: 390, height: 844 },
+    ]) {
+      const context = await browser.newContext({
+        viewport,
+        screen: viewport,
+        hasTouch: true,
+        isMobile: true,
+        userAgent: androidUa,
+      })
+      const page = await context.newPage()
+      await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 45000 })
+      const cookies = page.getByRole('button', { name: 'Aceptar cookies' })
+      if (await cookies.count()) await cookies.click().catch(() => undefined)
+      const notice = page.getByText('Gira tu teléfono para ver el showroom')
+      await notice.waitFor({ state: 'visible', timeout: 15000 })
+      const box = await notice.boundingBox()
+      assert.ok(box && box.width > 40, `${viewport.width}x${viewport.height}: el aviso de giro no se ve`)
+      await page.getByRole('button', { name: 'Ver en horizontal' }).waitFor({ state: 'visible', timeout: 5000 })
+      await context.close()
+      console.log('PASS portrait', `${viewport.width}x${viewport.height}`)
+    }
+
+    const missing = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: false })
+    const missingPage = await missing.newPage()
+    let missingImages = 0
+    await missingPage.route(/floor-[^?#]+\.(?:webp|jpe?g|png)(?:\?|#|$)/i, (route) => {
+      missingImages += 1
+      return route.fulfill({ status: 404, contentType: 'text/plain', body: 'missing' })
+    })
+    await missingPage.goto(base, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    await openPlan(missingPage)
+    const flat = missingPage.getByRole('button', { name: '2d', exact: true })
+    if ((await flat.count()) && (await flat.isEnabled())) {
+      await flat.click()
+      await missingPage.waitForFunction(
+        () => document.querySelector('[data-plan-front]')?.getAttribute('data-plan-front') === '7',
+        null,
+        { timeout: 6000 },
+      )
+      assert.ok(missingImages > 0, 'la imagen 2D del piso no llegó a responder 404')
+    }
+    await missingPage.getByRole('button', { name: 'Sexta planta alta', exact: true }).click()
+    await missingPage.getByRole('button', { name: 'Quinta planta alta', exact: true }).click()
+    await missingPage.waitForFunction(
+      () => document.querySelector('[data-plan-front]')?.getAttribute('data-plan-front') === '5',
+      null,
+      { timeout: 6000 },
+    )
+    await missingPage.getByRole('button', { name: 'Ingresar', exact: true }).waitFor({ state: 'hidden', timeout: 1000 })
+    await missing.close()
+    console.log('PASS floor image 404')
   } finally {
     await browser.close()
   }

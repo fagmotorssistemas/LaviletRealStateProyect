@@ -28,11 +28,11 @@ import {
   Bookmark,
   Mic,
   Rotate3d,
-  Smartphone,
   SwatchBook,
 } from 'lucide-react'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
 import { TourFichaDrawer } from '@/components/tour/TourFichaDrawer'
+import { TourRotateHint } from '@/components/tour/TourRotateHint'
 import { TourSimulatorDrawer } from '@/components/tour/TourSimulatorDrawer'
 import {
   TourPhoneUnlockModal,
@@ -423,7 +423,7 @@ function DesktopModesList({
         <ModeButton
           active={active.terminaciones}
           disabled={terminacionesDisabled}
-          title={terminacionesDisabled ? 'Este ambiente no tiene otra terminación' : undefined}
+          title={terminacionesDisabled ? t('Este ambiente no tiene otra terminación') : undefined}
           icon={<SwatchBook size={14} strokeWidth={1.75} />}
           onClick={onTerminaciones}
         >
@@ -862,8 +862,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [awaitPlanClose, setAwaitPlanClose] = useState(false)
   const [entryExit, setEntryExit] = useState(false)
   const [coverHidden, setCoverHidden] = useState(false)
-  const [rotateLockFailed, setRotateLockFailed] = useState(false)
-  const [coarsePortrait, setCoarsePortrait] = useState(false)
+  const finishLookupSlugRef = useRef('')
   const armPlanTouchLock = useCallback(() => {
     setPlanTouchUntil(Date.now() + 400)
   }, [])
@@ -915,24 +914,28 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   }, [droneOn])
 
   useEffect(() => {
-    if (!awaitPlanClose || !planPresented || !planEntryOpen) return
-    setEntryExit(true)
-    const timer = window.setTimeout(() => {
+    if (!awaitPlanClose || !planEntryOpen) return
+    let fadeTimer = 0
+    const close = () => {
       setPlanEntryOpen(false)
       setEntryExit(false)
       setAwaitPlanClose(false)
       armPlanTouchLock()
-    }, 400)
-    return () => window.clearTimeout(timer)
+    }
+    const startFade = () => {
+      setEntryExit(true)
+      fadeTimer = window.setTimeout(close, 400)
+    }
+    if (planPresented) {
+      startFade()
+      return () => window.clearTimeout(fadeTimer)
+    }
+    const cap = window.setTimeout(startFade, 5000)
+    return () => {
+      window.clearTimeout(cap)
+      window.clearTimeout(fadeTimer)
+    }
   }, [awaitPlanClose, planPresented, planEntryOpen, armPlanTouchLock])
-
-  useEffect(() => {
-    const mq = window.matchMedia('(pointer: coarse) and (orientation: portrait)')
-    const sync = () => setCoarsePortrait(mq.matches)
-    sync()
-    mq.addEventListener('change', sync)
-    return () => mq.removeEventListener('change', sync)
-  }, [])
 
   useEffect(() => {
     return () => {
@@ -1451,7 +1454,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (slug === finish) return
     const finishes = publicCatalog?.finishes?.length ? publicCatalog.finishes : catalog?.finishes ?? []
     const source = (viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms) ?? []
-    const entry = source.find((item) => item.slug === room) ?? source.find((item) => roomsShareSlot(item.slug, room))
+    const lookup = finishLookupSlugRef.current || room
+    const entry = source.find((item) => item.slug === lookup) ?? source.find((item) => roomsShareSlot(item.slug, lookup))
     if (!hasBothFinishesForRoom(entry, finishes, light)) return
     setFinish(slug)
     logTourEvent({
@@ -1665,17 +1669,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const catalogFinishes = publicCatalog?.finishes?.length
     ? publicCatalog.finishes
     : catalog?.finishes ?? []
-  const finishSource = (viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms) ?? []
-  const finishRoom = finishSource.find((item) => item.slug === room) ?? finishSource.find((item) => roomsShareSlot(item.slug, room))
-  const terminacionesReady = hasBothFinishesForRoom(finishRoom, catalogFinishes, light)
-  const modeButtons = modeButtonsForView({
-    shellMode,
-    viewMode,
-    terminacionesFocus,
-    galleryOnly,
-    showTerminaciones: terminacionesReady,
-  })
-
   const tourRooms = useMemo(() => {
     const fromCatalog = (currentTypology?.rooms ?? [])
       .filter((item) => Boolean(item.url) || (item.scenes?.length ?? 0) > 0)
@@ -1713,12 +1706,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (terminacionesFocus) setTerminacionesFocus(false)
     if (navChooserOpen) setNavChooserOpen(false)
   }, [galleryOnly, shellMode, viewMode, compareOpen, finishCompareOpen, terminacionesFocus, navChooserOpen])
-
-  useEffect(() => {
-    if (terminacionesReady) return
-    if (terminacionesFocus) setTerminacionesFocus(false)
-    if (finishCompareOpen) setFinishCompareOpen(false)
-  }, [terminacionesReady, terminacionesFocus, finishCompareOpen])
 
   const photoBySlug = useMemo(() => {
     const map: Record<string, string | null> = {}
@@ -1960,6 +1947,28 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       })),
     [currentTypology, catalogFinishes, galleryFinishSlug, light, galleryOnly],
   )
+  const galleryPhoto =
+    galeriaImages[Math.min(galeriaIndex, Math.max(galeriaImages.length - 1, 0))]
+  const finishLookupSlug = viewMode === 'galeria' ? galleryPhoto?.roomSlug || room : room
+  finishLookupSlugRef.current = finishLookupSlug
+  const finishSource = (viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms) ?? []
+  const finishRoom =
+    finishSource.find((item) => item.slug === finishLookupSlug) ??
+    finishSource.find((item) => roomsShareSlot(item.slug, finishLookupSlug))
+  const terminacionesReady = hasBothFinishesForRoom(finishRoom, catalogFinishes, light)
+  const modeButtons = modeButtonsForView({
+    shellMode,
+    viewMode,
+    terminacionesFocus,
+    galleryOnly,
+    showTerminaciones: terminacionesReady,
+  })
+
+  useEffect(() => {
+    if (terminacionesReady) return
+    if (terminacionesFocus) setTerminacionesFocus(false)
+    if (finishCompareOpen) setFinishCompareOpen(false)
+  }, [terminacionesReady, terminacionesFocus, finishCompareOpen])
   const galleryPanelRooms = useMemo(() => {
     const seen = new Set<string>()
     const rooms: { slug: string; label: string }[] = []
@@ -3341,7 +3350,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 <ModeButton
                   active={terminacionesFocus || isFinishCompare}
                   disabled={!terminacionesReady}
-                  title={terminacionesReady ? undefined : 'Este ambiente no tiene otra terminación'}
+                  title={terminacionesReady ? undefined : t('Este ambiente no tiene otra terminación')}
                   icon={<SwatchBook size={14} strokeWidth={1.75} />}
                   onClick={() => {
                     setShellMode('unit')
@@ -3977,12 +3986,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {planTouchLock ? <div className="absolute inset-0 z-[35]" aria-hidden="true" /> : null}
 
-      {rotateLockFailed && coarsePortrait ? (
-        <div className="absolute inset-0 z-[180] flex flex-col items-center justify-center gap-4 bg-[#14110e] px-8 text-center text-[#f7f3ee]">
-          <Smartphone size={42} strokeWidth={1.5} className="text-[#bda27e]" aria-hidden />
-          <p className="max-w-xs font-serif text-2xl leading-snug">{t('Gira tu teléfono para ver el showroom')}</p>
-        </div>
-      ) : null}
+      <TourRotateHint contained target={rootRef} />
 
       {planEntryOpen && shellMode === 'plan' ? (
         <div className={cn('absolute inset-0 z-[30] bg-[#14110e] transition-opacity duration-[400ms] ease-linear', entryExit ? 'opacity-0' : 'opacity-100')}>
@@ -4026,22 +4030,18 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               type="button"
               onClick={() => {
                 setEntryVideo(true)
-                if (window.matchMedia('(pointer: coarse)').matches) {
-                  if (isIOSWebKit()) {
-                    setRotateLockFailed(true)
-                    return
-                  }
+                if (window.matchMedia('(pointer: coarse)').matches && !isIOSWebKit()) {
                   void (async () => {
                     try {
                       if (rootRef.current) await requestTourFullscreen(rootRef.current)
                       const orient = window.screen?.orientation as
                         | (ScreenOrientation & { lock?: (mode: string) => Promise<void> })
                         | undefined
-                      if (typeof orient?.lock !== 'function') throw new Error('sin lock')
+                      if (typeof orient?.lock !== 'function') return
                       await orient.lock('landscape')
-                      setRotateLockFailed(false)
+                      window.dispatchEvent(new Event('lavilet-orientation-locked'))
                     } catch {
-                      setRotateLockFailed(true)
+                      /* el aviso de giro sigue hasta que el teléfono quede horizontal */
                     }
                   })()
                 }

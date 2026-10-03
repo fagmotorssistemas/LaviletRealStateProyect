@@ -275,19 +275,60 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
       { passive: true }
     );
   }
+  var planFloor = ${JSON.stringify(floor)};
+  var planAnnounced = false;
+  function announcePlanReady(renderer) {
+    if (planAnnounced || !renderer) return;
+    var textures = 0;
+    try {
+      textures = renderer.info && renderer.info.memory ? Number(renderer.info.memory.textures) || 0 : 0;
+    } catch (e) {}
+    if (!(textures > 0)) return;
+    planAnnounced = true;
+    try {
+      parent.postMessage({ type: "lavilet-plan-ready", floor: planFloor }, "*");
+    } catch (e2) {}
+  }
+  function hookRender(renderer) {
+    if (!renderer || renderer.__lvPlanHook || typeof renderer.render !== "function") return;
+    renderer.__lvPlanHook = true;
+    var orig = renderer.render;
+    renderer.render = function () {
+      var result = orig.apply(this, arguments);
+      announcePlanReady(this);
+      return result;
+    };
+  }
+  function watchPlan() {
+    var a = api();
+    if (a) hookRender(a.renderer || a.webglRenderer || a.gl);
+    var THREE = window.THREE;
+    if (THREE && THREE.WebGLRenderer && THREE.WebGLRenderer.prototype && !THREE.WebGLRenderer.prototype.__lvPlanHook) {
+      var proto = THREE.WebGLRenderer.prototype;
+      proto.__lvPlanHook = true;
+      var origProto = proto.render;
+      proto.render = function () {
+        var result = origProto.apply(this, arguments);
+        announcePlanReady(this);
+        return result;
+      };
+    }
+  }
   function boot() {
     if (!api() || booted) return;
     booted = true;
     skipIntroOnce();
     ensureHover();
     ensureClick();
+    watchPlan();
   }
   document.addEventListener("lavilet:listo", boot);
   var n = 0;
   var t = setInterval(function () {
     boot();
+    watchPlan();
     n += 1;
-    if (booted || n > 100) clearInterval(t);
+    if ((booted && planAnnounced) || n > 200) clearInterval(t);
   }, 50);
 })();
 </script>`

@@ -869,3 +869,29 @@ html.tour-is-force-landscape body {
     min-height: 44px;
   }
 }
+
+@media (max-height: 500px) {
+  .tour-floor-rail {
+    width: calc(36px * 2 + 0.7rem) !important;
+    overflow-x: hidden;
+  }
+
+  .tour-floor-rail > div {
+    display: grid !important;
+    grid-template-columns: repeat(2, 36px);
+    justify-content: center;
+    gap: 2px;
+  }
+
+  .tour-floor-btn {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+  }
+
+  .tour-floor-side {
+    right: calc(36px * 2 + 1.4rem + env(safe-area-inset-right)) !important;
+  }
+}

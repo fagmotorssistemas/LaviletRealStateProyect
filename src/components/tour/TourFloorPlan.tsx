@@ -361,8 +361,11 @@ export function TourFloorPlan({
   const [decodedUrl, setDecodedUrl] = useState<Record<string, boolean>>({})
   const [htmlFramed, setHtmlFramed] = useState<Partial<Record<number, string>>>({})
   const htmlIframeRefs = useRef<Partial<Record<number, HTMLIFrameElement | null>>>({})
-  /** Solo 1 iframe WebGL: más cuelgan el primer load. */
+  /** Como máximo el piso visible y el que se está pidiendo. */
   const [keptHtmlFloors, setKeptHtmlFloors] = useState<number[]>([floor])
+  const [revealFloor, setRevealFloor] = useState<number | null>(null)
+  const imageErrorRef = useRef<(layerFloor: number, url: string) => void>(() => {})
+  const layerUrlByFloorRef = useRef<Partial<Record<number, string>>>({})
   /** URL del HTML cuyo iframe ya disparó onLoad (por piso). */
   const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
   /** iOS/Safari: padding más chico en landscape bajo. */
@@ -536,10 +539,11 @@ export function TourFloorPlan({
   const planVariant =
     variantByFloor[floor] ?? preferredVariant ?? currentLayer?.variant ?? '3d'
   const targetReady = Boolean(
-    currentLayer &&
-      (currentLayer.kind === 'html'
-        ? htmlFramed[floor] === currentLayer.url
-        : decodedUrl[currentLayer.url]),
+    revealFloor === floor ||
+      (currentLayer &&
+        (currentLayer.kind === 'html'
+          ? htmlFramed[floor] === currentLayer.url
+          : decodedUrl[currentLayer.url])),
   )
   const frontFloor = targetReady ? floor : layers[holdFloor] ? holdFloor : floor
 
@@ -556,18 +560,31 @@ export function TourFloorPlan({
     onPresentedRef.current?.(floor)
   }, [targetReady, floor])
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setRevealFloor(floor), 4000)
+    return () => window.clearTimeout(timer)
+  }, [floor, planVariant, currentLayer?.url])
+
   const activeImageUrl = currentLayer?.kind === 'image' ? currentLayer.url : ''
   useEffect(() => {
     if (!activeImageUrl || decodedUrl[activeImageUrl]) return
     let cancelled = false
-    void decodeFloorImage(activeImageUrl).then((ok) => {
-      if (cancelled || !ok) return
-      setDecodedUrl((prev) => (prev[activeImageUrl] ? prev : { ...prev, [activeImageUrl]: true }))
+    const url = activeImageUrl
+    const layerFloor = floor
+    void decodeFloorImage(url).then((ok) => {
+      if (cancelled) return
+      if (!ok) {
+        imageErrorRef.current(layerFloor, url)
+        setRevealFloor(layerFloor)
+        onPresentedRef.current?.(layerFloor)
+        return
+      }
+      setDecodedUrl((prev) => (prev[url] ? prev : { ...prev, [url]: true }))
     })
     return () => {
       cancelled = true
     }
-  }, [activeImageUrl, decodedUrl])
+  }, [activeImageUrl, decodedUrl, floor])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -605,21 +622,15 @@ export function TourFloorPlan({
     !failedFloors[floor] &&
     (!currentLayer?.url || htmlLoadedUrl[floor] !== currentLayer.url)
 
-  // El iframe anterior sigue montado hasta que el nuevo tiene su primer frame.
+  // Como máximo dos iframes: el piso que se sigue viendo y el pedido.
+  // Si el usuario cambia otra vez antes de que cargue, el pendiente se reemplaza.
   useEffect(() => {
     if (planVariant !== '3d') {
       setKeptHtmlFloors([])
       return
     }
-    setKeptHtmlFloors((prev) => (prev.includes(floor) ? prev : [...prev, floor]))
-  }, [floor, planVariant])
-
-  useEffect(() => {
-    if (planVariant !== '3d') return
-    if (htmlFramed[floor] !== layers[floor]?.url) return
-    const timer = window.setTimeout(() => setKeptHtmlFloors([floor]), 280)
-    return () => window.clearTimeout(timer)
-  }, [floor, planVariant, htmlFramed, layers])
+    setKeptHtmlFloors([holdFloor, floor].filter((item, index, list) => list.indexOf(item) === index))
+  }, [floor, holdFloor, planVariant])
 
   const planAspectSize = useMemo(() => {
     const measuredKey =
@@ -730,6 +741,16 @@ export function TourFloorPlan({
 
     const onMessage = (event: MessageEvent) => {
       const data = event.data
+      if (data && data.type === 'lavilet-plan-ready') {
+        const readyFloor = Number(data.floor)
+        if (!Number.isFinite(readyFloor)) return
+        const frame = htmlIframeRefs.current[readyFloor]
+        if (!frame || event.source !== frame.contentWindow) return
+        const url = layerUrlByFloorRef.current[readyFloor]
+        if (!url) return
+        setHtmlFramed((prev) => (prev[readyFloor] === url ? prev : { ...prev, [readyFloor]: url }))
+        return
+      }
       if (!data || data.source !== 'lavilet-floor-html') return
       if (data.type === 'hover') {
         const plantaId = String(data.departamento || '').trim()
@@ -975,8 +996,14 @@ export function TourFloorPlan({
     }
     setFailedFloors((prev) => ({ ...prev, [layerFloor]: true }))
   }
+  imageErrorRef.current = handleImageError
 
   // Capas listas; iframes HTML solo del piso activo.
+  layerUrlByFloorRef.current = {}
+  for (const layer of Object.values(layers)) {
+    if (layer?.url) layerUrlByFloorRef.current[layer.floor] = layer.url
+  }
+
   const layerEntries = useMemo(
     () => Object.values(layers).filter((layer): layer is FloorLayer => Boolean(layer?.url)),
     [layers],
@@ -993,6 +1020,7 @@ export function TourFloorPlan({
 
   return (
     <div
+      data-plan-front={frontFloor}
       className={cn(
         'absolute inset-0 z-[18] bg-[#14110e]',
         'pt-[max(0px,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))]',
@@ -1068,6 +1096,7 @@ export function TourFloorPlan({
               const active = layer.floor === frontFloor && planVariant === '3d'
               const kept = layer.floor === frontFloor || layer.floor === holdFloor
               const booted = htmlFramed[layer.floor] === layer.url || htmlLoadedUrl[layer.floor] === layer.url
+              const forced = revealFloor === layer.floor && active
               return (
                 <iframe
                   key={`floor-html-${layer.floor}`}
@@ -1080,7 +1109,7 @@ export function TourFloorPlan({
                   allow="fullscreen"
                   className={cn(
                     'absolute inset-0 z-[1] h-full w-full border-0 bg-[#14110e] transition-opacity duration-[250ms]',
-                    active && booted ? 'opacity-100' : 'pointer-events-none opacity-0',
+                    active && (booted || forced) ? 'opacity-100' : 'pointer-events-none opacity-0',
                   )}
                   style={{
                     pointerEvents:
@@ -1105,7 +1134,11 @@ export function TourFloorPlan({
                         prev[layer.floor] === layer.url ? prev : { ...prev, [layer.floor]: layer.url },
                       )
                     }
-                    requestAnimationFrame(() => requestAnimationFrame(mark))
+                    window.setTimeout(mark, 1500)
+                  }}
+                  onError={() => {
+                    setRevealFloor(layer.floor)
+                    onPresentedRef.current?.(layer.floor)
                   }}
                 />
               )
@@ -1366,7 +1399,7 @@ export function TourFloorPlan({
       </div>
 
       <div
-        className="tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-30 h-auto max-h-[calc(100dvh-6rem)] w-[calc(44px+0.7rem)] -translate-y-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-1 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md [@media(max-height:500px)]:top-[calc(44px+env(safe-area-inset-top)+0.35rem)] [@media(max-height:500px)]:bottom-[max(0.5rem,env(safe-area-inset-bottom))] [@media(max-height:500px)]:h-auto [@media(max-height:500px)]:max-h-none [@media(max-height:500px)]:translate-y-0"
+        className="tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-30 h-auto max-h-[calc(100dvh-6rem)] w-[calc(44px+0.7rem)] -translate-y-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-1 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md [@media(max-height:500px)]:top-[calc(44px+env(safe-area-inset-top)+0.35rem)] [@media(max-height:500px)]:bottom-[max(0.5rem,env(safe-area-inset-bottom))] [@media(max-height:500px)]:h-auto [@media(max-height:500px)]:max-h-none [@media(max-height:500px)]:w-[calc(36px*2+0.7rem)] [@media(max-height:500px)]:translate-y-0"
         style={{
           WebkitOverflowScrolling: 'touch',
           ...(shortScreen
@@ -1381,7 +1414,7 @@ export function TourFloorPlan({
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}
       >
-        <div className="flex h-auto flex-col gap-0.5">
+        <div className="flex h-auto flex-col gap-0.5 [@media(max-height:500px)]:grid [@media(max-height:500px)]:grid-cols-2 [@media(max-height:500px)]:justify-items-center">
           {[7, 6, 5, 4, 3, 2, 1, 0, -1, -2].map((item) => {
             const active = item === floor
             const short = item === 7 ? 'T' : floorPlanLevelShort(item)
@@ -1394,6 +1427,7 @@ export function TourFloorPlan({
                   'tour-floor-btn flex w-full shrink-0 items-center justify-center whitespace-nowrap rounded-md px-0.5 font-semibold tracking-wide',
                   'min-h-[1.7rem] text-[11px] sm:min-h-[1.9rem] sm:text-[12px]',
                   '[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 [@media(pointer:coarse)]:text-[12px]',
+                  '[@media(max-height:500px)]:h-9 [@media(max-height:500px)]:max-h-9 [@media(max-height:500px)]:min-h-9 [@media(max-height:500px)]:w-9 [@media(max-height:500px)]:min-w-9',
                   active
                     ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
                     : 'text-[#f7f3ee] hover:bg-white/10',
@@ -1409,7 +1443,7 @@ export function TourFloorPlan({
         </div>
       </div>
 
-      <div className="pointer-events-auto absolute right-[max(4.75rem,calc(env(safe-area-inset-right)+4.25rem))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-2">
+      <div className="tour-floor-side pointer-events-auto absolute right-[max(4.75rem,calc(env(safe-area-inset-right)+4.25rem))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-2">
         {railTrailing}
         {SITE.whatsapp && whatsappHref ? (
           <a

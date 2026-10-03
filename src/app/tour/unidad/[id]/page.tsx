@@ -5,6 +5,8 @@ import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { loadPublicUnitReference, unitReferenceSpecs } from '@/lib/tour/unitReference'
 import { unitModelUrl, UNIT_MODEL_PATH } from '@/lib/tour/unitModels'
 import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
+import { TourRotateHint } from '@/components/tour/TourRotateHint'
+import { TourLocaleProvider } from '@/lib/tour/tourLocale'
 import styles from './unit-reference.module.css'
 
 export const dynamic = 'force-dynamic'
@@ -22,12 +24,12 @@ export default async function UnitReferencePage({ params }: { params: Promise<{ 
     if (!client) throw new Error('UNAVAILABLE')
     unit = await loadPublicUnitReference(client, id)
   } catch {
-    return <main className={styles.page}><div className={styles.unavailable}>
+    return <TourLocaleProvider><TourRotateHint /><main className={styles.page}><div className={styles.unavailable}>
       <p className={styles.eyebrow}>LA VILET</p>
       <h1>La ficha no se pudo cargar en este momento</h1>
       <p>Puede intentar abrir el enlace nuevamente o consultar el brochure del proyecto mientras tanto.</p>
       <a className={styles.primary} href="/materiales/brochure-la-vilet-v5.pdf">Ver brochure</a>
-    </div></main>
+    </div></main></TourLocaleProvider>
   }
   if (!unit) notFound()
   const categoryLabel =
@@ -43,7 +45,7 @@ export default async function UnitReferencePage({ params }: { params: Promise<{ 
   const specs = unitReferenceSpecs(unit)
   const spaces = [...new Set((Array.isArray(unit.spaces) ? unit.spaces : []).filter(s => typeof s === 'string' && s.trim()))]
 
-  return <main className={styles.page}>
+  return <TourLocaleProvider><TourRotateHint /><main className={styles.page}>
     <MetaViewContentUnit unitId={unit.id} unitNumber={unit.unit_number} category={unit.category} />
     <header className={styles.header}>
       <Link href="/inicio" className={styles.brand} aria-label="La Vilet, inicio">LA VILET</Link>
@@ -85,5 +87,5 @@ export default async function UnitReferencePage({ params }: { params: Promise<{ 
       </section>
       <p className={styles.footer}>Puede volver a su conversación de WhatsApp y contarnos qué le interesa de la unidad {unit.unit_number}.</p>
     </div>
-  </main>
+  </main></TourLocaleProvider>
 }
