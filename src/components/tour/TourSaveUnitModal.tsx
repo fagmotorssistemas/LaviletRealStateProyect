@@ -2,7 +2,7 @@
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Bookmark, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -23,6 +23,7 @@ import {
 import { captureWishlistAfterSave } from '@/lib/meta/wishlistBrowser'
 import { hasAdsConsent } from '@/lib/tour/consent'
 import { cn } from '@/lib/utils'
+import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 
 export type TourSaveContext = {
   typologyCode: string
@@ -115,6 +116,8 @@ export function TourSaveUnitModal({
   onIdentified,
 }: TourSaveUnitModalProps) {
   const { t } = useTourLanguage()
+  const sheetRef = useRef<HTMLFormElement>(null)
+  useShowroomSheet(open, sheetRef)
 
   const [pending, setPending] = useState(false)
   const [phone, setPhone] = useState('')
@@ -159,7 +162,7 @@ export function TourSaveUnitModal({
   return (
     <div
       className={cn(
-        'z-[80] flex items-end justify-center p-3 sm:items-center',
+        'z-[120] flex items-end justify-center p-3 sm:items-center',
         contained ? 'absolute inset-0' : 'fixed inset-0',
       )}
     >
@@ -170,8 +173,9 @@ export function TourSaveUnitModal({
         onClick={onClose}
       />
       <form
+        ref={sheetRef}
         onSubmit={(event) => void handleSubmit(event)}
-        className="relative z-[1] w-full max-w-[22rem] rounded-2xl bg-white p-4 shadow-[0_20px_50px_rgba(15,23,42,0.28)] sm:p-5"
+        className="tour-modal-sheet relative z-[1] w-full max-w-[22rem] rounded-2xl bg-white p-4 shadow-[0_20px_50px_rgba(15,23,42,0.28)] sm:p-5"
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -237,7 +241,7 @@ export function TourSaveUnitModal({
         <button
           type="submit"
           disabled={pending}
-          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#14110e] text-[12px] font-semibold tracking-[0.1em] text-white uppercase disabled:opacity-60"
+          className="tour-modal-submit mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#14110e] text-[12px] font-semibold tracking-[0.1em] text-white uppercase disabled:opacity-60"
         >
           <Bookmark size={15} strokeWidth={2} />
           {t(pending ? 'Guardando…' : alreadyIn ? 'Guardar' : 'Guardar con mi celular')}

@@ -8,6 +8,7 @@ import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
 import { cn } from '@/lib/utils'
+import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 
 const MOTIVOS = [
   { value: 'informacion', label: 'Quiero más información' },
@@ -51,6 +52,8 @@ export function TourInfoRequestModal({
   light,
 }: TourInfoRequestModalProps) {
   const { t } = useTourLanguage()
+  const sheetRef = useRef<HTMLFormElement>(null)
+  useShowroomSheet(open, sheetRef)
 
   const [pending, setPending] = useState(false)
   const submitLockRef = useRef(false)
@@ -134,7 +137,7 @@ export function TourInfoRequestModal({
   return (
     <div
       className={cn(
-        'z-[80] flex items-end justify-center sm:items-center',
+        'z-[120] flex items-end justify-center sm:items-center',
         contained ? 'absolute inset-0' : 'fixed inset-0',
       )}
     >
@@ -145,8 +148,9 @@ export function TourInfoRequestModal({
         onClick={onClose}
       />
       <form
+        ref={sheetRef}
         onSubmit={(event) => void handleSubmit(event)}
-        className="relative z-10 m-3 flex max-h-[min(92dvh,720px)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-[#f7f3ee] shadow-[0_24px_60px_rgba(43,26,24,0.28)] ring-1 ring-[#2B1A18]/10 sm:m-4"
+        className="tour-modal-sheet relative z-10 m-3 flex w-full max-w-md flex-col rounded-2xl bg-[#f7f3ee] shadow-[0_24px_60px_rgba(43,26,24,0.28)] ring-1 ring-[#2B1A18]/10 sm:m-4"
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#2B1A18]/8 px-5 py-4">
           <Image
@@ -258,7 +262,7 @@ export function TourInfoRequestModal({
           <button
             type="submit"
             disabled={pending}
-            className="flex h-11 w-full items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
+            className="tour-modal-submit flex h-11 w-full items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
           >
             {t(pending ? 'Enviando…' : 'Enviar')}
           </button>

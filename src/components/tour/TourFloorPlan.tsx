@@ -7,6 +7,7 @@ import { Box, Minus, Plus, Square } from 'lucide-react'
 import {
   floorPlanLevelLabel,
   floorPlanLevelShort,
+  isFloorPlanLevel,
   unitFloorNumber,
 } from '@/lib/tour/floorPlanHotspots'
 import {
@@ -54,6 +55,8 @@ type TourFloorPlanProps = {
   onPreferredVariantChange?: (variant: FloorPlanVariant) => void
   /** Ignora toques sobre el plano (p. ej. justo después de cerrar el ingreso). */
   touchesLocked?: boolean
+  /** El piso visible ya tiene imagen decodificada o el primer frame del 3D. */
+  onFloorPresented?: (floor: number) => void
 }
 
 type DisplaySlot = {
@@ -301,6 +304,18 @@ function alternateImageUrl(url: string) {
   return null
 }
 
+function decodeFloorImage(url: string) {
+  return new Promise<boolean>((resolve) => {
+    const img = new Image()
+    img.decoding = 'async'
+    img.onload = () => {
+      img.decode().then(() => resolve(true)).catch(() => resolve(true))
+    }
+    img.onerror = () => resolve(false)
+    img.src = url
+  })
+}
+
 export function TourFloorPlan({
   units,
   floor,
@@ -313,6 +328,7 @@ export function TourFloorPlan({
   preferredVariant,
   onPreferredVariantChange,
   touchesLocked = false,
+  onFloorPresented,
 }: TourFloorPlanProps) {
   const { t, locale } = useTourLanguage()
 
@@ -333,7 +349,17 @@ export function TourFloorPlan({
     const ready = getReadyFloorView(floor, preferredVariant)
     return ready?.url ? { [floor]: true } : {}
   })
-  const stickyFloorRef = useRef<number | null>(null)
+  const [holdFloor, setHoldFloor] = useState(floor)
+  const [shortScreen, setShortScreen] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-height: 500px)')
+    const sync = () => setShortScreen(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  const [decodedUrl, setDecodedUrl] = useState<Record<string, boolean>>({})
+  const [htmlFramed, setHtmlFramed] = useState<Partial<Record<number, string>>>({})
   const htmlIframeRefs = useRef<Partial<Record<number, HTMLIFrameElement | null>>>({})
   /** Solo 1 iframe WebGL: más cuelgan el primer load. */
   const [keptHtmlFloors, setKeptHtmlFloors] = useState<number[]>([floor])
@@ -341,8 +367,6 @@ export function TourFloorPlan({
   const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
   /** iOS/Safari: padding más chico en landscape bajo. */
   const [landscapeFill, setLandscapeFill] = useState(false)
-  /** Horizontal bajo: el micrófono no comparte columna con los pisos. */
-  const [shortLandscape, setShortLandscape] = useState(false)
   /** Área disponible del stage: para encajar el plano sin romper aspect-ratio. */
   const stageRef = useRef<HTMLDivElement>(null)
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 })
@@ -365,20 +389,6 @@ export function TourFloorPlan({
   useEffect(() => {
     const mq = window.matchMedia('(orientation: landscape) and (max-height: 560px)')
     const sync = () => setLandscapeFill(mq.matches)
-    sync()
-    mq.addEventListener('change', sync)
-    window.addEventListener('orientationchange', sync)
-    window.addEventListener('resize', sync)
-    return () => {
-      mq.removeEventListener('change', sync)
-      window.removeEventListener('orientationchange', sync)
-      window.removeEventListener('resize', sync)
-    }
-  }, [])
-
-  useEffect(() => {
-    const mq = window.matchMedia('(orientation: landscape) and (max-height: 500px)')
-    const sync = () => setShortLandscape(mq.matches)
     sync()
     mq.addEventListener('change', sync)
     window.addEventListener('orientationchange', sync)
@@ -525,27 +535,65 @@ export function TourFloorPlan({
   const currentLayer = layers[floor] ?? null
   const planVariant =
     variantByFloor[floor] ?? preferredVariant ?? currentLayer?.variant ?? '3d'
-  const currentReady =
-    Boolean(currentLayer) &&
-    (currentLayer!.kind !== 'html' || htmlLoadedUrl[floor] === currentLayer!.url)
-
-  // En 3D nunca pintar otro piso (evita flash del plano anterior).
-  // En 2D se permite sticky solo mientras carga la imagen.
-  const paintFloor =
-    planVariant === '3d'
-      ? floor
-      : currentReady
-        ? floor
-        : stickyFloorRef.current != null && layers[stickyFloorRef.current]
-          ? stickyFloorRef.current
-          : floor
+  const targetReady = Boolean(
+    currentLayer &&
+      (currentLayer.kind === 'html'
+        ? htmlFramed[floor] === currentLayer.url
+        : decodedUrl[currentLayer.url]),
+  )
+  const frontFloor = targetReady ? floor : layers[holdFloor] ? holdFloor : floor
 
   useEffect(() => {
-    if (currentReady) stickyFloorRef.current = floor
-  }, [currentReady, floor])
+    if (!targetReady || holdFloor === floor) return
+    const timer = window.setTimeout(() => setHoldFloor(floor), 250)
+    return () => window.clearTimeout(timer)
+  }, [targetReady, floor, holdFloor])
 
-  const shown = (planVariant === '3d' ? currentLayer : layers[paintFloor] ?? currentLayer) ?? null
+  const onPresentedRef = useRef(onFloorPresented)
+  onPresentedRef.current = onFloorPresented
+  useEffect(() => {
+    if (!targetReady) return
+    onPresentedRef.current?.(floor)
+  }, [targetReady, floor])
+
+  const activeImageUrl = currentLayer?.kind === 'image' ? currentLayer.url : ''
+  useEffect(() => {
+    if (!activeImageUrl || decodedUrl[activeImageUrl]) return
+    let cancelled = false
+    void decodeFloorImage(activeImageUrl).then((ok) => {
+      if (cancelled || !ok) return
+      setDecodedUrl((prev) => (prev[activeImageUrl] ? prev : { ...prev, [activeImageUrl]: true }))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeImageUrl, decodedUrl])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      for (const item of [floor - 1, floor + 1]) {
+        if (!isFloorPlanLevel(item)) continue
+        void ensureFloor(item, { preferred: preferredVariant }).then((view) => {
+          if (view?.kind !== 'image' || !view.url) return
+          const url = view.url
+          void decodeFloorImage(url).then((ok) => {
+            if (!ok) return
+            setDecodedUrl((prev) => (prev[url] ? prev : { ...prev, [url]: true }))
+          })
+        })
+      }
+    }, 400)
+    return () => window.clearTimeout(timer)
+    // La precarga sigue al piso activo; ensureFloor se recrea en cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [floor, preferredVariant])
+
+  const shown = (planVariant === '3d' ? layers[frontFloor] ?? currentLayer : layers[frontFloor] ?? currentLayer) ?? null
   const missing = !currentLayer && Boolean(failedFloors[floor])
+  useEffect(() => {
+    if (!missing) return
+    onPresentedRef.current?.(floor)
+  }, [missing, floor])
   const docForToggles = currentLayer?.doc ?? null
   const has2d = floorPlanVariantHasMedia(docForToggles?.variants?.['2d'])
   const has3d = floorPlanVariantHasMedia(docForToggles?.variants?.['3d'])
@@ -557,20 +605,21 @@ export function TourFloorPlan({
     !failedFloors[floor] &&
     (!currentLayer?.url || htmlLoadedUrl[floor] !== currentLayer.url)
 
-  // Un solo iframe WebGL a la vez.
+  // El iframe anterior sigue montado hasta que el nuevo tiene su primer frame.
   useEffect(() => {
     if (planVariant !== '3d') {
       setKeptHtmlFloors([])
       return
     }
-    setKeptHtmlFloors([floor])
-    setHtmlLoadedUrl((prev) => {
-      if (!prev[floor]) return prev
-      const next = { ...prev }
-      delete next[floor]
-      return next
-    })
+    setKeptHtmlFloors((prev) => (prev.includes(floor) ? prev : [...prev, floor]))
   }, [floor, planVariant])
+
+  useEffect(() => {
+    if (planVariant !== '3d') return
+    if (htmlFramed[floor] !== layers[floor]?.url) return
+    const timer = window.setTimeout(() => setKeptHtmlFloors([floor]), 280)
+    return () => window.clearTimeout(timer)
+  }, [floor, planVariant, htmlFramed, layers])
 
   const planAspectSize = useMemo(() => {
     const measuredKey =
@@ -1016,8 +1065,9 @@ export function TourFloorPlan({
           >
             {/* Un solo iframe WebGL (piso activo). */}
             {htmlLayerEntries.map((layer) => {
-              const active = layer.floor === paintFloor && planVariant === '3d'
-              const booted = htmlLoadedUrl[layer.floor] === layer.url
+              const active = layer.floor === frontFloor && planVariant === '3d'
+              const kept = layer.floor === frontFloor || layer.floor === holdFloor
+              const booted = htmlFramed[layer.floor] === layer.url || htmlLoadedUrl[layer.floor] === layer.url
               return (
                 <iframe
                   key={`floor-html-${layer.floor}`}
@@ -1029,14 +1079,13 @@ export function TourFloorPlan({
                   loading="eager"
                   allow="fullscreen"
                   className={cn(
-                    'absolute inset-0 z-[1] h-full w-full border-0 bg-[#14110e]',
+                    'absolute inset-0 z-[1] h-full w-full border-0 bg-[#14110e] transition-opacity duration-[250ms]',
                     active && booted ? 'opacity-100' : 'pointer-events-none opacity-0',
                   )}
                   style={{
-                    // Con zonas propias, el SVG/pines manejan hover+clic (evita pelea con el bridge).
                     pointerEvents:
                       active && booted && displaySlots.length === 0 ? 'auto' : 'none',
-                    visibility: active && booted ? 'visible' : 'hidden',
+                    visibility: kept ? 'visible' : 'hidden',
                   }}
                   onLoad={(event) => {
                     htmlIframeRefs.current[layer.floor] = event.currentTarget
@@ -1051,6 +1100,12 @@ export function TourFloorPlan({
                     } catch {
                       /* ignore */
                     }
+                    const mark = () => {
+                      setHtmlFramed((prev) =>
+                        prev[layer.floor] === layer.url ? prev : { ...prev, [layer.floor]: layer.url },
+                      )
+                    }
+                    requestAnimationFrame(() => requestAnimationFrame(mark))
                   }}
                 />
               )
@@ -1066,7 +1121,8 @@ export function TourFloorPlan({
               {layerEntries.map((layer) => {
                 if (layer.kind === 'html') return null
                 // Imagen 2D o 3D (webp) según la variante activa — no solo en modo 2d.
-                const active = layer.floor === paintFloor && layer.variant === planVariant
+                const active = layer.floor === frontFloor && layer.variant === planVariant
+                const kept = layer.floor === frontFloor || layer.floor === holdFloor
                 return (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -1122,11 +1178,11 @@ export function TourFloorPlan({
                     }}
                     onError={() => handleImageError(layer.floor, layer.url)}
                     className={cn(
-                      'absolute inset-0 h-full w-full object-contain',
+                      'absolute inset-0 h-full w-full object-contain transition-opacity duration-[250ms]',
                       active ? 'opacity-100' : 'opacity-0',
                     )}
                     style={{
-                      visibility: active ? 'visible' : 'hidden',
+                      visibility: kept ? 'visible' : 'hidden',
                       pointerEvents: 'none',
                     }}
                   />
@@ -1306,82 +1362,62 @@ export function TourFloorPlan({
             <Minus size={18} strokeWidth={2.25} />
           </button>
           </div>
-          {shortLandscape && railTrailing ? (
-            <div className="pointer-events-auto">{railTrailing}</div>
-          ) : null}
-          {shortLandscape && SITE.whatsapp && whatsappHref ? (
-            <a
-              href={whatsappHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => onWhatsAppClick?.()}
-              className="tour-whatsapp-btn tour-glass pointer-events-auto"
-              aria-label={t("Consultar por WhatsApp")}
-              title={t("Consultar por WhatsApp")}
-            >
-              <WhatsAppIcon size={16} />
-            </a>
-          ) : null}
         </div>
       </div>
 
       <div
-        className={cn(
-          'tour-floor-rail-wrap pointer-events-none absolute right-[env(safe-area-inset-right)] bottom-[env(safe-area-inset-bottom)] z-30 flex min-h-0 w-[3.15rem] flex-col items-stretch overflow-hidden self-stretch sm:w-[3.35rem]',
-          'top-[max(4rem,calc(env(safe-area-inset-top)+3.5rem))]',
-          landscapeFill ? 'py-1 pr-1' : 'py-2 pr-1.5 sm:gap-2 sm:py-3 sm:pr-2',
-          '[@media(max-height:520px)]:w-[2.85rem] [@media(max-height:520px)]:gap-1 [@media(max-height:520px)]:py-1 [@media(max-height:520px)]:pr-1',
-        )}
+        className="tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-30 h-auto max-h-[calc(100dvh-6rem)] w-[calc(44px+0.7rem)] -translate-y-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-1 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md [@media(max-height:500px)]:top-[calc(44px+env(safe-area-inset-top)+0.35rem)] [@media(max-height:500px)]:bottom-[max(0.5rem,env(safe-area-inset-bottom))] [@media(max-height:500px)]:h-auto [@media(max-height:500px)]:max-h-none [@media(max-height:500px)]:translate-y-0"
+        style={{
+          WebkitOverflowScrolling: 'touch',
+          ...(shortScreen
+            ? {
+                top: 'calc(44px + env(safe-area-inset-top) + 0.35rem)',
+                bottom: 'max(0.5rem, env(safe-area-inset-bottom))',
+                transform: 'none',
+                maxHeight: 'none',
+              }
+            : null),
+        }}
+        onWheel={(event) => event.stopPropagation()}
+        onTouchMove={(event) => event.stopPropagation()}
       >
-        <div className="pointer-events-auto flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div
-            className={cn(
-              'tour-floor-rail flex h-full min-h-0 flex-1 flex-col justify-start gap-0.5 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-1 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
-              'sm:gap-1 sm:p-1.5',
-              '[@media(max-height:520px)]:gap-0.5 [@media(max-height:520px)]:rounded-md [@media(max-height:520px)]:p-0.5',
-            )}
-            style={{ contain: 'layout paint', WebkitOverflowScrolling: 'touch' }}
-            onWheel={(event) => event.stopPropagation()}
-            onTouchMove={(event) => event.stopPropagation()}
-          >
-            {[7, 6, 5, 4, 3, 2, 1, 0, -1, -2].map((item) => {
-              const active = item === floor
-              const short = item === 7 ? 'T' : floorPlanLevelShort(item)
-              return (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => onFloorChange(item)}
-                  className={cn(
-                    'tour-floor-btn flex w-full shrink-0 items-center justify-center whitespace-nowrap rounded-md px-0.5 font-semibold tracking-wide',
-                    'min-h-[1.7rem] text-[11px] sm:min-h-[1.9rem] sm:text-[12px]',
-                    '[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 [@media(pointer:coarse)]:text-[12px]',
-                    active
-                      ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
-                      : 'text-[#f7f3ee] hover:bg-white/10',
-                  )}
-                  aria-pressed={active}
-                  aria-label={t(floorPlanLevelLabel(item))}
-                  title={t(floorPlanLevelLabel(item))}
-                >
-                  {t(short)}
-                </button>
-              )
-            })}
-          </div>
+        <div className="flex h-auto flex-col gap-0.5">
+          {[7, 6, 5, 4, 3, 2, 1, 0, -1, -2].map((item) => {
+            const active = item === floor
+            const short = item === 7 ? 'T' : floorPlanLevelShort(item)
+            return (
+              <button
+                key={item}
+                type="button"
+                onClick={() => onFloorChange(item)}
+                className={cn(
+                  'tour-floor-btn flex w-full shrink-0 items-center justify-center whitespace-nowrap rounded-md px-0.5 font-semibold tracking-wide',
+                  'min-h-[1.7rem] text-[11px] sm:min-h-[1.9rem] sm:text-[12px]',
+                  '[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 [@media(pointer:coarse)]:text-[12px]',
+                  active
+                    ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
+                    : 'text-[#f7f3ee] hover:bg-white/10',
+                )}
+                aria-pressed={active}
+                aria-label={t(floorPlanLevelLabel(item))}
+                title={t(floorPlanLevelLabel(item))}
+              >
+                {t(short)}
+              </button>
+            )
+          })}
         </div>
-        {!shortLandscape && railTrailing ? (
-          <div className="pointer-events-auto flex shrink-0 flex-col items-center gap-1.5">
-            {railTrailing}
-          </div>
-        ) : null}
-        {SITE.whatsapp && whatsappHref && !shortLandscape ? (
+      </div>
+
+      <div className="pointer-events-auto absolute right-[max(4.75rem,calc(env(safe-area-inset-right)+4.25rem))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-2">
+        {railTrailing}
+        {SITE.whatsapp && whatsappHref ? (
           <a
             href={whatsappHref}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => onWhatsAppClick?.()}
-            className="tour-whatsapp-btn tour-glass pointer-events-auto mx-auto shrink-0"
+            className="tour-whatsapp-btn tour-glass pointer-events-auto shrink-0"
             aria-label={t("Consultar por WhatsApp")}
             title={t("Consultar por WhatsApp")}
           >

@@ -39,7 +39,7 @@ export function TourUnitPanel({ unitTypeName, unit, unitCount }: TourUnitPanelPr
   if (!unit) return null
 
   return (
-    <div className="max-w-[16.5rem] rounded-[4px] bg-black/55 px-3 py-2.5 text-white shadow-lg ring-1 ring-white/15 backdrop-blur-sm">
+    <div className="tour-modal-sheet max-w-[16.5rem] rounded-[4px] bg-black/55 px-3 py-2.5 text-white shadow-lg ring-1 ring-white/15 backdrop-blur-sm">
       <p className="text-[10px] font-semibold tracking-[0.16em] text-white/50 uppercase">
         {t(unitTypeName)}
         {t(unitCount > 1 ? ` · ${unitCount} uds.` : '')}

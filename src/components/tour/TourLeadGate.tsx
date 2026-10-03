@@ -2,11 +2,12 @@
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
 import { isShowroomIdentified } from '@/lib/tour/showroomIdentity'
 import { tourGateCopy } from '@/lib/tour/gateCopy'
+import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 
 export function TourLeadGate({
   open,
@@ -28,6 +29,8 @@ export function TourLeadGate({
   onIdentified: () => void
 }) {
   const { t, locale } = useTourLanguage()
+  const sheetRef = useRef<HTMLFormElement>(null)
+  useShowroomSheet(open, sheetRef)
 
   const [pending, setPending] = useState(false)
   const [consented, setConsented] = useState(false)
@@ -96,8 +99,9 @@ export function TourLeadGate({
   return (
     <div className="absolute inset-x-0 bottom-0 z-30 flex justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4">
       <form
+        ref={sheetRef}
         onSubmit={(event) => void handleSubmit(event)}
-        className="w-full max-w-[22.5rem] border border-[#BDA27E]/35 bg-[#f7f3ee]/96 px-4 py-3.5 shadow-[0_18px_40px_rgba(20,12,10,0.28)] backdrop-blur-md sm:max-w-sm sm:px-5 sm:py-4"
+        className="tour-modal-sheet w-full max-w-[22.5rem] border border-[#BDA27E]/35 bg-[#f7f3ee]/96 px-4 py-3.5 shadow-[0_18px_40px_rgba(20,12,10,0.28)] backdrop-blur-md sm:max-w-sm sm:px-5 sm:py-4"
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -181,7 +185,7 @@ export function TourLeadGate({
         <button
           type="submit"
           disabled={pending || !consented}
-          className="mt-3 h-10 w-full cursor-pointer bg-[#2B1A18] text-[11px] font-medium tracking-[0.22em] text-[#f7f3ee] uppercase transition-colors hover:bg-[#3d2a24] disabled:cursor-not-allowed disabled:opacity-40"
+          className="tour-modal-submit mt-3 h-10 w-full cursor-pointer bg-[#2B1A18] text-[11px] font-medium tracking-[0.22em] text-[#f7f3ee] uppercase transition-colors hover:bg-[#3d2a24] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {t(pending ? 'Enviando…' : 'Enviar WhatsApp')}
         </button>

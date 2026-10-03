@@ -124,14 +124,14 @@ export function TourSimulatorDrawer({
                   )
                 : cn(
                     'fixed left-2 right-auto sm:left-5',
-                    'top-2 bottom-2 max-h-[calc(100dvh-1rem)]',
-                    'sm:top-5 sm:bottom-5 sm:max-h-[calc(100dvh-2.5rem)]',
+                    'top-[calc(4.25rem+env(safe-area-inset-top))] bottom-2 max-h-[calc(100dvh-5.5rem)]',
+                    'sm:bottom-5 sm:max-h-[calc(100dvh-6.5rem)]',
                     /* Teléfonos estrechos: panel a casi todo el ancho útil */
                     'max-sm:left-[max(0.5rem,env(safe-area-inset-left))]',
                     'max-sm:right-[max(0.5rem,env(safe-area-inset-right))]',
                     'max-sm:w-auto',
                     '[@media(max-height:520px)]:left-[max(0.5rem,env(safe-area-inset-left))]',
-                    '[@media(max-height:520px)]:top-[max(0.5rem,env(safe-area-inset-top))]',
+                    '[@media(max-height:520px)]:top-[calc(44px+env(safe-area-inset-top)+0.35rem)]',
                     '[@media(max-height:520px)]:bottom-[max(0.5rem,env(safe-area-inset-bottom))]',
                     '[@media(max-height:520px)]:w-[min(20rem,calc(100vw-1rem))]',
                     '[@media(max-height:520px)]:right-auto',
@@ -161,7 +161,7 @@ export function TourSimulatorDrawer({
                       setPicking(true)
                       setShowSaved(false)
                     }}
-                    className="rounded-lg px-2 py-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase hover:bg-[#f4f4ef]"
+                    className="inline-flex h-11 min-w-11 items-center rounded-lg px-3 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase hover:bg-[#f4f4ef]"
                   >
                     {t(" Cambiar ")}</button>
                 ) : null}
@@ -169,7 +169,7 @@ export function TourSimulatorDrawer({
                   <button
                     type="button"
                     onClick={() => setShowSaved((value) => !value)}
-                    className="rounded-lg px-2 py-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase hover:bg-[#f4f4ef]"
+                    className="inline-flex h-11 min-w-11 items-center rounded-lg px-3 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase hover:bg-[#f4f4ef]"
                   >
                     {t(showSaved ? 'Calcular' : 'Guardados')}
                   </button>
@@ -177,7 +177,7 @@ export function TourSimulatorDrawer({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-lg p-1.5 text-[#6b645c] hover:bg-[#f4f4ef] hover:text-[#1a2744]"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[#6b645c] hover:bg-[#f4f4ef] hover:text-[#1a2744]"
                   aria-label={t("Cerrar")}
                 >
                   <X size={16} strokeWidth={1.75} />

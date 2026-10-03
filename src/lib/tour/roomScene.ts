@@ -175,6 +175,27 @@ export function hasImagesInBothFinishes(
   return wanted.every((slug) => present.has(slug))
 }
 
+/** Ese ambiente, con la luz actual, tiene url en los dos acabados. */
+export function hasBothFinishesForRoom(
+  room: { scenes?: Array<{ finish: string | null; light?: string | null; url?: string | null }> } | null | undefined,
+  finishes: Array<{ slug: string }> | undefined,
+  light: string,
+): boolean {
+  const wanted = [
+    ...new Set(
+      (finishes ?? []).map((item) => canonicalFinishSlug(item.slug)).filter((slug): slug is string => Boolean(slug)),
+    ),
+  ]
+  if (wanted.length < 2) return false
+  const present = new Set<string>()
+  for (const scene of room?.scenes ?? []) {
+    if (!scene.url || (scene.light && scene.light !== light)) continue
+    const slug = canonicalFinishSlug(scene.finish)
+    if (slug) present.add(slug)
+  }
+  return wanted.every((slug) => present.has(slug))
+}
+
 export function sceneCombos(
   finishes: Array<{ slug: string; name?: string }>,
 ): Array<{ finish: string | null; light: TourLightMode; label: string }> {

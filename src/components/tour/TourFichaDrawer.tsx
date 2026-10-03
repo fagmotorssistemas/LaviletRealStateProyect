@@ -26,6 +26,7 @@ import { buildFichaSpecRows, formatAreaM2 } from '@/lib/tour/fichaSpecs'
 import { preloadStill } from '@/lib/tour/stillPreload'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { cn } from '@/lib/utils'
+import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 import { toast } from 'sonner'
 import './tour-viewer.css'
 
@@ -210,6 +211,8 @@ export function TourFichaDrawer({
   onSelectGalleryImage,
 }: TourFichaDrawerProps) {
   const { t, locale } = useTourLanguage()
+  const sheetRef = useRef<HTMLElement>(null)
+  useShowroomSheet(open, sheetRef)
 
   const reduceMotion = useReducedMotion()
   const [unitId, setUnitId] = useState<string | null>(null)
@@ -424,11 +427,12 @@ export function TourFichaDrawer({
           />
 
           <motion.aside
+            ref={sheetRef}
             role="dialog"
             aria-modal="true"
             aria-label={t("Ficha técnica")}
             className={cn(
-              'z-[70] flex flex-col overflow-hidden rounded-2xl bg-white shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
+              'tour-modal-sheet z-[70] flex flex-col rounded-2xl bg-white shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
               'w-[min(22.5rem,calc(100%-1.5rem))] left-3 sm:left-4',
               // Reserve the showroom toolbar in both embedded and fullscreen layouts.
               'top-[calc(4.75rem+env(safe-area-inset-top))] bottom-[max(0.75rem,env(safe-area-inset-bottom))]',
@@ -602,7 +606,7 @@ export function TourFichaDrawer({
                     <button
                       type="button"
                       onClick={() => onRequestInfo(unit)}
-                      className="mt-3 flex h-10 w-full items-center justify-center gap-2 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
+                      className="tour-modal-submit mt-3 flex h-10 w-full items-center justify-center gap-2 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
                     >
                       <Mail size={15} strokeWidth={2} />
                       {t(" Solicitar información ")}</button>

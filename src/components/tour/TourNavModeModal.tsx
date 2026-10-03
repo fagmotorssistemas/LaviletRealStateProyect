@@ -1,7 +1,9 @@
 'use client'
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
+import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 
+import { useRef } from 'react'
 import { Compass, Hand, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -23,13 +25,15 @@ export function TourNavModeModal({
   onClose,
 }: TourNavModeModalProps) {
   const { t } = useTourLanguage()
+  const sheetRef = useRef<HTMLDivElement>(null)
+  useShowroomSheet(open, sheetRef)
 
   if (!open) return null
 
   return (
     <div
       className={cn(
-        'z-[88] flex items-end justify-center p-3 sm:items-center',
+        'z-[160] flex items-end justify-center p-3 sm:items-center',
         contained ? 'absolute inset-0' : 'fixed inset-0',
       )}
     >
@@ -39,7 +43,10 @@ export function TourNavModeModal({
         className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <div className="relative z-[1] w-full max-w-[21rem] overflow-hidden rounded-2xl border border-white/20 bg-[#14110e]/94 p-4 text-[#f7f3ee] shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-5">
+      <div
+        ref={sheetRef}
+        className="tour-modal-sheet relative z-[1] w-full max-w-[21rem] rounded-2xl border border-white/20 bg-[#14110e]/94 p-4 text-[#f7f3ee] shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-5"
+      >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold tracking-[0.18em] text-[#BDA27E] uppercase">

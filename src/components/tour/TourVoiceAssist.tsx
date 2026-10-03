@@ -49,6 +49,8 @@ type TourVoiceAssistProps = {
   layout?: 'plan' | 'unit'
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /** Oculta el aviso flotante mientras hay un modal encima. */
+  tipsEnabled?: boolean
   className?: string
 }
 
@@ -440,6 +442,7 @@ export function TourVoiceAssist({
   layout = 'unit',
   open: openProp,
   onOpenChange,
+  tipsEnabled = true,
   className,
 }: TourVoiceAssistProps) {
   const { t, locale } = useTourLanguage()
@@ -551,7 +554,7 @@ export function TourVoiceAssist({
 
   // Tips flotantes aleatorios al cambiar de vista / ambiente.
   useEffect(() => {
-    if (open) {
+    if (open || !tipsEnabled) {
       setTip(null)
       return
     }
@@ -576,7 +579,7 @@ export function TourVoiceAssist({
     }, delay)
 
     return () => window.clearTimeout(showId)
-  }, [sceneKey, open])
+  }, [sceneKey, open, tipsEnabled])
 
   useEffect(() => {
     if (!tip) return
@@ -1457,7 +1460,7 @@ export function TourVoiceAssist({
   return (
     <>
       {/* Tips flotantes en posiciones aleatorias */}
-      {tip && !open ? (
+      {tip && tipsEnabled && !open ? (
         <div
           className={cn(
             'pointer-events-none absolute z-[126]',
@@ -1475,7 +1478,7 @@ export function TourVoiceAssist({
               <button
                 type="button"
                 onClick={dismissTip}
-                className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white/45 transition hover:bg-white/10 hover:text-white/80"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white/45 transition hover:bg-white/10 hover:text-white/80"
                 aria-label={t("Cerrar tip")}
               >
                 <X size={12} strokeWidth={2} />
@@ -1485,7 +1488,7 @@ export function TourVoiceAssist({
             <button
               type="button"
               onClick={openPanel}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#BDA27E]/22 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-[#E8D9C0] uppercase transition hover:bg-[#BDA27E]/32"
+              className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-[#BDA27E]/22 px-3 text-[10px] font-semibold tracking-wide text-[#E8D9C0] uppercase transition hover:bg-[#BDA27E]/32"
             >
               <Mic size={12} strokeWidth={2} />
               {t(" Probar ")}</button>

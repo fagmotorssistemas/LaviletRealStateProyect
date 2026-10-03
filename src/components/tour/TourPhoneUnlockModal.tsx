@@ -2,7 +2,7 @@
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Landmark, Calculator, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -14,6 +14,7 @@ import {
   normalizeShowroomPhone,
 } from '@/lib/tour/showroomIdentity'
 import { cn } from '@/lib/utils'
+import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 
 export type TourPhoneUnlockIntent = 'simulator' | 'financing'
 
@@ -63,6 +64,8 @@ export function TourPhoneUnlockModal({
   light,
 }: TourPhoneUnlockModalProps) {
   const { t } = useTourLanguage()
+  const sheetRef = useRef<HTMLFormElement>(null)
+  useShowroomSheet(open, sheetRef)
 
   const [pending, setPending] = useState(false)
   const [phone, setPhone] = useState('')
@@ -111,7 +114,7 @@ export function TourPhoneUnlockModal({
   return (
     <div
       className={cn(
-        'z-[85] flex items-end justify-center p-3 sm:items-center',
+        'z-[120] flex items-end justify-center p-3 sm:items-center',
         contained ? 'absolute inset-0' : 'fixed inset-0',
       )}
     >
@@ -122,8 +125,9 @@ export function TourPhoneUnlockModal({
         onClick={onClose}
       />
       <form
+        ref={sheetRef}
         onSubmit={(event) => void handleSubmit(event)}
-        className="relative z-[1] w-full max-w-[20.5rem] overflow-hidden rounded-2xl border border-white/20 bg-[#14110e]/92 p-4 text-[#f7f3ee] shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-5"
+        className="tour-modal-sheet relative z-[1] w-full max-w-[20.5rem] rounded-2xl border border-white/20 bg-[#14110e]/92 p-4 text-[#f7f3ee] shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-5"
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -165,7 +169,7 @@ export function TourPhoneUnlockModal({
         <button
           type="submit"
           disabled={pending}
-          className="mt-4 flex h-11 w-full items-center justify-center rounded-full bg-[#f7f3ee] text-[11px] font-semibold tracking-[0.12em] text-[#14110e] uppercase disabled:opacity-60"
+          className="tour-modal-submit mt-4 flex h-11 w-full items-center justify-center rounded-full bg-[#f7f3ee] text-[11px] font-semibold tracking-[0.12em] text-[#14110e] uppercase disabled:opacity-60"
         >
           {t(pending ? 'Un momento…' : copy.cta)}
         </button>

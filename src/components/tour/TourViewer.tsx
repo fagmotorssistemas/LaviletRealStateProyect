@@ -28,6 +28,7 @@ import {
   Bookmark,
   Mic,
   Rotate3d,
+  Smartphone,
   SwatchBook,
 } from 'lucide-react'
 import { createTourArrow, roomHotspotHtml } from '@/components/tour/createTourArrow'
@@ -68,7 +69,7 @@ import {
 import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
 import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
-import { pickRoomScene, pickSceneUrl, finishesMatch, hasImagesInBothFinishes } from '@/lib/tour/roomScene'
+import { pickRoomScene, pickSceneUrl, finishesMatch, hasBothFinishesForRoom } from '@/lib/tour/roomScene'
 import { buildGaleriaStills } from '@/lib/tour/galeriaStills'
 import { galleryFinishPresentation } from '@/lib/tour/finishSwatch'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
@@ -381,6 +382,7 @@ function DesktopModesList({
   onTourPrime,
   onTerminaciones,
   onComparador,
+  terminacionesDisabled,
 }: {
   viewMode: TourViewMode
   active: {
@@ -402,6 +404,7 @@ function DesktopModesList({
   onTourPrime?: () => void
   onTerminaciones: () => void
   onComparador: () => void
+  terminacionesDisabled?: boolean
 }) {
   const { t } = useTourLanguage()
 
@@ -419,6 +422,8 @@ function DesktopModesList({
       {show.terminaciones ? (
         <ModeButton
           active={active.terminaciones}
+          disabled={terminacionesDisabled}
+          title={terminacionesDisabled ? 'Este ambiente no tiene otra terminación' : undefined}
           icon={<SwatchBook size={14} strokeWidth={1.75} />}
           onClick={onTerminaciones}
         >
@@ -458,14 +463,14 @@ function modeButtonsForView(input: {
   }
   // Galería: terminaciones solo si los dos acabados tienen imagen.
   if (input.viewMode === 'galeria') {
-    return { galeria: true, planos: false, tour: true, terminaciones: Boolean(input.showTerminaciones), comparador: true }
+    return { galeria: true, planos: false, tour: true, terminaciones: true, comparador: true }
   }
   // Planos tipología (stills): no mezclar con menú de modos del edificio.
   if (isPlanosMode(input.viewMode)) {
     return { galeria: true, planos: false, tour: true, terminaciones: false, comparador: false }
   }
-  // Tour 360°: terminaciones solo si los dos acabados tienen 360.
-  return { galeria: true, planos: false, tour: true, terminaciones: Boolean(input.showTerminaciones), comparador: true }
+  // Tour 360°: el botón de terminaciones queda visible y se deshabilita si este ambiente no tiene las dos.
+  return { galeria: true, planos: false, tour: true, terminaciones: true, comparador: true }
 }
 
 
@@ -679,6 +684,7 @@ async function unlockTourOrientation() {
 }
 
 async function leaveTourFullscreen() {
+  await unlockTourOrientation()
   const exit =
     document.exitFullscreen?.bind(document) ??
     (document as Document & { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen?.bind(document)
@@ -688,7 +694,6 @@ async function leaveTourFullscreen() {
   } catch {
     /* ignore */
   }
-  await unlockTourOrientation()
 }
 
 function useSwipePages(enabled: boolean, count: number, onStep: (delta: -1 | 1) => void) {
@@ -852,9 +857,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [entryVideo, setEntryVideo] = useState(false)
   const [droneOn, setDroneOn] = useState(false)
   const droneRef = useRef<HTMLVideoElement>(null)
-  const [planMediaReady, setPlanMediaReady] = useState(false)
-  const enterRequestedRef = useRef(false)
   const [planTouchUntil, setPlanTouchUntil] = useState(0)
+  const [planPresented, setPlanPresented] = useState(false)
+  const [awaitPlanClose, setAwaitPlanClose] = useState(false)
+  const [entryExit, setEntryExit] = useState(false)
+  const [coverHidden, setCoverHidden] = useState(false)
+  const [rotateLockFailed, setRotateLockFailed] = useState(false)
+  const [coarsePortrait, setCoarsePortrait] = useState(false)
   const armPlanTouchLock = useCallback(() => {
     setPlanTouchUntil(Date.now() + 400)
   }, [])
@@ -867,40 +876,73 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     return () => window.clearTimeout(timer)
   }, [planTouchUntil])
 
-  useEffect(() => {
-    if (!entryVideo || !planEntryOpen || droneOn) return
-    const timer = window.setTimeout(() => {
-      droneRef.current?.pause()
-      setEntryVideo(false)
-      setDroneOn(false)
-      setPlanEntryOpen(false)
-      armPlanTouchLock()
-    }, 3000)
-    return () => window.clearTimeout(timer)
-  }, [entryVideo, planEntryOpen, droneOn, armPlanTouchLock])
+  const requestEntryClose = useCallback(() => {
+    const video = droneRef.current
+    if (video && !video.paused) video.pause()
+    setEntryVideo(false)
+    setAwaitPlanClose(true)
+  }, [])
 
   useEffect(() => {
-    let cancelled = false
-    const finish = () => {
-      if (!cancelled) setPlanMediaReady(true)
+    if (!entryVideo || !planEntryOpen || droneOn) return
+    const timer = window.setTimeout(() => requestEntryClose(), 3000)
+    return () => window.clearTimeout(timer)
+  }, [entryVideo, planEntryOpen, droneOn, requestEntryClose])
+
+  useEffect(() => {
+    if (!entryVideo) return
+    const video = droneRef.current
+    if (!video) return
+    let done = false
+    const mark = () => {
+      if (done) return
+      done = true
+      setDroneOn(true)
     }
-    const timer = window.setTimeout(finish, 8000)
-    void fetchFloorPlanReady(openingPlanFloor).finally(() => {
-      window.clearTimeout(timer)
-      finish()
-    })
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      const id = video.requestVideoFrameCallback(() => mark())
+      return () => video.cancelVideoFrameCallback?.(id)
+    }
+    const onPlaying = () => requestAnimationFrame(() => requestAnimationFrame(mark))
+    video.addEventListener('playing', onPlaying)
+    return () => video.removeEventListener('playing', onPlaying)
+  }, [entryVideo])
+
+  useEffect(() => {
+    if (!droneOn) return
+    const timer = window.setTimeout(() => setCoverHidden(true), 400)
+    return () => window.clearTimeout(timer)
+  }, [droneOn])
+
+  useEffect(() => {
+    if (!awaitPlanClose || !planPresented || !planEntryOpen) return
+    setEntryExit(true)
+    const timer = window.setTimeout(() => {
+      setPlanEntryOpen(false)
+      setEntryExit(false)
+      setAwaitPlanClose(false)
+      armPlanTouchLock()
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [awaitPlanClose, planPresented, planEntryOpen, armPlanTouchLock])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(pointer: coarse) and (orientation: portrait)')
+    const sync = () => setCoarsePortrait(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  useEffect(() => {
     return () => {
-      cancelled = true
-      window.clearTimeout(timer)
+      void leaveTourFullscreen()
     }
   }, [])
 
   useEffect(() => {
-    if (!planMediaReady || !enterRequestedRef.current) return
-    enterRequestedRef.current = false
-    setPlanEntryOpen(false)
-    armPlanTouchLock()
-  }, [planMediaReady, armPlanTouchLock])
+    void fetchFloorPlanReady(openingPlanFloor)
+  }, [openingPlanFloor])
 
   useEffect(() => {
     if (planEntryOpen) return
@@ -959,22 +1001,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [viewMode, setViewMode] = useState<TourViewMode>(() =>
     readUnitQueryParam() ? 'galeria' : 'planos-3d',
   )
-  const [rotateHint, setRotateHint] = useState(false)
-  const rotateHintArmed = useRef(false)
-  useEffect(() => {
-    if (rotateHintArmed.current) return
-    if (window.sessionStorage.getItem('lavilet-rotate-hint') === '1') {
-      rotateHintArmed.current = true
-      return
-    }
-    const coarse = window.matchMedia('(pointer: coarse)').matches
-    const portrait = window.matchMedia('(orientation: portrait)').matches
-    if (!coarse || !portrait) return
-    const show = viewMode === 'tour' || (planEntryOpen && entryVideo)
-    if (!show) return
-    rotateHintArmed.current = true
-    setRotateHint(true)
-  }, [viewMode, planEntryOpen, entryVideo])
   const [galeriaIndex, setGaleriaIndex] = useState(0)
   /** Semilla estable: cambia al entrar a galería / tipología para re-sortear acabado×luz. */
   const [galeriaSeed, setGaleriaSeed] = useState(() => Math.floor(Math.random() * 1_000_000))
@@ -1048,7 +1074,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         if (token !== switchTokenRef.current) return
         if (scene.nodes.length === 0) return
 
-        const nextNode = scene.nodes.find((n) => n.id === stayId) ?? scene.nodes[0]
+        const nextNode = scene.nodes.find((n) => n.id === stayId)
+        if (!nextNode) return
         const nextUrl = String(nextNode?.panorama ?? '')
         if (nextUrl && !preloadedRef.current.has(nextUrl)) {
           setLoading(true)
@@ -1422,6 +1449,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     : publicCatalog?.typologies.find(item=>item.code===selectedTypology)
   const onFinish = (slug: string) => {
     if (slug === finish) return
+    const finishes = publicCatalog?.finishes?.length ? publicCatalog.finishes : catalog?.finishes ?? []
+    const source = (viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms) ?? []
+    const entry = source.find((item) => item.slug === room) ?? source.find((item) => roomsShareSlot(item.slug, room))
+    if (!hasBothFinishesForRoom(entry, finishes, light)) return
     setFinish(slug)
     logTourEvent({
       event_type: 'cambio_acabado',
@@ -1634,10 +1665,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const catalogFinishes = publicCatalog?.finishes?.length
     ? publicCatalog.finishes
     : catalog?.finishes ?? []
-  const terminacionesReady = hasImagesInBothFinishes(
-    viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms,
-    catalogFinishes,
-  )
+  const finishSource = (viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms) ?? []
+  const finishRoom = finishSource.find((item) => item.slug === room) ?? finishSource.find((item) => roomsShareSlot(item.slug, room))
+  const terminacionesReady = hasBothFinishesForRoom(finishRoom, catalogFinishes, light)
   const modeButtons = modeButtonsForView({
     shellMode,
     viewMode,
@@ -3113,6 +3143,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             })
           }}
           touchesLocked={planTouchLock}
+          onFloorPresented={() => setPlanPresented(true)}
         />
         </>
       ) : null}
@@ -3183,6 +3214,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   // Mantener galería o 360 según el modo actual (pares homogéneos).
                   if (viewMode !== 'galeria') setViewMode('tour')
                 }}
+                terminacionesDisabled={!terminacionesReady}
               />
             </div>
 
@@ -3233,7 +3265,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             {mobilePanel === 'modes' ? (
               <div
                 role="menu"
-                className="tour-glass absolute top-[calc(100%+6px)] right-2 z-[121] flex max-h-[min(70dvh,24rem)] w-[11rem] flex-col gap-1 overflow-y-auto p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+                className="tour-glass absolute top-[calc(100%+6px)] right-2 z-[121] flex max-h-[min(70dvh,24rem)] w-[11rem] flex-col gap-1 overflow-y-auto p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.45)] [@media(max-height:500px)]:top-0 [@media(max-height:500px)]:right-[calc(100%+0.5rem)]"
               >
                 {modeButtons.galeria ? (
                 <ModeButton
@@ -3308,6 +3340,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 {modeButtons.terminaciones ? (
                 <ModeButton
                   active={terminacionesFocus || isFinishCompare}
+                  disabled={!terminacionesReady}
+                  title={terminacionesReady ? undefined : 'Este ambiente no tiene otra terminación'}
                   icon={<SwatchBook size={14} strokeWidth={1.75} />}
                   onClick={() => {
                     setShellMode('unit')
@@ -3545,7 +3579,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {showUnitChrome ? (
-        <div className="absolute right-[max(0.5rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-1.5 sm:right-[max(0.75rem,env(safe-area-inset-right))] sm:gap-2">
+        <div className="tour-unit-actions absolute right-[max(0.5rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-1.5 sm:right-[max(0.75rem,env(safe-area-inset-right))] sm:gap-2">
           {!isComparador && !isFinishCompare && !voiceAssistOpen ? (
             <button
               type="button"
@@ -3839,6 +3873,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           hideTrigger
           layout={showPlanShell ? 'plan' : 'unit'}
           open={voiceAssistOpen}
+          tipsEnabled={!navChooserOpen && !saveUnitOpen && !phoneUnlock.open && !infoRequestOpen && !gateOpen && !fichaOpen && !planEntryOpen}
           onOpenChange={setVoiceAssistOpen}
           onPreviewUnit={(unit) => {
             setSelectedUnitId(unit.id)
@@ -3942,38 +3977,27 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {planTouchLock ? <div className="absolute inset-0 z-[35]" aria-hidden="true" /> : null}
 
-      {rotateHint ? (
-        <div
-          role="status"
-          className="absolute top-1/2 left-1/2 z-[40] flex w-[min(16rem,calc(100%-8rem))] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-2xl bg-[#29251e]/92 px-3 py-2 text-sm text-[#f7f3ee] shadow-lg"
-        >
-          <p className="min-w-0 flex-1 text-center leading-snug">{t('Gira tu teléfono para una mejor vista')}</p>
-          <button
-            type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg"
-            aria-label={t('Cerrar aviso')}
-            onClick={() => {
-              window.sessionStorage.setItem('lavilet-rotate-hint', '1')
-              setRotateHint(false)
-            }}
-          >
-            ×
-          </button>
+      {rotateLockFailed && coarsePortrait ? (
+        <div className="absolute inset-0 z-[180] flex flex-col items-center justify-center gap-4 bg-[#14110e] px-8 text-center text-[#f7f3ee]">
+          <Smartphone size={42} strokeWidth={1.5} className="text-[#bda27e]" aria-hidden />
+          <p className="max-w-xs font-serif text-2xl leading-snug">{t('Gira tu teléfono para ver el showroom')}</p>
         </div>
       ) : null}
 
       {planEntryOpen && shellMode === 'plan' ? (
-        <div className="absolute inset-0 z-[30] bg-[#14110e]">
-          <div className={`absolute inset-0 bg-[#14110e] transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-0' : 'opacity-100'}`}>
-            <CmafVideo
-              mp4="/inicio/portada.mp4?v=gop"
-              hls="/inicio/portada-hls/index.m3u8"
-              poster="/inicio/portada-poster.jpg"
-              label={t('Fachada Lavilet del día a la noche')}
-              className="tour-entry-video absolute inset-0 h-full w-full"
-            />
-          </div>
-          <div className={`absolute inset-0 bg-[#14110e] transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'opacity-0'}`}>
+        <div className={cn('absolute inset-0 z-[30] bg-[#14110e] transition-opacity duration-[400ms] ease-linear', entryExit ? 'opacity-0' : 'opacity-100')}>
+          {coverHidden ? null : (
+            <div className="absolute inset-0 bg-[#14110e] opacity-100">
+              <CmafVideo
+                mp4="/inicio/portada.mp4?v=gop"
+                hls="/inicio/portada-hls/index.m3u8"
+                poster="/inicio/portada-poster.jpg"
+                label={t('Fachada Lavilet del día a la noche')}
+                className="tour-entry-video absolute inset-0 h-full w-full"
+              />
+            </div>
+          )}
+          <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
             <CmafVideo
               mp4="/tour/ingreso.mp4?v=gop"
               hls="/tour/ingreso-hls/index.m3u8"
@@ -3981,14 +4005,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               defer={!entryVideo}
               loop={false}
               videoRef={droneRef}
-              onPlaying={() => setDroneOn(true)}
               onEnded={() => {
-                setEntryVideo(false)
-                setDroneOn(false)
-                if (planMediaReady) {
-                  setPlanEntryOpen(false)
-                  armPlanTouchLock()
-                } else enterRequestedRef.current = true
+                const video = droneRef.current
+                if (video) video.pause()
+                requestEntryClose()
               }}
               className="tour-entry-video absolute inset-0 h-full w-full"
             />
@@ -3996,15 +4016,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           {entryVideo ? (
             <button
               type="button"
-              onClick={() => {
-                setEntryVideo(false)
-                setDroneOn(false)
-                droneRef.current?.pause()
-                if (planMediaReady) {
-                  setPlanEntryOpen(false)
-                  armPlanTouchLock()
-                } else enterRequestedRef.current = true
-              }}
+              onClick={() => requestEntryClose()}
               className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-10 inline-flex min-h-11 min-w-11 -translate-x-1/2 items-center justify-center rounded-full bg-[#29251e]/80 px-4 py-2 text-xs text-[#f7f3ee]"
             >
               {t('Saltar')}
@@ -4012,7 +4024,28 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           ) : (
             <button
               type="button"
-              onClick={() => setEntryVideo(true)}
+              onClick={() => {
+                setEntryVideo(true)
+                if (window.matchMedia('(pointer: coarse)').matches) {
+                  if (isIOSWebKit()) {
+                    setRotateLockFailed(true)
+                    return
+                  }
+                  void (async () => {
+                    try {
+                      if (rootRef.current) await requestTourFullscreen(rootRef.current)
+                      const orient = window.screen?.orientation as
+                        | (ScreenOrientation & { lock?: (mode: string) => Promise<void> })
+                        | undefined
+                      if (typeof orient?.lock !== 'function') throw new Error('sin lock')
+                      await orient.lock('landscape')
+                      setRotateLockFailed(false)
+                    } catch {
+                      setRotateLockFailed(true)
+                    }
+                  })()
+                }
+              }}
               className="absolute top-1/2 left-1/2 z-10 inline-flex min-h-11 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
             >
               {t('Ingresar')}
