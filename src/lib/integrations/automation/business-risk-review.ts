@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { BUSINESS_FACT_RULES, businessFactSchema, availableAssistance, ASSISTANCE_RULES } from './business-facts'
 import { effectiveTurnBudget } from './turn-budget'
+import { FINANCING_PROCESS_RULES } from './financing-guidance'
 
 export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
@@ -44,6 +45,7 @@ Bloquee una afirmación concreta de precio, rango, dormitorios, superficie, plan
 ## 2. Restricciones comerciales aplicables
 
 Bloquee promesas sin respaldo de reserva, precio congelado, descuento, aprobación financiera o gestión realizada; asesoría legal/financiera compleja; lenguaje inapropiado; ofertas de inmuebles ajenos, competidores o enlaces no autorizados; y contradicciones con políticas aplicables. Reconocer datos del cliente, usar primera persona u ofrecer orientación no acredita una gestión realizada. Ofrecer revisar financiamiento autorizado y acompañamiento no garantiza aprobación.
+No convierta una imprecisión de denominación en un riesgo material si el conjunto de entidades autorizadas permanece explícito y correcto: mencionar bancos y nombrar también una cooperativa no excluye esa cooperativa. Sí bloquee afirmar que una entidad autorizada no está disponible o inventar una nueva vía, garantía o requisito bancario. Mencionar solo una opción pertinente no niega las demás. Los requisitos específicos de una entidad necesitan una fuente bancaria autorizada; una lista de documentos genéricos no queda respaldada por decir «normalmente» ni por la existencia del convenio.
 
 ## 3. Obligaciones explícitas de este turno
 
@@ -53,6 +55,8 @@ consultas_pendientes conserva mensajes sin respuesta: current_request incluye su
 # Fuentes y alcance
 
 Use unidades, grupos y presupuesto_del_turno para precios y comparaciones; hechos_con_cantidades no es la única fuente. Consulte todas las fuentes pertinentes antes de declarar falta de respaldo. Una política de reserva regula solicitudes o confirmaciones de reserva, no convierte una comparación en reserva ni obliga a derivar consultas de precios. Respete el alcance de cada política y los filtros de la búsqueda. El historial y el propio borrador no demuestran hechos actuales del negocio.
+Evalúe las comparaciones dentro del conjunto que afirma el borrador. Un rango de opciones dentro del presupuesto corresponde a los miembros de budget_matching, no al catálogo completo. «Algunas opciones» o ejemplos no afirman un máximo de todo el proyecto. Un rango global sí debe cubrir todo su grupo. Identifique una contradicción en ese mismo alcance antes de bloquear.
+Describir una unidad como disponible en el catálogo autorizado del turno no confirma una reserva, garantiza que seguirá libre ni acredita asignación al cliente. Una prohibición de garantizar disponibilidad no impide informar el estado publicado. Una unidad ausente de una búsqueda no se vuelve disponible por esta regla; respete las fuentes y cualquier restricción comercial explícita aplicable.
 
 # Criterios excluidos
 
@@ -62,6 +66,7 @@ No evalúe estilo, tono, elegancia, longitud sugerida, saludo, sintaxis ni núme
 
 Devuelva únicamente el JSON del esquema. verdict=pass exige findings=[]. verdict=block exige hallazgos materiales que identifiquen la afirmación u obligación afectada, el perjuicio y el hecho o regla autorizada pertinente. No invente evidencia para justificar un bloqueo.
 ${BUSINESS_FACT_RULES}
+${FINANCING_PROCESS_RULES}
 ${ASSISTANCE_RULES}`
 
 const categories = new Set(['hard_fact', 'business_guardrail', 'turn_goal'])

@@ -17,6 +17,31 @@ const input = (overrides: Partial<LeadIntroductionInput> = {}): LeadIntroduction
   audit: { source: 'project_overview' }, ...overrides,
 })
 
+describe('commercial opening uses the existing grounded interpretation', () => {
+  const semantics = { primary_intent: 'ask_financing', confidence: 'high' }
+  it('does not require correctly spelled commercial keywords to ask name and residence', () => {
+    const turn = leadIntroductionTurn(input({ current: 'tiene finaciamiento porque dispobngo de 100',
+      extracted: { turn_semantics: semantics }, audit: { source: 'financing_question' },
+      reply: 'Podemos explicar las alternativas disponibles.' }))
+    assert.equal(turn.applied, true)
+    assert.match(turn.reply, /su nombre.*reside actualmente/)
+    assert.deepEqual((turn.audit.profile_introduction as { missing_fields: string[] }).missing_fields, ['full_name', 'residence'])
+  })
+  it('respects a prior delivered invitation and protected financing steps', () => {
+    const invited = { status: 'complete', requested_fields: ['full_name', 'residence'], collection_status: 'deferred' }
+    const base = 'Podemos explicar las alternativas disponibles.'
+    const next = leadIntroductionTurn(input({ current: 'y qué datos se necesitan?', reply: base,
+      summary: { _lead_introduction: invited }, extracted: { turn_semantics: semantics }, audit: { source: 'financing_question' } }))
+    assert.equal(next.reply, base)
+    for (const source of ['financing', 'financing_selection_required', 'reservation_handoff', 'visit_intake']) {
+      const turn = leadIntroductionTurn(input({ current: 'sí, continuemos', reply: base,
+        extracted: { turn_semantics: semantics }, audit: { source, state: 'cedula_pendiente' } }))
+      assert.equal(turn.reply, base, source)
+      assert.equal(turn.applied, false, source)
+    }
+  })
+})
+
 describe('semantic opening stage review', () => {
   const audit = { profile_introduction: { generic_introduction: true } }
   const references = [

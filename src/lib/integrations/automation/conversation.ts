@@ -1033,7 +1033,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!reply) {
     await guard()
     {
-      const financeAnswer = priceTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta))
+      const financeAnswer = priceTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta), extracted)
       let financePrerequisite = ''
       if (financeTurn && !financeAnswer) {
         const selectionInfo = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,

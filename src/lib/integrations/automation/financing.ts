@@ -3,6 +3,7 @@ import { normalized } from './sdr-rules'
 import { isConversationRepair, explicitlyRequestsVisit } from './turn-routing'
 import { acceptsUnitOptions } from './sales-policy'
 import { LATER_ROUTES } from '@/lib/inmobiliaria/nutritionLater'
+import { hasFinancingRequest } from './financing-guidance'
 
 export async function financingContext(lead: Row) {
   const [partners, qualification] = await Promise.all([
@@ -119,9 +120,11 @@ export function financingReply(fin: Row, partners: string[], unsupported = '') {
 // An existing qualification is saved progress, not permission to monopolize every turn.
 export function isFinancingTurn(extracted: Row, current: string, lastReply: string, input: { partner: string | null; unsupported: string }) {
   const message = normalized(current), previous = normalized(lastReply)
+  if (extracted.requested_advisor || extracted.opt_out) return false
   if (acceptsUnitOptions(current, lastReply)) return false
-  if (isConversationRepair(current) || explicitlyRequestsVisit(current) || extracted.requested_advisor || extracted.opt_out) return false
+  if (isConversationRepair(current) || explicitlyRequestsVisit(current)) return false
   if (/\b(?:cita|visita|cancelar|reagendar)\b/.test(message)) return false
+  if (hasFinancingRequest(extracted)) return true
   if (/financ|credito|entidad|banco|cooperativa|pichincha|\bjep\b|jardin azuayo/.test(message) || input.partner || input.unsupported) return true
   if (!/financ|revision|entidad|cedula|ruc|ingreso mensual|cargo actual|empleo actual|relacion de dependencia|nombre completo/.test(previous)) return false
   if (/[?¿]/.test(current)) return false // A question deserves an answer, not the next form field.
@@ -129,7 +132,7 @@ export function isFinancingTurn(extracted: Row, current: string, lastReply: stri
     .some(key => extracted[key] != null) || /^(si|si claro|claro|de acuerdo|si por favor)$/.test(message)
 }
 
-export function financingQuestionReply(current: string, partners: string[], lastReply = '') {
+export function financingQuestionReply(current: string, partners: string[], lastReply = '', extracted: Row = {}) {
   const m = normalized(current)
   void lastReply // Previous answers explain references; they never create a new credit question.
   if (/aprob|garanti|asegur/.test(m) && /credito|financ|prestamo/.test(m)) {
@@ -137,7 +140,7 @@ export function financingQuestionReply(current: string, partners: string[], last
   }
   const asksReviewDetails = /\b(?:requisitos|elegible|elegibilidad|califico|calificar)\b|\bque (?:necesito|necesita|necesitamos|piden|solicitan)\b|\bcomo (?:funciona|es|se hace|puedo saber)\b/.test(m)
     && /credito|financ|prestamo|elegib/.test(m)
-  const reviewDetails = 'Para orientar la revisión de su caso, el equipo puede ayudarle a revisar sus ingresos y capacidad de pago y explicarle los requisitos de la entidad. Le acompañamos en el proceso.'
+  const reviewDetails = 'Podemos explicarle y acompañarle en una revisión preliminar por este chat. Con su autorización y una entidad elegida, los datos iniciales son nombres completos, número de cédula y si trabaja como dependiente o independiente. Después se solicitan los datos laborales e ingresos correspondientes a su situación. El equipo interno revisará su caso y la entidad confirmará sus requisitos y condiciones.'
   if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)) {
     return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos ayudarle a explorar un crédito con ' + partners.join(' o ') + '.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${asksReviewDetails ? ' ' + reviewDetails : ''}`
   }
@@ -145,7 +148,9 @@ export function financingQuestionReply(current: string, partners: string[], last
     return partners.length ? `Trabajamos con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
       : 'El equipo puede ayudarle a comprobar las opciones vigentes. ¿Con qué entidad le gustaría financiarse?'
   }
-  if (asksReviewDetails) return `${partners.length ? 'Podemos explorar opciones con ' + partners.join(' o ') + '. ' : ''}${reviewDetails} ¿Le gustaría que el equipo le ayude a iniciar la revisión de su caso?`
+  if (asksReviewDetails || hasFinancingRequest(extracted)) return partners.length
+    ? `Podemos explorar opciones con ${partners.join(' o ')}. ${reviewDetails}`
+    : 'Todavía no hay una entidad confirmada para iniciar la revisión. Podemos explicar el proceso preliminar, pero las alternativas y los requisitos aplicables deben confirmarse antes de solicitar datos.'
   return ''
 }
 

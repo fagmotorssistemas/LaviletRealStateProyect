@@ -924,7 +924,8 @@ test('a financial shortcut answers map clarification, owned cars and eligibility
   await h.process(h.rows, async () => {})
   const sent = h.calls.find(c => c.name === 'patch').args[2]
   assert.match(sent, /No ofrecemos crédito directo/)
-  assert.match(sent, /ingresos.*capacidad de pago/)
+  assert.match(sent, /nombres completos, número de cédula/)
+  assert.match(sent, /datos laborales e ingresos/)
   assert.match(sent, /estacionamientos/i); assert.match(sent, /cantidad.*depende de la unidad/)
   assert.match(sent, /oficina.*terreno donde se construirá La Vilet/)
   assert.ok(sent.includes(info.proyecto.address)); assert.ok(sent.includes(info.ubicacion))
@@ -1332,7 +1333,7 @@ function conversationHarness(options = {}) {
   const query = table => {
     let checksNewerInput = false
     const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: checksNewerInput ? options.newerInboundCount || 0 : 0 }).then(resolve) } }
-    for (const name of ['update', 'delete', 'select', 'eq', 'match', 'is', 'gt', 'lt', 'in', 'order', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
+    for (const name of ['update', 'delete', 'select', 'eq', 'match', 'is', 'gt', 'lt', 'lte', 'in', 'order', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
     q.gt = column => { checksNewerInput = table === 'lv_integration_events' && column === 'payload->>sentAt'; return q }
     q.update = values => {
       calls.push({ name: 'update:' + table, args: values })
@@ -1421,8 +1422,8 @@ function conversationHarness(options = {}) {
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error(options.mediaFailureCode || 'MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
-        if (options.extractionFails && prompt.startsWith('extractor_eventos')) throw Error('OPENAI_INCOMPLETE')
-        return prompt.startsWith('extractor_eventos') ? { events: [], opt_out: options.optOut === true, ...options.extracted }
+        if (options.extractionFails && prompt.includes('extractor_eventos')) throw Error('OPENAI_INCOMPLETE')
+        return prompt.includes('extractor_eventos') ? { events: [], opt_out: options.optOut === true, ...options.extracted }
           : prompt.startsWith('Clasifique') ? { intent: options.intent || 'question' }
             : prompt === 'revisor_respuesta' ? { aprobada: true } : {}
       } },
@@ -2049,7 +2050,7 @@ test('thanks after a recorded preference closes briefly without scoring, repeati
   h.rows[0].payload.text = 'Perfecto, muchas gracias'
   await h.process([h.rows[0]], async () => {})
   assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Con mucho gusto.')
-  assert.equal(h.calls.filter(c => c.name === 'ai' && c.args.prompt.startsWith('extractor_eventos')).length, 1)
+  assert.equal(h.calls.filter(c => c.name === 'ai' && c.args.prompt.includes('extractor_eventos')).length, 1)
   assert.equal(h.calls.filter(c => c.name === 'lv_intake_visit_once' || (c.name === 'lv_evaluate_message_interest' && c.args.p_events.length > 0)).length, 0)
 })
 test('a second courtesy cannot generate an endless acknowledgement loop', async t => {
@@ -2778,7 +2779,7 @@ test('accepted prose with unusable follow-up does not persist an inferred action
   const next = conversationHarness({ summary: saved, history: [{ role: 'bot', content: reply }] })
   next.rows[0].payload.text = 'Quiero conocer más información'
   await next.process([next.rows[0]], async () => {})
-  const extraction = next.calls.find(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos'))
+  const extraction = next.calls.find(call => call.name === 'ai' && call.args.prompt.includes('extractor_eventos'))
   assert.deepEqual(extraction.args.input.pregunta_pendiente, {})
 })
 
@@ -3067,7 +3068,7 @@ test('an uncertain scope does not discard a grounded apartment price question be
   assert.match(sent.p_content, /310[.,]000/)
   assert.doesNotMatch(sent.p_content, /no alcanc[eé] a entender/i)
   assert.equal(h.calls.some(call => call.name === 'completeTurnReply'), true)
-  const extraction = h.calls.find(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos'))
+  const extraction = h.calls.find(call => call.name === 'ai' && call.args.prompt.includes('extractor_eventos'))
   assert.equal(extraction.args.input.mensaje_accion, current)
   assert.equal(sent.p_tool_calls.interpretation.primary_intent, 'ask_price')
   }
@@ -3264,7 +3265,7 @@ test('a declared origin is confirmed through the shared profile and actual sent 
     assert.match(response, /alguna de estas opciones/, answer)
     assert.doesNotMatch(response, /Mucho gusto|reside actualmente|residencia actual|reside allí|brochure-la-vilet-v5\.pdf/, answer)
     assert.equal(third.calls.some(c => ['process_financing_message_v2', 'lv_collect_visit_intake', 'lv_apply_client_visit_intent', 'handoff_lead'].includes(c.name)), false, answer)
-    const extraction = third.calls.find(c => c.name === 'ai' && c.args.prompt.startsWith('extractor_eventos')).args.input
+    const extraction = third.calls.find(c => c.name === 'ai' && c.args.prompt.includes('extractor_eventos')).args.input
     assert.equal(extraction.pregunta_pendiente.id, 'lead_residence_confirmation', answer)
     assert.equal(extraction.pregunta_pendiente.residence_candidate.city, 'Cuenca', answer)
   }
@@ -3346,7 +3347,7 @@ test('dialogue v2 replays the reported housing conversation with durable filters
     for (const key of ['semantic_extraction', 'catalog_resolution', 'dialogue_decision', 'response_validation', 'message_delivery', 'state_persisted']) assert.ok(keys.includes(key), current + ': ' + key)
     assert.ok(keys.indexOf('semantic_extraction') < keys.indexOf('dialogue_decision'), current)
     assert.equal(trace.find(step => step.step_key === 'message_delivery').output_summary.delivery_confirmed, false)
-    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos')).length, 1, current)
+    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.includes('extractor_eventos')).length, 1, current)
     assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2'].includes(call.name)), false, current)
     summary = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
     if (property.operation === 'rank') assert.deepEqual(summary._property_context.selected_ids, [], current)
@@ -3536,7 +3537,7 @@ test('dialogue v2 interprets brochure and mixed opt-out before any content route
     assert.equal(h.calls.find(call => call.name === 'set_tracking_preference').args.p_consent, false)
     assert.match(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, /no recibir más mensajes/)
     assert.equal(h.calls.some(call => ['handoff_lead', 'lv_evaluate_message_interest', 'process_financing_message_v2', 'completeTurnReply'].includes(call.name)), false)
-    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos')).length, 1)
+    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.includes('extractor_eventos')).length, 1)
   }
 })
 
@@ -3567,7 +3568,7 @@ test('dialogue v2 limits actions to the property clause while honoring global op
     h.rows[0].payload.text = current
     await h.process([h.rows[0]], async () => {})
     assert.equal(h.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2'].includes(call.name)), false, current)
-    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos')).length, 1)
+    assert.equal(h.calls.filter(call => call.name === 'ai' && call.args.prompt.includes('extractor_eventos')).length, 1)
   }
   const h = conversationHarness({ businessScope: { kind: 'mixed', property_message: property, reply: 'No atendemos vuelos.', uncertain: false },
     extracted: { opt_out: true, action_evidence: { opt_out: 'no me contacten más' } } })
@@ -3759,7 +3760,7 @@ test('the delivered pipeline prioritizes evidenced apartment preference over a r
         turn_semantics: extractedProperty(current, { category: 'departamento', excluded_categories: ['penthouse'] }) } })
     h.rows[0].payload.text = current
     await h.process([h.rows[0]], async () => {})
-    const extraction = h.calls.find(call => call.name === 'ai' && call.args.prompt.startsWith('extractor_eventos'))
+    const extraction = h.calls.find(call => call.name === 'ai' && call.args.prompt.includes('extractor_eventos'))
     assert.deepEqual(extraction.args.input.historial_reciente, history)
     assert.equal(extraction.args.input.catalogo_unidades.length, continuityCatalog.length)
     assert.equal(h.calls.find(call => call.name === 'save_lead_declarations').args.p_preferred_category, 'departamento')
@@ -3900,6 +3901,33 @@ test('the reported Ya pero donde followup returns the exact address and map with
   assert.ok(reply.includes(address))
   assert.ok(reply.includes(map))
   assert.equal(h.calls.some(c => ['lv_collect_visit_intake', 'lv_client_select_visit_option', 'lv_apply_client_visit_intent'].includes(c.name)), false)
+})
+
+test('recorded financing questions use semantic intent and explain internal intake without opening an application', async t => {
+  live(t)
+  for (const [current, alreadyInvited] of [
+    ['tiene finaciamiento porque dispobngo de 100', false],
+    ['y que datos necesitara para hacer esta revision??', true],
+  ]) {
+    const h = conversationHarness({ financeContext: contextualInfo().financiamiento,
+      summary: alreadyInvited ? { _lead_introduction: { status: 'complete', collection_status: 'deferred',
+        requested_fields: ['full_name', 'residence'] } } : {},
+      history: [{ role: 'bot', content: alreadyInvited ? 'Podemos explicar cómo funciona la revisión.' : '¿En qué podemos ayudarle?' }],
+      extracted: { events: ['asked_financing'], requests: [{ request: current, domain: 'financing', evidence: current, confidence: 'high' }],
+        turn_semantics: { primary_intent: 'ask_financing', primary_evidence: current, confidence: 'high' } } })
+    h.rows[0].payload.text = current
+    const result = await h.process([h.rows[0]], async () => {}).catch(error => { throw error.original || error })
+    assert.equal(result.source, 'financing_question', JSON.stringify({ result, calls: h.calls.map(c => c.name) }))
+    const sent = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
+    assert.match(sent, /nombres completos, número de cédula/)
+    assert.match(sent, /dependiente o independiente/)
+    assert.doesNotMatch(sent, /declaraciones de impuestos|historial laboral|activos|¿.*asesor/)
+    if (alreadyInvited) assert.doesNotMatch(sent, /reside actualmente/)
+    else assert.match(sent, /su nombre.*reside actualmente/)
+    assert.equal(h.calls.some(c => ['process_financing_message_v2', 'handoff_lead', 'lv_collect_visit_intake'].includes(c.name)), false)
+    assert.equal(h.calls.filter(c => c.name === 'completeTurnReply').length, 1)
+    assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
+  }
 })
 
 test('a house budget, floors and direct credit are clarified together before any application', async t => {

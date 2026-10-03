@@ -9,6 +9,8 @@ import { effectiveTurnBudget, turnBudgetAssessment } from './turn-budget'
 import { financingInputs } from './financing'
 import { sanitizeTraceSummary } from './trace-summary'
 import { OpenAIRequestError } from './openai-request'
+import { turnEvidence } from './turn-evidence'
+import { FINANCING_PROCESS_RULES, financingCollectionActive } from './financing-guidance'
 
 const budget = { status: 'amount', amount: 100000, confidence: 'high', evidence: 'perdon 100000' }
 const units = [{ id: 'local-1', unit_number: 'L1', category: 'local', published_commercial_price: 145000, is_published: true, status: 'disponible' },
@@ -117,6 +119,63 @@ test('ranges and strict comparisons retain their meaning including the published
   assert.equal(validateBusinessFacts([range], units, [group], budget)[0].status, 'verified')
   assert.equal(validateBusinessFacts([{ ...range, relation: 'gt', upper_value: null }], units, [group], budget)[0].status, 'contradiction')
   assert.equal(validateBusinessFacts([{ ...range, relation: 'gte', upper_value: null }], units, [group], budget)[0].status, 'verified')
+})
+
+test('affordable subset ranges validate against their own members while global and wrong prices still contradict', async () => {
+  const catalog = [145000, 195000, 535000].map((price, index) => ({ ...units[0],
+    id: `local-${index}`, unit_number: `L${index}`, published_commercial_price: price }))
+  const context = { ...verified, catalogo: catalog, hechos_confirmados: { budget: { ...budget, amount: 200000 } } }
+  const assessment = turnBudgetAssessment(context, {})
+  const evidence = turnEvidence({ ...context, presupuesto_del_turno: assessment })
+  const subsetId = 'group:budget_matching:local:range'
+  const subset = evidence.groups.find(group => group.id === subsetId)!
+  assert.deepEqual(subset.member_ids, ['local-0', 'local-1'])
+  const range = { ...fact('catalog_value', 145000, subsetId, 'Dentro de su presupuesto hay locales de 145000 a 195000.'),
+    relation: 'range', upper_value: 195000 }
+  assert.equal(validateBusinessFacts([range], evidence.units, evidence.groups, budget)[0].status, 'verified')
+  assert.equal(validateBusinessFacts([{ ...range, subject_id: 'group:local:all:range' }], evidence.units, evidence.groups, budget)[0].status, 'contradiction')
+  assert.equal(validateBusinessFacts([{ ...range, upper_value: 190000 }], evidence.units, evidence.groups, budget)[0].status, 'contradiction')
+  const tasks: string[] = []
+  const draft = 'Dentro de su presupuesto hay locales disponibles en catálogo de $145,000 a $195,000; son precios referenciales de lanzamiento y pueden variar.'
+  const result = await completeTurnReply({ current: '¿Qué locales me alcanzan?', baseReply: draft, verified: context, audit },
+    async (_rules, raw, _schema, _image, _file, _tone, task) => {
+      tasks.push(task || '')
+      if (task === 'writing') return { reply: draft, question: noQuestion,
+        requests: [{ fragment: 'R1', intent: 'Locales dentro del presupuesto', request_type: 'specific_fact', status: 'answered', evidence: draft, fact_key: 'price' }] }
+      const sources = object(object(raw).fuentes_autorizadas)
+      assert.ok((sources.grupos as Row[]).some(group => group.id === subsetId))
+      return { ...pass, facts: [range] }
+    })
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, draft)
+  assert.deepEqual(tasks, ['writing', 'review'])
+})
+
+test('financing requirements reach writer and reviewer without confusing explanation and collection', async () => {
+  for (const state of ['identificacion_pendiente', 'nombre_pendiente', 'cedula_pendiente', 'tipo_solicitante_pendiente',
+    'estabilidad_pendiente', 'cargo_pendiente', 'ingreso_pendiente', 'ruc_pendiente']) {
+    assert.equal(financingCollectionActive({ source: 'financing', state }), true)
+  }
+  for (const source of ['financing_question', 'financing_selection_required', 'financing']) {
+    for (const state of ['', 'continuacion_pendiente', 'entidad_pendiente', 'lista_para_revision']) {
+      assert.equal(financingCollectionActive({ source, state }), false)
+    }
+  }
+  const draft = 'Con su autorización y la entidad elegida, necesitamos nombres completos, número de cédula y saber si trabaja como dependiente o independiente. La entidad decide la aprobación.'
+  const calls: string[] = []
+  const result = await completeTurnReply({ current: 'y que datos necesitara para hacer esta revision??', baseReply: draft,
+    verified: { financiamiento: verified.financiamiento }, audit: { ...audit, source: 'financing_question' } },
+    async (rules, _input, _schema, _image, _file, _tone, task) => {
+      calls.push(task || '')
+      assert.ok(String(rules).includes(FINANCING_PROCESS_RULES.trim()), task)
+      assert.doesNotMatch(String(rules), /En recopilación de datos financieros, pida directamente/)
+      if (task === 'review') return { ...pass, facts: [] }
+      return { reply: draft, question: noQuestion, requests: [{ fragment: 'R1', intent: 'Requisitos de revisión interna',
+        request_type: 'specific_fact', status: 'answered', evidence: draft, fact_key: null }] }
+    })
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.equal(result.reply, draft)
+  assert.deepEqual(calls, ['writing', 'review'])
 })
 
 test('a new or ambiguous budget supersedes the remembered budget; no new amount preserves it', () => {

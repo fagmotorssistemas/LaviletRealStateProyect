@@ -79,19 +79,37 @@ test('direct credit and eligibility in one turn both receive an answer without a
   const reply = financingQuestionReply(message, context.partners)
   assert.match(reply, /No ofrecemos crédito directo/)
   assert.match(reply, /Banco Pichincha.*Cooperativa JEP/)
-  assert.match(reply, /ingresos y capacidad de pago/)
-  assert.match(reply, /requisitos de la entidad/)
-  assert.doesNotMatch(reply, /aprobado|aprobación garantizada|ya enviamos|cédula|estados de cuenta/)
+  assert.match(reply, /nombres completos, número de cédula/)
+  assert.match(reply, /dependiente o independiente/)
+  assert.match(reply, /entidad confirmará sus requisitos/)
+  assert.doesNotMatch(reply, /aprobado|aprobación garantizada|ya enviamos|estados de cuenta/)
 })
 
-test('questions about the process offer a next step without collecting identifiers before consent', () => {
+test('questions explain internal requirements without requesting identifiers or consent by default', () => {
   for (const message of ['¿Qué necesito para un crédito?', '¿Cómo funciona el financiamiento?', '¿Cómo puedo saber si soy elegible?']) {
     const reply = financingQuestionReply(message, context.partners)
-    assert.match(reply, /ingresos y capacidad de pago/)
-    assert.match(reply, /iniciar la revisión/)
-    assert.doesNotMatch(reply, /indica.*cédula|envíe.*documentos|está aprobado/)
+    assert.match(reply, /Con su autorización y una entidad elegida/)
+    assert.match(reply, /nombres completos, número de cédula/)
+    assert.match(reply, /datos laborales e ingresos/)
+    assert.doesNotMatch(reply, /indica.*cédula|envíe.*documentos|está aprobado|¿.*asesor|¿.*inici/)
     assert.equal(financingInputs({}, 'Sí, quisiera hacer la prueba con JEP', reply, context).consent, true)
   }
+})
+
+test('grounded financing intent routes spelling errors and contextual questions without authorizing an application', () => {
+  for (const message of ['tiene finaciamiento porque dispobngo de 100', 'y que datos necesitara para hacer esta revision??']) {
+    const extracted = { turn_semantics: { primary_intent: 'ask_financing', confidence: 'high' } }
+    const input = financingInputs(extracted, message, offer, context)
+    assert.equal(isFinancingTurn(extracted, message, offer, input), true)
+    assert.notEqual(input.consent, true)
+    assert.match(financingQuestionReply(message, context.partners, offer, extracted), /nombres completos, número de cédula/)
+  }
+  const extracted = { turn_semantics: { primary_intent: 'answer_previous', confidence: 'high',
+    requests: [{ domain: 'financing', confidence: 'high' }] } }
+  assert.notEqual(financingQuestionReply('y qué datos se necesitan?', context.partners, offer, extracted), '')
+  assert.equal(isFinancingTurn({ ...extracted, requested_advisor: true }, 'Quiero un asesor', offer, {}), false)
+  assert.equal(isFinancingTurn({ ...extracted, opt_out: true }, 'No me escriban', offer, {}), false)
+  assert.equal(financingQuestionReply('Qué datos necesitan?', [], offer, extracted).includes('número de cédula'), false)
 })
 
 test('an approval guarantee question and unrelated commercial questions keep their separate meaning', () => {

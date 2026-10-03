@@ -56,6 +56,17 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   for (const category of new Set(units.map(unit => text(unit.category)).filter(Boolean))) {
     addGroup(`${category}:all`, units.filter(unit => text(unit.category) === category), { category, bedrooms_filter: null })
   }
+  // A range within the lead's budget has a different domain from the whole
+  // category. Membership comes from the current assessment, never AI text.
+  const budget = object(verified.presupuesto_del_turno)
+  const matchingIds = new Set(Array.isArray(budget.matching_unit_ids) ? budget.matching_unit_ids : [])
+  const matching = units.filter(unit => matchingIds.has(unit.id))
+  const budgetScope = { source_scope: 'budget_matching', budget_amount: budget.amount,
+    complete_for_query: budget.price_evidence_complete === true }
+  addGroup('budget_matching:all', matching, { ...budgetScope, category: null })
+  for (const category of new Set(matching.map(unit => text(unit.category)).filter(Boolean))) {
+    addGroup(`budget_matching:${category}`, matching.filter(unit => unit.category === category), { ...budgetScope, category })
+  }
   // Supplied only by this turn's freshly recomputed authorized price quote, not
   // by reviewer metadata or a remembered quote. Unpriced and unavailable units
   // elsewhere in the catalogue must not erase these valid scoped endpoints.

@@ -27,6 +27,7 @@ import { BUSINESS_POLICY_RULES } from '@/lib/inmobiliaria/businessPolicies'
 import { promptSections } from './prompt-sections'
 import { ACTION_INVITATION_RULE } from './direct-conversation-rule'
 import { FINANCING_COLLECTION_RULE } from './financing-continuation'
+import { financingCollectionActive } from './financing-guidance'
 import { UNIT_ALTERNATIVE_RULES } from './unit-alternatives'
 import { replyQuestionText } from './reply-question'
 import { progressiveQuestionObservations, PROGRESSIVE_OPTIONS_RULES } from './progressive-options'
@@ -504,7 +505,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Continuidad residencial', RESIDENTIAL_CONTINUITY_RULES],
       ['Alternativas de inmuebles', !!(input.audit?.alternative_results || input.audit?.alternative_presentation
         || /alternative/.test(text(input.audit?.source))) && UNIT_ALTERNATIVE_RULES],
-      ['Recopilación financiera', /^financing_/.test(text(input.audit?.source)) && FINANCING_COLLECTION_RULE],
+      ['Recopilación financiera', financingCollectionActive(input.audit || {}) && FINANCING_COLLECTION_RULE],
       ['Resultados vacíos de catálogo', 'Si una búsqueda completa no tiene resultados, explique esa ausencia dentro de sus filtros. No invente una unidad para justificarla. Si bedrooms_required=true, respete ese requisito: no insista en unidades con menos dormitorios que el cliente acaba de descartar. No afirme máximos ni alternativas que no estén respaldados por evidencia_turno.groups o alternative_results. No ofrezca propiedades fuera del catálogo autorizado.'],
     ]),
       compactTurnPromptContext({ ...writerContext, ...(attempt ? { reparacion: {

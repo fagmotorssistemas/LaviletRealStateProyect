@@ -702,7 +702,8 @@ test('final writer receives a route-specific contract for information, price and
     const result = await completeTurnReply({ current: 'Quiero conocer las opciones', baseReply, verified, audit: { source, ...extra } }, mock.generate)
     const contract = mock.calls[0][1].contrato_redaccion
     assert.equal(contract.ruta, source)
-    assert.equal(contract.decisiones_protegidas, source === 'financing_question')
+    // Explaining financing is information, not a consented operational step.
+    assert.equal(contract.decisiones_protegidas, false)
     assert.deepEqual(result.audit.writer_contract, contract)
     assert.equal(result.reply, baseReply)
     if (source === 'project_overview') {
