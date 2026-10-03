@@ -56,6 +56,7 @@ consultas_pendientes conserva mensajes sin respuesta: current_request incluye su
 
 Use unidades, grupos y presupuesto_del_turno para precios y comparaciones; hechos_con_cantidades no es la única fuente. Consulte todas las fuentes pertinentes antes de declarar falta de respaldo. Una política de reserva regula solicitudes o confirmaciones de reserva, no convierte una comparación en reserva ni obliga a derivar consultas de precios. Respete el alcance de cada política y los filtros de la búsqueda. El historial y el propio borrador no demuestran hechos actuales del negocio.
 Evalúe las comparaciones dentro del conjunto que afirma el borrador. Un rango de opciones dentro del presupuesto corresponde a los miembros de budget_matching, no al catálogo completo. «Algunas opciones» o ejemplos no afirman un máximo de todo el proyecto. Un rango global sí debe cubrir todo su grupo. Identifique una contradicción en ese mismo alcance antes de bloquear.
+Si estado_del_turno.alcance_catalogo.kind=semantic_candidates, las unidades son una selección parcial por similitud. Sus grupos solo describen esa selección; no acreditan totales, extremos ni ausencia de otras opciones en el proyecto. La similitud no certifica características: compruébelas en los campos actuales de cada unidad, incluidos spaces y description.
 Describir una unidad como disponible en el catálogo autorizado del turno no confirma una reserva, garantiza que seguirá libre ni acredita asignación al cliente. Una prohibición de garantizar disponibilidad no impide informar el estado publicado. Una unidad ausente de una búsqueda no se vuelve disponible por esta regla; respete las fuentes y cualquier restricción comercial explícita aplicable.
 
 # Criterios excluidos
@@ -86,7 +87,7 @@ export function businessRiskContext(input: {
   projectFacts: Row[]; claimSources: Row[]; verified: Row; audit: Row; allowedLinks: string[];
 }): Row {
   const sourceFields = ['id', 'unit_number', 'category', 'bedrooms', 'bathrooms_full', 'area_internal_m2',
-    'area_exterior_m2', 'floor_number', 'published_commercial_price', 'availability_status', 'status', 'is_published']
+    'area_exterior_m2', 'floor_number', 'floor', 'spaces', 'description', 'published_commercial_price', 'availability_status', 'status', 'is_published']
   const pick = (row: Row) => Object.fromEntries(sourceFields.filter(key => row[key] != null && row[key] !== '')
     .map(key => [key, row[key]]))
   const groups = input.groups.map(group => {
@@ -112,6 +113,7 @@ export function businessRiskContext(input: {
     },
     estado_del_turno: {
       consulta_catalogo: input.audit.catalog_query || null,
+      alcance_catalogo: input.verified.catalog_context_scope || null,
       cobertura_catalogo: input.audit.catalog_coverage || null,
       resultado_catalogo: { complete: object(input.audit.catalog_results).complete,
         unit_ids: object(input.audit.catalog_results).unit_ids },

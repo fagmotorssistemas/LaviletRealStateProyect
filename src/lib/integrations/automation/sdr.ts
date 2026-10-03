@@ -41,6 +41,9 @@ import { resolvePropertyTurn } from './property-context'
 import { catalogDialogueReply } from './catalog-dialogue'
 import { preferenceOptionsReply } from './progressive-options'
 import { confirmedLeadProfile } from './lead-profile'
+import { catalogSearchSettings } from '@/lib/inmobiliaria/catalogSearch'
+import { retrieveCatalogByEmbeddings, semanticCatalogScope } from './catalog-embeddings'
+import { recordCatalogRetrieval } from './ai-execution-trace'
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -105,6 +108,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     politica_financiera: { credito_directo: false,
       informacion_bancaria_verificada: 'No hay información verificada sobre aceptación o rechazo de arriendos futuros como respaldo. Esto NO es una prohibición del proyecto. Mencione esa incertidumbre solo si el cliente pregunta específicamente por ese respaldo.' },
     catalogo: catalog, catalog_read: { complete: units.length < 100, scope: 'published_available_project_units' },
+    catalog_search: catalogSearchSettings(projectData.policies_json),
     instalaciones: amenities, lugares_cercanos: places, contexto_sector: areaFacts,
     condiciones_instalaciones: 'El catálogo describe instalaciones, pero no contiene condiciones verificadas sobre cuotas de condominio, membresías o pagos por usarlas. No deducir gratuidad ni pagos adicionales de su existencia. Si preguntan esos costos o condiciones, debe verificarlos el equipo.',
     horario_atencion: settings.business_hours,
@@ -121,6 +125,17 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (!text(object(info.referencia_unidad).reason)) {
     const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
     info = { ...info, referencia_unidad: reference, property_context: reference.context }
+  }
+  if (object(info.catalog_search).embeddingsEnabled === true) {
+    await guard()
+    const retrieval = await retrieveCatalogByEmbeddings(info, current)
+    recordCatalogRetrieval(retrieval.audit)
+    if (retrieval.units) {
+      const selectedInfo = { ...info, catalogo: retrieval.units, catalog_retrieval: retrieval.audit,
+        catalog_context_scope: semanticCatalogScope(retrieval.audit) }
+      const answer = catalogDialogueReply(selectedInfo, current)
+      if (answer) return answer
+    }
   }
   const preferenceAnswer = preferenceOptionsReply(info)
   if (preferenceAnswer) return preferenceAnswer

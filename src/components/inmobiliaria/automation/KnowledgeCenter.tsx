@@ -6,11 +6,13 @@ import { AutomationSettingsHeader, automationSettingsStyles as shared } from './
 import { KnowledgeNavigation } from './KnowledgeNavigation'
 import { KNOWLEDGE_SECTIONS } from '@/lib/inmobiliaria/knowledgeSections'
 import { POLICY_TOPICS, emptyPolicy, type BusinessPolicyState, type PolicyContent } from '@/lib/inmobiliaria/businessPolicies'
-import { saveBusinessPolicy } from '@/app/inmobiliaria/automatizacion/conocimiento/actions'
+import { saveBusinessPolicy, saveCatalogSearch } from '@/app/inmobiliaria/automatizacion/conocimiento/actions'
+import type { CatalogSearchSettings } from '@/lib/inmobiliaria/catalogSearch'
+import { CatalogSearchControl } from './CatalogSearchControl'
 import styles from './KnowledgeCenter.module.css'
 
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-type Initial = { projectName: string; updatedAt: string; state: BusinessPolicyState }
+type Initial = { projectName: string; updatedAt: string; state: BusinessPolicyState; catalogSearch: CatalogSearchSettings }
 export function KnowledgeCenter({ projectId, initial, section, policyId }: {
   projectId: string; initial: Initial; section?: string; policyId?: string
 }) {
@@ -20,6 +22,18 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
   const [draft, setDraft] = useState<PolicyContent>(selected?.draft || emptyPolicy())
   const [query, setQuery] = useState(''), [busy, setBusy] = useState(false)
   const [error, setError] = useState(''), [notice, setNotice] = useState('')
+  const [searchError, setSearchError] = useState(''), [searchNotice, setSearchNotice] = useState('')
+  const toggleSearch = async () => {
+    setBusy(true); setSearchError(''); setSearchNotice('')
+    try {
+      const result = await saveCatalogSearch(projectId, !saved.catalogSearch.embeddingsEnabled, saved.updatedAt)
+      setSaved(old => ({ ...old, ...result }))
+      setSearchNotice(result.catalogSearch.embeddingsEnabled
+        ? 'Activada para las próximas consultas compatibles. Si no hay resultados fiables se utiliza la búsqueda actual.'
+        : 'Desactivada. Las próximas consultas utilizarán la búsqueda anterior.')
+    } catch (cause) { setSearchError(cause instanceof Error ? cause.message : 'No se pudo guardar.') }
+    finally { setBusy(false) }
+  }
   const active = KNOWLEDGE_SECTIONS.find(item => item.id === section) || KNOWLEDGE_SECTIONS[0]
   const found = saved.state.items.find(item => item.id === editing)
   const search = normalize(query.trim())
@@ -45,6 +59,8 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
     <AutomationSettingsHeader active="conocimiento" title="Conocimiento y reglas"
       description="Administre la información, las condiciones comerciales y las reglas que utiliza el asistente."
       project={<span>{saved.projectName}</span>} />
+    <CatalogSearchControl enabled={saved.catalogSearch.embeddingsEnabled} busy={busy}
+      error={searchError} notice={searchNotice} onToggle={() => void toggleSearch()} />
     <KnowledgeNavigation active={active.id} />
     <div className={styles.toolbar}>
       <input type="search" aria-label="Buscar conocimiento y reglas" placeholder="Buscar políticas, precios, preguntas, visitas…" value={query} onChange={e => setQuery(e.target.value)} />

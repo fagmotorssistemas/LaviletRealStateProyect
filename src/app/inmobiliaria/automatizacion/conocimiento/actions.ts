@@ -2,6 +2,7 @@
 
 import { assertAdmin, getSessionUser } from '@/lib/auth/session'
 import { businessPolicies, changeBusinessPolicy, type PolicyCommand } from '@/lib/inmobiliaria/businessPolicies'
+import { catalogSearchSettings, changeCatalogSearch } from '@/lib/inmobiliaria/catalogSearch'
 
 async function access(projectId: string) {
   const session = await assertAdmin()
@@ -14,7 +15,18 @@ async function access(projectId: string) {
 }
 export async function loadBusinessPolicies(projectId: string) {
   const { project } = await access(projectId)
-  return { projectName: project.name as string, updatedAt: project.updated_at as string, state: businessPolicies(project.policies_json) }
+  return { projectName: project.name as string, updatedAt: project.updated_at as string, state: businessPolicies(project.policies_json), catalogSearch: catalogSearchSettings(project.policies_json) }
+}
+export async function saveCatalogSearch(projectId: string, enabled: boolean, expectedUpdatedAt: string) {
+  const { supabase, project, user } = await access(projectId)
+  if (project.updated_at !== expectedUpdatedAt) throw Error('La configuración cambió. Recargue la página antes de guardar para conservar los cambios de otros usuarios.')
+  const now = new Date().toISOString()
+  const policies = changeCatalogSearch(project.policies_json, enabled, user.id, now)
+  const { data, error } = await supabase.from('projects').update({ policies_json: policies, updated_at: now })
+    .eq('id', project.id).eq('tenant_id', project.tenant_id).eq('updated_at', expectedUpdatedAt).select('updated_at')
+  if (error) throw Error('No se pudo guardar la búsqueda del catálogo. Intente nuevamente.')
+  if (data?.length !== 1) throw Error('La configuración cambió. Recargue la página antes de guardar.')
+  return { updatedAt: data[0].updated_at as string, catalogSearch: catalogSearchSettings(policies) }
 }
 export async function saveBusinessPolicy(projectId: string, command: PolicyCommand, expectedUpdatedAt: string) {
   const { supabase, project, user } = await access(projectId)

@@ -6,6 +6,9 @@
 .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
 .card, .editor { background:white; border:1px solid #dce3d7; border-radius:12px; padding:22px; }
 .card { display:flex; flex-direction:column; gap:12px; }
+.searchControl { margin: 0 0 20px; }
+.searchControl .buttons { align-items:center; margin-top:0; }
+.searchControl .buttons span { font-size:14px; color:#496241; }
 .card h2,.editor h2 { font-size:19px; color:#26372d; font-weight:600; }
 .card p,.editor p,.description { color:#60705a; line-height:1.6; font-size:14px; }
 .card a { color:#365932; text-underline-offset:4px; margin-top:auto; }

@@ -315,6 +315,17 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     pending_question: { id: 'none', act: 'other', question: '', target_ids: [], candidate_ids: [] } }
   const respond = (reply: string, audit: Row = {}) => ({ reply, audit: { ...baseAudit, ...audit } })
   const question = (id: string, act: string, value: string, targets: Row[] = [], candidatesForQuestion = units) => ({ id, act, question: value, target_ids: unitIds(targets), candidate_ids: unitIds(candidatesForQuestion) })
+  if (query.operation === 'search' && object(info.catalog_retrieval).applied === true && units.length) {
+    const next = '¿Cuál de estas opciones le gustaría revisar?'
+    // A similarity score never certifies a feature or an exhaustive result.
+    const presentation = units.map(unit => `${label(unit)}: ${details(unit)}.`).join('\n')
+    return respond(`Estas son algunas opciones para revisar:\n${presentation}\n${next}`, {
+      catalog_retrieval: info.catalog_retrieval,
+      catalog_context_scope: info.catalog_context_scope,
+      catalog_results: { ...object(baseAudit.catalog_results), complete: false, selection: 'semantic_candidates' },
+      offered_unit_ids: unitIds(units), pending_question: question('unit_choice', 'choose_unit', next),
+    })
+  }
   if ((query.operation === 'compare' && (units.length < 2 || missingIds.length > 0 || reference.needsClarification === true))
     || ['details', 'select'].includes(query.operation) && (!units.length || missingIds.length > 0)) {
     const next = text(reference.clarification) || (query.operation === 'compare'

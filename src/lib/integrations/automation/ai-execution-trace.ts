@@ -11,6 +11,11 @@ type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: num
   input_tokens_details?: { cached_tokens?: number }; output_tokens_details?: { reasoning_tokens?: number } }
 const active = new AsyncLocalStorage<Context>()
 
+export function recordCatalogRetrieval(result: Record<string, unknown>) {
+  active.getStore()?.trace.add('catalog_embedding_search', 'Búsqueda de unidades por embeddings', 'decision',
+    'catalog-embeddings.ts', 'succeeded', { enabled: result.enabled }, result)
+}
+
 /** Diagnostic only: records an already computed decision, never evaluates or
  * changes business rules. The parent links it to the response being prepared. */
 export function recordBudgetDecision(assessment: Record<string, unknown>) {

@@ -1109,6 +1109,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, propuestas: proposals,
           final_review_follows: true,
           contrato_turno: turnIntent,
+          consultas_pendientes: pendingInputs,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
           referencia_unidad:reference, property_context: reference.context, semantica_turno: turnSemantics, archivos_no_leidos:inbound.mediaErrors,
           modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true, modelo_especifico_disponible: model.model_available, texto_de_entrega: model.caption } : null }
@@ -1272,6 +1273,16 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       catalogo_verificacion: commercialInfo.catalogo,
       ...(audit.verified_catalog === true ? {
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
+    if (object(audit.catalog_retrieval).applied === true) {
+      // Both writer and reviewer receive the same fresh partial selection.
+      // Do not silently re-expand it through comparison evidence.
+      info.catalogo_verificacion = info.catalogo
+      info.catalog_context_scope = audit.catalog_context_scope
+      info.catalog_retrieval = audit.catalog_retrieval
+      info.catalog_read = { complete: false, scope: 'semantic_candidates' }
+      const ids = new Set((Array.isArray(info.catalogo) ? info.catalogo : []).map(unit => object(unit).id))
+      info.referencia_unidad = { ...object(info.referencia_unidad), matches: (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).filter(unit => ids.has(object(unit).id)) }
+    }
     // The map URL is not a suggestion the writer may add opportunistically.
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)
@@ -1350,6 +1361,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       progressive_selection: audit.progressive_selection, post_tour_continuation: audit.post_tour_continuation,
       commercial_continuation: reviewed.audit.commercial_continuation,
       follow_up: reviewed.audit.follow_up, catalog_context_scope: reviewed.audit.catalog_context_scope,
+      catalog_retrieval: audit.catalog_retrieval,
       text_transformations: reviewed.audit.text_transformations,
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
       price_evidence: reviewed.audit.price_evidence,
