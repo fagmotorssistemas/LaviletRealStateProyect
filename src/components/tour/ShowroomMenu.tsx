@@ -83,7 +83,7 @@ function statusTone(status: string) {
   if (key.includes('vend')) return 'bg-[#ece7e1] text-[#6d645b]'
   return 'bg-[#efe8dc] text-[#756044]'
 }
-export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,onAmenities,onClosePanels,root,hideWebReturn=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean}){
+export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,onAmenities,onClosePanels,root,hideWebReturn=false,hidden=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean;hidden?:boolean}){
  const [content,setContent]=useState(false)
  const [open,setOpen]=useState(false),[section,setSection]=useState<Section>('home')
  const {locale:lang,setLocale:setLang,t:translate}=useTourLanguage()
@@ -105,6 +105,7 @@ export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,
  const go=(next:Section)=>{setShare(null);setNotice('');if(next==='amenities'){onAmenities();close();return}if(next==='contact'){router.push('/ubicanos');close();return}setContent(true);setSection(next);if(next==='units'||next==='shops'||next==='tour')setFilters(emptyUnitFilters);if(next==='home'){onHome();close()}else onClosePanels()}
  async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else if(root.current?.requestFullscreen)await root.current.requestFullscreen();else setNotice(t('Este navegador no permite pantalla completa.','Fullscreen is unavailable in this browser.'))}catch{setNotice(t('No se pudo cambiar a pantalla completa.','Fullscreen could not be changed.'))}}
  const fields=[['floor',t('Piso','Floor')],['bedrooms',t('Dormitorios','Bedrooms')],['category',t('Tipo','Type')],['status',t('Disponibilidad','Availability')]] as const
+ if (hidden) return null
  return <>
   <div role="toolbar" aria-label="Controles del showroom" data-showroom-toolbar className="absolute inset-x-0 top-0 z-[90] flex h-[calc(4rem+env(safe-area-inset-top))] items-center gap-2 bg-transparent px-3 pt-[env(safe-area-inset-top)] text-[#f7f3ee] [text-shadow:0_1px_3px_rgba(20,17,14,0.85)] sm:px-5">
    <button ref={button} type="button" data-showroom-menu aria-label={t('Abrir menú del showroom','Open showroom menu')} aria-expanded={open} onClick={()=>{onClosePanels();setContent(false);setShare(null);setNotice('');setOpen(true)}} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-0 text-[#f7f3ee]"><Menu size={20}/></button>

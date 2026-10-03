@@ -5,7 +5,7 @@ import { CmafVideo } from '@/components/media/CmafVideo'
 import { TourLocaleProvider, useTourLanguage } from '@/lib/tour/tourLocale'
 import { translateTourText, type TourLocale } from '@/lib/tour/tourMessages'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type SyntheticEvent } from 'react'
 import { Cache, CONSTANTS, Viewer, events } from '@photo-sphere-viewer/core'
 import { GyroscopePlugin } from '@photo-sphere-viewer/gyroscope-plugin'
 import { MarkersPlugin, events as markerEvents } from '@photo-sphere-viewer/markers-plugin'
@@ -153,18 +153,91 @@ function CrossfadeStill({
   alt,
   contain = false,
   fit = 'vistas',
+  lateralPan = false,
+  onStep,
 }: {
   url: string | null
   alt: string
   contain?: boolean
   fit?: 'vistas' | 'planos'
+  lateralPan?: boolean
+  onStep?: (dir: 1 | -1) => void
 }) {
   const { t } = useTourLanguage()
   const { aRef, bRef, front, assigned } = useDualBuffer(url)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [portrait, setPortrait] = useState(false)
+  const [aspect, setAspect] = useState(1.6)
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  const [pan, setPan] = useState(0)
+  const panRef = useRef(0)
+  panRef.current = pan
+  const dragRef = useRef<{ x: number; pan: number; moved: boolean; over: number } | null>(null)
+  const active = lateralPan && portrait && !contain
+  const maxPan = active ? Math.max(0, (box.h * aspect - box.w) / 2) : 0
 
   useEffect(() => {
     void preloadStill(url)
+    setPan(0)
   }, [url])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
+    const sync = () => setPortrait(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const sync = () => {
+      const rect = el.getBoundingClientRect()
+      setBox({ w: rect.width, h: rect.height })
+    }
+    sync()
+    const obs = new ResizeObserver(sync)
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [assigned.a, assigned.b])
+
+  const onLoad = (event: SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      setAspect(img.naturalWidth / img.naturalHeight)
+    }
+  }
+
+  const position = maxPan > 0 ? `${50 - (pan / maxPan) * 50}% center` : 'center'
+
+  const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!active) return
+    event.stopPropagation()
+    dragRef.current = { x: event.clientX, pan: panRef.current, moved: false, over: 0 }
+  }
+
+  const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const dx = event.clientX - drag.x
+    if (!drag.moved && Math.abs(dx) < 8 && Math.abs(event.movementY) < 8) return
+    drag.moved = true
+    const raw = drag.pan + dx
+    const limit = Math.max(0, maxPan)
+    const next = Math.max(-limit, Math.min(limit, raw))
+    drag.over = raw - next
+    panRef.current = next
+    setPan(next)
+  }
+
+  const onUp = () => {
+    const drag = dragRef.current
+    dragRef.current = null
+    if (!drag?.moved) return
+    if (drag.over > 48) onStep?.(-1)
+    else if (drag.over < -48) onStep?.(1)
+  }
 
   if (!assigned.a && !assigned.b) return null
 
@@ -193,6 +266,8 @@ function CrossfadeStill({
             draggable={false}
             decoding="async"
             fetchPriority={front === slot ? 'high' : 'low'}
+            onLoad={front === slot ? onLoad : undefined}
+            style={active ? { objectPosition: position } : undefined}
             className={cn(
               contain
                 ? 'h-full w-full object-contain object-center'
@@ -205,9 +280,121 @@ function CrossfadeStill({
   }
 
   return (
-    <div className="absolute inset-0 overflow-hidden bg-[#111]">
+    <div
+      ref={rootRef}
+      data-still-pan={active ? pan.toFixed(1) : undefined}
+      data-still-pan-max={active ? maxPan.toFixed(1) : undefined}
+      className={cn('absolute inset-0 overflow-hidden bg-[#111]', active && 'touch-none')}
+      style={active ? { touchAction: 'none' } : undefined}
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
+    >
       {frame('a', aRef)}
       {frame('b', bRef)}
+    </div>
+  )
+}
+
+const ENTRY_VIDEO_ASPECT = 1280 / 610
+
+function EntryLateral({ active, children }: { active: boolean; children: ReactNode }) {
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [portrait, setPortrait] = useState(false)
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  const [pan, setPan] = useState(0)
+  const panRef = useRef(0)
+  const draggedRef = useRef(false)
+  const dragRef = useRef<{ x: number; pan: number; moved: boolean } | null>(null)
+  const max = Math.max(0, (size.h * ENTRY_VIDEO_ASPECT - size.w) / 2)
+  const live = active && portrait
+
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
+    const sync = () => setPortrait(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const sync = () => {
+      const rect = el.getBoundingClientRect()
+      setSize({ w: rect.width, h: rect.height })
+    }
+    sync()
+    const obs = new ResizeObserver(sync)
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [live])
+
+  useEffect(() => {
+    if (!live || max < 8 || draggedRef.current) return
+    const from = max
+    const to = -max
+    const started = performance.now()
+    panRef.current = from
+    setPan(from)
+    let raf = 0
+    const tick = (now: number) => {
+      if (draggedRef.current) return
+      const t = Math.min(1, (now - started) / 8000)
+      const next = from + (to - from) * t
+      panRef.current = next
+      setPan(next)
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [live, max])
+
+  const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!live || event.pointerType === 'mouse') return
+    draggedRef.current = true
+    dragRef.current = { x: event.clientX, pan: panRef.current, moved: false }
+  }
+  const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const dx = event.clientX - drag.x
+    if (!drag.moved && Math.abs(dx) < 8) return
+    drag.moved = true
+    const next = Math.max(-max, Math.min(max, drag.pan + dx))
+    panRef.current = next
+    setPan(next)
+  }
+  const onUp = () => {
+    dragRef.current = null
+  }
+
+  return (
+    <div
+      ref={stageRef}
+      data-entry-pan={live ? pan.toFixed(1) : undefined}
+      data-entry-pan-max={live ? max.toFixed(1) : undefined}
+      className={cn('absolute inset-0 overflow-hidden', live && 'touch-none')}
+      style={live ? { touchAction: 'none' } : undefined}
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
+    >
+      <div
+        className="absolute top-0 left-1/2 h-full"
+        style={
+          live
+            ? {
+                width: Math.max(size.w, size.h * ENTRY_VIDEO_ASPECT),
+                transform: `translateX(calc(-50% + ${pan}px))`,
+              }
+            : { width: '100%', transform: 'translateX(-50%)' }
+        }
+      >
+        {children}
+      </div>
     </div>
   )
 }
@@ -265,7 +452,7 @@ function ModeButton({
       onPointerDown={onPointerDown}
       onPointerEnter={onPointerEnter}
       data-active={active ? 'true' : undefined}
-      className={cn(
+        className={cn(
         'tour-mode-btn tour-glass border-white/25 !bg-[#14110e]/72 text-left font-semibold uppercase [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] transition-colors duration-300',
         active ? 'text-white shadow-[inset_2px_0_0_#BDA27E]' : 'text-white/80 hover:text-white',
         disabled && 'cursor-not-allowed opacity-40 hover:text-white/80',
@@ -775,6 +962,22 @@ function nodesFromPublicCatalog(
   }
 }
 
+function preloadLeadGallery(
+  typ: TourTypologyOption | null | undefined,
+  finishes: TourPublicCatalog['finishes'] | undefined,
+) {
+  if (!typ) return
+  const local = isGalleryOnlyTypology(typ)
+  const lead = buildGaleriaStills(typ, finishes, {
+    finish: local ? null : (finishes?.[0]?.slug ?? null),
+    light: local ? null : 'dia',
+    strict: !local,
+    roomLabelOnly: !local,
+    rendersOnly: local,
+  })[0]
+  if (lead?.url) void preloadStill(lead.url)
+}
+
 export function TourViewer({ embedded = false }: { embedded?: boolean }) {
   return <TourLocaleProvider><TourViewerContent embedded={embedded}/></TourLocaleProvider>
 }
@@ -853,7 +1056,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [planFloor, setPlanFloor] = useState(openingPlanFloor)
   const [planEntryOpen, setPlanEntryOpen] = useState(true)
   const [entryVideo, setEntryVideo] = useState(false)
-  const [entryCoarse, setEntryCoarse] = useState(false)
+  // TourViewer se monta solo en el cliente. El primer render ya elige el ingreso
+  // del teléfono, así el HLS de escritorio no llega a pedirse.
+  const [entryCoarse] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches,
+  )
   const entryFailedRef = useRef(false)
   const [droneOn, setDroneOn] = useState(false)
   const droneRef = useRef<HTMLVideoElement>(null)
@@ -1006,7 +1213,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     if (deepLinkBootRef.current) return
     deepLinkBootRef.current = true
-    setEntryCoarse(window.matchMedia('(pointer: coarse)').matches)
     if (!readUnitQueryParam()) return
     setPlanEntryOpen(false)
     setShellMode('unit')
@@ -1165,12 +1371,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         withTimeout(loadTourCatalog(unitTypeSlug), 20000, 'Catálogo').catch(() => null),
         withTimeout(loadTourUnits(unitTypeSlug), 20000, 'Unidades').catch(() => [] as TourUnitSummary[]),
         withTimeout(
-          loadTourNodes({
-            unitTypeSlug,
-            finishSlug: 'nogal',
-            light: 'dia',
-            preferredWidth: bootWidth,
-          }),
+        loadTourNodes({
+          unitTypeSlug,
+          finishSlug: 'nogal',
+          light: 'dia',
+          preferredWidth: bootWidth,
+        }),
           20000,
           'Escenas',
         ).catch(() => ({ nodes: [] as VirtualTourNode[], startNodeId: undefined as string | undefined })),
@@ -1187,6 +1393,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       if (publicCat) {
         setPublicCatalog(publicCat)
+        const code = readUnitQueryParam()
+        const unit = code ? findUnitByNumber(nextUnits, code) : null
+        const typ = unit
+          ? publicCat.typologies.find((item) => item.id === unit.unit_type_id) ??
+            publicCat.typologies.find((item) => item.code === unit.typology_code)
+          : undefined
+        preloadLeadGallery(typ, publicCat.finishes)
       }
 
       const startFinish =
@@ -1571,6 +1784,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     deepLinkAppliedRef.current = true
     setSelectedUnitId(match.id)
     if (match.typology_code) setSelectedTypology(match.typology_code)
+    const typ =
+      publicCatalog?.typologies.find((item) => item.id === match.unit_type_id) ??
+      publicCatalog?.typologies.find((item) => item.code === match.typology_code)
+    preloadLeadGallery(typ, publicCatalog?.finishes)
     const floor = unitFloorNumber(match)
     if (floor != null) setPlanFloor(floor)
     setShellMode('unit')
@@ -1982,6 +2199,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       })),
     [currentTypology, catalogFinishes, galleryFinishSlug, light, galleryOnly],
   )
+  const leadGalleryUrl = galeriaImages[0]?.url ?? null
+  useLayoutEffect(() => {
+    if (leadGalleryUrl) void preloadStill(leadGalleryUrl)
+  }, [leadGalleryUrl])
   const galleryPhoto =
     galeriaImages[Math.min(galeriaIndex, Math.max(galeriaImages.length - 1, 0))]
   const finishLookupSlug = viewMode === 'galeria' ? galleryPhoto?.roomSlug || room : room
@@ -2074,6 +2295,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         typologies.find((item) => item.code === code) ??
         (code && code === selectedTypology ? currentTypology : null)
       if (!typ) return
+      preloadLeadGallery(typ, publicCatalog?.finishes)
       const stills = buildGaleriaStills(typ, publicCatalog?.finishes, {
         allScenes: true,
         rendersOnly: isGalleryOnlyTypology(typ),
@@ -2086,14 +2308,15 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (!fichaOpen && shellMode !== 'unit') return
+    if (leadGalleryUrl) void preloadStill(leadGalleryUrl)
     const urls = [
       ...fichaImages.map((item) => item.url),
       ...planoImages.map((item) => item.url),
     ]
     const index = Math.min(galeriaIndex, Math.max(urls.length - 1, 0))
-    const priority = [urls[index], urls[index + 1], urls[index - 1], activePanoUrl]
+    const priority = [leadGalleryUrl, urls[index], urls[index + 1], urls[index - 1], activePanoUrl]
     warmStills(urls, priority)
-  }, [fichaOpen, shellMode, fichaImages, planoImages, galeriaIndex, activePanoUrl])
+  }, [fichaOpen, shellMode, fichaImages, planoImages, galeriaIndex, activePanoUrl, leadGalleryUrl])
 
   const onSelectRoom = useCallback(
     (roomId: string) => {
@@ -2402,10 +2625,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     }
 
     const clearRootBox = () => {
-      root.style.top = ''
-      root.style.left = ''
-      root.style.width = ''
-      root.style.height = ''
+        root.style.top = ''
+        root.style.left = ''
+        root.style.width = ''
+        root.style.height = ''
     }
 
     const fitViewport = () => {
@@ -2482,8 +2705,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
     // Android/desktop: visualViewport. iOS: solo window (orientation/resize), sin visualViewport.
     if (!forceLandscapeCss && !ios) {
-      window.visualViewport?.addEventListener('resize', fitViewport)
-      window.visualViewport?.addEventListener('scroll', fitViewport)
+    window.visualViewport?.addEventListener('resize', fitViewport)
+    window.visualViewport?.addEventListener('scroll', fitViewport)
     }
 
     const onIosOrient = () => {
@@ -2624,9 +2847,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       setLoading(true)
       try {
         await viewer.setPanorama(url, {
-          showLoader: false,
+            showLoader: false,
           transition: changing ? { effect: 'fade', speed: 400, rotation: false } : false,
-          zoom: 0,
+            zoom: 0,
         })
       } catch {
         /* still land so the walk never freezes */
@@ -2654,8 +2877,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         .filter((item): item is string => Boolean(item))
       preloadUrls(viewer, neighborUrls)
       setPanoLeaving(false)
-      setPanoEntering(false)
-      setPanoGhost(null)
+        setPanoEntering(false)
+        setPanoGhost(null)
     }
 
     void run()
@@ -2816,6 +3039,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     >
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
+        hidden={fichaOpen}
         hideWebReturn={planEntryOpen}
         place={amenitiesOpen ? 'amenities' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
@@ -3022,9 +3246,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           alt={t(viewMode === 'tour' ? roomName : (stillItems[stillIndex]?.label ?? (isPlanosMode(viewMode) ? 'Plano' : 'Vista')))}
           contain={isPlanosMode(viewMode)}
           fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
+          lateralPan={viewMode === 'galeria'}
+          onStep={stepStill}
         />
         {selectedUnit && showStill && !overlayUrl?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{t('Esta unidad no tiene un recurso disponible para esta vista.')}</p>:null}
-        {viewMode !== 'tour' && stillItems.length > 1 ? (
+        {viewMode !== 'tour' && stillItems.length > 1 && !fichaOpen ? (
           <>
             <button
               type="button"
@@ -3033,7 +3259,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 stepStill(-1)
               }}
               onPointerDown={(event) => event.stopPropagation()}
-              className="pointer-events-auto absolute top-1/2 left-[max(0.4rem,env(safe-area-inset-left))] z-[2] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:left-[max(0.5rem,env(safe-area-inset-left))] sm:h-11 sm:w-11"
+              className="pointer-events-auto absolute top-1/2 left-[max(0.4rem,env(safe-area-inset-left))] z-[2] flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:left-[max(0.5rem,env(safe-area-inset-left))] sm:h-11 sm:w-11"
               aria-label={t("Imagen anterior")}
             >
               <ChevronLeft size={20} strokeWidth={2} className="sm:hidden" />
@@ -3047,7 +3273,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               }}
               onPointerDown={(event) => event.stopPropagation()}
               className={cn(
-                'pointer-events-auto absolute top-1/2 z-[2] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:h-11 sm:w-11',
+                'pointer-events-auto absolute top-1/2 z-[2] flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:h-11 sm:w-11',
                 terminacionesUiOpen
                   ? 'right-[min(21rem,calc(100%-2.75rem))]'
                   : 'right-[max(0.4rem,env(safe-area-inset-right))] sm:right-[max(0.5rem,env(safe-area-inset-right))]',
@@ -3261,8 +3487,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   if (viewMode !== 'galeria') setViewMode('tour')
                 }}
                 terminacionesDisabled={!terminacionesReady}
-              />
-            </div>
+          />
+        </div>
 
           <div className="tour-modes-mobile">
             <button
@@ -3317,7 +3543,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 <ModeButton
                   active={viewMode === 'galeria' && showUnitChrome && !terminacionesFocus && !isComparador}
                   icon={<Images size={14} strokeWidth={1.75} />}
-                  onClick={() => {
+              onClick={() => {
                     setShellMode('unit')
                     setFichaOpen(false)
                     setTerminacionesFocus(false)
@@ -3369,8 +3595,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   onClick={() => {
                     setShellMode('unit')
                     setFichaOpen(false)
-                    setViewMode('tour')
-                    setRoom(homeSlug)
+                setViewMode('tour')
+                setRoom(homeSlug)
                     setTerminacionesFocus(false)
                     setFinishCompareOpen(false)
                     setCompareOpen(false)
@@ -3429,7 +3655,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       ) : null}
 
       <div
-        className={cn(
+              className={cn(
           /* Bajo la ficha (z-70): el chrome no debe tapar el panel de unidad. */
           'tour-chrome pointer-events-none absolute inset-0 z-20',
           immersive && 'is-immersive',
@@ -3474,11 +3700,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 <span className="min-w-0 truncate">
                   {t(" Ficha técnica ")}{t(selectedUnit ? ` · ${selectedUnit.unit_number}` : '')}
                 </span>
-              </button>
+            </button>
             ) : null}
             {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology ? (
-              <button
-                type="button"
+            <button
+              type="button"
                 onClick={openSimulatorTool}
                 className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
               >
@@ -3492,7 +3718,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <button
                 type="button"
                 onClick={openFinancingTool}
-                className={cn(
+              className={cn(
                   'tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]',
                   !showroomIdentified && 'opacity-80',
                 )}
@@ -3501,7 +3727,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 <span className="min-w-0 truncate">
                   {t(" Financiamiento ")}{t(selectedUnit ? ` · ${selectedUnit.unit_number}` : '')}
                 </span>
-              </button>
+            </button>
             ) : null}
           </div>
 
@@ -3613,9 +3839,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         ) : null}
 
         {showUnitChrome && !isComparador && !terminacionesUiOpen ? (
-          <div
-            className={cn(
-              CONSTANTS.CAPTURE_EVENTS_CLASS,
+        <div
+          className={cn(
+            CONSTANTS.CAPTURE_EVENTS_CLASS,
               'pointer-events-none absolute inset-x-0 bottom-0 flex w-full min-w-0 flex-col items-center gap-1.5 p-2 pb-[max(0.45rem,env(safe-area-inset-bottom))] pr-[max(3.75rem,calc(env(safe-area-inset-right)+3.25rem))] sm:gap-2.5 sm:p-3.5 sm:pr-[max(4.25rem,calc(env(safe-area-inset-right)+3.75rem))]',
             )}
           >
@@ -3624,11 +3850,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         ) : null}
       </div>
 
-      {showUnitChrome ? (
+      {showUnitChrome && !fichaOpen && !navChooserOpen ? (
         <div className="tour-unit-actions absolute right-[max(0.5rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-1.5 sm:right-[max(0.75rem,env(safe-area-inset-right))] sm:gap-2">
           {!isComparador && !isFinishCompare && !voiceAssistOpen ? (
-            <button
-              type="button"
+                  <button
+                    type="button"
               data-tour-voice
               onClick={() => setVoiceAssistOpen(true)}
               className="tour-glass group inline-flex h-11 w-11 shrink-0 items-center justify-center border border-[#BDA27E]/40 text-[#f7f3ee] transition hover:border-[#BDA27E]/65 hover:bg-white/10"
@@ -3640,10 +3866,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 strokeWidth={1.75}
                 className="text-[#E8D9C0] transition group-hover:scale-105"
               />
-            </button>
-          ) : null}
-          <button
-            type="button"
+                  </button>
+                ) : null}
+                  <button
+                    type="button"
             onClick={() => setFavoritesOpen(true)}
             className="tour-glass inline-flex h-11 w-11 shrink-0 items-center justify-center text-[#f7f3ee]"
             aria-label={t("Ver favoritos")}
@@ -3651,9 +3877,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           >
             <Heart size={15} strokeWidth={2} className="sm:hidden" />
             <Heart size={16} strokeWidth={2} className="hidden sm:block" />
-          </button>
-          <button
-            type="button"
+                  </button>
+                  <button
+                    type="button"
             onClick={() => {
               setSaveUnitOpen(true)
             }}
@@ -3663,7 +3889,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           >
             <Bookmark size={15} strokeWidth={2} className="sm:hidden" />
             <Bookmark size={16} strokeWidth={2} className="hidden sm:block" />
-          </button>
+                  </button>
           {SITE.whatsapp ? (
             <a
               href={tourWhatsAppHref(
@@ -3701,8 +3927,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             </a>
           ) : null}
           {viewMode === 'tour' && showUnitChrome ? (
-            <button
-              type="button"
+                  <button
+                    type="button"
               onClick={() => setNavChooserOpen(true)}
               className="tour-glass pointer-events-auto inline-flex h-11 min-h-11 items-center gap-1.5 px-2.5 text-[#f7f3ee] sm:gap-2 sm:px-3"
               aria-label={t("Cambiar control del tour")}
@@ -3716,12 +3942,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <span className="text-[10px] font-semibold tracking-[0.12em] uppercase">
                 {t(tourNavMode === 'gyro' ? 'Giroscopio' : 'Dedo')}
               </span>
-            </button>
+              </button>
           ) : null}
           {selectedUnit && !fichaOpen ? (
             <TourFloorLocationPeek unit={selectedUnit} units={allUnits} />
           ) : null}
-        </div>
+            </div>
       ) : null}
 
       {embedded || showUnitChrome ? (
@@ -4023,7 +4249,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {planTouchLock ? <div className="absolute inset-0 z-[35]" aria-hidden="true" /> : null}
 
-      <TourRotateHint contained target={rootRef} />
+      <TourRotateHint contained target={rootRef} inTour={viewMode === 'tour'} />
 
       {planEntryOpen && shellMode === 'plan' ? (
         <div className={cn('absolute inset-0 z-[30] bg-[#14110e] transition-opacity duration-[400ms] ease-linear', entryExit ? 'opacity-0' : 'opacity-100')}>
@@ -4038,24 +4264,26 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             </div>
           )}
           <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
-            <CmafVideo
-              mp4={entryCoarse ? '/tour/ingreso-mobile.mp4' : '/tour/ingreso.mp4?v=gop'}
-              hls={entryCoarse ? undefined : '/tour/ingreso-hls/index.m3u8'}
-              autoPlay={entryVideo}
-              preload="auto"
-              loop={false}
-              videoRef={droneRef}
-              onError={() => {
-                entryFailedRef.current = true
-                if (entryVideo) requestEntryClose()
-              }}
-              onEnded={() => {
-                const video = droneRef.current
-                if (video) video.pause()
-                requestEntryClose()
-              }}
-              className="tour-entry-video absolute inset-0 h-full w-full"
-            />
+            <EntryLateral active={entryVideo && entryCoarse}>
+              <CmafVideo
+                mp4={entryCoarse ? '/tour/ingreso-mobile.mp4' : '/tour/ingreso.mp4?v=gop'}
+                hls={entryCoarse ? undefined : '/tour/ingreso-hls/index.m3u8'}
+                autoPlay={entryVideo}
+                preload="auto"
+                loop={false}
+                videoRef={droneRef}
+                onError={() => {
+                  entryFailedRef.current = true
+                  if (entryVideo) requestEntryClose()
+                }}
+                onEnded={() => {
+                  const video = droneRef.current
+                  if (video) video.pause()
+                  requestEntryClose()
+                }}
+                className="tour-entry-video absolute inset-0 h-full w-full"
+              />
+            </EntryLateral>
           </div>
           {entryVideo ? (
             <button
@@ -4074,20 +4302,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   return
                 }
                 setEntryVideo(true)
-                if (window.matchMedia('(pointer: coarse)').matches && !isIOSWebKit()) {
-                  void (async () => {
-                    try {
-                      if (rootRef.current) await requestTourFullscreen(rootRef.current)
-                      const orient = window.screen?.orientation as
-                        | (ScreenOrientation & { lock?: (mode: string) => Promise<void> })
-                        | undefined
-                      if (typeof orient?.lock !== 'function') return
-                      await orient.lock('landscape')
-                      window.dispatchEvent(new Event('lavilet-orientation-locked'))
-                    } catch {
-                      /* el aviso de giro sigue hasta que el teléfono quede horizontal */
-                    }
-                  })()
+                if (window.matchMedia('(pointer: coarse)').matches && !isIOSWebKit() && rootRef.current) {
+                  void requestTourFullscreen(rootRef.current)
                 }
               }}
               className="absolute top-1/2 left-1/2 z-10 inline-flex min-h-11 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"

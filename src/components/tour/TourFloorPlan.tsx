@@ -3,7 +3,7 @@
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
-import { Box, Minus, Plus, Square } from 'lucide-react'
+import { Box, Hand, Minus, Plus, Square } from 'lucide-react'
 import {
   floorPlanLevelLabel,
   floorPlanLevelShort,
@@ -371,6 +371,9 @@ export function TourFloorPlan({
   const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
   /** iOS/Safari: padding más chico en landscape bajo. */
   const [landscapeFill, setLandscapeFill] = useState(false)
+  const [portraitPan, setPortraitPan] = useState(false)
+  const [panX, setPanX] = useState(0)
+  const [panHint, setPanHint] = useState(false)
   /** Área disponible del stage: para encajar el plano sin romper aspect-ratio. */
   const stageRef = useRef<HTMLDivElement>(null)
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 })
@@ -403,6 +406,36 @@ export function TourFloorPlan({
       window.removeEventListener('resize', sync)
     }
   }, [])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
+    const sync = () => {
+      const on = mq.matches
+      setPortraitPan(on)
+      if (!on) {
+        setPanHint(false)
+        return
+      }
+      try {
+        setPanHint(sessionStorage.getItem('lavilet-plan-pan-hint') !== '1')
+      } catch {
+        setPanHint(true)
+      }
+    }
+    sync()
+    mq.addEventListener('change', sync)
+    window.addEventListener('orientationchange', sync)
+    window.addEventListener('resize', sync)
+    return () => {
+      mq.removeEventListener('change', sync)
+      window.removeEventListener('orientationchange', sync)
+      window.removeEventListener('resize', sync)
+    }
+  }, [])
+
+  useEffect(() => {
+    setPanX(0)
+  }, [floor])
 
   useEffect(() => {
     const el = stageRef.current
@@ -687,6 +720,12 @@ export function TourFloorPlan({
       }
     }
 
+    if (portraitPan) {
+      const frameH = stageH
+      const frameW = Math.max(stageW, Math.round(frameH * aspect))
+      return { width: frameW, height: frameH, flexShrink: 0 }
+    }
+
     const stageWider = stageW / stageH > aspect
     const frameW = stageWider ? stageW : Math.round(stageH * aspect)
     const frameH = stageWider ? Math.round(frameW / aspect) : stageH
@@ -695,7 +734,7 @@ export function TourFloorPlan({
       height: frameH,
       flexShrink: 0,
     }
-  }, [planAspect, planAspectSize.height, planAspectSize.width, stageSize])
+  }, [planAspect, planAspectSize.height, planAspectSize.width, portraitPan, stageSize])
 
   const overlayAlign = useMemo(
     () => getFloorPlanOverlayAlign(docForToggles ?? null, planVariant),
@@ -806,6 +845,13 @@ export function TourFloorPlan({
   }, [htmlInteractive])
 
   useEffect(() => {
+    if (!portraitPan) return
+    const frameW = typeof planFrameStyle.width === 'number' ? planFrameStyle.width : 0
+    const max = Math.max(0, (frameW * scale - stageSize.width) / 2)
+    setPanX((current) => Math.max(-max, Math.min(max, current)))
+  }, [portraitPan, planFrameStyle.width, scale, stageSize.width])
+
+  useEffect(() => {
     if (activeHtmlFloor == null) return
     const iframe = htmlIframeRefs.current[activeHtmlFloor]
     const api = getLaViletPlanta(iframe?.contentWindow ?? null)
@@ -904,8 +950,9 @@ export function TourFloorPlan({
     if (!slot.unit) return
     const start = slotPointerRef.current
     slotPointerRef.current = null
+    if (panMovedRef.current) return
     if (!start || start.slotId !== slot.id || start.pointerId !== event.pointerId) return
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 14) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > (portraitPanRef.current ? 8 : 14)) return
     event.preventDefault()
     event.stopPropagation()
     handleSelectSlot(slot)
@@ -913,6 +960,10 @@ export function TourFloorPlan({
 
   const onSlotClick = (slot: DisplaySlot, event: MouseEvent) => {
     if (!slot.unit) return
+    if (panMovedRef.current) {
+      panMovedRef.current = false
+      return
+    }
     event.preventDefault()
     event.stopPropagation()
     handleSelectSlot(slot)
@@ -939,6 +990,133 @@ export function TourFloorPlan({
     setScale((value) => Math.max(ZOOM_MIN, Number((value - ZOOM_STEP).toFixed(2))))
   const zoomIn = () =>
     setScale((value) => Math.min(ZOOM_MAX, Number((value + ZOOM_STEP).toFixed(2))))
+
+  const panXRef = useRef(0)
+  panXRef.current = panX
+  const scaleRef = useRef(scale)
+  scaleRef.current = scale
+  const portraitPanRef = useRef(portraitPan)
+  portraitPanRef.current = portraitPan
+  const frameWRef = useRef(0)
+  frameWRef.current = typeof planFrameStyle.width === 'number' ? planFrameStyle.width : stageSize.width
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef<{ dist: number; scale: number } | null>(null)
+  const dragRef = useRef<{
+    id: number
+    x: number
+    y: number
+    pan: number
+    lastX: number
+    lastT: number
+    v: number
+    moved: boolean
+  } | null>(null)
+  const inertiaRef = useRef(0)
+  const panMovedRef = useRef(false)
+
+  const panMax = portraitPan
+    ? Math.max(0, (frameWRef.current * scale - stageSize.width) / 2)
+    : 0
+
+  const applyPan = (next: number) => {
+    const view = stageRef.current?.clientWidth ?? stageSize.width
+    const max = Math.max(0, (frameWRef.current * scaleRef.current - view) / 2)
+    const clamped = Math.max(-max, Math.min(max, next))
+    panXRef.current = clamped
+    setPanX((prev) => (Math.abs(prev - clamped) < 0.4 ? prev : clamped))
+    return clamped
+  }
+
+  const dismissPanHint = () => {
+    setPanHint(false)
+    try {
+      sessionStorage.setItem('lavilet-plan-pan-hint', '1')
+    } catch {
+      /* el aviso igual se oculta */
+    }
+  }
+
+  const onPlanPanDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!portraitPanRef.current) return
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    const target = event.target
+    if (target instanceof Element && target.closest('button, a, input, textarea')) return
+    if (inertiaRef.current) cancelAnimationFrame(inertiaRef.current)
+    inertiaRef.current = 0
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointersRef.current.size >= 2) {
+      const pts = [...pointersRef.current.values()]
+      const a = pts[0]
+      const b = pts[1]
+      if (a && b) pinchRef.current = { dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), scale: scaleRef.current }
+      dragRef.current = null
+      return
+    }
+    dragRef.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      pan: panXRef.current,
+      lastX: event.clientX,
+      lastT: performance.now(),
+      v: 0,
+      moved: false,
+    }
+    panMovedRef.current = false
+  }
+
+  const onPlanPanMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!pointersRef.current.has(event.pointerId)) return
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const pts = [...pointersRef.current.values()]
+      const a = pts[0]
+      const b = pts[1]
+      if (!a || !b) return
+      const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
+      const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+      scaleRef.current = next
+      setScale(Number(next.toFixed(3)))
+      return
+    }
+    const drag = dragRef.current
+    if (!drag || drag.id !== event.pointerId) return
+    const dx = event.clientX - drag.x
+    const dy = event.clientY - drag.y
+    if (!drag.moved && Math.hypot(dx, dy) < 8) return
+    if (!drag.moved) {
+      drag.moved = true
+      panMovedRef.current = true
+      dismissPanHint()
+      stageRef.current?.setPointerCapture(event.pointerId)
+    }
+    const now = performance.now()
+    const dt = Math.max(8, now - drag.lastT)
+    drag.v = (event.clientX - drag.lastX) / dt
+    drag.lastX = event.clientX
+    drag.lastT = now
+    applyPan(drag.pan + dx)
+  }
+
+  const onPlanPanUp = (event: PointerEvent<HTMLDivElement>) => {
+    pointersRef.current.delete(event.pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
+    const drag = dragRef.current
+    if (!drag || drag.id !== event.pointerId) return
+    dragRef.current = null
+    if (!drag.moved) return
+    let velocity = drag.v * 16
+    const step = () => {
+      velocity *= 0.9
+      if (Math.abs(velocity) < 0.35) {
+        inertiaRef.current = 0
+        return
+      }
+      applyPan(panXRef.current + velocity)
+      inertiaRef.current = requestAnimationFrame(step)
+    }
+    inertiaRef.current = requestAnimationFrame(step)
+  }
 
   const switchVariant = (next: FloorPlanVariant) => {
     const doc = layers[floor]?.doc ?? shown?.doc
@@ -1040,8 +1218,24 @@ export function TourFloorPlan({
         ref={stageRef}
         className={cn(
           'absolute inset-0 flex min-h-0 min-w-0 items-center justify-center overflow-hidden p-0',
+          portraitPan && 'touch-none',
         )}
+        data-plan-stage
+        style={portraitPan ? { touchAction: 'none' } : undefined}
+        onPointerDownCapture={portraitPan ? onPlanPanDown : undefined}
+        onPointerMoveCapture={portraitPan ? onPlanPanMove : undefined}
+        onPointerUpCapture={portraitPan ? onPlanPanUp : undefined}
+        onPointerCancelCapture={portraitPan ? onPlanPanUp : undefined}
       >
+          {portraitPan && panHint ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-[max(5.5rem,env(safe-area-inset-bottom)+4.5rem)] z-20 flex justify-center px-16">
+              <p className="inline-flex items-center gap-2 rounded-full bg-[#14110e]/80 px-3 py-2 text-[12px] text-[#f7f3ee] shadow-[0_8px_20px_rgba(0,0,0,0.28)]">
+                <Hand size={16} className="text-[#bda27e]" aria-hidden />
+                <span aria-hidden>↔</span>
+                {t('Desliza para ver todo el edificio')}
+              </p>
+            </div>
+          ) : null}
           {showPlanChrome ? (
             <div
               className={cn(
@@ -1093,10 +1287,23 @@ export function TourFloorPlan({
 
           <div
             className={cn(
-              'relative shrink-0 overflow-hidden',
+              'relative shrink-0',
+              portraitPan ? 'overflow-visible' : 'overflow-hidden',
               planVariant === '3d' ? 'bg-[#14110e]' : 'bg-white',
             )}
-            style={planFrameStyle}
+            data-plan-frame
+            data-pan={portraitPan ? panX.toFixed(1) : undefined}
+            data-pan-max={portraitPan ? panMax.toFixed(1) : undefined}
+            style={{
+              ...planFrameStyle,
+              ...(portraitPan
+                ? {
+                    transform: `translate3d(${panX}px, 0, 0) scale(${scale})`,
+                    transformOrigin: 'center center',
+                    touchAction: 'none' as const,
+                  }
+                : null),
+            }}
             onMouseLeave={() => setHoverSlot(null)}
           >
             {/* Un solo iframe WebGL (piso activo). */}
@@ -1158,7 +1365,7 @@ export function TourFloorPlan({
                 'absolute inset-0 z-[2] origin-center transition-transform duration-150 ease-out',
                 htmlInteractive && 'pointer-events-none',
               )}
-              style={{ transform: `scale(${scale})` }}
+              style={{ transform: portraitPan ? undefined : `scale(${scale})` }}
             >
               {layerEntries.map((layer) => {
                 if (layer.kind === 'html') return null
@@ -1408,7 +1615,7 @@ export function TourFloorPlan({
       </div>
 
       <div
-        className="tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-30 h-auto max-h-[calc(100dvh-6rem)] w-[calc(clamp(52px,4vw,72px)+2px)] -translate-y-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-0 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md"
+        className="tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-30 h-auto max-h-[calc(100dvh-6rem)] w-[calc(clamp(56px,5vw,84px)+2px)] -translate-y-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-0 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md"
         style={{
           WebkitOverflowScrolling: 'touch',
           ...(shortScreen
@@ -1434,8 +1641,8 @@ export function TourFloorPlan({
                 type="button"
                 onClick={() => onFloorChange(item)}
                 className={cn(
-                  'tour-floor-btn flex w-[clamp(52px,4vw,72px)] shrink-0 items-center justify-center whitespace-nowrap rounded-md px-0.5 font-semibold tracking-wide',
-                  'h-[clamp(30px,calc((100dvh-9rem)/10),56px)] text-[clamp(12px,1.6vh,16px)]',
+                  'tour-floor-btn flex w-[clamp(56px,5vw,84px)] shrink-0 items-center justify-center whitespace-nowrap rounded-md px-0.5 font-bold tracking-wide',
+                  'h-[clamp(30px,calc((100dvh-9rem)/10),56px)] text-[clamp(13px,2.2vh,18px)]',
                   active
                     ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
                     : 'text-[#f7f3ee] hover:bg-white/10',
@@ -1451,7 +1658,7 @@ export function TourFloorPlan({
         </div>
       </div>
 
-      <div className="tour-floor-side pointer-events-auto absolute right-[max(5.75rem,calc(env(safe-area-inset-right)+5.25rem))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-2">
+      <div className="tour-floor-side pointer-events-auto absolute right-[max(6.5rem,calc(env(safe-area-inset-right)+6rem))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-2">
         {railTrailing}
         {SITE.whatsapp && whatsappHref ? (
           <a

@@ -125,7 +125,7 @@ const PLACEMENTS: TipPlacement[] = [
 ]
 
 /** En pantallas chicas evitamos esquinas que chocan con modos / favoritos / mic. */
-const PLACEMENTS_NARROW: TipPlacement[] = ['top-left', 'bottom-center']
+const PLACEMENTS_NARROW: TipPlacement[] = ['bottom-left']
 
 function placementClass(placement: TipPlacement) {
   switch (placement) {
@@ -568,7 +568,12 @@ export function TourVoiceAssist({
       if (count >= MAX_TIPS_PER_SESSION) return
       tipIdRef.current += 1
       const next = pickRandom(TIPS)
-      const places = isNarrowViewport() ? PLACEMENTS_NARROW : PLACEMENTS
+      const places =
+        window.innerHeight <= 500
+          ? (['bottom-center'] as const)
+          : isNarrowViewport()
+            ? PLACEMENTS_NARROW
+            : PLACEMENTS
       setTip({
         id: tipIdRef.current,
         title: next.title,
@@ -1463,7 +1468,7 @@ export function TourVoiceAssist({
       {tip && tipsEnabled && !open ? (
         <div
           className={cn(
-            'pointer-events-none absolute z-[126]',
+            'tour-voice-tip pointer-events-none absolute z-[126]',
             placementClass(tip.placement),
           )}
         >

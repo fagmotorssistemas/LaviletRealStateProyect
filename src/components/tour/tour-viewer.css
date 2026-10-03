@@ -754,10 +754,44 @@ html.tour-is-force-landscape body {
   background: #14110e;
 }
 
-@media (orientation: portrait) {
+@media (orientation: portrait) and (pointer: fine) {
   .tour-entry-video {
     object-fit: contain;
   }
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  .tour-root {
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .tour-entry-video {
+    object-fit: cover;
+    height: 100%;
+    width: 100%;
+  }
+
+  .tour-pano-stage,
+  .psv-container {
+    height: 100%;
+    min-height: 100dvh;
+  }
+}
+
+@keyframes tour-phone-rock {
+  0%,
+  100% {
+    transform: rotate(-16deg);
+  }
+  50% {
+    transform: rotate(16deg);
+  }
+}
+
+.tour-phone-rock {
+  animation: tour-phone-rock 1.15s ease-in-out infinite;
 }
 
 @media (pointer: coarse) {
@@ -845,6 +879,86 @@ html.tour-is-force-landscape body {
 .tour-modal-sheet {
   max-height: calc(100dvh - 1.5rem - var(--tour-keyboard, 0px));
   overflow-y: auto;
+}
+
+.tour-ficha-shorthead {
+  display: none;
+}
+
+.tour-ficha-sheet.tour-modal-sheet {
+  overflow: hidden;
+}
+
+/* Escritorio: la ficha queda a la derecha del menú lateral de la unidad. */
+@media (hover: hover) and (pointer: fine) and (min-width: 900px) {
+  .tour-ficha-sheet.tour-modal-sheet {
+    left: calc(13.75rem + env(safe-area-inset-left, 0px));
+    width: min(22.5rem, calc(100% - 15.5rem - env(safe-area-inset-left, 0px)));
+  }
+}
+
+/* Celular horizontal: alto completo, encabezado de una línea y acciones fijas. */
+@media (max-height: 500px) {
+  .tour-ficha-sheet.tour-modal-sheet {
+    top: 0 !important;
+    right: 0 !important;
+    bottom: auto !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .tour-ficha-shorthead {
+    display: flex;
+  }
+
+  .tour-ficha-chrome-mobile,
+  .tour-ficha-identity {
+    display: none !important;
+  }
+
+  .tour-voice-tip {
+    display: none !important;
+  }
+
+  .tour-floor-btn.tour-floor-btn {
+    height: 30px;
+    min-height: 30px;
+    max-height: 30px;
+  }
+}
+
+@media (max-width: 900px) {
+  .tour-voice-tip.tour-voice-tip {
+    top: auto !important;
+    right: auto !important;
+    bottom: max(7.5rem, calc(env(safe-area-inset-bottom) + 6.75rem)) !important;
+    left: max(0.75rem, env(safe-area-inset-left)) !important;
+    width: min(14rem, calc(100% - 7.75rem));
+    max-width: min(14rem, calc(100% - 7.75rem));
+    translate: none !important;
+    transform: none !important;
+  }
+
+  .tour-voice-tip > div {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+.tour-root:has(.tour-ficha-sheet) .tour-modes-mobile,
+.tour-root:has(.tour-ficha-sheet) .tour-mobile-nav,
+.tour-root:has([role='dialog']) .tour-modes-mobile {
+  display: none !important;
+}
+
+.tour-root:has(.tour-modal-sheet) [data-rotate-toast],
+.tour-root:has([role='dialog']) [data-rotate-toast],
+.tour-root:has(.tour-ficha-sheet) [data-rotate-toast] {
+  display: none !important;
 }
 
 @media (max-height: 500px) {

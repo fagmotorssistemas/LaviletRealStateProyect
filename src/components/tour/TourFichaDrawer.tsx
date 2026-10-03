@@ -432,18 +432,33 @@ export function TourFichaDrawer({
             aria-modal="true"
             aria-label={t("Ficha técnica")}
             className={cn(
-              'tour-modal-sheet z-[70] flex flex-col rounded-2xl bg-white shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
+              'tour-modal-sheet tour-ficha-sheet z-[95] flex flex-col rounded-2xl bg-white shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
               'w-[min(22.5rem,calc(100%-1.5rem))] left-3 sm:left-4',
               // Reserve the showroom toolbar in both embedded and fullscreen layouts.
               'top-[calc(4.75rem+env(safe-area-inset-top))] bottom-[max(0.75rem,env(safe-area-inset-bottom))]',
               contained ? 'absolute' : 'fixed',
             )}
-            initial={reduceMotion ? false : { x: -28, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={reduceMotion ? undefined : { x: -20, opacity: 0 }}
+            initial={reduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reduceMotion ? undefined : { opacity: 0 }}
             transition={{ type: 'spring', stiffness: 420, damping: 36 }}
             onWheel={(event) => event.stopPropagation()}
           >
+            <div className="tour-ficha-shorthead shrink-0 items-center gap-2 border-b border-[#eceff3] bg-white px-3 py-1.5">
+              <p className="min-w-0 flex-1 truncate text-[13px] leading-none font-bold text-[#1a2744]">
+                {unit
+                  ? `${t('Unidad')} ${unit.unit_number} · ${formatPrice(unit.published_commercial_price, locale)}`
+                  : t('Ficha técnica')}
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f3f4f6] text-[#1a2744]"
+                aria-label={t('Cerrar')}
+              >
+                <X size={16} strokeWidth={2.25} />
+              </button>
+            </div>
             {/* Header compacto en celular (sin imágenes). */}
             <div className="tour-ficha-chrome-mobile shrink-0 items-center justify-between gap-2 border-b border-[#eceff3] bg-white px-3 py-2.5">
               {onBack ? (
@@ -580,7 +595,7 @@ export function TourFichaDrawer({
 
                 <div className="tour-ficha-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pt-2.5 pb-1.5">
                   <div className="flex min-h-full flex-col">
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="tour-ficha-identity flex flex-wrap items-center gap-2">
                     <h2 className="text-[1.35rem] leading-none font-bold tracking-tight text-[#1a2744]">
                       {t(" Unidad ")}{t(unit.unit_number)}
                     </h2>
@@ -598,7 +613,7 @@ export function TourFichaDrawer({
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-2 text-[1.45rem] font-bold tracking-tight text-[#2B1A18] tabular-nums">
+                  <p className="tour-ficha-identity mt-2 text-[1.45rem] font-bold tracking-tight text-[#2B1A18] tabular-nums">
                     {t(formatPrice(unit.published_commercial_price, locale))}
                   </p>
 
@@ -753,13 +768,13 @@ export function TourFichaDrawer({
                     </button>
                   </div>
                 ) : (
-                  <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-[#2B1A18]/8 bg-white px-3 py-2.5">
+                  <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 border-t border-[#2B1A18]/8 bg-white px-3 py-2.5">
                     <button
                       type="button"
                       onClick={() => {
                         if (onVerFicha) onVerFicha(unit)
                       }}
-                      className="flex h-9 items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
+                      className="flex h-10 min-w-0 items-center justify-center bg-[#BDA27E] px-2 text-center text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
                     >
                       {t(" Ver Ficha ")}</button>
                     <button
@@ -767,7 +782,7 @@ export function TourFichaDrawer({
                       onClick={() => {
                         onTour360?.(unit)
                       }}
-                      className="flex h-9 items-center justify-center gap-1.5 border border-[#2B1A18]/15 bg-white text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
+                      className="flex h-10 min-w-0 items-center justify-center gap-1.5 border border-[#2B1A18]/15 bg-white px-2 text-center text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
                     >
                       {galleryOnly ? <Images size={15} strokeWidth={1.75} /> : <Rotate3d size={15} strokeWidth={1.75} />}
                       {t(galleryOnly ? 'Galería' : ' Tour 360° ')}</button>

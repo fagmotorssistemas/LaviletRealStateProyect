@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, type RefObject } from 'react'
-import { Smartphone } from 'lucide-react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
+import { Smartphone, X } from 'lucide-react'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-const PORTRAIT_OK_KEY = 'lavilet-portrait-ok'
+const WELCOME_KEY = 'lavilet-portrait-toast'
+const TOUR_KEY = 'lavilet-portrait-toast-tour'
 
 function isIOSWebKit() {
   if (typeof navigator === 'undefined') return false
@@ -23,16 +24,24 @@ function isInAppBrowser() {
   return /Instagram|FBAN|FBAV|WhatsApp|Line/i.test(ua)
 }
 
-function isSocialInApp() {
-  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent || ''
-  return /Instagram|FBAN|FBAV|WhatsApp/i.test(ua)
+function canLockLandscape() {
+  const orient = window.screen?.orientation as { lock?: unknown } | undefined
+  return typeof orient?.lock === 'function' && document.fullscreenEnabled === true
 }
 
-function readPortraitOk() {
+function readKey(key: string) {
   try {
-    return sessionStorage.getItem(PORTRAIT_OK_KEY) === '1'
+    return sessionStorage.getItem(key) === '1'
   } catch {
     return false
+  }
+}
+
+function writeKey(key: string) {
+  try {
+    sessionStorage.setItem(key, '1')
+  } catch {
+    /* la sesión igual puede seguir */
   }
 }
 
@@ -44,79 +53,86 @@ async function requestFullscreen(el: HTMLElement) {
   const req =
     el.requestFullscreen?.bind(el) ??
     (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen?.bind(el)
-  if (!req) {
-    const error = new Error('Fullscreen API unavailable')
-    error.name = 'NotSupportedError'
-    throw error
-  }
+  if (!req) throw new Error('fullscreen')
   await req()
 }
 
 /**
- * Aviso de giro en teléfono vertical. El bloqueo de orientación solo se activa
- * con un toque y se suelta al salir de pantalla completa. «Continuar en vertical»
- * oculta el aviso durante la sesión.
+ * Aviso breve en vertical. No tapa el showroom: se cierra solo, al girar
+ * o con la X. Una vez al entrar y otra al abrir el tour 360.
  */
 export function TourRotateHint({
   contained = false,
   target,
+  inTour = false,
 }: {
   contained?: boolean
   target?: RefObject<HTMLElement | null>
+  inTour?: boolean
 }) {
   const { t } = useTourLanguage()
   const [phonePortrait, setPhonePortrait] = useState(false)
-  const [locked, setLocked] = useState(false)
   const [landscapeOffer, setLandscapeOffer] = useState(false)
-  const [socialInApp, setSocialInApp] = useState(false)
-  const [landscapeError, setLandscapeError] = useState<string | null>(null)
-  const [dismissed, setDismissed] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [blocked, setBlocked] = useState(false)
+  const openRef = useRef(false)
+  openRef.current = open
+  const storageKey = inTour ? TOUR_KEY : WELCOME_KEY
 
   useEffect(() => {
-    setDismissed(readPortraitOk())
+    const root = target?.current ?? document.querySelector('.tour-root')
+    if (!root) return
+    const sync = () => {
+      setBlocked(Boolean(root.querySelector('[role="dialog"], .tour-ficha-sheet, .tour-modal-sheet')))
+    }
+    sync()
+    const obs = new MutationObserver(sync)
+    obs.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'role', 'open'] })
+    return () => obs.disconnect()
+  }, [target])
+
+  useEffect(() => {
     const coarse = window.matchMedia('(pointer: coarse)')
     const portrait = window.matchMedia('(orientation: portrait)')
     const sync = () => {
       const short = Math.min(window.screen.width, window.screen.height)
-      setPhonePortrait(coarse.matches && portrait.matches && short < 600)
-      setSocialInApp(isSocialInApp())
-      setLandscapeOffer(isAndroidPhone() && !isInAppBrowser())
+      setPhonePortrait(coarse.matches && portrait.matches && short < 700)
+      setLandscapeOffer(isAndroidPhone() && !isInAppBrowser() && canLockLandscape())
     }
     sync()
     coarse.addEventListener('change', sync)
     portrait.addEventListener('change', sync)
     window.addEventListener('resize', sync)
     window.addEventListener('orientationchange', sync)
-    const onFullscreen = () => {
-      const current =
-        document.fullscreenElement ??
-        (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
-      if (!current) setLocked(false)
-    }
-    document.addEventListener('fullscreenchange', onFullscreen)
-    document.addEventListener('webkitfullscreenchange', onFullscreen)
-    const onLocked = () => setLocked(true)
-    window.addEventListener('lavilet-orientation-locked', onLocked)
     return () => {
       coarse.removeEventListener('change', sync)
       portrait.removeEventListener('change', sync)
       window.removeEventListener('resize', sync)
       window.removeEventListener('orientationchange', sync)
-      document.removeEventListener('fullscreenchange', onFullscreen)
-      document.removeEventListener('webkitfullscreenchange', onFullscreen)
-      window.removeEventListener('lavilet-orientation-locked', onLocked)
     }
   }, [])
 
-  if (!phonePortrait || locked || dismissed) return null
-
-  const continuePortrait = () => {
-    try {
-      sessionStorage.setItem(PORTRAIT_OK_KEY, '1')
-    } catch {
-      /* la sesión igual sigue en vertical */
+  useEffect(() => {
+    if (!phonePortrait) {
+      if (openRef.current) writeKey(storageKey)
+      setOpen(false)
+      return
     }
-    setDismissed(true)
+    if (blocked || readKey(storageKey)) {
+      setOpen(false)
+      return
+    }
+    setOpen(true)
+    const timer = window.setTimeout(() => {
+      writeKey(storageKey)
+      setOpen(false)
+    }, 6000)
+    return () => window.clearTimeout(timer)
+  }, [blocked, phonePortrait, storageKey])
+
+  const dismiss = () => {
+    writeKey(storageKey)
+    setOpen(false)
   }
 
   const viewLandscape = () => {
@@ -124,65 +140,55 @@ export function TourRotateHint({
     void (async () => {
       try {
         await requestFullscreen(el)
-      } catch (error) {
-        const name = error instanceof Error && error.name ? error.name : 'Error'
-        console.warn('No se pudo pedir pantalla completa', error)
-        setLandscapeError(name)
-        return
-      }
-      try {
         const orient = window.screen?.orientation as
           | (ScreenOrientation & { lock?: (mode: string) => Promise<void> })
           | undefined
-        if (typeof orient?.lock !== 'function') {
-          const error = new Error('Screen Orientation API unavailable')
-          error.name = 'NotSupportedError'
-          throw error
-        }
+        if (typeof orient?.lock !== 'function') throw new Error('orientation')
         await orient.lock('landscape')
-        setLocked(true)
-        setLandscapeError(null)
-      } catch (error) {
-        const name = error instanceof Error && error.name ? error.name : 'Error'
-        console.warn('No se pudo bloquear la orientación', error)
-        setLandscapeError(name)
+        dismiss()
+      } catch {
+        console.info(navigator.userAgent)
+        setLandscapeOffer(false)
       }
     })()
   }
 
+  if (!open) return null
+
   return (
     <div
+      data-rotate-toast
       className={
         contained
-          ? 'absolute inset-0 z-[180] flex flex-col items-center justify-center gap-4 bg-[#14110e] px-8 text-center text-[#f7f3ee]'
-          : 'fixed inset-0 z-[180] flex flex-col items-center justify-center gap-4 bg-[#14110e] px-8 text-center text-[#f7f3ee]'
+          ? 'pointer-events-none absolute bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+3.75rem))] left-[max(0.75rem,env(safe-area-inset-left))] z-[180] flex'
+          : 'pointer-events-none fixed bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+3.75rem))] left-[max(0.75rem,env(safe-area-inset-left))] z-[180] flex'
       }
     >
-      <Smartphone size={42} strokeWidth={1.5} className="text-[#bda27e]" aria-hidden />
-      <p className="max-w-xs font-serif text-2xl leading-snug">{t('Gira tu teléfono para ver el showroom')}</p>
-      {socialInApp ? (
-        <p className="max-w-xs text-xs leading-snug text-[#f7f3ee]/80">
-          {t('Abre esta página en Chrome para verla en horizontal')}
-        </p>
-      ) : landscapeOffer ? (
-        <>
+      <div className="pointer-events-auto flex w-[min(16rem,calc(100vw-6.75rem))] flex-col gap-2 overflow-hidden rounded-2xl border border-[#bda27e]/40 bg-[#14110e]/92 px-3 py-2 text-[#f7f3ee] shadow-[0_10px_28px_rgba(0,0,0,0.38)]">
+        <div className="flex items-start gap-2">
+          <Smartphone size={22} strokeWidth={1.75} className="tour-phone-rock mt-1 shrink-0 text-[#bda27e]" aria-hidden />
+          <p className="min-w-0 flex-1 text-[12px] leading-snug">
+            {t('Te recomendamos poner el celular en horizontal para una mejor experiencia')}
+          </p>
+          <button
+            type="button"
+            onClick={dismiss}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#f7f3ee]/80"
+            aria-label={t('Cerrar aviso')}
+          >
+            <X size={16} strokeWidth={2.25} />
+          </button>
+        </div>
+        {landscapeOffer ? (
           <button
             type="button"
             onClick={viewLandscape}
-            className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#BDA27E] px-6 text-sm font-semibold tracking-[0.12em] text-[#2B1A18] uppercase"
+            className="inline-flex min-h-10 items-center self-start rounded-full bg-[#BDA27E] px-3 text-[10px] font-semibold tracking-[0.08em] text-[#2B1A18] uppercase"
           >
             {t('Ver en horizontal')}
           </button>
-          {landscapeError ? <p className="text-[11px] text-[#f7f3ee]/70">{landscapeError}</p> : null}
-        </>
-      ) : null}
-      <button
-        type="button"
-        onClick={continuePortrait}
-        className="text-xs text-[#bda27e] underline underline-offset-4"
-      >
-        {t('Continuar en vertical')}
-      </button>
+        ) : null}
+      </div>
     </div>
   )
 }
