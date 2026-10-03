@@ -41,6 +41,14 @@ export const metadata: Metadata = {
   description: 'Proyectos inmobiliarios y gestión Lavilet',
 }
 
+const supabaseOrigin = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://xhjnyntywqhczdtecgim.supabase.co').origin
+  } catch {
+    return 'https://xhjnyntywqhczdtecgim.supabase.co'
+  }
+})()
+
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
@@ -58,6 +66,9 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       className={`${satoshi.variable} ${cormorant.variable} ${bodoni.variable} h-full scroll-smooth antialiased`}
     >
+      <head>
+        <link rel="preconnect" href={supabaseOrigin} crossOrigin="anonymous" />
+      </head>
       <body className="min-h-full flex flex-col font-sans">
         <AuthProvider>
           {children}

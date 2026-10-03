@@ -43,12 +43,45 @@ export function isPngAssetUrl(url: string | null | undefined) {
   }
 }
 
-function variantIsCurrent(url: string | undefined, baseUrl: string | undefined) {
+/** Revisión `-r<timestamp>` del nombre. No usa el `?v=` de created_at. */
+export function assetRevision(urlOrName: string | null | undefined): string | null {
+  if (!urlOrName) return null
+  let path = urlOrName
+  try {
+    path = new URL(urlOrName, 'https://local.invalid').pathname
+  } catch {
+    path = urlOrName.split('?')[0] ?? urlOrName
+  }
+  return path.match(/-r(\d+)(?:\.[^./]+)?$/i)?.[1] ?? null
+}
+
+/** La variante está al día cuando comparte la revisión del nombre con la base. */
+export function variantIsCurrent(url: string | undefined, baseUrl: string | undefined) {
   if (!url) return false
-  const base = publicAssetVersion(baseUrl)
-  const variant = publicAssetVersion(url)
-  if (!base || !variant) return true
-  return variant + 1500 >= base
+  if (!baseUrl) return true
+  const variantRev = assetRevision(url)
+  const baseRev = assetRevision(baseUrl)
+  if (!variantRev && !baseRev) return true
+  return variantRev !== null && variantRev === baseRev
+}
+
+function assetPath(url: string) {
+  try {
+    return new URL(url, 'https://local.invalid').pathname
+  } catch {
+    return url.split('?')[0] ?? url
+  }
+}
+
+function namedWidth(url: string): 2048 | 4096 | 8192 | null {
+  const match = assetPath(url).match(/_(2048|4096|8192)(?:-r\d+)?\./i)
+  return match ? (Number(match[1]) as 2048 | 4096 | 8192) : null
+}
+
+/** Master sin sufijo o archivo `_8192`: en el teléfono no se pide tal cual. */
+function isEightKAsset(url: string) {
+  const width = namedWidth(url)
+  return width === null || width === 8192
 }
 
 /** Devuelve el archivo subido, sin recorte ni recompresión de Supabase. */
@@ -68,6 +101,74 @@ export function tourDisplayUrl(publicUrl: string, _width?: TourWidth): string {
   } catch {
     return publicUrl
   }
+}
+
+/** Pide a Supabase un derivado más chico. Null si la URL no es de Storage. */
+export function tourRenderUrl(publicUrl: string, width: 2048 | 4096): string | null {
+  try {
+    const parsed = new URL(publicUrl)
+    const objectPath = '/storage/v1/object/public/'
+    const renderPath = '/storage/v1/render/image/public/'
+    if (!parsed.pathname.includes(objectPath) && !parsed.pathname.includes(renderPath)) return null
+    parsed.pathname = parsed.pathname.replace(objectPath, renderPath)
+    parsed.searchParams.set('width', String(width))
+    parsed.searchParams.set('resize', 'contain')
+    parsed.searchParams.delete('height')
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * En táctil: 4096 o 2048 ya elegidos aparte. Si solo queda un 8K, transformación
+ * a 4096, o nada si Storage no puede recortarla.
+ */
+export function tourCoarsePanoUrl(baseUrl: string | null | undefined, eightKUrl?: string | null): string | null {
+  const source =
+    baseUrl && !isPngAssetUrl(baseUrl) ? baseUrl : eightKUrl && !isPngAssetUrl(eightKUrl) ? eightKUrl : null
+  if (!source) return null
+  const width = namedWidth(source)
+  if (width === 2048 || width === 4096) return tourDisplayUrl(source)
+  if (!isEightKAsset(source)) return null
+  return tourRenderUrl(source, 4096)
+}
+
+/** Siguiente variante más chica tras un fallo del visor (8192 → 4096 → 2048). */
+export function smallerTourUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url, 'https://local.invalid')
+    const render = parsed.pathname.includes('/storage/v1/render/image/')
+    const widthParam = parsed.searchParams.get('width')
+    if (render && widthParam === '4096') {
+      parsed.searchParams.set('width', '2048')
+      return absoluteOrRelative(parsed)
+    }
+    if (render) return null
+    if (/_8192(-r\d+)?\./i.test(parsed.pathname)) {
+      parsed.pathname = parsed.pathname.replace(/_8192(-r\d+)?\./i, '_4096$1.')
+      return absoluteOrRelative(parsed)
+    }
+    if (/_4096(-r\d+)?\./i.test(parsed.pathname)) {
+      parsed.pathname = parsed.pathname.replace(/_4096(-r\d+)?\./i, '_2048$1.')
+      return absoluteOrRelative(parsed)
+    }
+    const absolute = absoluteOrRelative(parsed)
+    return absolute ? tourRenderUrl(absolute, 4096) : null
+  } catch {
+    return null
+  }
+}
+
+function absoluteOrRelative(parsed: URL) {
+  const next = parsed.toString()
+  return next.startsWith('https://local.invalid') ? next.slice('https://local.invalid'.length) : next
+}
+
+export function pointerIsCoarse(override?: boolean) {
+  if (override === true) return true
+  return false
 }
 
 function screenCap(): TourWidth {
@@ -111,6 +212,7 @@ export function pickCatalogPanoUrl(
   width: TourWidth,
   finish?: string | null,
   light?: string,
+  options?: { coarse?: boolean },
 ): string | null {
   if (!pano) return null
   const wantedFinish = finish || null
@@ -137,12 +239,19 @@ export function pickCatalogPanoUrl(
     if (!raw || isPngAssetUrl(raw) || !variantIsCurrent(raw, versionBase)) return null
     return tourDisplayUrl(raw)
   }
-  const order: Array<'2048' | '4096' | '8192'> =
-    width >= 8192 ? ['8192', '4096', '2048'] : width >= 4096 ? ['4096', '2048'] : ['2048', '4096']
+  const coarse = pointerIsCoarse(options?.coarse)
+  const order: Array<'2048' | '4096' | '8192'> = coarse
+    ? ['4096', '2048']
+    : width >= 8192
+      ? ['8192', '4096', '2048']
+      : width >= 4096
+        ? ['4096', '2048']
+        : ['2048', '4096']
   for (const key of order) {
     const url = take(key)
     if (url) return url
   }
+  if (coarse) return tourCoarsePanoUrl(baseUrl, variants['8192'])
   if (!baseUrl || isPngAssetUrl(baseUrl)) return null
   return tourDisplayUrl(baseUrl)
 }

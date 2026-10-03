@@ -10,10 +10,12 @@ type Props = {
   label?: string
   loop?: boolean
   autoPlay?: boolean
+  preload?: 'none' | 'metadata' | 'auto'
   /** Si es true, el archivo no se pide hasta que pase a false. */
   defer?: boolean
   onPlaying?: () => void
   onEnded?: () => void
+  onError?: () => void
   videoRef?: Ref<HTMLVideoElement>
 }
 
@@ -26,51 +28,75 @@ export function CmafVideo({
   label,
   loop = true,
   autoPlay = true,
+  preload,
   defer = false,
   onPlaying,
   onEnded,
+  onError,
   videoRef,
 }: Props) {
   const localRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
+  const autoPlayRef = useRef(autoPlay)
+  const onErrorRef = useRef(onError)
+  autoPlayRef.current = autoPlay
+  onErrorRef.current = onError
+  const preloadMode = preload ?? (loop ? 'auto' : 'metadata')
 
   useEffect(() => {
     const video = localRef.current
     if (!video || defer) return
     let cancelled = false
     let usedMp4 = !hls
+    let armed = false
     let detach = () => {}
 
     const tryPlay = () => {
-      if (!autoPlay || cancelled) return
+      if (!autoPlayRef.current || cancelled) return
       void video.play().catch(() => undefined)
     }
+    const fail = () => {
+      if (!cancelled) onErrorRef.current?.()
+    }
     const useMp4 = () => {
-      if (cancelled || usedMp4) return
+      if (cancelled) return
+      if (usedMp4) {
+        fail()
+        return
+      }
       usedMp4 = true
       detach()
       detach = () => {}
+      armed = true
       video.src = mp4
       video.load()
       video.addEventListener('loadeddata', tryPlay, { once: true })
     }
     const onVideoError = () => {
-      useMp4()
+      if (!armed || cancelled) return
+      if (video.error?.code === 1) return
+      if (usedMp4) fail()
+      else useMp4()
     }
     video.addEventListener('error', onVideoError)
 
     const start = async () => {
       if (hls && video.canPlayType('application/vnd.apple.mpegurl')) {
+        armed = true
         video.src = hls
         video.addEventListener('loadeddata', tryPlay, { once: true })
       } else if (hls) {
         const { default: Hls } = await import('hls.js')
         if (cancelled) return
         if (Hls.isSupported()) {
-          const player = new Hls({ enableWorker: true, startLevel: -1 })
+          const player = new Hls({ enableWorker: true, startLevel: -1, autoStartLoad: false })
+          armed = true
           player.loadSource(hls)
           player.attachMedia(video)
-          player.on(Hls.Events.MANIFEST_PARSED, tryPlay)
+          player.on(Hls.Events.MANIFEST_PARSED, () => {
+            player.startLoad()
+            tryPlay()
+          })
           player.on(Hls.Events.ERROR, (_event, data) => {
             if (!data.fatal) return
             useMp4()
@@ -78,18 +104,20 @@ export function CmafVideo({
           detach = () => player.destroy()
         } else {
           usedMp4 = true
+          armed = true
           video.src = mp4
           video.addEventListener('loadeddata', tryPlay, { once: true })
         }
       } else {
         usedMp4 = true
+        armed = true
         video.src = mp4
         video.addEventListener('loadeddata', tryPlay, { once: true })
       }
     }
     void start()
     const onVisible = () => {
-      if (document.visibilityState !== 'visible' || !autoPlay || video.ended) return
+      if (document.visibilityState !== 'visible' || !autoPlayRef.current || video.ended) return
       void video.play().catch(() => undefined)
     }
     document.addEventListener('visibilitychange', onVisible)
@@ -99,7 +127,13 @@ export function CmafVideo({
       video.removeEventListener('error', onVideoError)
       detach()
     }
-  }, [hls, mp4, autoPlay, defer])
+  }, [hls, mp4, defer])
+
+  useEffect(() => {
+    const video = localRef.current
+    if (!video || defer || !autoPlay) return
+    void video.play().catch(() => undefined)
+  }, [autoPlay, defer, mp4, hls])
 
   return (
     <>
@@ -120,7 +154,7 @@ export function CmafVideo({
         muted
         loop={loop}
         playsInline
-        preload="metadata"
+        preload={defer ? 'none' : preloadMode}
         aria-label={label}
         onPlaying={() => {
           setPlaying(true)

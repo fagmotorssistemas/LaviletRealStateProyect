@@ -66,7 +66,7 @@ import {
   tourHomeSlug,
   tourRoomLabel,
 } from '@/lib/tour/tourRooms'
-import { pickCatalogPanoUrl, pickTourWidth, type TourWidth } from '@/lib/tour/pickTourWidth'
+import { pickCatalogPanoUrl, pickTourWidth, smallerTourUrl, tourCoarsePanoUrl, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
 import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
 import { pickRoomScene, pickSceneUrl, finishesMatch, hasBothFinishesForRoom } from '@/lib/tour/roomScene'
@@ -744,6 +744,7 @@ function nodesFromPublicCatalog(
   width: TourWidth,
   finish: string,
   light: TourLightMode,
+  coarse = false,
 ): { nodes: VirtualTourNode[]; startNodeId: string | undefined } {
   if (!catalog) return { nodes: [], startNodeId: undefined }
   const first = catalog.typologies.find(
@@ -753,10 +754,10 @@ function nodesFromPublicCatalog(
   const home =
     first.rooms.find((room) => room.slug === TOUR_HOME_SLUG) ??
     first.rooms.find((room) => room.url || room.scenes.length > 0)
-  const url =
-    pickCatalogPanoUrl(first.panorama, width, finish, light) ??
-    pickSceneUrl(pickRoomScene(home?.scenes, finish, light), width) ??
-    home?.url
+  const picked =
+    pickCatalogPanoUrl(first.panorama, width, finish, light, { coarse }) ??
+    pickSceneUrl(pickRoomScene(home?.scenes, finish, light), width, { coarse })
+  const url = picked ?? (coarse ? tourCoarsePanoUrl(home?.url) : home?.url)
   if (!url) return { nodes: [], startNodeId: undefined }
   const id = home?.slug ?? TOUR_HOME_SLUG
   return {
@@ -826,10 +827,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [publicCatalog, setPublicCatalog] = useState<TourPublicCatalog | null>(null)
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
-  const [fichaOpen, setFichaOpen] = useState(() => Boolean(readUnitQueryParam()))
+  const [fichaOpen, setFichaOpen] = useState(false)
   const [amenitiesOpen, setAmenitiesOpen] = useState(false)
   const [showroomReady, setShowroomReady] = useState(false)
-  const [fichaExpanded, setFichaExpanded] = useState(() => Boolean(readUnitQueryParam()))
+  const [fichaExpanded, setFichaExpanded] = useState(false)
   const [simulatorOpen, setSimulatorOpen] = useState(false)
   const [simulatorEntry, setSimulatorEntry] = useState<{
     mode?: 'cash' | 'financed' | 'manual'
@@ -847,14 +848,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [tourNavMode, setTourNavMode] = useState<TourNavMode | null>(null)
   const [navChooserOpen, setNavChooserOpen] = useState(false)
   const [voiceAssistOpen, setVoiceAssistOpen] = useState(false)
-  const [shellMode, setShellMode] = useState<'plan' | 'unit'>(() => {
-    if (readUnitQueryParam()) return 'unit'
-    return 'plan'
-  })
+  const [shellMode, setShellMode] = useState<'plan' | 'unit'>('plan')
   const openingPlanFloor = FLOOR_PLAN_LEVELS.find((level) => level.storageKey === 'terraza')?.id ?? 7
   const [planFloor, setPlanFloor] = useState(openingPlanFloor)
-  const [planEntryOpen, setPlanEntryOpen] = useState(() => !readUnitQueryParam())
+  const [planEntryOpen, setPlanEntryOpen] = useState(true)
   const [entryVideo, setEntryVideo] = useState(false)
+  const [entryCoarse, setEntryCoarse] = useState(false)
+  const entryFailedRef = useRef(false)
   const [droneOn, setDroneOn] = useState(false)
   const droneRef = useRef<HTMLVideoElement>(null)
   const [planTouchUntil, setPlanTouchUntil] = useState(0)
@@ -884,7 +884,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (!entryVideo || !planEntryOpen || droneOn) return
-    const timer = window.setTimeout(() => requestEntryClose(), 3000)
+    const timer = window.setTimeout(() => requestEntryClose(), 10000)
     return () => window.clearTimeout(timer)
   }, [entryVideo, planEntryOpen, droneOn, requestEntryClose])
 
@@ -1001,9 +1001,19 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [compareSplit, setCompareSplit] = useState(50)
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const consultUnitLoggedRef = useRef<string | null>(null)
-  const [viewMode, setViewMode] = useState<TourViewMode>(() =>
-    readUnitQueryParam() ? 'galeria' : 'planos-3d',
-  )
+  const [viewMode, setViewMode] = useState<TourViewMode>('planos-3d')
+  const deepLinkBootRef = useRef(false)
+  useEffect(() => {
+    if (deepLinkBootRef.current) return
+    deepLinkBootRef.current = true
+    setEntryCoarse(window.matchMedia('(pointer: coarse)').matches)
+    if (!readUnitQueryParam()) return
+    setPlanEntryOpen(false)
+    setShellMode('unit')
+    setViewMode('galeria')
+    setFichaOpen(true)
+    setFichaExpanded(true)
+  }, [])
   const [galeriaIndex, setGaleriaIndex] = useState(0)
   /** Semilla estable: cambia al entrar a galería / tipología para re-sortear acabado×luz. */
   const [galeriaSeed, setGaleriaSeed] = useState(() => Math.floor(Math.random() * 1_000_000))
@@ -1184,7 +1194,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       const scene =
         dbScene.nodes.length > 0
           ? dbScene
-          : nodesFromPublicCatalog(publicCat, bootWidth, startFinish, 'dia')
+          : nodesFromPublicCatalog(
+              publicCat,
+              bootWidth,
+              startFinish,
+              'dia',
+              window.matchMedia('(pointer: coarse)').matches,
+            )
       if (scene.nodes.length === 0) {
         if (!publicCat && !nextCatalog) {
           setBootError('No se pudo conectar con Supabase. Revisa tu internet o vuelve a intentar.')
@@ -1227,6 +1243,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       const viewer = new Viewer({
         container,
         loadingTxt: '',
+        lang: { loadError: 'No se pudo cargar el panorama.' },
         navbar: false,
         canvasBackground: 'transparent',
         defaultZoomLvl: 0,
@@ -1308,6 +1325,17 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         }
         applyTourMarkersRef.current()
         requestAnimationFrame(() => applyTourMarkersRef.current())
+      })
+
+      const panoStepRef = { url: '' }
+      viewer.addEventListener(events.PanoramaErrorEvent.type, () => {
+        const failed = currentUrlRef.current
+        const next = smallerTourUrl(failed)
+        if (!next || next === failed || panoStepRef.url === next) return
+        panoStepRef.url = next
+        currentUrlRef.current = next
+        desiredPanoRef.current = next
+        void viewer.setPanorama(next, { showLoader: false, transition: false }).catch(() => undefined)
       })
 
       viewer.addEventListener(events.PanoramaLoadedEvent.type, () => {
@@ -1714,10 +1742,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         currentTypology?.rooms.find((entry) => entry.slug === item.slug) ??
         currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, item.slug) && entry.url)
       const scene = pickRoomScene(roomItem?.scenes, finish || null, light)
-      map[item.slug] = pickSceneUrl(scene, catalogWidthRef.current) ?? roomItem?.url ?? null
+      const picked = pickSceneUrl(scene, catalogWidthRef.current, { coarse: entryCoarse })
+      map[item.slug] = picked ?? (entryCoarse ? tourCoarsePanoUrl(roomItem?.url) : roomItem?.url ?? null)
     }
     return map
-  }, [tourRooms, currentTypology, finish, light])
+  }, [tourRooms, currentTypology, finish, light, entryCoarse])
 
   const urlForRoom = useCallback(
     (slug: string) => {
@@ -1735,6 +1764,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     catalogWidthRef.current,
     finish || null,
     light,
+    { coarse: entryCoarse },
   )
   const activePanoUrl = urlForRoom(room) ?? (room === homeSlug ? typologyPanoUrl : null)
   desiredPanoRef.current = activePanoUrl
@@ -1767,11 +1797,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       targetWidthRef.current,
       finish || null,
       light,
+      { coarse: entryCoarse },
     )
     const fromRoom = urlForRoom(homeSlug)
     queuePanoPreload(fromCatalog)
     if (fromRoom && fromRoom !== fromCatalog) queuePanoPreload(fromRoom)
-  }, [currentTypology?.panorama, finish, light, homeSlug, urlForRoom, queuePanoPreload])
+  }, [currentTypology?.panorama, finish, light, homeSlug, urlForRoom, queuePanoPreload, entryCoarse])
 
   useEffect(() => {
     if (shellMode !== 'unit') return
@@ -1815,7 +1846,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     ) => {
       if (!scenes?.length) return roomUrl ?? null
       const scene = pickRoomScene(scenes, finish || null, light)
-      return pickSceneUrl(scene, sideWidth) ?? pickSceneUrl(scene) ?? roomUrl ?? scenes[0]?.url ?? null
+      return (
+        pickSceneUrl(scene, sideWidth, { coarse: entryCoarse }) ??
+        (entryCoarse ? tourCoarsePanoUrl(roomUrl) : roomUrl ?? scenes[0]?.url ?? null)
+      )
     }
 
     const urlForSlug = (slug: string | null | undefined) => {
@@ -1834,8 +1868,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       urlForSlug(room) ??
       urlForSlug(homeOfB) ??
       urlForSlug(homeSlug) ??
-      pickCatalogPanoUrl(typ.panorama, sideWidth, finish || null, light) ??
-      pickCatalogPanoUrl(typ.panorama, sideWidth) ??
+      pickCatalogPanoUrl(typ.panorama, sideWidth, finish || null, light, { coarse: entryCoarse }) ??
+      pickCatalogPanoUrl(typ.panorama, sideWidth, undefined, undefined, { coarse: entryCoarse }) ??
       rooms.map((item) => urlFromScenes(item.scenes, item.url)).find(Boolean) ??
       activePanoUrl ??
       null
@@ -1850,6 +1884,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     room,
     homeSlug,
     activePanoUrl,
+    entryCoarse,
   ])
 
   const isPanoRoom = viewMode === 'tour'
@@ -2605,8 +2640,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         setPanoGhost(null)
         return
       }
-      currentUrlRef.current = url
-      shownPanoRef.current = url
+      const steppedDown = currentUrlRef.current !== url && smallerTourUrl(url) === currentUrlRef.current
+      if (!steppedDown) currentUrlRef.current = url
+      shownPanoRef.current = steppedDown ? currentUrlRef.current : url
       appliedPanoKeyRef.current = `${selectedTypology}:${url}`
       viewer.needsUpdate()
       walkingRef.current = false
@@ -2677,7 +2713,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         ) ??
         scenes.find((item) => item.finish === finishSlug)
       if (exact) {
-        return pickSceneUrl(exact, sideWidth) ?? pickSceneUrl(exact, catalogWidthRef.current)
+        return pickSceneUrl(exact, sideWidth, { coarse: entryCoarse }) ?? pickSceneUrl(exact, catalogWidthRef.current, { coarse: entryCoarse })
       }
       const matched = pickRoomScene(scenes, finishSlug, light)
       if (!matched) return null
@@ -2691,10 +2727,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           ) ??
           scenes.find((item) => item.finish && !finishesMatch(item.finish, leftSlug))
         if (other) {
-          return pickSceneUrl(other, sideWidth) ?? pickSceneUrl(other, catalogWidthRef.current)
+          return pickSceneUrl(other, sideWidth, { coarse: entryCoarse }) ?? pickSceneUrl(other, catalogWidthRef.current, { coarse: entryCoarse })
         }
       }
-      return pickSceneUrl(matched, sideWidth) ?? pickSceneUrl(matched, catalogWidthRef.current)
+      return pickSceneUrl(matched, sideWidth, { coarse: entryCoarse }) ?? pickSceneUrl(matched, catalogWidthRef.current, { coarse: entryCoarse })
     }
 
     const roomItem =
@@ -2721,6 +2757,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       sideWidth,
       finishSlug,
       light,
+      { coarse: entryCoarse },
     )
     if (fromPano) return fromPano
 
@@ -2730,7 +2767,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       if (found) return found
     }
     return null
-  }, [isFinishCompare, finishRightOption, currentTypology, room, light, homeSlug, finish])
+  }, [isFinishCompare, finishRightOption, currentTypology, room, light, homeSlug, finish, entryCoarse])
 
   useEffect(() => {
     if (!sceneFinishes.length) return
@@ -3994,8 +4031,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <div className="absolute inset-0 bg-[#14110e] opacity-100">
               <CmafVideo
                 mp4="/inicio/portada.mp4?v=gop"
-                hls="/inicio/portada-hls/index.m3u8"
-                poster="/inicio/portada-poster.jpg"
+                preload="auto"
                 label={t('Fachada Lavilet del día a la noche')}
                 className="tour-entry-video absolute inset-0 h-full w-full"
               />
@@ -4003,12 +4039,16 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           )}
           <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
             <CmafVideo
-              mp4="/tour/ingreso.mp4?v=gop"
-              hls="/tour/ingreso-hls/index.m3u8"
-              autoPlay
-              defer={!entryVideo}
+              mp4={entryCoarse ? '/tour/ingreso-mobile.mp4' : '/tour/ingreso.mp4?v=gop'}
+              hls={entryCoarse ? undefined : '/tour/ingreso-hls/index.m3u8'}
+              autoPlay={entryVideo}
+              preload="auto"
               loop={false}
               videoRef={droneRef}
+              onError={() => {
+                entryFailedRef.current = true
+                if (entryVideo) requestEntryClose()
+              }}
               onEnded={() => {
                 const video = droneRef.current
                 if (video) video.pause()
@@ -4029,6 +4069,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               onClick={() => {
+                if (entryFailedRef.current) {
+                  requestEntryClose()
+                  return
+                }
                 setEntryVideo(true)
                 if (window.matchMedia('(pointer: coarse)').matches && !isIOSWebKit()) {
                   void (async () => {

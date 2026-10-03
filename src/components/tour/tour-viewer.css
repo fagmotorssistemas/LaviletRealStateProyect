@@ -740,11 +740,12 @@ html.tour-is-force-landscape body {
 }
 
 @media (max-height: 500px) {
-  .tour-floor-rail {
-    top: calc(44px + env(safe-area-inset-top) + 0.35rem) !important;
-    bottom: max(0.5rem, env(safe-area-inset-bottom)) !important;
-    max-height: none !important;
-    transform: none !important;
+  .tour-floor-rail.tour-floor-rail {
+    top: calc(44px + env(safe-area-inset-top) + 0.35rem);
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
+    max-height: none;
+    transform: none;
+    translate: none;
   }
 }
 
@@ -763,7 +764,6 @@ html.tour-is-force-landscape body {
   .tour-whatsapp-btn,
   .tour-mode-btn,
   .tour-zoom-btn,
-  .tour-floor-btn,
   .tour-plan-variant,
   [data-tour-voice],
   [data-showroom-menu] {
@@ -870,28 +870,3 @@ html.tour-is-force-landscape body {
   }
 }
 
-@media (max-height: 500px) {
-  .tour-floor-rail {
-    width: calc(36px * 2 + 0.7rem) !important;
-    overflow-x: hidden;
-  }
-
-  .tour-floor-rail > div {
-    display: grid !important;
-    grid-template-columns: repeat(2, 36px);
-    justify-content: center;
-    gap: 2px;
-  }
-
-  .tour-floor-btn {
-    width: 36px !important;
-    height: 36px !important;
-    min-width: 36px !important;
-    min-height: 36px !important;
-    max-height: 36px !important;
-  }
-
-  .tour-floor-side {
-    right: calc(36px * 2 + 1.4rem + env(safe-area-inset-right)) !important;
-  }
-}

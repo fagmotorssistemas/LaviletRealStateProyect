@@ -127,6 +127,9 @@ export async function convertUploadedSceneToWebp(
   let asset = await publish(webpFileName, webpBuffer)
   const variantNames: string[] = []
   if (input.mode === 'lossless') {
+    const fullName = withSceneRevision(roomSceneFileName(input.sceneKey, 8192, 'webp'), revision)
+    await publish(fullName, webpBuffer)
+    variantNames.push(fullName)
     for (const width of TOUR_WIDTHS) {
       const variantName = withSceneRevision(roomSceneFileName(input.sceneKey, width, 'webp'), revision)
       const variantBuffer = await sharp(sourceBuffer, SHARP_OPTS)
@@ -137,9 +140,6 @@ export async function convertUploadedSceneToWebp(
       await publish(variantName, variantBuffer)
       variantNames.push(variantName)
     }
-    const fullName = withSceneRevision(roomSceneFileName(input.sceneKey, 8192, 'webp'), revision)
-    await publish(fullName, webpBuffer)
-    variantNames.push(fullName)
   }
 
   const webpPath = typologyAssetStoragePath(input.typologyCode, input.persistKind, webpFileName)

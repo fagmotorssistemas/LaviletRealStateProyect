@@ -1,5 +1,13 @@
 import type { TourLightMode, TourRoomScene } from '@/types/tour'
-import { publicAssetVersion, tourDisplayUrl, type TourWidth } from '@/lib/tour/pickTourWidth'
+import {
+  assetRevision,
+  pointerIsCoarse,
+  publicAssetVersion,
+  tourCoarsePanoUrl,
+  tourDisplayUrl,
+  variantIsCurrent,
+  type TourWidth,
+} from '@/lib/tour/pickTourWidth'
 import { roomsShareSlot, roomSlugAliases, isExcludedTourSpace } from '@/lib/tour/tourRooms'
 
 export const TOUR_SCENE_LIGHTS: { slug: TourLightMode; label: string }[] = [
@@ -267,6 +275,7 @@ export function buildRoomScenes(
   room: string,
 ): TourRoomScene[] {
   const groups = new Map<string, TourRoomScene>()
+  const widthNames = new Map<string, Partial<Record<'2048' | '4096' | '8192', string>>>()
   for (const item of assets) {
     if (!fileMatchesRoom(item.file_name, room)) continue
     const parsed = parseRoomSceneFileName(item.file_name)
@@ -289,6 +298,7 @@ export function buildRoomScenes(
       const existing = current.widths?.[slot]
       if (!existing || publicAssetVersion(item.url) >= publicAssetVersion(existing)) {
         current.widths = { ...current.widths, [slot]: item.url }
+        widthNames.set(key, { ...widthNames.get(key), [slot]: item.file_name })
       }
     } else if (
       !current.file_name ||
@@ -304,14 +314,16 @@ export function buildRoomScenes(
     groups.set(key, current)
   }
   return [...groups.values()].flatMap((scene): TourRoomScene[] => {
-    const baseVersion = /\.png(?:$|\?)/i.test(scene.url) ? 0 : publicAssetVersion(scene.url)
+    const pngBaseUrl = /\.png(?:$|\?)/i.test(scene.url) || /\.png$/i.test(scene.file_name)
+    const names = widthNames.get(scene.key) ?? {}
     const widths = Object.fromEntries(
       Object.entries(scene.widths ?? {})
-        .filter(([, value]) => {
-          if (!value) return false
-          const version = publicAssetVersion(value)
-          if (baseVersion && version && version + 1500 < baseVersion) return false
-          return true
+        .filter(([slot, value]) => {
+          if (!value || pngBaseUrl) return Boolean(value)
+          const variantRev = assetRevision(names[slot as '2048' | '4096' | '8192']) ?? assetRevision(value)
+          const baseRev = assetRevision(scene.file_name) ?? assetRevision(scene.url)
+          if (!variantRev && !baseRev) return true
+          return variantRev !== null && variantRev === baseRev
         })
         .map(([key, value]) => [key, value ? tourDisplayUrl(value) : value]),
     )
@@ -335,18 +347,18 @@ export function buildRoomScenes(
 export function pickSceneUrl(
   scene: TourRoomScene | undefined,
   width?: TourWidth,
+  options?: { coarse?: boolean },
 ): string | null {
   if (!scene) return null
   const widths = scene.widths ?? {}
   const prefer = width ?? 8192
-  const baseVersion = /\.png(?:$|\?)/i.test(scene.url) ? 0 : publicAssetVersion(scene.url)
-  const usable = (url?: string) => {
-    if (!url) return false
-    const version = publicAssetVersion(url)
-    if (baseVersion && version && version + 1500 < baseVersion) return false
-    return true
+  const revisionBase = /\.png(?:$|\?)/i.test(scene.url) ? undefined : scene.url
+  const webp = (url?: string) => Boolean(url && variantIsCurrent(url, revisionBase) && !/\.png(?:$|\?)/i.test(url))
+  if (pointerIsCoarse(options?.coarse)) {
+    if (webp(widths['4096'])) return tourDisplayUrl(widths['4096']!)
+    if (webp(widths['2048'])) return tourDisplayUrl(widths['2048']!)
+    return tourCoarsePanoUrl(scene.url, widths['8192'])
   }
-  const webp = (url?: string) => Boolean(url && usable(url) && !/\.png(?:$|\?)/i.test(url))
   if (prefer >= 8192 && webp(widths['8192'])) return tourDisplayUrl(widths['8192']!)
   if (prefer >= 4096 && (webp(widths['4096']) || webp(widths['8192']))) {
     const url = webp(widths['4096']) ? widths['4096']! : widths['8192']!

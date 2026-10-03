@@ -277,13 +277,21 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
   }
   var planFloor = ${JSON.stringify(floor)};
   var planAnnounced = false;
+  var planAllowBareRender = false;
+  window.addEventListener("load", function () {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        planAllowBareRender = true;
+      });
+    });
+  });
   function announcePlanReady(renderer) {
     if (planAnnounced || !renderer) return;
     var textures = 0;
     try {
       textures = renderer.info && renderer.info.memory ? Number(renderer.info.memory.textures) || 0 : 0;
     } catch (e) {}
-    if (!(textures > 0)) return;
+    if (!(textures > 0) && !planAllowBareRender) return;
     planAnnounced = true;
     try {
       parent.postMessage({ type: "lavilet-plan-ready", floor: planFloor }, "*");

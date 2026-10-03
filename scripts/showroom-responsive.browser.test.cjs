@@ -128,7 +128,7 @@ function assertChrome(chrome, label) {
   assert.ok(chrome.railFits, `${label}: la barra de pisos hace scroll`)
   if (chrome.coarse) {
     const small = controls.filter((item) => {
-      const min = chrome.vh <= 500 && item.rail ? 35 : 43
+      const min = item.rail ? 30 : 43
       return item.w < min || item.h < min
     })
     assert.deepEqual(
@@ -292,9 +292,36 @@ async function main() {
       const box = await notice.boundingBox()
       assert.ok(box && box.width > 40, `${viewport.width}x${viewport.height}: el aviso de giro no se ve`)
       await page.getByRole('button', { name: 'Ver en horizontal' }).waitFor({ state: 'visible', timeout: 5000 })
+      await page.getByRole('button', { name: 'Continuar en vertical' }).waitFor({ state: 'visible', timeout: 5000 })
       await context.close()
       console.log('PASS portrait', `${viewport.width}x${viewport.height}`)
     }
+
+    const instagramUa = `${androidUa} Instagram 319.0.0.0.0`
+    const instagram = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      screen: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+      userAgent: instagramUa,
+    })
+    const instagramPage = await instagram.newPage()
+    await instagramPage.goto(base, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    const instagramCookies = instagramPage.getByRole('button', { name: 'Aceptar cookies' })
+    if (await instagramCookies.count()) await instagramCookies.click().catch(() => undefined)
+    const instagramNotice = instagramPage.getByText('Gira tu teléfono para ver el showroom')
+    await instagramNotice.waitFor({ state: 'visible', timeout: 15000 })
+    assert.equal(await instagramPage.getByRole('button', { name: 'Ver en horizontal' }).count(), 0)
+    await instagramPage.getByText('Abre esta página en Chrome para verla en horizontal').waitFor({ state: 'visible', timeout: 5000 })
+    await instagramPage.getByRole('button', { name: 'Continuar en vertical' }).click()
+    await instagramNotice.waitFor({ state: 'hidden', timeout: 5000 })
+    await instagramPage.locator('[data-showroom-menu]').waitFor({ state: 'visible', timeout: 15000 })
+    const enter = instagramPage.getByRole('button', { name: 'Ingresar', exact: true })
+    await enter.waitFor({ state: 'visible', timeout: 15000 })
+    await enter.click()
+    await instagramPage.getByRole('button', { name: 'Saltar', exact: true }).waitFor({ state: 'visible', timeout: 8000 })
+    await instagram.close()
+    console.log('PASS instagram portrait')
 
     const missing = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: false })
     const missingPage = await missing.newPage()

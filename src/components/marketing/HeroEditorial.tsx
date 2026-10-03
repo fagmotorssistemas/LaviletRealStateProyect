@@ -7,8 +7,6 @@ import { CmafVideo } from '@/components/media/CmafVideo'
 import { notifyHeroLocked } from './heroLock'
 import { LaviletLockup } from './LaviletLockup'
 
-const PHOTO = '/inicio/portada-poster.jpg'
-
 const FEATURES = [
   { label: 'Viviendas sobre el área comercial', Icon: Building2 },
   { label: 'Accesos independientes', Icon: DoorOpen },
@@ -25,8 +23,7 @@ export function HeroEditorial() {
       <div className="absolute top-0 inset-x-0 h-[48svh] sm:h-[55svh] lg:h-full">
         <CmafVideo
           mp4="/inicio/portada.mp4?v=gop"
-          hls="/inicio/portada-hls/index.m3u8"
-          poster={PHOTO}
+          preload="auto"
           label="Fachada Lavilet del día a la noche"
           className="absolute inset-0 h-full w-full object-cover object-[65%_center] lg:object-center"
         />
