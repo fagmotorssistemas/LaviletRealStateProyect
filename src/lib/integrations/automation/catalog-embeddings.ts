@@ -84,17 +84,21 @@ export async function retrieveCatalogByEmbeddings(info: Row, current: string, de
   const plan = embeddingSearchPlan(info, current)
   const started = Date.now()
   let tokens = 0
+  let embeddingRequested = false, embeddingUsageRecorded = false
   const base = { enabled: object(info.catalog_search).embeddingsEnabled === true, model: MODEL,
     candidate_count: plan.candidates.length, selection_limit: LIMIT }
   const fallback = (reason: string) => ({ units: null, audit: { ...base, applied: false, reason,
+    embedding_requested: embeddingRequested, embedding_usage_recorded: embeddingUsageRecorded,
     method: 'current_catalog', embedding_input_tokens: tokens, duration_ms: Date.now() - started } as Row })
   if (plan.reason !== 'eligible') return fallback(plan.reason)
   // An oversized or missing query uses the existing path without truncation.
   if (!current.trim() || current.length > 4000) return fallback('query_not_supported')
   try {
     const provider = dependencies ?? liveDependencies()
+    embeddingRequested = true
     const embedded = await provider.embed(current)
     tokens = embedded.tokens
+    embeddingUsageRecorded = Number.isSafeInteger(tokens) && tokens >= 0
     // At this catalog size, retrieve all scores within the authorized project,
     // then apply hard SQL-snapshot filters before limiting the writer's input.
     const matches = await provider.match(embedded.vector, rows(info.catalogo).length)
@@ -118,6 +122,7 @@ export async function retrieveCatalogByEmbeddings(info: Row, current: string, de
     const selected = ranked.filter(item => item.score >= 0.3 && item.score >= ranked[0].score - 0.12).slice(0, LIMIT)
     if (!selected.length) return fallback('low_similarity')
     return { units: selected.map(item => item.unit), audit: { ...base, applied: true,
+      embedding_requested: embeddingRequested, embedding_usage_recorded: embeddingUsageRecorded,
       method: 'embeddings', reason: 'semantic_candidates', exhaustive: false,
       selected_unit_ids: selected.map(item => item.unit.id), similarities: selected.map(item => item.score),
       embedding_input_tokens: tokens, duration_ms: Date.now() - started } as Row }

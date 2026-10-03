@@ -5,6 +5,8 @@ import { aiRequestRole, type ReviewReasoningEffort } from './ai-model-routing'
 import type { ModelResponseDiagnostics } from './ai-output'
 import type { OpenAIRequestDiagnostics } from './openai-request'
 import { AI_USER_PREFIX } from './ai-request-body'
+import { promptCostComparison } from './prompt-cost-comparison'
+import { object } from './data'
 
 type Context = { trace: AutomationExecutionTrace; calls: number; deadlineAt: number; guard?: () => Promise<void> }
 type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: number;
@@ -59,8 +61,15 @@ export function beginModelTrace(instructions: string, model: string, task: strin
   const purpose = task === 'writing' ? 'Redactar con IA' : task === 'review' ? 'Revisar con IA' : 'Interpretar con IA'
   const parent = context.trace.currentStep()
   context.trace.setVersions({ model, promptVersions: { [`${task}_${++context.calls}`]: revision } })
+  const comparison = attachments ? null : promptCostComparison(instructions, input, schema)
+  const data = object(input), verified = object(data.contexto_verificado), state = object(data.estado_del_turno)
+  const catalogMode = object(verified.catalog_context_scope).kind === 'semantic_candidates'
+    || object(state.alcance_catalogo).kind === 'semantic_candidates' ? 'semantic_candidates'
+    : data.contexto_verificado || data.fuentes_autorizadas ? 'current_catalog' : 'not_applicable'
   const order = context.trace.start('model_request', purpose, 'ai', 'ai.ts', {
     task, ai_role: role, model, attachments_omitted: attachments, prompt_revision: revision, ...(parent ? { caused_by_step: parent } : {}),
+    ...(comparison ? { context_cost_comparison: comparison } : {}),
+    catalog_context_mode: catalogMode,
     ...(outputBudget !== undefined ? { configured_max_output_tokens: outputBudget } : {}),
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     prompt_snapshot: { capture_version: 2, instructions, user_prefix: AI_USER_PREFIX,

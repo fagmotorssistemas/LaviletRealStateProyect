@@ -1273,6 +1273,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       catalogo_verificacion: commercialInfo.catalogo,
       ...(audit.verified_catalog === true ? {
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
+    // The map URL is not a suggestion the writer may add opportunistically.
+    if (!locationRequestKind(current)) delete (info as Row).ubicacion
+    const costBaseline = object(audit.catalog_retrieval).applied === true
+      ? { ...info, catalogo: commercialInfo.catalogo } : undefined
     if (object(audit.catalog_retrieval).applied === true) {
       // Both writer and reviewer receive the same fresh partial selection.
       // Do not silently re-expand it through comparison evidence.
@@ -1283,14 +1287,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       const ids = new Set((Array.isArray(info.catalogo) ? info.catalogo : []).map(unit => object(unit).id))
       info.referencia_unidad = { ...object(info.referencia_unidad), matches: (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).filter(unit => ids.has(object(unit).id)) }
     }
-    // The map URL is not a suggestion the writer may add opportunistically.
-    if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)
     const coverageStep = trace.start('response_coverage', 'Redactar y validar la respuesta final', 'decision', 'turn-completeness.ts', {
       base_preview: traceText(reply, MAX_REPLY_CHARACTERS), source: text(audit.source) || 'commercial',
       catalog_coverage: audit.catalog_coverage,
     })
     const reviewed = await completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: reply,
+      costBaseline,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
       preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
     // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
@@ -1307,6 +1310,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
         reviewedText = reply
         reviewFinalContent = candidate => completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: candidate,
+          costBaseline,
           verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [], avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
           audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
         })

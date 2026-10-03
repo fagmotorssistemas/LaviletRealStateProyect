@@ -7,6 +7,7 @@ import { catalogDialogueReply } from './catalog-dialogue'
 import { leadIntroductionTurn } from './lead-introduction'
 import { completeTurnReply } from './turn-completeness'
 import { object, scope, type Row } from './data'
+import { promptCostComparison } from './prompt-cost-comparison'
 
 const fixture = JSON.parse(readFileSync('scripts/fixtures/semantic-local-search.json', 'utf8'))
 const units = Array.from({ length: 65 }, (_, i) => ({ id: `unit-${i}`, unit_number: i < 16 ? `LC-${i + 1}` : `SU-${i + 1}`,
@@ -69,7 +70,7 @@ test('supplementary evidence retains applicable facts, restrictions and unknown 
   assert.equal(rows(verified.instalaciones).length, 1)
 })
 
-async function run(enabled: boolean, failSearch = false) {
+async function run(enabled: boolean, failSearch = false, compareCosts = false) {
   const info = input(enabled)
   let embeddings = 0
   const dependencies = provider()
@@ -83,17 +84,20 @@ async function run(enabled: boolean, failSearch = false) {
   const verified: Row = { ...selected, catalogo: object(base.audit.catalog_results).units,
     catalogo_verificacion: retrieved.units || units, estado_operativo: opening.audit }
   const calls: { task: string; instructions: string; context: Row }[] = []
+  const costComparisons: unknown[] = []
   const reply = 'En La Vilet contamos con locales con espacio exterior. Para compartirle el brochure y una guía personalizada, ¿podría indicarme su nombre y en qué ciudad o país reside actualmente?'
   const result = await completeTurnReply({ current: fixture.message, history: [], baseReply: opening.reply, verified,
+    costBaseline: compareCosts ? { ...info, catalogo_verificacion: units } : undefined,
     audit: { ...opening.audit, resolved_turn_intent: fixture.intent, semantic_review_enabled: true, business_risk_review_enabled: true } },
   async (instructions, context, _schema, _image, _file, _tone, task) => {
     const data = object(context)
+    costComparisons.push(promptCostComparison(instructions, context, _schema))
     calls.push({ task: task!, instructions, context: data })
     if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
     return { reply, question: { role: 'required_collection', purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia actual', next_decision: 'Compartir el brochure' },
       requests: rows(data.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Buscar local', status: 'answered', evidence: 'Locales con espacio exterior.', fact_key: null, request_type: 'general_information' })) }
   })
-  return { calls, result, embeddings }
+  return { calls, result, embeddings, costComparisons }
 }
 
 test('real-message pipeline sends six candidates to both agents, preserves capture and restores the old prompts after switch off', async () => {
@@ -120,4 +124,20 @@ test('real-message pipeline sends six candidates to both agents, preserves captu
   assert.equal(rows(object(failure.calls[0].context.contexto_verificado).politicas_negocio).length, 4)
   assert.ok(JSON.stringify(on.calls).length < JSON.stringify(off.calls).length)
   assert.equal(object(on.result.audit.prompt_context_selection).mode, 'semantic_candidates')
+})
+
+test('cost comparison observes both agents without changing their inputs, output, calls or off behavior', async () => {
+  const plain = await run(true), observed = await run(true, false, true)
+  assert.deepEqual(observed.calls, plain.calls)
+  assert.deepEqual(observed.result, plain.result)
+  assert.equal(observed.embeddings, plain.embeddings)
+  assert.equal(observed.costComparisons.length, 2)
+  for (const value of observed.costComparisons) {
+    const comparison = object(value)
+    assert.equal(comparison.version, 'context-size-v1')
+    assert.ok(Number(comparison.normal_prompt_characters) > Number(comparison.actual_prompt_characters))
+  }
+  const off = await run(false, false, true)
+  assert.ok(off.costComparisons.every(c => c === null))
+  assert.deepEqual(off.calls, (await run(false)).calls)
 })

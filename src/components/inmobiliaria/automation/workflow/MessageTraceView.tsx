@@ -9,7 +9,7 @@ import { reviewDecision } from './reviewDecision'
 import styles from './MessageTraceView.module.css'
 import { promptContextParts } from './promptContext'
 import { PromptCopyButton } from './PromptCopyButton'
-import { executionCost } from './executionCost'
+import { AgentCallCost, ExecutionCostPanel } from './ExecutionCostPanel'
 import { responseAttempts } from './attemptHistory'
 import { ArchitectureMap } from './ArchitectureMap'
 import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './ReviewDiagnosticsPanel'
@@ -71,7 +71,6 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
   const batch = group?.batches.find(item => item.id === batchId || item.members.some(member => member.id === batchId)) || group?.batches[0]
   const execution = batch?.execution
   const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
-  const cost = useMemo(() => executionCost(steps), [steps])
   const step = steps.find(item => item.order === stepOrder) || steps.find(item => item.key === 'dialogue_decision') || steps[0]
   const attempts = step?.key === 'response_coverage' ? responseAttempts(steps, step) : []
   const explanation = execution && step ? explainStep(execution, step) : null
@@ -127,6 +126,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
           {batch && batch.total > batch.members.length && <p className={styles.notice}>El registro indica {batch.total} mensajes en este lote; hay {batch.members.length} vistas previas cargadas. Los pasos son compartidos, no una ejecución independiente por cada mensaje.</p>}
           {batch && batch.total > 1 && batch.total === batch.members.length && <p className={styles.muted}>Estos mensajes pertenecen al mismo lote registrado y comparten el recorrido.</p>}
           <p className={styles.outcome}>{execution.outcome}{execution.action === 'accepted' ? ' · Entrega y lectura en WhatsApp sin confirmar.' : ''}</p>
+          {steps.length > 0 && <ExecutionCostPanel key={execution.id} execution={execution} executions={executions} onStep={selectStep} />}
           {architecture && <ArchitectureMap execution={execution} onStep={selectStep} />}
           {processing && <p className={styles.notice} role="status">{execution.status === 'pending' ? 'Mensaje recibido: esperando procesamiento.' : 'Procesando la respuesta.'} La vista se actualiza cada 5 segundos. Puede revisar los mensajes anteriores mientras espera.</p>}
           {!steps.length && processing ? <p className={styles.muted}>Los pasos aparecerán cuando se guarde la ejecución.</p> : !steps.length ? <div className={styles.empty}>
@@ -182,15 +182,6 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
               <details className={styles.technical}><summary>Ver detalles técnicos de este paso</summary><pre>{JSON.stringify({ order: step.order, key: step.key, source: step.source, status: step.status, durationMs: step.durationMs, input: step.input, output: step.output, errorCode: step.errorCode }, null, 2)}</pre></details>
             </section>}
           </>}
-          {steps.length > 0 && <section className={styles.costSummary} aria-label="Consumo de IA de esta ejecución">
-            <h4>Consumo de IA de este mensaje</h4>
-            {cost.calls ? <>
-              <p><strong>{cost.totalTokens.toLocaleString('es-EC')} tokens registrados</strong> · {cost.inputTokens.toLocaleString('es-EC')} de entrada ({cost.cachedInputTokens.toLocaleString('es-EC')} en caché) · {cost.outputTokens.toLocaleString('es-EC')} de salida.</p>
-              <p><strong>Costo estimado: {cost.pricedCalls ? new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(cost.estimatedUsd) : 'No disponible'}</strong> · {cost.pricedCalls} de {cost.calls} llamadas con modelo, uso y tarifa conocidos.</p>
-              {!cost.complete && <p>El total es parcial: alguna llamada no registró consumo o no tiene una tarifa reconocida.</p>}
-              <small>Estimación de las llamadas registradas con tarifas de OpenAI del {cost.priceVersion}; no es el importe facturado. No incluye transcripción de audio, voz ni servicios externos.</small>
-            </> : <p>Esta ejecución no registró llamadas al modelo de texto. La transcripción de audio y otros servicios no se miden aquí.</p>}
-          </section>}
           <details className={styles.technical}><summary>Identidad, versiones y alcance del registro</summary><p>Son resúmenes declarados por el sistema, no una captura completa de cada consulta o de todo lo recibido por el modelo.</p><pre>{JSON.stringify({ eventIds: batch?.members.map(item => item.id), conversationId: execution.conversationId || null, batchId: execution.batchId || null, batchEventIds: execution.batchEventIds || [], traceSource: execution.traceSource, traceWarning: execution.traceWarning, stopReason: execution.stopReason, versions: execution.versions }, null, 2)}</pre></details>
         </div>
       </div>}
@@ -211,6 +202,7 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
     {typeof input.borrador_rechazado === 'string' && <DraftDecision data={{ borrador_evaluado: input.borrador_rechazado, decision: 'Rechazado antes de esta corrección', motivos_registrados: input.correcciones_requeridas, siguiente_accion: 'Esta llamada intenta corregir ese borrador' }} />}
     <h5>Entrada y salida de esta llamada a IA</h5>
     <PromptCopyButton step={step} />
+    <AgentCallCost step={step} />
     <p>Modelo: {String(step.input.model || 'No registrado')}. Copia protegida: puede ocultar datos sensibles.</p>
     <ReviewReferenceLegend step={step} />
     {attempts.length > 0 && <details className={styles.technical} open={step.status === 'failed'}>

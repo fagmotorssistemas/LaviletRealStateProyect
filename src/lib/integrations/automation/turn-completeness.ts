@@ -2,6 +2,8 @@ import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, 
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
 import { semanticCatalogContext, SEMANTIC_OPENING_RULE } from './semantic-catalog-context'
+import { catalogCostBaseline } from './catalog-cost-baseline'
+import { withPromptCostComparison } from './prompt-cost-comparison'
 import { turnBudgetAssessment, effectiveTurnBudget, BUDGET_CONTINUATION_RULES } from './turn-budget'
 import { recordBudgetDecision } from './ai-execution-trace'
 import { focusedValueScopeIssues } from './focused-value-scope'
@@ -65,6 +67,8 @@ export type TurnCompletenessInput = {
   baseReply: string
   /** Only current catalogue/policies and successful operational results, never AI summaries as facts. */
   verified: Row
+  /** Observability only; never included in an agent prompt. */
+  costBaseline?: Row
   audit?: Row
   preserveOperationalQuestion?: boolean
   /** Route-specific checks share the writer budget; reviewer metadata has its own limit. */
@@ -339,6 +343,19 @@ function missingRequestInventory(current: string, requests: Coverage[], verified
 
 /** Bounded semantic review; reads no DB and performs no commercial action. */
 export async function completeTurnReply(input: TurnCompletenessInput, generate: typeof aiJson = aiJson): Promise<TurnCompletenessResult> {
+  // Diagnostic failure must never interrupt delivery or change model inputs.
+  let normalContext: ReturnType<typeof catalogCostBaseline> = null
+  if (input.costBaseline && object(input.audit?.catalog_retrieval).applied === true) {
+    try { normalContext = catalogCostBaseline(input.costBaseline, input.audit || {}, input.current, input.history) } catch { /* estimate unavailable */ }
+  }
+  if (normalContext) {
+    const actualGenerate = generate
+    generate = (...args) => {
+      let baseline: Row | null = null
+      try { baseline = normalContext!(args[6] || 'data', object(args[1])) } catch { /* estimate unavailable */ }
+      return baseline ? withPromptCostComparison(baseline, () => actualGenerate(...args)) : actualGenerate(...args)
+    }
+  }
   const turnIntent = object(input.audit?.resolved_turn_intent || input.verified.contrato_turno)
   const profile = confirmedLeadProfile(input.verified.perfil_lead || object(input.audit?.profile_introduction).profile_state)
   input = { ...input, audit: { ...input.audit, resolved_turn_intent: turnIntent }, verified: { ...input.verified,

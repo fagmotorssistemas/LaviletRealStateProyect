@@ -24,9 +24,15 @@ execution('3', 'Diagnóstico de ficha del revisor', [
   step(2, 'model_request', { output_snapshot: { data: { factual_values: [], project_values: [], claims: [{ verdict: 'supported', fragment: 'S3', evidence_ids: ['E9'] }], numeric_checks: [{ numeric_id: 'N4', factual_value_indexes: [0], project_value_indexes: [] }] } } },
     { ai_role: 'reviewer', caused_by_step: 1, prompt_snapshot: { data: { oraciones_borrador: [{ id: 'S3', text: 'Seguridad 24h.' }], evidencia_afirmaciones: [{ id: 'E9', path: 'instalaciones.6', value: 'Seguridad 24h.' }], referencias_numericas: [{ id: 'N4', sentence_id: 'S3', text: '24', value: 24 }] } } }),
 ]), execution('4', 'Local con espacio exterior: embeddings aplicados', [
-  step(1, 'catalog_embedding_search', { enabled: true, applied: true, reason: 'semantic_candidates', selected_unit_ids: ['local-1'], embedding_input_tokens: 10 }),
+  step(1, 'catalog_embedding_search', { enabled: true, applied: true, model: 'text-embedding-3-small', reason: 'semantic_candidates', selected_unit_ids: ['local-1'], embedding_input_tokens: 10 }),
+  step(2, 'model_request', { token_usage: { input_tokens: 10000, cached_input_tokens: 2000, output_tokens: 1000 } },
+    { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_snapshot: { data: { contexto_verificado: { catalog_context_scope: { kind: 'semantic_candidates' } } } },
+      context_cost_comparison: { version: 'context-size-v1', actual_prompt_characters: 40000, normal_prompt_characters: 80000 } }),
 ]), execution('5', 'Presupuesto: búsqueda anterior utilizada', [
   { ...step(1, 'catalog_embedding_search', { enabled: true, applied: false, reason: 'budget_context', embedding_input_tokens: 0 }), status: 'skipped' },
+]), execution('6', 'Local con espacio exterior: prueba sin embeddings', [
+  step(1, 'model_request', { token_usage: { input_tokens: 22000, cached_input_tokens: 0, output_tokens: 1500 } },
+    { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_snapshot: { data: { contexto_verificado: {} } } }),
 ])]
 
 async function main() {
@@ -99,7 +105,7 @@ async function main() {
       await inspector.getByText('E9 · instalaciones.6').waitFor()
       await page.screenshot({ path: path.join(dir, `architecture-${width}.png`), fullPage: false })
       for (const [message, node, state, title] of [
-        ['Local con espacio exterior', 'embedding_applied', 'observed', 'Embeddings utilizados'],
+        ['Local con espacio exterior: embeddings aplicados', 'embedding_applied', 'observed', 'Embeddings utilizados'],
         ['Presupuesto: búsqueda anterior', 'embedding_bypassed', 'skipped', 'Búsqueda anterior utilizada'],
       ]) {
         await selector.selectOption({ label: await selector.locator('option').filter({ hasText: message }).innerText() })
@@ -109,6 +115,17 @@ async function main() {
         assert.match(await inspector.innerText(), new RegExp(title))
         await page.screenshot({ path: path.join(dir, `${node}-${width}.png`), fullPage: false })
       }
+      await selector.selectOption({ label: await selector.locator('option').filter({ hasText: 'Local con espacio exterior: embeddings aplicados' }).innerText() })
+      const costs = page.getByRole('region', { name: 'Consumo y comparación de embeddings', exact: true })
+      await costs.getByText('Recorrido normal estimado:', { exact: false }).waitFor()
+      assert.match(await costs.innerText(), /11[.\s]?010/)
+      await costs.getByLabel('Ejecución de comparación').selectOption('6')
+      await costs.getByRole('region', { name: 'Comparación de costos reales', exact: true }).waitFor()
+      assert.match(await costs.innerText(), /23[.\s]?500/)
+      await costs.screenshot({ path: path.join(dir, `cost-comparison-${width}.png`) })
+      await costs.getByRole('button', { name: /Redactor.*2/ }).click()
+      const detail = page.getByRole('region', { name: 'Explicación del paso seleccionado', exact: true })
+      await detail.getByText('Sin embeddings, estimación de esta llamada:', { exact: true }).waitFor()
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), `Horizontal overflow at ${width}`)
       assert.deepEqual(errors, [])
       await page.close()
