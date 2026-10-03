@@ -1,0 +1,21 @@
+{
+  "source": "Ejecución real del 2026-10-03: búsqueda omitida por project_information. Sin datos personales.",
+  "message": "Cómo está, busco un local con espacio exterior",
+  "semantics": {
+    "primary_intent": "project_information", "confidence": "high",
+    "budget": { "status": "not_discussed", "amount": null, "confidence": "high" },
+    "housing_quantities": [],
+    "property": {
+      "group": "commercial", "category": "local", "operation": "search", "query_scope": "catalog",
+      "confidence": "high", "reference_kind": "none", "unit_numbers": [], "excluded_categories": [],
+      "selector": null,
+      "filters": { "bedrooms": null, "floor_number": null, "min_area_m2": null, "max_area_m2": null, "bedrooms_required": null }
+    }
+  },
+  "intent": {
+    "version": "turn-intent-v2", "objective": "project_information", "scope": { "kind": "property" },
+    "required_facts": [], "needs_reference": false,
+    "subject": { "category": "local", "unit_numbers": [], "filters": {} },
+    "requests": [{ "domain": "property", "request": "Busca un local con espacio exterior", "evidence": "busco un local con espacio exterior", "confidence": "high" }]
+  }
+}

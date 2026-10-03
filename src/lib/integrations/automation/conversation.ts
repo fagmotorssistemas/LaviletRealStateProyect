@@ -1361,6 +1361,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       progressive_selection: audit.progressive_selection, post_tour_continuation: audit.post_tour_continuation,
       commercial_continuation: reviewed.audit.commercial_continuation,
       follow_up: reviewed.audit.follow_up, catalog_context_scope: reviewed.audit.catalog_context_scope,
+      ...(reviewed.audit.prompt_context_selection ? { prompt_context_selection: reviewed.audit.prompt_context_selection } : {}),
       catalog_retrieval: audit.catalog_retrieval,
       text_transformations: reviewed.audit.text_transformations,
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,

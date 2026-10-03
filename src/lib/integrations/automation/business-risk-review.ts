@@ -114,6 +114,7 @@ export function businessRiskContext(input: {
     estado_del_turno: {
       consulta_catalogo: input.audit.catalog_query || null,
       alcance_catalogo: input.verified.catalog_context_scope || null,
+      ...(input.verified.prompt_context_selection ? { seleccion_contexto: input.verified.prompt_context_selection } : {}),
       cobertura_catalogo: input.audit.catalog_coverage || null,
       resultado_catalogo: { complete: object(input.audit.catalog_results).complete,
         unit_ids: object(input.audit.catalog_results).unit_ids },

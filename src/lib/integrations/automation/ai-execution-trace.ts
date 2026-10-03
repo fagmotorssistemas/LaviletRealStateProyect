@@ -13,7 +13,7 @@ const active = new AsyncLocalStorage<Context>()
 
 export function recordCatalogRetrieval(result: Record<string, unknown>) {
   active.getStore()?.trace.add('catalog_embedding_search', 'Búsqueda de unidades por embeddings', 'decision',
-    'catalog-embeddings.ts', 'succeeded', { enabled: result.enabled }, result)
+    'catalog-embeddings.ts', result.applied === true ? 'succeeded' : 'skipped', { enabled: result.enabled }, result)
 }
 
 /** Diagnostic only: records an already computed decision, never evaluates or

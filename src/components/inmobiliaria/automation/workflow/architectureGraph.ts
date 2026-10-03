@@ -17,7 +17,7 @@ const agent = (id: string, title: string, description: string, column: number, r
   ({ ...n(id, title, description, column, row, undefined, 'agent', 'ai.ts · ai-model-routing.ts'), owner: 'IA', role })
 const branch = (id: string, title: string, description: string, column: number, row: number, key: string, field: string, value: string | boolean): ArchitectureNode =>
   ({ ...n(id, title, description, column, row, undefined, 'route',
-    ({ budget_resolution: 'turn-budget.ts', turn_intent: 'turn-intent.ts', catalog_resolution: 'property-context.ts',
+    ({ budget_resolution: 'turn-budget.ts', turn_intent: 'turn-intent.ts', catalog_resolution: 'property-context.ts', catalog_embedding_search: 'catalog-embeddings.ts',
       scope_classification: 'business-scope.ts', response_coverage: 'turn-completeness.ts', dialogue_decision: 'conversation.ts · catalog-dialogue.ts' } as Record<string, string>)[key] || 'conversation.ts'),
     branch: { key, field, value } })
 
@@ -78,6 +78,9 @@ export const ARCHITECTURE_NODES: ArchitectureNode[] = [
   n('profile', 'Resolver perfil del lead', 'Nombre y residencia declarados; el nombre de WhatsApp no demuestra identidad.', 11, 5, 'lead_profile_resolution', 'decision', 'lead-profile.ts'),
   n('route_guard', '¿La acción corresponde al turno?', 'Comprobar que la solicitud actual permite la ruta operativa.', 12, 3, 'route_consistency', 'decision', 'route-consistency.ts'),
   n('introduction', 'Presentación y datos pendientes', 'Aplicar la etapa comercial y determinar qué datos faltan.', 12, 5, 'lead_introduction', 'decision', 'lead-introduction.ts'),
+  n('embedding_search', '¿Se utilizan embeddings?', 'Evaluar la búsqueda por características. Tener la opción activada no implica que se aplique en todos los mensajes.', 11, 7, 'catalog_embedding_search', 'decision', 'catalog-embeddings.ts'),
+  branch('embedding_applied', 'Embeddings utilizados', 'Seleccionar candidatas y reducir el contexto conservando obligaciones y restricciones generales.', 12, 7, 'catalog_embedding_search', 'applied', true),
+  branch('embedding_bypassed', 'Búsqueda anterior utilizada', 'Conservar el recorrido y contexto anteriores; consultar el motivo registrado.', 12, 8, 'catalog_embedding_search', 'applied', false),
   n('visit', 'Coordinar visita', 'Registrar la coordinación cuando corresponde; no implica una cita confirmada.', 12, 0, 'visit_coordination'),
   n('visit_result', 'Resultado de visita', 'Aplicar aceptación, cambio o resultado registrado de la cita.', 13, 0, 'visit_result'),
   n('handoff', 'Gestionar atención humana', 'Registrar asignación o cola. El texto de un borrador no acredita esta acción.', 13, 7, 'advisor_handoff'),
@@ -124,6 +127,8 @@ export const ARCHITECTURE_LINKS: ArchitectureLink[] = [
   link('data', 'extractor'), link('extractor', 'reconcile', 'Si requiere conciliación'), link('extractor', 'intent'), link('reconcile', 'intent'),
   ...INTENT_ROUTES.flatMap(([value, title]) => [link('intent', `intent_${value}`, title), link(`intent_${value}`, 'catalog', 'Preparar hechos')]),
   link('catalog', 'profile'), link('catalog', 'route_guard'), link('profile', 'introduction'), link('route_guard', 'dialogue'), link('introduction', 'dialogue'),
+  link('catalog', 'embedding_search'), link('embedding_search', 'embedding_applied', 'Sí'), link('embedding_search', 'embedding_bypassed', 'No'),
+  link('embedding_applied', 'dialogue'), link('embedding_bypassed', 'dialogue'),
   link('intent', 'reference_missing', 'needs_reference'), link('catalog', 'catalog_clarify', 'Sí'), link('catalog', 'catalog_resolved', 'No'),
   link('coverage', 'budget', 'Presupuesto interpretado'),
   ...['prices_not_authorized', 'matching_options', 'incomplete_prices', 'no_matching_features', 'below_available_prices'].flatMap(value => [link('budget', `budget_${value}`), link(`budget_${value}`, 'writer', 'Informar al redactor')]),

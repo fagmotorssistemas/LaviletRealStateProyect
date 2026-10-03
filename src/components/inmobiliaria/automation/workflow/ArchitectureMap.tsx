@@ -90,7 +90,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
       {[
         ['Inicio', ['message', 'permission', 'context']], ['Alcance', ['scope_ai', 'scope', 'scope_property', 'scope_uncertain']],
         ['Objetivos', ['intent', ...ARCHITECTURE_NODES.filter(n => n.id.startsWith('intent_')).map(n => n.id)]],
-        ['Catálogo y perfil', ['catalog', 'profile', 'introduction', 'catalog_clarify']],
+        ['Catálogo y perfil', ['catalog', 'profile', 'introduction', 'catalog_clarify', 'embedding_search', 'embedding_applied', 'embedding_bypassed']],
         ['Presupuesto', ['budget', ...ARCHITECTURE_NODES.filter(n => n.id.startsWith('budget_')).map(n => n.id)]],
         ['Redacción y revisión', ['coverage', 'writer', 'reviewer', 'draft_validation', 'repair_metadata', 'repair_draft']],
         ['Envío y recuperación', ['validation', 'failure', 'delivery', 'memory', 'exit']],

@@ -25,20 +25,23 @@ export function embeddingSearchPlan(info: Row, current = '') {
   if (/\b(?:todos?|todas?|cuantos?|cuantas?|total(?:es)?|promedio|rango|minimo|maximo|mas grande|mas pequeno|mas barato|mas caro)\b/.test(normalized)) {
     return { reason: 'requires_complete_catalog', candidates: [], query }
   }
-  if (info.catalogue_price_requested === true || hasValue(intent.required_facts)
-    || !['other', 'select_property'].includes(text(intent.objective))
-    || requests.length !== 1 || requests[0].domain !== 'property' || requests[0].confidence !== 'high'
-    || semantics.confidence !== 'high' || property.confidence !== 'high'
-    || property.operation !== 'search' || query.operation !== 'search' || query.scope !== 'catalog'
-    || query.selector || hasValue(property.unit_numbers) || ['relative', 'comparison', 'followup'].includes(text(property.reference_kind))
-    || reference.needsClarification === true || reference.explicit === true
-    || hasValue(context.selected_ids) || hasValue(context.original_query) || hasValue(context.journey)
-    || object(context.preference_transition).active === true || hasValue(info.consultas_pendientes)
-    || rows(semantics.housing_quantities).some(quantity => quantity.dimension !== 'bedrooms' || quantity.role !== 'requirement')
-    || !['', 'not_discussed'].includes(text(budget.status))
-    || hasValue(object(info.lead).budget) || hasValue(object(info.lead).budget_max)) {
-    return { reason: 'requires_current_search', candidates: [], query }
-  }
+  // A first property search can legitimately have the broad objective
+  // project_information. Its actual operation, scope and requests decide here.
+  const exclusions: [boolean, string][] = [
+    [info.catalogue_price_requested === true || hasValue(intent.required_facts), 'specific_facts_required'],
+    [!['other', 'select_property', 'project_information'].includes(text(intent.objective)), 'unsupported_objective'],
+    [requests.length !== 1 || requests[0]?.domain !== 'property', 'multiple_or_non_property_requests'],
+    [requests[0]?.confidence !== 'high' || semantics.confidence !== 'high' || property.confidence !== 'high', 'uncertain_interpretation'],
+    [property.operation !== 'search' || query.operation !== 'search' || query.scope !== 'catalog' || !!query.selector, 'operation_requires_current_search'],
+    [hasValue(property.unit_numbers) || ['relative', 'comparison', 'followup'].includes(text(property.reference_kind))
+      || reference.needsClarification === true || reference.explicit === true || hasValue(context.selected_ids), 'unit_reference_or_selection'],
+    [hasValue(context.original_query) || hasValue(context.journey) || object(context.preference_transition).active === true, 'active_property_journey'],
+    [hasValue(info.consultas_pendientes), 'pending_requests'],
+    [rows(semantics.housing_quantities).some(quantity => quantity.dimension !== 'bedrooms' || quantity.role !== 'requirement'), 'household_recommendation'],
+    [!['', 'not_discussed'].includes(text(budget.status)) || hasValue(object(info.lead).budget) || hasValue(object(info.lead).budget_max), 'budget_context'],
+  ]
+  const exclusion = exclusions.find(([excluded]) => excluded)
+  if (exclusion) return { reason: exclusion[1], candidates: [], query }
   if (object(info.catalog_read).complete !== true || !catalog.length) return { reason: 'incomplete_catalog', candidates: [], query }
   const excluded = Array.isArray(property.excluded_categories) ? property.excluded_categories : []
   const candidates = filterCatalog(catalog, query).filter(unit => !excluded.includes(unit.category))

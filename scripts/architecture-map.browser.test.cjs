@@ -23,6 +23,10 @@ execution('3', 'Diagnóstico de ficha del revisor', [
   step(1, 'response_coverage', { status: 'rejected_review', recovery: { pending: true }, repair_attempts: [{ issues: [{ code: 'numeric_binding_not_in_sentence', binding: { key: 'factual_values', index: 0 }, numeric_id: 'N4', sentence_id: 'S3', received: 24, owner: 'system', repair_owner: 'reviewer' }] }] }),
   step(2, 'model_request', { output_snapshot: { data: { factual_values: [], project_values: [], claims: [{ verdict: 'supported', fragment: 'S3', evidence_ids: ['E9'] }], numeric_checks: [{ numeric_id: 'N4', factual_value_indexes: [0], project_value_indexes: [] }] } } },
     { ai_role: 'reviewer', caused_by_step: 1, prompt_snapshot: { data: { oraciones_borrador: [{ id: 'S3', text: 'Seguridad 24h.' }], evidencia_afirmaciones: [{ id: 'E9', path: 'instalaciones.6', value: 'Seguridad 24h.' }], referencias_numericas: [{ id: 'N4', sentence_id: 'S3', text: '24', value: 24 }] } } }),
+]), execution('4', 'Local con espacio exterior: embeddings aplicados', [
+  step(1, 'catalog_embedding_search', { enabled: true, applied: true, reason: 'semantic_candidates', selected_unit_ids: ['local-1'], embedding_input_tokens: 10 }),
+]), execution('5', 'Presupuesto: búsqueda anterior utilizada', [
+  { ...step(1, 'catalog_embedding_search', { enabled: true, applied: false, reason: 'budget_context', embedding_input_tokens: 0 }), status: 'skipped' },
 ])]
 
 async function main() {
@@ -94,6 +98,17 @@ async function main() {
       await inspector.getByText('Qué significan E, S y N en esta llamada').click()
       await inspector.getByText('E9 · instalaciones.6').waitFor()
       await page.screenshot({ path: path.join(dir, `architecture-${width}.png`), fullPage: false })
+      for (const [message, node, state, title] of [
+        ['Local con espacio exterior', 'embedding_applied', 'observed', 'Embeddings utilizados'],
+        ['Presupuesto: búsqueda anterior', 'embedding_bypassed', 'skipped', 'Búsqueda anterior utilizada'],
+      ]) {
+        await selector.selectOption({ label: await selector.locator('option').filter({ hasText: message }).innerText() })
+        await page.getByRole('button', { name: 'Catálogo y perfil', exact: true }).click()
+        await page.locator(`[data-id="${node}"]`).click()
+        assert.equal(await page.locator(`[data-id="${node}"] [data-state="${state}"]`).count(), 1)
+        assert.match(await inspector.innerText(), new RegExp(title))
+        await page.screenshot({ path: path.join(dir, `${node}-${width}.png`), fullPage: false })
+      }
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), `Horizontal overflow at ${width}`)
       assert.deepEqual(errors, [])
       await page.close()

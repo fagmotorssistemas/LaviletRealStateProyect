@@ -1,6 +1,7 @@
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
+import { semanticCatalogContext, SEMANTIC_OPENING_RULE } from './semantic-catalog-context'
 import { turnBudgetAssessment, effectiveTurnBudget, BUDGET_CONTINUATION_RULES } from './turn-budget'
 import { recordBudgetDecision } from './ai-execution-trace'
 import { focusedValueScopeIssues } from './focused-value-scope'
@@ -343,6 +344,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   input = { ...input, audit: { ...input.audit, resolved_turn_intent: turnIntent }, verified: { ...input.verified,
     perfil_lead: profile, lead: { ...object(input.verified.lead), name: profile.full_name || null,
       name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null }, contrato_turno: turnIntent } }
+  input = { ...input, verified: semanticCatalogContext(input.verified, input.audit || {}, input.current) }
   input = { ...input, verified: scopeTurnCatalog(input.verified, input.audit || {}) }
   const catalogEvidence = turnEvidence(input.verified, input.audit)
   input = { ...input, verified: { ...input.verified, catalogo: catalogEvidence.units } }
@@ -482,6 +484,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       + (input.audit?.progressive_selection ? ' Mantenga el propósito de la pregunta indicado en progressive_selection; puede reformularla.'
         : ' La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.')
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
+    if (input.verified.prompt_context_selection) writingRules += '\n' + SEMANTIC_OPENING_RULE
     if (budgetAssessment) writingRules += '\nPRESUPUESTO ACTUAL: contexto_verificado.presupuesto_del_turno contiene el importe interpretado y su comparación con los precios autorizados de la búsqueda. Responda ese punto junto con las características solicitadas. Una enumeración de plantas o una pregunta de preferencia no responde si el presupuesto alcanza. Si falta información, explique la limitación concreta en reply; marcar missing_fact en requests no la comunica al cliente. No invente precios, créditos, descuentos ni una derivación realizada.'
     if (budgetAssessment) writingRules += '\n' + BUDGET_CONTINUATION_RULES
     if (input.audit?.progressive_selection || input.audit?.post_tour_continuation) writingRules += '\n' + PROGRESSIVE_OPTIONS_RULES
@@ -935,6 +938,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,
       audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, editorial_observations: editorialObservations, link_contract: linkContract,
         follow_up: followUp, catalog_context_scope: input.verified.catalog_context_scope || { kind: 'full_turn' },
+        ...(input.verified.prompt_context_selection ? { prompt_context_selection: input.verified.prompt_context_selection } : {}),
         operational_action_verified: object(input.audit?.reservation).handoff_verified === true && continuationChecks.operational_goal_preserved === true && continuationChecks.answers_supported === true,
         text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
         repair_budget: repairBudget(), independent_review: reviewRequired,

@@ -1,4 +1,5 @@
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
+import { catalogSearchExplanation } from './catalogSearchExplanation'
 import { repairBudgetFacts, repairTargetLabel, reviewDecision, reviewOwnerLabel, reviewObligationLabel, reviewIssueLabels } from './reviewDecision'
 
 type Row = Record<string, unknown>
@@ -207,6 +208,7 @@ const titles: Record<string, string> = {
 
 export function statusLabel(status: string) { return values[status] || status.replaceAll('_', ' ') }
 export function stepTitle(step: WorkflowExecutionStep) {
+  if (step.key === 'catalog_embedding_search') return catalogSearchExplanation(step.output).title
   if (step.key === 'draft_validation') return 'Código · Aceptación o rechazo del borrador'
   if (step.key === 'model_request') {
     const roles: Record<string, string> = { scope: 'IA · Clasificador de alcance', extractor: 'IA · Extractor de intención y datos', writer: 'IA · Redactor de respuesta', reviewer: 'IA · Revisor de respuesta', draft: 'IA · Generador de borrador', interpretation: 'IA · Interpretación de datos', media: 'IA · Lectura de archivo o imagen' }
@@ -599,6 +601,19 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   const found = Object.entries(output).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query', 'coverage_locked'].includes(key))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
+  if (step.key === 'catalog_embedding_search') {
+    found.push(fact('Método utilizado', catalogSearchExplanation(output).title),
+      fact('Motivo de esta ruta', catalogSearchExplanation(output).reason),
+      fact('Unidades seleccionadas', String(Array.isArray(output.selected_unit_ids) ? output.selected_unit_ids.length : 0)),
+      fact('Tokens para la consulta de embeddings', String(output.embedding_input_tokens ?? 'Sin registro')),
+      fact('Duración de la búsqueda', typeof output.duration_ms === 'number' ? `${output.duration_ms} ms` : 'Sin registro'))
+  }
+  if (step.key === 'response_coverage' && output.prompt_context_selection) {
+    const names: Record<string, string> = { instalaciones: 'Amenidades', lugares_cercanos: 'Lugares cercanos', contexto_sector: 'Datos del sector', politicas_negocio: 'Políticas específicas' }
+    const selection = row(output.prompt_context_selection)
+    found.push(fact('Contexto para redactor y revisor', `${selection.included_unit_count} unidades; restricciones generales y obligaciones conservadas.`),
+      ...rows(selection.blocks).map(block => fact(names[str(block.key)] || str(block.key), `${block.included} de ${block.available} registros incluidos`)))
+  }
   if (step.key === 'turn_intent') found.push(...turnIntentSections(output, snapshots).flatMap(section => section.facts), ...interpretationSections(output.interpretation).flatMap(section => section.facts))
   if (step.key === 'budget_resolution') {
     const statuses: Record<string, string> = { prices_not_authorized: 'Los precios no están autorizados para este turno.', matching_options: 'Hay opciones con precio dentro del presupuesto.', incomplete_prices: 'Faltan precios o la búsqueda está incompleta; no se puede afirmar que no existen opciones.', no_matching_features: 'La búsqueda no encontró unidades con esas características.', below_available_prices: 'El presupuesto está por debajo de los precios comprobados de la búsqueda.' }
@@ -664,6 +679,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     : step.key === 'interest_evaluation' ? 'El motor de puntaje registró una recomendación comercial. Este paso no acredita la asignación de un asesor ni la reserva del inmueble.'
     : step.key === 'lead_profile_resolution' ? 'Se conservaron los datos declarados y se resolvió si la residencia está confirmada o necesita una aclaración. Este paso no acredita el envío de la pregunta.'
     : step.key === 'route_consistency' ? humanValue(output.reason)
+    : step.key === 'catalog_embedding_search' ? catalogSearchExplanation(output).summary
     : step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`
     : step.key === 'message_delivery' && output.action === 'accepted' ? 'Kommo aceptó iniciar Salesbot. Esto no confirma entrega ni lectura en WhatsApp.'
       : step.key === 'advisor_handoff' ? 'Este paso registra el intento de derivación y su resultado; el motivo debe estar respaldado por su propio registro.'
@@ -675,7 +691,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     coverageSections: step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output, snapshots)] : step.key === 'response_validation' ? transformationSections(output) : null,
     title: stepTitle(step), summary, used, found, units, cause, missingCause: hasCause && !cause, linkedActions,
     origin: str(decision.origin) ? decision.origin === 'catalog' ? 'Consulta calculada del catálogo' : humanValue(decision.origin) : 'Origen no registrado en este paso.',
-    reason: reason ? humanValue(reason) : 'No se guardó un motivo específico. No se deduce de los pasos cercanos.',
+    reason: step.key === 'catalog_embedding_search' ? catalogSearchExplanation(output).reason : reason ? humanValue(reason) : 'No se guardó un motivo específico. No se deduce de los pasos cercanos.',
     rule: str(decision.rule_id) ? ruleLabels[str(decision.rule_id)] || (str(decision.rule_id).startsWith('response.') && values[str(decision.rule_id).slice(9)]
       ? `Preparar respuesta: ${values[str(decision.rule_id).slice(9)]}` : 'Regla identificada en los detalles técnicos; no hay descripción registrada.') : 'No se registró la regla que autorizó esta decisión.',
     outcome: str(decision.outcome) ? humanValue(decision.outcome) : step.key === 'advisor_handoff' && output.handoff_status

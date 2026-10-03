@@ -1,4 +1,5 @@
 import type { Edge } from '@xyflow/react'
+import { catalogSearchExplanation } from './catalogSearchExplanation'
 import type { WorkflowDefinition, WorkflowNode, WorkflowNodeKind } from './workflowDefinitions'
 
 export interface WorkflowExecutionStep {
@@ -102,6 +103,7 @@ function statusLabel(status: string) {
 
 function resultSummary(step: WorkflowExecutionStep) {
   if (step.errorCode) return `Error: ${step.errorCode}`
+  if (step.key === 'catalog_embedding_search') return catalogSearchExplanation(step.output).summary
   if (step.key === 'message_delivery' && step.output.action === 'accepted') return 'Kommo aceptó iniciar Salesbot; entrega al teléfono sin confirmar.'
   const entries = Object.entries(step.output)
   if (!entries.length) return statusLabel(step.status)
@@ -116,7 +118,8 @@ export function workflowFromExecution(execution: WorkflowExecution): WorkflowDef
     type: 'workflow',
     position: { x: index * 285, y: index % 2 === 0 ? 180 : 230 },
     data: {
-      title: step.key === 'message_delivery' && step.output.action === 'accepted' ? 'Aceptación de Kommo' : step.label,
+      title: step.key === 'catalog_embedding_search' ? catalogSearchExplanation(step.output).title
+        : step.key === 'message_delivery' && step.output.action === 'accepted' ? 'Aceptación de Kommo' : step.label,
       eyebrow: `${String(step.order).padStart(2, '0')} · ${statusLabel(step.status)}`,
       summary: resultSummary(step),
       kind: nodeKind(step),
