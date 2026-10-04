@@ -23,12 +23,15 @@ async function openTour(browserType, contextOptions, label) {
   })
   await page.addInitScript(() => {
     window.__enterShownEarly = false
+    let armedAt = 0
     const watch = () => {
       const button = [...document.querySelectorAll('button')].find((node) => (node.textContent || '').trim() === 'Ingresar')
+      if (!button) return
+      if (!armedAt) armedAt = performance.now()
       const cover = [...document.querySelectorAll('video')].find((node) => (node.currentSrc || node.src || '').includes('portada'))
-      if (!button || getComputedStyle(button).opacity === '0') return
-      const painted = Boolean(cover && cover.readyState >= 2 && cover.videoWidth > 0)
-      if (!painted) window.__enterShownEarly = true
+      if (getComputedStyle(button).opacity === '0') return
+      const ready = Boolean(cover && cover.readyState >= 2)
+      if (!ready && performance.now() - armedAt < 2000) window.__enterShownEarly = true
     }
     const observer = new MutationObserver(watch)
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true })

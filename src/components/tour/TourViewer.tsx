@@ -1065,9 +1065,24 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   // celular llega a pedir el MP4 de escritorio y luego el de teléfono.
   const [ingresoCoarse, setIngresoCoarse] = useState<boolean | null>(null)
   const [coverReady, setCoverReady] = useState(false)
+  const coverVideoRef = useRef<HTMLVideoElement | null>(null)
   useLayoutEffect(() => {
     setIngresoCoarse(window.matchMedia('(pointer: coarse)').matches)
   }, [])
+  useEffect(() => {
+    if (!planEntryOpen || shellMode !== 'plan') return
+    const timer = window.setTimeout(() => setCoverReady(true), 2500)
+    const video = coverVideoRef.current
+    const markLoaded = () => {
+      if (video && video.readyState >= 2) setCoverReady(true)
+    }
+    video?.addEventListener('loadeddata', markLoaded)
+    markLoaded()
+    return () => {
+      window.clearTimeout(timer)
+      video?.removeEventListener('loadeddata', markLoaded)
+    }
+  }, [planEntryOpen, shellMode])
   const entryFailedRef = useRef(false)
   const [droneOn, setDroneOn] = useState(false)
   const droneRef = useRef<HTMLVideoElement>(null)
@@ -4266,6 +4281,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 mp4="/inicio/portada.mp4?v=gop"
                 preload="auto"
                 label={t('Fachada Lavilet del día a la noche')}
+                videoRef={coverVideoRef}
                 onFirstFrame={() => setCoverReady(true)}
                 onError={() => setCoverReady(true)}
                 className="tour-entry-video absolute inset-0 h-full w-full"
@@ -4313,6 +4329,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   return
                 }
                 setEntryVideo(true)
+                void droneRef.current?.play().catch(() => undefined)
                 if (window.matchMedia('(pointer: coarse)').matches && !isIOSWebKit() && rootRef.current) {
                   void requestTourFullscreen(rootRef.current)
                 }
