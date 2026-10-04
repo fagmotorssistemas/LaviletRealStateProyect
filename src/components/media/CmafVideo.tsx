@@ -16,7 +16,15 @@ type Props = {
   onPlaying?: () => void
   onEnded?: () => void
   onError?: () => void
+  /** Primer cuadro ya pintado (requestVideoFrameCallback, o loadeddata si no existe). */
+  onFirstFrame?: () => void
   videoRef?: Ref<HTMLVideoElement>
+}
+
+function safariUsesMp4(video: HTMLVideoElement) {
+  if (!video.canPlayType('application/vnd.apple.mpegurl')) return false
+  const ua = navigator.userAgent || ''
+  return !/Chrome|CriOS|Edg|Android/i.test(ua)
 }
 
 /** Reproduce HLS CMAF si el navegador lo necesita y, si no, el MP4 con faststart. */
@@ -33,14 +41,17 @@ export function CmafVideo({
   onPlaying,
   onEnded,
   onError,
+  onFirstFrame,
   videoRef,
 }: Props) {
   const localRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
   const autoPlayRef = useRef(autoPlay)
   const onErrorRef = useRef(onError)
+  const onFirstFrameRef = useRef(onFirstFrame)
   autoPlayRef.current = autoPlay
   onErrorRef.current = onError
+  onFirstFrameRef.current = onFirstFrame
   const preloadMode = preload ?? (loop ? 'auto' : 'metadata')
 
   useEffect(() => {
@@ -50,10 +61,29 @@ export function CmafVideo({
     let usedMp4 = !hls
     let armed = false
     let detach = () => {}
+    let painted = false
 
+    const paintFrame = () => {
+      if (painted || cancelled) return
+      const notify = () => {
+        if (painted || cancelled) return
+        painted = true
+        onFirstFrameRef.current?.()
+      }
+      if (typeof video.requestVideoFrameCallback === 'function') {
+        video.requestVideoFrameCallback(() => notify())
+        return
+      }
+      if (video.readyState >= 2) notify()
+      else video.addEventListener('loadeddata', notify, { once: true })
+    }
     const tryPlay = () => {
       if (!autoPlayRef.current || cancelled) return
       void video.play().catch(() => undefined)
+    }
+    const onReady = () => {
+      paintFrame()
+      tryPlay()
     }
     const fail = () => {
       if (!cancelled) onErrorRef.current?.()
@@ -70,7 +100,7 @@ export function CmafVideo({
       armed = true
       video.src = mp4
       video.load()
-      video.addEventListener('loadeddata', tryPlay, { once: true })
+      video.addEventListener('loadeddata', onReady, { once: true })
     }
     const onVideoError = () => {
       if (!armed || cancelled) return
@@ -80,40 +110,43 @@ export function CmafVideo({
     }
     video.addEventListener('error', onVideoError)
 
+    const playMp4 = () => {
+      usedMp4 = true
+      armed = true
+      video.src = mp4
+      video.addEventListener('loadeddata', onReady, { once: true })
+    }
     const start = async () => {
-      if (hls && video.canPlayType('application/vnd.apple.mpegurl')) {
+      if (!hls || safariUsesMp4(video)) {
+        playMp4()
+        return
+      }
+      const { default: Hls } = await import('hls.js')
+      if (cancelled) return
+      if (Hls.isSupported()) {
+        const player = new Hls({ enableWorker: true, startLevel: -1, autoStartLoad: false })
+        armed = true
+        player.loadSource(hls)
+        player.attachMedia(video)
+        player.on(Hls.Events.MANIFEST_PARSED, () => {
+          player.startLoad()
+          paintFrame()
+          tryPlay()
+        })
+        player.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return
+          useMp4()
+        })
+        detach = () => player.destroy()
+        return
+      }
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
         armed = true
         video.src = hls
-        video.addEventListener('loadeddata', tryPlay, { once: true })
-      } else if (hls) {
-        const { default: Hls } = await import('hls.js')
-        if (cancelled) return
-        if (Hls.isSupported()) {
-          const player = new Hls({ enableWorker: true, startLevel: -1, autoStartLoad: false })
-          armed = true
-          player.loadSource(hls)
-          player.attachMedia(video)
-          player.on(Hls.Events.MANIFEST_PARSED, () => {
-            player.startLoad()
-            tryPlay()
-          })
-          player.on(Hls.Events.ERROR, (_event, data) => {
-            if (!data.fatal) return
-            useMp4()
-          })
-          detach = () => player.destroy()
-        } else {
-          usedMp4 = true
-          armed = true
-          video.src = mp4
-          video.addEventListener('loadeddata', tryPlay, { once: true })
-        }
-      } else {
-        usedMp4 = true
-        armed = true
-        video.src = mp4
-        video.addEventListener('loadeddata', tryPlay, { once: true })
+        video.addEventListener('loadeddata', onReady, { once: true })
+        return
       }
+      playMp4()
     }
     void start()
     const onVisible = () => {

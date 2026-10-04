@@ -1061,6 +1061,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [entryCoarse] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches,
   )
+  // El src del ingreso se asigna solo después de medir el puntero. Si no, el
+  // celular llega a pedir el MP4 de escritorio y luego el de teléfono.
+  const [ingresoCoarse, setIngresoCoarse] = useState<boolean | null>(null)
+  const [coverReady, setCoverReady] = useState(false)
+  useLayoutEffect(() => {
+    setIngresoCoarse(window.matchMedia('(pointer: coarse)').matches)
+  }, [])
   const entryFailedRef = useRef(false)
   const [droneOn, setDroneOn] = useState(false)
   const droneRef = useRef<HTMLVideoElement>(null)
@@ -4259,15 +4266,18 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 mp4="/inicio/portada.mp4?v=gop"
                 preload="auto"
                 label={t('Fachada Lavilet del día a la noche')}
+                onFirstFrame={() => setCoverReady(true)}
+                onError={() => setCoverReady(true)}
                 className="tour-entry-video absolute inset-0 h-full w-full"
               />
             </div>
           )}
           <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
-            <EntryLateral active={entryVideo && entryCoarse}>
+            {ingresoCoarse === null ? null : (
+            <EntryLateral active={entryVideo && ingresoCoarse}>
               <CmafVideo
-                mp4={entryCoarse ? '/tour/ingreso-mobile.mp4' : '/tour/ingreso.mp4?v=gop'}
-                hls={entryCoarse ? undefined : '/tour/ingreso-hls/index.m3u8'}
+                mp4={ingresoCoarse ? '/tour/ingreso-v2/ingreso-v2-mobile.mp4' : '/tour/ingreso-v2/ingreso-v2.mp4'}
+                hls={ingresoCoarse ? undefined : '/tour/ingreso-v2/hls/index.m3u8'}
                 autoPlay={entryVideo}
                 preload="auto"
                 loop={false}
@@ -4284,6 +4294,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 className="tour-entry-video absolute inset-0 h-full w-full"
               />
             </EntryLateral>
+            )}
           </div>
           {entryVideo ? (
             <button
@@ -4306,7 +4317,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   void requestTourFullscreen(rootRef.current)
                 }
               }}
-              className="absolute top-1/2 left-1/2 z-10 inline-flex min-h-11 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase"
+              className={cn(
+                'absolute top-1/2 left-1/2 z-10 inline-flex min-h-11 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#BDA27E] px-8 py-3 text-sm font-semibold tracking-[0.18em] text-[#2B1A18] uppercase transition-opacity duration-200',
+                coverReady ? 'opacity-100' : 'pointer-events-none opacity-0',
+              )}
             >
               {t('Ingresar')}
             </button>

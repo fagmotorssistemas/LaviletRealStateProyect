@@ -91,6 +91,11 @@ const nextConfig: NextConfig = {
       { source: "/inicio/:path*", headers: mediaCache },
       { source: "/tour/ingreso.mp4", headers: mediaCache },
       { source: "/tour/ingreso/:path*", headers: mediaCache },
+      { source: "/tour/ingreso-v2/:path*", headers: mediaCache },
+      {
+        source: "/tour/ingreso-v2/:path*.m4s",
+        headers: [...mediaCache, { key: "Content-Type", value: "video/mp4" }],
+      },
       { source: "/CUENCA1.webp", headers: mediaCache },
       { source: "/CUENCA2.webp", headers: mediaCache },
       { source: "/CUENCA4.webp", headers: mediaCache },
