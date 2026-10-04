@@ -551,6 +551,17 @@ test('accepting alternatives to a five-bedroom apartment does not silently resto
       answer_to_previous: index ? { question_id: pending.id, kind: 'affirmative', evidence: current, confidence: 'high' } : {},
     } }, current, pending)
     const reference = resolvePropertyTurn(catalogue, current, summary, history, semantics)
+    if (index === 2) {
+      assert.equal(reference.needsClarification, true)
+      assert.equal(reference.reason, 'unresolved_choice')
+      assert.equal(reference.query.category, null)
+      assert.deepEqual(reference.context.selected_ids, [])
+      // A second yes does not choose between categories. The clarification
+      // route now reasks those options without repeating catalogue dimensions.
+      assert.equal(catalogDialogueReply({ catalogo: catalogue, referencia_unidad: reference,
+        property_context: reference.context, semantica_turno: semantics }, current), null)
+      continue
+    }
     const result = catalogDialogueReply({ catalogo: catalogue, referencia_unidad: reference, property_context: reference.context, semantica_turno: semantics }, current)
     assert.equal(validateCatalogReply(result.reply, result.audit).valid, true)
     assert.match(result.reply, /120[.,]83/)

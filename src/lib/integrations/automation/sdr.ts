@@ -250,7 +250,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
         pending_question: { id: 'unit_choice', act: 'explore_quoted_options', question: quote.followUp.question, candidate_ids: quote.followUp.candidate_ids, target_ids: [] },
         progressive_selection: { stage: 'offer_details', question: quote.followUp.question, candidate_ids: quote.followUp.candidate_ids,
           criteria: { category: quote.followUp.category, bedrooms: quote.followUp.bedrooms }, reason: 'explain_current_quoted_options' } } : {}),
-      ...(quote.units?.length ? { comparison_unit_ids: !quote.followUp && quote.units.length > 1 ? quote.units.map(unit => unit.id) : [],
+      ...(quote.units?.length ? { comparison_unit_ids: quote.comparison && !quote.followUp && quote.units.length > 1 ? quote.units.map(unit => unit.id) : [],
         unit_reference: { ids: quote.units.map(unit => unit.id), numbers: quote.units.map(unit => unit.unit_number) } } : {}),
       approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
   }

@@ -41,6 +41,8 @@ Revise el borrador sin reescribirlo. Decida PASA o BLOQUEA exclusivamente por lo
 ## 1. Veracidad de datos del negocio
 
 Bloquee una afirmación concreta de precio, rango, dormitorios, superficie, planta, tipología, instalaciones o disponibilidad que contradiga el catálogo/CRM para el mismo inmueble y alcance, o que carezca de respaldo en las fuentes autorizadas. Respete sujeto, filtros y valores exactos; no redondee. Las cantidades declaradas por el cliente son requisitos, no hechos del inmueble. No exija mencionar datos secundarios. Una orientación general y prudente no constituye una garantía ni requiere una ficha inmobiliaria.
+Resuelva primero el alcance de la afirmación en el párrafo completo. «Dentro de su presupuesto» limita también las frases siguientes sobre esas opciones, salvo cambio explícito de conjunto. Una unidad fuera del presupuesto o de los filtros NO contradice el rango del subconjunto compatible. query_role=related_option y los grupos de catálogo general son contexto, no miembros de current_query. No exija agregar pisos o precios de unidades excluidas ni mezclar extremos de dos conjuntos. Si el texto afirma expresamente un total global, entonces contraste el conjunto completo.
+Distinga cantidades de ordinales: el número de niveles residenciales no es el número de la última planta. Contraste la ubicación con floor_number y floor de las unidades o sus grupos; no deduzca una contradicción por el solo número de pisos destinados a vivienda.
 
 ## 2. Restricciones comerciales aplicables
 
@@ -92,7 +94,7 @@ export function businessRiskContext(input: {
   projectFacts: Row[]; claimSources: Row[]; verified: Row; audit: Row; allowedLinks: string[];
 }): Row {
   const sourceFields = ['id', 'unit_number', 'category', 'bedrooms', 'bathrooms_full', 'area_internal_m2',
-    'area_exterior_m2', 'area_total_m2', 'floor_number', 'floor', 'spaces', 'description', 'published_commercial_price', 'availability_status', 'status', 'is_published', 'unit_count']
+    'area_exterior_m2', 'area_total_m2', 'floor_number', 'floor', 'spaces', 'description', 'published_commercial_price', 'availability_status', 'status', 'is_published', 'unit_count', 'query_role']
   const pick = (row: Row) => Object.fromEntries(sourceFields.filter(key => row[key] != null && row[key] !== '')
     .map(key => [key, row[key]]))
   const groups = input.groups.map(group => {
@@ -117,6 +119,7 @@ export function businessRiskContext(input: {
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
       presupuesto_confirmado: effectiveTurnBudget(input.verified),
       etapa_financiamiento: input.verified.etapa_financiamiento || null,
+      grupos_por_alcance: 'task_query y budget_matching describen conjuntos filtrados, no todo el catálogo. No use una opción fuera del filtro para rechazar el rango del conjunto filtrado.',
     },
     estado_del_turno: {
       consulta_catalogo: input.audit.catalog_query || null,

@@ -1,9 +1,95 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { unitTourUrl } from '@/lib/tour/unitModels'
-import { appendUnitModel, unitModelDelivery } from './unit-model'
+import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery } from './unit-model'
+import { replyLinkContract, replyLinkIssues } from './response-plan'
+import { resolvePropertyTurn } from './property-context'
+import { completeTurnReply } from './turn-completeness'
+import { object, type Row } from './data'
 import { acceptedUnitAlternative, continueUnitAlternative, unitAlternative } from './unit-alternatives'
 import { showroomRequest } from './virtual-showroom'
+
+describe('the selected unit tour survives final writing', () => {
+  const unit = { id: 'unit-502', unit_number: '502', category: 'departamento', bedrooms: 3,
+    floor_number: 5, is_published: true, status: 'disponible' }
+  const current = 'detralleme el 502 por favor'
+  const resolved = () => resolvePropertyTurn([unit], current, {}, [], {
+    primary_intent: 'select_property', confidence: 'high', primary_evidence: current,
+    property: { operation: 'select', category: 'departamento', reference_kind: 'explicit',
+      unit_numbers: ['502'], evidence: current, confidence: 'high' },
+  })
+  const delivery = () => selectedUnitModelDelivery(resolved(), current, [])!
+  const verified = () => ({ catalogo: [unit], property_context: resolved().context, historial: [] })
+
+  it('requires the configured tour on first selection, including a route that resumes financing', () => {
+    for (const source of ['catalog_select', 'property_unit_selected', 'financing']) {
+      const tour = delivery()
+      assert.equal(tour.url, unitTourUrl('502'))
+      assert.match(tour.caption, /departamento 502/)
+      const contract = replyLinkContract('', { source, unit_model: tour }, { current, verified: verified() })
+      assert.deepEqual(contract.required_links, [tour.url])
+      assert.deepEqual(replyLinkIssues('Le detallo el departamento elegido.', contract), ['required_link_omitted'])
+      assert.deepEqual(replyLinkIssues(`Puede recorrerlo aquí: ${tour.url}`, contract), [])
+    }
+  })
+
+  it('does not invent a selection for an ambiguous set, a details query or a commercial unit', () => {
+    const ref = resolved()
+    for (const change of [{ needsClarification: true }, { matches: [] }, { matches: [unit, { ...unit, id: 'other' }] },
+      { query: { operation: 'details' } }, { matches: [{ ...unit, category: 'local' }] },
+      { context: { selected_ids: [] } }]) {
+      assert.equal(selectedUnitModelDelivery({ ...ref, ...change }, current, []), null)
+    }
+  })
+
+  it('respects declined tours and previous delivery while allowing an explicit resend', () => {
+    const tour = delivery(), audit = { source: 'catalog_select', selected_unit_ids: [unit.id], unit_model: tour }
+    for (const message of ['Quiero el 502, no me envíe el recorrido', 'Quiero el 502 pero no quiero el tour 360']) {
+      assert.equal(selectedUnitModelDelivery(resolved(), message, []), null)
+      const contract = replyLinkContract('', audit, { current: message, verified: verified() })
+      assert.ok(!contract.required_links.includes(tour.url))
+      assert.ok(!contract.allowed_links.includes(tour.url))
+    }
+    for (const prior of [{ historial: [{ role: 'bot', content: tour.url }] },
+      { historial: [], estado_conversacion: { unit_models_sent: [unit.id] } }]) {
+      const info = { ...verified(), ...prior }
+      const contract = replyLinkContract('', audit, { current, verified: info })
+      assert.ok(!contract.required_links.includes(tour.url))
+      assert.ok(!contract.allowed_links.includes(tour.url))
+      const resend = replyLinkContract('', audit, { current: 'Envíeme otra vez el recorrido del 502', verified: info })
+      assert.ok(resend.required_links.includes(tour.url))
+      assert.ok(resend.allowed_links.includes(tour.url))
+    }
+    const clientQuote = replyLinkContract('', audit, { current, verified: { ...verified(), historial: [{ role: 'cliente', content: tour.url }] } })
+    assert.ok(clientQuote.required_links.includes(tour.url), 'A client quoting a URL does not prove a prior bot delivery.')
+  })
+
+  it('passes the required URL to the final writer without adding an AI call', async () => {
+    const tour = delivery(), calls: string[] = [], failures: string[] = []
+    const reply = `Puede explorar el departamento en el recorrido virtual 360: ${tour.url}. Es una representación del proyecto.`
+    const result = await completeTurnReply({ current, baseReply: reply,
+      verified: { ...verified(), catalog_search: { embeddingsEnabled: true },
+        solicitudes_interpretadas: [{ domain: 'property', confidence: 'high', request: 'Conocer el departamento 502', evidence: current }] },
+      audit: { source: 'catalog_select', selected_unit_ids: [unit.id], unit_model: tour,
+        semantic_review_enabled: true, business_risk_review_enabled: true } },
+    async (_rules, data, _schema, _image, _file, _tone, task) => {
+      const input = object(data); calls.push(task!)
+      if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [],
+        question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '', offered_action: 'none' } }
+      try {
+        assert.deepEqual(object(input.contrato_redaccion).enlaces_obligatorios, [tour.url])
+        assert.equal(object(object(input.estado_operativo).unit_model).url, tour.url)
+      } catch (error) { failures.push(String(error)) }
+      return { reply, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
+        requests: (input.referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id, intent: 'Conocer el departamento', status: 'answered',
+          evidence: reply, fact_key: null, request_type: 'general_information' })) }
+    })
+    assert.deepEqual(failures, [])
+    assert.deepEqual(calls, ['writing', 'review'])
+    assert.equal(result.audit.status, 'checked')
+    assert.ok(result.reply.includes(tour.url))
+  })
+})
 
 describe('virtual showroom context',()=>{
   it('interprets a correction without merging messages or inventing a new catalogue request',()=>{

@@ -5,6 +5,7 @@ import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkfl
 import { executionCost } from './executionCost'
 import { callCatalogMode, comparisonCandidates, executionCatalogMode, isCostStep, normalCallEstimate, normalExecutionEstimate } from './embeddingCostComparison'
 import { stepTitle } from './messageExplanation'
+import { executionTiming, durationLabel } from './executionTiming'
 import styles from './ExecutionCostPanel.module.css'
 
 const number = (n: number) => n.toLocaleString('es-EC')
@@ -31,6 +32,7 @@ export function ExecutionCostPanel({ execution, executions, onStep }: {
 }) {
   const [compareId, setCompareId] = useState('')
   const cost = executionCost(execution.steps), mode = executionCatalogMode(execution)
+  const timing = executionTiming(execution)
   const estimate = normalExecutionEstimate(execution)
   const candidates = comparisonCandidates(execution, executions)
   const compared = candidates.find(c => c.execution.id === compareId)?.execution
@@ -45,18 +47,19 @@ export function ExecutionCostPanel({ execution, executions, onStep }: {
       <div><span>Tokens registrados</span><strong>{number(cost.totalTokens)}</strong><small>{number(cost.inputTokens)} entrada · {number(cost.outputTokens)} salida</small></div>
       <div><span>Entrada en caché</span><strong>{number(cost.cachedInputTokens)}</strong><small>Ya incluida en los tokens de entrada</small></div>
       <div><span>Consulta de embeddings</span><strong>{price(queryCost)}</strong><small>{queryCost.calls && !queryCost.measuredCalls ? 'Consumo sin registrar' : `${number(cost.embeddingTokens)} tokens registrados`}</small></div>
+      <div><span>{timing.sent ? 'Tiempo hasta envío' : 'Tiempo registrado'}</span><strong>{durationLabel(timing.sent ? timing.responseMs : timing.elapsedMs)}</strong><small>{timing.sent ? 'Desde recepción hasta aceptación del envío por Kommo; entrega al teléfono sin confirmar.' : 'Hasta el cierre registrado; no hay un envío exitoso en estos pasos.'}</small></div>
     </div>
     {!cost.complete && <p className={styles.notice}>Total parcial: {cost.pricedCalls} de {cost.calls} llamadas con uso y tarifa conocidos. No se interpreta un dato ausente como gasto cero.</p>}
     {cost.unmeasuredTransportAttempts > 0 && <p className={styles.notice}>{cost.unmeasuredTransportAttempts} intento(s) de conexión anterior(es) sin consumo confirmado. El proveedor podría haberlos procesado; no se inventa su costo.</p>}
     <details open>
       <summary>Desglose por llamada y recorrido normal estimado</summary>
       <div className={styles.scroll} tabIndex={0} role="region" aria-label="Tabla de costos por agente">
-        <table><thead><tr><th>Agente / paso</th><th>Contexto usado</th><th>Entrada</th><th>En caché¹</th><th>Salida</th><th>Costo registrado²</th><th>Recorrido anterior³</th></tr></thead>
+        <table><thead><tr><th>Agente / paso</th><th>Contexto usado</th><th>Entrada</th><th>En caché¹</th><th>Salida</th><th>Duración</th><th>Costo registrado²</th><th>Recorrido anterior³</th></tr></thead>
           <tbody>{calls.map(step => {
             const actual = executionCost([step]), normal = normalCallEstimate(step)
             return <tr key={step.order}><th><button type="button" onClick={() => onStep(step.order)}>{stepTitle(step)} · {step.order}</button><small>{String(step.output.model || step.input.model || '')}</small></th>
               <td>{callCatalogMode(step)}</td><td>{actual.measuredCalls ? number(actual.inputTokens) : actual.calls ? 'Sin dato' : '0'}</td>
-              <td>{actual.complete ? number(actual.cachedInputTokens) : 'Sin dato'}</td><td>{actual.measuredCalls ? number(actual.outputTokens) : actual.calls ? 'Sin dato' : '0'}</td><td>{price(actual)}</td>
+              <td>{actual.complete ? number(actual.cachedInputTokens) : 'Sin dato'}</td><td>{actual.measuredCalls ? number(actual.outputTokens) : actual.calls ? 'Sin dato' : '0'}</td><td>{durationLabel(step.durationMs)}</td><td>{price(actual)}</td>
               <td>{normal ? <>≈ {number(normal.totalTokens)} tokens<small>≈ {money(normal.cost.estimatedUsd)}</small></>
                 : step.key === 'catalog_embedding_search' ? 'Sin consulta: 0' : callCatalogMode(step) === 'Recorrido normal' ? 'Este es el uso real' : 'Sin estimación'}</td></tr>
           })}</tbody>
@@ -67,6 +70,7 @@ export function ExecutionCostPanel({ execution, executions, onStep }: {
         : <p>{['Con embeddings', 'Consulta exacta reducida'].includes(mode) ? 'No hay una estimación completa del recorrido normal para este registro. Puede compararlo con otra ejecución real abajo.'
           : 'Este mensaje muestra el gasto del recorrido ejecutado. Para conocer el gasto con embeddings, seleccione una prueba real que los haya utilizado. No se inventa una selección semántica ni se genera otra respuesta automáticamente.'}</p>}
       <p className={styles.notes}>¹ La caché es parte de la entrada, no se suma otra vez. ² Tokens informados por la API; dólares calculados, no factura. Incluye borradores descartados, revisiones y consulta de embeddings, incluso si la búsqueda terminó usando el catálogo normal.</p>
+      <p className={styles.notes}>Tiempo de procesamiento: {durationLabel(timing.processingMs)}. Espera previa desde la recepción: {durationLabel(timing.waitingMs)}. Los tiempos de pasos que se solapan no se suman.</p>
       <p className={styles.notes}>³ Estimación aproximada por tamaño del contexto ampliado, calibrada con los tokens reales de cada llamada. Conserva modelo, salida, número de llamadas y proporción de caché; esas condiciones podrían cambiar en una ejecución real. No predice otra respuesta ni si sería aprobada. La comparación se calcula localmente, sin llamadas adicionales a la IA.</p>
     </details>
     <details open>

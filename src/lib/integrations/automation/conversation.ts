@@ -20,7 +20,7 @@ import { isUnitOfferContext } from '@/lib/meta/waLeadSubmittedEligibility'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
 import { commercialContext, commercialReply, publishedUnitCatalog, catalogSearchConfiguration } from './sdr'
-import { appendUnitModel, unitModelDelivery } from './unit-model'
+import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
 import { isProfileOnlyTurn, leadIntroductionTurn, leadProfilePendingQuestion, rememberLeadIntroduction } from './lead-introduction'
@@ -836,6 +836,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
 
   // General information is about the project even when extraction also assigns
   // a property group/search. Keep operational actions ahead of this presentation.
+  if (!reply && reference.reason === 'unresolved_choice' && !operationalTurn && !inbound.mediaFailed
+    && !businessScope.uncertain && businessScope.kind !== 'out_of_scope') {
+    reply = 'Para continuar, ¿cuál de las alternativas de mi pregunta anterior prefiere?'
+    audit = { source: 'clarify_previous_choice', choice_clarification: object(reference).choice_clarification }
+  }
   if (!reply && answeringIntroduction && !operationalTurn && !inbound.mediaFailed && !businessScope.uncertain
     && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
     const continuation = leadIntroductionTurn({ current, history: context.historial,
@@ -1165,7 +1170,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   // A specialist may protect its action, but must still account for other requests in the turn.
   if (interpretation.requests.length > 1) audit.coverage_complete = false
   // Attach from the resolved state, independently of the commercial route.
-  if (audit.verified_catalog === true && !propertyTurn.needsClarification) {
+  if (!finalNotice && !handoffNotice && !inbound.mediaFailed && !businessScope.uncertain
+    && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
+    const selectedTour = selectedUnitModelDelivery(propertyTurn, current, context.historial, previousSummary._unit_models_sent)
+    if (selectedTour) {
+      reply = appendUnitModel(reply, selectedTour)
+      audit.unit_model = selectedTour
+    }
+  }
+  if (audit.verified_catalog === true && !propertyTurn.needsClarification && object(audit.unit_model).delivery_required !== true) {
     const delivery = unitModelDelivery({ explicit: propertyTurn.explicit === true, hasUnitMention: propertyTurn.hasUnitMention === true,
       matches: (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).map(object) }, current, context.historial, previousSummary._unit_models_sent)
     if (delivery) {
@@ -1266,6 +1279,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const commercialInfo: Row = !scopeOnlyReview || businessScope.uncertain
       ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile) : {}
     commercialInfo.estado_conversacion = { brochure_sent: object(previousSummary._lead_introduction).brochure_sent === true,
+      unit_models_sent: previousSummary._unit_models_sent || [],
       introduction_status: object(previousSummary._lead_introduction).status || null }
     commercialInfo.hechos_confirmados = confirmedInterpretationMemory(Object.keys(summary).length ? summary : previousSummary)
     commercialInfo.consultas_pendientes = pendingInputs

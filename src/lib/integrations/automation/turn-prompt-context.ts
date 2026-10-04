@@ -22,10 +22,10 @@ function catalogModelContext(context: Row): Row {
   const result = { ...context }, verified = { ...object(context.contexto_verificado) }
   const audit = object(context.estado_operativo)
   result.estado_operativo = Object.fromEntries(['source', 'profile_introduction', 'pending_question', 'catalog_coverage',
-    'action', 'reservation', 'visit_result', 'handoff_result', 'action_result'].filter(k => audit[k] != null).map(k => [k, audit[k]]))
+    'action', 'reservation', 'visit_result', 'handoff_result', 'action_result', 'choice_clarification', 'unit_model'].filter(k => audit[k] != null).map(k => [k, audit[k]]))
   for (const key of ['estado_operativo', 'catalog_retrieval', 'catalog_results', 'catalog_query', 'catalog_summary',
     'semantica_turno', 'solicitudes_interpretadas', 'referencia_unidad', 'hechos_confirmados', 'historial', 'catalogo',
-    'siguiente_pregunta', 'continuidad_residencial', '_sales_memory', 'fecha']) delete verified[key]
+    'siguiente_pregunta', 'continuidad_residencial', '_sales_memory', 'fecha', 'unidades_consultadas']) delete verified[key]
   result.contexto_verificado = verified
   const contract = { ...object(result.contrato_redaccion) }
   for (const key of ['hechos_protegidos', 'hechos_disponibles', 'price_evidence']) delete contract[key]
@@ -35,6 +35,7 @@ function catalogModelContext(context: Row): Row {
     result.property_context = Object.fromEntries(['query', 'selected_ids', 'offered_ids', 'comparison_ids', 'phase',
       'preference_category', 'excluded_categories', 'pending_question', 'preference_transition'].filter(k => property[k] != null).map(k => [k, property[k]]))
     delete verified.conversacion
+    delete verified.property_context
   }
   // Business-risk review uses current facts directly, not the former E-ID inventory.
   delete result.evidencia_afirmaciones

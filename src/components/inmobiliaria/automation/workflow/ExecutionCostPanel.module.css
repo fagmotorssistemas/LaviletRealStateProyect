@@ -2,7 +2,7 @@
 .heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; }
 .heading h4 { margin: 0; font-size: 18px; }
 .heading > span { padding: 5px 9px; background: #e4eddd; border-radius: 5px; font-size: 12px; }
-.counters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.counters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
 .counters > div { display: flex; flex-direction: column; gap: 6px; padding: 13px; border: 1px solid #dce5d4; border-radius: 6px; background: white; overflow-wrap: anywhere; }
 .counters span, .counters small { font-size: 11px; color: #5c6e54; }
 .counters strong { font-size: 20px; }

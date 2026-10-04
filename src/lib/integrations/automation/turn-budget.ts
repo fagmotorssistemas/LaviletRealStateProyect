@@ -34,6 +34,7 @@ export function budgetContinuationInstruction(assessment: Row): string {
 /** Compute affordability from this turn's interpreted budget and complete
  * scoped catalogue. Never infer an amount from prose or approve financing. */
 export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
+  if (audit.source === 'clarify_previous_choice') return null
   const semantics = object(verified.semantica_turno), currentBudget = object(semantics.budget)
   const currentDeclaration = currentBudget.status && currentBudget.status !== 'not_discussed'
   const requests = rows(verified.solicitudes_interpretadas || object(verified.contrato_turno).requests)

@@ -146,7 +146,7 @@ test('task projection keeps complete price groups and selects context without em
 
 test('context reduction keeps authorized alternatives, comparisons and all current request domains', () => {
   const original = info()
-  original.property_context = { query: { ...query, category: 'penthouse' }, selected_ids: [], comparison_ids: ['suite'] }
+  original.property_context = { query: { ...query, operation: 'compare', category: 'penthouse' }, selected_ids: [], comparison_ids: ['suite'] }
   original.solicitudes_interpretadas = [{ domain: 'property', request: 'Opciones de penthouse' }]
   original.presupuesto_del_turno = { alternatives: [units[2]] }
   const projected = taskVerifiedContext(original, {}, '¿Cuáles opciones tengo?')

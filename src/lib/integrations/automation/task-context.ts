@@ -15,6 +15,8 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   const requests = rows(verified.solicitudes_interpretadas || intent.requests).filter(r => r.domain !== 'courtesy')
   const domains = new Set(requests.map(r => text(r.domain)))
   const source = text(audit.source)
+  const semantics = object(verified.semantica_turno), property = object(semantics.property)
+  const context = object(verified.property_context), query = object(context.query)
   const finance = domains.size === 1 && domains.has('financing') || /^financing/.test(source)
   const budget = object(object(verified.semantica_turno).budget)
   const newBudget = budget.confidence === 'high' && ['amount', 'maximum_total'].includes(text(budget.status))
@@ -23,8 +25,15 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   const generalPrice = source === 'unit_price' && !rows(verified.referencia_unidad && object(verified.referencia_unidad).matches).length
     && !rows(object(verified.property_context).selected_ids).length
   const overview = source === 'project_overview' && ['project_information', 'other'].includes(text(intent.objective))
-  const task = financeOnly ? 'financing' : source === 'financing_selection_required' ? 'property_selection'
-    : generalPrice ? 'price_summary' : overview ? 'project_overview' : domains.size > 1 ? 'multiple_requests' : 'property'
+  const catalogRequest = object(semantics.catalog_request || verified.catalog_request)
+  const broadInformation = !finance && !newBudget && domains.size <= 1 && !query.category && !query.group
+    && !rows(context.selected_ids).length && !rows(property.unit_numbers).length
+    && (!catalogRequest.purpose || catalogRequest.purpose === 'none') && !rows(catalogRequest.requirements).length
+    && property.reference_kind === 'none' && property.operation === 'none' && semantics.primary_intent === 'project_information'
+  const task = source === 'clarify_previous_choice' ? 'clarify_choice'
+    : financeOnly ? 'financing' : source === 'financing_selection_required' ? 'property_selection'
+      : generalPrice ? 'price_summary' : overview ? 'project_overview' : broadInformation ? 'catalog_overview'
+        : domains.size > 1 ? 'multiple_requests' : 'property'
   const result = { ...verified }
   const queryText = [current, ...requests.map(r => text(r.request))].join('\n')
   // Include facts requested by ANY current request, never only the primary intent.
@@ -71,13 +80,17 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   const selection = object(verified.prompt_context_selection)
   if (selection.version !== 'task-context-v1') return evidence
   let units = evidence.units
-  const priceSummary = selection.task === 'price_summary'
+  const priceSummary = ['price_summary', 'catalog_overview'].includes(text(selection.task))
+  if (selection.task === 'clarify_choice') return { ...evidence, units: [],
+    groups: evidence.groups.filter(group => group.aggregation === 'range'
+      && (group.bedrooms_filter === null || group.source_scope === 'context')),
+    model_scope: { task: 'clarify_choice', note: 'Solo se aclara la alternativa, sin volver a describirla. Se conservan los rangos por categoría como referencia de verificación; no es necesario comunicarlos.' } }
   const query = object(object(verified.property_context).query)
   const filtered = filterCatalog(units, catalogQuery(query))
   const property = object(verified.property_context)
   const relatedIds = new Set([
     ...rows(object(verified.presupuesto_del_turno).alternatives).map(unit => text(unit.id)),
-    ...[property.selected_ids, property.comparison_ids, object(evidence).alternative_ids]
+    ...[property.selected_ids, query.operation === 'compare' ? property.comparison_ids : [], object(evidence).alternative_ids]
       .flatMap(value => Array.isArray(value) ? value.map(text) : []),
   ])
   // Keep all matches, not a fixed six. If no match exists keep the authorized
@@ -87,6 +100,8 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     units = units.filter(unit => matchingIds.has(text(unit.id)) || relatedIds.has(text(unit.id)))
   }
   const included = new Set(units.map(u => text(u.id)))
+  const matchingIds = new Set(filtered.map(u => text(u.id)))
+  const roleOf = (unit: Row) => matchingIds.has(text(unit.id)) ? 'current_query' : relatedIds.has(text(unit.id)) ? 'related_option' : 'available_alternative'
   if (priceSummary) units = []
   const seen = new Set<string>()
   const groups = evidence.groups.filter(group => {
@@ -96,8 +111,9 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     if (seen.has(key)) return false
     seen.add(key); return true
   })
-  return { ...evidence, units: units.map(unit => compactCatalogUnit(unit, object(verified.politica_comercial).precios_autorizados === true)),
+  return { ...evidence, units: units.map(unit => ({ ...compactCatalogUnit(unit, object(verified.politica_comercial).precios_autorizados === true), query_role: roleOf(unit) })),
     groups, model_scope: { task: selection.task, listed_unit_count: units.length, evidence_unit_count: evidence.units.length,
+      query, matching_unit_ids: [...matchingIds], related_unit_ids: [...relatedIds].filter(id => !matchingIds.has(id)),
       note: priceSummary ? 'Solo agregaciones completas para precios. Las fichas se omitieron, no hay un resultado vacío.'
         : 'Las fichas son las pertinentes; los grupos conservan el alcance y los miembros del conjunto completo.' } }
 }

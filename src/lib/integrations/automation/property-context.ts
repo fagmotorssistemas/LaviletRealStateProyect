@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { unresolvedChoice } from './conversation-next-step'
 import { normalized } from './sdr-rules'
 import { informationSubject } from './information-context'
 import { bedroomOptionsFromText } from './bedroom-options'
@@ -79,6 +80,9 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const base = resolveCatalogReference(catalog, current, summary._unit_reference, history)
   const m = normalized(current)
   const pending = normalizedPendingQuestion(Object.keys(object(summary._pending_question)).length ? summary._pending_question : context.pending_question)
+  const ambiguous = unresolvedChoice(current, pending)
+  if (ambiguous) return { ...base, matches: [], explicit: false, needsClarification: true, reason: 'unresolved_choice',
+    query: { ...object(context.query), operation: 'none' }, context, choice_clarification: ambiguous }
   const acceptsDetails = pending.act === 'show_unit_details'
     && /^(?:si\s+)?(?:por favor\s+)?(?:envieme|mandeme|compartame|muestreme)\s+(?:los\s+)?detalles(?:\s+por favor)?$/.test(m)
   const positive = acceptsDetails || /^(?:si(?: claro| por favor| esta bien| me parece bien)?|claro|de acuerdo|esta bien|me parece bien|perfecto|revisemos|veamos|si (?:prefiero|quiero|me interesa) (?:esa|esta) opcion|(?:prefiero|quiero|me interesa) (?:esa|esta) opcion)(?: gracias)?$/.test(m.replace(/[.!¡,]/g, '').trim())

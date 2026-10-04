@@ -363,7 +363,8 @@ test('an affirmative to an ambiguous set never picks its first unit or invents a
   const ambiguous = resolvePropertyTurn(catalog, 'sí está bien', { _property_context: context }, [],
     semantics('sí está bien', { category: 'departamento', operation: 'select' }))
   assert.equal(ambiguous.query.category, null)
-  assert.equal(ambiguous.query.operation, 'search')
+  assert.equal(ambiguous.query.operation, 'none')
+  assert.equal(ambiguous.reason, 'unresolved_choice')
   assert.deepEqual(ambiguous.context.selected_ids, [])
 })
 

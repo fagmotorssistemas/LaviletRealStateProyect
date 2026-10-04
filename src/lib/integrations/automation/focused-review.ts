@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { needsPropertyPurpose } from './conversation-next-step'
 import { budgetContinuationInstruction } from './turn-budget'
 import { mergePendingRepairs } from './focused-pending-repair'
 export { pendingReferencesForRepair, pendingResolutionSchema } from './focused-pending-repair'
@@ -37,6 +38,10 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   if (['share_now', 'offer_after_profile'].includes(text(object(stage.brochure).accion))) obligations.push({ id: 'brochure_sequence',
     instruction: 'Evalúe el TEXTO del borrador según estado_comercial.brochure. Con share_now debe incluir el enlace autorizado. Con offer_after_profile basta ofrecer el brochure al pedir los datos pendientes: eso CUMPLE la obligación, sin esperar datos del cliente ni comprobante de envío. No exija entregar el brochure en una etapa que solo pide ofrecerlo.' })
   const policy = object(verified.politica_comercial)
+  if (needsPropertyPurpose(verified, audit, stage)) obligations.push({ id: 'property_purpose',
+    instruction: 'Después de responder el precio o la oferta general, presente brevemente los tipos autorizados disponibles (suites, departamentos, penthouses y locales, según las fuentes) y pregunte si busca vivienda o un espacio para comercio. El propósito aún no se conoce; no termine solamente con el brochure. No vuelva a pedir un propósito ya confirmado.' })
+  if (audit.source === 'clarify_previous_choice') obligations.push({ id: 'clarify_previous_choice',
+    ...object(audit.choice_clarification) })
   const financing = object(verified.etapa_financiamiento)
   if (financing.stage === 'explain_and_offer' && (audit.source === 'financing_question'
     || rows(verified.solicitudes_interpretadas).some(r => r.domain === 'financing'))) obligations.push({ id: 'financing_orientation',

@@ -3,6 +3,7 @@ import { FINANCING_PROCESS_RULES, ASSISTANCE_CONTINUATION_RULES } from './financ
 import { isCategoryOverview } from './catalog-dialogue'
 import { BROCHURE_URL } from './project-material'
 import { confirmedLeadProfile } from './lead-profile'
+import { declinesUnitTour, unitTourPreviouslySent } from './unit-model'
 
 /** Application delivery limit, independent of the preferred conversational length. */
 export const MAX_REPLY_CHARACTERS = 3000
@@ -36,11 +37,18 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
   const requests = rows(intent.requests).filter(request => request.confidence === 'high')
   const requested = normalized([context.current || '', ...requests.map(request => text(request.request))].join('\n'))
   const tour = object(audit.unit_model)
+  const property = object(context.verified?.property_context)
+  const selectedTour = !!text(tour.unit_id) && (tour.delivery_required === true
+    || strings(audit.selected_unit_ids).includes(text(tour.unit_id))
+    || object(property.query).operation === 'select' && strings(property.selected_ids).includes(text(tour.unit_id)))
+  const tourSent = unitTourPreviouslySent(tour, context.verified?.historial,
+    object(context.verified?.estado_conversacion).unit_models_sent)
+  const tourDeclined = declinesUnitTour(context.current || '')
   const showroom = object(audit.showroom_continuation)
   const required = strings(explicit.required_links)
   if (profile.brochure_required === true && text(profile.brochure_url)) required.push(text(profile.brochure_url))
   const asksToReceive = /\b(?:envie(?:me|nos)?|envi[ae]r|manda(?:me|nos)?|mande(?:me|nos)?|comparta(?:me|nos)?|compartir|muestra(?:me|nos)?|muestre(?:me|nos)?|mostrar|pas[ae](?:me|nos)?|quiero ver|quisiera ver|puedo ver|ver|explorar)\b[^.!?\n]{0,70}\b/
-  if (text(tour.url) && (showroom.reason === 'requested_visualization'
+  if (text(tour.url) && !tourDeclined && (selectedTour && !tourSent || showroom.reason === 'requested_visualization'
     || new RegExp(asksToReceive.source + '(?:recorrido|showroom|tour|360|modelo virtual)\\b').test(requested)
       && !/\bno\s+(?:me\s+)?(?:quiero|necesito|interesa|envie|mande|comparta).{0,45}(?:recorrido|showroom|tour|360|modelo)/.test(requested))) required.push(text(tour.url))
   if (audit.source === 'brochure' || new RegExp(asksToReceive.source + '(?:brochure|folleto|brochur|pdf)\\b').test(requested)
@@ -52,7 +60,9 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
   const brochureLinks = [BROCHURE_URL, text(profile.brochure_url), text(context.verified?.brochure_url)].filter(Boolean)
   const shared = profile.brochure_previously_sent === true || object(context.verified?.estado_conversacion).brochure_sent === true
   const resend = required.some(url => brochureLinks.includes(url))
-  return { allowed_links: [...new Set(allowed.filter(url => !shared || resend || !brochureLinks.includes(url)))], required_links: [...new Set(required)] }
+  const tourOmitted = tourDeclined || tourSent && !required.includes(text(tour.url))
+  return { allowed_links: [...new Set(allowed.filter(url => (!shared || resend || !brochureLinks.includes(url))
+    && (!tourOmitted || url !== text(tour.url))))], required_links: [...new Set(required)] }
 }
 
 export function replyLinkIssues(reply: string, contract: ReturnType<typeof replyLinkContract>): string[] {

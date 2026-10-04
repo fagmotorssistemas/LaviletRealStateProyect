@@ -3,17 +3,34 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isUnitPhotoRequest, isUnitVisualRequest } from './unit-visual-request'
 
-export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention?: boolean; matches: Row[]; allowGeneralTour?: boolean }, current: string, history: unknown, sentUnitIds: unknown = []) {
+export function declinesUnitTour(current: string): boolean {
   const m = normalized(current)
-  const asksModel = isUnitVisualRequest(current)
   // La negación debe referirse al material visual. Frases como «no necesito que
   // sean habitaciones independientes» no rechazan el recorrido de la unidad.
-  const visual = '(?:modelo|recorrido|3d|enlace|link|fotos?|fotografias?|imagenes?)'
-  const declines = new RegExp(`\\bno\\s+(?:me\\s+)?(?:envie|mande|comparta|muestre)\\b[^.!?\\n]{0,55}\\b${visual}\\b`).test(m)
+  const visual = '(?:modelo|recorrido|3d|360|tour|showroom|enlace|link|fotos?|fotografias?|imagenes?)'
+  return new RegExp(`\\bno\\s+(?:me\\s+)?(?:envie|mande|comparta|muestre)\\b[^.!?\\n]{0,55}\\b${visual}\\b`).test(m)
     || new RegExp(`\\bno\\s+(?:quiero|necesito|deseo)\\b[^.!?\\n]{0,55}\\b${visual}\\b`).test(m)
     || new RegExp(`\\bno\\s+me\\s+(?:interesa|sirve)\\b[^.!?\\n]{0,55}\\b${visual}\\b`).test(m)
     || new RegExp(`\\b${visual}\\b[^.!?\\n]{0,55}\\bno\\s+me\\s+(?:interesa|sirve)\\b`).test(m)
-  if (declines || (!reference.explicit && !asksModel)) return null
+}
+
+/** Only persisted outbound history or IDs saved after accepted delivery prove
+ * that material was shared. A client quoting a link is not such evidence. */
+export function unitTourPreviouslySent(tour: Row, history: unknown, sentUnitIds: unknown = []): boolean {
+  const unitId = text(tour.unit_id), number = text(tour.unit_number)
+  if (unitId && Array.isArray(sentUnitIds) && sentUnitIds.includes(unitId)) return true
+  return (Array.isArray(history) ? history : []).map(object).some(row => {
+    const content = text(row.content)
+    if (!['bot', 'asesor'].includes(text(row.role))) return false
+    if (!number) return content.includes(unitTourUrl()) && !/[?&]unidad=/.test(content)
+    return content.includes(UNIT_TOUR_PATH)
+      && new RegExp(`[?&]unidad=${number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\b|$)`).test(content)
+  })
+}
+
+export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention?: boolean; matches: Row[]; allowGeneralTour?: boolean }, current: string, history: unknown, sentUnitIds: unknown = []) {
+  const asksModel = isUnitVisualRequest(current)
+  if (declinesUnitTour(current) || (!reference.explicit && !asksModel)) return null
   if ((reference.matches.length > 1 && !(asksModel && reference.allowGeneralTour && !reference.hasUnitMention)) || (reference.hasUnitMention && reference.matches.length === 0)) return null
   const candidate = reference.matches.length === 1 ? reference.matches[0] : null
   const unit = candidate && ['suite', 'departamento', 'penthouse'].includes(text(candidate.category))
@@ -22,20 +39,25 @@ export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention
     ? candidate
     : null
   const url = unitTourUrl(unit?.unit_number)
-  // Persisted outbound messages are the authority, not the LLM's summary or a quoted client URL.
-  const alreadySent = Boolean(unit && Array.isArray(sentUnitIds) && sentUnitIds.includes(unit.id)) || (Array.isArray(history) ? history : []).map(object).some(row => {
-    const content = text(row.content)
-    if (!['bot', 'asesor'].includes(text(row.role))) return false
-    if (!unit) return content.includes(unitTourUrl()) && !/[?&]unidad=/.test(content)
-    return content.includes(UNIT_TOUR_PATH)
-      && new RegExp(`[?&]unidad=${text(unit.unit_number)}(?:\\b|$)`).test(content)
-  })
+  const alreadySent = unitTourPreviouslySent({ unit_id: unit?.id, unit_number: unit?.unit_number }, history, sentUnitIds)
   if (alreadySent && !asksModel) return null
   if (!unit) return { unit_id: null, unit_number: null, url, model_available: true,
     caption: `Aquí puede explorar el recorrido virtual 360 de La Vilet: ${url}. Es una representación del proyecto, no un recorrido de obra terminada.` }
   const label = `${unit.category === 'suite' ? 'la suite' : unit.category === 'penthouse' ? 'el penthouse' : 'el departamento'} ${text(unit.unit_number)}`
   return { unit_id: text(unit.id), unit_number: text(unit.unit_number), url, model_available: true,
     caption: `Aquí puede explorar ${label} en el recorrido virtual 360 de La Vilet: ${url}. Es una representación del proyecto, no un recorrido de obra terminada.` }
+}
+
+/** Selection is a resolved catalogue decision, not a number parsed from prose.
+ * This applies even when accepted financing chooses the next response route. */
+export function selectedUnitModelDelivery(reference: Row, current: string, history: unknown, sentUnitIds: unknown = []) {
+  const context = object(reference.context), query = object(reference.query || context.query)
+  const matches = Array.isArray(reference.matches) ? reference.matches.map(object) : []
+  const selected = Array.isArray(context.selected_ids) ? context.selected_ids : []
+  if (reference.needsClarification === true || query.operation !== 'select' || matches.length !== 1
+    || !selected.includes(matches[0].id) || !['suite', 'departamento', 'penthouse'].includes(text(matches[0].category))) return null
+  const delivery = unitModelDelivery({ explicit: true, hasUnitMention: true, matches }, current, history, sentUnitIds)
+  return delivery?.unit_id ? { ...delivery, delivery_required: true, delivery_reason: 'selected_unit' } : null
 }
 
 export function appendUnitModel(reply: string, delivery: ReturnType<typeof unitModelDelivery>) {
