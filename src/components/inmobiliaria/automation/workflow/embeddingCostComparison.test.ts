@@ -58,6 +58,17 @@ test('old traces and missing snapshots never fabricate hypothetical savings', ()
   assert.equal(normalExecutionEstimate(execution('off', [off])), null)
 })
 
+test('exact reduced contexts retain baseline estimates even when no embedding query was needed', () => {
+  const writer = call(2)
+  writer.input.catalog_context_mode = 'optimized_exact'
+  const retrieval = embedding(false, 0)
+  retrieval.output.optimized = true
+  assert.equal(callCatalogMode(writer), 'Consulta exacta reducida')
+  const run = execution('exact', [retrieval, writer])
+  assert.equal(normalExecutionEstimate(run)?.totalTokens, 21000)
+  assert.equal(executionCost(run.steps).embeddingTokens, 0)
+})
+
 test('successful retry cannot hide unmeasured usage of a timed-out provider request', () => {
   const step = call(2)
   step.output.request_diagnostics = { attempts: [{ outcome: 'timeout' }, { outcome: 'succeeded' }] }

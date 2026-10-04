@@ -1,5 +1,10 @@
 const reasons: Record<string, string> = {
   disabled: 'El interruptor estaba desactivado.',
+  exact_catalog_query: 'El código comprobó los requisitos y calculó cantidades y rangos antes de seleccionar fichas.',
+  complete_filtered_catalog: 'El código comprobó todos los requisitos; los embeddings ordenaron las coincidencias confirmadas sin excluirlas por similitud.',
+  requires_full_commercial_context: 'Esta consulta combina necesidades o decisiones que todavía conservan el contexto comercial anterior.',
+  prices_not_authorized: 'La política no autoriza precios; se conserva el recorrido comercial anterior.',
+  structured_query_unavailable: 'No hay una consulta estructurada con certeza suficiente; se conserva el recorrido anterior completo.',
   semantic_candidates: 'Se seleccionaron candidatas por similitud y se consultaron sus fichas actuales.',
   requires_current_search: 'Esta ejecución histórica conservó la búsqueda anterior; no registró cuál condición concreta la excluyó.',
   requires_complete_catalog: 'La consulta necesita el catálogo completo para responder totales, rangos o extremos.',
@@ -24,6 +29,12 @@ const reasons: Record<string, string> = {
 
 export function catalogSearchExplanation(output: Record<string, unknown>) {
   const applied = output.applied === true
+  if (output.optimized === true) {
+    const title = applied ? 'Catálogo filtrado y ordenado por embeddings' : 'Consulta exacta con contexto reducido'
+    const reason = (reasons[String(output.reason)] || reasons.exact_catalog_query)
+      + (output.ranking_reason === 'semantic_ranking_unavailable' ? ' La ordenación semántica no estuvo disponible; se conservaron el filtrado y el resumen completos.' : '')
+    return { title, reason, summary: `${title}. ${output.matched_count} coincidencias confirmadas; ${output.unknown_count} unidades sin datos suficientes; ${output.selected_count} fichas incluidas. ${reason}` }
+  }
   const title = applied ? 'Embeddings utilizados' : output.applied === false ? 'Búsqueda anterior utilizada' : 'Búsqueda: resultado sin registrar'
   const reason = reasons[String(output.reason)] || 'Consulte el motivo técnico registrado; no hay una explicación disponible para este código.'
   const selected = Array.isArray(output.selected_unit_ids) ? output.selected_unit_ids.length : 0

@@ -44,6 +44,15 @@ import { confirmedLeadProfile } from './lead-profile'
 import { catalogSearchSettings } from '@/lib/inmobiliaria/catalogSearch'
 import { retrieveCatalogByEmbeddings, semanticCatalogScope } from './catalog-embeddings'
 import { recordCatalogRetrieval } from './ai-execution-trace'
+import { optimizedCatalogReply } from './optimized-catalog-reply'
+
+export async function catalogSearchConfiguration() {
+  try {
+    const { data, error } = await db().from('projects').select('policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id)
+      .abortSignal(AbortSignal.timeout(5000)).maybeSingle()
+    return catalogSearchSettings(error ? {} : object(data).policies_json)
+  } catch { return catalogSearchSettings({}) }
+}
 
 export async function publishedUnitCatalog() {
   const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
@@ -130,6 +139,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     await guard()
     const retrieval = await retrieveCatalogByEmbeddings(info, current)
     recordCatalogRetrieval(retrieval.audit)
+    const optimized = optimizedCatalogReply(retrieval)
+    if (optimized) return optimized
     if (retrieval.units) {
       const selectedInfo = { ...info, catalogo: retrieval.units, catalog_retrieval: retrieval.audit,
         catalog_context_scope: semanticCatalogScope(retrieval.audit) }

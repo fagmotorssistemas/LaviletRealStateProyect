@@ -32,8 +32,8 @@ const policyTriggers: Record<string, RegExp> = {
  * The extractor, operational state, global guardrails and tone are unchanged. */
 export function semanticCatalogContext(verified: Row, audit: Row, current: string): Row {
   if (object(verified.catalog_search).embeddingsEnabled !== true
-    || object(audit.catalog_retrieval).applied !== true
-    || object(verified.catalog_context_scope).kind !== 'semantic_candidates') return verified
+    || !(object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true)
+    || !['semantic_candidates', 'optimized_catalog'].includes(text(object(verified.catalog_context_scope).kind))) return verified
 
   const result = { ...verified }
   const query = normalize(current)
@@ -57,7 +57,7 @@ export function semanticCatalogContext(verified: Row, audit: Row, current: strin
   delete result.posicionamiento_proyecto
   const blocks = ['instalaciones', 'lugares_cercanos', 'contexto_sector', 'politicas_negocio']
   result.prompt_context_selection = {
-    version: 'semantic-property-context-v1', mode: 'semantic_candidates',
+    version: 'semantic-property-context-v1', mode: object(audit.catalog_retrieval).optimized === true ? 'optimized_catalog' : 'semantic_candidates',
     included_unit_count: rows(verified.catalogo).length,
     blocks: blocks.map(key => ({ key, available: rows(verified[key]).length, included: rows(result[key]).length })),
     note: 'Contexto seleccionado para esta búsqueda. Los bloques omitidos no acreditan inexistencia de servicios ni ausencia de políticas. Responda con las fichas incluidas; no complete datos con el historial. Las obligaciones del turno y restricciones generales siguen vigentes.',

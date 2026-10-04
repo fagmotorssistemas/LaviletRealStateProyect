@@ -15,7 +15,7 @@ const active = new AsyncLocalStorage<Context>()
 
 export function recordCatalogRetrieval(result: Record<string, unknown>) {
   active.getStore()?.trace.add('catalog_embedding_search', 'Búsqueda de unidades por embeddings', 'decision',
-    'catalog-embeddings.ts', result.applied === true ? 'succeeded' : 'skipped', { enabled: result.enabled }, result)
+    'catalog-embeddings.ts', result.applied === true || result.optimized === true ? 'succeeded' : 'skipped', { enabled: result.enabled }, result)
 }
 
 /** Diagnostic only: records an already computed decision, never evaluates or
@@ -63,7 +63,9 @@ export function beginModelTrace(instructions: string, model: string, task: strin
   context.trace.setVersions({ model, promptVersions: { [`${task}_${++context.calls}`]: revision } })
   const comparison = attachments ? null : promptCostComparison(instructions, input, schema)
   const data = object(input), verified = object(data.contexto_verificado), state = object(data.estado_del_turno)
-  const catalogMode = object(verified.catalog_context_scope).kind === 'semantic_candidates'
+  const catalogMode = object(verified.catalog_context_scope).kind === 'optimized_catalog' || object(state.alcance_catalogo).kind === 'optimized_catalog'
+    ? (object(verified.catalog_retrieval).applied === true || object(state.alcance_catalogo).method === 'structured_catalog_and_embeddings' ? 'optimized_embeddings' : 'optimized_exact')
+    : object(verified.catalog_context_scope).kind === 'semantic_candidates'
     || object(state.alcance_catalogo).kind === 'semantic_candidates' ? 'semantic_candidates'
     : data.contexto_verificado || data.fuentes_autorizadas ? 'current_catalog' : 'not_applicable'
   const order = context.trace.start('model_request', purpose, 'ai', 'ai.ts', {

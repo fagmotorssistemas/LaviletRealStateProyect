@@ -13,6 +13,7 @@ import { statusLabel, stepTitle } from './messageExplanation'
 import styles from './ArchitectureMap.module.css'
 import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './ReviewDiagnosticsPanel'
 import { reviewDiagnostics } from './reviewDiagnostics'
+import { CatalogSummaryPanel } from './CatalogSummaryPanel'
 
 type MapNode = Node<{ spec: ArchitectureNode; state: string; count: number }, 'architecture'>
 const stateLabels: Record<string, string> = { observed: 'Con registro', failed: 'Error registrado', rejected: 'Revisión con errores', paused: 'Detenido', skipped: 'Omitido explícitamente', not_selected: 'Alternativa no elegida', unknown: 'Sin registro' }
@@ -65,7 +66,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     })
     if (showSequence) {
       // This is temporal order only, not inferred causation or a selected branch.
-      const ordered = steps.map(step => ({ step, node: ARCHITECTURE_NODES.find(n => !n.branch && n.id !== 'repair_metadata' && n.id !== 'repair_draft' && nodeEvidence(n, [step]).length) }))
+      const ordered = steps.map(step => ({ step, node: ARCHITECTURE_NODES.find(n => !n.branch && !['repair_metadata', 'repair_draft', 'catalog_summary'].includes(n.id) && nodeEvidence(n, [step]).length) }))
         .filter((v): v is { step: WorkflowExecutionStep; node: ArchitectureNode } => !!v.node)
       for (let i = 1; i < ordered.length; i++) {
         const previous = ordered[i - 1], current = ordered[i]
@@ -83,6 +84,9 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     <div className={styles.legend}><span>Verde: registro observado, no aprobación automática</span><span>Rojo: error de ejecución o revisión</span><span>Gris: sin registro o alternativa no elegida</span><span>Azul: orden temporal, no causalidad</span></div>
     <nav className={styles.navigation} aria-label="Acercar a una parte del mapa">
       <button type="button" onClick={() => void flow?.fitView({ padding: 0.08, duration: 300 })}>Ver todo</button>
+      <button type="button" onClick={() => {
+        setSelectedId('catalog_summary'); void flow?.fitView({ nodes: [{ id: 'catalog_summary' }], padding: 0.5, duration: 300, maxZoom: 0.9 })
+      }}>Resumen del catálogo</button>
       {nodes.some(n => ['failed', 'rejected'].includes(n.data.state)) && <button type="button" onClick={() => {
         const first = nodes.find(n => ['failed', 'rejected'].includes(n.data.state))!
         setSelectedId(first.id); void flow?.fitView({ nodes: [{ id: first.id }], padding: 0.5, duration: 300, maxZoom: 0.9 })
@@ -90,7 +94,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
       {[
         ['Inicio', ['message', 'permission', 'context']], ['Alcance', ['scope_ai', 'scope', 'scope_property', 'scope_uncertain']],
         ['Objetivos', ['intent', ...ARCHITECTURE_NODES.filter(n => n.id.startsWith('intent_')).map(n => n.id)]],
-        ['Catálogo y perfil', ['catalog', 'profile', 'introduction', 'catalog_clarify', 'embedding_search', 'embedding_applied', 'embedding_bypassed']],
+        ['Catálogo y perfil', ['catalog', 'profile', 'introduction', 'catalog_clarify', 'embedding_search', 'embedding_applied', 'embedding_bypassed', 'catalog_exact']],
         ['Presupuesto', ['budget', ...ARCHITECTURE_NODES.filter(n => n.id.startsWith('budget_')).map(n => n.id)]],
         ['Redacción y revisión', ['coverage', 'writer', 'reviewer', 'draft_validation', 'repair_metadata', 'repair_draft']],
         ['Envío y recuperación', ['validation', 'failure', 'delivery', 'memory', 'exit']],
@@ -117,8 +121,9 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
         <small>{selected.owner} · {stateLabels[nodeState(selected, steps)]}</small><h3>{selected.title}</h3><p>{selected.description}</p>
         <dl><dt>Ubicación</dt><dd>{selected.source}</dd><dt>Identificador</dt><dd><code>{selected.branch ? `${selected.branch.field} = ${selected.branch.value}` : selected.key || selected.id}</code></dd></dl>
         {selected.branch && <p>Este nodo muestra un objetivo o resultado interpretado. No acredita por sí solo que se ejecutó una acción comercial.</p>}
-        {!evidence.length && <p>{nodeState(selected, steps) === 'not_selected' ? 'Se registró otro valor para esta decisión.' : 'No hay evidencia suficiente para afirmar que este paso se ejecutó o se omitió.'}</p>}
-        {evidence.map(step => <details key={step.order} className={styles.record} open={evidence.length === 1}>
+        {selected.id === 'catalog_summary' && <CatalogSummaryPanel steps={steps} onStep={onStep} />}
+        {selected.id !== 'catalog_summary' && !evidence.length && <p>{nodeState(selected, steps) === 'not_selected' ? 'Se registró otro valor para esta decisión.' : 'No hay evidencia suficiente para afirmar que este paso se ejecutó o se omitió.'}</p>}
+        {selected.id !== 'catalog_summary' && evidence.map(step => <details key={step.order} className={styles.record} open={evidence.length === 1}>
           <summary>Paso {step.order} · {stepTitle(step)} · {statusLabel(step.status)}</summary>
           <p>{(step.durationMs / 1000).toLocaleString('es-EC')} s{step.errorCode ? ` · ${step.errorCode}` : ''}</p>
           {step.key === 'response_coverage' && <p>Incluye el tiempo de las llamadas internas; no sumarlo de nuevo al de los agentes.</p>}

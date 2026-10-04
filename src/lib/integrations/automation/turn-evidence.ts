@@ -79,7 +79,9 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   for (const category of new Set(quoted.map(unit => text(unit.category)).filter(Boolean))) {
     addGroup(`price_quote:${category}:all`, quoted.filter(unit => text(unit.category) === category), { ...priceScope, category })
   }
+  if (object(audit.catalog_retrieval).optimized === true) groups.push(...rows(audit.catalog_aggregate_groups))
   return { version: 'turn-evidence-v3', units, groups, conflicts, project_facts: projectQuantityEvidence(verified),
+    ...(object(audit.catalog_retrieval).optimized === true ? { catalog_summary: audit.catalog_summary } : {}),
     query: audit.catalog_query || null, query_result_ids: object(audit.catalog_results).unit_ids || [],
     alternative_query: object(audit.alternative_results).query || null,
     alternative_ids: object(audit.alternative_results).unit_ids || [] }

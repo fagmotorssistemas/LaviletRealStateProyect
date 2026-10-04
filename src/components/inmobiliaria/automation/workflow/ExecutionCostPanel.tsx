@@ -22,7 +22,7 @@ export function AgentCallCost({ step }: { step: WorkflowExecutionStep }) {
     {cost.measuredCalls > 0 && <p>Entrada: {number(cost.inputTokens)} tokens, incluidos {number(cost.cachedInputTokens)} en caché. Salida: {number(cost.outputTokens)}. Total: {number(cost.totalTokens)}.</p>}
     {cost.pricedCalls > 0 && <p>Entrada sin caché: {money(cost.inputUsd)} · Entrada en caché: {money(cost.cachedUsd)} · Salida: {money(cost.outputUsd)}.</p>}
     {!cost.complete && <p>Registro parcial: falta uso o tarifa; los importes disponibles no representan el costo completo.</p>}
-    {estimate && <p><strong>Sin embeddings, estimación de esta llamada:</strong> ≈ {number(estimate.totalTokens)} tokens ({number(estimate.inputTokens)} de entrada + {number(estimate.outputTokens)} de salida); ≈ {money(estimate.cost.estimatedUsd)} manteniendo la proporción de caché. Con entrada totalmente en caché: {money(estimate.allCachedUsd)}; sin caché: {money(estimate.noCacheUsd)}. La salida se mantiene igual solo para comparar.</p>}
+    {estimate && <p><strong>Recorrido anterior, estimación de esta llamada:</strong> ≈ {number(estimate.totalTokens)} tokens ({number(estimate.inputTokens)} de entrada + {number(estimate.outputTokens)} de salida); ≈ {money(estimate.cost.estimatedUsd)} manteniendo la proporción de caché. Con entrada totalmente en caché: {money(estimate.allCachedUsd)}; sin caché: {money(estimate.noCacheUsd)}. La salida se mantiene igual solo para comparar.</p>}
   </div>
 }
 
@@ -51,7 +51,7 @@ export function ExecutionCostPanel({ execution, executions, onStep }: {
     <details open>
       <summary>Desglose por llamada y recorrido normal estimado</summary>
       <div className={styles.scroll} tabIndex={0} role="region" aria-label="Tabla de costos por agente">
-        <table><thead><tr><th>Agente / paso</th><th>Contexto usado</th><th>Entrada</th><th>En caché¹</th><th>Salida</th><th>Costo registrado²</th><th>Sin embeddings³</th></tr></thead>
+        <table><thead><tr><th>Agente / paso</th><th>Contexto usado</th><th>Entrada</th><th>En caché¹</th><th>Salida</th><th>Costo registrado²</th><th>Recorrido anterior³</th></tr></thead>
           <tbody>{calls.map(step => {
             const actual = executionCost([step]), normal = normalCallEstimate(step)
             return <tr key={step.order}><th><button type="button" onClick={() => onStep(step.order)}>{stepTitle(step)} · {step.order}</button><small>{String(step.output.model || step.input.model || '')}</small></th>
@@ -64,7 +64,7 @@ export function ExecutionCostPanel({ execution, executions, onStep }: {
       </div>
       {estimate ? <p className={styles.scenario}><strong>Recorrido normal estimado: ≈ {number(estimate.totalTokens)} tokens · ≈ {money(estimate.usd)}.</strong>
         {cost.complete && <> Diferencia frente al uso registrado: {number(estimate.totalTokens - cost.totalTokens)} tokens y {money(estimate.usd - cost.estimatedUsd)} (normal menos actual; un valor negativo indica que el normal sería menor).</>}</p>
-        : <p>{mode === 'Con embeddings' ? 'No hay una estimación completa del recorrido normal para este registro. Puede compararlo con otra ejecución real abajo.'
+        : <p>{['Con embeddings', 'Consulta exacta reducida'].includes(mode) ? 'No hay una estimación completa del recorrido normal para este registro. Puede compararlo con otra ejecución real abajo.'
           : 'Este mensaje muestra el gasto del recorrido ejecutado. Para conocer el gasto con embeddings, seleccione una prueba real que los haya utilizado. No se inventa una selección semántica ni se genera otra respuesta automáticamente.'}</p>}
       <p className={styles.notes}>¹ La caché es parte de la entrada, no se suma otra vez. ² Tokens informados por la API; dólares calculados, no factura. Incluye borradores descartados, revisiones y consulta de embeddings, incluso si la búsqueda terminó usando el catálogo normal.</p>
       <p className={styles.notes}>³ Estimación aproximada por tamaño del contexto ampliado, calibrada con los tokens reales de cada llamada. Conserva modelo, salida, número de llamadas y proporción de caché; esas condiciones podrían cambiar en una ejecución real. No predice otra respuesta ni si sería aprobada. La comparación se calcula localmente, sin llamadas adicionales a la IA.</p>

@@ -5,6 +5,8 @@ export const TURN_CONTEXT_REFERENCE_RULES = `El contexto usa una sola copia del 
   + '\nSi contexto_verificado.catalog_context_scope indica complete_category, el catálogo cubre esa categoría. No deduzca que otras categorías no existen ni amplíe una afirmación a todo el proyecto. Use siempre el alcance y los miembros de la fuente citada.'
   + '\nSi catalog_context_scope.kind=project_overview, las unidades se omitieron porque esta presentación no las necesita: NO es una consulta con cero resultados ni prueba de falta de disponibilidad. No afirme precios, dimensiones, máximos ni ausencia de opciones a partir de ese catálogo omitido. Las fuentes de afirmaciones pueden referenciar su valor canónico mediante ref; consulte esa ruta, no la trate como una fuente vacía.'
 
+export const CATALOG_SUMMARY_RULES = 'Si hay catalog_summary, matching_count es la cantidad de coincidencias confirmadas ANTES de elegir fichas; unknown_count son unidades pendientes de comprobar, no descartadas. exact_count=false impide afirmar un total exhaustivo. Use los grupos source_scope=complete_query para los rangos del conjunto confirmado: otros grupos pueden corresponder solo a ejemplos. No cuente las fichas incluidas para inferir el total. Las preferencias no garantizan características. Los límites con información faltante se describen solo entre datos conocidos. Ningún resumen autoriza afirmar disponibilidad fuera del alcance de su consulta.'
+
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
 
@@ -32,6 +34,11 @@ export function compactTurnPromptContext(context: Row, options: { preserveUnitId
       return /^(?:id|ids|unit_ref)$|_ids?$/.test(key) ? alias.get(value) ?? value : value
     }
     if (Array.isArray(value)) {
+      if (path.endsWith('.catalog_aggregate_groups') && path !== 'evidencia_turno.groups') {
+        const groups = rows(evidence.groups)
+        return value.map(group => { const index = groups.findIndex(g => g.id === object(group).id)
+          return index >= 0 ? { ref: `evidencia_turno.groups.${index}` } : group })
+      }
       if (path.startsWith('evidencia_turno.groups.') && path.endsWith('.member_ids')) {
         const key = JSON.stringify(value), previous = memberships.get(key)
         if (previous && key.length > previous.length + 12) return { ref: previous }
@@ -41,6 +48,8 @@ export function compactTurnPromptContext(context: Row, options: { preserveUnitId
     }
     if (!value || typeof value !== 'object') return value
     const row = object(value)
+    if (path.endsWith('.catalog_summary') && path !== 'evidencia_turno.catalog_summary'
+      && evidence.catalog_summary && same(row, evidence.catalog_summary)) return { ref: 'evidencia_turno.catalog_summary' }
     // Preserve every source and its provenance, without repeating the same
     // policy/project/operation payload already available at its canonical path.
     // A stale path or differing value must remain visible to the reviewer.

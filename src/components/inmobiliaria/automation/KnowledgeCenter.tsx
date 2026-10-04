@@ -29,7 +29,7 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
       const result = await saveCatalogSearch(projectId, !saved.catalogSearch.embeddingsEnabled, saved.updatedAt)
       setSaved(old => ({ ...old, ...result }))
       setSearchNotice(result.catalogSearch.embeddingsEnabled
-        ? 'Activada para las próximas consultas compatibles. Si no hay resultados fiables se utiliza la búsqueda actual.'
+        ? 'Activada para las próximas consultas compatibles: requisitos y resumen completos, con embeddings para ordenar búsquedas descriptivas.'
         : 'Desactivada. Las próximas consultas utilizarán la búsqueda anterior.')
     } catch (cause) { setSearchError(cause instanceof Error ? cause.message : 'No se pudo guardar.') }
     finally { setBusy(false) }

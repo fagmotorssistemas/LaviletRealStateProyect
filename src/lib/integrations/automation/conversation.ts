@@ -19,7 +19,7 @@ import { resolveRecentUnitOfferText } from '@/lib/meta/waLeadSubmittedOfferConte
 import { isUnitOfferContext } from '@/lib/meta/waLeadSubmittedEligibility'
 import type { Guard } from './visits'
 import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
-import { commercialContext, commercialReply, publishedUnitCatalog } from './sdr'
+import { commercialContext, commercialReply, publishedUnitCatalog, catalogSearchConfiguration } from './sdr'
 import { appendUnitModel, unitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
@@ -504,6 +504,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const toolsContextStep = trace.start('decision_context', 'Cargar catálogo y contexto financiero', 'context', 'sdr.ts · financing.ts', { required: !minimalTurn })
   const finance = minimalTurn ? { partners: [], current: {} } : await financingContext(lead)
   turnCatalog = minimalTurn ? [] : await publishedUnitCatalog()
+  const catalogSearch = minimalTurn ? { embeddingsEnabled: false } : await catalogSearchConfiguration()
   trace.finish(toolsContextStep, minimalTurn ? 'skipped' : 'succeeded', { catalog_units: turnCatalog.length, financing_partners: finance.partners.length })
   const initialReference = resolveCatalogReference(turnCatalog, current, previousSummary._unit_reference, context.historial)
   const previousPropertyContext = minimalTurn ? object(previousSummary._property_context) : propertyContext(turnCatalog, previousSummary._property_context, context.historial)
@@ -518,6 +519,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     ? rememberedQuestion
     : pendingQuestionFromReply(lastResponse)
   let interpretation = await interpretConversationTurn({
+    catalog_search: catalogSearch,
     consultas_pendientes: pendingInputs,
     resumen: previousSummary, historial: context.historial,
     perfil_inicial: { ...object(previousSummary._lead_profile), awaiting: object(previousSummary._lead_introduction).status === 'pending',
@@ -1275,15 +1277,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
-    const costBaseline = object(audit.catalog_retrieval).applied === true
+    const costBaseline = object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true
       ? { ...info, catalogo: commercialInfo.catalogo } : undefined
-    if (object(audit.catalog_retrieval).applied === true) {
+    if (object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true) {
       // Both writer and reviewer receive the same fresh partial selection.
       // Do not silently re-expand it through comparison evidence.
       info.catalogo_verificacion = info.catalogo
       info.catalog_context_scope = audit.catalog_context_scope
       info.catalog_retrieval = audit.catalog_retrieval
-      info.catalog_read = { complete: false, scope: 'semantic_candidates' }
+      info.catalog_read = { complete: object(audit.catalog_retrieval).optimized === true && object(audit.catalog_results).complete === true,
+        scope: object(audit.catalog_retrieval).optimized === true ? 'optimized_catalog' : 'semantic_candidates' }
+      if (object(audit.catalog_retrieval).optimized === true) info.catalog_summary = audit.catalog_summary
       const ids = new Set((Array.isArray(info.catalogo) ? info.catalogo : []).map(unit => object(unit).id))
       info.referencia_unidad = { ...object(info.referencia_unidad), matches: (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).filter(unit => ids.has(object(unit).id)) }
     }

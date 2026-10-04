@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { bedroomComparison, type BedroomComparison } from './bedroom-comparison'
 import { normalized } from './sdr-rules'
 import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
+import { normalizeCatalogRequest } from './catalog-request'
 
 export const questionIds = [
   'visit_invitation',
@@ -387,7 +388,9 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     normalizationIssues.push('bedrooms_requirement_without_explicit_evidence')
   }
   const filters: PropertyFilters = { ...semanticFilters }
+  const structuredCatalog = normalizeCatalogRequest(object(raw).catalog_request, current)
   for (const [key, lexicalValue] of Object.entries(lexicalFilters)) {
+    if (structuredCatalog) continue
     if (lexicalValue === null) continue
     const field = key as keyof PropertyFilters, semanticValue = semanticFilters[field]
     const groundedSemanticValue = propertyConfident && !!filterEvidence[field] && semanticValue != null

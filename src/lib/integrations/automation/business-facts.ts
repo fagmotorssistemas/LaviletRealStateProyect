@@ -1,7 +1,7 @@
 import { object, text, type Row } from './data'
 
 const fields = ['published_commercial_price', 'area_internal_m2', 'area_exterior_m2', 'bedrooms', 'bathrooms_full',
-  'floor_number', 'category', 'availability_status', 'status', 'unit_number', 'amount']
+  'area_total_m2', 'floor_number', 'category', 'availability_status', 'status', 'unit_number', 'unit_count', 'amount']
 const kinds = ['catalog_value', 'lead_budget', 'budget_difference', 'other_calculation']
 const relations = ['eq', 'gt', 'gte', 'lt', 'lte', 'range']
 export const businessFactSchema: Row = {
@@ -24,7 +24,7 @@ En facts extraiga las afirmaciones verificables que realmente aparecen en borrad
 catalog_value identifica el inmueble o grupo exacto de fuentes_autorizadas, su field y valor afirmado. lead_budget usa field=amount. budget_difference identifica la unidad o grupo cuyo precio se compara con presupuesto_confirmado y field=published_commercial_price; value es la diferencia afirmada, NO el precio. Use other_calculation si la operación tiene otra fórmula o base: revísela semánticamente sin inventar operandos.
 Respete el alcance: rangos usan grupos con aggregation=range, relation=range y ambos extremos. «Desde» usa el mínimo del grupo; «superan» es gt, no gte. Una afirmación de mínimo/máximo exacto usa el grupo min/max pertinente y relation=eq. No convierta una comparación general en una reserva.
 Si se refiere a opciones dentro del presupuesto, use el grupo budget_matching correspondiente y no el grupo global de la categoría. Una lista de ejemplos se verifica por sus unidades, no como mínimo y máximo universal. Si no puede representar fielmente el subconjunto afirmado, solicite aclaración de la ficha; no invente una referencia global.
-unit identifica USD, m2, count o text. No suponga que una entrada o cuota es presupuesto total. Negaciones y condiciones que no se representan fielmente con estos campos se revisan semánticamente; no las transforme en hechos afirmativos.
+unit identifica USD, m2, count o text. Dormitorios, baños, plantas y cantidades de unidades usan count. «Cuatro departamentos de tres dormitorios» contiene dos datos distintos: unit_count=4 y bedrooms=3; extraiga ambos si están afirmados. unit_count se refiere al grupo de la consulta, nunca a una ficha individual ni al número de ejemplos enviados. Para un resumen use el grupo source_scope=complete_query y respete complete_for_query y las unidades con datos desconocidos. No suponga que una entrada o cuota es presupuesto total. Negaciones y condiciones que no se representan fielmente con estos campos se revisan semánticamente; no las transforme en hechos afirmativos.
 No cree un inventario de cada oración ni referencias E/S/N. Los datos son una extracción del borrador, no nueva evidencia ni permiso para cambiar el catálogo. Un problema de extracción requiere reparar la ficha, no reescribir un borrador correcto.
 question describe la pregunta real del borrador (null si no hay pregunta). offered_action diferencia information, financing_review, internal_advisor, ambiguous y none. Ofrecer dos ayudas distintas produce ambiguous: un sí no autoriza escoger una. No marque none si está ofreciendo una ayuda concreta.
 `
@@ -53,8 +53,9 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
     const subject = exact || (numbered.length === 1 ? numbered[0] : undefined)
     const unitForField = fact.field === 'published_commercial_price' || fact.field === 'amount' ? 'USD'
       : /^area_/.test(text(fact.field)) ? 'm2'
-        : ['bedrooms', 'bathrooms_full', 'floor_number'].includes(text(fact.field)) ? 'count' : 'text'
-    if (fact.unit !== unitForField) return unknown('La unidad de medida o moneda requiere aclaración.')
+        : ['bedrooms', 'bathrooms_full', 'floor_number', 'unit_count'].includes(text(fact.field)) ? 'count' : 'text'
+    // The typed field already determines these dimensionless counts. An unspecified label cannot change a value or require another model call.
+    if (fact.unit !== unitForField && !(unitForField === 'count' && fact.unit === 'other')) return unknown('La unidad de medida o moneda requiere aclaración.')
     let expected: unknown, source: Row
     if (fact.kind === 'lead_budget') {
       if (fact.field !== 'amount') return unknown('El presupuesto debe identificar amount.')
@@ -71,7 +72,8 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
         source = { subject_id: subject.id, price: subject.published_commercial_price, budget, operation: 'max(0, price - budget)' }
       } else {
         if (fact.field === 'amount') return unknown('amount corresponde al presupuesto, no a una ficha de catálogo.')
-        expected = subject[fact.field as string]
+        if (fact.field === 'unit_count' && !Array.isArray(subject.member_ids)) return unknown('La cantidad necesita un grupo con miembros identificados.')
+        expected = fact.field === 'unit_count' ? subject.unit_count ?? (subject.member_ids as unknown[]).length : subject[fact.field as string]
         source = { subject_id: subject.id, field: fact.field, aggregation: subject.aggregation,
           member_ids: subject.member_ids, upper_value: object(subject.upper_values)[fact.field as string] }
       }
@@ -86,7 +88,7 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
       matches = equal(expected, fact.value) && equal(upper, fact.upper_value)
       expected = [expected, upper]
     } else if (fact.relation === 'eq') {
-      if (subject?.aggregation === 'range' && !equal(expected, object(subject.upper_values)[fact.field as string])) return unknown('Un grupo con precios distintos no tiene un único valor exacto.')
+      if (fact.field !== 'unit_count' && subject?.aggregation === 'range' && !equal(expected, object(subject.upper_values)[fact.field as string])) return unknown('Un grupo con precios distintos no tiene un único valor exacto.')
       matches = equal(expected, fact.value)
     } else {
       if (!numeric(expected) || !numeric(fact.value)) return unknown('La comparación requiere valores numéricos.')

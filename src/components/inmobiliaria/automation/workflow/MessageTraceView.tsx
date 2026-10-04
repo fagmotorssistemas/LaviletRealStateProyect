@@ -14,6 +14,7 @@ import { responseAttempts } from './attemptHistory'
 import { ArchitectureMap } from './ArchitectureMap'
 import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './ReviewDiagnosticsPanel'
 import { reviewDiagnostics, reviewStepRejected } from './reviewDiagnostics'
+import { CatalogSummarySection } from './CatalogSummaryPanel'
 
 const formatUsd = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value)
 
@@ -127,6 +128,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
           {batch && batch.total > 1 && batch.total === batch.members.length && <p className={styles.muted}>Estos mensajes pertenecen al mismo lote registrado y comparten el recorrido.</p>}
           <p className={styles.outcome}>{execution.outcome}{execution.action === 'accepted' ? ' · Entrega y lectura en WhatsApp sin confirmar.' : ''}</p>
           {steps.length > 0 && <ExecutionCostPanel key={execution.id} execution={execution} executions={executions} onStep={selectStep} />}
+          {steps.length > 0 && <CatalogSummarySection key={`catalog-${execution.id}`} steps={steps} onStep={selectStep} />}
           {architecture && <ArchitectureMap execution={execution} onStep={selectStep} />}
           {processing && <p className={styles.notice} role="status">{execution.status === 'pending' ? 'Mensaje recibido: esperando procesamiento.' : 'Procesando la respuesta.'} La vista se actualiza cada 5 segundos. Puede revisar los mensajes anteriores mientras espera.</p>}
           {!steps.length && processing ? <p className={styles.muted}>Los pasos aparecerán cuando se guarde la ejecución.</p> : !steps.length ? <div className={styles.empty}>

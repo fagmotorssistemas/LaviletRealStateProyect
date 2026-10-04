@@ -87,13 +87,13 @@ export function businessRiskContext(input: {
   projectFacts: Row[]; claimSources: Row[]; verified: Row; audit: Row; allowedLinks: string[];
 }): Row {
   const sourceFields = ['id', 'unit_number', 'category', 'bedrooms', 'bathrooms_full', 'area_internal_m2',
-    'area_exterior_m2', 'floor_number', 'floor', 'spaces', 'description', 'published_commercial_price', 'availability_status', 'status', 'is_published']
+    'area_exterior_m2', 'area_total_m2', 'floor_number', 'floor', 'spaces', 'description', 'published_commercial_price', 'availability_status', 'status', 'is_published', 'unit_count']
   const pick = (row: Row) => Object.fromEntries(sourceFields.filter(key => row[key] != null && row[key] !== '')
     .map(key => [key, row[key]]))
   const groups = input.groups.map(group => {
     const row = pick(group)
     return { ...row, aggregation: group.aggregation, bedrooms_filter: group.bedrooms_filter,
-      source_scope: group.source_scope, upper_values: group.upper_values,
+      source_scope: group.source_scope, upper_values: group.upper_values, complete_for_query: group.complete_for_query, covers: group.covers,
       member_count: Array.isArray(group.member_ids) ? group.member_ids.length : 0 }
   })
   const sources = input.claimSources.filter(source => !text(source.path).startsWith('evidencia_turno.')
@@ -107,6 +107,7 @@ export function businessRiskContext(input: {
     obligaciones_del_turno: input.obligations,
     fuentes_autorizadas: {
       unidades: input.units.map(pick), grupos: groups, hechos_con_cantidades: input.projectFacts,
+      ...(input.audit.catalog_summary ? { resumen_catalogo: input.audit.catalog_summary } : {}),
       otros_hechos_y_politicas: sources, enlaces_permitidos: input.allowedLinks,
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
       presupuesto_confirmado: effectiveTurnBudget(input.verified),

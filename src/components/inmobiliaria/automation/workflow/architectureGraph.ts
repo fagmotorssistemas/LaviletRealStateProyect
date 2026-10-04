@@ -1,6 +1,7 @@
 import type { WorkflowExecutionStep } from './executionWorkflow'
 import { WORKFLOWS } from './workflowDefinitions'
 import { reviewStepRejected, reviewDiagnostics } from './reviewDiagnostics'
+import { hasCatalogSummary } from './catalogSummary'
 
 type Step = WorkflowExecutionStep
 export type ArchitectureNode = {
@@ -81,6 +82,7 @@ export const ARCHITECTURE_NODES: ArchitectureNode[] = [
   n('embedding_search', '¿Se utilizan embeddings?', 'Evaluar la búsqueda por características. Tener la opción activada no implica que se aplique en todos los mensajes.', 11, 7, 'catalog_embedding_search', 'decision', 'catalog-embeddings.ts'),
   branch('embedding_applied', 'Embeddings utilizados', 'Seleccionar candidatas y reducir el contexto conservando obligaciones y restricciones generales.', 12, 7, 'catalog_embedding_search', 'applied', true),
   branch('embedding_bypassed', 'Búsqueda anterior utilizada', 'Conservar el recorrido y contexto anteriores; consultar el motivo registrado.', 12, 8, 'catalog_embedding_search', 'applied', false),
+  branch('catalog_exact', 'Consulta exacta y resumen', 'Comprobar requisitos, cantidades y rangos del catálogo completo y reducir el contexto sin necesitar similitud.', 12, 6, 'catalog_embedding_search', 'method', 'structured_catalog'),
   n('visit', 'Coordinar visita', 'Registrar la coordinación cuando corresponde; no implica una cita confirmada.', 12, 0, 'visit_coordination'),
   n('visit_result', 'Resultado de visita', 'Aplicar aceptación, cambio o resultado registrado de la cita.', 13, 0, 'visit_result'),
   n('handoff', 'Gestionar atención humana', 'Registrar asignación o cola. El texto de un borrador no acredita esta acción.', 13, 7, 'advisor_handoff'),
@@ -94,6 +96,7 @@ export const ARCHITECTURE_NODES: ArchitectureNode[] = [
     ['none', 'Sin operación de catálogo', 'La ruta registrada no establece una operación específica.'],
   ].map(([value, title, description], i) => branch(`catalog_${value}`, title, description, 13, i + 9, 'dialogue_decision', 'source', `catalog_${value}`)),
   n('coverage', 'Controlar redacción y revisión', 'Agrupa los intentos de este turno; su duración incluye las llamadas internas.', 14, 3, 'response_coverage', 'decision', 'turn-completeness.ts'),
+  n('catalog_summary', 'Resumen del catálogo', 'Consultar unidades, rangos y alcance calculados por el código y conservados en la entrada del redactor.', 14, 1, undefined, 'operation', 'turn-evidence.ts'),
   n('budget', '¿Qué cubre el presupuesto?', 'Comparar el importe interpretado con los precios autorizados de las unidades consultadas.', 14, 9, 'budget_resolution', 'decision', 'turn-budget.ts'),
   ...[
     ['prices_not_authorized', 'Precios sin autorización', 'No utilizar precios sin autorización comercial.'],
@@ -129,11 +132,13 @@ export const ARCHITECTURE_LINKS: ArchitectureLink[] = [
   link('catalog', 'profile'), link('catalog', 'route_guard'), link('profile', 'introduction'), link('route_guard', 'dialogue'), link('introduction', 'dialogue'),
   link('catalog', 'embedding_search'), link('embedding_search', 'embedding_applied', 'Sí'), link('embedding_search', 'embedding_bypassed', 'No'),
   link('embedding_applied', 'dialogue'), link('embedding_bypassed', 'dialogue'),
+  link('embedding_search', 'catalog_exact', 'Consulta exacta'), link('catalog_exact', 'dialogue'),
   link('intent', 'reference_missing', 'needs_reference'), link('catalog', 'catalog_clarify', 'Sí'), link('catalog', 'catalog_resolved', 'No'),
   link('coverage', 'budget', 'Presupuesto interpretado'),
   ...['prices_not_authorized', 'matching_options', 'incomplete_prices', 'no_matching_features', 'below_available_prices'].flatMap(value => [link('budget', `budget_${value}`), link(`budget_${value}`, 'writer', 'Informar al redactor')]),
   link('route_guard', 'visit', 'Visita autorizada'), link('visit', 'visit_result'), link('visit_result', 'dialogue'),
   link('dialogue', 'handoff', 'Requiere asesor'), link('dialogue', 'coverage'), link('coverage', 'writer'), link('writer', 'reviewer'),
+  link('coverage', 'catalog_summary', 'Preparar evidencia'), link('catalog_summary', 'writer', 'Unidades y agregaciones'),
   ...['search', 'rank', 'compare', 'select', 'details', 'none'].map(value => link('dialogue', `catalog_${value}`)),
   link('coverage', 'review_checked'), link('coverage', 'review_recovery'),
   link('reviewer', 'draft_validation'), link('draft_validation', 'repair_metadata', 'Salida de revisión inválida'), link('repair_metadata', 'reviewer'),
@@ -151,6 +156,8 @@ const record = (v: unknown): Record<string, unknown> => v && typeof v === 'objec
 const field = (value: unknown, path: string): unknown => path.split('.').reduce<unknown>((current, key) => record(current)[key], value)
 const decided = (s: Step) => ['succeeded', 'paused', 'skipped'].includes(s.status)
 export function nodeEvidence(node: ArchitectureNode, steps: Step[]): Step[] {
+  if (node.id === 'embedding_bypassed') return steps.filter(s => s.key === 'catalog_embedding_search' && decided(s) && s.output.applied === false && s.output.optimized !== true)
+  if (node.id === 'catalog_summary') return steps.filter(hasCatalogSummary)
   if (node.role) return steps.filter(s => s.key === 'model_request' && node.role!.includes(String(s.input.ai_role)))
   if (node.branch) return steps.filter(s => s.key === node.branch!.key && decided(s) && field(s.output, node.branch!.field) === node.branch!.value)
   if (node.id === 'repair_metadata' || node.id === 'repair_draft') return steps.filter(s => s.key === 'response_coverage'
@@ -161,6 +168,8 @@ export function nodeEvidence(node: ArchitectureNode, steps: Step[]): Step[] {
 
 export function nodeState(node: ArchitectureNode, steps: Step[]) {
   const evidence = nodeEvidence(node, steps)
+  // This view proves that input was saved, not that the writer succeeded or failed.
+  if (node.id === 'catalog_summary') return evidence.length ? 'observed' : 'unknown'
   if (evidence.length) return evidence.some(s => s.status === 'failed') ? 'failed'
     : evidence.some(s => reviewStepRejected(s) || s.key === 'model_request' && reviewDiagnostics(s).length > 0) ? 'rejected'
     : evidence.some(s => s.status === 'paused') ? 'paused'

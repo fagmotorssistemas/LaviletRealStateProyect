@@ -7,6 +7,7 @@ const residential = new Set(['suite', 'departamento', 'penthouse'])
  * a search result, permission to change selection, or a record of availability
  * for filters outside the original query. Never reconstruct it from chat. */
 export function comparisonEvidence(verified: Row, audit: Row): Row[] {
+  if (object(audit.catalog_retrieval).optimized === true) return []
   if (audit.verified_catalog !== true || Object.keys(object(verified.limite_alcance)).length) return []
   const query = object(audit.catalog_query)
   const candidates = rows(verified.catalogo_verificacion)

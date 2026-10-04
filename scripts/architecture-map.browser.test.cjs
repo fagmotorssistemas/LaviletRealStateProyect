@@ -26,13 +26,25 @@ execution('3', 'Diagnóstico de ficha del revisor', [
 ]), execution('4', 'Local con espacio exterior: embeddings aplicados', [
   step(1, 'catalog_embedding_search', { enabled: true, applied: true, model: 'text-embedding-3-small', reason: 'semantic_candidates', selected_unit_ids: ['local-1'], embedding_input_tokens: 10 }),
   step(2, 'model_request', { token_usage: { input_tokens: 10000, cached_input_tokens: 2000, output_tokens: 1000 } },
-    { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_snapshot: { data: { contexto_verificado: { catalog_context_scope: { kind: 'semantic_candidates' } } } },
+    { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_snapshot: { data: { contexto_verificado: { catalog_context_scope: { kind: 'semantic_candidates', complete: false } },
+      evidencia_turno: { units: [{ id: 'local-1', unit_number: 'LC-02', category: 'local', area_internal_m2: 95.37, area_exterior_m2: 46.74 }],
+        groups: [{ id: 'group:local:all:range', category: 'local', aggregation: 'range', member_ids: ['local-1'], area_internal_m2: 95.37, upper_values: { area_internal_m2: 95.37 } }] } } },
       context_cost_comparison: { version: 'context-size-v1', actual_prompt_characters: 40000, normal_prompt_characters: 80000 } }),
 ]), execution('5', 'Presupuesto: búsqueda anterior utilizada', [
   { ...step(1, 'catalog_embedding_search', { enabled: true, applied: false, reason: 'budget_context', embedding_input_tokens: 0 }), status: 'skipped' },
 ]), execution('6', 'Local con espacio exterior: prueba sin embeddings', [
   step(1, 'model_request', { token_usage: { input_tokens: 22000, cached_input_tokens: 0, output_tokens: 1500 } },
     { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_snapshot: { data: { contexto_verificado: {} } } }),
+]), execution('7', 'Cuatro departamentos: consulta exacta reducida', [
+  step(1, 'catalog_embedding_search', { enabled: true, optimized: true, applied: false, method: 'structured_catalog', reason: 'exact_catalog_query',
+    embedding_input_tokens: 0, candidate_count: 4, matched_count: 4, unknown_count: 0, selected_count: 4, selected_unit_numbers: ['202','302','402','502'] }),
+]), execution('8', 'Locales: resumen completo y datos pendientes', [
+  step(1, 'catalog_embedding_search', { enabled: true, optimized: true, applied: true, method: 'structured_catalog_and_embeddings', reason: 'complete_filtered_catalog',
+    embedding_input_tokens: 10, candidate_count: 16, matched_count: 13, unknown_count: 3, selected_count: 13 }),
+  step(2, 'model_request', {}, { ai_role: 'writer', prompt_snapshot: { data: { contexto_verificado: { catalog_context_scope: { kind: 'optimized_catalog', complete: false } },
+    evidencia_turno: { units: [], groups: [], catalog_summary: { version: 'catalog-summary-v1', matching_count: 13, unknown_count: 3, excluded_count: 0, exact_count: false,
+      unknown_units: [{ unit_number: 'LC03', fields: ['area_exterior_m2'] }, { unit_number: 'LC14', fields: ['area_exterior_m2'] }, { unit_number: 'LC16', fields: ['area_exterior_m2'] }],
+      statistics: { area_internal_m2: { min: 46.65, max: 137.98, known_count: 13, unknown_count: 0 }, area_exterior_m2: { min: 8.87, max: 153.21, known_count: 13, unknown_count: 0 } } } } } } }),
 ])]
 
 async function main() {
@@ -107,6 +119,7 @@ async function main() {
       for (const [message, node, state, title] of [
         ['Local con espacio exterior: embeddings aplicados', 'embedding_applied', 'observed', 'Embeddings utilizados'],
         ['Presupuesto: búsqueda anterior', 'embedding_bypassed', 'skipped', 'Búsqueda anterior utilizada'],
+        ['Cuatro departamentos: consulta exacta', 'catalog_exact', 'observed', 'Consulta exacta'],
       ]) {
         await selector.selectOption({ label: await selector.locator('option').filter({ hasText: message }).innerText() })
         await page.getByRole('button', { name: 'Catálogo y perfil', exact: true }).click()
@@ -115,6 +128,25 @@ async function main() {
         assert.match(await inspector.innerText(), new RegExp(title))
         await page.screenshot({ path: path.join(dir, `${node}-${width}.png`), fullPage: false })
       }
+      await selector.selectOption({ label: await selector.locator('option').filter({ hasText: 'Local con espacio exterior: embeddings aplicados' }).innerText() })
+      await page.getByRole('button', { name: 'Resumen del catálogo', exact: true }).click()
+      assert.equal(await page.locator('[data-id="catalog_summary"] [data-state="observed"]').count(), 1)
+      await inspector.getByText('Selección parcial', { exact: true }).waitFor()
+      assert.match(await inspector.innerText(), /LC-02/)
+      assert.match(await inspector.innerText(), /Rango no registrado/)
+      await inspector.getByText(/Ver fichas de las unidades incluidas/).click()
+      await inspector.getByRole('region', { name: 'Fichas del catálogo del paso 2' }).waitFor()
+      await inspector.screenshot({ path: path.join(dir, `catalog-summary-${width}.png`) })
+      await selector.selectOption('8')
+      await inspector.getByText('Resumen de todas las coincidencias confirmadas', { exact: true }).waitFor()
+      assert.match(await inspector.innerText(), /46,65.*137,98/s)
+      assert.match(await inspector.innerText(), /8,87.*153,21/s)
+      assert.match(await inspector.innerText(), /LC03.*LC14.*LC16/s)
+      await inspector.evaluate(element => { element.scrollTop = 0 })
+      await inspector.screenshot({ path: path.join(dir, `catalog-summary-complete-${width}.png`) })
+      await selector.selectOption({ label: await selector.locator('option').filter({ hasText: 'Tengo un presupuesto' }).innerText() })
+      await inspector.getByText(/No se conservó un resumen de catálogo/).waitFor()
+      assert.equal(await page.locator('[data-id="catalog_summary"] [data-state="unknown"]').count(), 1)
       await selector.selectOption({ label: await selector.locator('option').filter({ hasText: 'Local con espacio exterior: embeddings aplicados' }).innerText() })
       const costs = page.getByRole('region', { name: 'Consumo y comparación de embeddings', exact: true })
       await costs.getByText('Recorrido normal estimado:', { exact: false }).waitFor()
@@ -125,7 +157,7 @@ async function main() {
       await costs.screenshot({ path: path.join(dir, `cost-comparison-${width}.png`) })
       await costs.getByRole('button', { name: /Redactor.*2/ }).click()
       const detail = page.getByRole('region', { name: 'Explicación del paso seleccionado', exact: true })
-      await detail.getByText('Sin embeddings, estimación de esta llamada:', { exact: true }).waitFor()
+      await detail.getByText('Recorrido anterior, estimación de esta llamada:', { exact: true }).waitFor()
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), `Horizontal overflow at ${width}`)
       assert.deepEqual(errors, [])
       await page.close()

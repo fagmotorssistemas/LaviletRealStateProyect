@@ -166,6 +166,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const suppliedFilters = { ...currentFilters }
   const ignoredLexicalFilters: Row = {}
   for (const [key, value] of Object.entries(lexicalFilters)) {
+    if (object(object(semantics).catalog_request).version === 'catalog-request-v1') continue
     if (value === null) continue
     if (semanticValid && text(object(semantic.filter_evidence)[key]) && object(currentFilters)[key] != null) {
       if (JSON.stringify(object(currentFilters)[key]) !== JSON.stringify(value)) ignoredLexicalFilters[key] = value
@@ -575,6 +576,9 @@ export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply
   } else context.pending_question = {}
   context.focused_ids = focused.length ? focused.filter(id => allowed.has(id)) : ids(object(context.pending_question).target_ids)
   if (audit.catalog_query) context.query = object(audit.catalog_query)
+  if (audit.catalog_query && (object(audit.catalog_retrieval).optimized === true || Object.hasOwn(context, 'optimized_catalog_request'))) context.optimized_catalog_request = object(audit.catalog_retrieval).optimized === true
+    ? { category: object(audit.catalog_query).category, group: object(audit.catalog_query).group,
+      requirements: object(object(audit.catalog_summary).request).requirements } : {}
   if (audit.original_query) context.original_query = normalizedPropertyQuery(audit.original_query)
   context.context_source = structured ? 'structured_reply' : 'legacy_reply'
   if (audit.alternative_phase) context.phase = audit.alternative_phase

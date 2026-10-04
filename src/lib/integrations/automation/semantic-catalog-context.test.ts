@@ -76,6 +76,7 @@ async function run(enabled: boolean, failSearch = false, compareCosts = false) {
   const dependencies = provider()
   const retrieved = await retrieveCatalogByEmbeddings(info, fixture.message, { ...dependencies,
     embed: async () => { embeddings++; if (failSearch) throw Error('unavailable'); return dependencies.embed() } })
+  retrieved.audit.duration_ms = 0 // Independently timed runs compare behavior, not wall-clock noise.
   const selected: Row = retrieved.units ? { ...info, catalogo: retrieved.units,
     catalog_retrieval: retrieved.audit, catalog_context_scope: semanticCatalogScope(retrieved.audit) } : info
   const base = catalogDialogueReply(selected, fixture.message)!

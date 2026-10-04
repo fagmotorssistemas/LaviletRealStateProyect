@@ -4,11 +4,15 @@ import { executionCost, tokens } from './executionCost'
 const obj = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
 export const isCostStep = (s: WorkflowExecutionStep) => s.key === 'model_request' || s.key === 'catalog_embedding_search'
 export function callCatalogMode(step: WorkflowExecutionStep) {
+  if (step.input.catalog_context_mode === 'optimized_exact') return 'Consulta exacta reducida'
+  if (step.input.catalog_context_mode === 'optimized_embeddings') return 'Con embeddings'
   if (step.key === 'catalog_embedding_search') return step.output.applied === true ? 'Consulta aplicada' : 'Consulta no aplicada'
   if (step.input.catalog_context_mode === 'semantic_candidates') return 'Con embeddings'
   if (step.input.catalog_context_mode === 'current_catalog') return 'Recorrido normal'
   const data = obj(obj(step.input.prompt_snapshot).data)
   const verified = obj(data.contexto_verificado), state = obj(data.estado_del_turno)
+  const scope = obj(verified.catalog_context_scope).kind ? obj(verified.catalog_context_scope) : obj(state.alcance_catalogo)
+  if (scope.kind === 'optimized_catalog') return scope.method === 'structured_catalog_and_embeddings' ? 'Con embeddings' : 'Consulta exacta reducida'
   if (obj(verified.prompt_context_selection).mode === 'semantic_candidates'
     || obj(verified.catalog_context_scope).kind === 'semantic_candidates'
     || obj(state.alcance_catalogo).kind === 'semantic_candidates') return 'Con embeddings'
@@ -18,7 +22,8 @@ export function callCatalogMode(step: WorkflowExecutionStep) {
 
 export function executionCatalogMode(execution: WorkflowExecution) {
   const retrieval = execution.steps.find(s => s.key === 'catalog_embedding_search')
-  if (retrieval) return retrieval.output.applied === true ? 'Con embeddings' : 'Recorrido normal'
+  if (retrieval) return retrieval.output.applied === true ? 'Con embeddings' : retrieval.output.optimized === true ? 'Consulta exacta reducida' : 'Recorrido normal'
+  if (execution.steps.some(s => callCatalogMode(s) === 'Consulta exacta reducida')) return 'Consulta exacta reducida'
   if (execution.steps.some(s => callCatalogMode(s) === 'Con embeddings')) return 'Con embeddings'
   if (execution.steps.some(s => callCatalogMode(s) === 'Recorrido normal')) return 'Recorrido normal'
   return 'Sin registro'
@@ -44,11 +49,11 @@ export function normalCallEstimate(step: WorkflowExecutionStep) {
 }
 
 export function normalExecutionEstimate(execution: WorkflowExecution) {
-  if (executionCatalogMode(execution) !== 'Con embeddings') return null
+  if (!['Con embeddings', 'Consulta exacta reducida'].includes(executionCatalogMode(execution))) return null
   let totalTokens = 0, usd = 0, changed = 0
   for (const step of execution.steps.filter(s => s.key === 'model_request')) {
     const estimate = normalCallEstimate(step), actual = executionCost([step])
-    if ((callCatalogMode(step) === 'Con embeddings' && !estimate) || !actual.complete) return null
+    if ((['Con embeddings', 'Consulta exacta reducida'].includes(callCatalogMode(step)) && !estimate) || !actual.complete) return null
     totalTokens += estimate?.totalTokens ?? actual.totalTokens
     usd += estimate?.cost.estimatedUsd ?? actual.estimatedUsd
     if (estimate) changed++

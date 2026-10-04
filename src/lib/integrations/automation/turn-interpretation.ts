@@ -6,6 +6,7 @@ import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
 import { promptSections } from './prompt-sections'
+import { CATALOG_REQUEST_SCHEMA, CATALOG_REQUEST_RULES, normalizeCatalogRequest } from './catalog-request'
 import { PENDING_REQUEST_RULES } from './pending-inbound'
 import { reconcileHistoricalInterpretation, rememberInterpretationFacts } from './interpretation-memory'
 import { interpretationInput, interpretationSourceIssues, normalizeInactiveInterpretation, mergeInterpretationRepair, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
@@ -106,6 +107,8 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   }
   let recoveryIssues: string[] = []
   if (method === 'model') {
+    const optimizedCatalog = object(input.catalog_search).embeddingsEnabled === true
+    const extractionSchema = optimizedCatalog ? closedObject({ ...object(TURN_EXTRACTION_SCHEMA.properties), catalog_request: CATALOG_REQUEST_SCHEMA }) : TURN_EXTRACTION_SCHEMA
     const prompt = await dependencies.activePrompt('extractor_eventos')
     const requestRules = `
 Contrato ${CONVERSATION_CONTRACT_VERSION}. Devuelva todos los campos del esquema; null significa desconocido.
@@ -130,18 +133,19 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
       ['Consultas pendientes sin respuesta', PENDING_REQUEST_RULES],
       ['Interpretación del perfil', LEAD_PROFILE_EXTRACTION_RULES],
       ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
+      ...(optimizedCatalog ? [['Consulta estructurada del catálogo', CATALOG_REQUEST_RULES] as [string, string]] : []),
       ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
       ['Formato de salida', 'El esquema JSON enviado con esta llamada es la única definición de campos y valores permitidos. Complete sus campos; use null solo donde el esquema lo permite y el dato sea desconocido. No añada un formato alternativo ni texto fuera del JSON.'],
     ])
     promptRevision = createHash('sha256').update(currentInstructions).digest('hex').slice(0, 16)
     dependencies.onPromptRevision?.(promptRevision)
     const modelInput = interpretationInput(input, readable)
-    raw = reconcile(await dependencies.aiJson(currentInstructions, modelInput, TURN_EXTRACTION_SCHEMA))
+    raw = reconcile(await dependencies.aiJson(currentInstructions, modelInput, extractionSchema))
     recoveryIssues = interpretationSourceIssues(raw, readable, pending)
     if (recoveryIssues.length) {
       const repaired = await dependencies.aiJson(currentInstructions, { ...modelInput, recuperacion_interpretacion: {
         issues: recoveryIssues, instruction: 'Revise los campos señalados usando mensaje_actual. missing_current_evidence significa que falta una cita para un dato afirmado; non_current_evidence significa que la cita no pertenece al mensaje actual; invalid_budget_amount significa que falta una cantidad válida. Un bloque sin datos ni acción no necesita evidencia. Conserve la información válida del turno y devuelva el esquema completo. El historial solo resuelve referencias, no aporta declaraciones nuevas.' },
-        mensaje_actual: readable }, TURN_EXTRACTION_SCHEMA)
+        mensaje_actual: readable }, extractionSchema)
       raw = reconcile(mergeInterpretationRepair(raw, repaired, recoveryIssues))
       const remaining = interpretationSourceIssues(raw, readable, pending)
       if (remaining.length) throw new TurnInterpretationError(remaining)
@@ -171,7 +175,8 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     lead_profile: leadProfile })
   // An unreadable reaction or a greeting must never inherit operational events from history.
   if (method !== 'model') extracted.events = []
-  const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)
+  const semantics = normalizeTurnSemantics(object(input.catalog_search).embeddingsEnabled === true ? raw : { ...raw, catalog_request: undefined }, actionMessage, input.pregunta_pendiente)
+  if (object(input.catalog_search).embeddingsEnabled === true) semantics.catalog_request = normalizeCatalogRequest(raw.catalog_request, actionMessage)
   extracted.household = semantics.household
   if (Object.hasOwn(object(raw.turn_semantics), 'housing_quantities')) {
     const quantities = Array.isArray(semantics.housing_quantities) ? semantics.housing_quantities.map(object) : []
@@ -209,6 +214,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
       reservation: semantics.reservation,
       property_group: property.group || null, property_category: property.category || null,
       operation: property.operation || null, filters: object(property.filters),
+      ...(semantics.catalog_request ? { catalog_request: semantics.catalog_request } : {}),
       reference_kind: property.reference_kind || null, selector: property.selector || null,
       unit_numbers: property.unit_numbers || [], query_scope: property.query_scope || null,
       request_count: requests.length,

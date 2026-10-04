@@ -599,9 +599,16 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const input = step.input, output = step.output, decision = decisionRecord(step), snapshots = catalogSnapshots(execution, step)
   const used = Object.entries(input).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query'].includes(key))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
-  const found = Object.entries(output).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query', 'coverage_locked'].includes(key))
+  const found = Object.entries(output).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query', 'coverage_locked'].includes(key)
+    && !(key === 'selected_unit_ids' && Array.isArray(output.selected_unit_numbers)))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   if (step.key === 'catalog_embedding_search') {
+    if (output.optimized === true) found.push(
+      fact('Coincidencias confirmadas en toda la consulta', String(output.matched_count)),
+      fact('Unidades pendientes de comprobar por falta de datos', String(output.unknown_count)),
+      fact('Unidades que no cumplen requisitos', String(output.excluded_count)),
+      fact('Números de las fichas incluidas', Array.isArray(output.selected_unit_numbers) ? output.selected_unit_numbers.join(', ') : 'Sin registro'),
+      fact('Cobertura de fichas', output.examples_complete === true ? 'Todas las coincidencias confirmadas' : 'Ejemplos dentro del límite de contexto; el resumen incluye todas las coincidencias'))
     found.push(fact('Método utilizado', catalogSearchExplanation(output).title),
       fact('Motivo de esta ruta', catalogSearchExplanation(output).reason),
       fact('Unidades seleccionadas', String(Array.isArray(output.selected_unit_ids) ? output.selected_unit_ids.length : 0)),

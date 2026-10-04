@@ -1,0 +1,24 @@
+.section { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid #ccd9c6; border-radius: 8px; background: #fff; color: #33443a; }
+.section > summary { cursor: pointer; font-size: 16px; font-weight: 600; }
+.panel { min-width: 0; font-size: 13px; color: #33443a; overflow-wrap: anywhere; }
+.panel p { line-height: 1.6; margin: 10px 0; }
+.panel summary { cursor: pointer; font-weight: 600; }
+.call { border-top: 1px solid #dce3d9; margin-top: 12px; padding-top: 12px; }
+.scope { background: #eef6ed; border-left: 3px solid #628352; padding: 12px; margin: 12px 0; }
+.scope[data-partial='true'] { background: #fff5e4; border-color: #b6893a; }
+.panel h4 { margin: 18px 0 8px; font-size: 15px; }
+.group { border: 1px solid #dce3d9; border-radius: 6px; padding: 12px; margin: 10px 0; }
+.group h5 { font-size: 14px; margin: 0; }
+.group dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 12px; margin: 12px 0; }
+.group dt { font-weight: 600; }
+.group dd { margin: 4px 0 0; }
+.group small { color: #627260; }
+.units { margin: 14px 0; }
+.tableScroll { max-width: 100%; overflow: auto; margin: 12px 0; }
+.tableScroll table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.tableScroll th, .tableScroll td { padding: 9px; text-align: left; border-bottom: 1px solid #dce3d9; min-width: 90px; }
+.tableScroll th { background: #f3f7f0; }
+.tableScroll caption { text-align: left; margin-bottom: 8px; }
+.panel pre { max-height: 280px; overflow: auto; white-space: pre-wrap; background: #f4f6f2; padding: 10px; }
+.panel button { cursor: pointer; padding: 9px 12px; border: 1px solid #ccd9c6; border-radius: 5px; background: #fff; color: #33443a; text-align: left; }
+.panel button:focus-visible, .panel summary:focus-visible, .section > summary:focus-visible { outline: 2px solid #486c9e; outline-offset: 3px; }

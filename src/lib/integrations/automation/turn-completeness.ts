@@ -40,7 +40,7 @@ import { pendingTurnReply } from './delivery-integrity'
 import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
 import { projectQuantityEvidence, validateProjectQuantities, withoutSupportedQuantities } from './project-quantities'
 import { turnEvidence, normalizeReviewReferences, replyReferences, sentenceReferenceReviewSchema, verifiedClaimSources, draftNumericCandidates } from './turn-evidence'
-import { compactTurnPromptContext, TURN_CONTEXT_REFERENCE_RULES } from './turn-prompt-context'
+import { compactTurnPromptContext, TURN_CONTEXT_REFERENCE_RULES, CATALOG_SUMMARY_RULES } from './turn-prompt-context'
 import { BUSINESS_SCOPE_WRITING_RULES } from './scope-response'
 import { operationalCopyIssues } from './operational-copy'
 import { currentTopicReply } from './current-topic'
@@ -345,7 +345,7 @@ function missingRequestInventory(current: string, requests: Coverage[], verified
 export async function completeTurnReply(input: TurnCompletenessInput, generate: typeof aiJson = aiJson): Promise<TurnCompletenessResult> {
   // Diagnostic failure must never interrupt delivery or change model inputs.
   let normalContext: ReturnType<typeof catalogCostBaseline> = null
-  if (input.costBaseline && object(input.audit?.catalog_retrieval).applied === true) {
+  if (input.costBaseline && (object(input.audit?.catalog_retrieval).applied === true || object(input.audit?.catalog_retrieval).optimized === true)) {
     try { normalContext = catalogCostBaseline(input.costBaseline, input.audit || {}, input.current, input.history) } catch { /* estimate unavailable */ }
   }
   if (normalContext) {
@@ -490,6 +490,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   let requests: Coverage[] = []
   try {
     const visitRules = COMMERCIAL_ACCURACY_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES + '\n' + COMPARISON_EVIDENCE_RULES
+      + (object(input.audit?.catalog_retrieval).optimized === true ? '\n' + CATALOG_SUMMARY_RULES : '')
       + (input.verified.limite_alcance ? '\n' + BUSINESS_SCOPE_WRITING_RULES : '')
       + (isVisitCopy(input.audit ?? {}) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + (input.verified.estado_proyecto ? '\n'+readinessRules(input.verified.estado_proyecto as ProjectReadiness) : '')
     let writingRules = input.audit?.verified_catalog === true
