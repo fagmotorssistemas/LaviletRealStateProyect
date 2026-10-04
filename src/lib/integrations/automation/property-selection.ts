@@ -5,6 +5,8 @@ import { normalized } from './sdr-rules'
 import { semanticBudgetStatus } from './turn-semantics'
 import { catalogDialogueReply } from './catalog-dialogue'
 import { tourContinuation } from './tour-continuation'
+import { selectedFinancingUnit } from './financing-stage'
+import { effectiveTurnBudget } from './turn-budget'
 
 type PropertyCategory = 'suite' | 'departamento' | 'penthouse' | 'local'
 
@@ -126,6 +128,9 @@ function lastOutbound(info: Row) {
 }
 
 function budgetFromInfo(info: Row, current = '') {
+  const confirmed = effectiveTurnBudget(info)
+  if (confirmed.confidence === 'high' && ['amount', 'maximum_total', 'initial_capital'].includes(text(confirmed.status))
+    && typeof confirmed.amount === 'number' && Number.isFinite(confirmed.amount) && confirmed.amount > 0) return confirmed.amount
   const direct = statedBudget(current)
   if (direct !== null) return direct
   const lead = object(info.lead)
@@ -360,24 +365,17 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
 }
 
 export function financingPrerequisiteReply(info: Row, current: string) {
-  const financing = object(info.financiamiento)
-  const currentFinancing = object(financing.current)
-  const previous = normalized(lastOutbound(info))
-  const continuingExistingReview = Object.keys(currentFinancing).length > 0
-    || /[?¿]/.test(lastOutbound(info)) && /financ|credito|revision|banco|cooperativa|pichincha|jep|jardin azuayo/.test(previous)
-  if (currentFinancing.explicit_consent === true || continuingExistingReview) return ''
-  const catalog = availableCatalog(info)
-  const reference = rows(object(info.referencia_unidad).matches)
-  const savedUnitId = text(object(info.lead).unit_id)
-  const unit = reference.length === 1 ? reference[0] : catalog.find(candidate => text(candidate.id) === savedUnitId)
+  const unit = selectedFinancingUnit(info)
   const category = currentCategory(info, current)
   const budget = budgetFromInfo(info, current)
   const deferred = budgetWasDeferred(info, current)
   if (!unit) {
-    if (!category) return 'Podemos ayudarle a revisar alternativas de financiamiento. Primero necesitamos identificar la propiedad sobre la que desea realizar la evaluación. ¿Está buscando una suite, un departamento o un local comercial?'
+    if (!category) return object(object(info.property_context).query).group === 'residential'
+      ? 'Continuaremos con el financiamiento después de elegir la unidad. Retomemos las viviendas que se ajustan a sus preferencias. ¿Prefiere comparar departamentos o penthouses?'
+      : 'Podemos ayudarle a revisar alternativas de financiamiento. Primero necesitamos identificar la propiedad sobre la que desea realizar la evaluación. ¿Qué tipo de inmueble le interesa?'
     if (budget === null && !deferred) return `Podemos ayudarle con el financiamiento. Primero definamos qué ${categoryLabels[category].singular} desea evaluar. ¿Con qué presupuesto aproximado cuenta para orientar la selección?`
     return `Podemos ayudarle con el financiamiento. Primero necesitamos elegir la ${category === 'suite' ? 'suite' : category === 'departamento' ? 'unidad' : 'opción'} concreta sobre la que se realizará la evaluación. ¿En qué planta le gustaría buscar?`
   }
-  if (budget === null && !deferred) return `Ya tenemos identificad${unit.category === 'suite' ? 'a' : 'o'} ${unit.category === 'suite' ? 'la suite' : unit.category === 'local' ? 'el local' : 'el departamento'} ${text(unit.unit_number)}. Antes de iniciar la revisión financiera, ¿con qué presupuesto o capital aproximado cuenta?`
+  if (budget === null && !deferred) return `Ya tenemos identificad${unit.category === 'suite' ? 'a' : 'o'} ${unit.category === 'suite' ? 'la suite' : unit.category === 'local' ? 'el local' : unit.category === 'penthouse' ? 'el penthouse' : 'el departamento'} ${text(unit.unit_number)}. Antes de iniciar la revisión financiera, ¿con qué presupuesto o capital aproximado cuenta?`
   return ''
 }

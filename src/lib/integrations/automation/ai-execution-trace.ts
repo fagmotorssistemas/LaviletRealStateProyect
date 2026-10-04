@@ -68,7 +68,8 @@ export function beginModelTrace(instructions: string, model: string, task: strin
       || object(state.alcance_catalogo).method === 'structured_catalog_and_embeddings' ? 'optimized_embeddings' : 'optimized_exact')
     : object(verified.catalog_context_scope).kind === 'semantic_candidates'
     || object(state.alcance_catalogo).kind === 'semantic_candidates' ? 'semantic_candidates'
-    : data.contexto_verificado || data.fuentes_autorizadas ? 'current_catalog' : 'not_applicable'
+    : object(verified.prompt_context_selection).version === 'task-context-v1' || object(state.seleccion_contexto).version === 'task-context-v1'
+      ? 'task_context' : data.contexto_verificado || data.fuentes_autorizadas ? 'current_catalog' : 'not_applicable'
   const order = context.trace.start('model_request', purpose, 'ai', 'ai.ts', {
     task, ai_role: role, model, attachments_omitted: attachments, prompt_revision: revision, ...(parent ? { caused_by_step: parent } : {}),
     ...(comparison ? { context_cost_comparison: comparison } : {}),

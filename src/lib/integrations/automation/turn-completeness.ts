@@ -2,6 +2,7 @@ import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, 
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
 import { semanticCatalogContext, SEMANTIC_OPENING_RULE } from './semantic-catalog-context'
+import { taskVerifiedContext, taskModelEvidence, addTaskQueryEvidence, TASK_CONTEXT_RULES } from './task-context'
 import { catalogCostBaseline } from './catalog-cost-baseline'
 import { withPromptCostComparison } from './prompt-cost-comparison'
 import { turnBudgetAssessment, effectiveTurnBudget, budgetContinuationInstruction } from './turn-budget'
@@ -345,8 +346,8 @@ function missingRequestInventory(current: string, requests: Coverage[], verified
 export async function completeTurnReply(input: TurnCompletenessInput, generate: typeof aiJson = aiJson): Promise<TurnCompletenessResult> {
   const normalRuleSets = new Map<string, { actual: string; normal: string }>()
   // Diagnostic failure must never interrupt delivery or change model inputs.
-  let normalContext: ReturnType<typeof catalogCostBaseline> = null
-  if (input.costBaseline && (object(input.audit?.catalog_retrieval).applied === true || object(input.audit?.catalog_retrieval).optimized === true)) {
+  let normalContext: ReturnType<typeof catalogCostBaseline> | null = null
+  if (input.costBaseline && object(input.costBaseline.catalog_search).embeddingsEnabled === true) {
     try { normalContext = catalogCostBaseline(input.costBaseline, input.audit || {}, input.current, input.history) } catch { /* estimate unavailable */ }
   }
   if (normalContext) {
@@ -365,6 +366,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null }, contrato_turno: turnIntent } }
   input = { ...input, verified: semanticCatalogContext(input.verified, input.audit || {}, input.current) }
   input = { ...input, verified: scopeTurnCatalog(input.verified, input.audit || {}) }
+  input = { ...input, verified: taskVerifiedContext(input.verified, input.audit || {}, input.current) }
   const catalogEvidence = turnEvidence(input.verified, input.audit)
   input = { ...input, verified: { ...input.verified, catalogo: catalogEvidence.units } }
   const budgetAssessment = turnBudgetAssessment(input.verified, input.audit || {})
@@ -382,7 +384,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   if (groundedPrice) input = { ...input, baseReply: input.audit?.profile_introduction ? originalBase : [verifiedQuote!.reply, ...urls(originalBase).filter(url => !verifiedQuote!.reply.includes(url))].join(' '), preserveOperationalQuestion: false,
     verified: { ...input.verified, respuesta_precio_verificada: verifiedQuote!.reply },
     audit: { ...input.audit, price_evidence: evidence, price_grounded: true } }
-  const sharedEvidence = turnEvidence(input.verified, input.audit, groundedPrice ? verifiedQuote!.units : [])
+  const sharedEvidence = addTaskQueryEvidence(turnEvidence(input.verified, input.audit, groundedPrice ? verifiedQuote!.units : []), input.verified)
+  const modelEvidence = taskModelEvidence(sharedEvidence, input.verified)
+  if (input.verified.prompt_context_selection) input = { ...input, verified: { ...input.verified,
+    prompt_context_selection: { ...object(input.verified.prompt_context_selection), included_unit_count: modelEvidence.units.length,
+      available_unit_count: sharedEvidence.units.length, included_group_count: modelEvidence.groups.length } } }
   // The fresh comparison pool has already joined the canonical evidence. Do
   // not send a second, unscoped copy as if it were another authority.
   input = { ...input, verified: { ...input.verified } }
@@ -483,13 +489,16 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
   const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory)
-  const context = { contrato_turno: turnIntent, property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: sharedEvidence, evidencia_afirmaciones: claimSources, apertura_decidida: opening, contrato_redaccion: writerContract, mensaje_actual: input.current, historial_reciente: history,
+  const context = { contrato_turno: turnIntent, property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: modelEvidence, evidencia_afirmaciones: claimSources, apertura_decidida: opening, contrato_redaccion: writerContract, mensaje_actual: input.current, historial_reciente: history,
     contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     referencias_solicitud: writerRequestRefs, obligaciones_del_turno: turnObligations,
     capacidades_disponibles: availableAssistance(input.verified),
     material_protegido: { cifras_obligatorias: writerContract.cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(verifiedText(input.verified)), ...numbers(input.current), ...queryConstraintNumbers(input.audit)])],
       enlaces_obligatorios: linkContract.required_links, enlaces_permitidos: linkContract.allowed_links } }
   const optimizedPrompt = optimizedCatalogPrompt(context)
+  const financialTask = /^financing/.test(text(input.audit?.source)) || !!budgetAssessment
+    || object(input.verified.etapa_financiamiento).accepted === true
+    || (Array.isArray(turnIntent.requests) && turnIntent.requests.some(r => object(r).domain === 'financing'))
   let requests: Coverage[] = []
   try {
     const visitRules = COMMERCIAL_ACCURACY_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES + '\n' + COMPARISON_EVIDENCE_RULES
@@ -505,7 +514,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       + (input.audit?.progressive_selection ? ' Mantenga el propósito de la pregunta indicado en progressive_selection; puede reformularla.'
         : ' La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.')
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
-    if (input.verified.prompt_context_selection) writingRules += '\n' + SEMANTIC_OPENING_RULE
+    if (input.verified.prompt_context_selection) writingRules += '\n' + (object(input.verified.prompt_context_selection).version === 'task-context-v1' ? TASK_CONTEXT_RULES : SEMANTIC_OPENING_RULE)
     if (budgetAssessment) writingRules += '\nPRESUPUESTO ACTUAL: contexto_verificado.presupuesto_del_turno contiene el importe interpretado y su comparación con los precios autorizados de la búsqueda. Responda ese punto junto con las características solicitadas. Una enumeración de plantas o una pregunta de preferencia no responde si el presupuesto alcanza. Si falta información, explique la limitación concreta en reply; marcar missing_fact en requests no la comunica al cliente. No invente precios, créditos, descuentos ni una derivación realizada.'
     if (budgetAssessment) writingRules += '\n' + budgetContinuationInstruction(budgetAssessment)
     if (input.audit?.progressive_selection || input.audit?.post_tour_continuation) writingRules += '\n' + PROGRESSIVE_OPTIONS_RULES
@@ -533,7 +542,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Resultados vacíos de catálogo', 'Si una búsqueda completa no tiene resultados, explique esa ausencia dentro de sus filtros. No invente una unidad para justificarla. Si bedrooms_required=true, respete ese requisito: no insista en unidades con menos dormitorios que el cliente acaba de descartar. No afirme máximos ni alternativas que no estén respaldados por evidencia_turno.groups o alternative_results. No ofrezca propiedades fuera del catálogo autorizado.'],
     ]
     const instructions = promptSections(optimizedPrompt ? writerSections.map(([title, rules]): [string, string | false] => {
-      if (title === 'Prioridades y obligaciones del turno') return [title, CATALOG_WRITER_RULES
+      if (title === 'Prioridades y obligaciones del turno') return [title, (financialTask ? FINAL_WRITER_RULES : CATALOG_WRITER_RULES)
         + '\ncontrato_turno y obligaciones_del_turno determinan la necesidad actual. El historial solo resuelve continuidad; no cambia la búsqueda ni autoriza acciones. Cumpla los datos pendientes y enlaces requeridos.']
       if (title === 'Continuidad residencial' && object(input.audit?.catalog_query).group !== 'residential') return [title, false]
       if (title === 'Consultas pendientes' && (!Array.isArray(input.verified.consultas_pendientes) || !input.verified.consultas_pendientes.length)) return [title, false]
@@ -608,10 +617,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (input.audit?.semantic_review_enabled === true && input.audit?.business_risk_review_enabled === true) {
       const obligations = turnObligations
       const riskContext = businessRiskContext({ current: input.current, reply, obligations,
-        units: sharedEvidence.units, groups: sharedEvidence.groups, projectFacts: sharedEvidence.project_facts,
+        units: modelEvidence.units, groups: modelEvidence.groups, projectFacts: modelEvidence.project_facts,
         claimSources, verified: input.verified, audit: input.audit || {},
         allowedLinks: linkContract.allowed_links })
-      const riskRules = businessRiskReviewInstructions(optimizedPrompt)
+      const riskRules = businessRiskReviewInstructions(optimizedPrompt && !financialTask)
       normalRuleSets.set('review', { actual: riskRules, normal: BUSINESS_RISK_REVIEW_RULES })
       let rawReview = await generate(riskRules, riskContext, businessRiskReviewSchema,
         undefined, undefined, undefined, 'review')

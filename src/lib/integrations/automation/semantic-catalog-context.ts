@@ -9,7 +9,7 @@ const variants = (word: string) => [word, word.replace(/s$/, ''), word.replace(/
 // This only selects supplementary evidence. It never interprets a number,
 // changes the extractor's intent, or certifies a feature/absence. Keep each
 // matched fact whole, including restrictions (e.g. resident-only amenities).
-function relevantFacts(value: unknown, query: string, broad: RegExp) {
+export function relevantFacts(value: unknown, query: string, broad: RegExp) {
   const facts = rows(value)
   if (broad.test(normalize(query))) return facts
   const requested = new Set(terms(query).flatMap(variants))
@@ -25,6 +25,15 @@ const policyTriggers: Record<string, RegExp> = {
   documentos: /document|firm[ae]|contrato|escritur/,
   cancelacion: /cancel|devol|reembolso|desist/,
   visitas: /visit|recorrido|conocer.*(?:obra|oficina)|cita/,
+}
+
+export function selectPolicies(verified: Row, current: string, domains = new Set<string>()) {
+  const profile = object(verified.perfil_lead), query = normalize(current)
+  const abroad = text(profile.residence_country) && !/^(?:ecuador|ec|ecu)$/.test(normalize(text(profile.residence_country)))
+  return rows(verified.politicas_negocio).filter(policy => !policyTriggers[text(policy.topic)]
+    || policyTriggers[text(policy.topic)].test(query) || policy.topic === 'compra_exterior' && !!abroad
+    || policy.topic === 'financiamiento' && domains.has('financing')
+    || policy.topic === 'visitas' && domains.has('visit'))
 }
 
 /** Strictly opt-in. Off, skipped and failed retrieval return the original object.

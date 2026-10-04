@@ -65,6 +65,7 @@ import { catalogQuery, filterCatalog, validateCatalogReply } from './catalog-dia
 import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
 import { financingPrerequisiteReply } from './property-selection'
+import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinancing } from './financing-stage'
 import { answersPendingQuestion, normalizedPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
 import { followUpUsable, pendingFollowUpNeedsInterpretation } from './review-disposition'
 import { MAX_REPLY_CHARACTERS, responsePlan } from './response-plan'
@@ -592,6 +593,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   extracted.turn_semantics = turnSemantics
   if(financeContinuation) Object.assign(extracted,financeContinuation)
   const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
+  summary._financing_journey = financingJourney(object(previousSummary._financing_journey), financeInput, activeLast.externalId)
+  const financeSelection = { lead, catalogo: turnCatalog, referencia_unidad: reference, property_context: reference.context }
+  const resumeFinancing = canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
+  // Reuse the accepted review only when its missing prerequisite is now satisfied.
+  if (resumeFinancing) financeInput.consent = true
   extracted.financing_consent = financeInput.consent
   extracted.financing_partner = financeInput.partner
   const collectingVisit = visitDraft?.status === 'collecting'
@@ -624,7 +630,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
     && isProfileOnlyTurn(current, { ...extracted, turn_semantics: turnSemantics })
-  const financeTurn = financeInput.consent === true || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput))
+  const financeTurn = !extracted.requested_advisor && !extracted.opt_out && (resumeFinancing || financeInput.consent === true
+    || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)))
   if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
   if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
   trace.finish(semanticStep, 'succeeded', {
@@ -1039,12 +1046,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       let financePrerequisite = ''
       if (financeTurn && !financeAnswer) {
         const selectionInfo = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
-          financiamiento: finance, referencia_unidad: reference }
+          financiamiento: { ...finance, journey: summary._financing_journey }, referencia_unidad: reference, property_context: reference.context,
+          semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory }
         financePrerequisite = financingPrerequisiteReply(selectionInfo, current)
       }
       // A question about a product is not an application or consent to collect personal data.
       let fin: Row = {}, financeFailure = ''
       if (financeTurn && !financeAnswer && !financePrerequisite) {
+        if (object(summary._financing_journey).accepted === true && selectedFinancingUnit({ ...financeSelection, lead })) extracted.financing_consent = true
         try { fin = object(await rpc('process_financing_message_v2', { p_lead_id: lead.id,
         p_asked_financing: (extracted.events as string[]).includes('asked_financing') || !!financeInput.partner,
         ...Object.fromEntries(['financing_consent', 'financing_partner', 'full_name', 'applicant_type', 'national_id',
@@ -1061,7 +1070,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           && (isVisitDetail(current) || needsVisitHelp(current) || visitTurnIntent(current)==='counterproposal')))
       if (financePrerequisite) {
         reply = financePrerequisite
-        audit = { source: 'financing_selection_required' }
+        audit = { source: 'financing_selection_required', pending_financing: summary._financing_journey }
       } else if (financeFailure) {
         reply = await transferToAdvisor('continuar la revisión de financiamiento' + (financeInput.partner ? ' con ' + financeInput.partner : '') + '; comprobar el avance previo antes de volver a solicitar datos', { rule_id: 'financing.processing_failed', origin: 'operational', caused_by_step: semanticStep, facts: { failure_code: financeFailure } })
         if (financeInput.partner) reply = `Le ayudaremos a revisar la opción con ${financeInput.partner}. ` + reply
@@ -1276,8 +1285,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       ...(audit.verified_catalog === true ? {
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
+    info.financiamiento = { ...object(info.financiamiento), journey: summary._financing_journey }
+    info.etapa_financiamiento = financingStage(info)
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
-    const costBaseline = object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true
+    const costBaseline = object(info.catalog_search).embeddingsEnabled === true
       ? { ...info, catalogo: commercialInfo.catalogo } : undefined
     if (object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true) {
       // Both writer and reviewer receive the same fresh partial selection.

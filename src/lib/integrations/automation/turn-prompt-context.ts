@@ -11,7 +11,8 @@ const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object)
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
 
 export function optimizedCatalogPrompt(context: Row): boolean {
-  return ['optimized_catalog', 'semantic_candidates'].includes(text(object(object(context.contexto_verificado).catalog_context_scope).kind))
+  return object(object(context.contexto_verificado).prompt_context_selection).version === 'task-context-v1'
+    || ['optimized_catalog', 'semantic_candidates'].includes(text(object(object(context.contexto_verificado).catalog_context_scope).kind))
 }
 
 /** Diagnostic snapshots stay in the execution trace. This projection is used
@@ -26,6 +27,15 @@ function catalogModelContext(context: Row): Row {
     'semantica_turno', 'solicitudes_interpretadas', 'referencia_unidad', 'hechos_confirmados', 'historial', 'catalogo',
     'siguiente_pregunta', 'continuidad_residencial', '_sales_memory', 'fecha']) delete verified[key]
   result.contexto_verificado = verified
+  const contract = { ...object(result.contrato_redaccion) }
+  for (const key of ['hechos_protegidos', 'hechos_disponibles', 'price_evidence']) delete contract[key]
+  result.contrato_redaccion = contract
+  if (object(verified.prompt_context_selection).version === 'task-context-v1') {
+    const property = object(result.property_context)
+    result.property_context = Object.fromEntries(['query', 'selected_ids', 'offered_ids', 'comparison_ids', 'phase',
+      'preference_category', 'excluded_categories', 'pending_question', 'preference_transition'].filter(k => property[k] != null).map(k => [k, property[k]]))
+    delete verified.conversacion
+  }
   // Business-risk review uses current facts directly, not the former E-ID inventory.
   delete result.evidencia_afirmaciones
   const evidence = object(context.evidencia_turno)

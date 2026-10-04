@@ -37,6 +37,12 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   if (['share_now', 'offer_after_profile'].includes(text(object(stage.brochure).accion))) obligations.push({ id: 'brochure_sequence',
     instruction: 'Evalúe el TEXTO del borrador según estado_comercial.brochure. Con share_now debe incluir el enlace autorizado. Con offer_after_profile basta ofrecer el brochure al pedir los datos pendientes: eso CUMPLE la obligación, sin esperar datos del cliente ni comprobante de envío. No exija entregar el brochure en una etapa que solo pide ofrecerlo.' })
   const policy = object(verified.politica_comercial)
+  const financing = object(verified.etapa_financiamiento)
+  if (financing.stage === 'explain_and_offer' && (audit.source === 'financing_question'
+    || rows(verified.solicitudes_interpretadas).some(r => r.domain === 'financing'))) obligations.push({ id: 'financing_orientation',
+    instruction: 'Explique brevemente el procedimiento y las entidades autorizadas y pregunte si desea continuar con la revisión por este chat. La pregunta debe tener ese único objeto; no mezcle aceptar información con aceptar revisión o contacto. No ofrezca asignar un contacto ni solicite datos financieros todavía.' })
+  if (financing.accepted === true && financing.collection_allowed !== true) obligations.push({ id: 'financing_property_first',
+    instruction: 'El lead aceptó continuar el financiamiento, pero todavía no eligió una unidad. Si este turno continúa esa revisión, retome la selección con sus preferencias conocidas. No solicite cédula, empleo ni ingresos antes de elegir inmueble, no vuelva a pedir la aceptación y no sustituya la selección por una derivación. Explicar requisitos cuando se preguntan no es solicitar que los entregue.' })
   if (verified.presupuesto_del_turno) obligations.push({ id: 'current_budget_answer',
     instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si hay precios autorizados, debe explicar su relación con el presupuesto; si faltan o no están autorizados, debe comunicar esa limitación o aclarar el dato necesario. Enumerar características y preguntar planta sin atender el presupuesto incumple. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
   if (object(verified.presupuesto_del_turno).continuation) obligations.push({ id: 'budget_continuation',

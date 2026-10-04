@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS harness intercepts module loading for isolated tests. */
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const path = require('node:path')
@@ -88,7 +89,7 @@ test('direct credit and eligibility in one turn both receive an answer without a
 test('questions explain internal requirements without requesting identifiers or consent by default', () => {
   for (const message of ['¿Qué necesito para un crédito?', '¿Cómo funciona el financiamiento?', '¿Cómo puedo saber si soy elegible?']) {
     const reply = financingQuestionReply(message, context.partners)
-    assert.match(reply, /Con su autorización y una entidad elegida/)
+    assert.match(reply, /Después de aceptar continuar y elegir una unidad concreta y una entidad/)
     assert.match(reply, /nombres completos, número de cédula/)
     assert.match(reply, /datos laborales e ingresos/)
     assert.doesNotMatch(reply, /indica.*cédula|envíe.*documentos|está aprobado|¿.*asesor|¿.*inici/)

@@ -6,9 +6,9 @@ export function CatalogSearchControl({ enabled, busy, error, notice, onToggle }:
   enabled: boolean; busy: boolean; error: string; notice: string; onToggle: () => void
 }) {
   return <section className={`${styles.card} ${styles.searchControl}`} aria-label="Búsqueda de unidades">
-    <div><h2>Búsqueda por embeddings</h2>
+    <div><h2>Búsqueda por embeddings y contexto reducido</h2>
       <p>En consultas sencillas, comprueba los requisitos y calcula cantidades y rangos sobre todas las coincidencias. Envía las fichas que caben en el contexto y utiliza embeddings para ordenar búsquedas descriptivas. Conserva el tono, los datos pendientes del lead y las restricciones generales.</p>
-      <p>Los conteos y rangos exactos se resuelven sin llamar a embeddings. Presupuesto, comparaciones y recomendaciones complejas conservan la búsqueda actual. Si falla la ordenación por similitud, se mantiene la consulta estructurada; si no puede interpretarse con certeza, se conserva el recorrido anterior.</p>
+      <p>Los conteos y rangos se calculan con datos completos. Las consultas de presupuesto, recomendaciones y financiamiento reciben el contexto pertinente aunque no utilicen embeddings. El registro distingue la búsqueda vectorial del contexto reducido por consulta. Si falla la ordenación por similitud, se mantiene la consulta estructurada.</p>
       <p>Al desactivarla se restauran la búsqueda y el contexto anteriores para los siguientes mensajes. Los embeddings guardados se conservan.</p>
     </div>
     <div className={styles.buttons}>

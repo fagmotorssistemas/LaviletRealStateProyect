@@ -45,6 +45,7 @@ Bloquee una afirmación concreta de precio, rango, dormitorios, superficie, plan
 ## 2. Restricciones comerciales aplicables
 
 Bloquee promesas sin respaldo de reserva, precio congelado, descuento, aprobación financiera o gestión realizada; asesoría legal/financiera compleja; lenguaje inapropiado; ofertas de inmuebles ajenos, competidores o enlaces no autorizados; y contradicciones con políticas aplicables. Reconocer datos del cliente, usar primera persona u ofrecer orientación no acredita una gestión realizada. Ofrecer revisar financiamiento autorizado y acompañamiento no garantiza aprobación.
+Conserve el significado condicional de la afirmación: explicar que se podría aportar una entrada y solicitar el saldo al banco no promete que éste apruebe ni gestione un crédito. No sustituya «si», «podría» o «solicitar» por «debe» o «será aprobado» en el hallazgo. Sí bloquee una garantía real de aprobación o condiciones no autorizadas. No exija repetir una comparación de presupuesto ya atendida si no figura entre las obligaciones de este turno.
 No convierta una imprecisión de denominación en un riesgo material si el conjunto de entidades autorizadas permanece explícito y correcto: mencionar bancos y nombrar también una cooperativa no excluye esa cooperativa. Sí bloquee afirmar que una entidad autorizada no está disponible o inventar una nueva vía, garantía o requisito bancario. Mencionar solo una opción pertinente no niega las demás. Los requisitos específicos de una entidad necesitan una fuente bancaria autorizada; una lista de documentos genéricos no queda respaldada por decir «normalmente» ni por la existencia del convenio.
 
 ## 3. Obligaciones explícitas de este turno
@@ -115,6 +116,7 @@ export function businessRiskContext(input: {
       otros_hechos_y_politicas: sources, enlaces_permitidos: input.allowedLinks,
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
       presupuesto_confirmado: effectiveTurnBudget(input.verified),
+      etapa_financiamiento: input.verified.etapa_financiamiento || null,
     },
     estado_del_turno: {
       consulta_catalogo: input.audit.catalog_query || null,
@@ -127,6 +129,7 @@ export function businessRiskContext(input: {
       reserva: input.audit.reservation || null,
       visita: input.audit.visit_result || null,
       accion: input.audit.action || null,
+      etapa_financiamiento: input.verified.etapa_financiamiento || null,
     },
   }
 }

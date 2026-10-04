@@ -58,9 +58,10 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   const decision = message.split(/\n+|\s+y\s+(?=(?:el local|la vivienda|el departamento|cuanto|que|como|eso)\b)/)[0]
   const explicitHelp = /^(?:si |claro |de acuerdo )?(?:ayudeme|ayudenme|ayudennos|ayudanos) (?:con|en) (?:el |la )?(?:financiamiento|revision|evaluacion)\b/.test(decision)
   const acceptsFinancialHelp = explicitHelp && /^(?:si|claro|de acuerdo)\b/.test(message) && /financ|credito|revision/.test(normalized(lastReply))
+  const semanticAcceptance = asksConsent && extracted.financing_consent === true && hasFinancingRequest(extracted)
   const conditional = /\b(?:solo si|siempre que|a condicion|si me (?:aprueban|aseguran|garantizan))\b/.test(message)
     || /\b(?:pero|solo|credito directo|otra entidad)\b/.test(decision)
-    || (/[?¿]/.test(current) && !((asksConsent || acceptsFinancialHelp) && explicitHelp))
+    || (/[?¿]/.test(current) && !semanticAcceptance && !((asksConsent || acceptsFinancialHelp) && explicitHelp))
   const declined = /^(?:no|ahora no|por ahora no|todavia no|mejor no)\b|\bno (?:quiero|deseo|autorizo|me interesa)\b/.test(message)
   const explicitReview = /\b(?:quisiera|quiero|deseo|me gustaria|podemos|vamos a) (?:que (?:me |nos )?(?:ayuden|ayude) a )?(?:(?:hacer|iniciar|empezar|continuar|realizar) (?:la |una |el |una nueva )?(?:prueba|revision|evaluacion|precalificacion)|(?:probar|revisar|evaluar|precalificar)(?:lo|la)?\b)/.test(message)
     || /\b(?:hagamos|iniciemos|empecemos|continuemos) (?:la |una |el )?(?:prueba|revision|evaluacion|precalificacion)\b/.test(message)
@@ -70,7 +71,7 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   // Choosing a lender alone is not consent. Accept an actual request to review the
   // case, even when a natural response includes more words than a bare «sí».
   const consent = conditional || declined ? null
-    : (asksConsent && (plainYes || explicitReview || explicitHelp)) || explicitlyFinancialReview || acceptsFinancialHelp ? true
+    : semanticAcceptance || (asksConsent && (plainYes || explicitReview || explicitHelp)) || explicitlyFinancialReview || acceptsFinancialHelp ? true
     : asksConsent && confirmsReview && extracted.financing_consent === true && !hasAffordabilityConcern(current) ? true
     : null
   let partner = text(extracted.financing_partner)
@@ -90,7 +91,8 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
     && normalized(lastReply).includes(normalized(context.partners[0]))
     && /^(si|si claro|claro|si por favor|de acuerdo)$/.test(message)) partner = context.partners[0]
   const unsupported = partner && !context.partners.some(name => normalized(name) === normalized(partner)) ? partner : ''
-  return { consent, partner: unsupported ? null : partner || null, unsupported }
+  return { consent, partner: unsupported ? null : partner || null, unsupported,
+    ...(declined && (asksConsent || hasFinancingRequest(extracted)) ? { declined: true } : {}) }
 }
 
 export function financingReply(fin: Row, partners: string[], unsupported = '') {
@@ -140,7 +142,7 @@ export function financingQuestionReply(current: string, partners: string[], last
   }
   const asksReviewDetails = /\b(?:requisitos|elegible|elegibilidad|califico|calificar)\b|\bque (?:necesito|necesita|necesitamos|piden|solicitan)\b|\bcomo (?:funciona|es|se hace|puedo saber)\b/.test(m)
     && /credito|financ|prestamo|elegib/.test(m)
-  const reviewDetails = 'Podemos explicarle y acompañarle en una revisión preliminar por este chat. Con su autorización y una entidad elegida, los datos iniciales son nombres completos, número de cédula y si trabaja como dependiente o independiente. Después se solicitan los datos laborales e ingresos correspondientes a su situación. El equipo interno revisará su caso y la entidad confirmará sus requisitos y condiciones.'
+  const reviewDetails = 'Podemos explicarle y acompañarle en una revisión preliminar por este chat. Después de aceptar continuar y elegir una unidad concreta y una entidad, los datos iniciales son nombres completos, número de cédula y si trabaja como dependiente o independiente. Después se solicitan los datos laborales e ingresos correspondientes a su situación. El equipo interno revisará su caso y la entidad confirmará sus requisitos y condiciones.'
   if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)) {
     return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos ayudarle a explorar un crédito con ' + partners.join(' o ') + '.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${asksReviewDetails ? ' ' + reviewDetails : ''}`
   }

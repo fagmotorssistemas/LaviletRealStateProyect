@@ -1,0 +1,131 @@
+{
+  "message": "bueno esta bien, ayudeme, entonces como procedemos?",
+  "last_question": "Podemos explicarle los planes de financiamiento por este chat. ?Le gustar?a que le ayude a iniciar esta revisi?n?",
+  "extraction": {
+    "ruc": null,
+    "events": [
+      "asked_financing"
+    ],
+    "opt_out": false,
+    "unit_id": null,
+    "requests": [
+      {
+        "domain": "financing",
+        "request": "Ayuda para iniciar la revisión financiera personalizada y saber cómo proceder con el financiamiento bancario.",
+        "evidence": "ayudeme, entonces como procedemos?",
+        "confidence": "high"
+      }
+    ],
+    "full_name": null,
+    "job_title": "[dato protegido]",
+    "national_id": null,
+    "visit_intent": {
+      "kind": "none",
+      "evidence": "",
+      "confidence": "high"
+    },
+    "qualification": {
+      "prioridad": null,
+      "area_buscada": null,
+      "plazo_compra": null,
+      "dormitorios_texto": null,
+      "presupuesto_texto": null,
+      "actividad_comercial": null
+    },
+    "applicant_type": null,
+    "monthly_income": "[dato protegido]",
+    "residence_city": null,
+    "turn_semantics": {
+      "budget": {
+        "amount": null,
+        "status": "not_discussed",
+        "evidence": "",
+        "confidence": "high"
+      },
+      "property": {
+        "group": null,
+        "filters": {
+          "bedrooms": null,
+          "max_area_m2": null,
+          "min_area_m2": null,
+          "bedrooms_any": [],
+          "floor_number": null,
+          "bedrooms_upper": null,
+          "bedrooms_operator": null,
+          "bedrooms_required": null
+        },
+        "category": null,
+        "evidence": "",
+        "selector": null,
+        "operation": "none",
+        "confidence": "high",
+        "query_scope": null,
+        "unit_numbers": [],
+        "reference_kind": "none",
+        "filter_evidence": {
+          "bedrooms": "",
+          "max_area_m2": "",
+          "min_area_m2": "",
+          "bedrooms_any": "",
+          "floor_number": "",
+          "bedrooms_upper": "",
+          "bedrooms_operator": "",
+          "bedrooms_required": ""
+        },
+        "excluded_categories": []
+      },
+      "confidence": "high",
+      "reservation": {
+        "kind": "none",
+        "evidence": "",
+        "confidence": "high",
+        "unit_numbers": []
+      },
+      "primary_intent": "ask_financing",
+      "primary_evidence": "bueno esta bien, ayudeme, entonces como procedemos?",
+      "answer_to_previous": {
+        "kind": "none",
+        "evidence": "",
+        "confidence": "high",
+        "question_id": "none"
+      },
+      "housing_quantities": []
+    },
+    "action_evidence": {
+      "opt_out": null,
+      "consent_granted": null,
+      "requested_advisor": "ayudeme, entonces como procedemos?"
+    },
+    "catalog_request": {
+      "metric": null,
+      "purpose": "none",
+      "evidence": "",
+      "confidence": "high",
+      "requirements": [],
+      "semantic_preferences": []
+    },
+    "consent_granted": false,
+    "profile_evidence": {
+      "full_name": "[dato protegido]",
+      "residence_city": null,
+      "residence_country": null
+    },
+    "purchase_purpose": null,
+    "visit_needs_help": false,
+    "visit_preference": null,
+    "declared_location": null,
+    "financing_consent": true,
+    "financing_partner": null,
+    "requested_advisor": true,
+    "residence_country": null,
+    "preferred_category": null,
+    "residence_response": null,
+    "declaration_evidence": {
+      "purchase_purpose": null,
+      "preferred_category": null
+    },
+    "residence_confirmation": null,
+    "preferred_visit_time_text": null,
+    "employment_stability_months": "[dato protegido]"
+  }
+}

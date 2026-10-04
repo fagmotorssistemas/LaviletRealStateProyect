@@ -14,15 +14,16 @@ export function catalogCostBaseline(original: Row, audit: Row, current: string, 
   delete (normal as Row).catalog_retrieval
   delete (normal as Row).catalog_context_scope
   delete (normal as Row).catalog_summary
-  const answer = catalogDialogueReply(normal, current)
-  if (!answer) return null
-  const normalAudit = { ...audit, ...answer.audit }
+  delete (normal as Row).prompt_context_selection
+  const retrieval = object(audit.catalog_retrieval)
+  const answer = retrieval.applied === true || retrieval.optimized === true ? catalogDialogueReply(normal, current) : null
+  const normalAudit = { ...audit, ...answer?.audit }
   delete normalAudit.catalog_retrieval
   delete normalAudit.catalog_context_scope
   delete normalAudit.catalog_summary
   delete normalAudit.catalog_aggregate_groups
-  let verified = scopeTurnCatalog({ ...normal, catalogo: object(answer.audit.catalog_results).units,
-    catalog_results: answer.audit.catalog_results, catalog_query: answer.audit.catalog_query,
+  let verified = scopeTurnCatalog({ ...normal, ...(answer ? { catalogo: object(answer.audit.catalog_results).units,
+    catalog_results: answer.audit.catalog_results, catalog_query: answer.audit.catalog_query } : {}),
     estado_operativo: normalAudit }, normalAudit)
   const evidence = turnEvidence(verified, normalAudit)
   verified = { ...verified, catalogo: evidence.units }

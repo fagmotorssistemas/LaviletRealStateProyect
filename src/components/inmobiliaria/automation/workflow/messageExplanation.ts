@@ -616,8 +616,10 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
       fact('Duración de la búsqueda', typeof output.duration_ms === 'number' ? `${output.duration_ms} ms` : 'Sin registro'))
   }
   if (step.key === 'response_coverage' && output.prompt_context_selection) {
-    const names: Record<string, string> = { instalaciones: 'Amenidades', lugares_cercanos: 'Lugares cercanos', contexto_sector: 'Datos del sector', politicas_negocio: 'Políticas específicas' }
+    const names: Record<string, string> = { catalogo: 'Catálogo de partida', instalaciones: 'Amenidades', lugares_cercanos: 'Lugares cercanos', contexto_sector: 'Datos del sector', politicas_negocio: 'Políticas específicas' }
     const selection = row(output.prompt_context_selection)
+    if (selection.version === 'task-context-v1') found.push(fact('Selección del contexto', selection.embedding_applied === true
+      ? 'Contexto reducido con búsqueda por embeddings.' : 'Contexto reducido por consulta, sin búsqueda vectorial.'))
     found.push(fact('Contexto para redactor y revisor', `${selection.included_unit_count} unidades; restricciones generales y obligaciones conservadas.`),
       ...rows(selection.blocks).map(block => fact(names[str(block.key)] || str(block.key), `${block.included} de ${block.available} registros incluidos`)))
   }

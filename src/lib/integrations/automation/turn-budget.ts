@@ -22,6 +22,7 @@ export function budgetContinuationInstruction(assessment: Row): string {
     clarify_requirements: 'No hay coincidencias confirmadas con las características solicitadas. Explique el alcance comprobado y aclare únicamente el requisito que impide avanzar. No exija listar inmuebles incompatibles porque sean baratos, ni ofrecer financiamiento: el crédito no resuelve una característica ausente.',
     clarify_available_information: 'La información disponible no permite concluir si el presupuesto alcanza. Explique qué dato falta y el alcance comprobado. No afirme ausencia global de opciones ni exija ofrecer financiamiento sin precios comparables.',
     clarify_budget: 'Aclare si el importe es presupuesto total, entrada o cuota antes de compararlo con precios. No convierta una entrada en precio total.',
+    clarify_budget_basis: 'Explique la relación entre el importe y los precios verificados, limitada al alcance comprobado, y pregunte si ese dinero es el total que desea invertir sin deuda o el capital que destinaría a una entrada. Esa finalidad todavía no está confirmada. No sustituya esta aclaración por ofrecer información, un asesor u otras opciones.',
     explain_budget_gap: 'Explique que las opciones compatibles verificadas superan el presupuesto. No prometa financiamiento ni entidades que no estén autorizadas.',
     present_affordable_options: 'Atienda la relación del presupuesto con las opciones verificadas que cumplen los requisitos. Puede mencionar ejemplos o un conjunto pertinente; no se exige enumerar todas las unidades ni una frase exacta.',
     present_affordable_alternatives: 'Explique las alternativas verificadas dentro del presupuesto y qué cambia respecto de la búsqueda original. No sustituya la selección del cliente ni relaje requisitos sin explicarlo.',
@@ -33,6 +34,17 @@ export function budgetContinuationInstruction(assessment: Row): string {
 /** Compute affordability from this turn's interpreted budget and complete
  * scoped catalogue. Never infer an amount from prose or approve financing. */
 export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
+  const semantics = object(verified.semantica_turno), currentBudget = object(semantics.budget)
+  const currentDeclaration = currentBudget.status && currentBudget.status !== 'not_discussed'
+  const requests = rows(verified.solicitudes_interpretadas || object(verified.contrato_turno).requests)
+  const financeAccepted = object(verified.etapa_financiamiento).accepted === true
+    || object(object(verified.financiamiento).journey).accepted === true
+    || object(object(verified.financiamiento).current).explicit_consent === true
+  // A remembered budget remains evidence, but does not create the same sales
+  // obligation on each later question, form field or accepted financing step.
+  if (!currentDeclaration && (/^(?:financing|advisor_handoff)/.test(text(audit.source))
+    || requests.length > 0 && requests.every(r => ['financing', 'courtesy', 'visit', 'advisor'].includes(text(r.domain)))
+    || financeAccepted)) return null
   const budget = effectiveTurnBudget(verified)
   if (budget.confidence === 'high' && ['unknown', 'initial_capital'].includes(text(budget.status))) return {
     status: 'clarify_budget_basis', amount: budget.amount ?? null, evidence: budget.evidence,
@@ -41,7 +53,8 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
   if (!['amount', 'maximum_total'].includes(text(budget.status)) || budget.confidence !== 'high' || typeof budget.amount !== 'number'
     || !Number.isFinite(budget.amount) || budget.amount <= 0 || !text(budget.evidence)) return null
   const result = object(audit.catalog_results)
-  const raw = audit.verified_catalog === true ? result.units : verified.catalogo
+  const query = catalogQuery(audit.catalog_query || object(verified.property_context).query || object(verified.semantica_turno).property)
+  const raw = audit.verified_catalog === true ? result.units : filterCatalog(rows(verified.catalogo), query)
   const units = (Array.isArray(raw) ? raw.map(object) : []).filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
   const authorized = object(verified.politica_comercial).precios_autorizados === true
   const prices = authorized ? units.filter(unit => typeof unit.published_commercial_price === 'number'
@@ -51,7 +64,6 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
     : object(verified.catalog_read).complete === true
   const matching = prices.filter(unit => Number(unit.published_commercial_price) <= Number(budget.amount))
   const priceComplete = authorized && complete && prices.length === units.length
-  const query = catalogQuery(audit.catalog_query || object(verified.semantica_turno).property)
   const group = query.group || (query.category === 'local' ? 'commercial' : query.category ? 'residential' : null)
   const excluded = object(object(verified.semantica_turno).property).excluded_categories
   // Compare authorized alternatives without changing the selected unit or relaxing requirements.
@@ -61,10 +73,14 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
       && unit.published_commercial_price <= Number(budget.amount)) : []
   const partners = Array.isArray(object(verified.financiamiento).partners)
     ? (object(verified.financiamiento).partners as unknown[]).map(text).filter(Boolean) : []
-  const continuation = matching.length ? 'present_affordable_options' : alternatives.length ? 'present_affordable_alternatives'
+  const clarifyBudgetBasis = !!currentDeclaration && budget.status === 'amount' && !matching.length
+    && !alternatives.length && prices.length > 0 && !financeAccepted
+  const continuation = clarifyBudgetBasis ? 'clarify_budget_basis'
+    : matching.length ? 'present_affordable_options' : alternatives.length ? 'present_affordable_alternatives'
     : priceComplete && units.length ? partners.length ? 'offer_financing' : 'explain_budget_gap'
       : !priceComplete ? 'clarify_available_information' : 'clarify_requirements'
   return { amount: budget.amount, currency: 'USD', budget_source: budget.source, evidence: budget.evidence,
+    clarify_budget_basis: clarifyBudgetBasis,
     query: audit.catalog_query || null, scope: audit.verified_catalog === true ? 'current_query' : 'available_context',
     status: !authorized ? 'prices_not_authorized' : matching.length ? 'matching_options'
       : !complete || prices.length !== units.length ? 'incomplete_prices'

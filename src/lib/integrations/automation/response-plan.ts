@@ -49,7 +49,10 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
   }
   const allowed = [BROCHURE_URL, ...verifiedUrls(context.verified), ...strings(explicit.allowed_links),
     ...urls(text(profile.brochure_url)), ...urls(text(tour.url))]
-  return { allowed_links: [...new Set(allowed)], required_links: [...new Set(required)] }
+  const brochureLinks = [BROCHURE_URL, text(profile.brochure_url), text(context.verified?.brochure_url)].filter(Boolean)
+  const shared = profile.brochure_previously_sent === true || object(context.verified?.estado_conversacion).brochure_sent === true
+  const resend = required.some(url => brochureLinks.includes(url))
+  return { allowed_links: [...new Set(allowed.filter(url => !shared || resend || !brochureLinks.includes(url)))], required_links: [...new Set(required)] }
 }
 
 export function replyLinkIssues(reply: string, contract: ReturnType<typeof replyLinkContract>): string[] {
@@ -117,7 +120,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
 }
 
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
-estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando el propósito de brochure y guía personalizada. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false y los datos ya están confirmados, continúe sin volver a pedirlos. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Puede ofrecer reenviarlo cuando sea pertinente sin repetir obligatoriamente toda la apertura. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
+estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando el propósito de brochure y guía personalizada. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false y los datos ya están confirmados, continúe sin volver a pedirlos. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. Atienda la solicitud actual completa.
 ${COMMERCIAL_CONTINUATION_RULES}
 ${FINANCING_PROCESS_RULES}
@@ -157,7 +160,7 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
     presentacion_sin_tipos: introduction.generic_introduction === true && introduction.brochure_deferred === true,
     brochure: { compartido_previamente: sharedBefore,
       accion: share ? 'share_now' : sharedBefore ? 'already_shared' : introduction.brochure_deferred === true ? 'offer_after_profile' : 'available_if_relevant',
-      url: brochureUrl },
+      url: sharedBefore && !share ? null : brochureUrl },
     siguiente_objetivo: collect ? purpose : text(object(audit.pending_question).act)
       || text(object(audit.resolved_turn_intent || verified.contrato_turno).objective) || 'answer_current_request',
   }

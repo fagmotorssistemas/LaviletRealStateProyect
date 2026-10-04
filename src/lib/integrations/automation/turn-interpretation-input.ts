@@ -41,7 +41,7 @@ export function interpretationInput(input: Row, current: string): Row {
   return { ...result,
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
-    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step']),
+    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey']),
       _turn_intent: pick(object(summary._turn_intent), ['objective', 'subject', 'continuation_goal', 'pending_question']) },
     contexto_propiedades: pick(object(input.contexto_propiedades), ['query', 'selected_ids', 'candidate_ids', 'comparison_ids',
       'offered_ids', 'focused_ids', 'phase', 'preference_transition', 'pending_question']),

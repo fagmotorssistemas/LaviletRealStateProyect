@@ -122,9 +122,9 @@ test('real-message pipeline sends six candidates to both agents, preserves captu
   assert.equal(rows(object(failure.calls[0].context.evidencia_turno).units).length, 16)
   assert.equal(rows(object(writer.contexto_verificado).politicas_negocio).length, 0)
   assert.equal(rows(object(off.calls[0].context.contexto_verificado).politicas_negocio).length, 4)
-  assert.equal(rows(object(failure.calls[0].context.contexto_verificado).politicas_negocio).length, 4)
+  assert.equal(rows(object(failure.calls[0].context.contexto_verificado).politicas_negocio).length, 0)
   assert.ok(JSON.stringify(on.calls).length < JSON.stringify(off.calls).length)
-  assert.equal(object(on.result.audit.prompt_context_selection).mode, 'semantic_candidates')
+  assert.equal(object(on.result.audit.prompt_context_selection).mode, 'task_context')
 })
 
 test('cost comparison observes both agents without changing their inputs, output, calls or off behavior', async () => {

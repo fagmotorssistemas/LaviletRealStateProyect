@@ -4,6 +4,7 @@ import { executionCost, tokens } from './executionCost'
 const obj = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
 export const isCostStep = (s: WorkflowExecutionStep) => s.key === 'model_request' || s.key === 'catalog_embedding_search'
 export function callCatalogMode(step: WorkflowExecutionStep) {
+  if (step.input.catalog_context_mode === 'task_context') return 'Contexto reducido por consulta'
   if (step.input.catalog_context_mode === 'optimized_exact') return 'Consulta exacta reducida'
   if (step.input.catalog_context_mode === 'optimized_embeddings') return 'Con embeddings'
   if (step.key === 'catalog_embedding_search') return step.output.applied === true ? 'Consulta aplicada' : 'Consulta no aplicada'
@@ -16,13 +17,17 @@ export function callCatalogMode(step: WorkflowExecutionStep) {
   if (obj(verified.prompt_context_selection).mode === 'semantic_candidates'
     || obj(verified.catalog_context_scope).kind === 'semantic_candidates'
     || obj(state.alcance_catalogo).kind === 'semantic_candidates') return 'Con embeddings'
+  if (obj(verified.prompt_context_selection).version === 'task-context-v1'
+    || obj(state.seleccion_contexto).version === 'task-context-v1') return 'Contexto reducido por consulta'
   if (data.contexto_verificado || data.fuentes_autorizadas) return 'Recorrido normal'
   return 'Sin selección de catálogo registrada'
 }
 
 export function executionCatalogMode(execution: WorkflowExecution) {
   const retrieval = execution.steps.find(s => s.key === 'catalog_embedding_search')
-  if (retrieval) return retrieval.output.applied === true ? 'Con embeddings' : retrieval.output.optimized === true ? 'Consulta exacta reducida' : 'Recorrido normal'
+  if (retrieval?.output.applied === true) return 'Con embeddings'
+  if (retrieval?.output.optimized === true) return 'Consulta exacta reducida'
+  if (execution.steps.some(s => callCatalogMode(s) === 'Contexto reducido por consulta')) return 'Contexto reducido por consulta'
   if (execution.steps.some(s => callCatalogMode(s) === 'Consulta exacta reducida')) return 'Consulta exacta reducida'
   if (execution.steps.some(s => callCatalogMode(s) === 'Con embeddings')) return 'Con embeddings'
   if (execution.steps.some(s => callCatalogMode(s) === 'Recorrido normal')) return 'Recorrido normal'
