@@ -14,6 +14,7 @@ import { normalizeTurnSemantics } from './turn-semantics'
 import { promptCostComparison } from './prompt-cost-comparison'
 import profileFixture from './fixtures/extractor-profile-turn.json'
 import { interpretConversationTurn } from './turn-interpretation'
+import { FINANCING_PROCESS_RULES } from './financing-guidance'
 
 // Production measurements from the two reported queries, without lead identifiers.
 const dimensions = [[137.98,153.21],[95.37,46.74],[52.16,null],[68.60,36.37],[94.48,32.21],[81.60,18.53],[66.43,30.22],
@@ -45,7 +46,7 @@ const provider = { embed: async () => ({vector:[1],tokens:10}), match: async () 
   metadata:{...unit,...scope,unit_id:unit.id,embedding_model:'text-embedding-3-small',embedding_dimensions:1536,index_version:'unit-facts-v1'}})) }
 const never = { embed: async (): Promise<{vector:number[];tokens:number}> => { throw Error('unexpected embedding call') }, match: async (): Promise<Row[]> => {throw Error('unexpected search call')} }
 
-test('one extractor call returns the complete conditional schema; disabling the option restores its original schema', async () => {
+test('one extractor call preserves typed comparisons with embeddings enabled or disabled', async () => {
   for (const enabled of [true,false]) for (const [message,category,req] of [
     [exteriorMessage,'local',request()], [countMessage,'departamento',request('count',[requirement('bedrooms','eq',3,{evidence:'3 dormitorios'})],{evidence:countMessage})],
   ] as [string,string,Row][]) {
@@ -56,17 +57,17 @@ test('one extractor call returns the complete conditional schema; disabling the 
     semantics.primary_intent='project_information';semantics.primary_evidence=message
     semantics.answer_to_previous={question_id:'none',kind:'none',evidence:'',confidence:'high'}
     Object.assign(property,{group:category==='local'?'commercial':'residential',category,operation:'search',query_scope:'catalog',evidence:message})
-    if(enabled){raw.catalog_request={...req};delete object(raw.catalog_request).version}
+    raw.catalog_request={...req};delete object(raw.catalog_request).version
     let calls=0
     const result=await interpretConversationTurn({mensaje_actual:message,catalog_search:{embeddingsEnabled:enabled}}, {
       activePrompt:async()=> 'Extraer el turno',aiJson:async(_rules,_data,schema)=>{
         calls++; const validate=new Ajv({strict:false}).compile(schema!)
         assert.ok(validate(raw),JSON.stringify(validate.errors))
-        assert.equal(Object.hasOwn(object(schema!.properties),'catalog_request'),enabled)
+        assert.equal(Object.hasOwn(object(schema!.properties),'catalog_request'),true)
         return structuredClone(raw)
       } })
     assert.equal(calls,1)
-    assert.equal(object(result.semantics.catalog_request).purpose,enabled?req.purpose:undefined)
+    assert.equal(object(result.semantics.catalog_request).purpose,req.purpose)
   }
 })
 
@@ -199,4 +200,40 @@ test('count pipeline gives both agents the same four units and full summary, wit
   assert.equal(object(object(calls[1].data.fuentes_autorizadas).resumen_catalogo).matching_count,4)
   assert.deepEqual(object(calls[0].data.contexto_verificado).instalaciones,[])
   assert.ok(comparisons.every(c=>Number(c.normal_prompt_characters)>Number(c.actual_prompt_characters)),JSON.stringify(comparisons))
+})
+
+test('exterior search removes duplicate prompts while keeping every confirmed local and the complete summary', async () => {
+  const input = info(), retrieval = await retrieveCatalogByEmbeddings(input, exteriorMessage, provider)
+  const base = optimizedCatalogReply(retrieval)!
+  const verified = { ...input, catalogo: retrieval.units, catalogo_verificacion: retrieval.units,
+    catalog_context_scope: semanticCatalogScope(retrieval.audit), catalog_retrieval: retrieval.audit, catalog_summary: retrieval.audit.catalog_summary }
+  const calls: { task: string; data: Row; rules: string }[] = [], comparisons: Row[] = []
+  const reply = 'Las opciones confirmadas tienen superficies interiores de 46,65 a 137,98 m² y exteriores de 8,87 a 153,21 m².'
+  const result = await completeTurnReply({ current: exteriorMessage, baseReply: base.reply, verified, costBaseline: input,
+    audit: { ...base.audit, semantic_review_enabled: true, business_risk_review_enabled: true } },
+    async (rules, data, schema, _image, _file, _tone, task) => {
+      const context = object(data); calls.push({ task: task!, data: context, rules })
+      comparisons.push(object(promptCostComparison(rules, data, schema)))
+      if (task === 'writing') return { reply, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
+        requests: [{ fragment: 'R1', intent: exteriorMessage, status: 'answered', evidence: reply, fact_key: null, request_type: 'general_information' }] }
+      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], question: null, facts: [
+        { kind: 'catalog_value', subject_id: 'group:catalog_query:all:range', scope: null, field: 'area_internal_m2', value: 46.65,
+          upper_value: 137.98, unit: 'm2', relation: 'range', statement: 'superficies interiores de 46,65 a 137,98 m²' },
+        { kind: 'catalog_value', subject_id: 'group:catalog_query:all:range', scope: null, field: 'area_exterior_m2', value: 8.87,
+          upper_value: 153.21, unit: 'm2', relation: 'range', statement: 'exteriores de 8,87 a 153,21 m²' },
+      ] }
+    })
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.deepEqual(calls.map(c => c.task), ['writing', 'review'])
+  const evidence = object(calls[0].data.evidencia_turno)
+  assert.equal((evidence.units as Row[]).length, 13)
+  assert.equal((object(calls[1].data.fuentes_autorizadas).unidades as Row[]).length, 13)
+  assert.equal(object(evidence.catalog_summary).matching_count, 13)
+  assert.equal(object(evidence.catalog_summary).unknown_count, 3)
+  assert.equal(object(evidence.catalog_summary).exact_count, false)
+  assert.equal((evidence.groups as Row[]).length, 3, 'the same min/max/range is not repeated four times')
+  assert.equal(object(calls[0].data.contexto_verificado).estado_operativo, undefined)
+  assert.equal(calls[0].data.evidencia_afirmaciones, undefined)
+  assert.ok(calls.every(call => !call.rules.includes(FINANCING_PROCESS_RULES)), 'simple search does not require the financial collection procedure')
+  assert.ok(Number(comparisons[0].normal_prompt_characters) > Number(comparisons[0].actual_prompt_characters), JSON.stringify(comparisons))
 })

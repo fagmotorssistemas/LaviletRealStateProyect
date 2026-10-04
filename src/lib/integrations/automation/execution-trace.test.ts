@@ -16,6 +16,20 @@ test('response audit preserves drafts up to the transport limit without exposing
 
 const event = { id: '00000000-0000-4000-8000-000000000001' }
 
+test('model trace measures full prompt and identifies embeddings after diagnostic duplication is removed', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
+  await withAIExecutionTrace(trace, async () => {
+    beginModelTrace('Reglas', 'model', 'writing', { contexto_verificado: {
+      catalog_context_scope: { kind: 'optimized_catalog', method: 'structured_catalog_and_embeddings' } } }, { type: 'object' }).finish()
+  })
+  await trace.flush()
+  const input = stored.find(row => row.step_key === 'model_request')!.input_summary as Record<string, unknown>
+  assert.equal(input.catalog_context_mode, 'optimized_embeddings')
+  const size = input.prompt_size as Record<string, number>
+  assert.equal(size.total, size.instructions + size.context + size.schema + size.user_prefix)
+})
+
 test('budget diagnostic preserves the computed decision and its parent without model calls', async () => {
   let stored: Record<string, unknown>[] = []
   const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })

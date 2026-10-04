@@ -146,7 +146,7 @@ export async function GET(request: Request) {
         path: trace.path,
         status: row.status,
         action,
-        outcome: executionOutcome(row.status, action),
+        outcome: executionOutcome(row.status, action, result),
         occurredAt: row.completed_at || row.received_at,
         leadName: traceText(lead?.name, 90) || (payload.kommoId ? `Lead Kommo #${payload.kommoId}` : 'Tarea automática'),
         message: traceText(content, 600),

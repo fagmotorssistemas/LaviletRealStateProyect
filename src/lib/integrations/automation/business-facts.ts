@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { CATALOG_NUMBER_FIELDS, requirementMatch } from './catalog-request'
 
 const fields = ['published_commercial_price', 'area_internal_m2', 'area_exterior_m2', 'bedrooms', 'bathrooms_full',
   'area_total_m2', 'floor_number', 'category', 'availability_status', 'status', 'unit_number', 'unit_count', 'amount']
@@ -10,12 +11,23 @@ export const businessFactSchema: Row = {
     statement: { type: 'string', description: 'Afirmación del borrador que se comprueba. Conserve su significado y sujeto.' },
     kind: { type: 'string', enum: kinds },
     subject_id: { type: ['string', 'null'], description: 'ID real de la unidad o grupo de fuentes_autorizadas. null para presupuesto del cliente.' },
+    scope: { description: 'Condiciones del subconjunto que AFIRMA el borrador (no las del cliente). null si coincide con todo el sujeto. Nunca elija un grupo por coincidir sus cifras.', anyOf: [{ type: 'null' }, {
+      type: 'object', additionalProperties: false, required: ['category', 'filters'], properties: {
+        category: { type: ['string', 'null'], enum: ['local', 'suite', 'departamento', 'penthouse', null] },
+        filters: { type: 'array', items: { type: 'object', additionalProperties: false,
+          required: ['field', 'operator', 'value', 'upper_value'], properties: {
+            field: { type: 'string', enum: [...CATALOG_NUMBER_FIELDS] },
+            operator: { type: 'string', enum: ['eq', 'gt', 'gte', 'lt', 'lte', 'between'] },
+            value: { type: 'number' }, upper_value: { type: ['number', 'null'] },
+          } } },
+      },
+    }] },
     field: { type: 'string', enum: fields },
     value: { type: ['number', 'string'] },
     upper_value: { type: ['number', 'null'] },
     relation: { type: 'string', enum: relations },
     unit: { type: 'string', enum: ['USD', 'm2', 'count', 'text', 'other'] },
-  }, required: ['statement', 'kind', 'subject_id', 'field', 'value', 'upper_value', 'relation', 'unit'],
+  }, required: ['statement', 'kind', 'subject_id', 'scope', 'field', 'value', 'upper_value', 'relation', 'unit'],
 }
 
 export const BUSINESS_FACT_RULES = `
@@ -24,6 +36,7 @@ En facts extraiga las afirmaciones verificables que realmente aparecen en borrad
 catalog_value identifica el inmueble o grupo exacto de fuentes_autorizadas, su field y valor afirmado. lead_budget usa field=amount. budget_difference identifica la unidad o grupo cuyo precio se compara con presupuesto_confirmado y field=published_commercial_price; value es la diferencia afirmada, NO el precio. Use other_calculation si la operación tiene otra fórmula o base: revísela semánticamente sin inventar operandos.
 Respete el alcance: rangos usan grupos con aggregation=range, relation=range y ambos extremos. «Desde» usa el mínimo del grupo; «superan» es gt, no gte. Una afirmación de mínimo/máximo exacto usa el grupo min/max pertinente y relation=eq. No convierta una comparación general en una reserva.
 Si se refiere a opciones dentro del presupuesto, use el grupo budget_matching correspondiente y no el grupo global de la categoría. Una lista de ejemplos se verifica por sus unidades, no como mínimo y máximo universal. Si no puede representar fielmente el subconjunto afirmado, solicite aclaración de la ficha; no invente una referencia global.
+scope identifica las condiciones del conjunto que realmente describe la afirmación. Para «locales de la primera planta alta» use category=local y filters=[{field:floor_number,operator:eq,value:1,upper_value:null}], aunque subject_id sea el grupo general de locales. El código recalcula el rango sobre esos miembros. Para un rango sin restricción adicional use scope=null. No añada filtros para hacer coincidir una cifra, ni use el precio afirmado como filtro salvo que el TEXTO delimite expresamente un presupuesto. Una afirmación sobre una planta no se contrasta contra los extremos de todas las plantas.
 unit identifica USD, m2, count o text. Dormitorios, baños, plantas y cantidades de unidades usan count. «Cuatro departamentos de tres dormitorios» contiene dos datos distintos: unit_count=4 y bedrooms=3; extraiga ambos si están afirmados. unit_count se refiere al grupo de la consulta, nunca a una ficha individual ni al número de ejemplos enviados. Para un resumen use el grupo source_scope=complete_query y respete complete_for_query y las unidades con datos desconocidos. No suponga que una entrada o cuota es presupuesto total. Negaciones y condiciones que no se representan fielmente con estos campos se revisan semánticamente; no las transforme en hechos afirmativos.
 No cree un inventario de cada oración ni referencias E/S/N. Los datos son una extracción del borrador, no nueva evidencia ni permiso para cambiar el catálogo. Un problema de extracción requiere reparar la ficha, no reescribir un borrador correcto.
 question describe la pregunta real del borrador (null si no hay pregunta). offered_action diferencia information, financing_review, internal_advisor, ambiguous y none. Ofrecer dos ayudas distintas produce ambiguous: un sí no autoriza escoger una. No marque none si está ofreciendo una ayuda concreta.
@@ -50,7 +63,33 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
     const catalog = [...units, ...groups]
     const exact = catalog.find(row => row.id === fact.subject_id)
     const numbered = units.filter(row => text(row.unit_number) === text(fact.subject_id))
-    const subject = exact || (numbered.length === 1 ? numbered[0] : undefined)
+    let subject = exact || (numbered.length === 1 ? numbered[0] : undefined)
+    const scope = object(fact.scope)
+    if (fact.scope != null) {
+      if (!Array.isArray(scope.filters) || scope.category != null && !['local', 'suite', 'departamento', 'penthouse'].includes(text(scope.category)))
+        return unknown('El ámbito de la afirmación necesita una categoría y filtros válidos.')
+      const filters = scope.filters.map(object)
+      if (filters.some(f => !CATALOG_NUMBER_FIELDS.includes(f.field as typeof CATALOG_NUMBER_FIELDS[number])
+        || !['eq', 'gt', 'gte', 'lt', 'lte', 'between'].includes(text(f.operator)) || !numeric(f.value)
+        || f.operator === 'between' && (!numeric(f.upper_value) || f.upper_value < f.value)))
+        return unknown('Los filtros del ámbito no se pueden comprobar; repare la ficha.')
+      if (!subject || !Array.isArray(subject.member_ids)) return unknown('Un ámbito filtrado necesita un grupo con miembros identificados.')
+      const members = units.filter(u => (subject!.member_ids as unknown[]).includes(u.id))
+      if (members.length !== subject.member_ids.length) return unknown('Faltan fichas para recalcular el ámbito completo.', false)
+      const checks = members.filter(u => !scope.category || u.category === scope.category)
+        .map(u => ({ unit: u, matches: filters.map(f => requirementMatch(u, f)) }))
+        .filter(row => !row.matches.includes(false))
+      if (checks.some(row => row.matches.includes(null))) return unknown('Hay datos desconocidos en el ámbito afirmado.', false)
+      const selected = checks.map(row => row.unit)
+      if (!selected.length) return unknown('El ámbito afirmado no contiene coincidencias verificadas.')
+      const values = fact.field === 'unit_count' ? [selected.length] : selected.map(u => u[text(fact.field)])
+      const complete = values.every(v => v != null && v !== '')
+      const min = complete && values.every(numeric) ? Math.min(...values as number[]) : complete && values.every(v => equal(v, values[0])) ? values[0] : null
+      const max = complete && values.every(numeric) ? Math.max(...values as number[]) : min
+      subject = { ...subject, scope, member_ids: selected.map(u => u.id), unit_count: selected.length,
+        [text(fact.field)]: subject.aggregation === 'max' ? max : min,
+        upper_values: { [text(fact.field)]: max, unit_count: selected.length } }
+    }
     const unitForField = fact.field === 'published_commercial_price' || fact.field === 'amount' ? 'USD'
       : /^area_/.test(text(fact.field)) ? 'm2'
         : ['bedrooms', 'bathrooms_full', 'floor_number', 'unit_count'].includes(text(fact.field)) ? 'count' : 'text'
@@ -75,7 +114,7 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
         if (fact.field === 'unit_count' && !Array.isArray(subject.member_ids)) return unknown('La cantidad necesita un grupo con miembros identificados.')
         expected = fact.field === 'unit_count' ? subject.unit_count ?? (subject.member_ids as unknown[]).length : subject[fact.field as string]
         source = { subject_id: subject.id, field: fact.field, aggregation: subject.aggregation,
-          member_ids: subject.member_ids, upper_value: object(subject.upper_values)[fact.field as string] }
+          member_ids: subject.member_ids, scope: subject.scope, upper_value: object(subject.upper_values)[fact.field as string] }
       }
     }
     if (expected === undefined || expected === null || expected === '') return unknown('La fuente no contiene ese dato; requiere revisión semántica.', false)

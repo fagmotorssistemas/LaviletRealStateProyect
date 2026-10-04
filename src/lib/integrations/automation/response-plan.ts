@@ -130,6 +130,8 @@ Si recibe apertura_decidida, úsela como orientación de tono: puede cambiarla u
 El contrato indica si este turno necesita un saludo inicial. Respete esa necesidad sin copiar literalmente una fórmula. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado y formular el siguiente paso autorizado. pregunta_siguiente es una propuesta; su redacción puede cambiar y la solicitud actual prevalece sobre una continuación anterior.
 Nunca invente datos para embellecer una explicación.`
 
+export const CATALOG_WRITER_RULES = FINAL_WRITER_RULES.replace(FINANCING_PROCESS_RULES, '').replace(ASSISTANCE_CONTINUATION_RULES, '')
+
 /** A single state contract for writer and reviewer, independent of base wording. */
 export function commercialStageContract(audit: Row, verified: Row = {}, requiredLinks: string[] = []) {
   const introduction = object(audit.profile_introduction), conversation = object(verified.estado_conversacion)

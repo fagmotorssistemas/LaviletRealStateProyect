@@ -10,8 +10,40 @@ export const CATALOG_SUMMARY_RULES = 'Si hay catalog_summary, matching_count es 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
 
+export function optimizedCatalogPrompt(context: Row): boolean {
+  return ['optimized_catalog', 'semantic_candidates'].includes(text(object(object(context.contexto_verificado).catalog_context_scope).kind))
+}
+
+/** Diagnostic snapshots stay in the execution trace. This projection is used
+ * only by the opt-in property retrieval route, never by validation or memory. */
+function catalogModelContext(context: Row): Row {
+  if (!optimizedCatalogPrompt(context)) return context
+  const result = { ...context }, verified = { ...object(context.contexto_verificado) }
+  const audit = object(context.estado_operativo)
+  result.estado_operativo = Object.fromEntries(['source', 'profile_introduction', 'pending_question', 'catalog_coverage',
+    'action', 'reservation', 'visit_result', 'handoff_result', 'action_result'].filter(k => audit[k] != null).map(k => [k, audit[k]]))
+  for (const key of ['estado_operativo', 'catalog_retrieval', 'catalog_results', 'catalog_query', 'catalog_summary',
+    'semantica_turno', 'solicitudes_interpretadas', 'referencia_unidad', 'hechos_confirmados', 'historial', 'catalogo',
+    'siguiente_pregunta', 'continuidad_residencial', '_sales_memory', 'fecha']) delete verified[key]
+  result.contexto_verificado = verified
+  // Business-risk review uses current facts directly, not the former E-ID inventory.
+  delete result.evidencia_afirmaciones
+  const evidence = object(context.evidencia_turno)
+  const groups = rows(evidence.groups)
+  const complete = groups.filter(g => g.source_scope === 'complete_query')
+  if (complete.length) result.evidencia_turno = { ...evidence, groups: [
+    ...complete, ...groups.filter(g => g.source_scope !== 'complete_query' && !complete.some(c =>
+      c.aggregation === g.aggregation && same([...rowsIds(c.member_ids)].sort(), [...rowsIds(g.member_ids)].sort()))) ] }
+  // Numeric allowlists are an obsolete prose-scanning aid, not business facts.
+  const protectedMaterial = object(result.material_protegido)
+  if (result.material_protegido) result.material_protegido = Object.fromEntries(Object.entries(protectedMaterial).filter(([k]) => k !== 'cifras_permitidas'))
+  return result
+}
+const rowsIds = (value: unknown): string[] => Array.isArray(value) ? value.map(text) : []
+
 /** Model-only projection. Validation and the saved audit retain the complete original evidence. */
 export function compactTurnPromptContext(context: Row, options: { preserveUnitIds?: boolean } = {}): Row {
+  context = catalogModelContext(context)
   const evidence = object(context.evidencia_turno)
   const units = rows(evidence.units)
   const byId = new Map(units.map(unit => [text(unit.id), unit]))

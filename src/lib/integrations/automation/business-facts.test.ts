@@ -17,7 +17,7 @@ const units = [{ id: 'local-1', unit_number: 'L1', category: 'local', published_
   { id: 'suite-1', unit_number: 'S1', category: 'suite', published_commercial_price: 210000, is_published: true, status: 'disponible' }]
 const fact = (kind: string, value: number, subject_id: string | null = 'local-1', statement = 'Faltan 45000 para el local.'): Row => ({
   kind, subject_id, statement, field: kind === 'lead_budget' ? 'amount' : 'published_commercial_price',
-  value, upper_value: null, relation: 'eq', unit: 'USD',
+  value, upper_value: null, relation: 'eq', unit: 'USD', scope: null,
 })
 const facts = [fact('catalog_value', 145000, 'local-1', 'El local cuesta 145000.'),
   fact('lead_budget', 100000, null, 'Dispone de 100000.'), fact('budget_difference', 45000),

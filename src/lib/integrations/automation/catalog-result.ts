@@ -15,12 +15,13 @@ export function resolveCatalogRequirements(info: Row, query: CatalogQuery, reque
   if (filters.bedrooms != null || Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length) replaced.add('bedrooms')
   if (filters.floor_number != null) replaced.add('floor_number')
   if (filters.min_area_m2 != null || filters.max_area_m2 != null) replaced.add('area_internal_m2')
-  const inherited = prior.category === query.category && prior.group === query.group
-    ? rows(prior.requirements).filter(r => !replaced.has(r.field)) : []
+  const resolvedFields = new Set(rows(query.requirements).map(r => r.field))
+  const inherited = [...rows(query.requirements), ...(prior.category === query.category && prior.group === query.group
+    ? rows(prior.requirements).filter(r => !resolvedFields.has(r.field)) : [])].filter(r => !replaced.has(r.field))
   const requirements = [...inherited, ...current]
   const covered = new Set(requirements.map(r => r.field))
   // Legacy filters cannot turn a preference into a requirement, or override gt/gte with eq.
-  const resolved = catalogQuery({ ...query, filters: { ...query.filters,
+  const resolved = catalogQuery({ ...query, requirements: [], filters: { ...query.filters,
     ...(covered.has('bedrooms') ? { bedrooms: null, bedrooms_any: [], bedrooms_operator: null, bedrooms_upper: null, bedrooms_required: null } : {}),
     ...(covered.has('floor_number') ? { floor_number: null } : {}),
     ...(covered.has('area_internal_m2') ? { min_area_m2: null, max_area_m2: null } : {}),
@@ -34,7 +35,7 @@ export function completeCatalogResult(info: Row, query: CatalogQuery, request: R
   const prices = object(info.politica_comercial).precios_autorizados === true
   const catalog = rows(info.catalogo).map(u => compactCatalogUnit(u, prices))
   const categoryExclusions = object(object(info.semantica_turno).property).excluded_categories
-  const base = filterCatalog(catalog, catalogQuery({ ...query, filters: {} })).filter(u => !Array.isArray(categoryExclusions) || !categoryExclusions.includes(u.category))
+  const base = filterCatalog(catalog, catalogQuery({ ...query, requirements: [], filters: {} })).filter(u => !Array.isArray(categoryExclusions) || !categoryExclusions.includes(u.category))
   const requirements = rows(request.requirements), required = requirements.filter(r => r.strength === 'required')
   const exact: Row[] = [], unknown: Row[] = [], rejected: Row[] = []
   const unknownReasons: Row[] = []

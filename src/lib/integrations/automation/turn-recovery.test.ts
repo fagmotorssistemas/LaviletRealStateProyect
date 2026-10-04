@@ -119,7 +119,7 @@ test('missing prices, partial catalog and unauthorized finance cannot support gl
     assert.equal(assessment.minimum_price, null)
     assert.equal(assessment.continuation, 'clarify_available_information')
   }
-  assert.equal(turnBudgetAssessment({ ...context(), financiamiento: { partners: [] } }, {})?.continuation, 'clarify_requirements')
+  assert.equal(turnBudgetAssessment({ ...context(), financiamiento: { partners: [] } }, {})?.continuation, 'explain_budget_gap')
   for (const status of ['initial_capital', 'unknown']) {
     const assessment = turnBudgetAssessment({ ...context(), semantica_turno: { budget: { status, confidence: 'high', amount: 100, evidence: 'Tengo 100 para la entrada' } } }, {})!
     assert.equal(assessment.continuation, 'clarify_budget')

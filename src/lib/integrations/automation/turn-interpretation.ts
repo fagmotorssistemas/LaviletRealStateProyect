@@ -107,8 +107,9 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   }
   let recoveryIssues: string[] = []
   if (method === 'model') {
-    const optimizedCatalog = object(input.catalog_search).embeddingsEnabled === true
-    const extractionSchema = optimizedCatalog ? closedObject({ ...object(TURN_EXTRACTION_SCHEMA.properties), catalog_request: CATALOG_REQUEST_SCHEMA }) : TURN_EXTRACTION_SCHEMA
+    // Interpretation is shared by both retrieval routes. The feature switch
+    // controls retrieval/context size, never the meaning of a requirement.
+    const extractionSchema = closedObject({ ...object(TURN_EXTRACTION_SCHEMA.properties), catalog_request: CATALOG_REQUEST_SCHEMA })
     const prompt = await dependencies.activePrompt('extractor_eventos')
     const requestRules = `
 Contrato ${CONVERSATION_CONTRACT_VERSION}. Devuelva todos los campos del esquema; null significa desconocido.
@@ -133,7 +134,7 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
       ['Consultas pendientes sin respuesta', PENDING_REQUEST_RULES],
       ['Interpretación del perfil', LEAD_PROFILE_EXTRACTION_RULES],
       ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
-      ...(optimizedCatalog ? [['Consulta estructurada del catálogo', CATALOG_REQUEST_RULES] as [string, string]] : []),
+      ['Consulta estructurada del catálogo', CATALOG_REQUEST_RULES],
       ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
       ['Formato de salida', 'El esquema JSON enviado con esta llamada es la única definición de campos y valores permitidos. Complete sus campos; use null solo donde el esquema lo permite y el dato sea desconocido. No añada un formato alternativo ni texto fuera del JSON.'],
     ])
@@ -175,8 +176,8 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     lead_profile: leadProfile })
   // An unreadable reaction or a greeting must never inherit operational events from history.
   if (method !== 'model') extracted.events = []
-  const semantics = normalizeTurnSemantics(object(input.catalog_search).embeddingsEnabled === true ? raw : { ...raw, catalog_request: undefined }, actionMessage, input.pregunta_pendiente)
-  if (object(input.catalog_search).embeddingsEnabled === true) semantics.catalog_request = normalizeCatalogRequest(raw.catalog_request, actionMessage)
+  const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)
+  semantics.catalog_request = normalizeCatalogRequest(raw.catalog_request, actionMessage)
   extracted.household = semantics.household
   if (Object.hasOwn(object(raw.turn_semantics), 'housing_quantities')) {
     const quantities = Array.isArray(semantics.housing_quantities) ? semantics.housing_quantities.map(object) : []

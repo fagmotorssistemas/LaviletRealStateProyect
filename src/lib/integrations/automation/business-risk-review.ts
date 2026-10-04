@@ -70,6 +70,10 @@ ${BUSINESS_FACT_RULES}
 ${FINANCING_PROCESS_RULES}
 ${ASSISTANCE_RULES}`
 
+export function businessRiskReviewInstructions(optimizedCatalog = false): string {
+  return optimizedCatalog ? BUSINESS_RISK_REVIEW_RULES.replace(FINANCING_PROCESS_RULES, '') : BUSINESS_RISK_REVIEW_RULES
+}
+
 const categories = new Set(['hard_fact', 'business_guardrail', 'turn_goal'])
 
 export function businessRiskDecision(raw: Row): { valid: boolean; approved: boolean; findings: Row[] } {

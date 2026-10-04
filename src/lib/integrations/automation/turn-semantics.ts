@@ -90,6 +90,7 @@ export function normalizedPropertyQuery(raw: unknown): Row {
     group: category === 'local' ? 'commercial' : category ? 'residential'
       : ['residential', 'commercial'].includes(text(row.group)) ? text(row.group) : null,
     category, filters: normalizedPropertyFilters(row.filters),
+    ...(Array.isArray(row.requirements) && row.requirements.length ? { requirements: row.requirements } : {}),
     operation: operations.has(text(row.operation)) ? text(row.operation) : 'search',
     selector: unitSelectors.has(text(row.selector)) ? text(row.selector) : null,
     scope: queryScopes.has(text(row.scope || row.query_scope)) ? text(row.scope || row.query_scope) : 'catalog',
@@ -361,7 +362,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const genericResidential = /\bviviendas?|residencial|(?:algo|opciones?|espacio) para vivir\b/.test(value)
     && !/\bsuites?|depart\w*ment\w*|apartamentos?|penthouses?|locales?\b/.test(value)
   if (genericResidential && category) { category = null; normalizationIssues.push('generic_residential_is_not_category') }
-  const group = genericResidential ? 'residential' : category === 'local' ? 'commercial'
+  let group = genericResidential ? 'residential' : category === 'local' ? 'commercial'
     : category ? 'residential' : propertyConfident && ['residential', 'commercial'].includes(text(property.group)) ? text(property.group) : null
   const lexicalFilters = propertyFiltersFromText(current, pendingId)
   const semanticFilters = propertyConfident ? normalizedPropertyFilters(property.filters) : emptyPropertyFilters()
@@ -410,6 +411,14 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
       filterEvidence.bedrooms = ''; filterEvidence.bedrooms_any = ''; filterEvidence.bedrooms_required = ''
       normalizationIssues.push('bedroom_filter_without_bedroom_requirement')
     }
+  }
+  // The interpreter has already identified bedrooms, not commercial rooms or
+  // household size. Apply that typed meaning without scanning the message.
+  if (propertyConfident && !category && group !== 'residential' && (filters.bedrooms != null || filters.bedrooms_any?.length
+    || Array.isArray(structuredCatalog?.requirements) && structuredCatalog.requirements.some(r => object(r).field === 'bedrooms'))
+    && housingQuantities.some(q => q.dimension === 'bedrooms' && q.role === 'requirement')) {
+    group = 'residential'
+    normalizationIssues.push('bedroom_requirement_establishes_residential_search')
   }
   const hasFilters = Object.values(filters).some(value => value !== null)
   if (hasFilters && pendingId.startsWith('budget') && /habit|dormitor|cuarto|planta|piso|opciones/.test(value)) {

@@ -121,7 +121,7 @@ test('an approved model verdict cannot send a rounded surface absent from author
   const exact = 'El departamento 202 tiene 120,83 m² interiores.'
   let writes = 0
   const mock = harness((context, task) => task === 'writing' ? writer(context, ++writes === 1 ? rounded : exact)
-    : { ...pass, facts: [{ statement: context.borrador, kind: 'catalog_value', subject_id: unit.id,
+    : { ...pass, facts: [{ statement: context.borrador, kind: 'catalog_value', subject_id: unit.id, scope: null,
       field: 'area_internal_m2', value: writes === 1 ? 121 : 120.83, upper_value: null, relation: 'eq', unit: 'm2' }] })
   const result = await completeTurnReply({ current: '¿Qué superficie tiene el departamento 202?', baseReply: exact,
     verified: { catalogo: [unit] }, audit: { semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate)

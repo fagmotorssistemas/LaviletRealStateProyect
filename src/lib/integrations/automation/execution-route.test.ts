@@ -43,3 +43,10 @@ test('workflow nodes show the recorded order and distinguish provider acceptance
   assert.match(definition.nodes[1].data.result, /entrega al teléfono sin confirmar/)
   assert.equal(definition.edges.length, 1)
 })
+
+test('rejected response and recovery notice are distinguished without claiming WhatsApp delivery', () => {
+  assert.equal(executionOutcome('completed', 'advisor_recovery', { delivery_status: 'accepted', response_review_error: 'RESPONSE_REVIEW_EXHAUSTED' }),
+    'Consulta pendiente de atención humana. Kommo aceptó el aviso de recuperación; entrega en WhatsApp sin confirmar.')
+  assert.match(executionOutcome('completed', 'advisor_recovery', { notice: 'superseded_or_paused' }), /aviso se omitió/)
+  assert.match(executionOutcome('completed', 'advisor_recovery'), /Sin confirmación de envío/)
+})

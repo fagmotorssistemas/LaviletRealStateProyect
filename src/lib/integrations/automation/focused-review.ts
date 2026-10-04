@@ -1,5 +1,5 @@
 import { object, text, type Row } from './data'
-import { BUDGET_CONTINUATION_RULES } from './turn-budget'
+import { budgetContinuationInstruction } from './turn-budget'
 import { mergePendingRepairs } from './focused-pending-repair'
 export { pendingReferencesForRepair, pendingResolutionSchema } from './focused-pending-repair'
 import { focusedValueScopeSchema, FOCUSED_VALUE_SCOPE_RULES } from './focused-value-scope'
@@ -40,7 +40,7 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   if (verified.presupuesto_del_turno) obligations.push({ id: 'current_budget_answer',
     instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si hay precios autorizados, debe explicar su relación con el presupuesto; si faltan o no están autorizados, debe comunicar esa limitación o aclarar el dato necesario. Enumerar características y preguntar planta sin atender el presupuesto incumple. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
   if (object(verified.presupuesto_del_turno).continuation) obligations.push({ id: 'budget_continuation',
-    action: object(verified.presupuesto_del_turno).continuation, instruction: BUDGET_CONTINUATION_RULES })
+    action: object(verified.presupuesto_del_turno).continuation, instruction: budgetContinuationInstruction(object(verified.presupuesto_del_turno)) })
   if (policy.precios_aproximados === true) obligations.push({ id: 'price_conditions',
     instruction: 'Si el borrador comunica precios, preserve su carácter referencial de lanzamiento y posibilidad de cambio, con cualquier redacción equivalente. Si no comunica precios, esta obligación está cumplida.' })
   if (contract.decisiones_protegidas === true || audit.action || audit.visit_result || audit.reservation

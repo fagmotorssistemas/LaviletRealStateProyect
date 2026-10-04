@@ -64,7 +64,8 @@ export function beginModelTrace(instructions: string, model: string, task: strin
   const comparison = attachments ? null : promptCostComparison(instructions, input, schema)
   const data = object(input), verified = object(data.contexto_verificado), state = object(data.estado_del_turno)
   const catalogMode = object(verified.catalog_context_scope).kind === 'optimized_catalog' || object(state.alcance_catalogo).kind === 'optimized_catalog'
-    ? (object(verified.catalog_retrieval).applied === true || object(state.alcance_catalogo).method === 'structured_catalog_and_embeddings' ? 'optimized_embeddings' : 'optimized_exact')
+    ? (object(verified.catalog_retrieval).applied === true || object(verified.catalog_context_scope).method === 'structured_catalog_and_embeddings'
+      || object(state.alcance_catalogo).method === 'structured_catalog_and_embeddings' ? 'optimized_embeddings' : 'optimized_exact')
     : object(verified.catalog_context_scope).kind === 'semantic_candidates'
     || object(state.alcance_catalogo).kind === 'semantic_candidates' ? 'semantic_candidates'
     : data.contexto_verificado || data.fuentes_autorizadas ? 'current_catalog' : 'not_applicable'
@@ -72,6 +73,9 @@ export function beginModelTrace(instructions: string, model: string, task: strin
     task, ai_role: role, model, attachments_omitted: attachments, prompt_revision: revision, ...(parent ? { caused_by_step: parent } : {}),
     ...(comparison ? { context_cost_comparison: comparison } : {}),
     catalog_context_mode: catalogMode,
+    prompt_size: { unit: 'characters', instructions: instructions.length, context: JSON.stringify(input ?? null).length,
+      schema: JSON.stringify(schema ?? null).length, user_prefix: AI_USER_PREFIX.length,
+      total: instructions.length + JSON.stringify(input ?? null).length + JSON.stringify(schema ?? null).length + AI_USER_PREFIX.length },
     ...(outputBudget !== undefined ? { configured_max_output_tokens: outputBudget } : {}),
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     prompt_snapshot: { capture_version: 2, instructions, user_prefix: AI_USER_PREFIX,

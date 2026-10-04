@@ -205,10 +205,25 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   context.operation_resolution = { source: semanticOperation ? 'extractor' : 'lexical_fallback', extracted: semanticOperation || null,
     ignored_keyword_operations: semanticOperation && asksRanking && semanticOperation !== 'rank' ? ['rank'] : [] }
   const query: Row = { group: group || text(previousQuery.group) || null,
-    category: broadResidential ? null : category || text(previousQuery.category || context.preference_category) || null,
+    category: broadResidential || groupChanged && !category ? null : category || text(previousQuery.category || context.preference_category) || null,
     filters, operation, selector: selector || null,
     scope: continuesInformation ? ids(context.selected_ids).length ? 'selected' : ids(context.comparison_ids).length ? 'comparison' : 'offered'
       : text(semantic.query_scope) || (operation === 'search' || operation === 'rank' ? 'catalog' : null) }
+  const structured = object(object(semantics).catalog_request)
+  const currentRequirements = Array.isArray(structured.requirements) ? structured.requirements.map(object) : []
+  const replacedFields = new Set(currentRequirements.map(r => r.field))
+  // One representation of explicit comparisons on both retrieval routes.
+  const inheritedRequirements = !groupChanged && Array.isArray(previousQuery.requirements)
+    ? previousQuery.requirements.map(object).filter(r => !replacedFields.has(r.field)
+      && !(r.field === 'bedrooms' && suppliedFilters.bedrooms != null)
+      && !(r.field === 'floor_number' && suppliedFilters.floor_number != null)) : []
+  if (currentRequirements.length || inheritedRequirements.length) query.requirements = [...inheritedRequirements, ...currentRequirements]
+  if (currentRequirements.some(r => r.field === 'floor_number')) filters.floor_number = null
+  if (groupChanged) {
+    context.preference_category = category || null
+    context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []; context.focused_ids = []
+    context.excluded_categories = []
+  }
   // Once a verified alternative set is offered, choosing its category or floor
   // refines that set rather than restoring the entire category from the catalogue.
   if (activePreferenceTransition && previousQuery.scope === 'offered' && !groupChanged
@@ -226,6 +241,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       query.group = matches.every(unit => unit.category === 'local') ? 'commercial'
         : matches.every(unit => ['suite', 'departamento', 'penthouse'].includes(text(unit.category))) ? 'residential' : null
       query.filters = emptyPropertyFilters(); query.scope = query.operation === 'compare' ? 'comparison' : 'selected'
+      delete query.requirements
       context.reference_resolution = { source: 'explicit_reference', requested_ids: unitIds(matches), resolved_ids: unitIds(matches), status: 'resolved' }
     }
     return {

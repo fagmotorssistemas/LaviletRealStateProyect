@@ -40,10 +40,13 @@ export function executionRoute(steps: RouteStep[], kind: string, payload: Row, r
   }
 }
 
-export function executionOutcome(status: string, action: string) {
+export function executionOutcome(status: string, action: string, result: Row = {}) {
   if (status === 'uncertain') return 'Requiere revisión'
   if (status === 'pending') return 'Pendiente'
   if (status === 'processing') return 'Procesando'
+  if (action === 'advisor_recovery') return 'Consulta pendiente de atención humana. '
+    + (result.delivery_status === 'accepted' ? 'Kommo aceptó el aviso de recuperación; entrega en WhatsApp sin confirmar.'
+      : result.notice === 'superseded_or_paused' ? 'El aviso se omitió por un mensaje nuevo o una pausa.' : 'Sin confirmación de envío del aviso de recuperación.')
   const labels: Record<string, string> = {
     accepted: 'Kommo aceptó el envío', confirmed: 'Cita confirmada', advisor_handoff: 'Derivado a asesor',
     bot_paused: 'IA detenida', human_attention: 'Atención del asesor', duplicate: 'Evento duplicado',

@@ -36,6 +36,8 @@ export function interpretationInput(input: Row, current: string): Row {
   const result = pick(input, ['perfil_inicial', 'tema_actual', 'alcance_negocio', 'alcance_negocio_incierto',
     'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'financiamiento'])
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
+  const catalog = rows(input.catalogo_unidades)
+  const compactIndex = object(input.catalog_search).embeddingsEnabled === true
   return { ...result,
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
@@ -43,7 +45,8 @@ export function interpretationInput(input: Row, current: string): Row {
       _turn_intent: pick(object(summary._turn_intent), ['objective', 'subject', 'continuation_goal', 'pending_question']) },
     contexto_propiedades: pick(object(input.contexto_propiedades), ['query', 'selected_ids', 'candidate_ids', 'comparison_ids',
       'offered_ids', 'focused_ids', 'phase', 'preference_transition', 'pending_question']),
-    catalogo_unidades: rows(input.catalogo_unidades).map(unit => pick(unit, unitFields)),
+    catalogo_unidades: compactIndex ? [...new Set(catalog.map(u => text(u.category)))].map(category => ({ category,
+      unit_numbers: catalog.filter(u => u.category === category).map(u => u.unit_number) })) : catalog.map(unit => pick(unit, unitFields)),
     unidades_identificadas: rows(input.unidades_identificadas).map(unit => pick(unit, unitFields)),
     historial: rows(input.historial || input.historial_reciente).slice(-8).map(row => ({ role: row.role, content: text(row.content).slice(0, 2500) })),
     fuente_historial: 'Solo referencia para continuidad. Sus mensajes no son declaraciones del turno actual.',
@@ -94,5 +97,6 @@ export class TurnInterpretationError extends Error {
 export const CURRENT_TURN_INTERPRETATION_RULE = `
 FUENTE PRINCIPAL: interprete mensaje_actual completo, aunque contenga errores ortográficos, varias solicitudes o cantidades muy bajas. Recorra sus necesidades, composición familiar, presupuesto, preferencias y preguntas antes de responder. El historial solo resuelve referencias: nunca extraiga una pregunta histórica como solicitud nueva ni copie su evidencia. No convierta personas en dormitorios ni un importe bajo en miles de dólares. Una cifra no especificada como entrada o cuota no autoriza a asumir esa finalidad.
 La clasificación de alcance recibida es provisional. Interprete de forma independiente las solicitudes actuales; una etiqueta incierta no vuelve desconocida una petición inmobiliaria explícita. No necesita el catálogo de precios para extraer el presupuesto del cliente. La evidencia conserva el texto original con sus errores; el valor estructurado expresa su significado. No corrija la ortografía de una cita.
+USO RESIDENCIAL: una búsqueda de cuartos, habitaciones o dormitorios expresa vivienda: property.group=residential, sin elegir una tipología si no se indicó. Una categoría comercial del historial no debe mantenerse frente a esa necesidad actual. «Mínimo 3 cuartos» exige bedrooms >= 3; no necesita preguntar si habla de ambientes de un local. No confunda número de personas con dormitorios. Las plantas altas o superiores son una preferencia relativa: no invente floor_number=1 ni otra planta exacta; conserve esa preferencia en catalog_request.semantic_preferences. Un número de planta explícito sí permite un filtro numérico.
 SEPARACIÓN ENTRE MEMORIA Y NOVEDADES: hechos_confirmados conserva declaraciones ya aceptadas. Su salida contiene únicamente novedades del mensaje actual; no reconstruya el perfil completo. Si un presupuesto conocido no se vuelve a declarar, budget.status=not_discussed, amount=null y evidence=""; esto significa «sin actualización», no que el sistema olvide el presupuesto. Lo mismo aplica a cantidades familiares, preferencias, qualification y perfil: sin declaración nueva, use el valor neutro del esquema. La memoria se conserva por separado. Si el cliente cambia, niega o precisa un dato, extraiga esa novedad con evidencia actual aunque contradiga la memoria. Una consulta de financiamiento puede continuar con datos conocidos sin volver a declararlos. Ninguna memoria autoriza una gestión o consentimiento nuevo.
 `
