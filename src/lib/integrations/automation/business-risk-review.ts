@@ -119,6 +119,8 @@ export function businessRiskContext(input: {
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
       presupuesto_confirmado: effectiveTurnBudget(input.verified),
       etapa_financiamiento: input.verified.etapa_financiamiento || null,
+      importes_financiamiento: input.verified.financing_amounts || null,
+      conciliacion_financiamiento: input.verified.financing_balance || null,
       grupos_por_alcance: 'task_query y budget_matching describen conjuntos filtrados, no todo el catálogo. No use una opción fuera del filtro para rechazar el rango del conjunto filtrado.',
     },
     estado_del_turno: {

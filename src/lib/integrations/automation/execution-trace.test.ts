@@ -170,7 +170,7 @@ test('returned database errors and thrown errors are reported safely without fai
     })
     trace.add('message_delivery', 'Aceptación', 'output', 'kommo.ts', 'succeeded', {}, { action: 'accepted', delivery_confirmed: false })
     await assert.doesNotReject(() => trace.flush())
-    assert.equal(attempts, 1)
+    assert.equal(attempts, thrown ? 2 : 1)
     assert.equal(reports[0].event, 'AUTOMATION_TRACE_FLUSH_FAILED')
     assert.equal(reports[0].code, thrown ? 'PROCESSING_FAILED' : '42501')
     assert.ok(!JSON.stringify(reports).includes('private-value'))
@@ -187,6 +187,52 @@ test('unfinished steps are visible as incomplete and invalid event ids never wri
   assert.equal(stored[1].error_code, 'TRACE_STEP_NOT_FINISHED')
   const invalid = new AutomationExecutionTrace([{ id: 'not-an-event' }], { persist: async () => { assert.fail('invalid id must not persist') } })
   await invalid.flush()
+})
+
+test('checkpoints retry transient writes, omit ongoing steps and update only changed rows', async () => {
+  const writes: Record<string, unknown>[][] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => {
+    writes.push(rows)
+    return writes.length === 1 ? { error: { code: '57014' } } : {}
+  } })
+  const pending = trace.start('response_coverage', 'Revisión', 'decision', 'fixture')
+  const checkpoint = await trace.flush(false)
+  assert.equal(checkpoint.status, 'complete')
+  assert.equal(checkpoint.expected_steps, 1)
+  assert.equal(writes.length, 2)
+  assert.equal(writes.flat().some(row => row.step_key === 'response_coverage'), false)
+  trace.finish(pending, 'succeeded')
+  const final = await trace.flush()
+  assert.equal(final.status, 'complete')
+  assert.equal(final.saved_steps, 2)
+  assert.equal(writes[2].length, 1)
+  assert.equal(writes[2][0].step_key, 'response_coverage')
+  await trace.flush()
+  assert.equal(writes.length, 3)
+})
+
+test('a failed large snapshot cannot prevent later delivery rows being saved', async () => {
+  const writes: Record<string, unknown>[] = [], reports: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => {
+    if (rows.some(row => row.step_key === 'model_request')) return { error: { code: '22001' } }
+    writes.push(...rows); return {}
+  }, report: row => reports.push(row) })
+  trace.add('model_request', 'Modelo', 'ai', 'fixture', 'succeeded', {
+    prompt_snapshot: { capture_version: 2, instructions: 'a'.repeat(110000), data: { many: 'b'.repeat(110000) } },
+  })
+  trace.add('message_delivery', 'Envío', 'output', 'fixture', 'succeeded', {}, { provider_status: 'accepted' })
+  const result = await trace.flush()
+  assert.equal(result.status, 'partial')
+  assert.ok(writes.some(row => row.step_key === 'message_delivery'))
+  assert.ok(result.saved_steps < result.expected_steps)
+  assert.equal(reports[0].code, '22001')
+})
+
+test('overlong identity documents leave no visible numeric suffix in traces', () => {
+  const number = '01010203120312031203'
+  assert.equal(traceText(number), '[dato protegido]')
+  const safe = JSON.stringify(sanitizeTraceSummary({ financing_identity: { given_names: 'Persona', document: number }, message: number }))
+  assert.doesNotMatch(safe, /Persona|1203/)
 })
 
 test('audit summaries preserve commercial budgets while removing credentials and contact identifiers', () => {

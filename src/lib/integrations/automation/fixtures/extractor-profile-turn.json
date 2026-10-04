@@ -1,4 +1,6 @@
 {
+  "financing_identity": null,
+  "financing_amounts": [],
   "events": [],
   "preferred_category": null,
   "purchase_purpose": null,

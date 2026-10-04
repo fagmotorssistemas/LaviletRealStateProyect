@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
+import { financingDocument } from './financing-identity'
 const events = new Set(['declared_unit_type', 'declared_purchase_purpose', 'asked_location_features', 'asked_delivery_date',
   'asked_price', 'asked_financing', 'requested_visit', 'asked_reservation', 'nutrition_response'])
 
@@ -60,14 +61,13 @@ export function normalizedVisitIntent(raw: unknown, message: string): Row | null
   return { kind, evidence, confidence: 'high' }
 }
 
-export function normalizeEvents(raw: unknown, message: string): Row {
+export function normalizeEvents(raw: unknown, message: string, awaitingDocument = false): Row {
   const data = object(raw)
   const nullableText = (key: string) => text(data[key]).trim() || null
   const positive = (key: string) => typeof data[key] === 'number' && Number.isFinite(data[key]) && Number(data[key]) >= 0 ? data[key] : null
   const chosenEvents = [...new Set(['first_response', ...(Array.isArray(data.events) ? data.events.filter(e => typeof e === 'string' && events.has(e)) : [])])]
-  const digitsInMessage = message.replace(/[\s-]/g, '')
-  const nationalId = text(data.national_id).replace(/\D/g, '')
-  const ruc = text(data.ruc).replace(/\D/g, '')
+  const document = financingDocument(object(data.financing_identity).document || data.national_id || data.ruc
+    || (awaitingDocument && /^[\d\s.-]+$/.test(message.trim()) ? message.trim() : ''), message)
   const evidence = object(data.declaration_evidence)
   const supported = (key: string) => {
     const quote = normalized(text(evidence[key]))
@@ -91,8 +91,11 @@ export function normalizeEvents(raw: unknown, message: string): Row {
     financing_consent: typeof data.financing_consent === 'boolean' ? data.financing_consent : null,
     financing_partner: nullableText('financing_partner'), full_name: nullableText('full_name'),
     applicant_type: ['empleado', 'independiente'].includes(text(data.applicant_type)) ? data.applicant_type : null,
-    national_id: nationalId.length === 10 && digitsInMessage.includes(nationalId) ? nationalId : null,
-    ruc: ruc.length === 13 && digitsInMessage.includes(ruc) ? ruc : null,
+    national_id: document.national_id,
+    ruc: null,
+    financing_identity: object(data.financing_identity),
+    financing_amounts: data.financing_amounts,
+    document_validation: document,
     employment_stability_months: Number.isInteger(positive('employment_stability_months')) ? positive('employment_stability_months') : null,
     job_title: nullableText('job_title'), monthly_income: positive('monthly_income'),
   }

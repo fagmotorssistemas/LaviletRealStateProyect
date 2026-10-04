@@ -43,6 +43,12 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   if (audit.source === 'clarify_previous_choice') obligations.push({ id: 'clarify_previous_choice',
     ...object(audit.choice_clarification) })
   const financing = object(verified.etapa_financiamiento)
+  if (audit.financing_collection) obligations.push({ id: 'financing_collection', ...object(audit.financing_collection),
+    instruction: 'Conserve el siguiente dato pendiente del trámite indicado en next_question. Si document_validation indica invalid_length o incomplete, explique la longitud y solicite la cédula corregida, sin agradecerla como correcta. Si legal_name_complete=false y el siguiente dato es nombre, pida/aclare todos los nombres y apellidos, aceptando uno solo cuando el lead lo confirme. No sustituya esta captura por empleo, ingresos u otro campo. Nunca solicite RUC. No exija copiar una frase exacta.' })
+  const balance = object(verified.financing_balance)
+  if (['shortfall', 'excess'].includes(text(balance.status)) && (audit.source === 'financing_question'
+    || Array.isArray(object(verified.semantica_turno).financing_amounts) && (object(verified.semantica_turno).financing_amounts as unknown[]).length))
+    obligations.push({ id: 'financing_balance', ...balance })
   if (financing.stage === 'explain_and_offer' && (audit.source === 'financing_question'
     || rows(verified.solicitudes_interpretadas).some(r => r.domain === 'financing'))) obligations.push({ id: 'financing_orientation',
     instruction: 'Explique brevemente el procedimiento y las entidades autorizadas y pregunte si desea continuar con la revisión por este chat. La pregunta debe tener ese único objeto; no mezcle aceptar información con aceptar revisión o contacto. No ofrezca asignar un contacto ni solicite datos financieros todavía.' })

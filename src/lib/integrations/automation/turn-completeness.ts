@@ -3,6 +3,7 @@ import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
 import { semanticCatalogContext, SEMANTIC_OPENING_RULE } from './semantic-catalog-context'
 import { taskVerifiedContext, taskModelEvidence, addTaskQueryEvidence, TASK_CONTEXT_RULES } from './task-context'
+import { FINANCING_COLLECTION_WRITER_RULES } from './financing-prompt'
 import { catalogCostBaseline } from './catalog-cost-baseline'
 import { withPromptCostComparison } from './prompt-cost-comparison'
 import { turnBudgetAssessment, effectiveTurnBudget, budgetContinuationInstruction } from './turn-budget'
@@ -541,7 +542,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Recopilación financiera', financingCollectionActive(input.audit || {}) && FINANCING_COLLECTION_RULE],
       ['Resultados vacíos de catálogo', 'Si una búsqueda completa no tiene resultados, explique esa ausencia dentro de sus filtros. No invente una unidad para justificarla. Si bedrooms_required=true, respete ese requisito: no insista en unidades con menos dormitorios que el cliente acaba de descartar. No afirme máximos ni alternativas que no estén respaldados por evidencia_turno.groups o alternative_results. No ofrezca propiedades fuera del catálogo autorizado.'],
     ]
-    const instructions = promptSections(optimizedPrompt ? writerSections.map(([title, rules]): [string, string | false] => {
+    const instructions = optimizedPrompt && input.audit?.financing_collection
+      && object(input.verified.prompt_context_selection).task === 'financing'
+      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES]])
+      : promptSections(optimizedPrompt ? writerSections.map(([title, rules]): [string, string | false] => {
       if (title === 'Prioridades y obligaciones del turno') return [title, (financialTask ? FINAL_WRITER_RULES : CATALOG_WRITER_RULES)
         + '\ncontrato_turno y obligaciones_del_turno determinan la necesidad actual. El historial solo resuelve continuidad; no cambia la búsqueda ni autoriza acciones. Cumpla los datos pendientes y enlaces requeridos.']
       if (title === 'Continuidad residencial' && object(input.audit?.catalog_query).group !== 'residential') return [title, false]

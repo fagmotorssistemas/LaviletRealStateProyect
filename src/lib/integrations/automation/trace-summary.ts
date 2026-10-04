@@ -4,7 +4,7 @@ const internalIdKey = /^(?:id|policy_id|batch_id|batch_event_ids|event_id|event_
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const replyTextKey = /^(?:(?:base|proposed|final|approved|candidate|response|rejected)_preview|(?:approved|candidate|final|policy)_text|policy_content|before|after)$/
 
-const privateKey = /^(?:.*_)?(?:authorization|password|secret|token|api_key|access_token|refresh_token|phone|telefono|mobile|email|correo|cedula|dni|identificacion|national_id|full_name|ruc|job_title|employment_stability_months|account_number|numero_cuenta|salary|salario|sueldo|income|ingresos|employer|empleador|financial_documents|personal_data)$/i
+const privateKey = /^(?:.*_)?(?:authorization|password|secret|token|api_key|access_token|refresh_token|phone|telefono|mobile|email|correo|cedula|dni|identificacion|national_id|full_name|legal_name|given_names|surnames|financing_identity|document|ruc|job_title|employment_stability_months|account_number|numero_cuenta|salary|salario|sueldo|income|ingresos|employer|empleador|financial_documents|personal_data)$/i
 
 /** Audit previews are deliberately smaller than the protected conversation history. */
 export function traceText(value: unknown, max = 360) {
@@ -18,7 +18,7 @@ export function traceText(value: unknown, max = 360) {
     })
     .replace(/\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]+/gi, '[credencial protegida]')
     .replace(/[\w.+-]{1,64}@[\w.-]{1,253}\.[A-Za-z]{2,63}/g, '[correo protegido]')
-    .replace(/(?:\+?\d[\s().-]*){10,16}/g, '[dato protegido]')
+    .replace(/(?:\+?\d[\s().-]*){10,}/g, '[dato protegido]')
     .replace(/\s+/g, ' ').trim().slice(0, max)
 }
 
@@ -59,7 +59,7 @@ export function sanitizePromptSnapshot(value: unknown): Summary {
       const protectedText = input
         .replace(/\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]+/gi, '[credencial protegida]')
         .replace(/[\w.+-]{1,64}@[\w.-]{1,253}\.[A-Za-z]{2,63}/g, '[correo protegido]')
-        .replace(/(?:\+?\d[\s().-]*){10,16}/g, '[dato protegido]')
+        .replace(/(?:\+?\d[\s().-]*){10,}/g, '[dato protegido]')
         .replace(/https?:\/\/[^\s<>]+/gi, raw => {
           try { const url = new URL(raw); return url.search ? `${url.origin}${url.pathname} [parámetros protegidos]` : raw }
           catch { return raw }

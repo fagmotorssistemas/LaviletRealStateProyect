@@ -132,14 +132,13 @@ describe('property selection journey', () => {
     assert.doesNotMatch(result?.reply || '', /300\.000|rango|Banco Pichincha/i)
   })
 
-  it('does not start financing until a unit and budget status are known', () => {
+  it('requires a selected unit, without restarting budget discovery after selection', () => {
     const withoutUnit = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite' } }), 'Quiero financiamiento')
     assert.match(withoutUnit, /primero definamos qué suite/i)
     assert.match(withoutUnit, /presupuesto aproximado/i)
 
     const withoutBudget = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite', unit_id: suite210.id } }), 'Quiero financiamiento')
-    assert.match(withoutBudget, /suite 210/i)
-    assert.match(withoutBudget, /presupuesto o capital aproximado/i)
+    assert.equal(withoutBudget, '')
 
     const ready = financingPrerequisiteReply(baseInfo({ lead: {
       preferred_category: 'suite', unit_id: suite210.id,

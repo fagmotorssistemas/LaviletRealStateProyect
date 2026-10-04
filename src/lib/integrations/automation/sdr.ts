@@ -271,6 +271,11 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (info.posicionamiento_proyecto && /asegur|garanti/i.test(current) && /precio|rentab|subir|plusval|valori/i.test(current)) {
     return { reply: 'La ubicación en Puertas del Sol es parte del atractivo para invertir. Podemos comparar las opciones según sus objetivos, pero no podemos garantizar que el precio suba ni una rentabilidad futura.', audit: { source: 'investment_expectations', rewritten: false, review_reasons: [], fallback: false } }
   }
+  // The opt-in route already has a final writer and review with selected facts.
+  // Do not pay for an earlier full-catalogue draft of the same response.
+  if (info.final_review_follows === true && object(info.catalog_search).embeddingsEnabled === true)
+    return { reply: '', audit: { source: 'commercial', rewritten: false, fallback: false,
+      drafting_deferred_to_final_writer: true, sales_action: plan.action, sales_topics: plan.topics } }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'),
     info.final_review_follows === true ? Promise.resolve('') : activePrompt('revisor_respuesta')])
   const writerInfo = { ...info }

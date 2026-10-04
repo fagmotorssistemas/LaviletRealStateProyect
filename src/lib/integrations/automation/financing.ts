@@ -9,7 +9,7 @@ export async function financingContext(lead: Row) {
   const [partners, qualification] = await Promise.all([
     db().from('project_financing_partners').select('public_enabled,test_only,test_phone,public_name,financing_options')
       .match(scope).eq('public_enabled', true),
-    db().from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,job_title,employment_stability_months,applicant_type,monthly_income')
+    db().from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,job_title,employment_stability_months,applicant_type,monthly_income,legal_name,legal_name_confirmed,national_id')
       .match(scope).eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(1),
   ])
   if (partners.error || qualification.error) throw new Error('FINANCING_CONTEXT_FAILED')
@@ -106,7 +106,7 @@ export function financingReply(fin: Row, partners: string[], unsupported = '') {
     nombre_pendiente: '¿Me confirma su nombre completo para la revisión?', cedula_pendiente: '¿Me indica su número de cédula, por favor?',
     tipo_solicitante_pendiente: '¿Trabaja bajo relación de dependencia o de manera independiente?',
     estabilidad_pendiente: '¿Cuánto tiempo lleva trabajando en su empleo actual?', cargo_pendiente: '¿Cuál es su cargo actual?',
-    ingreso_pendiente: '¿Cuál es su ingreso mensual aproximado?', ruc_pendiente: '¿Me indica su número de RUC, por favor?',
+    ingreso_pendiente: '¿Cuál es su ingreso mensual aproximado?',
     lista_para_revision: 'Ya tenemos los datos iniciales para que el equipo revise su caso.',
     continuacion_pendiente: fin.selected_partner_name
       ? `Podemos continuar con ${text(fin.selected_partner_name)}. ¿Le gustaría que iniciemos la revisión de su caso?`

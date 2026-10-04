@@ -13,6 +13,8 @@ import { replyLinkContract, replyLinkIssues } from './response-plan'
 import { completeTurnReply } from './turn-completeness'
 import { resolvePropertyTurn } from './property-context'
 import { reviewObligations } from './focused-review'
+import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { FINANCING_COLLECTION_WRITER_RULES } from './financing-prompt'
 
 const fixture = JSON.parse(readFileSync('scripts/fixtures/financing-acceptance.json', 'utf8'))
 const rows = (v: unknown): Row[] => Array.isArray(v) ? v.map(object) : []
@@ -37,6 +39,62 @@ function info(): Row {
     hechos_confirmados: { budget: { status: 'maximum_total', amount: 100000, confidence: 'high', evidence: '100 mil' } },
   }
 }
+
+test('legal-name collection uses selected-unit context, preserves the next field and one final writer/reviewer', async () => {
+  const current = 'ya mi nombre es Carlos'
+  const next = '¿Me indica todos sus nombres y apellidos tal como aparecen en su cédula?'
+  const audit = { source: 'financing', semantic_review_enabled: true, business_risk_review_enabled: true,
+    financing_collection: { state: 'nombre_pendiente', legal_name_complete: false, next_question: next } }
+  const verified = { ...info(), property_context: { selected_ids: ['d502'] },
+    solicitudes_interpretadas: [{ domain: 'financing', request: 'Proporcionar nombre', evidence: current, confidence: 'high' }] }
+  const compact = taskVerifiedContext(verified, audit, current)
+  assert.deepEqual(rows(compact.catalogo).map(u => u.id), ['d502'])
+  assert.equal(rows(compact.instalaciones).length, 0)
+  assert.equal(rows(compact.lugares_cercanos).length, 0)
+  assert.equal(taskVerifiedContext({ ...verified, catalog_search: { embeddingsEnabled: false } }, audit, current).catalogo, verified.catalogo)
+  const calls: string[] = [], failures: string[] = []
+  const result = await completeTurnReply({ current, baseReply: next, verified: compact, audit },
+    async (instructions, input, _schema, _image, _file, _tone, task = 'data') => {
+      try {
+        calls.push(task)
+        const obligations = rows(object(input).obligaciones_del_turno)
+        if (task === 'writing') {
+          assert.ok(instructions.includes(FINANCING_COLLECTION_WRITER_RULES))
+          assert.ok(instructions.length < 5000)
+          assert.ok(obligations.some(o => o.id === 'financing_collection' && o.next_question === next))
+          return { reply: next, requests: [{ fragment: 'R1', intent: 'Nombre', request_type: 'general_information',
+            status: 'answered', evidence: 'Solicita nombre legal completo', fact_key: 'none' }],
+          question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'nombres y apellidos completos', next_decision: 'continuar recopilación' } }
+        }
+        assert.ok(obligations.some(o => o.id === 'financing_collection'))
+        return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+      } catch (error) { failures.push(String(error)); throw error }
+    })
+  assert.deepEqual(failures, [])
+  assert.equal(result.reply, next)
+  assert.equal(result.audit.status, 'checked')
+  assert.deepEqual(calls, ['writing', 'review'])
+})
+
+test('a deferred commercial draft can be completed and reviewed without an empty-response fallback', async () => {
+  const current = '¿Cómo podemos continuar?', reply = 'Podemos seguir con la revisión. ¿Con cuál entidad desea continuar?'
+  const calls: string[] = []
+  const verified = { ...info(), property_context: { selected_ids: ['d502'] },
+    financiamiento: { ...finance, journey: { accepted: true } },
+    solicitudes_interpretadas: [{ domain: 'financing', request: 'Continuar revisión', evidence: current }] }
+  const audit = { source: 'commercial', drafting_deferred_to_final_writer: true, semantic_review_enabled: true, business_risk_review_enabled: true }
+  const result = await completeTurnReply({ current, baseReply: '', verified: taskVerifiedContext(verified, audit, current), audit },
+    async (_instructions, _input, _schema, _image, _file, _tone, task = 'data') => {
+      calls.push(task)
+      return task === 'writing' ? { reply, requests: [{ fragment: 'R1', intent: 'Continuar', request_type: 'general_information',
+        status: 'answered', evidence: 'Se pregunta entidad', fact_key: 'none' }],
+      question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'entidad', next_decision: 'continuar' } }
+        : { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+    })
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.status, 'checked')
+  assert.deepEqual(calls, ['writing', 'review'])
+})
 
 test('recorded acceptance with a follow-up question stays in financing instead of requesting a human', async () => {
   const interpreted = await interpretConversationTurn({ mensaje_actual: fixture.message,

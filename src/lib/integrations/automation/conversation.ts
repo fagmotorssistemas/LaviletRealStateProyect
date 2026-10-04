@@ -32,6 +32,8 @@ import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-requ
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat, priceFinancingReply } from './financing'
+import { financingIdentity, financingNameQuestion } from './financing-identity'
+import { financingAmounts, financingBalance } from './financing-amounts'
 import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply, visitHoursWereOffered } from './visit-intake'
 import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
 import { commercialMemory, isProjectInformationRequest, rememberCommercialReply, projectInformationChoiceReply, projectInformationReply, projectOverviewReply } from './commercial-experience'
@@ -150,6 +152,7 @@ async function register(events: Inbound[], guard: Guard) {
 export async function processConversation(rows: Row[], guard: Guard, inferenceDeadlineAt?: number) {
   const trace = traceForEvents(rows)
   const delivery = { replyWriteAttempted: false }
+  let completedResult: Row | undefined
   let superseded = false
   const inferenceGuard = async () => {
     await guard()
@@ -166,13 +169,15 @@ export async function processConversation(rows: Row[], guard: Guard, inferenceDe
     trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
       ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
       { action: result.action, reason: object(result).reason || result.action })
+    completedResult = result
     return result
   } catch (error) {
     trace.failOpenSteps(error)
     if (superseded && !delivery.replyWriteAttempted) return { action: 'superseded_or_paused', reason: 'NEW_INPUT_PENDING' }
     throw delivery.replyWriteAttempted ? error : new PreReplySendError(error)
   } finally {
-    await trace.flush()
+    const persistence = await trace.flush()
+    if (completedResult) completedResult.trace_persistence = persistence
   }
 }
 async function processConversationWithTone(rows: Row[], guard: Guard, trace: AutomationExecutionTrace, delivery: { replyWriteAttempted: boolean }) {
@@ -594,7 +599,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if(financeContinuation) Object.assign(extracted,financeContinuation)
   const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
   summary._financing_journey = financingJourney(object(previousSummary._financing_journey), financeInput, activeLast.externalId)
+  summary._financing_identity = financingIdentity(object(previousSummary._financing_identity), extracted.financing_identity, current, text(state.ultima_respuesta))
+  summary._financing_amounts = financingAmounts(object(previousSummary._financing_amounts), extracted.financing_amounts, current)
   const financeSelection = { lead, catalogo: turnCatalog, referencia_unidad: reference, property_context: reference.context }
+  const financingAccepted = financingStage({ ...financeSelection,
+    financiamiento: { ...finance, journey: summary._financing_journey } }).accepted === true
+  const financingDataTurn = financingAccepted && !!selectedFinancingUnit(financeSelection)
+    && (['given_names', 'surnames', 'complete_name_confirmation', 'document'].some(key => !!object(extracted.financing_identity)[key])
+      || !['absent', 'unsubstantiated'].includes(text(object(extracted.document_validation).status))
+      || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null))
   const resumeFinancing = canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
   // Reuse the accepted review only when its missing prerequisite is now satisfied.
   if (resumeFinancing) financeInput.consent = true
@@ -630,7 +643,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
     && isProfileOnlyTurn(current, { ...extracted, turn_semantics: turnSemantics })
-  const financeTurn = !extracted.requested_advisor && !extracted.opt_out && (resumeFinancing || financeInput.consent === true
+  const financeTurn = !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
     || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)))
   if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
   if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
@@ -1047,7 +1060,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!reply) {
     await guard()
     {
-      const financeAnswer = priceTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta), extracted)
+      const financeAnswer = priceTurn || financingDataTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta), extracted)
       let financePrerequisite = ''
       if (financeTurn && !financeAnswer) {
         const selectionInfo = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
@@ -1058,11 +1071,16 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       // A question about a product is not an application or consent to collect personal data.
       let fin: Row = {}, financeFailure = ''
       if (financeTurn && !financeAnswer && !financePrerequisite) {
-        if (object(summary._financing_journey).accepted === true && selectedFinancingUnit({ ...financeSelection, lead })) extracted.financing_consent = true
-        try { fin = object(await rpc('process_financing_message_v2', { p_lead_id: lead.id,
+        if (financingAccepted && selectedFinancingUnit({ ...financeSelection, lead })) extracted.financing_consent = true
+        const identity = object(summary._financing_identity)
+        try { fin = object(await rpc('process_financing_message_v3', { p_lead_id: lead.id,
         p_asked_financing: (extracted.events as string[]).includes('asked_financing') || !!financeInput.partner,
-        ...Object.fromEntries(['financing_consent', 'financing_partner', 'full_name', 'applicant_type', 'national_id',
+        ...Object.fromEntries(['financing_consent', 'financing_partner', 'applicant_type', 'national_id',
           'employment_stability_months', 'job_title', 'monthly_income', 'ruc'].map(key => ['p_' + key, extracted[key]])),
+        p_full_name: identity.full_name || null, p_name_complete: identity.complete === true,
+        // A newly supplied invalid document supersedes an old ID. Empty clears
+        // it; null means no document update, so an old value cannot authorize handoff.
+        p_national_id: ['invalid_length', 'incomplete'].includes(text(object(extracted.document_validation).status)) ? '' : extracted.national_id,
         p_source_message_id: activeLast.externalId, p_current_message: current })) }
         catch (error) {
           // Do not replay a financial write whose outcome is uncertain. Preserve
@@ -1111,9 +1129,18 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       } else if (fin.active === true) {
         try {
           reply = avoidFinancingRepeat(financingReply(fin, finance.partners, financeInput.unsupported), current, text(state.ultima_respuesta), fin, finance.partners)
+          const document = object(extracted.document_validation)
+          if (['invalid_length', 'incomplete'].includes(text(document.status))) reply = text(document.instruction)
+          else if (['identificacion_pendiente', 'nombre_pendiente'].includes(text(fin.state))
+            || object(summary._financing_identity).complete !== true
+              && (object(extracted.financing_identity).given_names || object(extracted.financing_identity).surnames))
+            reply = financingNameQuestion(object(summary._financing_identity))
           const selectedPartner = text(fin.selected_partner_name) || financeInput.partner
           if (selectedPartner && financeInput.partner && !reply.includes(selectedPartner)) reply = `Continuamos con ${selectedPartner}. ` + reply
-          audit = { source: 'financing', state: fin.state || fin.financing_state, selected_partner: selectedPartner }
+          audit = { source: 'financing', state: fin.state || fin.financing_state, selected_partner: selectedPartner,
+            financing_collection: { state: fin.state, next_question: reply,
+              legal_name_complete: fin.legal_name_confirmed === true, document_validation: document,
+              instruction: 'Solicite el siguiente dato pendiente indicado; no lo sustituya por otro campo, no solicite RUC y no repita características de la unidad. Atienda primero una identificación incompleta o inválida si fue enviada.' } }
         } catch (error) {
           if (!(error instanceof Error) || error.message !== 'UNKNOWN_FINANCING_STATE') throw error
           reply = await transferToAdvisor('continuar la revisión de financiamiento y comprobar los datos que faltan' + (financeInput.partner ? ' con ' + financeInput.partner : ''), { rule_id: 'financing.unknown_state', origin: 'operational', caused_by_step: semanticStep })
@@ -1274,6 +1301,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           : commercialPromptRoute
             ? { kind: 'prompt', label: 'Conversación y orientación comercial', href: '/inmobiliaria/automatizacion/guion#respuestas', source: 'sdr.ts · respuesta_comercial' }
             : { kind: 'code', label: 'Ruta especializada de respuesta', source: `conversation.ts · ruta ${text(audit.source)}` } }) })
+  await trace.flush(false)
   if (!finalNotice && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'vehicle_out_of_scope', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
     const commercialInfo: Row = !scopeOnlyReview || businessScope.uncertain
@@ -1300,6 +1328,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
     info.financiamiento = { ...object(info.financiamiento), journey: summary._financing_journey }
+    info.financing_amounts = summary._financing_amounts
+    info.financing_balance = financingBalance(object(summary._financing_amounts), selectedFinancingUnit(info), object(info.politica_comercial).precios_autorizados === true)
     info.etapa_financiamiento = financingStage(info)
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const costBaseline = object(info.catalog_search).embeddingsEnabled === true
@@ -1533,6 +1563,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (newerError) throw new Error('NEW_INPUT_CHECK_FAILED')
     return !newer
   }
+  await trace.flush(false)
   const deliveryStep = trace.start('message_delivery', 'Enviar respuesta', 'output', 'kommo.ts · register_outbound_message', {
     provider: 'kommo_salesbot', response_length: reply.length,
   })

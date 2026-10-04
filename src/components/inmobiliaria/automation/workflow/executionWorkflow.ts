@@ -37,6 +37,7 @@ export interface WorkflowExecution {
   traceAvailable: boolean
   traceSource?: 'recorded' | 'inferred'
   traceWarning?: string | null
+  tracePersistence?: Record<string, unknown>
   stopReason?: string | null
   versions?: Record<string, unknown>
   steps: WorkflowExecutionStep[]

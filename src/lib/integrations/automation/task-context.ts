@@ -18,9 +18,10 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   const semantics = object(verified.semantica_turno), property = object(semantics.property)
   const context = object(verified.property_context), query = object(context.query)
   const finance = domains.size === 1 && domains.has('financing') || /^financing/.test(source)
+  const collectionOnly = !!audit.financing_collection && !domains.has('visit') && !domains.has('property')
   const budget = object(object(verified.semantica_turno).budget)
   const newBudget = budget.confidence === 'high' && ['amount', 'maximum_total'].includes(text(budget.status))
-  const financeOnly = finance && !domains.has('property') && !domains.has('visit')
+  const financeOnly = collectionOnly || finance && !domains.has('property') && !domains.has('visit')
     && source !== 'financing_selection_required' && !newBudget
   const generalPrice = source === 'unit_price' && !rows(verified.referencia_unidad && object(verified.referencia_unidad).matches).length
     && !rows(object(verified.property_context).selected_ids).length
@@ -54,6 +55,10 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   }
   const project = object(verified.proyecto)
   if (financeOnly) result.proyecto = { name: project.name, address: project.address }
+  if (collectionOnly) {
+    result.instalaciones = []; result.lugares_cercanos = []; result.contexto_sector = []
+    result.financing_collection = audit.financing_collection
+  }
   delete result.posicionamiento_proyecto
   result.prompt_context_selection = { version: 'task-context-v1', mode: 'task_context', task,
     embedding_applied: object(audit.catalog_retrieval).applied === true,

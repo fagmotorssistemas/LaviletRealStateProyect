@@ -122,7 +122,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
     covered_requests: Array.isArray(audit.covered_requests) ? audit.covered_requests : [],
     ...replyLinkContract(baseReply, audit, context),
     required_numbers: strings(explicit.required_numbers),
-    next_question: text(pending.question || object(audit.progressive_selection).question || object(audit.post_tour_continuation).question) || null,
+    next_question: text(object(audit.financing_collection).next_question || pending.question || object(audit.progressive_selection).question || object(audit.post_tour_continuation).question) || null,
     operational_state: { source, action: text(audit.action) || null, reservation: object(audit.reservation),
       registration_verified: audit.registration_verified === true, request_id: text(audit.request_id) || null,
       preference: object(audit.preference), pending_question: pending },

@@ -152,7 +152,9 @@ export async function GET(request: Request) {
         message: traceText(content, 600),
         traceAvailable: steps.length > 0,
         traceSource: trace.traceSource,
-        traceWarning: stepQuery.error ? 'AUDIT_READ_FAILED' : !steps.length ? 'NO_RECORDED_STEPS' : null,
+        traceWarning: stepQuery.error ? 'AUDIT_READ_FAILED' : !steps.length ? 'NO_RECORDED_STEPS'
+          : ['partial', 'failed'].includes(text(object(result.trace_persistence).status)) ? 'TRACE_WRITE_INCOMPLETE' : null,
+        tracePersistence: sanitizeTraceSummary(object(result.trace_persistence)),
         stopReason: trace.stopReason,
         versions: trace.versions,
         steps,

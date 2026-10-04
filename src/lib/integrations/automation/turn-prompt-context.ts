@@ -22,7 +22,7 @@ function catalogModelContext(context: Row): Row {
   const result = { ...context }, verified = { ...object(context.contexto_verificado) }
   const audit = object(context.estado_operativo)
   result.estado_operativo = Object.fromEntries(['source', 'profile_introduction', 'pending_question', 'catalog_coverage',
-    'action', 'reservation', 'visit_result', 'handoff_result', 'action_result', 'choice_clarification', 'unit_model'].filter(k => audit[k] != null).map(k => [k, audit[k]]))
+    'action', 'reservation', 'visit_result', 'handoff_result', 'action_result', 'choice_clarification', 'unit_model', 'financing_collection'].filter(k => audit[k] != null).map(k => [k, audit[k]]))
   for (const key of ['estado_operativo', 'catalog_retrieval', 'catalog_results', 'catalog_query', 'catalog_summary',
     'semantica_turno', 'solicitudes_interpretadas', 'referencia_unidad', 'hechos_confirmados', 'historial', 'catalogo',
     'siguiente_pregunta', 'continuidad_residencial', '_sales_memory', 'fecha', 'unidades_consultadas']) delete verified[key]

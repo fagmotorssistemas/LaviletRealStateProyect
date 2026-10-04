@@ -41,6 +41,19 @@ test('in-progress inbound is returned with stable lead identity before trace ste
 })
 const request = cursor => new Request(`http://localhost/api/integrations/automation/workflow${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
 
+test('a partial audit write stays explicit even when some steps were successfully saved', async () => {
+  reset()
+  state.tables.lv_integration_events = { data: [{ ...event(1), result: { action: 'accepted',
+    trace_persistence: { status: 'partial', saved_steps: 3, expected_steps: 10, error_code: '57014' } } }], error: null }
+  state.tables.lv_automation_execution_steps = { data: [{ event_id: id(1), step_order: 1, step_key: 'message_delivery',
+    status: 'succeeded', input_summary: {}, output_summary: { provider_status: 'accepted' } }], error: null }
+  const body = await (await GET(request())).json()
+  assert.equal(body.executions[0].traceAvailable, true)
+  assert.equal(body.executions[0].traceWarning, 'TRACE_WRITE_INCOMPLETE')
+  assert.equal(body.executions[0].tracePersistence.saved_steps, 3)
+  assert.equal(body.executions[0].steps.length, 1)
+})
+
 test('unauthenticated, non-admin and inaccessible tenants do not read privileged tables', async () => {
   reset(); state.session = null
   assert.equal((await GET(request())).status, 401)

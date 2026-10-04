@@ -30,6 +30,27 @@ export function normalizeInactiveInterpretation(raw: Row): Row {
     ...(visit.kind === 'none' ? { visit_intent: { ...visit, evidence: '', confidence: 'low' } } : {}) }
 }
 
+/** A known subject of a financing question is continuity, not a new property
+ * declaration. Drop only a proven echo; never repair a new selection this way. */
+export function reconcileFinancingReference(raw: Row, input: Row, current: string): Row {
+  const semantics = object(raw.turn_semantics), property = object(semantics.property)
+  if (semantics.primary_intent !== 'ask_financing' || text(property.evidence).trim()
+    || !['none', 'details'].includes(text(property.operation))
+    || rows(raw.requests).some(r => r.domain === 'property')
+    || hasValue(property.filters) || hasValue(property.excluded_categories) || hasValue(property.selector)) return raw
+  const context = object(input.contexto_propiedades)
+  const ids = Array.isArray(context.selected_ids) ? context.selected_ids.map(text) : []
+  const units = rows(input.catalogo_unidades).filter(unit => ids.includes(text(unit.id)))
+  const numbers = Array.isArray(property.unit_numbers) ? property.unit_numbers.map(text) : []
+  if (units.length !== 1 || !numbers.length || numbers.some(n => n !== text(units[0].unit_number)
+    || new RegExp(`(?:^|\\W)${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:$|\\W)`).test(current))) return raw
+  if (property.category && property.category !== units[0].category) return raw
+  return { ...raw, unit_id: null, turn_semantics: { ...semantics, property: {
+    ...property, operation: 'none', reference_kind: 'none', query_scope: null,
+    group: null, category: null, unit_numbers: [], evidence: '', confidence: 'low',
+  } } }
+}
+
 /** Interpretation needs identities and continuity, not repeated commercial inventories. */
 export function interpretationInput(input: Row, current: string): Row {
   const summary = object(input.resumen)
@@ -41,7 +62,7 @@ export function interpretationInput(input: Row, current: string): Row {
   return { ...result,
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
-    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey']),
+    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts']),
       _turn_intent: pick(object(summary._turn_intent), ['objective', 'subject', 'continuation_goal', 'pending_question']) },
     contexto_propiedades: pick(object(input.contexto_propiedades), ['query', 'selected_ids', 'candidate_ids', 'comparison_ids',
       'offered_ids', 'focused_ids', 'phase', 'preference_transition', 'pending_question']),

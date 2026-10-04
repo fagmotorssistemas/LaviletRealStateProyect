@@ -7,9 +7,12 @@ import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
 import { promptSections } from './prompt-sections'
 import { CATALOG_REQUEST_SCHEMA, CATALOG_REQUEST_RULES, normalizeCatalogRequest } from './catalog-request'
+import { FINANCING_IDENTITY_SCHEMA, FINANCING_IDENTITY_RULES } from './financing-identity'
+import { FINANCING_AMOUNTS_SCHEMA, FINANCING_AMOUNTS_RULES, financingAmounts } from './financing-amounts'
+import { compactFinancingExtraction, FINANCING_EXTRACTION_RULES } from './financing-prompt'
 import { PENDING_REQUEST_RULES } from './pending-inbound'
 import { reconcileHistoricalInterpretation, rememberInterpretationFacts } from './interpretation-memory'
-import { interpretationInput, interpretationSourceIssues, normalizeInactiveInterpretation, mergeInterpretationRepair, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
+import { interpretationInput, interpretationSourceIssues, normalizeInactiveInterpretation, mergeInterpretationRepair, reconcileFinancingReference, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
 
 export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v3'
 
@@ -38,6 +41,8 @@ export const TURN_EXTRACTION_SCHEMA = closedObject({
   financing_consent: { type: ['boolean', 'null'] },
   financing_partner: nullableString,
   full_name: nullableString,
+  financing_identity: FINANCING_IDENTITY_SCHEMA,
+  financing_amounts: FINANCING_AMOUNTS_SCHEMA,
   residence_city: nullableString,
   residence_country: nullableString,
   declared_location: nullableObject({ city: nullableString, country: nullableString,
@@ -103,7 +108,12 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   let raw: Row = {}, promptRevision: string | null = null
   const historicalFields = new Set<string>()
   const reconcile = (value: Row) => {
-    const result = reconcileHistoricalInterpretation(value, readable, object(input.resumen))
+    const amounts = financingAmounts({}, value.financing_amounts, readable)
+    const semantics = object(value.turn_semantics), budget = object(semantics.budget)
+    if (!amounts.total_budget && ['loan', ...(budget.status === 'initial_capital' ? [] : ['down_payment'])]
+      .some(role => object(amounts[role]).evidence === budget.evidence && object(amounts[role]).amount === budget.amount)) value = { ...value,
+      turn_semantics: { ...semantics, budget: { status: 'not_discussed', amount: null, evidence: '', confidence: 'low' } } }
+    const result = reconcileHistoricalInterpretation(reconcileFinancingReference(value, input, readable), readable, object(input.resumen))
     result.fields.forEach(field => historicalFields.add(field))
     return normalizeInactiveInterpretation(result.raw)
   }
@@ -131,12 +141,15 @@ Una pregunta nueva sobre dormitorios o tamaño NO es una respuesta negativa al p
 El historial puede identificar una referencia implícita; diferencie esa referencia de un código expresado literalmente. Consultar el máximo o las opciones de una planta no significa elegir ni reservar una unidad.
 Use la última pregunta REAL del bot. Pedir ayuda para un horario activa requested_visit y visit_needs_help; no requested_advisor por ese solo motivo. Una fecha parcial responde a una coordinación durable. Extraiga financing_partner incluso si no está entre las entidades disponibles. No transforme información comercial en consentimiento.
 Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acompaña; no recupere intenciones viejas para llenar ese vacío.`
-    const currentInstructions = promptSections([
+    const currentInstructions = compactFinancingExtraction(input) ? promptSections([
+      ['Función y configuración del extractor', prompt], ['Interpretación del turno y recopilación financiera', FINANCING_EXTRACTION_RULES],
+    ]) : promptSections([
       ['Función y configuración del extractor', prompt],
       ['Fuente del turno y separación del historial', CURRENT_TURN_INTERPRETATION_RULE],
       ['Solicitudes, continuidad y autorizaciones', requestRules],
       ['Consultas pendientes sin respuesta', PENDING_REQUEST_RULES],
       ['Interpretación del perfil', LEAD_PROFILE_EXTRACTION_RULES],
+      ['Identidad y cantidades financieras', FINANCING_IDENTITY_RULES + '\n' + FINANCING_AMOUNTS_RULES],
       ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
       ['Consulta estructurada del catálogo', CATALOG_REQUEST_RULES],
       ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
@@ -170,7 +183,8 @@ Un archivo no interpretado no aporta evidencia. Use el texto legible que lo acom
  * no promotion of outside fragments into operational evidence. */
 function normalizeInterpretation(input: Row, raw: Row, readable: string, method: TurnInterpretation['method'], promptRevision: string | null): TurnInterpretation {
   const actionMessage = Object.hasOwn(input, 'mensaje_accion') ? text(input.mensaje_accion) : readable
-  const extracted = normalizeEvents(raw, actionMessage)
+  const lastQuestion = text(input.ultima_pregunta) || text(object(object(input.resumen)._last_operational_step).reply)
+  const extracted = normalizeEvents(raw, actionMessage, /(?:n[uú]mero|d[ií]gitos?).*(?:c[eé]dula)|c[eé]dula.*(?:n[uú]mero|d[ií]gitos?)/i.test(lastQuestion))
   const actions = evidencedActions(raw, actionMessage)
   actions.opt_out = evidencedActions(raw, readable).opt_out
   if (actions.opt_out) actions.tracking_consent = false
@@ -181,6 +195,8 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   // An unreadable reaction or a greeting must never inherit operational events from history.
   if (method !== 'model') extracted.events = []
   const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)
+  semantics.financing_amounts = Object.entries(financingAmounts({}, raw.financing_amounts, actionMessage))
+    .map(([role, value]) => ({ role, ...object(value) }))
   semantics.catalog_request = normalizeCatalogRequest(raw.catalog_request, actionMessage)
   extracted.household = semantics.household
   if (Object.hasOwn(object(raw.turn_semantics), 'housing_quantities')) {

@@ -376,6 +376,7 @@ export function financingPrerequisiteReply(info: Row, current: string) {
     if (budget === null && !deferred) return `Podemos ayudarle con el financiamiento. Primero definamos qué ${categoryLabels[category].singular} desea evaluar. ¿Con qué presupuesto aproximado cuenta para orientar la selección?`
     return `Podemos ayudarle con el financiamiento. Primero necesitamos elegir la ${category === 'suite' ? 'suite' : category === 'departamento' ? 'unidad' : 'opción'} concreta sobre la que se realizará la evaluación. ¿En qué planta le gustaría buscar?`
   }
-  if (budget === null && !deferred) return `Ya tenemos identificad${unit.category === 'suite' ? 'a' : 'o'} ${unit.category === 'suite' ? 'la suite' : unit.category === 'local' ? 'el local' : unit.category === 'penthouse' ? 'el penthouse' : 'el departamento'} ${text(unit.unit_number)}. Antes de iniciar la revisión financiera, ¿con qué presupuesto o capital aproximado cuenta?`
+  // Budget guides property selection; it must not restart or prevent the
+  // accepted intake once a concrete unit has already been chosen.
   return ''
 }

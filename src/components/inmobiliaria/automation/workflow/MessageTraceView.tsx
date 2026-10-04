@@ -121,7 +121,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
           <header className={styles.messageHeading}>
             <div><span className={styles.eyebrow}>{batch && batch.total > 1 ? 'Mensajes procesados juntos' : 'Mensaje seleccionado'} · {formatDate(execution.receivedAt || execution.occurredAt)}</span>
               <h3>{execution.leadName}</h3></div>
-            <span className={styles.badge} data-tone={execution.traceAvailable ? 'observed' : 'missing'}>{processing ? execution.outcome : execution.traceAvailable ? 'Pasos registrados' : 'Evidencia incompleta'}</span>
+            <span className={styles.badge} data-tone={execution.traceAvailable && !execution.traceWarning ? 'observed' : 'missing'}>{processing ? execution.outcome : execution.traceAvailable && !execution.traceWarning ? 'Pasos registrados' : 'Evidencia incompleta'}</span>
           </header>
           <div className={styles.messageContent}>{batch?.members.map(member => <blockquote key={member.id}>{member.message || 'El contenido del mensaje no está disponible en esta bitácora.'}</blockquote>)}</div>
           {batch && batch.total > batch.members.length && <p className={styles.notice}>El registro indica {batch.total} mensajes en este lote; hay {batch.members.length} vistas previas cargadas. Los pasos son compartidos, no una ejecución independiente por cada mensaje.</p>}
@@ -131,6 +131,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
           {steps.length > 0 && <CatalogSummarySection key={`catalog-${execution.id}`} steps={steps} onStep={selectStep} />}
           {architecture && <ArchitectureMap execution={execution} onStep={selectStep} />}
           {processing && <p className={styles.notice} role="status">{execution.status === 'pending' ? 'Mensaje recibido: esperando procesamiento.' : 'Procesando la respuesta.'} La vista se actualiza cada 5 segundos. Puede revisar los mensajes anteriores mientras espera.</p>}
+          {execution.traceWarning === 'TRACE_WRITE_INCOMPLETE' && <p className={styles.notice} role="status">No se conservaron todos los pasos de esta ejecución. Se muestran los que sí quedaron guardados; el consumo visible puede ser incompleto. El estado del envío se registra por separado.</p>}
           {!steps.length && processing ? <p className={styles.muted}>Los pasos aparecerán cuando se guarde la ejecución.</p> : !steps.length ? <div className={styles.empty}>
             <h4>{execution.traceWarning === 'AUDIT_READ_FAILED' ? 'No se pudo leer la bitácora' : 'No hay pasos registrados para este evento'}</h4>
             <p>El resultado disponible no permite reconstruir qué interpretó el bot, qué datos consultó ni por qué tomó una decisión. La ruta histórica sería inferida y no se presenta como observada.</p>

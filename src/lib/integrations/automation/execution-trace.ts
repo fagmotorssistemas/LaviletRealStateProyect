@@ -27,6 +27,7 @@ type TraceDependencies = {
   persist: (rows: Row[]) => PromiseLike<{ error?: unknown }>
   report: (record: Row) => void
 }
+export type TracePersistence = { status: 'complete' | 'partial' | 'failed'; saved_steps: number; expected_steps: number; error_code?: string }
 const defaults: TraceDependencies = {
   persist: rows => db().from('lv_automation_execution_steps').upsert(rows, { onConflict: 'event_id,step_order' })
     .abortSignal(AbortSignal.timeout(5000)),
@@ -40,6 +41,7 @@ export class AutomationExecutionTrace {
   private conversationId: string | null = null
   private readonly eventIds: string[]
   private readonly dependencies: TraceDependencies
+  private saved = new Map<string, string>()
 
   constructor(events: Row[], dependencies: Partial<TraceDependencies> = {}) {
     this.dependencies = { ...defaults, ...dependencies }
@@ -111,10 +113,10 @@ export class AutomationExecutionTrace {
     this.add('execution_failed', 'Ejecución interrumpida', 'output', 'worker.ts', 'failed', {}, {}, error)
   }
 
-  async flush() {
-    if (!this.eventIds.length || !this.steps.length) return
+  async flush(final = true): Promise<TracePersistence> {
+    if (!this.eventIds.length || !this.steps.length) return { status: 'complete', saved_steps: 0, expected_steps: 0 }
     const now = Date.now()
-    const rows = this.eventIds.flatMap(eventId => this.steps.map(step => ({
+    const rows = this.eventIds.flatMap(eventId => this.steps.filter(step => final || step.status).map(step => ({
         ...scope,
         event_id: eventId,
         lead_id: this.leadId,
@@ -132,14 +134,41 @@ export class AutomationExecutionTrace {
         output_summary: sanitizeTraceSummary(step.output),
         error_code: step.errorCode || (!step.status ? 'TRACE_STEP_NOT_FINISHED' : null),
       })))
-    try {
-      const result = await this.dependencies.persist(rows)
-      if (result.error) throw result.error
-    } catch (error) {
-      // Report both returned Supabase errors and thrown failures; never replay delivery.
-      try { this.dependencies.report({ event: 'AUTOMATION_TRACE_FLUSH_FAILED', code: traceErrorCode(error), event_count: this.eventIds.length, step_count: this.steps.length }) }
-      catch { /* Observability cannot change the outcome of an accepted send. */ }
+    const key = (row: Row) => `${row.event_id}:${row.step_order}`
+    // Bound each write so one large model snapshot cannot make every other
+    // batch invisible. Upserts make checkpoints and retries idempotent.
+    const dirty = rows.filter(row => this.saved.get(key(row)) !== JSON.stringify(row))
+    const batches: Row[][] = []
+    let batch: Row[] = [], bytes = 0
+    for (const row of dirty) {
+      const size = Buffer.byteLength(JSON.stringify(row))
+      if (batch.length && bytes + size > 200_000) { batches.push(batch); batch = []; bytes = 0 }
+      batch.push(row); bytes += size
     }
+    if (batch.length) batches.push(batch)
+    let failure: string | undefined
+    for (const chunk of batches) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const result = await this.dependencies.persist(chunk)
+          if (result.error) throw result.error
+          chunk.forEach(row => this.saved.set(key(row), JSON.stringify(row)))
+          break
+        } catch (error) {
+          const code = traceErrorCode(error)
+          const permanent = /^(?:22|23|42|PGRST)/.test(code)
+          if (!attempt && !permanent) continue
+          failure = code
+          break
+        }
+      }
+    }
+    const savedSteps = rows.filter(row => this.saved.get(key(row)) === JSON.stringify(row)).length
+    const result: TracePersistence = { status: savedSteps === rows.length ? 'complete' : savedSteps ? 'partial' : 'failed',
+      saved_steps: savedSteps, expected_steps: rows.length, ...(failure ? { error_code: failure } : {}) }
+    if (failure) try { this.dependencies.report({ event: 'AUTOMATION_TRACE_FLUSH_FAILED', code: failure,
+      event_ids: this.eventIds, ...result }) } catch { /* Never replay a delivery for an audit failure. */ }
+    return result
   }
 }
 
