@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import styles from './AutomationWorkspace.module.css'
 
-export function AutomationSectionTabs({ active, attentionCount }: { active: 'monitoreo' | 'control' | 'workflow' | 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' | 'pruebas' | 'conocimiento'; attentionCount?: number }) {
+export function AutomationSectionTabs({ active, attentionCount }: { active: 'monitoreo' | 'control' | 'workflow' | 'reglas' | 'guion' | 'ubicacion' | 'precios' | 'estilo' | 'proyecto' | 'pruebas' | 'conocimiento' | 'financiamiento'; attentionCount?: number }) {
   const { isAdmin } = useRoleAccess()
   const [remoteAttentionCount, setRemoteAttentionCount] = useState<number | null>(null)
   useEffect(() => {

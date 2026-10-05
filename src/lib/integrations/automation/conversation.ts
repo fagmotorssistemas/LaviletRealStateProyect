@@ -38,6 +38,7 @@ import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-requ
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer, financingPendingQuestion } from './financing'
+import { financingQuoteInquiry, financingQuoteContext } from './financing-quote'
 import { financingCollection, personalDataFragments } from './financing-intake'
 import { financingIdentity } from './financing-identity'
 import { financingAmounts, financingBalance } from './financing-amounts'
@@ -616,6 +617,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   extracted.turn_semantics = turnSemantics
   if(financeContinuation) Object.assign(extracted,financeContinuation)
   const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
+  const quoteInquiry = financingQuoteInquiry(extracted, current)
   summary._financing_journey = financingJourney(object(previousSummary._financing_journey), financeInput, activeLast.externalId)
   summary._financing_identity = financingIdentity(object(previousSummary._financing_identity), extracted.financing_identity, current, text(state.ultima_respuesta))
   summary._financing_amounts = financingAmounts(object(previousSummary._financing_amounts), extracted.financing_amounts, current)
@@ -623,15 +625,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory }
   const financingAccepted = financingStage({ ...financeSelection,
     financiamiento: { ...finance, journey: summary._financing_journey } }).accepted === true
-  const financingDataTurn = financingAccepted && !!selectedFinancingUnit(financeSelection)
+  const financingDataTurn = !quoteInquiry.beforeApplication && financingAccepted && !!selectedFinancingUnit(financeSelection)
     && (financingPartnerAnswer(extracted, financeInput)
       || ['given_names', 'surnames', 'complete_name_confirmation', 'document'].some(key => !!object(extracted.financing_identity)[key])
       || !['absent', 'unsubstantiated'].includes(text(object(extracted.document_validation).status))
       || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null))
-  const resumeFinancing = canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
+  const resumeFinancing = !quoteInquiry.beforeApplication && (canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
     || financingAccepted && !!selectedFinancingUnit(financeSelection) && leadBudget(financeSelection).answered === true
       && declaredBudget.confidence === 'high' && declaredBudget.status !== 'not_discussed'
-      && !extracted.requested_advisor && !extracted.opt_out && object(extracted.visit_intent).kind !== 'request_visit'
+      && !extracted.requested_advisor && !extracted.opt_out && object(extracted.visit_intent).kind !== 'request_visit')
   // Reuse the accepted review only when its missing prerequisite is now satisfied.
   if (resumeFinancing) financeInput.consent = true
   extracted.financing_consent = financeInput.consent
@@ -666,7 +668,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
     && isProfileOnlyTurn(current, { ...extracted, turn_semantics: turnSemantics })
-  const financeTurn = !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
+  const financeTurn = !quoteInquiry.beforeApplication && !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
     || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)))
   if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
   if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
@@ -1083,7 +1085,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!reply) {
     await guard()
     {
-      const financeAnswer = priceTurn || financingDataTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta), extracted)
+      const financeAnswer = (priceTurn && !quoteInquiry.requested) || financingDataTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta), extracted)
       let financePrerequisite = '', financeReviewComplete = false
       let financePrerequisiteAudit: Row = {}
       if (financeTurn && !financeAnswer) {
@@ -1345,7 +1347,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!finalNotice && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'vehicle_out_of_scope', 'commercial_location_budget'].includes(text(audit.source))) {
     await guard()
     const commercialInfo: Row = !scopeOnlyReview || businessScope.uncertain
-      ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile) : {}
+      ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile, quoteInquiry.requested ? finance : undefined) : {}
     commercialInfo.estado_conversacion = { brochure_sent: object(previousSummary._lead_introduction).brochure_sent === true,
       unit_models_sent: previousSummary._unit_models_sent || [],
       introduction_status: object(previousSummary._lead_introduction).status || null }
@@ -1372,6 +1374,18 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     info.financing_amounts = summary._financing_amounts
     info.financing_balance = financingBalance(object(summary._financing_amounts), selectedFinancingUnit(info), object(info.politica_comercial).precios_autorizados === true)
     info.etapa_financiamiento = financingStage(info)
+    if (quoteInquiry.requested) {
+      info.financing_quote = financingQuoteContext(info, quoteInquiry)
+      audit.financing_quote = { orientation_only: quoteInquiry.beforeApplication, evidence: quoteInquiry.evidence }
+      // These are an answerable orientation with explicit limits, not an automatic handoff.
+      audit.financing_orientation_fragments = quoteInquiry.beforeApplication
+        ? interpretation.requests.filter(request => request.domain === 'financing').map(request => text(request.evidence)) : []
+      trace.add('financing_guidance', 'Condiciones de entrada y financiamiento', 'decision', 'financing-quote.ts', 'succeeded', {}, {
+        status: object(info.financing_quote).status, orientation_only: quoteInquiry.beforeApplication,
+        selected_unit_id: object(info.financing_quote).selected_unit_id,
+        estimates: object(info.financing_quote).estimates,
+        setting: { href: '/inmobiliaria/automatizacion/financiamiento', label: 'Entrada y financiamiento' } })
+    }
     if (!locationRequestKind(current)) delete (info as Row).ubicacion
     const costBaseline = object(info.catalog_search).embeddingsEnabled === true
       ? { ...info, catalogo: commercialInfo.catalogo } : undefined
@@ -1452,7 +1466,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       handoff_assessments: [...(Array.isArray(reviewed.audit.handoff_assessments) ? reviewed.audit.handoff_assessments : []), ...grounded.assessments] }
     const requests = Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests.map(object) : []
     const resolvedFromContext = catalogValidation.valid && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
-      && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
+      && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status))
+        || Array.isArray(audit.financing_orientation_fragments) && audit.financing_orientation_fragments.includes(text(request.fragment)))
     const needsCommercialHandoff = reviewing && !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
       business_policy_sources: reviewed.audit.business_policy_sources,

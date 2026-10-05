@@ -181,6 +181,11 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
     if (Array.isArray(value)) value.forEach((item, index) => add(`contexto_verificado.${key}.${index}`, 'project_fact', item))
     else add(`contexto_verificado.${key}`, 'project_fact', value)
   }
+  const financingQuote = object(verified.financing_quote)
+  add('contexto_verificado.financing_quote.estimates', 'project_fact', financingQuote.estimates,
+    { scope: 'server_calculated_reference_not_credit_approval' })
+  if (typeof financingQuote.project_entry_reference === 'number') add('contexto_verificado.financing_quote.project_entry_reference', 'project_fact',
+    { amount: financingQuote.project_entry_reference, unit_id: financingQuote.selected_unit_id, applies: financingQuote.project_entry_applies })
   // Being able to share a configured material is a project fact, not proof that
   // it was already delivered in WhatsApp or that a reservation was performed.
   const profile = object(audit.profile_introduction), tour = object(audit.unit_model)

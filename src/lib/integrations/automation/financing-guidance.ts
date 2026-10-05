@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { FINANCING_STAGE_RULES } from './financing-stage'
+import { FINANCING_QUOTE_REPLY_RULES } from './financing-quote'
 
 /** Uses the existing, grounded interpretation; never reinterprets customer prose. */
 export function hasFinancingRequest(extracted: Row): boolean {
@@ -18,6 +19,7 @@ Nuestra revisión preliminar requiere aceptación, una unidad concreta elegida p
 Si pregunta qué datos necesitamos para esta revisión, explique los requisitos de NUESTRO proceso. No los sustituya por una lista genérica de documentos bancarios. Estados de cuenta, declaraciones tributarias, historial crediticio, activos, deudas o pasaporte no son requisitos acreditados de este flujo: solo atribúyalos a una entidad si una fuente bancaria autorizada concreta los establece. Decir «normalmente» o «podría requerirse» no acredita esa fuente. Puede explicar que la entidad confirmará sus requisitos adicionales, sin inventar una lista.
 El bot puede explicar y recoger progresivamente los datos autorizados. El equipo interno revisa el expediente cuando esté listo; la entidad decide la aprobación y las condiciones. Explique esta secuencia cuando la consulta lo requiera, sin afirmar que ya comenzó, se derivó o fue aprobada. No añada por costumbre la misma invitación de asesor en cada respuesta.
 ${FINANCING_STAGE_RULES}
+${FINANCING_QUOTE_REPLY_RULES}
 `
 
 export const ASSISTANCE_CONTINUATION_RULES = `Responda con las fuentes y el procedimiento disponibles. Ofrezca atención humana cuando el cliente la pida, una gestión realmente requiera al equipo o falte un dato concreto que deba verificar. No use ofrecer un asesor como cierre automático ni como sustituto de explicar lo que sí conoce. Si ya ofreció esa ayuda y el cliente sigue preguntando, atienda su nueva consulta sin repetir la oferta salvo una necesidad nueva. Una respuesta informativa puede terminar sin pregunta. Esto orienta la redacción; una oferta opcional por sí sola no justifica rechazar un mensaje útil.`

@@ -1446,6 +1446,39 @@ function conversationHarness(options = {}) {
   return { calls, rows, process: mod.processConversation, lead }
 }
 
+test('entry and monthly-payment orientation does not restart intake or automatically hand off an accepted lead', async t => {
+  live(t)
+  const current = 'Sí me interesa conocer más. Antes de avanzar con el financiamiento, quisiera saber aproximadamente cuánto sería la entrada y cuánto quedarían las cuotas mensuales.'
+  const { defaultFinancingGuidance } = require('../src/lib/inmobiliaria/financingGuidance.ts')
+  const { financingPolicyContext } = require('../src/lib/integrations/automation/financing-quote.ts')
+  const unit = { id: 'u502', unit_number: '502', category: 'departamento', bedrooms: 3, is_published: true, status: 'disponible', published_commercial_price: 310000 }
+  const h = conversationHarness({ catalog: [unit], captureTrace: true,
+    commercialInfo: { catalogo: [unit], politica_comercial: { precios_autorizados: true },
+      politica_financiera: { guidance: financingPolicyContext(defaultFinancingGuidance(), ['Cooperativa JEP', 'Banco Pichincha'], '2026-10-05') } },
+    financeContext: { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: { explicit_consent: true, selected_partner_name: 'Cooperativa JEP' } },
+    history: [{ role: 'bot', content: '¿Desea continuar con el proceso de financiamiento?' }],
+    summary: { _financing_journey: { accepted: true }, _lead_introduction: { status: 'complete', request_sent: true, brochure_sent: true },
+      _lead_profile: { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Cuenca', residence_status: 'confirmed', sources: { full_name: { source: 'lead_declaration', evidence: 'soy Carlos' } } },
+      _interpretation_memory: { budget: { status: 'amount', amount: 200000, confidence: 'high', evidence: 'tengo 200 mil' } },
+      _property_context: { selected_ids: ['u502'], query: { category: 'departamento', group: 'residential', filters: { bedrooms: 3 } } },
+      _pending_question: { id: 'financing_invitation', act: 'financing', question: '¿Desea continuar con el proceso de financiamiento?' } },
+    extracted: { financing_consent: true, requests: [{ domain: 'financing', request: 'Conocer entrada y cuota antes de iniciar', evidence: current, confidence: 'high' }],
+      turn_semantics: { primary_intent: 'ask_financing', primary_evidence: current, confidence: 'high',
+        answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: current, confidence: 'high' } } },
+    turnComplete: input => ({ reply: input.baseReply, changed: false, needsAdvisor: true, unresolved: [current],
+      audit: { status: 'checked', requests: [{ fragment: current, status: 'missing_fact', base_status: 'missing_fact', fact_key: 'policy' }] } }),
+  })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {}).catch(error => { throw error.original || error })
+  assert.equal(h.calls.some(call => ['process_financing_message_v3', 'handoff_lead'].includes(call.name)), false)
+  const writer = h.calls.find(call => call.name === 'completeTurnReply').args
+  assert.equal(writer.verified.financing_quote.orientation_only, true)
+  assert.equal(writer.verified.financing_quote.estimates[0].maximum_loan_reference, 150000)
+  assert.equal(writer.verified.financiamiento.current.selected_partner_name, 'Cooperativa JEP')
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args.p_content
+  assert.doesNotMatch(sent, /asesor|nombre completo|cédula|dependiente/)
+})
+
 test('lender choice in an accepted review persists JEP instead of answering it as a financing question', async t => {
   live(t)
   const current = 'prefiero jep'

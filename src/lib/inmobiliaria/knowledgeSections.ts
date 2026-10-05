@@ -8,7 +8,9 @@ export const KNOWLEDGE_SECTIONS = [
     { title: 'Unidades del inventario', description: 'Características, superficies y estado de las unidades del catálogo.', href: '/inmobiliaria/inventario', owner: 'Sistema y catálogo' },
     { title: 'Precios de las unidades', description: 'Valores comerciales y permiso para informar precios en lanzamiento.', href: 'precios', owner: 'Sistema y catálogo' },
   ] },
-  { id: 'politicas', label: 'Políticas comerciales', description: 'Condiciones confirmadas para comprar, reservar, pagar o visitar.', entries: [] },
+  { id: 'politicas', label: 'Políticas comerciales', description: 'Condiciones confirmadas para comprar, reservar, pagar o visitar.', entries: [
+    { title: 'Entrada y financiamiento', description: 'Entrada del proyecto, reserva y condiciones editables de JEP y Banco Pichincha.', href: 'financiamiento', owner: 'Administrador' },
+  ] },
   { id: 'conversacion', label: 'Conversación', description: 'Preguntas, entrega de materiales y forma de comunicarse.', entries: [
     { title: 'Guion y preguntas', description: 'Preguntas del bot, instrucciones por tema y recopilación de datos.', href: 'guion', owner: 'IA y controles del sistema' },
     { title: 'Personalidad', description: 'Tono, calidez y nivel de detalle de las respuestas.', href: 'estilo', owner: 'IA redactora' },

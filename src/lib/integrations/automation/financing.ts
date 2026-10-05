@@ -4,6 +4,7 @@ import { isConversationRepair, explicitlyRequestsVisit } from './turn-routing'
 import { acceptsUnitOptions } from './sales-policy'
 import { LATER_ROUTES } from '@/lib/inmobiliaria/nutritionLater'
 import { hasFinancingRequest } from './financing-guidance'
+import { financingQuoteInquiry } from './financing-quote'
 
 export async function financingContext(lead: Row) {
   const [partners, qualification] = await Promise.all([
@@ -77,7 +78,8 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   const explicitlyFinancialReview = explicitReview && /financ|credito|banco|cooperativa|pichincha|\bjep\b/.test(message)
   // Choosing a lender alone is not consent. Accept an actual request to review the
   // case, even when a natural response includes more words than a bare «sí».
-  const consent = conditional || declined ? null
+  const inquiry = financingQuoteInquiry(extracted, current)
+  const consent = inquiry.beforeApplication || conditional || declined ? null
     : semanticAcceptance || (asksConsent && (plainYes || explicitReview || explicitHelp)) || explicitlyFinancialReview || acceptsFinancialHelp ? true
     : asksConsent && confirmsReview && extracted.financing_consent === true && !hasAffordabilityConcern(current) ? true
     : null
@@ -98,7 +100,9 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
     && normalized(lastReply).includes(normalized(context.partners[0]))
     && /^(si|si claro|claro|si por favor|de acuerdo)$/.test(message)) partner = context.partners[0]
   const unsupported = partner && !context.partners.some(name => normalized(name) === normalized(partner)) ? partner : ''
-  return { consent, partner: unsupported ? null : partner || null, unsupported,
+  // Asking what a lender offers is not a new choice; keep any saved choice intact.
+  if (inquiry.beforeApplication && !/\b(?:prefiero|elijo|escojo|me quedo con|continuemos con)\b/.test(message)) partner = ''
+  return { consent, partner: unsupported ? null : partner || null, unsupported: inquiry.beforeApplication ? '' : unsupported,
     ...(declined && (asksConsent || hasFinancingRequest(extracted)) ? { declined: true } : {}) }
 }
 
@@ -179,6 +183,7 @@ export function isFinancingTurn(extracted: Row, current: string, lastReply: stri
 
 export function financingQuestionReply(current: string, partners: string[], lastReply = '', extracted: Row = {}) {
   const m = normalized(current)
+  if (financingQuoteInquiry(extracted, current).requested) return 'Con mucho gusto le orientamos sobre la entrada y las cuotas. La entrada del proyecto y la aportación propia para el crédito se revisan por separado; las cifras disponibles se basan en las condiciones vigentes de cada entidad y la unidad de interés. Una orientación no inicia una solicitud ni confirma la aprobación.'
   void lastReply // Previous answers explain references; they never create a new credit question.
   if (/aprob|garanti|asegur/.test(m) && /credito|financ|prestamo/.test(m)) {
     return 'Le acompañamos en el proceso, pero no podemos asegurar la aprobación del crédito. La entidad necesita revisar su caso para confirmarla.'

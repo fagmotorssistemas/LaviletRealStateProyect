@@ -127,6 +127,7 @@ export function businessRiskContext(input: {
       member_count: Array.isArray(group.member_ids) ? group.member_ids.length : group.member_count ?? 0 }
   })
   const sources = input.claimSources.filter(source => !text(source.path).startsWith('evidencia_turno.')
+    && !text(source.path).startsWith('contexto_verificado.financing_quote.')
     && source.kind !== 'lead_statement')
     .map(source => ({ kind: source.kind, path: source.path, value: source.value }))
   return {
@@ -145,6 +146,7 @@ export function businessRiskContext(input: {
       siguiente_paso_comercial: input.verified.siguiente_paso_comercial || null,
       importes_financiamiento: input.verified.financing_amounts || null,
       conciliacion_financiamiento: input.verified.financing_balance || null,
+      orientacion_financiera: input.verified.financing_quote || null,
       grupos_por_alcance: 'task_query y budget_matching describen conjuntos filtrados, no todo el catálogo. No use una opción fuera del filtro para rechazar el rango del conjunto filtrado.',
     },
     estado_del_turno: {

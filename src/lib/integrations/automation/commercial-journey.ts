@@ -71,6 +71,8 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   if (audit.source === 'clarify_previous_choice') return plan('clarify_choice', 'Aclare cuál de las alternativas prefiere. Un sí ambiguo no elige una unidad ni autoriza trámites.')
   if (audit.action || audit.reservation || audit.financing_collection || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source)))
     return plan('current_operation', 'Conserve la gestión y la pregunta operativa actual. No añada una oferta de reserva, financiamiento ni visita.')
+  if (object(info.financing_quote).orientation_only === true) return plan('financing_orientation',
+    'Responda la consulta de entrada y cuotas con las referencias verificadas y sus límites. No repita la invitación al trámite ni pida datos personales. Si falta unidad, retome las preferencias ya conocidas para elegir una referencia; si faltan condiciones, explique cuáles sin derivar automáticamente.')
   if (visitPending) return plan('visit_pending', 'Atienda la consulta y la coordinación de visita vigente; no añada otras invitaciones.')
   if (sales.passive_sales === true) return plan('leave_open', 'Responda la consulta sin ofertas proactivas. El cliente pidió limitarse a información.')
 

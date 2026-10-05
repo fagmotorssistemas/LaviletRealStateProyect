@@ -4,6 +4,8 @@ import 'server-only'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { activePrompt, aiJson, draftReply } from './ai'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
+import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
+import { financingPolicyContext } from './financing-quote'
 import { isTestPhone } from '@/lib/inmobiliaria/testResponseMode'
 import { testResponseMode } from './test-response-mode'
 import { recordDraftDecision } from './ai-execution-trace'
@@ -62,7 +64,7 @@ export async function publishedUnitCatalog() {
   return (result.data || []) as Row[]
 }
 
-export async function commercialContext(lead: Row, history: unknown, profileInput?: unknown) {
+export async function commercialContext(lead: Row, history: unknown, profileInput?: unknown, finance?: Row) {
   const sources = await readCommercialContext({
     units: (attempt) => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces')
       .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
@@ -116,6 +118,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
       confirmar_visita_sin_resultado: false, agendar_llamadas: false },
     alcance_producto: 'La Vilet ofrece suites, departamentos y locales comerciales en Cuenca; no casas independientes.',
     politica_financiera: { credito_directo: false,
+      guidance: financingPolicyContext(financingGuidanceSettings(projectData.policies_json), Array.isArray(finance?.partners) ? finance.partners.map(text) : []),
       informacion_bancaria_verificada: 'No hay información verificada sobre aceptación o rechazo de arriendos futuros como respaldo. Esto NO es una prohibición del proyecto. Mencione esa incertidumbre solo si el cliente pregunta específicamente por ese respaldo.' },
     catalogo: catalog, catalog_read: { complete: units.length < 100, scope: 'published_available_project_units' },
     catalog_search: catalogSearchSettings(projectData.policies_json),
