@@ -102,6 +102,34 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
     ...(declined && (asksConsent || hasFinancingRequest(extracted)) ? { declined: true } : {}) }
 }
 
+/** A grounded answer supplying a lender is intake data, not a new question
+ * about financing. Consent and property prerequisites are checked by the caller. */
+export function financingPartnerAnswer(extracted: Row, input: { partner?: string | null }) {
+  const semantics = object(extracted.turn_semantics), answer = object(semantics.answer_to_previous)
+  return !!input.partner && semantics.confidence === 'high' && semantics.primary_intent === 'answer_previous'
+    && answer.confidence === 'high' && answer.kind === 'value'
+}
+
+/** Describe missing fields from the persisted RPC result, never from prose. */
+export function financingPendingFields(fin: Row): string[] {
+  return [
+    !fin.selected_partner_name && 'selected_partner_name',
+    !(fin.full_name && fin.legal_name_confirmed === true) && 'legal_name',
+    !fin.national_id && 'national_id',
+    !fin.applicant_type && 'applicant_type',
+    fin.applicant_type === 'empleado' && fin.employment_stability_months == null && 'employment_stability_months',
+    fin.applicant_type === 'empleado' && !fin.job_title && 'job_title',
+    fin.monthly_income == null && 'monthly_income',
+  ].filter((field): field is string => typeof field === 'string')
+}
+
+export function financingPendingQuestion(reply: string, audit: Row): Row {
+  const state = text(object(audit.financing_collection).state)
+  if (!state.endsWith('_pendiente') || state === 'continuacion_pendiente') return {}
+  return { id: state === 'entidad_pendiente' ? 'financing_partner' : 'financing_data', act: 'financing',
+    question: (reply.match(/¿[^¿?]+\?\s*$/)?.[0] || reply).trim().slice(0, 500), target_ids: [], candidate_ids: [] }
+}
+
 export function financingReply(fin: Row, partners: string[], unsupported = '') {
   const options = partners.join(' o ')
   if (unsupported) return options

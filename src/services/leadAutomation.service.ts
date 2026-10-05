@@ -240,7 +240,7 @@ export async function getLeadAutomationDetail(
       .contains('payload', { leadId })
       .order('received_at', { ascending: false })
       .limit(30),
-    supabase.from('leads').select('name,phone,email,budget,budget_max,preferred_bedrooms,preferred_category,purchase_purpose,unit_id,behavior_signals,updated_at')
+    supabase.from('leads').select('name,phone,email,budget,budget_max,preferred_bedrooms,preferred_category,purchase_purpose,behavior_signals,updated_at')
       .eq('id', leadId).in('tenant_id', tenantIds).single(),
     supabase.from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,legal_name,legal_name_confirmed,national_id,applicant_type,employment_stability_months,job_title,monthly_income')
       .eq('lead_id', leadId).in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(1),
@@ -344,7 +344,7 @@ export async function getLeadAutomationDetail(
   const property = parseLeadSummary(summary._property_context)
   const knownUnits = units.flatMap(item => item.unit ? [item.unit] : [])
   const mentionedIds = [...new Set([property.selected_ids, property.offered_ids, property.comparison_ids].flatMap(value => Array.isArray(value) ? value : [])
-    .concat(profileRes.data?.unit_id || []).filter((value): value is string => typeof value === 'string'))]
+    .filter((value): value is string => typeof value === 'string'))]
   const missingIds = mentionedIds.filter(id => !knownUnits.some(unit => unit.id === id))
   if (missingIds.length) {
     const extra = await supabase.from('units').select('id,unit_number,category,status,published_commercial_price').in('id', missingIds)

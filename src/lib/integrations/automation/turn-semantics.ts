@@ -7,6 +7,8 @@ import { normalizeCatalogRequest } from './catalog-request'
 export const questionIds = [
   'reservation_invitation',
   'financing_invitation',
+  'financing_partner',
+  'financing_data',
   'property_purpose',
   'visit_invitation',
   'visit_date_time',
@@ -162,7 +164,7 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   const ids = (value: unknown) => Array.isArray(value) ? [...new Set(value.map(text).filter(id => id && (!validIds || validIds.has(id))))] : []
   const proposedQuery = ['explore_alternatives', 'confirm_bedrooms', 'choose_category', 'choose_floor'].includes(text(row.act)) ? normalizedPropertyQuery(row.proposed_query) : {}
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
-    : id === 'property_category' ? 'choose_category' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
+    : id === 'property_category' ? 'choose_category' : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
   question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: ids(row.candidate_ids),
   ...(Object.keys(proposedQuery).length ? { proposed_query: { ...proposedQuery, operation: 'search', selector: null } } : {}) }
 }
@@ -175,7 +177,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
   "confidence":"high|medium|low",
   "housing_quantities":[{"dimension":"people|bedrooms|unknown","values":[],"role":"requirement|evaluation|context|unknown","count_basis":"total|excluding_speaker|unspecified","evidence":"copia literal actual","confidence":"high|medium|low"}],
   "answer_to_previous":{
-    "question_id":"visit_invitation|visit_date_time|budget_amount|budget_kind|property_category|property_floor|property_bedrooms|property_area|unit_choice|purchase_timing|lead_profile|lead_profile_name|lead_profile_residence|lead_residence_confirmation|none",
+    "question_id":"visit_invitation|visit_date_time|budget_amount|budget_kind|property_category|property_floor|property_bedrooms|property_area|unit_choice|purchase_timing|lead_profile|lead_profile_name|lead_profile_residence|lead_residence_confirmation|financing_invitation|financing_partner|financing_data|none",
     "kind":"affirmative|negative|uncertain|value|none",
     "evidence":"copia literal breve del mensaje actual o cadena vacía",
     "confidence":"high|medium|low"

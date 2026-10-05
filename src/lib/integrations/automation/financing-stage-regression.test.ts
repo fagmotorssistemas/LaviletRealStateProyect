@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { object, type Row } from './data'
 import { interpretConversationTurn } from './turn-interpretation'
-import { financingInputs, isFinancingTurn } from './financing'
+import { financingInputs, isFinancingTurn, financingPartnerAnswer, financingPendingFields, financingPendingQuestion } from './financing'
 import { financingPrerequisiteReply } from './property-selection'
 import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinancing } from './financing-stage'
 import { taskVerifiedContext, taskModelEvidence } from './task-context'
@@ -39,6 +39,28 @@ function info(): Row {
     hechos_confirmados: { budget: { status: 'maximum_total', amount: 100000, confidence: 'high', evidence: '100 mil' } },
   }
 }
+
+test('a grounded lender answer is intake data; asking about a lender is not selecting it', () => {
+  const partners = { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: { explicit_consent: true } }
+  for (const current of ['prefiero jep', 'con la JEP', 'mejor Banco Pichincha']) {
+    const extracted = { turn_semantics: { primary_intent: 'answer_previous', confidence: 'high',
+      answer_to_previous: { question_id: 'financing_partner', kind: 'value', evidence: current, confidence: 'high' } } }
+    const input = financingInputs(extracted, current, '¿Con cuál entidad desea continuar?', partners)
+    assert.equal(financingPartnerAnswer(extracted, input), true)
+    assert.equal(input.consent, null, 'Choosing an entity does not grant new consent')
+  }
+  const question = { turn_semantics: { primary_intent: 'ask_financing', confidence: 'high', answer_to_previous: { kind: 'none', confidence: 'high' } } }
+  assert.equal(financingPartnerAnswer(question, financingInputs(question, '¿Qué requisitos tiene JEP?', '', partners)), false)
+  assert.equal(financingPartnerAnswer({}, { partner: 'Cooperativa JEP' }), false)
+})
+
+test('pending intake distinguishes a known entity from the missing legal name and employment status', () => {
+  const pending = financingPendingFields({ selected_partner_name: 'Cooperativa JEP', full_name: 'Carlos', legal_name_confirmed: false, national_id: '0102030405' })
+  assert.deepEqual(pending, ['legal_name', 'applicant_type', 'monthly_income'])
+  assert.equal(financingPendingQuestion('Por favor confirme su entidad.', { financing_collection: { state: 'entidad_pendiente' } }).id, 'financing_partner')
+  assert.equal(financingPendingQuestion('¿Me confirma sus nombres y apellidos?', { financing_collection: { state: 'nombre_pendiente' } }).id, 'financing_data')
+  assert.deepEqual(financingPendingQuestion('¿Cuál unidad prefiere?', {}), {})
+})
 
 test('legal-name collection uses selected-unit context, preserves the next field and one final writer/reviewer', async () => {
   const current = 'ya mi nombre es Carlos'

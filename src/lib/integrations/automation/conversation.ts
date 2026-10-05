@@ -34,7 +34,7 @@ import { resolveTurnIntent } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
-import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat, priceFinancingReply } from './financing'
+import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat, priceFinancingReply, financingPartnerAnswer, financingPendingFields, financingPendingQuestion } from './financing'
 import { financingIdentity, financingNameQuestion } from './financing-identity'
 import { financingAmounts, financingBalance } from './financing-amounts'
 import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply, visitHoursWereOffered } from './visit-intake'
@@ -618,7 +618,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const financingAccepted = financingStage({ ...financeSelection,
     financiamiento: { ...finance, journey: summary._financing_journey } }).accepted === true
   const financingDataTurn = financingAccepted && !!selectedFinancingUnit(financeSelection)
-    && (['given_names', 'surnames', 'complete_name_confirmation', 'document'].some(key => !!object(extracted.financing_identity)[key])
+    && (financingPartnerAnswer(extracted, financeInput)
+      || ['given_names', 'surnames', 'complete_name_confirmation', 'document'].some(key => !!object(extracted.financing_identity)[key])
       || !['absent', 'unsubstantiated'].includes(text(object(extracted.document_validation).status))
       || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null))
   const resumeFinancing = canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
@@ -1160,6 +1161,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           if (selectedPartner && financeInput.partner && !reply.includes(selectedPartner)) reply = `Continuamos con ${selectedPartner}. ` + reply
           audit = { source: 'financing', state: fin.state || fin.financing_state, selected_partner: selectedPartner,
             financing_collection: { state: fin.state, next_question: reply,
+              pending_fields: financingPendingFields(fin), selected_partner: selectedPartner,
               legal_name_complete: fin.legal_name_confirmed === true, document_validation: document,
               instruction: 'Solicite el siguiente dato pendiente indicado; no lo sustituya por otro campo, no solicite RUC y no repita características de la unidad. Atienda primero una identificación incompleta o inválida si fue enviada.' } }
         } catch (error) {
@@ -1549,14 +1551,16 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   requireReviewedResponse(object(audit.turn_completeness))
   const canTrackFollowUp = followUpUsable(audit)
   const profilePending = canTrackFollowUp ? leadProfilePendingQuestion(reply, audit) : {}
+  const financePending = canTrackFollowUp ? financingPendingQuestion(reply, audit) : {}
   const progressivePending = canTrackFollowUp ? progressivePendingQuestion(reply, audit) : {}
   const journeyPending = journeyPendingQuestion(reply, object(audit.commercial_journey), canTrackFollowUp && object(audit.turn_completeness).status === 'checked')
   const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
   // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
   const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
     ? declaredPending : pendingQuestionFromReply(reply)
-  audit.pending_question = canTrackFollowUp && reply.includes('?') ? Object.keys(profilePending).length ? normalizedPendingQuestion(profilePending)
-    : Object.keys(journeyPending).length ? normalizedPendingQuestion(journeyPending, turnCatalog)
+  audit.pending_question = canTrackFollowUp && (reply.includes('?') || financePending.id) ? Object.keys(profilePending).length ? normalizedPendingQuestion(profilePending)
+    : Object.keys(financePending).length ? normalizedPendingQuestion(financePending)
+      : Object.keys(journeyPending).length ? normalizedPendingQuestion(journeyPending, turnCatalog)
       : Object.keys(progressivePending).length ? normalizedPendingQuestion(progressivePending, turnCatalog) : replyPending : {}
   if (recoveringTurn()) { audit.answered_topics = []; audit.coverage_complete = false }
   if (!reply.trim() || reply.length > MAX_REPLY_CHARACTERS) throw new Error('EMPTY_OR_LONG_REPLY')

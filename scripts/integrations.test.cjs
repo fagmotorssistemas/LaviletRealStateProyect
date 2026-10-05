@@ -1411,13 +1411,13 @@ function conversationHarness(options = {}) {
         if (name === 'save_lead_declarations') { Object.assign(lead, Object.fromEntries(Object.entries({ preferred_category: args.p_preferred_category, purchase_purpose: args.p_purchase_purpose, unit_id: args.p_unit_id }).filter(([, v]) => v != null))); return lead }
         if (name === 'lv_collect_visit_intake') return options.intake ? {request_id:'request',...options.intake} : { request_id:'request', action: options.slot?.confidence === 'exact' ? 'submitted' : 'collecting', slot: options.slot || {} };
         if (name === 'lv_intake_visit_once') return 'appointment'
-        if (name === 'process_financing_message_v2') return typeof options.financing === 'function' ? options.financing(args) : options.financing || { active: false }
+        if (['process_financing_message_v2', 'process_financing_message_v3'].includes(name)) return typeof options.financing === 'function' ? options.financing(args) : options.financing || { active: false }
         if (name === 'handoff_lead') { if (!options.handoffFails) lead.handoff_status = 'queued'; return {} }
         return {}
       },
     },
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => { if (options.financeReadFails) throw Error('FINANCING_CONTEXT_FAILED'); return options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) } },
-    './sdr': { publishedUnitCatalog: async () => { if (options.catalogReadFails) throw Error('CATALOG_CONTEXT_FAILED'); return options.catalog || [] }, commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
+    './sdr': { catalogSearchConfiguration: async () => ({ embeddingsEnabled: false }), publishedUnitCatalog: async () => { if (options.catalogReadFails) throw Error('CATALOG_CONTEXT_FAILED'); return options.catalog || [] }, commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
       commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? (options.commercialAi ? load('src/lib/integrations/automation/sdr.ts',{'./ai':options.commercialAi}) : require('../src/lib/integrations/automation/sdr.ts')).commercialReply({ ...info, final_review_follows: false }, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
     './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error(options.mediaFailureCode || 'MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
@@ -1441,6 +1441,39 @@ function conversationHarness(options = {}) {
     name: 'Cliente de prueba', sentAt: new Date(Date.now() - 1000).toISOString(), origin: 'waba', media: null } }))
   return { calls, rows, process: mod.processConversation, lead }
 }
+
+test('lender choice in an accepted review persists JEP instead of answering it as a financing question', async t => {
+  live(t)
+  const current = 'prefiero jep'
+  const unit = { id: 'u502', unit_number: '502', category: 'departamento', bedrooms: 3, is_published: true, status: 'disponible', published_commercial_price: 310000 }
+  const h = conversationHarness({ catalog: [unit],
+    commercialInfo: { catalogo: [unit], politica_comercial: { precios_autorizados: true } },
+    financeContext: { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: { explicit_consent: true } },
+    history: [{ role: 'bot', content: '¿Con cuál de estas entidades prefiere revisar su opción de crédito?' }],
+    summary: { _financing_journey: { accepted: true },
+      _lead_profile: { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Cuenca', residence_status: 'confirmed', sources: { full_name: { source: 'lead_declaration', evidence: 'soy Carlos' } } },
+      _lead_introduction: { request_sent: true },
+      _interpretation_memory: { budget: { status: 'amount', amount: 200000, confidence: 'high', evidence: 'tengo 200 mil' } },
+      _property_context: { selected_ids: ['u502'], query: { category: 'departamento', group: 'residential', filters: { bedrooms: 3 } } },
+      _pending_question: { id: 'financing_partner', act: 'financing', question: '¿Con cuál de estas entidades prefiere revisar su opción de crédito?' } },
+    extracted: { financing_partner: 'Cooperativa JEP', requests: [{ domain: 'financing', request: 'Elegir JEP', evidence: current, confidence: 'high' }],
+      turn_semantics: { primary_intent: 'answer_previous', primary_evidence: current, confidence: 'high',
+        answer_to_previous: { question_id: 'financing_partner', kind: 'value', evidence: current, confidence: 'high' } } },
+    financing: { active: true, state: 'identificacion_pendiente', selected_partner_name: 'Cooperativa JEP', legal_name_confirmed: false },
+  })
+  h.rows[0].payload.text = current
+  const result = await h.process([h.rows[0]], async () => {}).catch(error => { throw error.original || error })
+  const writes = h.calls.filter(call => call.name === 'process_financing_message_v3')
+  assert.equal(writes.length, 1, JSON.stringify({ result, calls: h.calls.map(call => call.name) }))
+  assert.equal(writes[0].args.p_financing_partner, 'Cooperativa JEP')
+  assert.equal(writes[0].args.p_financing_consent, true)
+  assert.equal(result.source, 'financing')
+  assert.equal(result.selected_partner, 'Cooperativa JEP')
+  assert.ok(result.financing_collection.pending_fields.includes('legal_name'))
+  assert.ok(result.financing_collection.pending_fields.includes('applicant_type'))
+  assert.equal(result.financing_collection.pending_fields.includes('selected_partner_name'), false)
+  assert.equal(result.pending_question.id, 'financing_data')
+})
 
 test('reservation requests prioritize a verified advisor action over selecting a unit and repeating its tour', async t => {
   live(t)
