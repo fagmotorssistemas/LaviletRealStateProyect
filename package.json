@@ -41,7 +41,8 @@
     "test:dialogue-replay": "node --test --test-name-pattern=\"dialogue v2\" scripts/integrations.test.cjs",
     "test:message-trace": "node --require ./scripts/test-typescript.cjs --test src/components/inmobiliaria/automation/workflow/reviewDiagnostics.test.ts src/components/inmobiliaria/automation/workflow/architectureGraph.test.ts src/components/inmobiliaria/automation/workflow/messageExplanation.test.ts src/components/inmobiliaria/automation/workflow/workflow-api.test.cjs",
     "test:architecture-browser": "node scripts/architecture-map.browser.test.cjs",
-    "eval:review": "node scripts/evaluate-review-contract.cjs"
+    "eval:review": "node scripts/evaluate-review-contract.cjs",
+    "test:test-contacts": "node --test scripts/test-response-mode.test.cjs scripts/test-contacts-panel-sql.test.cjs"
   },
   "engines": {
     "node": "24.x"

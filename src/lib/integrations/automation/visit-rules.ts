@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
 import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 import { LAVILET_MESSAGE_ROUTES, LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '../lavilet'
 import { withVisitLocation } from './visit-location'
@@ -21,7 +22,7 @@ export function validateVisit(context: Row, now = Date.now()): Decision {
   if (!['pending', 'claimed'].includes(text(j.status))) invalid.push('job_not_pending')
   if (!(ms(j.expires_at) > now)) invalid.push('expired')
   if (!(ms(j.scheduled_at) <= now)) deferred.push('not_due')
-  if (c.enabled !== true || (c.test_only === true && c.test_lead_id !== l.id)) deferred.push('disabled_or_test_only')
+  if (c.enabled !== true || !testLeadAllowed(c,l.id)) deferred.push('disabled_or_test_only')
   if (l.channel_origin !== 'whatsapp' || l.tracking_opt_out_at) invalid.push('channel_or_opt_out')
   if (!Number.isSafeInteger(Number(l.kommo_id)) || Number(l.kommo_id) <= 0) deferred.push('invalid_kommo_id')
   if (route.enabled !== true || route.approved !== true || !text(route.body_template)

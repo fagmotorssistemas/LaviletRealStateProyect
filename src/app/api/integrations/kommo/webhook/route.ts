@@ -12,8 +12,7 @@ import {
   type Inbound,
   type KommoCtwaFieldProbe,
 } from '@/lib/integrations/automation/webhook'
-import { accelerateTestMessages, testResponseMode } from '@/lib/integrations/automation/test-response-mode'
-import { TEST_RESPONSE_SECONDS } from '@/lib/inmobiliaria/testResponseMode'
+import { accelerateTestMessages } from '@/lib/integrations/automation/test-response-mode'
 import type { KommoMessageEvidence } from '@/lib/integrations/automation/message-evidence'
 import { acceptsKommoTestContactBatch } from '@/lib/integrations/automation/kommoWebhookIsolation'
 
@@ -79,10 +78,7 @@ export async function POST(request: Request) {
     const advisorInserted = persisted.advisor_inserted
     if(inserted) after(async()=>{
       try {
-        const mode=await testResponseMode()
-        if(!mode||!events.some(e=>e.kommoId===mode.kommoId))return
-        await new Promise(resolve=>setTimeout(resolve,TEST_RESPONSE_SECONDS*1000))
-        const contacts=await accelerateTestMessages(events,mode.version)
+        const contacts=await accelerateTestMessages(events)
         if(!contacts.length)return
         const {runAutomation}=await import('@/lib/integrations/automation/worker')
         for(const contact of contacts) await runAutomation(contact)

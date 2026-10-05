@@ -1,56 +1,48 @@
 import 'server-only'
-import { db, scope, object, type Row } from './data'
-import { isTestPhone, TEST_RESPONSE_SETTING } from '@/lib/inmobiliaria/testResponseMode'
+import { db, scope, type Row } from './data'
+import { isTestPhone, type TestContact } from '@/lib/inmobiliaria/testResponseMode'
 import type { Inbound } from './webhook'
 
-export async function testResponseMode() {
-  const {data,error}=await db().from('agent_prompts').select('content,version').match(scope).eq('name',TEST_RESPONSE_SETTING).maybeSingle()
-  if(error)throw Error('TEST_MODE_READ_FAILED')
-  const value=object(data?.content)
-  if(value.enabled!==true)return null
-  const {data:lead,error:leadError}=await db().from('leads').select('id,phone,kommo_id').match(scope).eq('id',value.leadId).maybeSingle()
-  if(leadError)throw Error('TEST_LEAD_READ_FAILED')
-  return lead && isTestPhone(lead.phone) && lead.kommo_id ? {leadId:lead.id,kommoId:Number(lead.kommo_id),version:data!.version} : null
+export async function testContacts(): Promise<TestContact[]> {
+  const { data, error } = await db().from('lv_test_contacts_state').select('*').match(scope)
+    .order('created_at').abortSignal(AbortSignal.timeout(10_000))
+  if (error) throw Error('TEST_CONTACTS_READ_FAILED')
+  return (data || []).map(row => ({ id: row.id, phone: row.phone, label: row.label,
+    fastResponse: row.fast_response === true, version: row.version, leadId: row.lead_id,
+    kommoId: row.kommo_id ? Number(row.kommo_id) : null, botEnabled: row.bot_enabled === true,
+    matches: Number(row.matches), blocked: row.blocked === true, lastResetAt: row.last_reset_at }))
 }
 
-/** Only newly received pending messages are accelerated; duplicate webhooks never replay work. */
-export async function accelerateTestMessages(events: Inbound[], version: number) {
-  const mode=await testResponseMode()
-  if(!mode || mode.version!==version)return []
-  const contacts=new Set<string>()
-  for(const event of events.filter(e=>e.kommoId===mode.kommoId)) {
-    const {data,error}=await db().from('lv_integration_events').select('id,available_at,received_at,result').match(scope)
-      .eq('event_key',`inbound:${event.externalId}`).eq('status','pending').maybeSingle()
-    if(error)throw Error('TEST_EVENT_READ_FAILED')
-    if(!data || Date.now()-Date.parse(data.received_at)>60_000 || object(data.result).test_original_available_at)continue
-    const {data:updated,error:writeError}=await db().from('lv_integration_events').update({available_at:new Date().toISOString(),
-      result:{...object(data.result),test_original_available_at:data.available_at,test_mode_version:version}})
-      .match(scope).eq('id',data.id).eq('status','pending').eq('available_at',data.available_at).select('id')
-    if(writeError)throw Error('TEST_EVENT_UPDATE_FAILED')
-    if(updated?.length)contacts.add(`${event.kommoId}:${event.contactId}`)
-  }
-  return [...contacts]
+/** Separate authorization for unpublished policy previews. */
+export async function testResponseMode() {
+  return (await testContacts()).find(c => isTestPhone(c.phone) && c.fastResponse && c.matches === 1 && c.kommoId) || null
+}
+
+/** Current enrollment is checked atomically. Duplicate webhooks never replay work. */
+export async function accelerateTestMessages(events: Inbound[]) {
+  const { data, error } = await db().rpc('lv_accelerate_test_messages', {
+    p_event_keys: events.map(event => 'inbound:' + event.externalId),
+  }).abortSignal(AbortSignal.timeout(10_000))
+  if (error) throw Error('TEST_EVENT_UPDATE_FAILED')
+  return (data || []) as string[]
 }
 
 /** Runs under the same global worker lease as the scheduled worker. */
 export async function claimTestMessages(token: string, contact: string): Promise<Row[]> {
-  const mode=await testResponseMode()
-  if(!mode || !contact.startsWith(`${mode.kommoId}:`))return []
+  const mode = (await testContacts()).find(c => c.fastResponse && c.matches === 1 && c.kommoId && contact.startsWith(c.kommoId + ':'))
+  if (!mode) return []
   const {data,error}=await db().from('lv_integration_events').select('*').match(scope).eq('contact_key',contact)
     .in('kind',['advisor_outbound','inbound']).in('status',['pending','processing','uncertain']).order('received_at').order('id')
   if(error)throw Error('TEST_CLAIM_READ_FAILED')
   const rows=data||[]
   if(rows.some(r=>r.status!=='pending'||Date.parse(r.available_at)>Date.now()))return []
-  // Una salida manual pendiente siempre se procesa sola y antes que el
-  // inbound acelerado. Así el modo de pruebas tampoco puede responder detrás
-  // de un asesor que acaba de tomar la conversación.
   const advisorOutbound=rows.find(r=>r.kind==='advisor_outbound')
-  const limit=rows.some(r=>object(r.payload).media)?2:10
+  const limit=rows.some(r=>r.payload?.media)?2:10
   const ids=advisorOutbound?[advisorOutbound.id]:rows.filter(r=>!r.kind||r.kind==='inbound').slice(0,limit).map(r=>r.id)
   if(!ids.length)return []
   const {data:claimed,error:claimError}=await db().from('lv_integration_events')
     .update({status:'processing',claimed_at:new Date().toISOString(),claim_token:token})
-    .match(scope).eq('contact_key',contact).eq('status','pending').in('id',ids).select('*')
+    .match(scope).eq('contact_key',contact).eq('status','pending').in('id',ids).lte('available_at',new Date().toISOString()).select('*')
   if(claimError)throw Error('TEST_CLAIM_FAILED')
   return (claimed||[]).sort((a,b)=>a.received_at.localeCompare(b.received_at)||a.id.localeCompare(b.id))
 }

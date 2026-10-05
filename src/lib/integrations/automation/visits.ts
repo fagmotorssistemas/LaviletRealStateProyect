@@ -11,6 +11,7 @@ import { buildVisitReminderFields, googleMapsSearchUrl, verifiedGoogleMapsUrl, V
 export type Guard = () => Promise<void>
 export async function visitContext(jobId: string) {
   const result = object(await rpc('lv_app_visit_context', { p_job: jobId }))
+  if (object(result.config).test_only === true) result.config = { ...object(result.config), ...await autoConfig() }
   const appointment = object(result.appointment)
   const [project, config] = await Promise.all([
     db().from('projects').select('address,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).maybeSingle(),

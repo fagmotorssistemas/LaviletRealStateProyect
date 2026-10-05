@@ -2,6 +2,7 @@ import 'server-only'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '../lavilet'
 import { assertProductionRpcAllowed } from './reset-protection'
+import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
 
 export type Row = Record<string, unknown>
 export function object(value: unknown): Row {
@@ -29,11 +30,14 @@ export async function autoConfig(): Promise<Row> {
   const { data, error } = await db().from('lv_auto_config').select('*').match(scope)
     .abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
   if (error || !data) throw new Error('AUTOMATION_CONFIG_MISSING')
-  return data as Row
+  if (data.test_only === false) return data as Row
+  const contacts = await db().from('lv_test_contacts_state').select('lead_id').match(scope).eq('matches', 1)
+    .abortSignal(AbortSignal.timeout(10_000))
+  if (contacts.error) throw new Error('TEST_CONTACTS_READ_FAILED')
+  return { ...data, test_lead_ids: (contacts.data || []).map(row => row.lead_id).filter(Boolean) }
 }
 export function permitted(config: Row, lead: Row, testLeadId: string | null) {
   return config.enabled === true && config.dry_run === false
     && lead.tenant_id === scope.tenant_id && lead.project_id === scope.project_id
-    && (config.test_only === false || config.test_lead_id === lead.id)
-    && (!testLeadId || testLeadId === lead.id)
+    && testLeadAllowed(config, lead.id, testLeadId)
 }

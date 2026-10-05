@@ -1,3 +1,4 @@
+import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
 import 'server-only'
 import { assertLive, automationSettings } from './config'
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
@@ -23,7 +24,8 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     if (!last || events.some(e => e.kommoId !== last.kommoId || e.contactId !== last.contactId)) throw Error('MIXED_CONVERSATION_BATCH')
     if (Date.now() - Date.parse(last.sentAt) >= 24 * 3_600_000) return { action: 'expired', delivery_status: 'not_sent', requires_review: true, reason: 'REPLY_WINDOW_EXPIRED' }
     await guard()
-    const config = await autoConfig(), settings = automationSettings()
+    let config = await autoConfig()
+    const settings = automationSettings()
     if (config.enabled !== true || config.dry_run !== false) return { action: 'disabled' }
     const remote = await getKommoLead(last.kommoId)
     const contacts = object(remote._embedded).contacts
@@ -57,8 +59,8 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
         if (error) throw Error('INBOUND_TIMESTAMP_FAILED')
       }
     }
-    const target = settings.testLeadId || (config.test_only === true ? text(config.test_lead_id) : null)
-    if (target && Number((await one('leads', target)).kommo_id) !== last.kommoId) {
+    if (config.test_only === true) config = await autoConfig()
+    if (!testLeadAllowed(config, registration.lead_id, settings.testLeadId)) {
       try {
         if (text(registration.lead_id)) {
           const outsideLead = await one('leads', text(registration.lead_id))

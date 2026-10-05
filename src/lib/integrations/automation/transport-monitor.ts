@@ -79,8 +79,9 @@ async function inspectTransport(now: number): Promise<TransportHealth> {
   const ids = [...new Set(events.map(event => Number(event.entity_id)).filter(id => Number.isSafeInteger(id) && id > 0))]
   if (!ids.length) return { ...empty, limited }
   let leadQuery = db().from('leads').select('id,kommo_id').match(scope).eq('bot_enabled', true).is('tracking_opt_out_at', null).in('kommo_id', ids)
-  const target = settings.testLeadId || (config.test_only === true ? text(config.test_lead_id) : null)
-  if (target) leadQuery = leadQuery.eq('id', target)
+  if (settings.testLeadId) leadQuery = leadQuery.eq('id', settings.testLeadId)
+  else if (config.test_only === true) leadQuery = leadQuery.in('id', Array.isArray(config.test_lead_ids)
+    ? config.test_lead_ids : [config.test_lead_id].filter(Boolean))
   const leads = await leadQuery.abortSignal(AbortSignal.timeout(5_000))
   if (leads.error) throw Error('KOMMO_MONITOR_LEAD_READ')
   const managedIds = (leads.data || []).map(lead => Number(lead.kommo_id))

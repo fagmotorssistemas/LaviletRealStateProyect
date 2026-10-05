@@ -1,23 +1,55 @@
 'use client'
 import { useState } from 'react'
-import { saveTestResponseAction } from '@/app/inmobiliaria/automatizacion/pruebas/actions'
-import { TEST_RESPONSE_PHONE, TEST_RESPONSE_SECONDS, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
+import { addTestContactAction, loadTestResponseAction, updateTestContactAction } from '@/app/inmobiliaria/automatizacion/pruebas/actions'
+import { NORMAL_RESPONSE_SECONDS, type TestContact, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
 import { AutomationSettingsHeader, automationSettingsStyles as shared } from './AutomationSettings'
 import styles from './ConversationToneSettings.module.css'
+import local from './TestContactsSettings.module.css'
+
 export function TestResponseSettings({initial}:{initial:TestResponseState}) {
-  const [state,setState]=useState(initial),[busy,setBusy]=useState(false),[error,setError]=useState('')
-  async function save(enabled:boolean){setBusy(true);setError('');try{setState(await saveTestResponseAction(enabled,state.version))}catch(e){setError(e instanceof Error?e.message:'No se pudo guardar')}finally{setBusy(false)}}
+  const [state,setState]=useState(initial),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
+  const [phone,setPhone]=useState(''),[label,setLabel]=useState('')
+  const [confirmation,setConfirmation]=useState<{id:string;action:'reset'|'remove'}|null>(null)
+  async function perform(task:()=>Promise<void>){
+    setBusy(true);setError('');setNotice('')
+    try{await task()}catch(e){setError(e instanceof Error?e.message:'No se pudo guardar')}
+    finally{setBusy(false)}
+  }
+  async function update(contact:TestContact,action:'fast_on'|'fast_off'|'reset'|'remove'|'resume'){
+    await perform(async()=>{const result=await updateTestContactAction(contact.id,contact.version,action);setState(result.state);setNotice(result.notice);setConfirmation(null)})
+  }
   return <div className={shared.shell}>
-    <AutomationSettingsHeader active="pruebas" title="Modo de pruebas" description="Acelere las respuestas de un contacto y restaure los tiempos habituales al terminar." project={<span>La Vilet</span>}/>
-    <section className={styles.card}>
-      <h2>Pruebas con {TEST_RESPONSE_PHONE}</h2>
-      <p role="status">{state.enabled?'Modo de pruebas activo':'Tiempos habituales activos'}</p>
-      <p>Al activarlo, el bot espera {TEST_RESPONSE_SECONDS} segundos para agrupar mensajes y solicita su procesamiento sin esperar al siguiente ciclo del minuto. La generación de la respuesta y una tarea que ya esté en curso pueden añadir tiempo.</p>
-      <p>Solo afecta a este contacto. Conserva el tono, las reglas comerciales y la verificación de citas. Las respuestas y acciones siguen siendo reales.</p>
-      {!state.botEnabled&&<p>Este lead tiene el bot pausado. Al activar el modo de pruebas se reanudará la IA para este contacto, siempre que no exista una derivación activa ni una baja de mensajes.</p>}
-      <div className={styles.actions}><button className={styles.primary} disabled={busy} onClick={()=>void save(true)}>{state.enabled?'Verificar y reanudar bot':'Activar modo de pruebas'}</button><button disabled={busy||!state.enabled} onClick={()=>void save(false)}>Restaurar tiempos habituales</button></div>
-      <p>Al restaurar, se vuelve a la espera habitual de agrupación y al procesamiento programado. Una respuesta que ya esté en curso terminará normalmente.</p>
-      {error&&<p role="alert">{error}</p>}
+    <AutomationSettingsHeader active="pruebas" title="Contactos de prueba" description="Añada números para probar la conversación y controle la espera de cada contacto." project={<span>La Vilet</span>}/>
+    <section className={styles.card} aria-busy={busy}>
+      <h2>Números para pruebas</h2>
+      <p>Las respuestas de WhatsApp son reales. Cada número conserva las reglas comerciales y los controles del bot. Puede añadirlo antes de que envíe su primer mensaje.</p>
+      <form className={local.form} onSubmit={event=>{event.preventDefault();void perform(async()=>{setState(await addTestContactAction(phone,label));setPhone('');setLabel('');setNotice('Número añadido con la espera habitual de 30 segundos.')})}}>
+        <label className={local.field}>Nombre para identificarlo (opcional)<input value={label} maxLength={80} disabled={busy} onChange={e=>setLabel(e.target.value)} placeholder="Por ejemplo, prueba de ventas"/></label>
+        <label className={local.field}>Número de WhatsApp<input type="tel" value={phone} disabled={busy} required onChange={e=>setPhone(e.target.value)} placeholder="0991234567 o +593991234567" autoComplete="off"/></label>
+        <button className={styles.primary} disabled={busy||!phone.trim()} type="submit">Añadir número</button>
+      </form>
+      <button disabled={busy} onClick={()=>void perform(async()=>setState(await loadTestResponseAction()))}>Actualizar lista</button>
+      {error&&<p className={styles.error} role="alert">{error}</p>}
+      <div role="status" aria-live="polite">{notice&&<p className={local.notice}>{notice}</p>}</div>
+      <div className={local.list}>
+        {!state.contacts.length&&<p className={local.empty}>Todavía no hay números de prueba. Añada el primero arriba.</p>}
+        {state.contacts.map(contact=><article className={local.contact} key={contact.id}>
+          <div className={local.heading}><div><h3>{contact.label||'Contacto de prueba'}</h3><span className={local.phone}>+{contact.phone}</span></div><span className={local.badge}>{contact.matches>1?'Varios leads con este número':!contact.leadId?'Esperando primer mensaje':contact.botEnabled?'Bot habilitado':'Bot pausado'}</span></div>
+          <label className={local.switch}><input type="checkbox" role="switch" checked={contact.fastResponse} disabled={busy} onChange={e=>void update(contact,e.target.checked?'fast_on':'fast_off')}/>Respuesta rápida</label>
+          <p>{contact.fastResponse?'Sin espera de agrupación: cada mensaje puede iniciar una respuesta por separado.':`Espera de ${NORMAL_RESPONSE_SECONDS} segundos para agrupar mensajes consecutivos.`} La generación y una respuesta que ya esté en curso pueden añadir tiempo.</p>
+          {contact.matches>1&&<p>Hay que resolver el duplicado para utilizar este número en las pruebas.</p>}
+          {contact.matches===0&&<p>Envíe un primer mensaje desde este número y actualice la lista. La respuesta rápida estará disponible cuando se identifique su lead.</p>}
+          <div className={styles.actions}>
+            <button disabled={busy||!contact.kommoId||contact.matches!==1} onClick={()=>setConfirmation({id:contact.id,action:'reset'})}>Reiniciar prueba</button>
+            {contact.leadId&&<button disabled={busy||contact.blocked||!contact.kommoId} onClick={()=>void update(contact,'resume')}>Reanudar bot</button>}
+            <button className={local.danger} disabled={busy} onClick={()=>setConfirmation({id:contact.id,action:'remove'})}>Eliminar de pruebas</button>
+          </div>
+          {confirmation?.id===contact.id&&<div className={local.confirm}>
+            <p>{confirmation.action==='reset'?`¿Reiniciar la prueba de +${contact.phone}? Se guardará un respaldo y se limpiarán su conversación, preferencias, datos recogidos y citas de prueba para empezar desde cero. El historial de WhatsApp y Kommo se conserva.`:`¿Quitar +${contact.phone} de la lista? Se restaurarán sus tiempos habituales. Su lead y conversación se conservan; si la automatización está limitada a pruebas, dejará de responderle.`}</p>
+            <div className={styles.actions}><button className={styles.primary} disabled={busy} onClick={()=>void update(contact,confirmation.action)}>{confirmation.action==='reset'?'Confirmar reinicio':'Confirmar eliminación'}</button><button disabled={busy} onClick={()=>setConfirmation(null)}>Cancelar</button></div>
+          </div>}
+        </article>)}
+      </div>
     </section>
   </div>
 }

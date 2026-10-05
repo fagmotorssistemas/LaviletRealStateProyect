@@ -1,3 +1,4 @@
+import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
 import { currentTopicReply } from './current-topic'
 import { withHandoffNotice } from './handoff-copy'
 import { requiresContentReview, unverifiedReply } from './delivery-integrity'
@@ -194,7 +195,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     trace.finish(inboundStep, 'paused', { reason: 'REPLY_WINDOW_EXPIRED' })
     return { action: 'expired' }
   }
-  const initialConfig = await autoConfig()
+  let initialConfig = await autoConfig()
   if (initialConfig.enabled !== true || initialConfig.dry_run !== false) {
     trace.finish(inboundStep, 'paused', { reason: 'AUTOMATION_DISABLED' })
     return { action: 'disabled' }
@@ -204,9 +205,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   // trazabilidad. Registrar nunca autoriza una respuesta del bot.
   const inbound = await register(events, guard)
   const registeredLeadId = text(inbound.registration.lead_id)
+  if (initialConfig.test_only === true) initialConfig = await autoConfig()
   trace.setContext({ leadId: registeredLeadId, conversationId: inbound.registration.conversation_id })
-  const target = settings.testLeadId || (initialConfig.test_only === true ? text(initialConfig.test_lead_id) : null)
-  if (target && registeredLeadId !== target) {
+  if (!testLeadAllowed(initialConfig, registeredLeadId, settings.testLeadId)) {
     // test_only is the authoritative server-side lock. Mirror that decision in
     // both stores so every non-test lead displays the bot as stopped. A failed
     // mirror write never opens the bot; a later inbound message retries it.

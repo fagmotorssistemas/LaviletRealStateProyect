@@ -1,8 +1,9 @@
 'use server'
 import { assertAdmin, getSessionUser } from '@/lib/auth/session'
-import { db, scope, object } from '@/lib/integrations/automation/data'
+import { db, scope } from '@/lib/integrations/automation/data'
 import { setKommoField } from '@/lib/integrations/automation/kommo'
-import { TEST_RESPONSE_SETTING, isTestPhone, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
+import { testContacts } from '@/lib/integrations/automation/test-response-mode'
+import { normalizeTestPhone, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
 
 async function access() {
   await assertAdmin()
@@ -12,43 +13,44 @@ async function access() {
   if(error||!data)throw Error('Sin acceso al proyecto')
   return user
 }
-async function read() {
-  const {data:leads,error}=await db().from('leads').select('id,phone,kommo_id,bot_enabled,handoff_status,tracking_opt_out_at').match(scope).in('phone',['0987110032','+593987110032','593987110032'])
-  if(error||leads?.length!==1||!isTestPhone(leads[0].phone)||!leads[0].kommo_id)throw Error('No se pudo identificar un único lead para pruebas')
-  const {data:row,error:rowError}=await db().from('agent_prompts').select('id,content,version').match(scope).eq('name',TEST_RESPONSE_SETTING).maybeSingle()
-  if(rowError)throw Error('No se pudo leer el modo de pruebas')
-  const lead=leads[0]
-  const state:TestResponseState={enabled:object(row?.content).enabled===true,version:row?.version||0,leadId:lead.id,kommoId:Number(lead.kommo_id),botEnabled:lead.bot_enabled===true}
-  return {row,state,lead}
+function problem(message: string) {
+  const errors: Record<string,string> = {
+    TEST_CONTACT_CHANGED: 'La lista cambió. Actualícela y vuelva a intentarlo.',
+    TEST_CONTACT_DUPLICATE: 'Ese número ya está en la lista de pruebas.',
+    TEST_CONTACT_AMBIGUOUS: 'Hay varios leads con ese teléfono. Resuelva el duplicado antes de reiniciar.',
+    TEST_CONTACT_NOT_LINKED: 'El número aún no tiene un lead de WhatsApp vinculado.',
+    TEST_RESET_BUSY: 'Hay una respuesta en curso. Espere a que termine y vuelva a intentarlo.',
+    TEST_RESET_PROTECTED: 'Este lead tiene contratos, reservas o ventas y no se puede reiniciar.',
+    TEST_CONTACT_OPT_OUT: 'El contacto solicitó no recibir mensajes. No se puede reactivar desde aquí.',
+  }
+  return errors[message] || 'No se pudo guardar el cambio. Actualice la lista para comprobar su estado.'
 }
-export async function loadTestResponseAction() { await access(); return (await read()).state }
-export async function saveTestResponseAction(enabled:boolean,expectedVersion:number) {
-  const user=await access()
-  if(typeof enabled!=='boolean'||!Number.isSafeInteger(expectedVersion))throw Error('Configuración inválida')
-  const {row,state,lead}=await read()
-  if(state.version!==expectedVersion)throw Error('La configuración cambió. Recargue la página.')
-  if(enabled) {
-    if(lead.tracking_opt_out_at)throw Error('El contacto solicitó no recibir mensajes; no se puede reactivar desde el modo de pruebas.')
-    if(lead.handoff_status && lead.handoff_status!=='none')throw Error('El contacto tiene una derivación activa. Resuélvala antes de reactivar el bot.')
-    // Test mode must be usable before the first message. Keep both independent
-    // pause switches aligned for this one verified test lead.
-    await setKommoField(state.kommoId,451530,'false')
-    const resumed=await db().from('leads').update({bot_enabled:true}).match(scope).eq('id',state.leadId).select('id')
-    if(resumed.error||resumed.data?.length!==1)throw Error('No se pudo reactivar el bot del contacto de pruebas.')
+export async function loadTestResponseAction(): Promise<TestResponseState> {
+  await access()
+  return {contacts: await testContacts()}
+}
+export async function addTestContactAction(phoneInput: string, label: string): Promise<TestResponseState> {
+  const user = await access(), phone = normalizeTestPhone(phoneInput)
+  if (!phone || typeof label !== 'string' || label.trim().length > 80) throw Error('Indique un teléfono válido y un nombre de hasta 80 caracteres.')
+  const {error} = await db().rpc('lv_manage_test_contact', {p_action:'add',p_phone:phone,p_label:label.trim(),p_actor:user.id})
+  if(error)throw Error(problem(error.message))
+  return {contacts:await testContacts()}
+}
+export async function updateTestContactAction(id: string, version: number, action: 'fast_on'|'fast_off'|'remove'|'reset'|'resume'): Promise<{state:TestResponseState;notice:string}> {
+  const user = await access()
+  if (!/^[a-f\d-]{36}$/i.test(id) || !Number.isSafeInteger(version) || version < 1
+    || !['fast_on','fast_off','remove','reset','resume'].includes(action)) throw Error('Acción inválida')
+  const contact = (await testContacts()).find(c=>c.id===id && c.version===version)
+  if (!contact) throw Error(problem('TEST_CONTACT_CHANGED'))
+  if (action==='resume' && (contact.blocked || !contact.kommoId)) throw Error('Resuelva la derivación o la baja de mensajes antes de reanudar el bot.')
+  const {error} = await db().rpc(action==='reset'?'lv_restart_enrolled_test_contact':'lv_manage_test_contact', {
+    ...(action==='reset'?{}:{p_action:action}),p_id:id,p_version:version,p_actor:user.id,
+  }).abortSignal(AbortSignal.timeout(30_000))
+  if(error)throw Error(problem(error.message))
+  let notice = action==='reset'?'Prueba reiniciada. Ya puede comenzar una conversación nueva.':action==='remove'?'Número eliminado de la lista de pruebas.':'Cambio guardado.'
+  if ((action==='reset'||action==='resume') && contact.kommoId) {
+    try { await setKommoField(contact.kommoId,451530,'false') }
+    catch { notice = action==='reset'?'La prueba se reinició, pero no se pudo reanudar el bot en Kommo. Pulse «Reanudar bot» para reintentar.':'No se pudo reanudar el bot en Kommo. Puede reintentarlo.' }
   }
-  const payload={content:JSON.stringify({enabled,leadId:state.leadId}),version:expectedVersion+1,updated_at:new Date().toISOString(),updated_by:user.id}
-  const result=row?await db().from('agent_prompts').update(payload).match(scope).eq('id',row.id).eq('version',expectedVersion).select('id')
-    :await db().from('agent_prompts').insert({...scope,...payload,name:TEST_RESPONSE_SETTING,is_active:false,channel:[],mode:'lanzamiento',priority:0,load_when:'Modo de pruebas de tiempos de respuesta'}).select('id')
-  if(result.error||result.data?.length!==1)throw Error('No se pudo guardar; recargue para comprobar el estado')
-  if(!enabled) {
-    const {data:pending,error}=await db().from('lv_integration_events').select('id,available_at,result').match(scope).eq('kind','inbound').eq('status','pending').like('contact_key',`${state.kommoId}:%`)
-    if(error)throw Error('Modo desactivado; no se pudo comprobar la cola pendiente')
-    for(const event of pending||[]) {
-      const original=object(event.result).test_original_available_at
-      if(typeof original!=='string')continue
-      const {error:restoreError}=await db().from('lv_integration_events').update({available_at:original}).match(scope).eq('id',event.id).eq('status','pending').eq('available_at',event.available_at)
-      if(restoreError)throw Error('Modo desactivado; no se pudo restaurar una espera pendiente')
-    }
-  }
-  return {...state,enabled,botEnabled:enabled?true:state.botEnabled,version:expectedVersion+1}
+  return {state:{contacts:await testContacts()},notice}
 }

@@ -12,72 +12,59 @@ function load(file,mocks={}){
   return loaded.exports
 }
 const settings=load('src/lib/inmobiliaria/testResponseMode.ts')
-function harness({enabled=true,phone='+593987110032',rows=[]}={}){
+
+function harness({enabled=true,phone='593987110032',rows=[]}={}){
   const calls=[]
-  const db={from(table){let write=null;const filters=[];const q={then(resolve){calls.push({table,write,filters});return Promise.resolve({data:table==='agent_prompts'?{content:JSON.stringify({enabled,leadId:'carlos'}),version:2}:table==='leads'?{id:'carlos',phone,kommo_id:2710090}:write?rows:rows,error:null}).then(resolve)}};for(const key of ['select','match','eq','in','order','maybeSingle'])q[key]=(...args)=>{filters.push([key,...args]);return q};q.update=value=>{write=value;return q};return q}}
-  const object=value=>typeof value==='string'?JSON.parse(value):value||{}
-  const mod=load('src/lib/integrations/automation/test-response-mode.ts',{'server-only':{},'./data':{db:()=>db,scope:{tenant_id:'tenant',project_id:'project'},object},'@/lib/inmobiliaria/testResponseMode':settings})
+  const db={from(table){let write=null;const filters=[];const q={then(resolve){calls.push({table,write,filters});return Promise.resolve({data:table==='lv_test_contacts_state'?[{id:'entry',phone,fast_response:enabled,version:2,lead_id:'carlos',kommo_id:2710090,matches:1}]:rows,error:null}).then(resolve)}};for(const key of ['select','match','eq','in','order','maybeSingle','abortSignal','lte'])q[key]=(...args)=>{filters.push([key,...args]);return q};q.update=value=>{write=value;return q};return q}}
+  const mod=load('src/lib/integrations/automation/test-response-mode.ts',{'server-only':{},'./data':{db:()=>db,scope:{tenant_id:'tenant',project_id:'project'}},'@/lib/inmobiliaria/testResponseMode':settings})
   return {...mod,calls}
 }
-test('phone matching permits only the requested Ecuadorian number',()=>{
-  for(const p of ['0987110032','+593 98 711 0032'])assert.equal(settings.isTestPhone(p),true)
-  for(const p of ['0987110033','987110032','+10987110032',null])assert.equal(settings.isTestPhone(p),false)
+test('phone normalization detects duplicates and requires country code for non-Ecuadorian numbers',()=>{
+  for(const p of ['0987110032','+593 98 711 0032','593987110032'])assert.equal(settings.normalizeTestPhone(p),'593987110032')
+  assert.equal(settings.normalizeTestPhone('+1 (202) 555-0199'),'12025550199')
+  for(const p of ['987110032','call +593987110032',null,'123'])assert.equal(settings.normalizeTestPhone(p),null)
+})
+test('test-only gate uses enrollment including empty list; production and environment gates remain independent',()=>{
+ assert.equal(settings.testLeadAllowed({test_only:true,test_lead_id:'legacy',test_lead_ids:['new']},'new'),true)
+ assert.equal(settings.testLeadAllowed({test_only:true,test_lead_id:'legacy',test_lead_ids:[]},'legacy'),false)
+ assert.equal(settings.testLeadAllowed({test_only:false,test_lead_ids:[]},'ordinary'),true)
+ assert.equal(settings.testLeadAllowed({test_only:false},'ordinary','only'),false)
 })
 test('disabled mode and another contact cannot claim messages',async()=>{
-  for(const options of [{enabled:false},{phone:'+593987110033'},{}]){
-    const h=harness(options)
-    assert.deepEqual(await h.claimTestMessages('lease','999:1'),[])
-    assert.equal(h.calls.some(c=>c.write),false)
-  }
+ for(const options of [{enabled:false},{}]){
+  const h=harness(options);assert.deepEqual(await h.claimTestMessages('lease',options.enabled===false?'2710090:456':'999:1'),[]);assert.equal(h.calls.some(c=>c.write),false)
+ }
 })
 test('test claims preserve grouping, in-progress and unknown-delivery barriers',async()=>{
-  for(const row of [{status:'uncertain'},{status:'processing'},{status:'pending',available_at:new Date(Date.now()+30_000).toISOString()}]){
-    const h=harness({rows:[row]})
-    assert.deepEqual(await h.claimTestMessages('lease','2710090:456'),[])
-    assert.equal(h.calls.some(c=>c.write),false)
-  }
+ for(const row of [{status:'uncertain'},{status:'processing'},{status:'pending',available_at:new Date(Date.now()+30_000).toISOString()}]){
+  const h=harness({rows:[row]});assert.deepEqual(await h.claimTestMessages('lease','2710090:456'),[]);assert.equal(h.calls.some(c=>c.write),false)
+ }
 })
-test('ready messages are claimed with project, contact, status and lease restrictions',async()=>{
-  const h=harness({rows:[{id:'one',status:'pending',available_at:'2020-01-01',received_at:'2020-01-01',payload:{}}]})
-  assert.equal((await h.claimTestMessages('lease','2710090:456')).length,1)
-  const write=h.calls.find(c=>c.write)
-  assert.equal(write.write.claim_token,'lease')
-  assert.ok(write.filters.some(f=>f[0]==='match'&&f[1].project_id==='project'))
-  assert.ok(write.filters.some(f=>f[0]==='eq'&&f[1]==='contact_key'&&f[2]==='2710090:456'))
-  assert.ok(write.filters.some(f=>f[0]==='eq'&&f[1]==='status'&&f[2]==='pending'))
+test('any enrolled fast phone can be claimed with scope, status and deadline guards',async()=>{
+ const h=harness({phone:'593991234567',rows:[{id:'one',status:'pending',available_at:'2020-01-01',received_at:'2020-01-01',payload:{}}]})
+ assert.equal((await h.claimTestMessages('lease','2710090:456')).length,1)
+ const write=h.calls.find(c=>c.write)
+ assert.equal(write.write.claim_token,'lease')
+ assert.ok(write.filters.some(f=>f[0]==='match'&&f[1].project_id==='project'))
+ assert.ok(write.filters.some(f=>f[0]==='eq'&&f[1]==='contact_key'&&f[2]==='2710090:456'))
+ assert.ok(write.filters.some(f=>f[0]==='eq'&&f[1]==='status'&&f[2]==='pending'))
+ assert.ok(write.filters.some(f=>f[0]==='lte'&&f[1]==='available_at'))
 })
-test('a changed mode version cancels a previously scheduled acceleration',async()=>{
-  const h=harness()
-  assert.deepEqual(await h.accelerateTestMessages([{kommoId:2710090}],1),[])
-  assert.equal(h.calls.some(c=>c.write),false)
-})
-
-test('admin control saves independently of normal timings and restores pending original deadlines',async()=>{
-  let row=null,deny=false
-  const calls=[],kommo=[]
-  const client={from(table){let mutation=null;const q={then(resolve){calls.push({table,mutation});let data
-    if(table==='projects')data={id:'project'}
-    if(table==='leads')data=mutation?[{id:'carlos'}]:[{id:'carlos',phone:'+593987110032',kommo_id:2710090,bot_enabled:true,handoff_status:'none',tracking_opt_out_at:null}]
-    if(table==='agent_prompts'){if(mutation){row={...row,...mutation,id:'setting'};data=[{id:'setting'}]}else data=row}
-    if(table==='lv_integration_events')data=mutation?[]:[{id:'pending',available_at:'2026-01-01',result:{test_original_available_at:'2026-01-02'}}]
-    return Promise.resolve({data,error:null}).then(resolve)}}
-    for(const key of ['select','eq','in','match','single','maybeSingle','like'])q[key]=()=>q
-    q.insert=q.update=value=>{mutation=value;return q};return q}}
-  const mod=load('src/app/inmobiliaria/automatizacion/pruebas/actions.ts',{
-    '@/lib/auth/session':{assertAdmin:async()=>{if(deny)throw Error('forbidden')},getSessionUser:async()=>({supabase:client,user:{id:'admin'}})},
-    '@/lib/integrations/automation/data':{db:()=>client,scope:{tenant_id:'tenant',project_id:'project'},object:v=>typeof v==='string'?JSON.parse(v):v||{}},
-    '@/lib/integrations/automation/kommo':{setKommoField:async(...args)=>kommo.push(args)},
-    '@/lib/inmobiliaria/testResponseMode':settings,
-  })
-  assert.equal((await mod.loadTestResponseAction()).enabled,false)
-  assert.equal((await mod.saveTestResponseAction(true,0)).enabled,true)
-  assert.deepEqual(kommo,[[2710090,451530,'false']])
-  assert.ok(calls.some(c=>c.table==='leads'&&c.mutation?.bot_enabled===true))
-  assert.equal(row.is_active,false)
-  await assert.rejects(()=>mod.saveTestResponseAction(false,0),/configuración cambió/)
-  assert.equal((await mod.saveTestResponseAction(false,1)).enabled,false)
-  assert.ok(calls.some(c=>c.table==='lv_integration_events'&&c.mutation?.available_at==='2026-01-02'))
-  assert.equal(calls.some(c=>c.table==='lv_auto_config'),false)
-  deny=true
-  await assert.rejects(()=>mod.saveTestResponseAction(true,2),/forbidden/)
+test('server actions enforce admin and project access before any mutation',async()=>{
+ let denied=true,projectAccess=true;const calls=[]
+ const mod=load('src/app/inmobiliaria/automatizacion/pruebas/actions.ts',{
+  '@/lib/auth/session':{assertAdmin:async()=>{if(denied)throw Error('forbidden')},getSessionUser:async()=>({user:{id:'admin'},supabase:{from(){const q={select:()=>q,eq:()=>q,single:async()=>({data:projectAccess?{id:'project'}:null,error:null})};return q}}})},
+  '@/lib/integrations/automation/data':{scope:{tenant_id:'tenant',project_id:'project'},db:()=>({rpc:async(...args)=>{calls.push(args);return {error:null}}})},
+  '@/lib/integrations/automation/kommo':{setKommoField:async()=>{}},
+  '@/lib/integrations/automation/test-response-mode':{testContacts:async()=>[]},
+  '@/lib/inmobiliaria/testResponseMode':settings,
+ })
+ await assert.rejects(()=>mod.addTestContactAction('0991234567','test'),/forbidden/)
+ denied=false;projectAccess=false
+ await assert.rejects(()=>mod.addTestContactAction('0991234567','test'),/Sin acceso/)
+ assert.equal(calls.length,0);projectAccess=true
+ await assert.rejects(()=>mod.addTestContactAction('bad','test'),/teléfono/)
+ await mod.addTestContactAction('0991234567','test');assert.equal(calls[0][1].p_phone,'593991234567')
+ await assert.rejects(()=>mod.updateTestContactAction('00000000-0000-4000-8000-000000000001',1,'reset'),/lista cambió/)
+ assert.equal(calls.length,1)
 })
