@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { addTestContactAction, loadTestResponseAction, updateTestContactAction } from '@/app/inmobiliaria/automatizacion/pruebas/actions'
-import { NORMAL_RESPONSE_SECONDS, type TestContact, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
+import { NORMAL_RESPONSE_SECONDS, testContactControls, type TestContact, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
 import { AutomationSettingsHeader, automationSettingsStyles as shared } from './AutomationSettings'
 import styles from './ConversationToneSettings.module.css'
 import local from './TestContactsSettings.module.css'
@@ -33,22 +33,21 @@ export function TestResponseSettings({initial}:{initial:TestResponseState}) {
       <div role="status" aria-live="polite">{notice&&<p className={local.notice}>{notice}</p>}</div>
       <div className={local.list}>
         {!state.contacts.length&&<p className={local.empty}>Todavía no hay números de prueba. Añada el primero arriba.</p>}
-        {state.contacts.map(contact=><article className={local.contact} key={contact.id}>
-          <div className={local.heading}><div><h3>{contact.label||'Contacto de prueba'}</h3><span className={local.phone}>+{contact.phone}</span></div><span className={local.badge}>{contact.matches>1?'Varios leads con este número':!contact.leadId?'Esperando primer mensaje':contact.botEnabled?'Bot habilitado':'Bot pausado'}</span></div>
+        {state.contacts.map(contact=>{const controls=testContactControls(contact);const helpId=`test-contact-help-${contact.id}`;return <article className={local.contact} key={contact.id}>
+          <div className={local.heading}><div><h3>{contact.label||'Contacto de prueba'}</h3><span className={local.phone}>+{contact.phone}</span></div><span className={local.badge}>{controls.label}</span></div>
           <label className={local.switch}><input type="checkbox" role="switch" checked={contact.fastResponse} disabled={busy} onChange={e=>void update(contact,e.target.checked?'fast_on':'fast_off')}/>Respuesta rápida</label>
           <p>{contact.fastResponse?'Sin espera de agrupación: cada mensaje puede iniciar una respuesta por separado.':`Espera de ${NORMAL_RESPONSE_SECONDS} segundos para agrupar mensajes consecutivos.`} La generación y una respuesta que ya esté en curso pueden añadir tiempo.</p>
-          {contact.matches>1&&<p>Hay que resolver el duplicado para utilizar este número en las pruebas.</p>}
-          {contact.matches===0&&<p>Envíe un primer mensaje desde este número y actualice la lista. La respuesta rápida estará disponible cuando se identifique su lead.</p>}
+          {controls.explanation&&<p id={helpId}>{controls.explanation}</p>}
           <div className={styles.actions}>
-            <button disabled={busy||!contact.kommoId||contact.matches!==1} onClick={()=>setConfirmation({id:contact.id,action:'reset'})}>Reiniciar prueba</button>
-            {contact.leadId&&<button disabled={busy||contact.blocked||!contact.kommoId} onClick={()=>void update(contact,'resume')}>Reanudar bot</button>}
+            <button disabled={busy||!controls.canReset} aria-describedby={controls.resetDisabledReason?helpId:undefined} title={controls.resetDisabledReason||undefined} onClick={()=>setConfirmation({id:contact.id,action:'reset'})}>Reiniciar prueba</button>
+            {contact.leadId&&<button disabled={busy||!controls.canResume} aria-describedby={controls.resumeDisabledReason?helpId:undefined} title={controls.resumeDisabledReason||undefined} onClick={()=>void update(contact,'resume')}>Reanudar bot</button>}
             <button className={local.danger} disabled={busy} onClick={()=>setConfirmation({id:contact.id,action:'remove'})}>Eliminar de pruebas</button>
           </div>
           {confirmation?.id===contact.id&&<div className={local.confirm}>
             <p>{confirmation.action==='reset'?`¿Reiniciar la prueba de +${contact.phone}? Se guardará un respaldo y se limpiarán su conversación, preferencias, datos recogidos y citas de prueba para empezar desde cero. El historial de WhatsApp y Kommo se conserva.`:`¿Quitar +${contact.phone} de la lista? Se restaurarán sus tiempos habituales. Su lead y conversación se conservan; si la automatización está limitada a pruebas, dejará de responderle.`}</p>
             <div className={styles.actions}><button className={styles.primary} disabled={busy} onClick={()=>void update(contact,confirmation.action)}>{confirmation.action==='reset'?'Confirmar reinicio':'Confirmar eliminación'}</button><button disabled={busy} onClick={()=>setConfirmation(null)}>Cancelar</button></div>
           </div>}
-        </article>)}
+        </article>})}
       </div>
     </section>
   </div>

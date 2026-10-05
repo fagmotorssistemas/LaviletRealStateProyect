@@ -3,7 +3,7 @@ import { assertAdmin, getSessionUser } from '@/lib/auth/session'
 import { db, scope } from '@/lib/integrations/automation/data'
 import { setKommoField } from '@/lib/integrations/automation/kommo'
 import { testContacts } from '@/lib/integrations/automation/test-response-mode'
-import { normalizeTestPhone, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
+import { normalizeTestPhone, testContactControls, type TestResponseState } from '@/lib/inmobiliaria/testResponseMode'
 
 async function access() {
   await assertAdmin()
@@ -18,7 +18,7 @@ function problem(message: string) {
     TEST_CONTACT_CHANGED: 'La lista cambió. Actualícela y vuelva a intentarlo.',
     TEST_CONTACT_DUPLICATE: 'Ese número ya está en la lista de pruebas.',
     TEST_CONTACT_AMBIGUOUS: 'Hay varios leads con ese teléfono. Resuelva el duplicado antes de reiniciar.',
-    TEST_CONTACT_NOT_LINKED: 'El número aún no tiene un lead de WhatsApp vinculado.',
+    TEST_CONTACT_NOT_LINKED: 'El número aún no está vinculado con Kommo. Envíe un mensaje desde ese número al WhatsApp del proyecto y pulse «Actualizar lista».',
     TEST_RESET_BUSY: 'Hay una respuesta en curso. Espere a que termine y vuelva a intentarlo.',
     TEST_RESET_PROTECTED: 'Este lead tiene contratos, reservas o ventas y no se puede reiniciar.',
     TEST_CONTACT_OPT_OUT: 'El contacto solicitó no recibir mensajes. No se puede reactivar desde aquí.',
@@ -42,7 +42,9 @@ export async function updateTestContactAction(id: string, version: number, actio
     || !['fast_on','fast_off','remove','reset','resume'].includes(action)) throw Error('Acción inválida')
   const contact = (await testContacts()).find(c=>c.id===id && c.version===version)
   if (!contact) throw Error(problem('TEST_CONTACT_CHANGED'))
-  if (action==='resume' && (contact.blocked || !contact.kommoId)) throw Error('Resuelva la derivación o la baja de mensajes antes de reanudar el bot.')
+  const controls = testContactControls(contact)
+  if (action==='reset' && !controls.canReset) throw Error(controls.resetDisabledReason)
+  if (action==='resume' && !controls.canResume) throw Error(controls.resumeDisabledReason)
   const {error} = await db().rpc(action==='reset'?'lv_restart_enrolled_test_contact':'lv_manage_test_contact', {
     ...(action==='reset'?{}:{p_action:action}),p_id:id,p_version:version,p_actor:user.id,
   }).abortSignal(AbortSignal.timeout(30_000))

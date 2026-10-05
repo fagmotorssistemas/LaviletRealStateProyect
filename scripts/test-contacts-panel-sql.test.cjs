@@ -57,6 +57,28 @@ test('test contacts: enrollment, wait controls and scoped transactional resets',
    const after=(await rows("SELECT available_at,result FROM lv_integration_events WHERE event_key='inbound:102'"))[0]
    assert.equal(new Date(after.available_at).getTime(),new Date(before.result.test_original_available_at).getTime())
   })
+  await t.test('an existing web lead becomes resettable only after its first Kommo link',async()=>{
+   await db.exec('BEGIN')
+   try {
+    const web=randomUUID(),phone='593991234570'
+    await db.query("INSERT INTO leads(id,tenant_id,project_id,phone,channel_origin,bot_enabled,handoff_status) VALUES($1,$2,$3,$4,'web',false,'none')",[web,tenant,project,phone])
+    await db.query("SELECT lv_manage_test_contact('add',p_phone:=$1)",[phone])
+    let contact=await get(phone)
+    assert.equal(contact.matches,1);assert.equal(contact.lead_id,web)
+    assert.equal(contact.kommo_id,null);assert.equal(contact.bot_enabled,false)
+    for(const attempt of [()=>restart(contact),()=>mutate('resume',contact)]){
+     await db.exec('SAVEPOINT unlinked_action')
+     await assert.rejects(attempt(),/TEST_CONTACT_NOT_LINKED/)
+     await db.exec('ROLLBACK TO SAVEPOINT unlinked_action')
+    }
+    assert.equal((await rows('SELECT count(*)::int n FROM lv_manual_test_reset_backups WHERE lead_id=$1',[web]))[0].n,0)
+    await db.query("UPDATE leads SET kommo_id=103,channel_origin='whatsapp' WHERE id=$1",[web])
+    contact=await get(phone)
+    assert.equal(contact.kommo_id,103);assert.equal(contact.bot_enabled,false)
+    await restart(contact)
+    assert.equal((await get(phone)).bot_enabled,true)
+   } finally {await db.exec('ROLLBACK')}
+  })
   await t.test('stale versions and unregistered IDs cannot reset; active worker and unknown sends block reset',async()=>{
    const c=await get('593991234568')
    await assert.rejects(restart({...c,version:c.version-1}),/TEST_CONTACT_CHANGED/)

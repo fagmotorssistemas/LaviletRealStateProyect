@@ -19,6 +19,30 @@ export type TestContact = {
   blocked: boolean; lastResetAt: string | null
 }
 export type TestResponseState = { contacts: TestContact[] }
+
+/** A CRM phone match does not imply that WhatsApp/Kommo has linked the lead. */
+export function testContactControls(contact: TestContact) {
+  const duplicate = contact.matches > 1
+  const waiting = contact.matches === 0 || !contact.leadId
+  const linked = !duplicate && !waiting && contact.matches === 1
+    && Number.isSafeInteger(contact.kommoId) && Number(contact.kommoId) > 0
+  const linkHelp = waiting
+    ? 'Envíe un primer mensaje desde este número al WhatsApp del proyecto y pulse «Actualizar lista». Los botones de reinicio y reanudación estarán disponibles cuando se vincule el lead con Kommo.'
+    : 'Este teléfono ya tiene un lead en el CRM, pero todavía no está vinculado con Kommo. Envíe un mensaje desde este número al WhatsApp del proyecto y pulse «Actualizar lista». Después podrá reiniciar la prueba o reanudar el bot.'
+  const resetDisabledReason = duplicate ? 'Hay varios leads con este teléfono. Resuelva el duplicado antes de reiniciar o reanudar.'
+    : !linked ? linkHelp : ''
+  const resumeDisabledReason = resetDisabledReason || (contact.blocked
+    ? 'Hay una derivación al equipo o una solicitud de no recibir mensajes. Resuelva ese estado antes de reanudar el bot.' : '')
+  return {
+    label: duplicate ? 'Varios leads con este número' : waiting ? 'Esperando primer mensaje'
+      : !linked ? 'Pendiente de vincular WhatsApp' : contact.botEnabled ? 'Bot habilitado' : 'Bot pausado',
+    explanation: resetDisabledReason || resumeDisabledReason || (!contact.botEnabled
+      ? 'El bot está deshabilitado para este lead. «Reanudar bot» conserva la conversación; «Reiniciar prueba» permite empezar desde cero.' : ''),
+    canReset: linked, canResume: linked && !contact.blocked,
+    resetDisabledReason, resumeDisabledReason,
+  }
+}
+
 export function testLeadAllowed(config: Record<string, unknown>, leadId: unknown, environmentLead: string | null = null) {
   if (environmentLead && environmentLead !== leadId) return false
   return config.test_only === false || (Array.isArray(config.test_lead_ids)
