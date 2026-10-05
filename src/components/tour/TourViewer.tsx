@@ -2123,20 +2123,37 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     preloadTourEntry()
   }, [shellMode, selectedUnitId, selectedTypology, viewerMounted, preloadTourEntry])
 
-  const comparePanoBUrl = useMemo(() => {
+  const compareTypologyB = useMemo(() => {
     if (!compareUnitB) return null
-
     const code = (compareUnitB.typology_code || '').trim()
     const typeId = compareUnitB.unit_type_id ?? null
     const typologies = publicCatalog?.typologies ?? []
-
-    const typ =
+    return (
       (typeId ? typologies.find((item) => item.id === typeId) : null) ??
       typologies.find((item) => item.code === code) ??
       typologies.find((item) => item.code.toLowerCase() === code.toLowerCase()) ??
       typologies.find((item) => item.name === code) ??
       (code && code === selectedTypology ? currentTypology : null) ??
       null
+    )
+  }, [compareUnitB, publicCatalog, selectedTypology, currentTypology])
+
+  const compareHotspotsB = useMemo(() => {
+    const own = compareTypologyB?.hotspots ?? []
+    const sameAsA =
+      Boolean(currentTypology) &&
+      (compareTypologyB?.id === currentTypology?.id ||
+        compareTypologyB?.code === currentTypology?.code ||
+        (!compareTypologyB && (compareUnitB?.typology_code || '') === selectedTypology))
+    const placed = own.length > 0 ? own : sameAsA ? (currentTypology?.hotspots ?? []) : []
+    return placed.filter((item) => item.from === room)
+  }, [compareTypologyB, compareUnitB, currentTypology, selectedTypology, room])
+
+  const comparePanoBUrl = useMemo(() => {
+    if (!compareUnitB) return null
+
+    const typ = compareTypologyB
+    const code = (compareUnitB.typology_code || '').trim()
 
     // Misma tipología que A: reutilizar el 360 que ya se ve a la izquierda.
     const sameAsA =
@@ -2190,9 +2207,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     )
   }, [
     compareUnitB,
-    publicCatalog,
+    compareTypologyB,
     currentTypology,
-    selectedTypology,
     finish,
     light,
     room,
@@ -2458,6 +2474,18 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       setRoom(slug)
     },
     [nodes, room, selectedTypology, currentTypology?.id, currentTypology?.hotspots, urlForRoom, tourRooms],
+  )
+
+  const onCompareHotspotB = useCallback(
+    (pin: TourPlacedHotspot) => {
+      if (pin.kind === 'look') {
+        const viewer = viewerRef.current
+        if (viewer) void lookAtSpot(viewer, pin.yaw, pin.pitch)
+        return
+      }
+      onSelectRoom(pin.slug)
+    },
+    [onSelectRoom],
   )
 
   const stillItems = isPlanosMode(viewMode) ? planoImages : viewMode === 'galeria' ? galeriaImages : []
@@ -3266,6 +3294,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           units={allUnits}
           contentMode={compareContentMode}
           panoBUrl={comparePanoBUrl}
+          hotspotsB={compareHotspotsB}
+          locale={locale}
+          onHotspotB={onCompareHotspotB}
           previewsB={comparePreviewsB}
           previewIndexB={comparePreviewIndex}
           onPreviewIndexB={setComparePreviewIndex}

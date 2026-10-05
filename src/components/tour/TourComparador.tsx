@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import { ArrowLeftRight, ChevronDown, ChevronLeft, ChevronRight, Moon, Reply, Sun, X } from 'lucide-react'
 import { CompareSidePano, type ComparePanoPose } from '@/components/tour/CompareSidePano'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
-import type { TourFinishOption, TourLightMode, TourUnitSummary } from '@/types/tour'
+import type { TourLocale } from '@/lib/tour/tourMessages'
+import type { TourFinishOption, TourLightMode, TourPlacedHotspot, TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
 
 function formatPrice(value: number | null) {
@@ -179,6 +180,10 @@ type TourComparadorProps = {
   remapTouch?: boolean
   /** Galería: acabado/luz solo del lado B (independiente de A). */
   sceneControlsB?: ComparadorSceneControls | null
+  /** Puntos 360 de la tipología B, ya filtrados al ambiente actual. */
+  hotspotsB?: TourPlacedHotspot[]
+  locale?: TourLocale
+  onHotspotB?: (hotspot: TourPlacedHotspot) => void
 }
 
 type PickingSide = 'a' | 'b'
@@ -204,6 +209,9 @@ export function TourComparador({
   onPoseChange,
   remapTouch = false,
   sceneControlsB = null,
+  hotspotsB = [],
+  locale = 'es',
+  onHotspotB,
 }: TourComparadorProps) {
   const { t } = useTourLanguage()
 
@@ -287,6 +295,9 @@ export function TourComparador({
               syncPoseRef={syncPoseRef}
               onPoseChange={onPoseChange}
               remapTouch={remapTouch}
+              hotspots={hotspotsB}
+              locale={locale}
+              onHotspot={onHotspotB}
             />
           ) : (
             <div className="relative h-full bg-[#111]">

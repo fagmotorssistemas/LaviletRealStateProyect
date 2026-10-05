@@ -64,7 +64,7 @@ export const tourEnglish: Record<string, string> = {
   'Solicitar información': 'Request information', 'Ocultar sugerencias': 'Hide suggestions', 'Ver sugerencias': 'View suggestions',
   'Unidades similares disponibles': 'Similar available units',
   'No encontramos alternativas con las mismas características ahora. Pedí información y te ayudamos a buscar.': 'No alternatives with the same features are available right now. Request information and we can help you search.',
-  'Especificaciones': 'Specifications', 'Espacios': 'Rooms', 'Galería (': 'Gallery (', 'Generando…': 'Generating…', 'Descargar PDF': 'Download PDF',
+  'Especificaciones': 'Specifications', 'Espacios': 'Rooms', 'Galería (': 'Gallery (', 'Generando…': 'Generating…', 'Generando el QR…': 'Creating the QR…', 'Escanea para abrir el recorrido de esta unidad.': 'Scan to open this unit’s tour.', 'Abrir enlace': 'Open link', 'Descargar PDF': 'Download PDF',
   'Compartir': 'Share', 'Ver Ficha': 'View details', 'Tour 360°': '360° tour', 'Salir de comparación': 'Exit comparison',
   'Comparar terminaciones': 'Compare finishes', 'piso': 'floor', 'Ubicación en piso': 'Location on floor', 'Cargando plano 3D…': 'Loading 3D floor plan…',
   'Ubicación de La Vilet': 'La Vilet location', 'Cerrar ubicación': 'Close location', 'Saltar': 'Skip',

@@ -5,7 +5,12 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Viewer } from '@photo-sphere-viewer/core'
 import '@photo-sphere-viewer/core/index.css'
+import { MarkersPlugin, events as markerEvents } from '@photo-sphere-viewer/markers-plugin'
+import '@photo-sphere-viewer/markers-plugin/index.css'
+import { roomHotspotHtml } from '@/components/tour/createTourArrow'
 import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
+import { translateTourText, type TourLocale } from '@/lib/tour/tourMessages'
+import type { TourPlacedHotspot } from '@/types/tour'
 import { cn } from '@/lib/utils'
 
 export type ComparePanoPose = {
@@ -26,6 +31,10 @@ type CompareSidePanoProps = {
   onPoseChange?: (pose: ComparePanoPose) => void
   /** Remapea el dedo si el tour root usa CSS rotate(90deg). */
   remapTouch?: boolean
+  /** Puntos 360 del ambiente que se está viendo en B. */
+  hotspots?: TourPlacedHotspot[]
+  locale?: TourLocale
+  onHotspot?: (hotspot: TourPlacedHotspot) => void
 }
 
 const EPS = 0.0009
@@ -50,6 +59,27 @@ function applyPose(viewer: Viewer, pose: ComparePanoPose) {
   } catch {
     /* ignore */
   }
+}
+
+function markersFor(pins: TourPlacedHotspot[], locale: TourLocale) {
+  return pins.map((item) => {
+    const kind = item.kind === 'look' ? 'look' : 'go'
+    return {
+      id: `pin-${item.id}`,
+      position: { yaw: item.yaw, pitch: item.pitch },
+      html: roomHotspotHtml(translateTourText(item.label, locale), kind),
+      anchor: 'center center' as const,
+      size: { width: 92, height: 78 },
+      tooltip: translateTourText(item.label, locale),
+      data: { id: item.id },
+    }
+  })
+}
+
+function paintHotspots(viewer: Viewer, pins: TourPlacedHotspot[], locale: TourLocale) {
+  const plugin = viewer.getPlugin<MarkersPlugin>(MarkersPlugin)
+  if (!plugin) return
+  plugin.setMarkers(markersFor(pins, locale))
 }
 
 function safeAutoSize(viewer: Viewer | null | undefined) {
@@ -110,6 +140,9 @@ export function CompareSidePano({
   syncPoseRef,
   onPoseChange,
   remapTouch = false,
+  hotspots = [],
+  locale = 'es',
+  onHotspot,
 }: CompareSidePanoProps) {
   const { t } = useTourLanguage()
 
@@ -121,6 +154,12 @@ export function CompareSidePano({
   const userDrivingUntilRef = useRef(0)
   const onPoseChangeRef = useRef(onPoseChange)
   onPoseChangeRef.current = onPoseChange
+  const onHotspotRef = useRef(onHotspot)
+  onHotspotRef.current = onHotspot
+  const hotspotsRef = useRef(hotspots)
+  hotspotsRef.current = hotspots
+  const localeRef = useRef(locale)
+  localeRef.current = locale
   const syncPosePropRef = useRef(syncPose)
   syncPosePropRef.current = syncPose
   const cancelledRef = useRef(false)
@@ -168,6 +207,7 @@ export function CompareSidePano({
     let onReady: (() => void) | null = null
     let emitPose: (() => void) | null = null
     let syncFromMain: (() => void) | null = null
+    let onMarker: ((event: markerEvents.SelectMarkerEvent) => void) | null = null
 
     const bumpSize = () => {
       safeAutoSize(viewerRef.current)
@@ -207,6 +247,7 @@ export function CompareSidePano({
             mousemove: !remapTouch,
             moveSpeed: 1.35,
             moveInertia: 0.5,
+            plugins: [MarkersPlugin.withConfig({})],
             rendererParameters: {
               alpha: true,
               antialias: false,
@@ -260,10 +301,16 @@ export function CompareSidePano({
         if (!isCancelled()) setLoading(false)
       }
 
+      onMarker = (event: markerEvents.SelectMarkerEvent) => {
+        const id = event.marker.data?.id
+        const pin = hotspotsRef.current.find((item) => item.id === id)
+        if (pin) onHotspotRef.current?.(pin)
+      }
       viewer.addEventListener('position-updated', emitPose)
       viewer.addEventListener('zoom-updated', emitPose)
       viewer.addEventListener('before-render', syncFromMain)
       viewer.addEventListener('ready', onReady)
+      viewer.getPlugin<MarkersPlugin>(MarkersPlugin)?.addEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
 
       if (remapTouch) {
         detachRemap = attachForceLandscapePan(viewer, {
@@ -286,6 +333,7 @@ export function CompareSidePano({
           })
         }
         if (isCancelled()) return
+        paintHotspots(viewer, hotspotsRef.current, localeRef.current)
         bumpSize()
         syncFromMain()
         setLoading(false)
@@ -316,6 +364,7 @@ export function CompareSidePano({
           if (emitPose) viewer.removeEventListener('zoom-updated', emitPose)
           if (syncFromMain) viewer.removeEventListener('before-render', syncFromMain)
           if (onReady) viewer.removeEventListener('ready', onReady)
+          if (onMarker) viewer.getPlugin<MarkersPlugin>(MarkersPlugin)?.removeEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
         } catch {
           /* ignore */
         }
@@ -327,6 +376,12 @@ export function CompareSidePano({
       }
     }
   }, [mode, url, syncPoseRef, remapTouch])
+
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || mode !== 'pano') return
+    paintHotspots(viewer, hotspots, locale)
+  }, [hotspots, locale, mode, url])
 
   useEffect(() => {
     const viewer = viewerRef.current

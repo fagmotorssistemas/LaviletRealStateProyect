@@ -24,7 +24,6 @@ import { UNIT_STATUS_OPTIONS, type UnitStatus } from '@/types/inmobiliaria'
 import type { TourUnitSummary } from '@/types/tour'
 import { buildFichaSpecRows, formatAreaM2 } from '@/lib/tour/fichaSpecs'
 import { preloadStill } from '@/lib/tour/stillPreload'
-import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { cn } from '@/lib/utils'
 import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 import { toast } from 'sonner'
@@ -151,12 +150,12 @@ function SpecRow({
 
   if (tile) {
     return (
-      <div className="flex min-h-[8rem] flex-col justify-between rounded-2xl bg-[#f6f3ee] px-3.5 py-3.5">
+      <div className="tour-ficha-tile flex min-h-[4.5rem] flex-col justify-between rounded-2xl bg-[#f6f3ee] px-3 py-2.5 sm:min-h-[8rem] sm:px-3.5 sm:py-3.5">
         <span className="flex items-center gap-1.5 text-[11px] font-semibold leading-none tracking-normal text-[#8a7760] uppercase">
           {icon ? <span className="shrink-0 text-[#8e7654]">{t(icon)}</span> : null}
           {t(label)}
         </span>
-        <p className="mt-2 text-xl leading-tight font-semibold text-[#1a2744]">{t(value)}</p>
+        <p className="mt-1.5 text-base leading-tight font-semibold text-[#1a2744] sm:mt-2 sm:text-xl">{t(value)}</p>
       </div>
     )
   }
@@ -568,7 +567,7 @@ export function TourFichaDrawer({
               <div className="flex flex-1 items-center justify-center px-6 py-8 text-center text-sm text-[#6b7280]">
                 {t(" Todavía no hay unidades publicadas para esta tipología. ")}</div>
             ) : unit ? (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="tour-ficha-body flex min-h-0 flex-1 flex-col overflow-hidden">
                 {sorted.length > 1 ? (
                   <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-[#eceff3] px-3 py-1.5">
                     {sorted.map((item) => {
@@ -593,7 +592,7 @@ export function TourFichaDrawer({
                 ) : null}
 
                 <div className="tour-ficha-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pt-2.5 pb-1.5">
-                  <div className="flex min-h-full flex-col">
+                  <div className="flex flex-col">
                   <div className="tour-ficha-identity flex flex-wrap items-center gap-2">
                     <h2 className="text-[1.35rem] leading-none font-bold tracking-tight text-[#1a2744]">
                       {t(" Unidad ")}{t(unit.unit_number)}
@@ -697,52 +696,7 @@ export function TourFichaDrawer({
                     ))}
                   </div>
 
-                  {expanded && sanitizeTourSpaces(unit.spaces).length > 0 ? (
-                    <div className="mt-3">
-                      <p className="mb-1.5 text-[10px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
-                        {t(" Espacios ")}</p>
-                      <div className="tour-ficha-spaces flex gap-1.5 overflow-x-auto">
-                        {sanitizeTourSpaces(unit.spaces).map((space) => (
-                          <span
-                            key={space}
-                            className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1 text-[11px] whitespace-nowrap text-[#4b5563]"
-                          >
-                            {t(space)}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {expanded && carousel.length > 0 ? (
-                    <div className="tour-ficha-gallery-grid mt-4 pb-1">
-                      <p className="mb-1.5 text-[10px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
-                        {t(" Galería (")}{t(carousel.length)})
-                      </p>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {carousel.map((item, index) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => goSlide(index)}
-                            className={cn(
-                              'relative aspect-square overflow-hidden rounded-md ring-1 ring-[#2B1A18]/10',
-                              index === safeSlide && 'ring-2 ring-[#BDA27E]',
-                            )}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={item.url}
-                              alt={t(item.label)}
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                            />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {expanded ? <div className="tour-ficha-share mt-4 border-t border-[#eceff3] pt-2"><UnitPublicQr number={unit.unit_number}/></div> : null}
+                  {expanded ? <UnitPublicQr number={unit.unit_number} /> : null}
                   </div>
                 </div>
 
