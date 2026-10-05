@@ -15,7 +15,6 @@ import type {
   LeadTemperatureHistoryRow,
   LeadVisitRow,
   MessageRow,
-  NutritionTask,
 } from '@/types/leadAutomation'
 import { buildAutomationTimeline, EMPTY_AUTOMATION_KPIS, sanitizeSearch, toInclusiveRange } from '@/lib/inmobiliaria/leadAutomation'
 import { leadProfileCard, parseLeadSummary } from '@/lib/inmobiliaria/leadProfileCard'
@@ -201,6 +200,18 @@ function firstRelation<T>(value: T | T[] | null | undefined): T | null {
   return value ?? null
 }
 
+export async function getLeadNutritionJobs(leadId: string): Promise<{ data: LeadNutritionJob[]; error: boolean }> {
+  try {
+    const response = await fetch(`/api/inmobiliaria/automation/nutrition?leadId=${encodeURIComponent(leadId)}`, { cache: 'no-store' })
+    if (!response.ok) return { data: [], error: true }
+    const payload = await response.json() as { jobs?: LeadNutritionJob[] }
+    if (!Array.isArray(payload.jobs)) return { data: [], error: true }
+    return { data: payload.jobs, error: false }
+  } catch {
+    return { data: [], error: true }
+  }
+}
+
 export async function getLeadAutomationDetail(
   supabase: SupabaseClient,
   leadId: string,
@@ -234,12 +245,7 @@ export async function getLeadAutomationDetail(
       .eq('lead_id', leadId)
       .in('tenant_id', tenantIds)
       .order('requested_at', { ascending: false }),
-    supabase.from('lv_integration_events')
-      .select('id,payload,status,available_at,received_at,completed_at,result')
-      .eq('kind', 'maintenance')
-      .contains('payload', { leadId })
-      .order('received_at', { ascending: false })
-      .limit(30),
+    getLeadNutritionJobs(leadId),
     supabase.from('leads').select('name,phone,email,budget,budget_max,preferred_bedrooms,preferred_category,purchase_purpose,behavior_signals,updated_at')
       .eq('id', leadId).in('tenant_id', tenantIds).single(),
     supabase.from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,legal_name,legal_name_confirmed,national_id,applicant_type,employment_stability_months,job_title,monthly_income')
@@ -258,37 +264,7 @@ export async function getLeadAutomationDetail(
   ].find(Boolean)
   if (firstError) throw firstError
 
-  const nutritionTasks = new Set<NutritionTask>([
-    'nutrition_24h',
-    'nutrition_week_one',
-    'nutrition_week_two',
-    'nutrition_week_three',
-  ])
-  // La migracion de produccion concede acceso solo a estos trabajos. Durante
-  // una actualizacion gradual, una politica todavia no aplicada no debe romper
-  // el resto del detalle del lead.
-  const nutritionJobs: LeadNutritionJob[] = nutritionJobsRes.error
-    ? []
-    : (nutritionJobsRes.data ?? []).flatMap((event) => {
-        const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
-          ? event.payload as Record<string, unknown>
-          : {}
-        const result = event.result && typeof event.result === 'object' && !Array.isArray(event.result)
-          ? event.result as Record<string, unknown>
-          : {}
-        const task = typeof payload.task === 'string' ? payload.task as NutritionTask : null
-        if (!task || !nutritionTasks.has(task)) return []
-        return [{
-          id: event.id,
-          task,
-          status: event.status,
-          scheduled_at: event.available_at,
-          created_at: event.received_at,
-          completed_at: event.completed_at,
-          reason: typeof result.reason === 'string' ? result.reason : null,
-          delivery_status: typeof result.delivery_status === 'string' ? result.delivery_status : null,
-        }]
-      })
+  const nutritionJobs = nutritionJobsRes.data
 
   const conversations = (conversationsRes.data ?? []) as ConversationRow[]
   const conversationIds = conversations.map((item) => item.id)
@@ -363,6 +339,7 @@ export async function getLeadAutomationDetail(
     units,
     visits,
     nutritionJobs,
+    nutritionJobsUnavailable: nutritionJobsRes.error,
     escalations,
   }
 

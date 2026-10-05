@@ -231,6 +231,7 @@ export interface LeadAutomationDetail {
   units: LeadInterestUnitRow[]
   visits: LeadVisitRow[]
   nutritionJobs: LeadNutritionJob[]
+  nutritionJobsUnavailable?: boolean
   escalations: BotEscalationRow[]
   timeline: AutomationTimelineItem[]
 }

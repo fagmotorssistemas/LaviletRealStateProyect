@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { BUSINESS_FACT_RULES, businessFactSchema, availableAssistance, ASSISTANCE_RULES } from './business-facts'
 import { effectiveTurnBudget } from './turn-budget'
 import { FINANCING_PROCESS_RULES } from './financing-guidance'
+import { catalogOverviewSummary } from './task-context'
 
 export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
@@ -94,6 +95,7 @@ export function businessRiskContext(input: {
   current: string; reply: string; obligations: Row[]; units: Row[]; groups: Row[];
   projectFacts: Row[]; claimSources: Row[]; verified: Row; audit: Row; allowedLinks: string[];
 }): Row {
+  const overview = object(input.verified.prompt_context_selection).task === 'category_overview'
   const sourceFields = ['id', 'unit_number', 'category', 'bedrooms', 'bathrooms_full', 'area_internal_m2',
     'area_exterior_m2', 'area_total_m2', 'floor_number', 'floor', 'spaces', 'description', 'published_commercial_price', 'availability_status', 'status', 'is_published', 'unit_count', 'query_role']
   const pick = (row: Row) => Object.fromEntries(sourceFields.filter(key => row[key] != null && row[key] !== '')
@@ -102,7 +104,7 @@ export function businessRiskContext(input: {
     const row = pick(group)
     return { ...row, aggregation: group.aggregation, bedrooms_filter: group.bedrooms_filter,
       source_scope: group.source_scope, upper_values: group.upper_values, complete_for_query: group.complete_for_query, covers: group.covers,
-      member_count: Array.isArray(group.member_ids) ? group.member_ids.length : 0 }
+      member_count: Array.isArray(group.member_ids) ? group.member_ids.length : group.member_count ?? 0 }
   })
   const sources = input.claimSources.filter(source => !text(source.path).startsWith('evidencia_turno.')
     && source.kind !== 'lead_statement')
@@ -115,7 +117,7 @@ export function businessRiskContext(input: {
     obligaciones_del_turno: input.obligations,
     fuentes_autorizadas: {
       unidades: input.units.map(pick), grupos: groups, hechos_con_cantidades: input.projectFacts,
-      ...(input.audit.catalog_summary ? { resumen_catalogo: input.audit.catalog_summary } : {}),
+      ...(input.audit.catalog_summary ? { resumen_catalogo: overview ? catalogOverviewSummary(input.audit.catalog_summary) : input.audit.catalog_summary } : {}),
       otros_hechos_y_politicas: sources, enlaces_permitidos: input.allowedLinks,
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
       presupuesto_confirmado: effectiveTurnBudget(input.verified),
@@ -131,7 +133,8 @@ export function businessRiskContext(input: {
       ...(input.verified.prompt_context_selection ? { seleccion_contexto: input.verified.prompt_context_selection } : {}),
       cobertura_catalogo: input.audit.catalog_coverage || null,
       resultado_catalogo: { complete: object(input.audit.catalog_results).complete,
-        unit_ids: object(input.audit.catalog_results).unit_ids },
+        ...(overview ? { matching_count: object(input.audit.catalog_summary).matching_count }
+          : { unit_ids: object(input.audit.catalog_results).unit_ids }) },
       introduccion: input.audit.profile_introduction || null,
       reserva: input.audit.reservation || null,
       visita: input.audit.visit_result || null,

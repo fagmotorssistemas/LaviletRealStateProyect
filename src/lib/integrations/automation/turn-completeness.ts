@@ -58,7 +58,7 @@ import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './com
 import { assessMissingFacts, catalogCoversFragment, coverageFactKeys } from './coverage-evidence'
 import { traceText } from './trace-summary'
 import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
-import { decidedOpening, replyOpening, recentReplyOpenings } from './response-openings'
+import { decidedOpening, replyOpening, recentReplyOpenings, informationRequestOpening } from './response-openings'
 import { claimSchema, CLAIM_RULES, reviewClaims, factualValuesSchema, reviewedContextualGuidance, groundedClaimReviewSchema } from './semantic-review'
 import { BUSINESS_RISK_REVIEW_RULES, businessRiskReviewInstructions, businessRiskReviewSchema, businessRiskDecision, businessRiskContext,
   BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
@@ -408,7 +408,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const validationCatalog = [...sharedEvidence.units, ...sharedEvidence.groups]
   const safeBase = input.audit?.semantic_review_enabled === true ? { reply: input.baseReply, unresolved: [], removed: false } : safeRentalCreditBase(input.baseReply, input.current, input.verified)
   input = { ...input, baseReply: input.audit?.semantic_review_enabled === true ? safeBase.reply : currentTopicReply(safeBase.reply,input.current) }
-  const opening = { ...decidedOpening(input.baseReply, input.history), policy: 'editorial_suggestion', applied: false }
+  const introduction = object(input.audit?.profile_introduction)
+  const informationOpeningRequired = introduction.generic_introduction === true
+    && introduction.reason === 'first_substantive_project_contact' && introduction.stage === 'request'
+  const opening = { ...decidedOpening(input.baseReply, input.history),
+    policy: informationOpeningRequired ? 'first_information_request' : 'editorial_suggestion', applied: false }
   const writerContract = finalWriterContract(input.baseReply, input.audit, input)
   const turnObligations = reviewObligations(input.audit || {}, input.verified, writerContract)
   const writerRequestRefs = requestReferences(input.current,
@@ -604,10 +608,13 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     }
     requests = rows
     const preparedReply = input.audit?.semantic_review_enabled === true ? text(candidate.reply).trim() : currentTopicReply(text(candidate.reply).trim(), input.current)
-    const reply = input.audit?.semantic_review_enabled === true ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply
+    const normalizedReply = input.audit?.semantic_review_enabled === true ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply
+    const reply = informationOpeningRequired ? informationRequestOpening(normalizedReply) : normalizedReply
+    opening.applied = reply !== normalizedReply
     textTransformations = [
       ...(proposedReply !== preparedReply ? [{ stage: 'Formato de la propuesta', before: proposedReply, after: preparedReply }] : []),
-      ...(preparedReply !== reply ? [{ stage: 'Normalización de la ruta antes de revisión', before: preparedReply, after: reply }] : []),
+      ...(preparedReply !== normalizedReply ? [{ stage: 'Normalización de la ruta antes de revisión', before: preparedReply, after: normalizedReply }] : []),
+      ...(normalizedReply !== reply ? [{ stage: 'Apertura de la primera solicitud de información', before: normalizedReply, after: reply }] : []),
     ]
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.

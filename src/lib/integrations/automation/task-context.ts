@@ -31,9 +31,24 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
     && !rows(context.selected_ids).length && !rows(property.unit_numbers).length
     && (!catalogRequest.purpose || catalogRequest.purpose === 'none') && !rows(catalogRequest.requirements).length
     && property.reference_kind === 'none' && property.operation === 'none' && semantics.primary_intent === 'project_information'
+  const hasValues = (value: unknown) => Object.values(object(value)).some(v => v != null && v !== false && v !== '' && (!Array.isArray(v) || v.length > 0))
+  // A broad residential/commercial/category introduction needs complete groups,
+  // not every floor plan. Specific requirements, comparisons and preferences
+  // retain their detailed evidence, even while the next step asks for bedrooms.
+  const categoryOverview = source === 'catalog_search' && !finance && !newBudget
+    && domains.size === 1 && domains.has('property') && requests.length === 1
+    && requests[0].confidence === 'high' && semantics.confidence === 'high'
+    && semantics.primary_intent === 'project_information' && !rows(intent.required_facts).length
+    && query.operation === 'search' && !!(query.group || query.category) && !query.selector
+    && !hasValues(query.filters) && !rows(query.requirements).length
+    && !rows(context.selected_ids).length && !rows(property.unit_numbers).length
+    && !['specific', 'followup', 'comparison'].includes(text(property.reference_kind))
+    && catalogRequest.purpose === 'search' && !catalogRequest.metric && !rows(catalogRequest.requirements).length
+    && !rows(catalogRequest.semantic_preferences).length && !text(catalogRequest.semantic_preferences).trim()
+    && !Object.keys(object(semantics.household)).length
   const task = source === 'clarify_previous_choice' ? 'clarify_choice'
     : financeOnly ? 'financing' : source === 'financing_selection_required' ? 'property_selection'
-      : generalPrice ? 'price_summary' : overview ? 'project_overview' : broadInformation ? 'catalog_overview'
+      : generalPrice ? 'price_summary' : overview ? 'project_overview' : categoryOverview ? 'category_overview' : broadInformation ? 'catalog_overview'
         : domains.size > 1 ? 'multiple_requests' : 'property'
   const result = { ...verified }
   const queryText = [current, ...requests.map(r => text(r.request))].join('\n')
@@ -116,11 +131,26 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     if (seen.has(key)) return false
     seen.add(key); return true
   })
+  if (selection.task === 'category_overview') {
+    return { ...evidence, units: [], groups: groups.filter(group => group.aggregation === 'range').map(group => {
+      const { member_ids, ...aggregate } = group
+      return { ...aggregate, member_count: Array.isArray(member_ids) ? member_ids.length : 0,
+        unit_count: group.unit_count ?? (Array.isArray(member_ids) ? member_ids.length : 0) }
+    }), catalog_summary: catalogOverviewSummary(object(evidence).catalog_summary), query_result_ids: [],
+    model_scope: { task: 'category_overview', listed_unit_count: 0, evidence_unit_count: evidence.units.length,
+      query, note: 'Presentación general de los tipos de espacio consultados. Los grupos se calcularon sobre todas las coincidencias; se omitieron fichas y listas de identificadores. Use las categorías y dormitorios para orientar y formular el siguiente paso. No atribuya distribuciones internas a partir de este resumen.' } } as T
+  }
   return { ...evidence, units: units.map(unit => ({ ...compactCatalogUnit(unit, object(verified.politica_comercial).precios_autorizados === true), query_role: roleOf(unit) })),
     groups, model_scope: { task: selection.task, listed_unit_count: units.length, evidence_unit_count: evidence.units.length,
       query, matching_unit_ids: [...matchingIds], related_unit_ids: [...relatedIds].filter(id => !matchingIds.has(id)),
       note: priceSummary ? 'Solo agregaciones completas para precios. Las fichas se omitieron, no hay un resultado vacío.'
         : 'Las fichas son las pertinentes; los grupos conservan el alcance y los miembros del conjunto completo.' } }
+}
+
+export function catalogOverviewSummary(raw: unknown): Row {
+  const summary = object(raw)
+  return Object.fromEntries(Object.entries(summary).filter(([key]) =>
+    !['matching_unit_ids', 'matching_unit_numbers', 'unknown_units', 'excluded_units', 'selected_unit_ids', 'selected_unit_numbers'].includes(key)))
 }
 
 export const TASK_CONTEXT_RULES = 'prompt_context_selection identifica la información seleccionada para TODAS las solicitudes del turno, se haya usado embeddings o no. evidencia_turno.model_scope explica las fichas omitidas; use los grupos completos para rangos y cantidades, nunca cuente las fichas para inferir totales. Omitir un catálogo en una explicación financiera no significa que no haya inmuebles. Atienda solo el siguiente paso pendiente: no repita el presupuesto, el brochure ni invitaciones a un asesor por costumbre.'

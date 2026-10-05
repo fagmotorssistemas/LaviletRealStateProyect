@@ -127,7 +127,10 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
       matches = equal(expected, fact.value) && equal(upper, fact.upper_value)
       expected = [expected, upper]
     } else if (fact.relation === 'eq') {
-      if (fact.field !== 'unit_count' && subject?.aggregation === 'range' && !equal(expected, object(subject.upper_values)[fact.field as string])) return unknown('Un grupo con precios distintos no tiene un único valor exacto.')
+      // Only numeric ranges have endpoints. Category/status metadata describes
+      // the group itself and is not duplicated in upper_values.
+      if (numeric(expected) && fact.field !== 'unit_count' && subject?.aggregation === 'range'
+        && !equal(expected, object(subject.upper_values)[fact.field as string])) return unknown('El rango de este atributo no acredita un único valor exacto.')
       matches = equal(expected, fact.value)
     } else {
       if (!numeric(expected) || !numeric(fact.value)) return unknown('La comparación requiere valores numéricos.')

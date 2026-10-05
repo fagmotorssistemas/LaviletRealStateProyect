@@ -353,13 +353,15 @@ function TabBody({ tab, detail }: { tab: TabId; detail: LeadAutomationDetail }) 
       <div className="rounded-xl border border-[#deded4] bg-[#f7f7f2] p-4 text-sm text-[#555850]">
         <p className="font-semibold">Seguimiento automático actual</p>
         <p className="mt-1">
-          {pendingNutrition.length
+          {detail.nutritionJobsUnavailable
+            ? 'No se pudieron cargar los seguimientos. Vuelva a abrir la ficha para intentarlo de nuevo.'
+            : pendingNutrition.length
             ? `${pendingNutrition.length} ${pendingNutrition.length === 1 ? 'mensaje programado' : 'mensajes programados'}. Próximo: ${NUTRITION_TASK_LABELS[pendingNutrition[0].task]} · ${formatDateTime(pendingNutrition[0].scheduled_at)}.`
             : 'No hay mensajes de seguimiento pendientes para este lead.'}
         </p>
         <p className="mt-2 text-xs text-[#7a7e70]">Esta vista utiliza los trabajos reales del ejecutor; no depende de la inscripción histórica en lead_nutrition.</p>
       </div>
-      {detail.nutritionJobs.length === 0 ? (
+      {detail.nutritionJobsUnavailable ? null : detail.nutritionJobs.length === 0 ? (
         <p className="text-sm text-[#6e716b]">Todavía no existen trabajos de seguimiento registrados para este lead.</p>
       ) : (
         <ul className="space-y-2">

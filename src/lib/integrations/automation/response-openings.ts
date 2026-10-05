@@ -47,6 +47,18 @@ export function decidedOpening(base: string, history: unknown) {
   return { prefix: replyOpening(chosen)?.prefix || '', removed_repetition: chosen !== base }
 }
 
+/** The first information invitation needs a warm acknowledgement, even if the
+ * writer starts directly with project facts. Prepare it before review/send. */
+export function informationRequestOpening(reply: string): string {
+  const body = reply.trim()
+  if (!body) return body
+  const greeting = body.match(/^(?:hola|buenos días|buen día|buenas tardes|buenas noches)[.!,:\s]+/iu)?.[0] || ''
+  const rest = body.slice(greeting.length)
+  if (replyOpening(rest)?.family === 'disposicion'
+    || /^(?:con (?:mucho )?gusto|claro|por supuesto)\b/iu.test(rest)) return body
+  return greeting + 'Con mucho gusto le comparto información. ' + rest
+}
+
 export function applyDecidedOpening(reply: string, prefix: string, history?: unknown) {
   // An absent base opening leaves room for natural courtesy; history still
   // prevents repeating it. A chosen prefix remains protected.

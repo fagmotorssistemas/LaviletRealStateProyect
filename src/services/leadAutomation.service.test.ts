@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createClient } from '@supabase/supabase-js'
-import { getLeadAutomationDetail } from './leadAutomation.service'
+import { getLeadAutomationDetail, getLeadNutritionJobs } from './leadAutomation.service'
 
-test('lead detail loads its selected unit from conversation memory without a leads.unit_id column', async () => {
+test('lead detail loads its selected unit and distinguishes unavailable follow-ups from an empty list', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 500 }))
   const urls: URL[] = []
   const client = createClient('https://example.supabase.co', 'test-key', {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -28,8 +29,7 @@ test('lead detail loads its selected unit from conversation memory without a lea
         assert.equal(url.searchParams.get('tenant_id'), 'in.(tenant-a)')
         data = [{ id: 'unit-502', unit_number: '502', category: 'departamento' }, { id: 'unit-602', unit_number: '602', category: 'penthouse' }]
       }
-      // An optional maintenance log without browser permission must not hide the card.
-      if (table === 'lv_integration_events') { status = 403; data = { message: 'permission denied' } }
+      assert.notEqual(table, 'lv_integration_events', 'The browser must not query operational events directly.')
       return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
     } },
   })
@@ -38,5 +38,17 @@ test('lead detail loads its selected unit from conversation memory without a lea
   assert.equal(detail.profileCard?.financingAccepted, true)
   assert.ok(detail.profileCard?.groups.flatMap(group => group.fields).some(field => field.value === 'Cooperativa JEP'))
   assert.deepEqual(detail.nutritionJobs, [])
+  assert.equal(detail.nutritionJobsUnavailable, true)
   assert.ok(urls.some(url => url.pathname.endsWith('/leads')))
+})
+
+test('follow-ups load through the authenticated endpoint, including a legitimate empty result', async t => {
+  const jobs = [{ id: 'job-a', task: 'nutrition_24h', status: 'pending' }]
+  const request = t.mock.method(globalThis, 'fetch', async input => {
+    assert.equal(String(input), '/api/inmobiliaria/automation/nutrition?leadId=lead-a')
+    return Response.json({ jobs })
+  })
+  assert.deepEqual(await getLeadNutritionJobs('lead-a'), { data: jobs, error: false })
+  request.mock.mockImplementation(async () => Response.json({ jobs: [] }))
+  assert.deepEqual(await getLeadNutritionJobs('lead-a'), { data: [], error: false })
 })
