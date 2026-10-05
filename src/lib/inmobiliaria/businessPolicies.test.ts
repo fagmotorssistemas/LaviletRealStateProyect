@@ -7,20 +7,28 @@ import { sanitizeTraceSummary } from '../integrations/automation/trace-summary'
 import { businessPolicyExamples } from './businessPolicyExamples'
 
 const now = '2026-09-30T16:00:00.000Z'
-test('example policies are invisible to ordinary leads and old deployments, including after editing', () => {
+test('published legacy policies apply project-wide without changing automation permissions', () => {
   const fixtures = businessPolicyExamples(now)
-  const stored = { business_policies: { revision: 1, items: [], test_items: fixtures } }
+  const stored = { automation: { test_only: true, enabled: false }, business_policies: { revision: 1, items: [], test_items: fixtures } }
   assert.equal(businessPolicies(stored).items.length, 4)
-  assert.deepEqual(publishedBusinessPolicies(stored, 'preventa', now), [])
-  const active = publishedBusinessPolicies(stored, 'preventa', now, true)
+  const active = publishedBusinessPolicies(stored, 'preventa', now)
   assert.equal(active.length, 4)
   assert.doesNotMatch(JSON.stringify(active), /prueba|ejemplo|restricted|administrator-scenario/i)
   const edited = changeBusinessPolicy(stored, { action: 'publish', id: fixtures[0].id, value: fixtures[0].draft }, 'admin', now)
-  assert.deepEqual(edited.business_policies.items, [])
-  assert.equal(edited.business_policies.test_items.length, 4)
-  assert.deepEqual(publishedBusinessPolicies(edited, 'preventa', now), [])
+  assert.equal(edited.business_policies.items.length, 4)
+  assert.deepEqual(edited.business_policies.test_items, [])
+  assert.equal(publishedBusinessPolicies(edited, 'preventa', now).length, 4)
+  assert.deepEqual(edited.automation, stored.automation)
   const paused = changeBusinessPolicy(edited, { action: 'pause', id: fixtures[0].id }, 'admin', now)
-  assert.equal(publishedBusinessPolicies(paused, 'preventa', now, true).length, 3)
+  assert.equal(publishedBusinessPolicies(paused, 'preventa', now).length, 3)
+  assert.deepEqual(stored.business_policies.items, []) // reading does not mutate saved history
+})
+test('legacy entries cannot revive a paused policy or overwrite its current version', () => {
+  const fixtures = businessPolicyExamples(now)
+  const active = { ...fixtures[0], restricted: false, published: null }
+  const stored = { business_policies: { items: [active], test_items: fixtures } }
+  assert.equal(businessPolicies(stored).items.length, 4)
+  assert.equal(publishedBusinessPolicies(stored, 'preventa', now).length, 3)
 })
 const content = { ...emptyPolicy(), title: 'Información a distancia', content: 'Se puede compartir el brochure con residentes en el exterior.',
   scope: 'Solo información. Las condiciones de reserva y firma deben confirmarse.', source: 'Responsable comercial, 30/09/2026' }

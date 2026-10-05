@@ -75,7 +75,7 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
       {showPolicies && policies.map(item => <article className={styles.card} key={item.id}>
         <span className={styles.badge}>{item.published ? item.published.validUntil && item.published.validUntil < new Date().toISOString().slice(0, 10) ? 'Vencida' : `Publicada · versión ${item.published.version}` : 'Borrador · sin publicación activa'}</span>
         <h2>{item.published?.title || item.draft.title}</h2><p>{POLICY_TOPICS[item.draft.topic]}</p>
-        {item.restricted && <p>Audiencia: solo contacto autorizado del modo de pruebas. No se aplica a otros leads.</p>}
+        <p>Aplica a todos los leads del proyecto según su etapa y vigencia. El modo de pruebas controla por separado a quién responde el bot.</p>
         <p>{item.published?.scope || item.draft.scope || 'Alcance pendiente de definir.'}</p>
         <p>Contenido: negocio · Uso: redactor y revisor.</p>
         <div className={styles.buttons}><button disabled={busy || !!editing && editing !== item.id} onClick={() => { setEditing(item.id); setDraft(item.draft); setError(''); setNotice('') }}>Ver y editar</button></div>
@@ -90,7 +90,7 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
     </div>}
     {editing && <section className={styles.editor} aria-label="Editor de política comercial">
       <h2>{found ? 'Editar política' : 'Nueva política comercial'}</h2>
-      {found?.restricted && <p>Esta ficha solo se aplica al contacto autorizado cuando está activo el modo de pruebas. Esa condición no se incluye en las respuestas al contacto.</p>}
+      <p>Al publicarse, esta política aplica a todos los leads del proyecto según su etapa y vigencia. No habilita la automatización para otros números.</p>
       <p>Describa condiciones confirmadas y sus límites. Para cambiar precios, preguntas o acciones automáticas utilice sus configuraciones correspondientes.</p>
       {found?.published && <p>Versión publicada: {found.published.version}. Editar y guardar un borrador no reemplaza esa versión.</p>}
       <fieldset disabled={busy} className={styles.form}>

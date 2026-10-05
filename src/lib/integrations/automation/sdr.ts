@@ -4,10 +4,9 @@ import 'server-only'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { activePrompt, aiJson, draftReply } from './ai'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
+import { deliveryContext, PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
 import { financingPolicyContext } from './financing-quote'
-import { isTestPhone } from '@/lib/inmobiliaria/testResponseMode'
-import { testResponseMode } from './test-response-mode'
 import { recordDraftDecision } from './ai-execution-trace'
 import { db, object, scope, text, type Row } from './data'
 import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
@@ -82,9 +81,6 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
   const places = (Array.isArray(sources.places.data) ? sources.places.data : []) as Row[]
   const settings = object(sources.config.data), mode = text(settings.mode) || 'lanzamiento'
   const projectData = object(sources.project.data)
-  const restrictedPolicies = object(object(projectData.policies_json).business_policies).test_items
-  const authorizedContact = Array.isArray(restrictedPolicies) && restrictedPolicies.length > 0
-    && isTestPhone(lead.phone) && (await testResponseMode())?.leadId === lead.id
   const areaFactsResult = await db().from('project_area_facts')
     .select('fact_key,category,headline,safe_sales_text,audiences,commercial_modes,verified_on')
     .match(scope).eq('review_status', 'verified').eq('approved_for_bot', true)
@@ -99,7 +95,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
   const pricesAllowed = pricing.visible
   const catalog = units.map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
   const profile = confirmedLeadProfile(profileInput)
-  const policies = publishedBusinessPolicies(projectData.policies_json, mode, new Date().toISOString(), authorizedContact)
+  const policies = publishedBusinessPolicies(projectData.policies_json, mode)
   return { lead: { name: conversationalFirstName(text(profile.full_name)) || null,
     name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null,
     preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
@@ -111,6 +107,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     politicas_negocio: policies,
     business_policy_context: { status: 'loaded', available_count: policies.length, mode },
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
+    entrega_proyecto: deliveryContext(projectData.policies_json),
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       precios_aproximados: pricing.approximate,
@@ -290,6 +287,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
     + (info.estado_proyecto ? '\n' + readinessRules(info.estado_proyecto as ProjectReadiness) : info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
+    + '\n' + PROJECT_DELIVERY_RULES
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'

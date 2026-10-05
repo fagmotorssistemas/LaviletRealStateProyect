@@ -5,6 +5,7 @@ import { BROCHURE_URL } from './project-material'
 import { confirmedLeadProfile } from './lead-profile'
 import { declinesUnitTour, unitTourPreviouslySent } from './unit-model'
 import { turnContinuation, TURN_CONTINUATION_RULES } from './turn-continuation'
+import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 
 /** Application delivery limit, independent of the preferred conversational length. */
 export const MAX_REPLY_CHARACTERS = 3000
@@ -147,6 +148,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
 
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
 ${TURN_CONTINUATION_RULES}
+${PROJECT_DELIVERY_RULES}
 estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando el propósito de brochure y guía personalizada. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false y los datos ya están confirmados, continúe sin volver a pedirlos. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. Atienda la solicitud actual completa.
 ${COMMERCIAL_CONTINUATION_RULES}

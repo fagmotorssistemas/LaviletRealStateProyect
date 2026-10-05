@@ -3,6 +3,7 @@ import { BUSINESS_FACT_RULES, businessFactSchema, availableAssistance, ASSISTANC
 import { effectiveTurnBudget } from './turn-budget'
 import { FINANCING_PROCESS_RULES } from './financing-guidance'
 import { catalogOverviewSummary } from './task-context'
+import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 
 export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
@@ -93,6 +94,7 @@ No evalúe estilo, tono, elegancia, longitud sugerida, saludo, sintaxis ni núme
 
 Devuelva únicamente el JSON del esquema. verdict=pass exige findings=[]. verdict=block exige hallazgos materiales que identifiquen la afirmación u obligación afectada, el perjuicio y el hecho o regla autorizada pertinente. No invente evidencia para justificar un bloqueo.
 ${BUSINESS_FACT_RULES}
+${PROJECT_DELIVERY_RULES}
 ${FINANCING_PROCESS_RULES}
 ${ASSISTANCE_RULES}`
 
@@ -144,6 +146,7 @@ export function businessRiskContext(input: {
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
       presupuesto_confirmado: effectiveTurnBudget(input.verified),
       etapa_financiamiento: input.verified.etapa_financiamiento || null,
+      entrega_proyecto: input.verified.entrega_proyecto || null,
       siguiente_paso_comercial: input.verified.siguiente_paso_comercial || null,
       importes_financiamiento: input.verified.financing_amounts || null,
       conciliacion_financiamiento: input.verified.financing_balance || null,

@@ -5,14 +5,16 @@ import { BUILD_STAGES,VISIT_PLACES,readinessInvitation,type ProjectReadiness,typ
 import { saveProjectReadiness } from '@/app/inmobiliaria/automatizacion/proyecto/actions'
 import { AutomationSettingsHeader,automationSettingsStyles as shared } from './AutomationSettings'
 import styles from './ProjectReadinessSettings.module.css'
-type Initial={projectName:string;mode:string;pricesVisible:boolean;updatedAt:string;configured:boolean;value:ProjectReadiness}
+import { ProjectDeliverySettings } from './ProjectDeliverySettings'
+import type { projectDeliverySettings } from '@/lib/inmobiliaria/projectDelivery'
+type Initial={projectName:string;mode:string;pricesVisible:boolean;updatedAt:string;configured:boolean;value:ProjectReadiness;delivery:ReturnType<typeof projectDeliverySettings>}
 export function ProjectReadinessSettings({projectId,initial}:{projectId:string;initial:Initial}) {
   const [saved,setSaved]=useState(initial),[draft,setDraft]=useState(initial.value),[busy,setBusy]=useState(false),[notice,setNotice]=useState('')
   const update=(value:Partial<ProjectReadiness>)=>setDraft(p=>({...p,...value}))
   const dirty=JSON.stringify(saved.value)!==JSON.stringify(draft)||!saved.configured
-  async function save(){setBusy(true);setNotice('');try{const result=await saveProjectReadiness(projectId,draft,saved.updatedAt);if(!result.ok){setNotice(result.error);return}setSaved({...saved,...result});setDraft(result.value);setNotice('Guardado. Se aplicará a las próximas respuestas.')}catch{setNotice('No se pudo completar el guardado. Compruebe la conexión y vuelva a intentarlo.')}finally{setBusy(false)}}
+  async function save(){setBusy(true);setNotice('');try{const result=await saveProjectReadiness(projectId,draft,saved.updatedAt);if(!result.ok){setNotice(result.error);return}setSaved(previous=>({...previous,...result}));setDraft(result.value);setNotice('Guardado. Se aplicará a las próximas respuestas.')}catch{setNotice('No se pudo completar el guardado. Compruebe la conexión y vuelva a intentarlo.')}finally{setBusy(false)}}
   return <div className={shared.shell}>
-    <AutomationSettingsHeader active="proyecto" title="Estado del proyecto y visitas" description="El avance de obra y los permisos de visita son independientes de la etapa comercial y el tono." project={initial.projectName}/>
+    <AutomationSettingsHeader active="proyecto" title="Estado del proyecto, entrega y visitas" description="El avance de obra, el plazo de entrega y los permisos de visita se configuran de forma independiente." project={initial.projectName}/>
     <div className={styles.grid}>
       <section className={styles.card}><h2>Configuraciones independientes</h2><p>Etapa comercial actual: <strong>{initial.mode}</strong>.</p><p>Lanzamiento presenta el proyecto; preventa comercializa unidades antes de su entrega. Ninguna determina por sí sola el avance de obra.</p><p>Precios en lanzamiento: <strong>{initial.pricesVisible?'permitidos como referenciales':'ocultos'}</strong>. Guardar esta página no cambia ese permiso.</p><Link href="/inmobiliaria/automatizacion/precios">Administrar precios</Link> · <Link href="/inmobiliaria/automatizacion/reglas">Etapa comercial y reglas</Link> · <Link href="/inmobiliaria/automatizacion/estilo">Personalidad</Link></section>
       <section className={styles.card}><h2>Qué puede ofrecer el bot</h2><p>{readinessInvitation(draft)||'No hay un lugar habilitado para proponer visitas.'}</p><p>Esta vista previa describe los lugares autorizados. El permiso existente para sugerir visitas sigue aplicando; una visita siempre requiere coordinar y confirmar disponibilidad.</p>{!saved.configured&&<p role="status">Aún se utiliza la configuración anterior. Verifique los datos y guarde para separar el estado de obra de la etapa comercial.</p>}<p>{saved.configured ? `Última verificación: ${saved.value.verifiedOn}. Revise periódicamente si sigue vigente.` : 'Pendiente de verificación.'}</p></section>
@@ -29,5 +31,6 @@ export function ProjectReadinessSettings({projectId,initial}:{projectId:string;i
       <label>Condiciones de acceso<textarea rows={2} maxLength={700} value={draft.conditions} onChange={e=>update({conditions:e.target.value})} placeholder="Con cita previa y acompañamiento del asesor. Indique las restricciones reales."/></label>
     </fieldset>
     <div className={styles.actions}><button disabled={busy||!dirty} onClick={save}>{busy?'Guardando…':'Guardar y aplicar'}</button><button disabled={busy} onClick={()=>{setDraft(saved.value);setNotice('')}}>Descartar cambios</button><p role="status">{notice|| (dirty?'Tiene cambios sin guardar':'Configuración guardada')}</p></div>
+    <ProjectDeliverySettings projectId={projectId} initial={saved.delivery} updatedAt={saved.updatedAt} busy={busy} onBusy={setBusy} onSaved={(delivery,updatedAt)=>setSaved(previous=>({...previous,delivery,updatedAt}))}/>
   </div>
 }

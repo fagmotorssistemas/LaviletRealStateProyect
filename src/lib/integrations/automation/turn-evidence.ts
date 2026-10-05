@@ -173,7 +173,7 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
     result.push({ id: `E${result.length + 1}`, kind: 'project_fact', path: `evidencia_turno.${key}.${index}`,
       reference_id: unit.id, reference_label: unit.unit_number || unit.category || null })
   })
-  const projectKeys = ['proyecto', 'alcance_producto', 'instalaciones', 'lugares_cercanos', 'contexto_sector', 'estado_proyecto',
+  const projectKeys = ['proyecto', 'alcance_producto', 'instalaciones', 'lugares_cercanos', 'contexto_sector', 'estado_proyecto', 'entrega_proyecto',
     'posicionamiento_proyecto', 'politica_comercial', 'politica_visitas', 'politica_financiera', 'financing_policy', 'financiamiento',
     'condiciones_instalaciones', 'horario_atencion', 'ubicacion', 'politicas_negocio']
   for (const key of projectKeys) {

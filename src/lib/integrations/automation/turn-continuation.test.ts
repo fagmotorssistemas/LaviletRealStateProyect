@@ -8,6 +8,7 @@ import { turnContinuation, turnContinuationIssues } from './turn-continuation'
 import { completeTurnReply } from './turn-completeness'
 import { withResponseReviewPolicy } from './response-review-policy'
 import { responseReviewSettings } from '@/lib/inmobiliaria/responseReview'
+import { deliveryContext, emptyProjectDelivery } from '@/lib/inmobiliaria/projectDelivery'
 
 const off = responseReviewSettings({ response_review: { enabled: false } })
 const audit = { source: 'project_overview', semantic_review_enabled: true, business_risk_review_enabled: true,
@@ -56,6 +57,27 @@ test('known preferences choose the remaining decision rather than repeating the 
   const obligation = reviewObligations(audit, verified, contract).find(item => item.id === 'commercial_next_step')!
   assert.equal(obligation.continuation_required, true)
   assert.equal(obligation.question_id, contract.continuacion_del_turno.question_id)
+})
+
+test('a delivery inquiry preserves known preferences and carries the same timeline to writer and reviewer', async () => {
+  const entrega_proyecto=deliveryContext({project_delivery:{current:{...emptyProjectDelivery(),enabled:true,timing:'year',year:2028,source:'Dirección del proyecto'}}},'2026-10-05')
+  const info={...fresh(),entrega_proyecto,lead:{purchase_purpose:'vivir',preferred_bedrooms:2},
+    property_context:{query:{group:'residential',category:'departamento',filters:{bedrooms:2}}}}
+  const reply='La entrega se estima para 2028; aún no hay un mes definido. Para orientarle entre las opciones de dos dormitorios, ¿tiene un presupuesto estimado?'
+  const errors:unknown[]=[],calls:string[]=[]
+  const result=await completeTurnReply({current:'¿Cuándo estaría listo el proyecto?',baseReply:'Aún no hay fecha.',verified:info,audit},
+    async(_rules,raw,_schema,_image,_file,_tone,task)=>{
+      calls.push(String(task));const input=object(raw)
+      try {
+        assert.equal((input.obligaciones_del_turno as Row[]).find(item=>item.id==='commercial_next_step')?.question_id,'budget_amount')
+        if(task==='writing')assert.deepEqual(object(input.contexto_verificado).entrega_proyecto,entrega_proyecto)
+        else assert.deepEqual(object(input.fuentes_autorizadas).entrega_proyecto,entrega_proyecto)
+      }catch(error){errors.push(error);throw error}
+      return task==='writing'?draft(reply):reviewPass
+    })
+  assert.deepEqual(errors,[]);assert.deepEqual(calls,['writing','review'])
+  assert.equal(result.reply,reply);assert.equal(result.needsAdvisor,false)
+  assert.equal(journeyPendingQuestion(reply,object(result.audit.commercial_journey),true).id,'budget_amount')
 })
 
 test('reviewed pipeline repairs a missing CTA once, then reviews the completed answer', async () => {
