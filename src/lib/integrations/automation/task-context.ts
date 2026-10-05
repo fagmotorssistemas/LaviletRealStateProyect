@@ -7,10 +7,9 @@ import { turnEvidence } from './turn-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 
-/** Opt-in context selection is independent of whether vector ranking ran.
+/** Context selection is independent of whether vector ranking is enabled.
  * Operational state and database snapshots are never changed by this projection. */
 export function taskVerifiedContext(verified: Row, audit: Row, current: string): Row {
-  if (object(verified.catalog_search).embeddingsEnabled !== true) return verified
   const intent = object(audit.resolved_turn_intent || verified.contrato_turno)
   const requests = rows(verified.solicitudes_interpretadas || intent.requests).filter(r => r.domain !== 'courtesy')
   const domains = new Set(requests.map(r => text(r.domain)))
@@ -49,7 +48,7 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   const task = source === 'clarify_previous_choice' ? 'clarify_choice'
     : financeOnly ? 'financing' : source === 'financing_selection_required' ? 'property_selection'
       : generalPrice ? 'price_summary' : overview ? 'project_overview' : categoryOverview ? 'category_overview' : broadInformation ? 'catalog_overview'
-        : domains.size > 1 ? 'multiple_requests' : 'property'
+        : domains.size > 1 || requests.length > 1 ? 'multiple_requests' : 'property'
   const result = { ...verified }
   const queryText = [current, ...requests.map(r => text(r.request))].join('\n')
   // Include facts requested by ANY current request, never only the primary intent.
@@ -119,18 +118,41 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     const matchingIds = new Set(filtered.map(unit => text(unit.id)))
     units = units.filter(unit => matchingIds.has(text(unit.id)) || relatedIds.has(text(unit.id)))
   }
+  const clarifyRequirements = object(verified.siguiente_paso_comercial).action === 'clarify_requirements'
+    && !filtered.length && selection.task !== 'multiple_requests'
+  // An incompatible search needs complete ranges/categories to explain the
+  // mismatch, not all 65 floor plans. Preserve explicitly related units.
+  if (clarifyRequirements) units = units.filter(unit => relatedIds.has(text(unit.id)))
   const included = new Set(units.map(u => text(u.id)))
   const matchingIds = new Set(filtered.map(u => text(u.id)))
   const roleOf = (unit: Row) => matchingIds.has(text(unit.id)) ? 'current_query' : relatedIds.has(text(unit.id)) ? 'related_option' : 'available_alternative'
   if (priceSummary) units = []
   const seen = new Set<string>()
-  const groups = evidence.groups.filter(group => {
+  let groups = evidence.groups.filter(group => {
     if (group.source_scope !== 'complete_query' && !priceSummary && filtered.length && selection.task !== 'multiple_requests'
       && Array.isArray(group.member_ids) && group.member_ids.some(id => !included.has(text(id)))) return false
-    const key = JSON.stringify([group.aggregation, group.member_ids, group.source_scope === 'budget_matching'])
+    const key = JSON.stringify([group.aggregation, group.member_ids, group.category, group.bedrooms_filter, group.source_scope])
     if (seen.has(key)) return false
     seen.add(key); return true
   })
+  if (clarifyRequirements && !relatedIds.size) {
+    // First resolve the unmet requirement. Irrelevant prices and dimensions
+    // invite the model to sell incompatible alternatives before consent.
+    // Keep the attributes needed to explain ANY structured requirement, while
+    // the complete units/groups remain available to numeric validation.
+    const filters = object(query.filters)
+    const needed = new Set<string>(['bedrooms'])
+    for (const key of Object.keys(filters).filter(key => filters[key] != null)) {
+      if (/area/.test(key)) ['area_internal_m2','area_exterior_m2','area_total_m2'].forEach(field => needed.add(field))
+      else if (/floor/.test(key)) needed.add('floor_number')
+      else if (/bathroom/.test(key)) needed.add('bathrooms_full')
+      else if (/price|budget/.test(key)) needed.add('published_commercial_price')
+    }
+    for (const requirement of rows(query.requirements)) if (requirement.field) needed.add(text(requirement.field))
+    const keep = new Set(['id','category','aggregation','bedrooms_filter','source_scope','member_ids','unit_count','covers','complete_for_query',...needed])
+    groups = groups.map(group => ({ ...Object.fromEntries(Object.entries(group).filter(([key]) => keep.has(key))),
+      ...(group.upper_values ? { upper_values:Object.fromEntries(Object.entries(object(group.upper_values)).filter(([key]) => needed.has(key))) } : {}) }))
+  }
   if (selection.task === 'category_overview') {
     return { ...evidence, units: [], groups: groups.filter(group => group.aggregation === 'range').map(group => {
       const { member_ids, ...aggregate } = group
@@ -143,7 +165,8 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   return { ...evidence, units: units.map(unit => ({ ...compactCatalogUnit(unit, object(verified.politica_comercial).precios_autorizados === true), query_role: roleOf(unit) })),
     groups, model_scope: { task: selection.task, listed_unit_count: units.length, evidence_unit_count: evidence.units.length,
       query, matching_unit_ids: [...matchingIds], related_unit_ids: [...relatedIds].filter(id => !matchingIds.has(id)),
-      note: priceSummary ? 'Solo agregaciones completas para precios. Las fichas se omitieron, no hay un resultado vacío.'
+      note: clarifyRequirements ? 'La búsqueda actual no tiene coincidencias confirmadas. Los grupos describen alternativas del catálogo, NO opciones compatibles. Reconozca el presupuesto como estimación; no hay un precio comparable de una unidad que cumpla todos los requisitos. Explique el requisito que cambia y pregunte si aceptaría ajustarlo antes de detallar precios, dimensiones o plantas de otras opciones. No declare que las alternativas alcanzan ni prometa que resolverán la necesidad.'
+        : priceSummary ? 'Solo agregaciones completas para precios. Las fichas se omitieron, no hay un resultado vacío.'
         : 'Las fichas son las pertinentes; los grupos conservan el alcance y los miembros del conjunto completo.' } }
 }
 

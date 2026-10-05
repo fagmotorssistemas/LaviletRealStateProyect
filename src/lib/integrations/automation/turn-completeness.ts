@@ -372,7 +372,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null }, contrato_turno: turnIntent } }
   input = { ...input, verified: semanticCatalogContext(input.verified, input.audit || {}, input.current) }
   input = { ...input, verified: scopeTurnCatalog(input.verified, input.audit || {}) }
-  input = { ...input, verified: taskVerifiedContext(input.verified, input.audit || {}, input.current) }
+  // Current production contracts share task evidence. Legacy claim-ID reviews
+  // still need their full evidence inventory unless their retrieval route
+  // explicitly opted into projection; do not silently change that contract.
+  if (input.audit?.business_risk_review_enabled === true || object(input.verified.catalog_search).embeddingsEnabled === true)
+    input = { ...input, verified: taskVerifiedContext(input.verified, input.audit || {}, input.current) }
   const catalogEvidence = turnEvidence(input.verified, input.audit)
   input = { ...input, verified: { ...input.verified, catalogo: catalogEvidence.units } }
   const budgetAssessment = turnBudgetAssessment(input.verified, input.audit || {})
@@ -674,7 +678,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       let factChecks = checkFacts(rawReview.facts)
       const originalChecks = factChecks
       const repairableChecks = factChecks.filter(check => check.status === 'contradiction' || check.repairable)
-      if ((!riskDecision.valid || repairableChecks.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
+      // A valid content rejection already requires a rewrite. Rechecking its
+      // auxiliary facts first adds latency without making that draft sendable.
+      // Metadata recovery remains available for otherwise approved drafts.
+      if ((!riskDecision.valid || riskDecision.approved && repairableChecks.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
         const originalReview = rawReview
         let repairError = ''
         try {

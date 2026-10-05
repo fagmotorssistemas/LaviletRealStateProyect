@@ -23,7 +23,7 @@ const audit = { source: 'catalog_search', semantic_review_enabled: true, busines
   resolved_turn_intent: { objective: 'project_information', requests: [request] } }
 const question = { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'Dormitorios', next_decision: 'Filtrar viviendas' }
 
-test('broad category selection keeps every category and its full ranges, omitting individual sheets only in optimized mode', () => {
+test('broad category selection keeps every category and its full ranges independently of vector ranking', () => {
   const original = info(), before = structuredClone(original)
   const selected = taskVerifiedContext(original, audit, request.evidence)
   assert.equal(object(selected.prompt_context_selection).task, 'category_overview')
@@ -40,8 +40,10 @@ test('broad category selection keeps every category and its full ranges, omittin
   assert.ok(JSON.stringify(model).length < JSON.stringify(canonical).length * 0.4)
   assert.deepEqual(original, before)
   const off = { ...original, catalog_search: { embeddingsEnabled: false } }
-  assert.equal(taskVerifiedContext(off, audit, request.evidence), off)
-  assert.equal(taskModelEvidence(turnEvidence(off), off).units.length, 49)
+  const withoutRanking = taskVerifiedContext(off, audit, request.evidence)
+  const compact = taskModelEvidence(turnEvidence(withoutRanking), withoutRanking)
+  assert.equal(compact.units.length, 0)
+  assert.deepEqual(compact.groups, model.groups)
 })
 
 test('specific attributes, semantic preferences, comparisons and multiple requests keep detailed evidence', () => {

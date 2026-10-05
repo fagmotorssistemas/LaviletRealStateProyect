@@ -129,6 +129,10 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     const categories = Object.keys(labels).filter(category => candidates.some(unit => unit.category === category))
     const floors = [...new Set(candidates.map(unit => unit.floor_number).filter(value => typeof value === 'number'))]
     const selectionScope = { categories, unit_ids: candidates.map(unit => text(unit.id)).filter(Boolean), floors }
+    if (!candidates.length) return { ...plan('clarify_requirements',
+      'No hay coincidencias confirmadas con todos los requisitos actuales. Reconozca el presupuesto declarado como estimación, sin afirmar que alcanza para alternativas incompatibles. Explique el requisito que no se puede satisfacer según el catálogo verificado y pregunte si aceptaría ajustarlo. Si la consulta es parcial, explique ese límite. Describa solo qué cambiaría en las alternativas verificadas; deje sus precios, dimensiones y plantas para después de que acepte revisar ese cambio, salvo consulta explícita adicional. No las trate como compatibles ni elegidas. No pida planta, unidad ni financiamiento antes de aclarar ese requisito.',
+      '¿Estaría dispuesto a ajustar ese requisito para revisar las alternativas disponibles?', 'property_requirements'), question_act: 'other', selection_scope: selectionScope, presentation: 'requirements',
+      requested_query: selectionQuery }
     if (!floors.length && categories.length > 1) {
       const options = new Intl.ListFormat('es', { type: 'disjunction' }).format(categories.map(category => labels[category]))
       return { ...selection, question: `¿Prefiere que revisemos ${options}?`, question_id: 'property_category', question_act: 'choose_category',
@@ -137,7 +141,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     if (candidates.length === 1) return { ...selection, question: `¿Desea continuar con ${text(candidates[0].category)} ${text(candidates[0].unit_number)}?`,
       question_id: 'unit_choice', question_act: 'confirm_unit', selection_scope: selectionScope, presentation: 'single_unit',
       instruction: `${text(selection.instruction)} Presente la única opción compatible con sus características y su recorrido autorizado. Mostrarla no significa que el cliente ya la eligió; confirme si desea continuar con ella.` }
-    if (floors.length > 1 || !candidates.length && filters.floor_number == null) {
+    if (floors.length > 1) {
       const options = new Intl.ListFormat('es', { type: 'disjunction' }).format(categories.map(category => labels[category]))
       return { ...selection, question: `¿En qué planta le gustaría revisar ${options || 'las opciones'}?`, question_id: 'property_floor', question_act: 'choose_floor',
         selection_scope: selectionScope, presentation: 'floors',

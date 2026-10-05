@@ -76,15 +76,14 @@ export async function POST(request: Request) {
     if (!settings.live) return NextResponse.json({ accepted: true, evidence_observed: evidence.length, automation: 'disabled' }, { status: 200, headers })
     const inserted = persisted.inbound_inserted
     const advisorInserted = persisted.advisor_inserted
-    if(inserted) after(async()=>{
+    if(inserted || advisorInserted) after(async()=>{
       try {
-        const contacts=await accelerateTestMessages(events)
-        if(!contacts.length)return
-        const {runAutomation}=await import('@/lib/integrations/automation/worker')
-        for(const contact of contacts) await runAutomation(contact)
+        if (inserted) await accelerateTestMessages(events)
+        const { scheduleConversations } = await import('@/lib/integrations/automation/schedule-conversations')
+        await scheduleConversations([...events, ...advisorOutbound].map(event => `${event.kommoId}:${event.contactId}`))
       } catch {
         // Persisted events remain available to the scheduled worker; never replay sends here.
-        console.error('TEST_RESPONSE_WAKE_FAILED')
+        console.error('CONVERSATION_WAKE_FAILED_CRON_FALLBACK')
       }
     })
     return NextResponse.json({

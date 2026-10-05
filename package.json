@@ -45,7 +45,8 @@
     "test:message-trace": "node --require ./scripts/test-typescript.cjs --test src/components/inmobiliaria/automation/workflow/reviewDiagnostics.test.ts src/components/inmobiliaria/automation/workflow/architectureGraph.test.ts src/components/inmobiliaria/automation/workflow/messageExplanation.test.ts src/components/inmobiliaria/automation/workflow/workflow-api.test.cjs",
     "test:architecture-browser": "node scripts/architecture-map.browser.test.cjs",
     "eval:review": "node scripts/evaluate-review-contract.cjs",
-    "test:test-contacts": "node --test scripts/test-response-mode.test.cjs scripts/test-contacts-panel-sql.test.cjs"
+    "test:test-contacts": "node --test scripts/test-response-mode.test.cjs scripts/test-contacts-panel-sql.test.cjs",
+    "test:cost-latency": "node --require ./scripts/test-typescript.cjs --test scripts/conversation-workers.test.cjs src/lib/integrations/automation/conversation-schedule.test.ts src/lib/integrations/automation/cost-optimization.test.ts src/lib/integrations/automation/commercial-journey.test.ts src/lib/integrations/automation/business-facts.test.ts src/lib/integrations/automation/category-overview.test.ts src/lib/integrations/automation/ai-model-routing.test.ts"
   },
   "engines": {
     "node": "24.x"
@@ -85,6 +86,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "three": "^0.185.1",
+    "workflow": "5.0.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

@@ -73,7 +73,7 @@ test('legal-name collection uses selected-unit context, preserves the next field
   assert.deepEqual(rows(compact.catalogo).map(u => u.id), ['d502'])
   assert.equal(rows(compact.instalaciones).length, 0)
   assert.equal(rows(compact.lugares_cercanos).length, 0)
-  assert.equal(taskVerifiedContext({ ...verified, catalog_search: { embeddingsEnabled: false } }, audit, current).catalogo, verified.catalogo)
+  assert.deepEqual(taskVerifiedContext({ ...verified, catalog_search: { embeddingsEnabled: false } }, audit, current).catalogo, compact.catalogo)
   const calls: string[] = [], failures: string[] = []
   const result = await completeTurnReply({ current, baseReply: next, verified: compact, audit },
     async (instructions, input, _schema, _image, _file, _tone, task = 'data') => {
@@ -212,7 +212,7 @@ test('task projection keeps complete price groups and selects context without em
   assert.deepEqual(reduced.financiamiento, finance)
   assert.deepEqual(original, before)
   const off = { ...original, catalog_search: { embeddingsEnabled: false } }
-  assert.equal(taskVerifiedContext(off, {}, fixture.message), off)
+  assert.equal(object(taskVerifiedContext(off, {}, fixture.message).prompt_context_selection).version, 'task-context-v1')
   const prices = taskVerifiedContext({ ...original, solicitudes_interpretadas: [{ domain: 'property' }],
     property_context: {}, referencia_unidad: {} }, { source: 'unit_price' }, '¿Qué precio tiene?')
   const evidence = turnEvidence(prices)

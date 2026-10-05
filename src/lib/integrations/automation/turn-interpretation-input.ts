@@ -12,6 +12,20 @@ const hasValue = (value: unknown): boolean => value !== null && value !== undefi
     : typeof value === 'object' ? Object.values(value).some(hasValue) : true)
 const activeChoice = (value: unknown, absent: string) => hasValue(value) && value !== absent
 
+/** A passive echo of the same known category/group is not a new declaration.
+ * Keep the durable preference; don't pay for a repair to extract it again.
+ * New requests, changed values and any selection/filter still need evidence. */
+export function reconcilePassivePropertyMemory(raw: Row, input: Row): Row {
+  const semantics = object(raw.turn_semantics), property = object(semantics.property)
+  const known = object(object(input.contexto_propiedades).query)
+  if (text(property.evidence).trim() || property.operation !== 'none' || property.reference_kind !== 'none'
+    || rows(raw.requests).some(request => request.domain === 'property')
+    || ['excluded_categories','unit_numbers','selector','query_scope','filters','filter_evidence'].some(key => hasValue(property[key]))) return raw
+  const fields = ['group','category'].filter(key => hasValue(property[key]))
+  if (!fields.length || fields.some(key => property[key] !== known[key])) return raw
+  return { ...raw,turn_semantics:{ ...semantics,property:{ ...property,group:null,category:null,evidence:'',confidence:'low' } } }
+}
+
 /** Canonicalize only empty, inactive blocks. Never fill facts or authorize actions. */
 export function normalizeInactiveInterpretation(raw: Row): Row {
   const semantics = { ...object(raw.turn_semantics) }
@@ -58,7 +72,6 @@ export function interpretationInput(input: Row, current: string): Row {
     'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'financiamiento'])
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
   const catalog = rows(input.catalogo_unidades)
-  const compactIndex = object(input.catalog_search).embeddingsEnabled === true
   return { ...result,
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
@@ -66,8 +79,8 @@ export function interpretationInput(input: Row, current: string): Row {
       _turn_intent: pick(object(summary._turn_intent), ['objective', 'subject', 'continuation_goal', 'pending_question']) },
     contexto_propiedades: pick(object(input.contexto_propiedades), ['query', 'selected_ids', 'candidate_ids', 'comparison_ids',
       'offered_ids', 'focused_ids', 'phase', 'preference_transition', 'pending_question']),
-    catalogo_unidades: compactIndex ? [...new Set(catalog.map(u => text(u.category)))].map(category => ({ category,
-      unit_numbers: catalog.filter(u => u.category === category).map(u => u.unit_number) })) : catalog.map(unit => pick(unit, unitFields)),
+    catalogo_unidades: [...new Set(catalog.map(u => text(u.category)))].map(category => ({ category,
+      unit_numbers: catalog.filter(u => u.category === category).map(u => u.unit_number) })),
     unidades_identificadas: rows(input.unidades_identificadas).map(unit => pick(unit, unitFields)),
     historial: rows(input.historial || input.historial_reciente).slice(-8).map(row => ({ role: row.role, content: text(row.content).slice(0, 2500) })),
     fuente_historial: 'Solo referencia para continuidad. Sus mensajes no son declaraciones del turno actual.',

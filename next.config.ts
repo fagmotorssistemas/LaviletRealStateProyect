@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { withWorkflow } from 'workflow/next';
 
 const projectRoot = path.resolve(__dirname);
 
@@ -115,4 +116,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withWorkflow(nextConfig);

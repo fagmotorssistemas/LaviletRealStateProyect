@@ -15,7 +15,6 @@ import { GenerationRecoveryError, recoverGenerationFailure } from './generation-
 import { PreReplySendError } from './delivery-phase'
 import { ResponseReviewRecoveryError } from './response-review-recovery'
 import { TurnInterpretationError } from './turn-interpretation-input'
-import { claimTestMessages } from './test-response-mode'
 import { isCommercialContextReadFailure } from './context-read'
 import { processAdvisorOutbound } from './advisor-outbound'
 import { syncTransportIncidents } from './transport-monitor'
@@ -31,7 +30,7 @@ async function scheduleTasks() {
   if (error) throw new Error('TASK_SCHEDULE_FAILED')
 }
 
-export async function runAutomation(testContact?: string) {
+export async function runAutomation(contactKey?: string) {
   const inferenceDeadlineAt = Date.now() + 240_000
   const settings = automationSettings()
   if (settings.mode === 'off') return { mode: 'off', processed: 0 }
@@ -40,7 +39,10 @@ export async function runAutomation(testContact?: string) {
   const config = await autoConfig()
   if (config.enabled !== true || config.dry_run !== false) return { mode: 'live', processed: 0, reason: 'database_paused' }
   const token = randomUUID()
-  if (await rpc('lv_app_worker_lock', { p_token: token, p_action: 'acquire' }) !== true) return { mode: 'live', processed: 0, reason: 'worker_busy' }
+  const acquired = contactKey
+    ? await rpc('lv_app_contact_lock', { p_token: token, p_contact: contactKey })
+    : await rpc('lv_app_worker_lock', { p_token: token, p_action: 'acquire' })
+  if (acquired !== true) return { mode: 'live', processed: 0, reason: 'worker_busy' }
   const guard = async () => {
     assertLive()
     if (await rpc('lv_app_worker_lock', { p_token: token, p_action: 'renew' }) !== true) throw new Error('WORKER_LEASE_LOST')
@@ -49,9 +51,9 @@ export async function runAutomation(testContact?: string) {
   try {
     const block = await kommoDeliveryBlock()
     if (block) return { mode: 'live', processed: 0, reason: 'kommo_account_blocked', http_status: block.http_status }
-    if(!testContact) await scheduleTasks()
+    if(!contactKey) await scheduleTasks()
     // Reservas abandonadas del nuevo ejecutor requieren revisión; nunca reenvío automático.
-    if(!testContact) {
+    if(!contactKey) {
     const { error } = await db().from('lv_outbox').update({ status: 'uncertain', detail: 'Worker interrumpido; comprobar Kommo' })
       .match(scope).eq('status', 'claimed').contains('payload', { _app: 'lavilet' })
       .lt('claimed_at', new Date(Date.now() - 5 * 60_000).toISOString())
@@ -59,7 +61,9 @@ export async function runAutomation(testContact?: string) {
     }
     for (let i = 0; i < 3 && Date.now() - started < 45_000; i++) {
       await guard()
-      const batch = testContact ? await claimTestMessages(token,testContact) : await rpc<Row[]>('lv_app_claim', { p_token: token })
+      const batch = contactKey
+        ? await rpc<Row[]>('lv_app_claim_contact', { p_token: token, p_contact: contactKey })
+        : await rpc<Row[]>('lv_app_claim', { p_token: token })
       if (!batch.length) break
       const first = object(batch[0]), ids = batch.map(row => row.id)
       try {
@@ -148,7 +152,7 @@ export async function runAutomation(testContact?: string) {
       }
       if (await kommoDeliveryBlock()) return { mode: 'live', processed: results.length, reason: 'kommo_account_blocked', results }
     }
-    for (const job of testContact ? [] : await pendingVisits()) {
+    for (const job of contactKey ? [] : await pendingVisits()) {
       if (Date.now() - started > 150_000) break
       await guard()
       results.push(await sendVisit(text(job.id), guard))

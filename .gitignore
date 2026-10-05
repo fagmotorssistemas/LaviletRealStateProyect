@@ -54,3 +54,4 @@ backups/*.bak
 backups/**/*.bak
 
 .recovery/
+/.swc

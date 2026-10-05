@@ -232,3 +232,22 @@ test('a confirmed false contact offer is corrected while authorized internal ass
   assert.equal(result.reply, good)
   assert.equal(writes, 2)
 })
+
+test('material rejection rewrites directly even when its numeric metadata also needs repair', async () => {
+  const calls: string[] = []
+  let writes = 0
+  const good = 'El local cuesta $145,000.'
+  const bad = 'El local cuesta $100,000.'
+  const result = await completeTurnReply({ current: '¿Cuánto cuesta el local?', baseReply: bad, verified, audit },
+    async (_rules, _input, _schema, _image, _file, _tone, task) => {
+      calls.push(String(task))
+      if (task === 'writing') return { reply: ++writes === 1 ? bad : good, question: noQuestion,
+        requests: [{ fragment: 'R1', intent: 'Precio del local', request_type: 'specific_fact', status: 'answered', evidence: 'Precio publicado', fact_key: 'price' }] }
+      return writes === 1 ? { ...pass, verdict: 'block', facts: [fact('catalog_value',100000,'local-1',bad)],
+        findings: [{ category: 'hard_fact', statement: bad, reason: 'Precio incorrecto.', authoritative_fact: '145000' }] }
+        : { ...pass, facts: [fact('catalog_value',145000,'local-1',good)] }
+    })
+  assert.equal(result.reply,good)
+  assert.equal(result.audit.status,'checked',JSON.stringify(result.audit))
+  assert.deepEqual(calls,['writing','review','writing','review'])
+})

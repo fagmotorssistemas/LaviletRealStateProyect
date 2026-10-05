@@ -1,4 +1,5 @@
 import type { Row } from './data'
+import { createHash } from 'node:crypto'
 
 export const AI_USER_PREFIX = 'Responda en JSON. Datos de entrada:\n'
 
@@ -8,7 +9,10 @@ export function aiRequestBody(options: {
   maxOutputTokens?: number; reasoningEffort?: string; userPrefix?: string;
   image?: string; file?: { name: string; data: string };
 }) {
-  return { model: options.model, store: false,
+  // Route identical instruction/schema prefixes together. No lead identifiers,
+  // persistent response storage, model changes or extended retention needed.
+  const cacheKey = createHash('sha256').update(JSON.stringify([options.model, options.instructions, options.schema])).digest('hex')
+  return { model: options.model, store: false, prompt_cache_key: `lavilet:${cacheKey.slice(0, 48)}`,
     ...(options.maxOutputTokens !== undefined ? { max_output_tokens: options.maxOutputTokens } : {}),
     ...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
     instructions: options.instructions,

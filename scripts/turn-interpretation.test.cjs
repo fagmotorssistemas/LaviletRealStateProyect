@@ -535,7 +535,7 @@ test('one extraction preserves reservation, prior refusal and simultaneous quest
   const result = await interpretConversationTurn({ mensaje_actual: current, pregunta_pendiente: { id: 'budget_amount' } }, {
     activePrompt: async () => 'Prompt', aiJson: async (rules, _input, schema) => {
       assert.ok(schema.properties.turn_semantics.required.includes('reservation'))
-      assert.match(rules, /asked_reservation.*nunca reemplaza esa distinción/)
+      assert.match(rules, /asked_reservation.*nunca (?:reemplaza|sustituye) esa distinción/)
       return { events: [], requests: [
         { domain: 'advisor', request: 'Iniciar la separación del 605', evidence: 'quiero separar el departametno 605', confidence: 'high' },
         { domain: 'property', request: 'Documentos necesarios', evidence: '¿Y qué documentos necesito?', confidence: 'high' },

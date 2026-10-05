@@ -1,6 +1,7 @@
 {
   "financing_identity": null,
   "financing_amounts": [],
+  "financing_quote": { "requested": false, "before_application": false, "evidence": "", "years": null, "years_evidence": "" },
   "events": [],
   "preferred_category": null,
   "purchase_purpose": null,
