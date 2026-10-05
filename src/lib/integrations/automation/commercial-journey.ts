@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { selectedFinancingUnit } from './financing-stage'
 import { leadBudget, budgetQuestion, reviewedFinancingCovers } from './budget-state'
+import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
@@ -111,17 +112,36 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   if (category !== 'local' && category !== 'suite' && !filters.bedrooms && !(Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length) && !lead.preferred_bedrooms)
     return plan('discover_bedrooms', 'Use la familia conocida, pero no convierta personas en dormitorios. Pregunte cuántos necesita.', '¿Cuántos dormitorios necesita?', 'property_bedrooms')
   if (budget.answered !== true) return plan('ask_budget', 'Las necesidades básicas ya se conocen. Pregunte el presupuesto antes de continuar seleccionando unidades.', budgetQuestion(info), 'budget_amount')
-  return plan('select_property', accepted
+  const selection = plan('select_property', accepted
     ? 'Ya aceptó financiamiento: retome las opciones con las preferencias conocidas hasta elegir una unidad concreta. No repita que no alcanza, no pida otra aceptación, cédula ni datos laborales. No exija elegir una planta si ya la conoce.'
     : 'Ayude a comparar y elegir una unidad concreta con las preferencias conocidas. No vuelva a pedir datos ya respondidos.')
+  if (!category) {
+    const selectionQuery = catalogQuery({ ...query, filters: { ...filters, bedrooms: filters.bedrooms ?? lead.preferred_bedrooms } })
+    const scopedIds = selectionQuery.scope === 'offered' ? ids(context.offered_ids)
+      : selectionQuery.scope === 'comparison' ? ids(context.comparison_ids)
+        : selectionQuery.scope === 'selected' ? ids(context.selected_ids) : undefined
+    const excluded = new Set(ids(context.excluded_categories))
+    const candidates = filterCatalog(rows(info.catalogo), selectionQuery, scopedIds).filter(unit => !excluded.has(text(unit.category)))
+    const labels: Record<string, string> = { suite: 'las suites', departamento: 'los departamentos', penthouse: 'los penthouses', local: 'los locales comerciales' }
+    const categories = Object.keys(labels).filter(category => candidates.some(unit => unit.category === category))
+    if (categories.length > 1) {
+      const options = new Intl.ListFormat('es', { type: 'disjunction' }).format(categories.map(category => labels[category]))
+      return { ...selection, question: `¿Prefiere que revisemos ${options}?`, question_id: 'property_category',
+        selection_scope: { categories, unit_ids: candidates.map(unit => text(unit.id)).filter(Boolean) },
+        instruction: `${text(selection.instruction)} Aún no ha elegido entre ${options}. La pregunta debe mantener abiertas esas categorías: pregunte cuál prefiere revisar, sin limitar la elección a una sola categoría ni a sus plantas. Enumerarlas en el cuerpo y excluirlas en la pregunta no cumple este paso. No hace falta repetir las fichas ni usar una frase exacta.` }
+    }
+  }
+  return selection
 }
 
 export function journeyPendingQuestion(reply: string, plan: Row, approved: boolean): Row {
   if (!approved || !plan.question_id) return {}
   const question = reply.match(/¿[^¿?]+\?\s*$/)?.[0]
   if (!question) return {}
-  return { id: plan.question_id, act: plan.question_id === 'reservation_invitation' ? 'reservation' : plan.question_id === 'financing_invitation' ? 'financing' : 'other',
-    question, target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : [] }
+  return { id: plan.question_id, act: plan.question_id === 'reservation_invitation' ? 'reservation' : plan.question_id === 'financing_invitation' ? 'financing'
+    : plan.question_id === 'property_category' ? 'choose_category' : 'other',
+    question, target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : [],
+    ...(plan.selection_scope ? { candidate_ids: ids(object(plan.selection_scope).unit_ids) } : {}) }
 }
 
 export function rememberCommercialJourney(previous: Row, plan: Row, pending: Row, approved: boolean): Row {

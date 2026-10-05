@@ -24,6 +24,79 @@ function info(budget: Row = money(350000), selected = true): Row {
     semantica_turno: { primary_intent: 'select_property', budget: { status: 'not_discussed' } } }
 }
 
+function residentialSelection(): Row {
+  const data = info(money(200000), false)
+  data.catalogo = [
+    ...[2, 3, 4, 5].map(floor => ({ ...unit, id: `u${floor}02`, unit_number: `${floor}02`, floor_number: floor })),
+    ...['602', '605'].map(number => ({ ...unit, id: `u${number}`, unit_number: number, category: 'penthouse', floor_number: 6, published_commercial_price: 550000 })),
+    { ...unit, id: 'suite', category: 'suite', bedrooms: 1 },
+    { ...unit, id: 'local', category: 'local', bedrooms: null },
+  ]
+  data.property_context = { selected_ids: [], excluded_categories: [], query: { group: 'residential', category: null, filters: { bedrooms: 3 } } }
+  data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true } }
+  return data
+}
+
+test('accepting financing keeps both compatible residential categories in the next question', () => {
+  const data = residentialSelection(), next = commercialJourneyPlan(data)
+  assert.equal(next.action, 'select_property')
+  assert.equal(next.question_id, 'property_category')
+  assert.deepEqual(object(next.selection_scope).categories, ['departamento', 'penthouse'])
+  assert.deepEqual(object(next.selection_scope).unit_ids, ['u202', 'u302', 'u402', 'u502', 'u602', 'u605'])
+  assert.match(String(next.question), /departamentos.*penthouses/)
+  assert.doesNotMatch(String(next.question), /planta|suite|comercial/)
+  assert.equal(next.financing_offer_allowed, false)
+  assert.equal(financingStage(data).collection_allowed, false)
+  assert.match(financingPrerequisiteReply(data, 'bueno si esta bien'), /departamentos.*penthouses/)
+  const pending = normalizedPendingQuestion(journeyPendingQuestion(String(next.question), next, true), data.catalogo as Row[])
+  assert.equal(pending.act, 'choose_category')
+  assert.deepEqual(pending.candidate_ids, object(next.selection_scope).unit_ids)
+})
+
+test('category choice comes from compatible inventory, including suites when they match', () => {
+  const data = residentialSelection()
+  data.property_context = { query: { group: 'residential', filters: { bedrooms: 1 } } }
+  data.catalogo = [
+    { ...unit, id: 'suite', category: 'suite', bedrooms: 1 },
+    { ...unit, id: 'apartment', bedrooms: 1 },
+    { ...unit, id: 'penthouse', category: 'penthouse', bedrooms: 3 },
+    { ...unit, id: 'local', category: 'local', bedrooms: 1 },
+  ]
+  const next = commercialJourneyPlan(data)
+  assert.deepEqual(object(next.selection_scope).categories, ['suite', 'departamento'])
+  assert.match(String(next.question), /suites.*departamentos/)
+  assert.doesNotMatch(String(next.question), /penthouse|comercial/)
+})
+
+test('an explicit category choice or exclusion does not reopen the other category', () => {
+  for (const context of [
+    { query: { group: 'residential', category: 'departamento', filters: { bedrooms: 3 } } },
+    { query: { group: 'residential', filters: { bedrooms: 3 } }, excluded_categories: ['penthouse'] },
+  ]) {
+    const data = residentialSelection()
+    data.property_context = context
+    const next = commercialJourneyPlan(data)
+    assert.equal(next.action, 'select_property')
+    assert.equal(next.selection_scope, undefined)
+    assert.notEqual(next.question_id, 'property_category')
+  }
+})
+
+test('hard requirements and a scoped comparison exclude incompatible categories from the next question', () => {
+  for (const context of [
+    { query: { group: 'residential', filters: { bedrooms: 3 }, requirements: [{ field: 'floor_number', operator: 'eq', value: 6, strength: 'required' }] } },
+    { query: { group: 'residential', scope: 'comparison', filters: { bedrooms: 3 } }, comparison_ids: ['u202', 'u502'] },
+    { query: { group: 'residential', scope: 'offered', filters: { bedrooms: 3 } }, offered_ids: [] },
+  ]) {
+    const data = residentialSelection()
+    data.property_context = context
+    assert.equal(commercialJourneyPlan(data).selection_scope, undefined)
+  }
+  const data = residentialSelection()
+  data.catalogo = (data.catalogo as Row[]).map(unit => unit.category === 'penthouse' ? { ...unit, status: 'vendido' } : unit)
+  assert.equal(commercialJourneyPlan(data).selection_scope, undefined)
+})
+
 test('cash buyer selects a unit: reserve first, then office on refusal, then leave chat open', () => {
   const data = info(), reserve = commercialJourneyPlan(data)
   assert.equal(reserve.action, 'offer_reservation')
@@ -165,5 +238,30 @@ test('writer and independent reviewer receive the same reservation step through 
   assert.deepEqual(assertions, [])
   assert.equal(result.audit.status, 'checked')
   assert.equal(object(result.audit.commercial_journey).action, 'offer_reservation')
+  assert.deepEqual(calls, ['writing', 'review'])
+})
+
+test('financing continuation sends the same unresolved category choice to writer and reviewer', async () => {
+  const data = residentialSelection(), calls: string[] = [], assertions: string[] = []
+  const categories = ['departamento', 'penthouse']
+  const reply = 'Para continuar con el financiamiento, primero elijamos su vivienda. ¿Prefiere revisar los departamentos o los penthouses de 3 dormitorios?'
+  const result = await completeTurnReply({ current: 'bueno si esta bien', baseReply: financingPrerequisiteReply(data, 'bueno si esta bien'), verified: data,
+    audit: { source: 'financing_selection_required', semantic_review_enabled: true, business_risk_review_enabled: true } },
+  async (_rules, raw, _schema, _image, _file, _tone, task) => {
+    const input = object(raw); calls.push(String(task))
+    try {
+      const next = (input.obligaciones_del_turno as Row[]).find(o => o.id === 'commercial_next_step')
+      assert.deepEqual(object(next?.selection_scope).categories, categories)
+      assert.equal(next?.question_id, 'property_category')
+      if (task === 'writing') return { reply, requests: [],
+        question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'categoría preferida', next_decision: 'Comparar las unidades de la categoría elegida' } }
+      assert.deepEqual(object(object(object(input.estado_del_turno).siguiente_paso_comercial).selection_scope).categories, categories)
+      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+    } catch (error) { assertions.push(String(error)); throw error }
+  })
+  assert.deepEqual(assertions, [])
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.status, 'checked')
+  assert.deepEqual(object(object(result.audit.commercial_journey).selection_scope).categories, categories)
   assert.deepEqual(calls, ['writing', 'review'])
 })

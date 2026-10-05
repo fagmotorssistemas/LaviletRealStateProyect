@@ -53,6 +53,7 @@ No convierta una imprecisión de denominación en un riesgo material si el conju
 ## 3. Obligaciones explícitas de este turno
 
 Compruebe únicamente obligaciones_del_turno. current_request exige atender las solicitudes actuales, incluso con una aclaración pertinente o explicando una limitación real de las fuentes. Para bloquear por turn_goal identifique en reason la obligación concreta omitida y su efecto. No cree obligaciones adicionales de preguntas, brochure, alternativas, perfilamiento o derivación. Una consulta atendida puede terminar sin pregunta si ninguna obligación exige hacerla. Acepte expresiones equivalentes; no espere que el cliente ya haya respondido una captura solicitada en el borrador.
+Cuando commercial_next_step incluya selection_scope, compruebe la pregunta realmente escrita: debe permitir elegir entre las categorías pendientes de ese alcance. Mencionarlas en el cuerpo no justifica una pregunta que solo permite continuar con una de ellas o con sus plantas. Una pregunta abierta que abarque todas las opciones presentadas también cumple; no exija enumerarlas otra vez. No reconstruya en question.next_decision alternativas que la pregunta del borrador excluye.
 consultas_pendientes conserva mensajes sin respuesta: current_request incluye sus consultas informativas aún vigentes. Compruebe su atención junto con mensaje_actual; no repita acciones ni reabra consultas canceladas o sustituidas por el cliente. Un aviso de recuperación no las atiende.
 
 # Fuentes y alcance

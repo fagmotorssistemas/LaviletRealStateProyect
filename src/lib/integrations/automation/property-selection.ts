@@ -374,10 +374,10 @@ export function financingPrerequisiteReply(info: Row, current: string) {
   const deferred = budgetWasDeferred(info, current)
   if (!unit) {
     const next = commercialJourneyPlan(info)
-    if (next.question && ['discover_use', 'discover_purpose', 'discover_bedrooms', 'ask_budget'].includes(text(next.action)))
+    if (next.question && ['discover_use', 'discover_purpose', 'discover_bedrooms', 'ask_budget', 'select_property'].includes(text(next.action)))
       return `Con gusto, continuemos con la elección de la propiedad para revisar su financiamiento. ${text(next.question)}`
     if (!category) return object(object(info.property_context).query).group === 'residential'
-      ? 'Continuaremos con el financiamiento después de elegir la unidad. Retomemos las viviendas que se ajustan a sus preferencias. ¿Prefiere comparar departamentos o penthouses?'
+      ? 'Continuaremos con el financiamiento después de elegir la unidad. Retomemos las viviendas que se ajustan a sus preferencias. ¿Cuál de las opciones le interesa revisar?'
       : 'Podemos ayudarle a revisar alternativas de financiamiento. Primero necesitamos identificar la propiedad sobre la que desea realizar la evaluación. ¿Qué tipo de inmueble le interesa?'
     if (budget === null && !deferred) return `Podemos ayudarle con el financiamiento. Primero definamos qué ${categoryLabels[category].singular} desea evaluar. ¿Con qué presupuesto aproximado cuenta para orientar la selección?`
     const floor = object(object(object(info.property_context).query).filters).floor_number
