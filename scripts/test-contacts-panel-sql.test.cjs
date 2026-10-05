@@ -28,13 +28,15 @@ test('test contacts: enrollment, wait controls and scoped transactional resets',
   }
   await db.query('INSERT INTO lv_auto_config(tenant_id,project_id,test_lead_id,test_only) VALUES($1,$2,$3,true)',[tenant,project,a])
   await db.exec(sql('20261004210000_test_contacts_panel.sql')); await db.exec(sql('20261004211000_restart_enrolled_test_contact.sql'))
+  await db.exec(sql('20261005183000_explicit_bot_resume.sql'))
+  await db.exec(sql('20261005183000_explicit_bot_resume.sql')) // Reapplying is non-destructive.
   const get=async phone=>(await rows('SELECT * FROM lv_test_contacts_state WHERE phone=$1',[phone]))[0]
   const mutate=async(action,c)=>db.query('SELECT lv_manage_test_contact($1,$2,$3)',[action,c.id,c.version])
   const restart=async c=>db.query('SELECT lv_restart_enrolled_test_contact($1,$2,NULL)',[c.id,c.version])
   await t.test('migration keeps legacy member and does not reset anything; RPCs are private',async()=>{
    assert.equal((await get('593991234567')).lead_id,a)
    assert.equal((await rows('SELECT count(*)::int n FROM messages'))[0].n,2)
-   for(const role of ['anon','authenticated']) for(const fn of ['lv_manage_test_contact(text,uuid,integer,text,text,uuid)','lv_restart_enrolled_test_contact(uuid,integer,uuid)','lv_accelerate_test_messages(text[])'])
+   for(const role of ['anon','authenticated']) for(const fn of ['lv_manage_test_contact(text,uuid,integer,text,text,uuid)','lv_restart_enrolled_test_contact(uuid,integer,uuid)','lv_accelerate_test_messages(text[])','lv_resume_enrolled_test_contact(uuid,integer,uuid,uuid)','lv_record_advisor_outbound(bigint,text,text,text,text,timestamptz,text)'])
     assert.equal((await rows('SELECT has_function_privilege($1,$2,\'EXECUTE\') allowed',[role,fn]))[0].allowed,false)
   })
   await t.test('add before a first message, duplicate prevention and local/international matching',async()=>{
@@ -115,6 +117,50 @@ test('test contacts: enrollment, wait controls and scoped transactional resets',
     } finally {await db.exec('ROLLBACK')}
     assert.equal((await rows('SELECT count(*)::int n FROM messages'))[0].n,1)
     assert.equal((await rows('SELECT count(*)::int n FROM lv_manual_test_reset_backups WHERE lead_id=$1',[a]))[0].n,0)
+   }
+  })
+  await t.test('resume preserves the dossier and history, resolves the handoff and ignores delayed manual takeover',async()=>{
+   await db.exec('BEGIN')
+   try {
+    const actor=randomUUID(),token=randomUUID()
+    await db.query("INSERT INTO profiles(id,role,is_active,kommo_user_id) VALUES($1,'admin',true,'9001')",[actor])
+    await db.query("UPDATE leads SET assigned_to=$1,handoff_status='assigned',handoff_reason='technical failure',bot_enabled=false WHERE id=$2",[actor,a])
+    const manual=async(id,at)=> (await rows("SELECT lv_record_advisor_outbound(101,'101','9001',$1,'Manual reply',$2::timestamptz) result",[id,at]))[0].result
+    assert.equal((await manual('manual-first','2026-09-18T17:00:00Z')).bot_paused,true)
+    const before=(await rows('SELECT budget,behavior_signals,assigned_to FROM leads WHERE id=$1',[a]))[0]
+    const count=(await rows('SELECT count(*)::int n FROM messages'))[0].n
+    const c=await get('593991234567')
+    assert.equal(c.blocked,true);assert.equal(c.opt_out_blocked,false)
+    await db.query("SELECT lv_app_worker_lock($1,'acquire')",[token])
+    const result=(await rows('SELECT lv_resume_enrolled_test_contact($1,$2,$3,$4) result',[c.id,c.version,actor,token]))[0].result
+    assert.equal(result.kommo_id,101)
+    const lead=(await rows('SELECT budget,behavior_signals,assigned_to,bot_enabled,bot_resumed_at,bot_resumed_by,handoff_status FROM leads WHERE id=$1',[a]))[0]
+    assert.equal(lead.bot_enabled,true);assert.equal(lead.handoff_status,'resolved');assert.equal(lead.bot_resumed_by,actor)
+    for(const key of Object.keys(before))assert.deepEqual(lead[key],before[key])
+    assert.equal((await rows('SELECT count(*)::int n FROM messages'))[0].n,count)
+    assert.equal((await get(c.phone)).version,c.version+1)
+    const old=await manual('manual-delayed',new Date(Date.parse(result.resumed_at)-1000).toISOString())
+    assert.equal(old.bot_paused,false);assert.equal(old.reason,'MANUAL_MESSAGE_BEFORE_RESUME')
+    assert.equal((await rows('SELECT bot_enabled FROM leads WHERE id=$1',[a]))[0].bot_enabled,true)
+    assert.equal((await rows('SELECT count(*)::int n FROM messages'))[0].n,count+1)
+    const latest=await manual('manual-new',new Date(Date.parse(result.resumed_at)+1000).toISOString())
+    assert.equal(latest.bot_paused,true)
+    await manual('another-old','2026-09-18T17:01:00Z')
+    assert.equal((await rows('SELECT bot_enabled FROM leads WHERE id=$1',[a]))[0].bot_enabled,false)
+   } finally { await db.exec('ROLLBACK') }
+  })
+  await t.test('resume requires an exclusive lease, fresh enrollment, unique scope and no opt-out or uncertain delivery',async()=>{
+   for(const mode of ['no_lease','stale','opt_out','uncertain','duplicate','foreign_scope']) {
+    await db.exec('BEGIN')
+    try {
+     const c=await get('593991234567'),token=randomUUID()
+     if(mode!=='no_lease')await db.query("SELECT lv_app_worker_lock($1,'acquire')",[token])
+     if(mode==='opt_out')await db.query('UPDATE leads SET tracking_opt_out_at=now() WHERE id=$1',[a])
+     if(mode==='uncertain')await db.query("UPDATE lv_integration_events SET status='uncertain' WHERE event_key='inbound:101'")
+     if(mode==='duplicate')await db.query('INSERT INTO leads(tenant_id,project_id,phone,kommo_id) VALUES($1,$2,$3,199)',[tenant,project,'0991234567'])
+     if(mode==='foreign_scope')await db.query('UPDATE leads SET project_id=$1 WHERE id=$2',[randomUUID(),a])
+     await assert.rejects(db.query('SELECT lv_resume_enrolled_test_contact($1,$2,NULL,$3)',[c.id,mode==='stale'?c.version-1:c.version,token]),/TEST_RESUME_BUSY|TEST_CONTACT_CHANGED|TEST_CONTACT_OPT_OUT|TEST_CONTACT_AMBIGUOUS|TEST_CONTACT_NOT_LINKED/)
+    } finally { await db.exec('ROLLBACK') }
    }
   })
   await t.test('remove only drops enrollment and leaves CRM data intact',async()=>{

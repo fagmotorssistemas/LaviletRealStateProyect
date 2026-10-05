@@ -91,6 +91,18 @@ test('disabled review does not send empty or oversized writer output', async () 
   }
 })
 
+test('disabled review preserves the writer draft even when a brochure was scheduled', async () => {
+  const reply = 'Uso mixto significa que combina espacios residenciales y comerciales.'
+  const mock = writer(reply)
+  const result = await withResponseReviewPolicy(off, () => completeTurnReply({ ...input,
+    current: 'a que te refieres con uso mixto',
+    audit: { profile_introduction: { brochure_required: true, brochure_url: 'https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' } },
+  }, mock.generate))
+  assert.equal(result.reply, reply)
+  assert.deepEqual(mock.calls, ['writing'])
+  assert.equal(result.audit.status, 'review_disabled')
+})
+
 test('a lead or model audit cannot disable the server review policy', async () => {
   const calls: string[] = []
   const generate: NonNullable<Parameters<typeof completeTurnReply>[1]> = async (_rules, context, _schema, _image, _file, _tone, task = 'data') => {

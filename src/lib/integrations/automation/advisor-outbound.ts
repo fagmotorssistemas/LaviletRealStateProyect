@@ -36,6 +36,11 @@ export async function processAdvisorOutbound(row: Row) {
     return { action: 'advisor_outbound_ignored', reason: text(result.reason) || 'NOT_A_PROJECT_ADVISOR' }
   }
 
+  if (result.bot_paused === false) {
+    return { action: 'advisor_message_recorded', reason: text(result.reason),
+      lead_id: result.lead_id, conversation_id: result.conversation_id, bot_paused: false }
+  }
+
   // Once the local pause is committed, a provider failure cannot reopen the
   // conversation. It is reported for reconciliation instead of replaying the
   // manual message event.

@@ -73,6 +73,17 @@ export function replyLinkIssues(reply: string, contract: ReturnType<typeof reply
   ]
 }
 
+/** Complete a scheduled brochure delivery from configured material, without another model call. */
+export function includeRequiredBrochure(reply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
+  const contract = replyLinkContract('', audit, context)
+  const brochure = text(object(audit.profile_introduction).brochure_url) || text(context.verified?.brochure_url) || BROCHURE_URL
+  if (!reply.trim() || !contract.required_links.includes(brochure) || !contract.allowed_links.includes(brochure)
+    || urls(reply).includes(brochure) || !/^https?:\/\/\S+$/.test(brochure)) return reply
+  const completed = `${reply.trim()}\n\nBrochure del proyecto: ${brochure}`
+  // Never truncate the answer, substitute another link, or exceed the delivery limit.
+  return completed.length <= MAX_REPLY_CHARACTERS ? completed : reply
+}
+
 /** A reservation request/handoff does not reserve inventory or confirm payment. */
 export function reservationOperationalIssues(reply: string, audit: Row = {}): string[] {
   const receipt = object(audit.reservation)

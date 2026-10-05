@@ -43,6 +43,7 @@ export function TestResponseSettings({initial,initialError='',reviewControl}:{in
     <section className={styles.card} aria-busy={busy}>
       <h2>Números para pruebas</h2>
       <p>Las respuestas de WhatsApp son reales. Cada número conserva las reglas comerciales y los controles del bot. Puede añadirlo antes de que envíe su primer mensaje.</p>
+      <p>Después de responder manualmente, pulse «Reanudar bot» para que continúe con el próximo mensaje del lead. Se conservan su ficha y conversación, y se cierra la derivación pendiente al equipo. Una nueva respuesta manual volverá a pausarlo.</p>
       <form className={local.form} onSubmit={event=>{event.preventDefault();if(disabled)return;void perform(async()=>{
         if(applyResult(await addTestContactAction(phone,label))){setPhone('');setLabel('')}
       })}}>

@@ -262,9 +262,11 @@ test('the real writer delivers the verified brochure and resumes a purposeful co
   assert.equal(result.audit.question.purpose, 'choose_property')
   assert.equal(result.needsAdvisor, false)
   const missingBrochure = { ...candidate, reply: plan.reply.replace(BROCHURE_URL, '') }
-  const repaired = await completeTurnReply(input, model(missingBrochure, candidate, review).generate)
+  const repairedModel = model(missingBrochure, { ...review, claims: [] })
+  const repaired = await completeTurnReply(input, repairedModel.generate)
   assert.equal(repaired.audit.status, 'checked')
-  assert.ok(repaired.audit.repair_attempts[0].issues.includes('required_link_omitted'))
+  assert.equal(repairedModel.calls.length, 2) // One writer and one reviewer, no rewrite for a missing material link.
+  assert.deepEqual(repaired.audit.repair_attempts, [])
   assert.ok(repaired.reply.includes(BROCHURE_URL))
   const forgedLink = { ...candidate, reply: plan.reply.replace(BROCHURE_URL, 'https://example.invalid/brochure.pdf') }
   const blocked = await completeTurnReply(input, model(forgedLink).generate)
@@ -272,6 +274,24 @@ test('the real writer delivers the verified brochure and resumes a purposeful co
   assert.ok(blocked.audit.issues.includes('unauthorized_link'))
   assertPending(blocked, forgedLink.reply)
   assert.doesNotMatch(blocked.reply, /example\.invalid/)
+})
+
+test('mixed-use clarification keeps its answer and completes the pending brochure without a rewrite or handoff', async () => {
+  const current = 'a que te refieres con uso mixto'
+  const reply = 'Uso mixto significa que el proyecto combina espacios residenciales y comerciales.'
+  const mock = model({ reply, requests: [covered(current)], question: noQuestion },
+    { ...approved, claims: [], question: { ...noQuestion, clarifies: [] }, review_issues: [] })
+  const result = await completeTurnReply({ current, baseReply: reply,
+    verified: { brochure_url: BROCHURE_URL, project: reply },
+    audit: { source: 'project_overview', semantic_review_enabled: true,
+      profile_introduction: { stage: 'deliver', brochure_required: true, brochure_url: BROCHURE_URL } },
+  }, mock.generate)
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, `${reply}\n\nBrochure del proyecto: ${BROCHURE_URL}`)
+  assert.equal(result.needsAdvisor, false)
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(mock.calls.length, 2)
+  assert.ok(result.audit.text_transformations.some(change => change.stage === 'Enlace del brochure programado'))
 })
 
 test('writer and independent reviewer share a declared location without treating it as confirmed residence', async () => {

@@ -45,7 +45,7 @@ test('contact controls distinguish missing leads, duplicates and blocked linked 
  const duplicate=settings.testContactControls({...contact,matches:2})
  assert.equal(duplicate.label,'Varios leads con este número');assert.equal(duplicate.canResume,false);assert.equal(duplicate.canReset,false)
  const blocked=settings.testContactControls({...contact,blocked:true,botEnabled:false})
- assert.equal(blocked.canResume,false);assert.match(blocked.resumeDisabledReason,/derivación/)
+ assert.equal(blocked.canResume,false);assert.match(blocked.resumeDisabledReason,/no recibir mensajes/)
  assert.equal(blocked.canReset,true) // The transactional reset separately protects opt-outs and sales.
  const enabled=settings.testContactControls(contact)
  assert.equal(enabled.label,'Bot habilitado');assert.equal(enabled.canReset,true)
@@ -85,6 +85,7 @@ function actionHarness(options={}){
   '@/lib/auth/session':{assertAdmin:async()=>{if(options.denied)throw Error('Solo el administrador puede hacer esto')},getSessionUser:async()=>({user:options.loggedOut?null:{id:'admin'},supabase:{from(){const q={select:()=>q,eq:()=>q,single:async()=>({data:options.projectAccess===false?null:{id:'project'},error:null})};return q}}})},
   '@/lib/integrations/automation/data':{scope:{tenant_id:'tenant',project_id:'project'},db:()=>({rpc:(...args)=>{calls.push(args);return {abortSignal:async()=>{if(options.rpcThrow)throw options.rpcThrow;return {error:options.rpcError||null}}}}})},
   '@/lib/integrations/automation/kommo':{setKommoField:async(...args)=>{kommo.push(args);if(options.kommoError)throw options.kommoError}},
+  '@/lib/integrations/automation/resume-test-contact':{resumeTestContact:async(...args)=>{calls.push(['resume',...args]);if(options.resumeError)throw options.resumeError;return {kommoSynced:!options.kommoError}}},
   '@/lib/integrations/automation/test-response-mode':{testContacts:async()=>{reads.push(true);if(options.readError || (options.refreshError&&calls.length))throw Error('TEST_CONTACTS_READ_FAILED');return options.contacts||[contact]}},
   '@/lib/inmobiliaria/testResponseMode':settings,
  })
@@ -161,4 +162,15 @@ test('Kommo synchronization failure preserves reset success and supports resume,
  assert.equal(result.notice,'Prueba reiniciada.')
  assert.match(result.warning,/Reanudar bot/);assert.doesNotMatch(result.warning,/private/)
  assert.equal(h.calls.length,1)
+})
+
+test('resume delegates to the lease-protected reactivation and surfaces partial synchronization',async()=>{
+ const h=actionHarness(),result=await h.update('resume')
+ assert.equal(result.ok,true);assert.match(result.notice,/Bot reanudado/)
+ assert.deepEqual(h.calls,[['resume',contact.id,contact.version,'admin']])
+ assert.deepEqual(h.kommo,[])
+ const partial=await actionHarness({kommoError:Error('failure')}).update('resume')
+ assert.equal(partial.ok,true);assert.match(partial.warning,/Reanudar bot/)
+ const busy=await actionHarness({resumeError:Error('TEST_RESUME_BUSY')}).update('resume')
+ assert.equal(busy.ok,false);assert.equal(busy.code,'TEST_RESUME_BUSY')
 })

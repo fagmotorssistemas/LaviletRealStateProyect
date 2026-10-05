@@ -22,4 +22,17 @@ describe('human attention', () => {
   it('does not carry human ownership into a new conversation', () => {
     assert.equal(advisorOwnsConversation([], inboundAt), false)
   })
+
+  it('explicit resume supersedes a prior manual reply without deleting it', () => {
+    const messages = [{ role: 'asesor', sent_at: '2026-09-18T17:50:00Z' }]
+    assert.equal(advisorOwnsConversation(messages, inboundAt, '2026-09-18T17:55:00Z'), false)
+    assert.equal(advisorOwnsConversation(messages, inboundAt, '2026-09-18T17:50:00Z'), false)
+    assert.equal(messages.length, 1)
+  })
+
+  it('a new manual reply after resuming takes ownership again', () => {
+    const messages = [{ role: 'asesor', sent_at: '2026-09-18T17:56:00Z' }]
+    for (const resumed of ['2026-09-18T17:55:00Z', null, 'invalid'])
+      assert.equal(advisorOwnsConversation(messages, inboundAt, resumed), true)
+  })
 })

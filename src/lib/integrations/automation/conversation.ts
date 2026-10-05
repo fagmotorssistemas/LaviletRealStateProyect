@@ -343,7 +343,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     .eq('conversation_id', conversationBefore.id).in('role', ['bot', 'asesor'])
     .lt('sent_at', activeLast.sentAt).order('sent_at', { ascending: false }).limit(12)
   if (recentOutbound.error) throw new Error('HUMAN_ACTIVITY_CHECK_FAILED')
-  if (advisorOwnsConversation(recentOutbound.data || [], activeLast.sentAt)) {
+  if (advisorOwnsConversation(recentOutbound.data || [], activeLast.sentAt, lead.bot_resumed_at)) {
     trace.finish(permissionStep, 'paused', { reason: 'ADVISOR_OWNS_CONVERSATION' })
     // Asesor atiende: igual se evalúa LeadSubmitted (oferta puede ser del asesor).
     try {

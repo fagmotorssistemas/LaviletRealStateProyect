@@ -26,7 +26,7 @@ import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import { DIALOGUE_WRITING_RULES, DIALOGUE_REVIEW_RULES } from './dialogue-writing-rules'
 import { checkReviewDecision, reviewIssuesSchema, REVIEW_CHECK_RULES, FACTUAL_REVIEW_SCOPE_RULES } from './turn-review-checks'
 import { OPERATIONAL_REVIEW_RULES } from './operational-review'
-import { finalWriterContract, FINAL_WRITER_RULES, CATALOG_WRITER_RULES, commercialContinuationSources, MAX_REPLY_CHARACTERS, replyLinkContract, replyLinkIssues, reservationOperationalIssues } from './response-plan'
+import { finalWriterContract, FINAL_WRITER_RULES, CATALOG_WRITER_RULES, commercialContinuationSources, MAX_REPLY_CHARACTERS, replyLinkContract, replyLinkIssues, includeRequiredBrochure, reservationOperationalIssues } from './response-plan'
 import { leadIntroductionIssues, leadIntroductionRepairs, leadIntroductionReviewIssues, leadIntroductionReviewSchema, LEAD_INTRODUCTION_RULES, LEAD_INTRODUCTION_REVIEW_RULES } from './lead-introduction'
 import { confirmedLeadProfile } from './lead-profile'
 import { canRecoverAbsence, verifiedAbsenceReply } from './catalog-absence'
@@ -614,12 +614,14 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     requests = rows
     const preparedReply = input.audit?.semantic_review_enabled === true ? text(candidate.reply).trim() : currentTopicReply(text(candidate.reply).trim(), input.current)
     const normalizedReply = input.audit?.semantic_review_enabled === true ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply
-    const reply = informationOpeningRequired ? informationRequestOpening(normalizedReply) : normalizedReply
-    opening.applied = reply !== normalizedReply
+    const openedReply = informationOpeningRequired ? informationRequestOpening(normalizedReply) : normalizedReply
+    opening.applied = openedReply !== normalizedReply
+    const reply = includeRequiredBrochure(openedReply, input.audit, input)
     textTransformations = [
       ...(proposedReply !== preparedReply ? [{ stage: 'Formato de la propuesta', before: proposedReply, after: preparedReply }] : []),
       ...(preparedReply !== normalizedReply ? [{ stage: 'Normalización de la ruta antes de revisión', before: preparedReply, after: normalizedReply }] : []),
-      ...(normalizedReply !== reply ? [{ stage: 'Apertura de la primera solicitud de información', before: normalizedReply, after: reply }] : []),
+      ...(normalizedReply !== openedReply ? [{ stage: 'Apertura de la primera solicitud de información', before: normalizedReply, after: openedReply }] : []),
+      ...(openedReply !== reply ? [{ stage: 'Enlace del brochure programado', before: openedReply, after: reply }] : []),
     ]
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.

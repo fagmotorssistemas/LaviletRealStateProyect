@@ -35,7 +35,7 @@ export function testContactControls(contact: TestContact) {
   const resetDisabledReason = duplicate ? 'Hay varios leads con este teléfono. Resuelva el duplicado antes de reiniciar o reanudar.'
     : !linked ? linkHelp : ''
   const resumeDisabledReason = resetDisabledReason || (contact.blocked
-    ? 'Hay una derivación al equipo o una solicitud de no recibir mensajes. Resuelva ese estado antes de reanudar el bot.' : '')
+    ? 'El contacto solicitó no recibir mensajes. No se puede reactivar desde aquí.' : '')
   return {
     label: duplicate ? 'Varios leads con este número' : waiting ? 'Esperando primer mensaje'
       : !linked ? 'Pendiente de vincular WhatsApp' : contact.botEnabled ? 'Bot habilitado' : 'Bot pausado',

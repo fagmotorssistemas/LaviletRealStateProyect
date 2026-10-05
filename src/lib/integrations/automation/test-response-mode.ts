@@ -10,7 +10,7 @@ export async function testContacts(): Promise<TestContact[]> {
   return (data || []).map(row => ({ id: row.id, phone: row.phone, label: row.label,
     fastResponse: row.fast_response === true, version: row.version, leadId: row.lead_id,
     kommoId: row.kommo_id ? Number(row.kommo_id) : null, botEnabled: row.bot_enabled === true,
-    matches: Number(row.matches), blocked: row.blocked === true, lastResetAt: row.last_reset_at }))
+    matches: Number(row.matches), blocked: (row.opt_out_blocked ?? row.blocked) === true, lastResetAt: row.last_reset_at }))
 }
 
 /** Separate authorization for unpublished policy previews. */

@@ -4,6 +4,7 @@ import { assertAdmin, getSessionUser } from '@/lib/auth/session'
 import { db, scope } from '@/lib/integrations/automation/data'
 import { setKommoField } from '@/lib/integrations/automation/kommo'
 import { testContacts } from '@/lib/integrations/automation/test-response-mode'
+import { resumeTestContact } from '@/lib/integrations/automation/resume-test-contact'
 import { normalizeTestPhone, testContactControls, type TestResponseActionResult } from '@/lib/inmobiliaria/testResponseMode'
 
 type Failure = Extract<TestResponseActionResult, {ok:false}>
@@ -13,6 +14,8 @@ const problems: Record<string, string> = {
   TEST_CONTACT_AMBIGUOUS: 'Hay varios leads con ese teléfono. Resuelva el duplicado antes de reiniciar.',
   TEST_CONTACT_NOT_LINKED: 'El número aún no está vinculado con Kommo. Envíe un mensaje desde ese número al WhatsApp del proyecto y pulse «Actualizar lista».',
   TEST_RESET_BUSY: 'No se reinició la prueba: el sistema está procesando mensajes o tiene un envío pendiente de confirmar. Espere a que termine y vuelva a intentarlo.',
+  TEST_RESUME_BUSY: 'No se reanudó el bot: hay un procesamiento o envío pendiente de confirmar. Espere a que termine y vuelva a intentarlo.',
+  TEST_RESUME_NOT_INSTALLED: 'Falta actualizar la base de datos para reanudar el bot conservando la conversación. Aplique la migración de reanudación y vuelva a intentarlo.',
   TEST_RESET_PROTECTED: 'Este lead tiene contratos, reservas o ventas y no se puede reiniciar.',
   TEST_CONTACT_OPT_OUT: 'El contacto solicitó no recibir mensajes. No se puede reactivar desde aquí.',
   TEST_CONTACTS_READ_FAILED: 'No se pudo cargar la lista de pruebas. Pulse «Actualizar lista» para reintentar.',
@@ -51,7 +54,7 @@ function failure(operation: string, error: unknown, mutationStarted = false): Fa
   }
   const reference = recordFailure(operation,error)
   return rejected('TEST_ACTION_FAILED', mutationStarted
-    ? `No se pudo confirmar el resultado. Pulse «Actualizar lista» y compruebe el último reinicio antes de repetir la acción. Referencia: ${reference}.`
+    ? `No se pudo confirmar el resultado. Pulse «Actualizar lista» y compruebe el estado del contacto antes de repetir la acción. Referencia: ${reference}.`
     : `No se pudo completar la consulta. Pulse «Actualizar lista» para reintentar. Referencia: ${reference}.`, mutationStarted)
 }
 
@@ -101,13 +104,21 @@ export async function updateTestContactAction(id: string, version: number, actio
     const controls = testContactControls(contact)
     if (action==='reset' && !controls.canReset) return rejected('TEST_RESET_UNAVAILABLE',controls.resetDisabledReason)
     if (action==='resume' && !controls.canResume) return rejected('TEST_RESUME_UNAVAILABLE',controls.resumeDisabledReason)
+    if (action==='resume') {
+      try {
+        const result = await resumeTestContact(id,version,user.id)
+        return updatedState(action,
+          result.kommoSynced ? 'Bot reanudado. Continuará con el próximo mensaje del lead y conservará su ficha y conversación.' : 'Reanudación guardada en el sistema.',
+          result.kommoSynced ? undefined : 'No se pudo reanudar el bot en Kommo. Pulse «Reanudar bot» para reintentar.')
+      } catch(error) { return failure('resume',error,true) }
+    }
     const error = await mutate(action,{
       ...(action==='reset'?{}:{p_action:action}),p_id:id,p_version:version,p_actor:user.id,
     })
     if(error)return error
     let notice = action==='reset'?'Prueba reiniciada. Ya puede comenzar una conversación nueva.':action==='remove'?'Número eliminado de la lista de pruebas.':'Cambio guardado.'
     let warning: string | undefined
-    if ((action==='reset'||action==='resume') && contact.kommoId) {
+    if (action==='reset' && contact.kommoId) {
       try { await setKommoField(contact.kommoId,451530,'false') }
       catch(error) {
         const reference = recordFailure(`${action}:kommo`,error)
