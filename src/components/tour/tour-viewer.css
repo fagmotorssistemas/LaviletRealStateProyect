@@ -680,6 +680,23 @@ html.tour-is-force-landscape body {
   display: none;
 }
 
+.hotspot-editor .psv-marker {
+  cursor: grab;
+  touch-action: none;
+}
+
+.hotspot-editor.is-dragging,
+.hotspot-editor.is-dragging .psv-marker {
+  cursor: grabbing;
+}
+
+.tour-hotspot.is-selected .tour-hotspot-disc::after {
+  box-shadow:
+    0 0 0 2px #f7f3ee,
+    0 0 0 5px rgba(189, 162, 126, 0.95),
+    0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
 .tour-hotspot.is-look .tour-hotspot-disc::after {
   width: 10px;
   height: 10px;

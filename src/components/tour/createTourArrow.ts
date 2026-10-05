@@ -14,7 +14,7 @@ function escapeHtml(value: string) {
     .replaceAll('"', '&quot;')
 }
 
-export function roomHotspotHtml(label: string, kind: 'go' | 'look' = 'go') {
-  const extra = kind === 'look' ? ' is-look' : ''
+export function roomHotspotHtml(label: string, kind: 'go' | 'look' = 'go', selected = false) {
+  const extra = `${kind === 'look' ? ' is-look' : ''}${selected ? ' is-selected' : ''}`
   return `<div class="tour-hotspot${extra}"><span class="tour-hotspot-disc" aria-hidden="true"></span><span class="tour-hotspot-label">${escapeHtml(label)}</span></div>`
 }
