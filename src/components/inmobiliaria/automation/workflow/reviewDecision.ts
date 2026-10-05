@@ -83,6 +83,11 @@ export function repairBudgetFacts(output: Row) {
 }
 
 export function reviewDecision(output: Row, catalog: Row[] = []) {
+  if (output.status === 'review_disabled' && row(output.review_control).enabled === false) return {
+    tone: 'unknown', title: 'Sin revisión · Control general desactivado',
+    explanation: 'Se conservó el borrador del redactor sin revisión ni correcciones comerciales posteriores. El envío se comprueba en Envío a Kommo.',
+    details: [], causes: [], repair: 'No se solicitaron revisiones ni reparaciones.', resolvedDetails: [], recoveryPending: false,
+  }
   const status = text(output.status), review = row(output.semantic_review)
   const recovery = row(output.recovery || row(output.turn_completeness).recovery)
   const recoveredCatalog = status === 'recovered_catalog_result' && recovery.strategy === 'verified_empty_search'

@@ -28,10 +28,11 @@ export function AutomationSectionTabs({ active, attentionCount }: { active: 'mon
     { id: 'control', href: '/inmobiliaria/automatizacion/control', label: 'Control de leads' },
     { id: 'workflow', href: '/inmobiliaria/automatizacion/workflow', label: 'Flujo visual' },
     ...(isAdmin ? [
+      { id: 'pruebas', href: '/inmobiliaria/automatizacion/pruebas', label: 'Pruebas y revisión' },
       { id: 'conocimiento', href: '/inmobiliaria/automatizacion/conocimiento', label: 'Conocimiento y reglas' },
     ] : []),
   ]
   return <nav className={styles.tabs} aria-label="Secciones de automatización">
-    {tabs.map(tab => <Link key={tab.id} href={tab.href} aria-current={(active === tab.id || tab.id === 'conocimiento' && !['monitoreo', 'control', 'workflow'].includes(active)) ? 'page' : undefined}>{tab.label}</Link>)}
+    {tabs.map(tab => <Link key={tab.id} href={tab.href} aria-current={(active === tab.id || tab.id === 'conocimiento' && !['monitoreo', 'control', 'workflow', 'pruebas'].includes(active)) ? 'page' : undefined}>{tab.label}</Link>)}
   </nav>
 }

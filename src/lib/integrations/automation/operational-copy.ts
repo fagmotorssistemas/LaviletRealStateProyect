@@ -1,3 +1,4 @@
+import { responseReviewEnabled, responseReviewControl, unreviewedWriterReply } from './response-review-policy'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import { CURRENT_TONE } from './conversation-tone'
 import { financingCollectionIssues, FINANCING_COLLECTION_RULE } from './financing-continuation'
@@ -54,7 +55,7 @@ ${CURRENT_TONE.operationalReview}
 Devuelva las cuatro decisiones booleanas del esquema.`
 
 /** Rephrases verified operational copy; never calls scheduling or financing actions. */
-export async function operationalReply(baseReply: string, current: string, history: unknown, context: Row): Promise<{ reply: string; generated: boolean }> {
+export async function operationalReply(baseReply: string, current: string, history: unknown, context: Row, generate: typeof aiJson = aiJson): Promise<{ reply: string; generated: boolean; review_control?: ReturnType<typeof responseReviewControl> }> {
   const fallback = { reply: baseReply, generated: false }
   if (!baseReply.trim() || baseReply.length > MAX_REPLY_CHARACTERS) return fallback
   const recent = (Array.isArray(history) ? history : []).map(object).slice(-8).map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1500) }))
@@ -62,11 +63,12 @@ export async function operationalReply(baseReply: string, current: string, histo
     const input = { base_verificada: baseReply, mensaje_actual: current.slice(0, 4000), historial_reciente: recent, contexto_verificado: context,
       contrato_enlaces: replyLinkContract(baseReply, context, { current, verified: object(context.verified) }) }
     const visitRules = (isVisitCopy(context) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + FINANCING_COLLECTION_RULE
-    const result = await aiJson(WRITING_RULES + openingWritingRules(recent) + visitRules, input, replySchema, undefined, undefined, undefined, 'writing')
+    const result = await generate(WRITING_RULES + openingWritingRules(recent) + visitRules, input, replySchema, undefined, undefined, undefined, 'writing')
     const draft = text(result.mensaje).trim()
+    if (!responseReviewEnabled()) return { reply: unreviewedWriterReply(draft).reply, generated: draft !== baseReply, review_control: responseReviewControl() }
     // Meaning is checked by the reviewer below; retain transport and link integrity.
     if (!draft || draft.length > MAX_REPLY_CHARACTERS || replyLinkIssues(draft, input.contrato_enlaces).length) return fallback
-    const reviewed = await aiJson(REVIEW_RULES + visitRules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, redaccion_propuesta: draft }, reviewSchema, undefined, undefined, undefined, 'review')
+    const reviewed = await generate(REVIEW_RULES + visitRules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, redaccion_propuesta: draft }, reviewSchema, undefined, undefined, undefined, 'review')
     if (reviewed.fiel_a_los_hechos !== true || reviewed.conserva_estado_y_objetivo !== true || reviewed.no_pide_datos_conocidos !== true) return fallback
     return { reply: draft, generated: draft !== baseReply }
   } catch {

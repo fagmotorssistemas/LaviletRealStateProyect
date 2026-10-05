@@ -12,6 +12,7 @@ export const KNOWLEDGE_SECTIONS = [
   { id: 'conversacion', label: 'Conversación', description: 'Preguntas, entrega de materiales y forma de comunicarse.', entries: [
     { title: 'Guion y preguntas', description: 'Preguntas del bot, instrucciones por tema y recopilación de datos.', href: 'guion', owner: 'IA y controles del sistema' },
     { title: 'Personalidad', description: 'Tono, calidez y nivel de detalle de las respuestas.', href: 'estilo', owner: 'IA redactora' },
+    { title: 'Revisión final de mensajes', description: 'Activar o desactivar la revisión para todos los contactos del proyecto.', href: 'pruebas#response-review-title', owner: 'Administrador' },
   ] },
   { id: 'operacion', label: 'Operación', description: 'Condiciones de atención, equipo y seguimientos.', entries: [
     { title: 'Atención y seguimientos', description: 'Etapa comercial, visitas, horarios, asesores, SLA y seguimientos.', href: 'reglas', owner: 'Sistema' },

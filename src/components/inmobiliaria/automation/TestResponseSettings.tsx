@@ -1,12 +1,12 @@
 'use client'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { addTestContactAction, loadTestResponseAction, updateTestContactAction } from '@/app/inmobiliaria/automatizacion/pruebas/actions'
 import { NORMAL_RESPONSE_SECONDS, testContactControls, type TestContact, type TestResponseState, type TestResponseActionResult } from '@/lib/inmobiliaria/testResponseMode'
 import { AutomationSettingsHeader, automationSettingsStyles as shared } from './AutomationSettings'
 import styles from './ConversationToneSettings.module.css'
 import local from './TestContactsSettings.module.css'
 
-export function TestResponseSettings({initial,initialError=''}:{initial:TestResponseState;initialError?:string}) {
+export function TestResponseSettings({initial,initialError='',reviewControl}:{initial:TestResponseState;initialError?:string;reviewControl?:ReactNode}) {
   const [state,setState]=useState(initial),[busy,setBusy]=useState(false),[error,setError]=useState(initialError),[notice,setNotice]=useState('')
   const [needsRefresh,setNeedsRefresh]=useState(Boolean(initialError))
   const [phone,setPhone]=useState(''),[label,setLabel]=useState('')
@@ -38,7 +38,8 @@ export function TestResponseSettings({initial,initialError=''}:{initial:TestResp
     })
   }
   return <div className={shared.shell}>
-    <AutomationSettingsHeader active="pruebas" title="Contactos de prueba" description="Añada números para probar la conversación y controle la espera de cada contacto." project={<span>La Vilet</span>}/>
+    <AutomationSettingsHeader active="pruebas" title="Pruebas y revisión" description="Controle la revisión general de mensajes y gestione sus contactos de prueba." project={<span>La Vilet</span>}/>
+    {reviewControl}
     <section className={styles.card} aria-busy={busy}>
       <h2>Números para pruebas</h2>
       <p>Las respuestas de WhatsApp son reales. Cada número conserva las reglas comerciales y los controles del bot. Puede añadirlo antes de que envíe su primer mensaje.</p>

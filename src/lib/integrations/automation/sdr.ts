@@ -1,3 +1,4 @@
+import { responseReviewEnabled, unreviewedWriterReply } from './response-review-policy'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import 'server-only'
 import { confirmedInterpretationMemory } from './interpretation-memory'
@@ -273,11 +274,11 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   }
   // The opt-in route already has a final writer and review with selected facts.
   // Do not pay for an earlier full-catalogue draft of the same response.
-  if (info.final_review_follows === true && object(info.catalog_search).embeddingsEnabled === true)
+  if (info.final_review_follows === true && (object(info.catalog_search).embeddingsEnabled === true || !responseReviewEnabled()))
     return { reply: '', audit: { source: 'commercial', rewritten: false, fallback: false,
       drafting_deferred_to_final_writer: true, sales_action: plan.action, sales_topics: plan.topics } }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'),
-    info.final_review_follows === true ? Promise.resolve('') : activePrompt('revisor_respuesta')])
+    info.final_review_follows === true || !responseReviewEnabled() ? Promise.resolve('') : activePrompt('revisor_respuesta')])
   const writerInfo = { ...info }
   delete writerInfo.final_review_follows
   const input = { ...experienceContext(writerInfo, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
@@ -300,6 +301,10 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const reasons: string[] = []
   const editorialCodes = new Set(['style', 'repeated_greeting', 'repeated_question', 'missing_next_step'])
   let reply = await draftReply(prompt + rules, input)
+  if (!responseReviewEnabled()) {
+    const unreviewed = unreviewedWriterReply(reply)
+    return { reply: unreviewed.reply, audit: { source: 'commercial', ...unreviewed.audit } }
+  }
   // One bounded rewrite; rejected drafts never reach Kommo.
   for (let attempt = 0; attempt < 2; attempt++) {
     await guard()

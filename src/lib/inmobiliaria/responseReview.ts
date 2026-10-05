@@ -1,5 +1,6 @@
 export type ResponseReviewSettings = { enabled: boolean; updatedAt: string | null }
 export type ResponseReviewState = ResponseReviewSettings & { version: string }
+export type ResponseReviewResult = { ok: true; state: ResponseReviewState } | { ok: false; error: string }
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}

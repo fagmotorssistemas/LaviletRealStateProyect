@@ -54,12 +54,13 @@ function harness({ authorized = true, projectAccess = true, concurrent = false, 
 
 test('global button state persists off/on for runtime without changing embeddings or other policies', async () => {
   const h = harness()
-  assert.equal((await h.loadResponseReviewAction()).enabled, true)
+  assert.equal((await h.loadResponseReviewAction()).state.enabled, true)
   const off = await h.saveResponseReviewAction(false, 'version')
-  assert.equal(off.enabled, false)
+  assert.equal(off.ok, true)
+  assert.equal(off.state.enabled, false)
   assert.equal((await h.loadResponseReviewPolicy()).enabled, false)
-  assert.equal((await h.loadResponseReviewAction()).enabled, false)
-  assert.equal((await h.saveResponseReviewAction(true, off.version)).enabled, true)
+  assert.equal((await h.loadResponseReviewAction()).state.enabled, false)
+  assert.equal((await h.saveResponseReviewAction(true, off.state.version)).state.enabled, true)
   assert.equal((await h.loadResponseReviewPolicy()).enabled, true)
   assert.deepEqual(h.project.policies_json.catalog_search, { embeddings_enabled: true })
   assert.deepEqual(h.project.policies_json.business, { keep: true })
@@ -75,15 +76,24 @@ test('unauthorized, inaccessible, stale and invalid changes cannot overwrite pro
   for (const [options, version, enabled] of [[{ authorized: false }, 'version', false],
     [{ projectAccess: false }, 'version', false], [{}, 'stale', false], [{}, 'version', 'false']]) {
     const h = harness(options)
-    await assert.rejects(h.saveResponseReviewAction(enabled, version))
+    assert.equal((await h.saveResponseReviewAction(enabled, version)).ok, false)
     assert.equal(h.calls.some(call => call.write), false)
   }
   const h = harness({ concurrent: true })
-  await assert.rejects(h.saveResponseReviewAction(false, 'version'), /configuración cambió/)
+  assert.match((await h.saveResponseReviewAction(false, 'version')).error, /configuración cambió/)
   assert.equal(h.project.policies_json.response_review, undefined)
 })
 
 test('runtime cannot interpret a failed configuration read as permission to bypass review', async () => {
   for (const options of [{ readError: true }, { projectAccess: false }])
     await assert.rejects(harness(options).loadResponseReviewPolicy(), /RESPONSE_REVIEW_SETTINGS_UNAVAILABLE/)
+})
+
+test('expected access/read failures return renderable errors instead of masked Server Component exceptions', async () => {
+  for (const options of [{ authorized: false }, { readError: true }, { projectAccess: false }]) {
+    const result = await harness(options).loadResponseReviewAction()
+    assert.equal(result.ok, false)
+    assert.match(result.error, /No se pudo cargar.*Actualizar estado/)
+    assert.doesNotMatch(result.error, /forbidden|SQL|digest/)
+  }
 })

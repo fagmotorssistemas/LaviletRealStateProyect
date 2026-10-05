@@ -5,6 +5,9 @@ import { currentTopicReply } from './current-topic'
 import { withHandoffNotice } from './handoff-copy'
 import { requiresContentReview, unverifiedReply } from './delivery-integrity'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
+import { loadResponseReviewPolicy } from './response-review-settings'
+import { responseReviewEnabled, withResponseReviewPolicy } from './response-review-policy'
+import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
 import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
@@ -169,7 +172,8 @@ export async function processConversation(rows: Row[], guard: Guard, inferenceDe
     if (count) { superseded = true; throw new Error('NEW_INPUT_PENDING') }
   }
   try {
-    const result = await withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)), inferenceGuard, inferenceDeadlineAt)
+    const reviewPolicy = await loadResponseReviewPolicy()
+    const result = await withResponseReviewPolicy(reviewPolicy, () => withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)), inferenceGuard, inferenceDeadlineAt))
     trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
       ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
       { action: result.action, reason: object(result).reason || result.action })
@@ -185,6 +189,7 @@ export async function processConversation(rows: Row[], guard: Guard, inferenceDe
   }
 }
 async function processConversationWithTone(rows: Row[], guard: Guard, trace: AutomationExecutionTrace, delivery: { replyWriteAttempted: boolean }) {
+  const reviewing = responseReviewEnabled()
   assertLive()
   const events = rows.map(row => inboundFromRow(row.payload)).sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.externalId.localeCompare(b.externalId))
   const last = events[events.length - 1]
@@ -1394,7 +1399,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.commercial_journey = reviewed.audit.commercial_journey
     // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
     const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
-    const catalogValidation = validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence })
+    const catalogValidation = reviewing ? validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence }) : { valid: true, reason: '', details: [] }
     if (object(reviewed.audit.fallback_validation).passed === false) {
       // The fallback already failed coverage or factual validation. Presentation
       // obligations cannot restore that rejected base at this boundary.
@@ -1402,6 +1407,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       reviewed.audit = { ...reviewed.audit, retained_verified_reply: false, final_preview: traceText(reply, MAX_REPLY_CHARACTERS) }
     } else if (catalogValidation.valid) {
       reply = reviewed.reply
+      if (!reviewing) reviewedText = reply
       audit.semantic_review = semanticEvidence
       if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
         reviewedText = reply
@@ -1447,7 +1453,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const requests = Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests.map(object) : []
     const resolvedFromContext = catalogValidation.valid && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status)))
-    const needsCommercialHandoff = !!pendingCommercialHandoff && !resolvedFromContext
+    const needsCommercialHandoff = reviewing && !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
       business_policy_sources: reviewed.audit.business_policy_sources,
       business_policy_context: commercialInfo.business_policy_context || { status: 'not_loaded_outside_scope' },
@@ -1465,6 +1471,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       catalog_retrieval: audit.catalog_retrieval,
       text_transformations: reviewed.audit.text_transformations,
       status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
+      review_control: reviewed.audit.review_control, independent_review: reviewed.audit.independent_review,
       price_evidence: reviewed.audit.price_evidence,
       final_validation: reviewed.audit.final_validation,
       fallback_validation: reviewed.audit.fallback_validation,
@@ -1487,7 +1494,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         setting: { kind: 'code', label: 'Revisión de cobertura y datos faltantes', source: 'turn-completeness.ts · coverage-evidence.ts' } }),
     })
     audit = { ...audit, turn_completeness: reviewed.audit, ...(pendingCommercialHandoff ? {
-      requires_advisor: needsCommercialHandoff, handoff_review: resolvedFromContext ? 'resolved_from_context' : 'needs_advisor',
+      requires_advisor: needsCommercialHandoff, handoff_review: !reviewing ? 'review_disabled' : resolvedFromContext ? 'resolved_from_context' : 'needs_advisor',
       ...(resolvedFromContext ? { handoff_reason: null } : {}),
     } : {}) }
     requireReviewedResponse(reviewed.audit)
@@ -1506,12 +1513,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   // A writer may improve the answer, but cannot hide a handoff already performed.
   const actionExplained = object(audit.turn_completeness).operational_action_verified === true
-  if (handoffNotice && !reply.includes(handoffNotice) && !actionExplained) {
+  if (reviewing && handoffNotice && !reply.includes(handoffNotice) && !actionExplained) {
     const beforeHandoff = reply
     reply = withHandoffNotice(reply, handoffNotice)
     audit.handoff_text_transformations = [{ stage: 'Aviso de derivación realizada: se conserva la pregunta', before: beforeHandoff, after: reply }]
   }
-  if (!recoveringTurn() && !['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
+  if (reviewing && !recoveringTurn() && !['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
     reply = withVisitLocation(reply, await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), true)
   }
   trace.add('route_selected', 'Seleccionar ruta de respuesta', 'decision', 'conversation.ts · turn-routing.ts', 'succeeded', {
@@ -1525,13 +1532,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     source: text(audit.source) || 'commercial',
   })
   const beforeFinalFormatting = reply
-  const direct = reviewedText ? reply : currentTopicReply(reply,current)
+  const direct = !reviewing || reviewedText ? reply : currentTopicReply(reply,current)
   if(direct !== reply) audit.direct_reply_guard = true
   const openingDecision = object(audit.turn_completeness).opening_decision
   const withOpening = (body: string) => reviewedText ? body : openingDecision ? applyDecidedOpening(body, text(object(openingDecision).prefix)) : variedReplyOpening(body, context.historial)
-  reply = reviewedText ? direct : naturalConversationReply(withOpening(direct), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
+  reply = !reviewing || reviewedText ? direct : naturalConversationReply(withOpening(direct), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
   // The last prose transformation is checked too, before any external send.
-  const finalCatalogValidation = validateCatalogReply(reply, audit)
+  const finalCatalogValidation = reviewing ? validateCatalogReply(reply, audit) : { valid: true, reason: '' }
   if (!finalCatalogValidation.valid && catalogBaseReply) {
     const approvedAllowed = !!reviewedText && !recoveringTurn() && validateCatalogReply(reviewedText, audit).valid
     if (!approvedAllowed && !recoveringTurn()) audit.turn_completeness = { ...object(audit.turn_completeness),
@@ -1555,7 +1562,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       approved_text: reviewedText, candidate_text: beforeReview, final_text: reply, review: checked.audit }
     trace.finish(step, 'succeeded', audit.delivery_integrity as Row)
   } else if (reviewedText) {
-    audit.delivery_integrity = { changed_content: false, status: 'approved_content_preserved', approved_text: reviewedText, final_text: reply,
+    audit.delivery_integrity = { changed_content: false, status: reviewing ? 'approved_content_preserved' : 'unreviewed_writer_preserved', ...(reviewing ? { approved_text: reviewedText } : { writer_text: reviewedText }), final_text: reply,
       confirmed_notice_added: Boolean(handoffNotice && reply.includes(handoffNotice)) }
   }
   requireReviewedResponse(object(audit.turn_completeness))
@@ -1563,7 +1570,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const profilePending = canTrackFollowUp ? leadProfilePendingQuestion(reply, audit) : {}
   const financePending = canTrackFollowUp ? financingPendingQuestion(reply, audit) : {}
   const progressivePending = canTrackFollowUp ? progressivePendingQuestion(reply, audit) : {}
-  const journeyPending = journeyPendingQuestion(reply, object(audit.commercial_journey), canTrackFollowUp && object(audit.turn_completeness).status === 'checked')
+  const journeyPending = journeyPendingQuestion(reply, object(audit.commercial_journey), canTrackFollowUp && responseSupportsContinuity(audit.turn_completeness))
   const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
   // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
   const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
@@ -1657,7 +1664,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     planned: summary._lead_introduction, profile: summary._lead_profile, reply, audit,
     accepted: true, followUpUsable: canTrackFollowUp, recovery: pendingRecovery })
   summary._commercial_journey = rememberCommercialJourney(object(summary._commercial_journey), object(audit.commercial_journey), object(audit.pending_question),
-    canTrackFollowUp && !pendingRecovery && object(audit.turn_completeness).status === 'checked')
+    canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness))
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
     _follow_up_review: canTrackFollowUp ? {} : { usable: false, reply },
     _pending_requests: pendingRecovery ? pendingRequests : [],

@@ -6,6 +6,8 @@ import { rejectedWriteStatus } from './delivery-state'
 import { prepareVisit, routeSignature, validateVisit } from './visit-rules'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
 import { operationalReply } from './operational-copy'
+import { responseReviewSettings } from '@/lib/inmobiliaria/responseReview'
+import { withResponseReviewPolicy } from './response-review-policy'
 import { buildVisitReminderFields, googleMapsSearchUrl, verifiedGoogleMapsUrl, VISIT_REMINDER_FIELD_IDS } from './visit-reminder'
 
 export type Guard = () => Promise<void>
@@ -17,7 +19,7 @@ export async function visitContext(jobId: string) {
     db().from('projects').select('address,policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id).maybeSingle(),
     db().from('project_automation_config').select('mode,visit_location_url').match(scope).maybeSingle(),
   ])
-  if (project.error || config.error) throw new Error('VISIT_LOCATION_CONTEXT_FAILED')
+  if (project.error || !project.data || config.error) throw new Error('VISIT_LOCATION_CONTEXT_FAILED')
   let address = text(project.data?.address)
   if (appointment.location_type === 'oficina' && appointment.office_id) {
     const office = await db().from('offices').select('address').eq('id', appointment.office_id).eq('tenant_id', scope.tenant_id).maybeSingle()
@@ -33,6 +35,7 @@ export async function visitContext(jobId: string) {
     ? verifiedGoogleMapsUrl(payloadLocation) || googleMapsSearchUrl(address)
     : verifiedGoogleMapsUrl(config.data?.visit_location_url) || verifiedGoogleMapsUrl(result.location) || googleMapsSearchUrl(address)
   return { ...result, address, location, appointment_units: Array.isArray(unitRows.data) ? unitRows.data : [],
+    response_review: responseReviewSettings(project.data.policies_json),
     mode: config.data?.mode, estado_proyecto: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).readiness,
     launch_destination: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).launchDestination }
 }
@@ -82,12 +85,13 @@ export async function sendVisit(jobId: string, guard: Guard) {
   await getKommoLead(Number(lead.kommo_id))
   const route = object(context.route), payload = object(object(context.job).payload)
   if (object(context.job).kind !== 'visit_2h' && (!Array.isArray(payload.options) || !payload.options.length)) {
-    const draft = await operationalReply(text(payload.detail), text(object(context.request).source_message_text), [], {
+    const draft = await withResponseReviewPolicy(responseReviewSettings({ response_review: context.response_review }), () => operationalReply(text(payload.detail), text(object(context.request).source_message_text), [], {
       action: object(context.job).kind, status: object(context.request).status,
       protected_terms: [context.advisor_name, context.address].filter(Boolean),
-    })
+    }))
     payload.detail = draft.reply
     payload.ai_operational_copy = draft.generated
+    if (draft.review_control) payload.review_control = draft.review_control
   }
   const send = { ...payload, detail: payload.detail, link: '', rendered: text(payload.detail),
     _kommo_id: lead.kommo_id, _route: routeSignature(route), _material: null, _app: 'lavilet' }

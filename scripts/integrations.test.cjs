@@ -1343,6 +1343,10 @@ function conversationHarness(options = {}) {
     return q
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
+    './response-review-settings': { loadResponseReviewPolicy: async () => {
+      if (options.reviewReadFails) throw Error('RESPONSE_REVIEW_SETTINGS_UNAVAILABLE')
+      return { enabled: options.reviewEnabled !== false, updatedAt: null }
+    } },
     ...(options.captureTrace ? { './execution-trace': {
       ...require('../src/lib/integrations/automation/execution-trace.ts'),
       traceForEvents: () => new (require('../src/lib/integrations/automation/execution-trace.ts').AutomationExecutionTrace)(
@@ -1537,6 +1541,41 @@ test('failed or inconsistent reservation receipts cannot produce a confirmed act
     await assert.rejects(h.process([h.rows[0]], async () => {}), error => error.message === 'PRE_REPLY_SEND_FAILED' && /RESERVATION/.test(error.original?.message))
     assert.equal(h.calls.some(call => call.name === 'launch' || call.name === 'register_outbound_message'), false)
   }
+})
+
+test('global review disabled preserves the first writer draft through the actual delivery boundary', async t => {
+  live(t)
+  const draft = 'El departamento 202 cuesta $1. Su crédito está aprobado. https://example.com/prueba'
+  const tasks = []
+  const h = conversationHarness({ reviewEnabled: false, captureTrace: true,
+    catalog: [{ id: 'd202', unit_number: '202', category: 'departamento', bedrooms: 3,
+      is_published: true, status: 'disponible', published_commercial_price: 250000 }],
+    turnComplete: input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input, async (...args) => {
+      tasks.push(args.at(-1))
+      assert.equal(args.at(-1), 'writing')
+      return { reply: draft, requests: null, question: null }
+    }) })
+  h.rows[0].payload.text = 'Quiero información de departamentos'
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_content, draft)
+  assert.equal(h.calls.find(call => call.name === 'patch' && call.args[1] === 457014).args[2], draft)
+  assert.equal(sent.p_tool_calls.turn_completeness.status, 'review_disabled')
+  assert.equal(sent.p_tool_calls.delivery_integrity.status, 'unreviewed_writer_preserved')
+  const steps = h.calls.filter(call => call.name === 'execution_trace').flatMap(call => call.args)
+  const coverage = steps.find(step => step.step_key === 'response_coverage').output_summary
+  assert.equal(coverage.status, 'review_disabled')
+  assert.equal(coverage.review_control.enabled, false)
+  assert.equal(coverage.independent_review, false)
+  assert.deepEqual(tasks, ['writing'])
+  assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
+})
+
+test('an unavailable global review setting never reaches generation or delivery', async t => {
+  live(t)
+  const h = conversationHarness({ reviewReadFails: true })
+  await assert.rejects(h.process([h.rows[0]], async () => {}))
+  assert.equal(h.calls.some(call => ['ai', 'completeTurnReply', 'patch', 'launch', 'register_outbound_message'].includes(call.name)), false)
 })
 
 test('an independently approved reservation draft reaches the transport without template wording or links appended', async t => {

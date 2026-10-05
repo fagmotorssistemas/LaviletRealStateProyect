@@ -1,3 +1,4 @@
+import { responseReviewEnabled, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
@@ -587,6 +588,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         contraste_faltantes: repairAttempts.at(-1)?.assessments,
       } } : {}) }), activeWriterSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
+    if (!responseReviewEnabled()) {
+      const unreviewed = unreviewedWriterReply(proposedReply)
+      return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [] }
+    }
     if (attempt > 0 && object(repairAttempts.at(-1)?.rejected_review).review_contract === FOCUSED_REVIEW_VERSION
       && proposedReply.trim() === previousDraft.trim()) return fallback('rejected_review', requests, ['writer_repair_unchanged'])
     if (metadataDraft !== null && proposedReply !== metadataDraft) return fallback('rejected_guard', [], ['metadata_repair_changed_reply'])
@@ -1022,7 +1027,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   } catch (error) {
     // A provider outage has no review verdict. Let the worker's guarded advisor
     // recovery handle it after inference retries, including metadata repair calls.
-    if (error instanceof OpenAIRequestError || error instanceof AIRequestGuardError) throw error
+    if (error instanceof OpenAIRequestError || error instanceof AIRequestGuardError || error instanceof InvalidWriterTransportError) throw error
     const lastRepair = repairAttempts.at(-1)
     if (lastRepair) {
       lastRepair.failure = 'repair_call_failed'

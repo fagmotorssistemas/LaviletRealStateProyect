@@ -1,3 +1,4 @@
+import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
 import { object, text, type Row } from './data'
 import { isGreetingOnly, normalized } from './sdr-rules'
 import { conversationalFirstName, isCourtesyOnly } from './conversation-style'
@@ -107,7 +108,7 @@ export function leadProfilePendingQuestion(reply: string, auditRaw: unknown): Ro
   const audit = object(auditRaw), plan = object(audit.profile_introduction)
   const purpose = text(plan.question_purpose)
   const review = object(audit.turn_completeness)
-  if (Object.keys(review).length && review.status !== 'checked') return {}
+  if (Object.keys(review).length && !responseSupportsContinuity(review)) return {}
   if (!purpose || purpose === 'none' || leadIntroductionIssues(reply, auditRaw).some(issue => /question|confirmation/.test(issue))) return {}
   const question = replyQuestions(reply).join(' ')
   if (!question) return {}
@@ -123,7 +124,7 @@ export function rememberLeadIntroduction(input: {
   accepted: boolean; followUpUsable: boolean; recovery?: boolean;
 }): Row {
   const previous = object(input.previous), audit = object(input.audit), plan = object(audit.profile_introduction)
-  if (!input.accepted || input.recovery || !input.followUpUsable || object(audit.turn_completeness).status !== 'checked') return previous
+  if (!input.accepted || input.recovery || !input.followUpUsable || !responseSupportsContinuity(audit.turn_completeness)) return previous
   const profile = confirmedLeadProfile(input.profile), planned = object(input.planned)
   if (!Object.keys(plan).length) return Object.keys(previous).length
     ? { ...previous, collection_status: collectionStatus(profile, previous), missing_fields: missingFields(profile) } : previous
