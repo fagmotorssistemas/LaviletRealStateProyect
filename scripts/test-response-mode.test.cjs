@@ -77,33 +77,88 @@ test('any enrolled fast phone can be claimed with scope, status and deadline gua
  assert.ok(write.filters.some(f=>f[0]==='eq'&&f[1]==='status'&&f[2]==='pending'))
  assert.ok(write.filters.some(f=>f[0]==='lte'&&f[1]==='available_at'))
 })
-test('server actions enforce admin and project access before any mutation',async()=>{
- let denied=true,projectAccess=true;const calls=[]
- const mod=load('src/app/inmobiliaria/automatizacion/pruebas/actions.ts',{
-  '@/lib/auth/session':{assertAdmin:async()=>{if(denied)throw Error('forbidden')},getSessionUser:async()=>({user:{id:'admin'},supabase:{from(){const q={select:()=>q,eq:()=>q,single:async()=>({data:projectAccess?{id:'project'}:null,error:null})};return q}}})},
-  '@/lib/integrations/automation/data':{scope:{tenant_id:'tenant',project_id:'project'},db:()=>({rpc:async(...args)=>{calls.push(args);return {error:null}}})},
-  '@/lib/integrations/automation/kommo':{setKommoField:async()=>{}},
-  '@/lib/integrations/automation/test-response-mode':{testContacts:async()=>[]},
+const contact={id:'00000000-0000-4000-8000-000000000001',version:1,leadId:'lead',kommoId:123,botEnabled:true,matches:1,blocked:false}
+function actionHarness(options={}){
+ const calls=[],reads=[],kommo=[]
+ const actions=load('src/app/inmobiliaria/automatizacion/pruebas/actions.ts',{
+  'node:crypto':require('node:crypto'),
+  '@/lib/auth/session':{assertAdmin:async()=>{if(options.denied)throw Error('Solo el administrador puede hacer esto')},getSessionUser:async()=>({user:options.loggedOut?null:{id:'admin'},supabase:{from(){const q={select:()=>q,eq:()=>q,single:async()=>({data:options.projectAccess===false?null:{id:'project'},error:null})};return q}}})},
+  '@/lib/integrations/automation/data':{scope:{tenant_id:'tenant',project_id:'project'},db:()=>({rpc:(...args)=>{calls.push(args);return {abortSignal:async()=>{if(options.rpcThrow)throw options.rpcThrow;return {error:options.rpcError||null}}}}})},
+  '@/lib/integrations/automation/kommo':{setKommoField:async(...args)=>{kommo.push(args);if(options.kommoError)throw options.kommoError}},
+  '@/lib/integrations/automation/test-response-mode':{testContacts:async()=>{reads.push(true);if(options.readError || (options.refreshError&&calls.length))throw Error('TEST_CONTACTS_READ_FAILED');return options.contacts||[contact]}},
   '@/lib/inmobiliaria/testResponseMode':settings,
  })
- await assert.rejects(()=>mod.addTestContactAction('0991234567','test'),/forbidden/)
- denied=false;projectAccess=false
- await assert.rejects(()=>mod.addTestContactAction('0991234567','test'),/Sin acceso/)
- assert.equal(calls.length,0);projectAccess=true
- await assert.rejects(()=>mod.addTestContactAction('bad','test'),/teléfono/)
- await mod.addTestContactAction('0991234567','test');assert.equal(calls[0][1].p_phone,'593991234567')
- await assert.rejects(()=>mod.updateTestContactAction('00000000-0000-4000-8000-000000000001',1,'reset'),/lista cambió/)
- assert.equal(calls.length,1)
+ return {...actions,calls,reads,kommo,update:(action='reset',version=1)=>actions.updateTestContactAction(contact.id,version,action)}
+}
+
+test('all server actions enforce admin and project access before reading contacts or mutating',async()=>{
+ for(const options of [{denied:true},{projectAccess:false},{loggedOut:true}]){
+  const h=actionHarness(options)
+  for(const result of [await h.loadTestResponseAction(),await h.addTestContactAction('0991234567','test'),await h.update()]){
+   assert.equal(result.ok,false);assert.equal(result.code,'TEST_ACCESS_DENIED')
+  }
+  assert.deepEqual(h.calls,[]);assert.deepEqual(h.reads,[]);assert.deepEqual(h.kommo,[])
+ }
+ const h=actionHarness()
+ assert.equal((await h.addTestContactAction('bad','test')).code,'TEST_CONTACT_INVALID')
+ assert.equal((await h.addTestContactAction('0991234567','test')).ok,true)
+ assert.equal(h.calls[0][1].p_phone,'593991234567')
+ const stale=await h.update('reset',2)
+ assert.equal(stale.code,'TEST_CONTACT_CHANGED');assert.equal(stale.refreshRequired,true)
+ assert.equal(h.calls.length,1)
 })
+
 test('reset and resume explain a missing Kommo link before attempting a mutation',async()=>{
- const id='00000000-0000-4000-8000-000000000001',calls=[]
- const mod=load('src/app/inmobiliaria/automatizacion/pruebas/actions.ts',{
-  '@/lib/auth/session':{assertAdmin:async()=>{},getSessionUser:async()=>({user:{id:'admin'},supabase:{from(){const q={select:()=>q,eq:()=>q,single:async()=>({data:{id:'project'},error:null})};return q}}})},
-  '@/lib/integrations/automation/data':{scope:{tenant_id:'tenant',project_id:'project'},db:()=>({rpc:()=>{calls.push('rpc');throw Error('Unexpected RPC')}})},
-  '@/lib/integrations/automation/kommo':{setKommoField:async()=>{calls.push('kommo')}},
-  '@/lib/integrations/automation/test-response-mode':{testContacts:async()=>[{id,version:1,leadId:'web-lead',kommoId:null,botEnabled:false,matches:1,blocked:false}]},
-  '@/lib/inmobiliaria/testResponseMode':settings,
- })
- for(const action of ['reset','resume'])await assert.rejects(()=>mod.updateTestContactAction(id,1,action),/todavía no está vinculado con Kommo/)
- assert.deepEqual(calls,[])
+ const h=actionHarness({contacts:[{...contact,kommoId:null,botEnabled:false}]})
+ for(const action of ['reset','resume']){
+  const result=await h.update(action)
+  assert.equal(result.ok,false);assert.match(result.error,/todavía no está vinculado con Kommo/)
+ }
+ assert.deepEqual(h.calls,[]);assert.deepEqual(h.kommo,[])
+})
+
+test('expected reset rejections are serializable results instead of masked server exceptions',async()=>{
+ for(const code of ['TEST_RESET_BUSY','TEST_RESET_PROTECTED','TEST_CONTACT_OPT_OUT','TEST_CONTACT_CHANGED','TEST_CONTACT_AMBIGUOUS','TEST_CONTACT_NOT_LINKED']){
+  const h=actionHarness({rpcError:{message:code,code:'P0001'}})
+  const result=JSON.parse(JSON.stringify(await h.update()))
+  assert.equal(result.ok,false);assert.equal(result.code,code)
+  assert.ok(result.error.length>20);assert.doesNotMatch(result.error,/Server Components|P0001/)
+  assert.equal(h.calls.length,1);assert.deepEqual(h.kommo,[])
+ }
+ const duplicate=actionHarness({rpcError:{message:'TEST_CONTACT_DUPLICATE'}})
+ assert.equal((await duplicate.addTestContactAction('0991234567','')).code,'TEST_CONTACT_DUPLICATE')
+ assert.equal((await actionHarness({readError:true}).loadTestResponseAction()).code,'TEST_CONTACTS_READ_FAILED')
+})
+
+test('unknown database errors and connection loss require refresh without leaking private details',async t=>{
+ const log=t.mock.method(console,'error',()=>{})
+ for(const options of [{rpcError:{message:'private lead and document',details:'sensitive',code:'23503'}},{rpcThrow:Error('private network request')}]){
+  const h=actionHarness(options),result=await h.update()
+  assert.equal(result.ok,false);assert.equal(result.refreshRequired,true)
+  assert.match(result.error,/No se pudo confirmar el resultado/)
+  assert.doesNotMatch(JSON.stringify(result),/private|sensitive|23503/)
+  assert.deepEqual(h.kommo,[])
+ }
+ assert.equal(log.mock.calls.length,2)
+ assert.equal(log.mock.calls[0].arguments[1].code,'23503')
+ assert.doesNotMatch(JSON.stringify(log.mock.calls.map(c=>c.arguments)),/private|sensitive/)
+})
+
+test('a committed reset stays successful when the subsequent list refresh fails',async t=>{
+ t.mock.method(console,'error',()=>{})
+ const h=actionHarness({refreshError:true}),result=await h.update()
+ assert.equal(result.ok,true);assert.equal(result.state,null)
+ assert.match(result.notice,/Prueba reiniciada/);assert.match(result.warning,/Actualizar lista/)
+ assert.equal(h.calls.length,1);assert.equal(h.calls[0][0],'lv_restart_enrolled_test_contact')
+ assert.equal(h.calls[0][1].p_actor,'admin')
+ assert.deepEqual(h.kommo,[[123,451530,'false']])
+})
+
+test('Kommo synchronization failure preserves reset success and supports resume, not another reset',async t=>{
+ t.mock.method(console,'error',()=>{})
+ const h=actionHarness({kommoError:Error('private Kommo response')}),result=await h.update()
+ assert.equal(result.ok,true);assert.ok(result.state)
+ assert.equal(result.notice,'Prueba reiniciada.')
+ assert.match(result.warning,/Reanudar bot/);assert.doesNotMatch(result.warning,/private/)
+ assert.equal(h.calls.length,1)
 })

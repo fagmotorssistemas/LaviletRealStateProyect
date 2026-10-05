@@ -19,6 +19,9 @@ export type TestContact = {
   blocked: boolean; lastResetAt: string | null
 }
 export type TestResponseState = { contacts: TestContact[] }
+export type TestResponseActionResult =
+  | { ok: true; state: TestResponseState | null; notice: string; warning?: string }
+  | { ok: false; code: string; error: string; refreshRequired?: boolean }
 
 /** A CRM phone match does not imply that WhatsApp/Kommo has linked the lead. */
 export function testContactControls(contact: TestContact) {
