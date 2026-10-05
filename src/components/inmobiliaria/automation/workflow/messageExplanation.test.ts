@@ -197,7 +197,7 @@ test('editorial observations are informational while required links remain disti
   assert.equal(links.facts[1].value, 'Ninguno registrado.')
   assert.equal(reviewDecision(item.output).tone, 'accepted')
   assert.deepEqual(reviewDecision(item.output).causes, [])
-  for (const issue of ['unauthorized_link', 'required_link_omitted', 'reservation_not_confirmed', 'advisor_assignment_not_verified']) {
+  for (const issue of ['unauthorized_link', 'required_link_omitted', 'required_continuation_missing', 'reservation_not_confirmed', 'advisor_assignment_not_verified']) {
     const decision = reviewDecision({ status: 'rejected_guard', issues: [issue] })
     assert.equal(decision.tone, 'rejected')
     assert.doesNotMatch(decision.causes.join(' '), /_/) // Plain explanation, not just an internal rule code.

@@ -3,6 +3,7 @@ import { selectedFinancingUnit } from './financing-stage'
 import { leadBudget, budgetQuestion, reviewedFinancingCovers } from './budget-state'
 import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
+import { replyQuestions } from './reply-question'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -150,7 +151,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
 
 export function journeyPendingQuestion(reply: string, plan: Row, approved: boolean): Row {
   if (!approved || !plan.question_id) return {}
-  const question = reply.match(/¿[^¿?]+\?\s*$/)?.[0]
+  const question = replyQuestions(reply).at(-1)
   if (!question) return {}
   return { id: plan.question_id, act: plan.question_id === 'reservation_invitation' ? 'reservation' : plan.question_id === 'financing_invitation' ? 'financing'
     : text(plan.question_act) || (plan.question_id === 'property_category' ? 'choose_category' : 'other'),

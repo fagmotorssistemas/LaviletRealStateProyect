@@ -1,4 +1,5 @@
 import { responseReviewEnabled, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
+import { turnContinuationIssues } from './turn-continuation'
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
@@ -199,7 +200,9 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
     ...(!reply.trim() ? ['empty_reply'] : []),
     ...(reply.length > MAX_REPLY_CHARACTERS ? ['transport_length'] : []),
     ...replyLinkIssues(reply, replyLinkContract(source, input.audit, input)),
+    ...turnContinuationIssues(reply, input.audit, input.verified),
   ]
+  issues.push(...turnContinuationIssues(reply, input.audit, input.verified))
   issues.push(...leadIntroductionIssues(reply, input.audit || {}))
   issues.push(...turnIntentIssues(reply, input.audit?.resolved_turn_intent || input.verified.contrato_turno, input.verified.respuesta_precio_verificada))
   if (!semantic) issues.push(...reservationOperationalIssues(reply, input.audit))
@@ -529,7 +532,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (isCategoryOverview(input.audit || {})) writingRules += '\nPuede orientar con categorías y diferencias verificadas sin enumerar fichas ni superficies por obligación. Elija una continuación útil a la consulta actual, sin reabrir preferencias resueltas.'
     if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use la cotización verificada del turno, no los precios antiguos del historial. Conserve moneda y condiciones de lanzamiento, incluyendo que pueden cambiar.'
       + (input.audit?.progressive_selection ? ' Mantenga el propósito de la pregunta indicado en progressive_selection; puede reformularla.'
-        : ' La invitación comercial es opcional: puede reformularla u omitirla sin afirmar que una cita ya está agendada.')
+        : ' Las invitaciones adicionales son opcionales; la pregunta del siguiente paso vigente sigue siendo obligatoria si continuacion_del_turno.required=true. No afirme que una cita ya está agendada.')
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
     if (input.verified.prompt_context_selection) writingRules += '\n' + (object(input.verified.prompt_context_selection).version === 'task-context-v1' ? TASK_CONTEXT_RULES : SEMANTIC_OPENING_RULE)
     if (budgetAssessment) writingRules += '\nPRESUPUESTO ACTUAL: contexto_verificado.presupuesto_del_turno contiene el importe interpretado y su comparación con los precios autorizados de la búsqueda. Responda ese punto junto con las características solicitadas. Una enumeración de plantas o una pregunta de preferencia no responde si el presupuesto alcanza. Si falta información, explique la limitación concreta en reply; marcar missing_fact en requests no la comunica al cliente. No invente precios, créditos, descuentos ni una derivación realizada.'
@@ -543,6 +546,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const lastRepair = repairAttempts.at(-1)
     const targetedRepairs = metadataDraft === null && attempt
       ? concreteReviewRepairs(lastRepair?.issues, object(lastRepair?.rejected_review), validationCatalog, sharedEvidence.project_facts) : []
+    if (Array.isArray(lastRepair?.issues) && lastRepair.issues.includes('required_continuation_missing')) targetedRepairs.push({
+      instruction: 'Conserve la respuesta a la consulta y sus hechos. Añada únicamente la pregunta del siguiente paso vigente, con redacción natural. No lo trate como información faltante ni derive al equipo por esta omisión.',
+      continuation: writerContract.continuacion_del_turno,
+    })
     const writerContext: Row = { ...context }
     // Previous sentence IDs belong to the previous draft, not this rewrite.
     delete writerContext.oraciones_borrador
@@ -590,7 +597,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     proposedReply = text(candidate.reply)
     if (!responseReviewEnabled()) {
       const unreviewed = unreviewedWriterReply(proposedReply)
-      return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [] }
+      return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [],
+        audit: { ...unreviewed.audit, commercial_journey: input.verified.siguiente_paso_comercial,
+          writer_contract: writerContract } }
     }
     if (attempt > 0 && object(repairAttempts.at(-1)?.rejected_review).review_contract === FOCUSED_REVIEW_VERSION
       && proposedReply.trim() === previousDraft.trim()) return fallback('rejected_review', requests, ['writer_repair_unchanged'])
@@ -642,7 +651,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (issues.length) {
       const inventedUrl = issues.includes('unauthorized_link')
       const repairable = !inventedUrl && !issues.some(issue => ['unsupported_rental_credit_claim', 'credit_guarantee', 'human_identity'].includes(issue))
-      if (repairable && attempt === 0) { repairAttempts.push({ target: 'commercial_draft', status: 'rejected_guard', issues, proposed_preview: traceText(proposedReply, MAX_REPLY_CHARACTERS) }); continue }
+      if (repairable && attempt === 0) {
+        repairAttempts.push({ target: 'commercial_draft', status: 'rejected_guard', issues, proposed_preview: traceText(proposedReply, MAX_REPLY_CHARACTERS) }); continue
+      }
       return fallback('rejected_guard', requests, issues)
     }
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact').map(row => row.fragment)])]

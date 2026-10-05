@@ -50,6 +50,7 @@ const checks: Record<string, string> = { all_requests_considered: 'No se confirm
 const profileChecks: Record<string, string> = {
   unauthorized_link: 'El borrador incluye un enlace que no está autorizado por la evidencia del turno.',
   required_link_omitted: 'El borrador omitió un enlace que debía entregar por la solicitud actual o una entrega comprometida.',
+  required_continuation_missing: 'El borrador omitió la pregunta del siguiente paso comercial vigente. Debe completarla conservando la respuesta a la consulta.',
   reservation_not_confirmed: 'El borrador afirmó una reserva de inventario sin confirmación; registrar la solicitud no separa el inmueble.',
   advisor_assignment_not_verified: 'El borrador afirmó una asignación de asesor que no está comprobada.',
   reservation_handoff_not_verified: 'El borrador afirmó un trámite o derivación de reserva que no está comprobado.',

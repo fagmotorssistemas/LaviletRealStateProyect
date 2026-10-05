@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { needsPropertyPurpose } from './conversation-next-step'
+import { turnContinuation } from './turn-continuation'
 import { budgetContinuationInstruction } from './turn-budget'
 import { mergePendingRepairs } from './focused-pending-repair'
 export { pendingReferencesForRepair, pendingResolutionSchema } from './focused-pending-repair'
@@ -40,7 +41,8 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   const policy = object(verified.politica_comercial)
   const journey = object(verified.siguiente_paso_comercial)
   if (Object.keys(journey).length) obligations.push({ id: 'commercial_next_step',
-    ...journey, instruction: text(journey.instruction) + ' Atienda primero cualquier consulta concreta; si hay pregunta de presentación pendiente, tiene prioridad y no añada otra. La pregunta sugerida admite redacción equivalente, pero no un cambio de finalidad. No exija repetir detalles del sistema.' })
+    ...journey, continuation_required: turnContinuation(audit, verified).required,
+    instruction: text(journey.instruction) + ' Atienda primero cualquier consulta concreta; si hay pregunta de presentación pendiente, tiene prioridad y no añada otra. Con continuation_required=true, la pregunta debe aparecer en el mensaje real y cumplir esta decisión pendiente: responder la duda o entregar el brochure no basta. La formulación admite redacción equivalente, pero no omisión ni cambio de finalidad. No exija repetir detalles del sistema.' })
   if (!journey.action && needsPropertyPurpose(verified, audit, stage)) obligations.push({ id: 'property_purpose',
     instruction: 'Después de responder el precio o la oferta general, presente brevemente los tipos autorizados disponibles (suites, departamentos, penthouses y locales, según las fuentes) y pregunte si busca vivienda o un espacio para comercio. El propósito aún no se conoce; no termine solamente con el brochure. No vuelva a pedir un propósito ya confirmado.' })
   if (audit.source === 'clarify_previous_choice') obligations.push({ id: 'clarify_previous_choice',

@@ -75,6 +75,7 @@ const values: Record<string, string> = {
   repeated_courtesy: 'La apertura de cortesía se parece a una reciente',
   unauthorized_link: 'La respuesta contiene un enlace sin autorización en la evidencia de este turno',
   required_link_omitted: 'La respuesta omitió un enlace que debía entregar según la solicitud actual',
+  required_continuation_missing: 'Respondió la consulta, pero omitió la pregunta necesaria para continuar con el siguiente paso',
   reservation_not_confirmed: 'La respuesta afirma una reserva de inventario que no está confirmada',
   advisor_assignment_not_verified: 'La respuesta afirma una asignación de asesor que no está comprobada',
   reservation_handoff_not_verified: 'La respuesta afirma un trámite de reserva o derivación que no está comprobado',

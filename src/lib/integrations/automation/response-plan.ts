@@ -4,6 +4,7 @@ import { isCategoryOverview } from './catalog-dialogue'
 import { BROCHURE_URL } from './project-material'
 import { confirmedLeadProfile } from './lead-profile'
 import { declinesUnitTour, unitTourPreviouslySent } from './unit-model'
+import { turnContinuation, TURN_CONTINUATION_RULES } from './turn-continuation'
 
 /** Application delivery limit, independent of the preferred conversational length. */
 export const MAX_REPLY_CHARACTERS = 3000
@@ -111,7 +112,7 @@ const lockedSources = new Set([
   'financing_selection_required', 'team_attendance', 'reservation_handoff',
 ])
 
-export const COMMERCIAL_CONTINUATION_RULES = `El objetivo comercial es atender la necesidad actual y ayudar a encontrar una opción viable y un próximo paso pertinente. La selección del cliente se conserva mientras no solicite cambiarla. Ofrecer comparar alternativas NO cambia esa selección ni autoriza a afirmar que el cliente eligió otra unidad. Ante una limitación económica puede ofrecer alternativas verificadas o explorar financiamiento y preguntar qué camino prefiere; no está obligado a pedir presupuesto ni a volver a elegir planta o unidad. No repita datos ya solicitados y respondidos. Afirmar que otra opción cuesta menos exige precios comparables verificados. Preserve condiciones de precios referenciales y no prometa aprobación ni condiciones financieras sin respaldo. Una consulta atendida o un cierre del cliente puede terminar sin pregunta; evalúe una continuación útil sin presionar ni preguntar por costumbre.`
+export const COMMERCIAL_CONTINUATION_RULES = `El objetivo comercial es atender la necesidad actual y ayudar a encontrar una opción viable y un próximo paso pertinente. La selección del cliente se conserva mientras no solicite cambiarla. Ofrecer comparar alternativas NO cambia esa selección ni autoriza a afirmar que el cliente eligió otra unidad. Ante una limitación económica, siga el siguiente paso autorizado para explorar alternativas o financiamiento, sin volver a elegir planta o unidad resueltas. No repita datos ya solicitados y respondidos. Afirmar que otra opción cuesta menos exige precios comparables verificados. Preserve condiciones de precios referenciales y no prometa aprobación ni condiciones financieras sin respaldo. Cuando el plan exige una decisión pendiente, responder la consulta debe ir seguido de esa pregunta. Solo puede terminar sin pregunta cuando ninguna obligación del turno la exige, por ejemplo un cierre, una negativa o una espera del equipo.`
 
 /** Locks decisions and facts, not their conversational wording. */
 export function responsePlan(baseReply: string, audit: Row, context: { current?: string; verified?: Row } = {}) {
@@ -119,6 +120,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
   const intent = object(audit.resolved_turn_intent || context.verified?.contrato_turno)
   const explicit = object(audit.response_contract)
   const pending = object(audit.pending_question)
+  const continuation = turnContinuation(audit, context.verified)
   const uncovered = Array.isArray(audit.uncovered_requests) ? audit.uncovered_requests : []
   const locked = audit.coverage_complete !== false && !uncovered.length
     && lockedSources.has(source)
@@ -133,7 +135,10 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
     covered_requests: Array.isArray(audit.covered_requests) ? audit.covered_requests : [],
     ...replyLinkContract(baseReply, audit, context),
     required_numbers: strings(explicit.required_numbers),
-    next_question: text(object(audit.financing_collection).next_question || pending.question || object(audit.progressive_selection).question || object(audit.post_tour_continuation).question) || null,
+    continuation,
+    next_question: text(object(audit.profile_introduction).question || object(audit.financing_collection).next_question
+      || continuation.suggested_question || (continuation.action === 'leave_open' ? '' : pending.question
+        || object(audit.progressive_selection).question || object(audit.post_tour_continuation).question)) || null,
     operational_state: { source, action: text(audit.action) || null, reservation: object(audit.reservation),
       registration_verified: audit.registration_verified === true, request_id: text(audit.request_id) || null,
       preference: object(audit.preference), pending_question: pending },
@@ -141,6 +146,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
 }
 
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
+${TURN_CONTINUATION_RULES}
 estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando el propósito de brochure y guía personalizada. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false y los datos ya están confirmados, continúe sin volver a pedirlos. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. Atienda la solicitud actual completa.
 ${COMMERCIAL_CONTINUATION_RULES}
@@ -149,9 +155,9 @@ ${ASSISTANCE_CONTINUATION_RULES}
 Redacte desde solicitud_actual, los hechos disponibles y el estado operativo. La respuesta base es un respaldo interno, no una fuente de hechos ni una estructura a imitar, incluso en rutas operativas. Puede organizar, resumir y elegir el detalle útil para la necesidad actual sin copiar una lista o una pregunta de la base. No cambie acciones operativas ni invente selecciones del cliente. Una aceptación continúa la propuesta pendiente; una comparación explica diferencias; una consulta concreta recibe primero su respuesta.
 Puede ofrecer orientación contextual razonable: si una familia de seis personas pregunta por comodidad, puede explicar que conviene revisar cómo distribuirían los dormitorios y compartir sus preferencias, usando los dormitorios y superficies verificados como referencia. Compartir dormitorio es una posibilidad general, no una característica del proyecto ni una garantía de capacidad. Distinga claramente sugerencias de hechos; no prometa que una unidad es apta para seis, ni invente ocupación máxima, número de camas, posibilidad de remodelar o dormitorios adicionales. No reduzca la conversación a repetir una ficha cuando puede explicar cómo evaluar las opciones.
 No narre su procesamiento interno ni las operaciones que realiza para preparar la respuesta: evite «descarto los penthouses», «me concentro en los departamentos», «he interpretado su intención» o «aplico el filtro». Exprese directamente la información útil para el cliente; por ejemplo, «Los departamentos de 3 dormitorios comparten estas características…». Puede reconocer brevemente su preferencia sin describir el trabajo interno. Esto no impide informar una acción real solicitada por el cliente cuando su resultado esté confirmado en el contexto operativo; nunca la invente.
-Responda datos_requeridos con los hechos verificados y conserve las condiciones operativas y enlaces obligatorios. No es obligatorio enumerar todas las cifras, atributos, unidades o frases de una respuesta anterior. cifras_obligatorias solo contiene obligaciones explícitas del contrato operativo, nunca números extraídos de una plantilla. Si menciona una cifra del inmueble o su precio, conserve exactamente el valor de la evidencia verificada, incluidos sus decimales: 142,09 m² puede expresarse como 142.09 m² o en palabras equivalentes, pero nunca como 142 m², ni siquiera diciendo «aproximadamente». Puede omitir una cifra que no sea necesaria; no la redondee, trunque ni calcule otra sin evidencia. Elija una continuación útil para la solicitud actual; el contrato no obliga a añadir una CTA.
+Responda datos_requeridos con los hechos verificados y conserve las condiciones operativas y enlaces obligatorios. No es obligatorio enumerar todas las cifras, atributos, unidades o frases de una respuesta anterior. cifras_obligatorias solo contiene obligaciones explícitas del contrato operativo, nunca números extraídos de una plantilla. Si menciona una cifra del inmueble o su precio, conserve exactamente el valor de la evidencia verificada, incluidos sus decimales: 142,09 m² puede expresarse como 142.09 m² o en palabras equivalentes, pero nunca como 142 m², ni siquiera diciendo «aproximadamente». Puede omitir una cifra que no sea necesaria; no la redondee, trunque ni calcule otra sin evidencia. Cuando continuacion_del_turno.required=true, atender la consulta no sustituye la pregunta necesaria para continuar.
 Si apertura_decidida.policy=first_information_request, abra con una disposición amable a compartir información, por ejemplo «Con mucho gusto le comparto información». En otros turnos apertura_decidida es orientación de tono: puede cambiarla u omitirla. Prefiera una cortesía breve pertinente, sin repetir aperturas recientes. No agregue una fórmula en todos los turnos.
-El contrato indica si este turno necesita un saludo inicial. Respete esa necesidad sin copiar literalmente una fórmula. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado y formular el siguiente paso autorizado. pregunta_siguiente es una propuesta; su redacción puede cambiar y la solicitud actual prevalece sobre una continuación anterior.
+El contrato indica si este turno necesita un saludo inicial. Respete esa necesidad sin copiar literalmente una fórmula. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado y formular el siguiente paso autorizado. pregunta_siguiente propone una formulación: puede cambiar sus palabras, pero no omitir la finalidad cuando continuacion_del_turno.required=true. Responda primero la solicitud actual.
 Nunca invente datos para embellecer una explicación.`
 
 export const CATALOG_WRITER_RULES = FINAL_WRITER_RULES.replace(FINANCING_PROCESS_RULES, '').replace(ASSISTANCE_CONTINUATION_RULES, '')
@@ -203,6 +209,7 @@ export function finalWriterContract(baseReply: string, audit: Row = {}, context:
     cifras_obligatorias: plan.required_numbers, enlaces_obligatorios: plan.required_links,
     enlaces_permitidos: plan.allowed_links,
     pregunta_siguiente: plan.next_question,
+    continuacion_del_turno: plan.continuation,
     pregunta_pendiente: object(audit.pending_question),
     presentacion: { ...(isCategoryOverview(audit) ? object(audit.alternative_presentation)
       : { kind: text(object(audit.catalog_query).operation) || 'commercial' }), policy: 'suggestion_not_required_wording' },
