@@ -197,8 +197,10 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const currentProfile = object(extracted.lead_profile)
   const suppliedProfile = hasProfileAnswer(currentProfile)
   const commercialRequest = interpretedCommercialRequest(extracted, audit)
-  const firstGreeting = isGreetingOnly(input.current) && !profileRequestWasSent(prior) && missing.length > 0
-  if (!input.current.trim() || (!suppliedProfile && !commercialRequest && !firstGreeting && (isGreetingOnly(input.current) || isCourtesyOnly(input.current)))) return unchanged
+  // A bare greeting keeps the short greeting route, including after a test reset.
+  // Ask for the profile only once the lead expresses an actual request.
+  if (!input.current.trim() || isGreetingOnly(input.current)
+    || !suppliedProfile && !commercialRequest && isCourtesyOnly(input.current)) return unchanged
   const acknowledgement = nameAcknowledgement(profile, prior)
   const suppliedCandidate = Boolean(object(currentProfile.residence_candidate).city || object(currentProfile.residence_candidate).country)
     && profile.residence_status === 'pending_confirmation'
@@ -215,14 +217,14 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   if (prior.status === 'complete' && !resumed && !declinedProfile(input.current)
     && (asked || !missing.length && prior.brochure_sent === true)) return acknowledgeOnly()
   const pending = prior.status === 'pending' || resumed, onlyProfile = pending && isProfileOnlyTurn(input.current, extracted)
-  const excluded = !firstGreeting && !commercialContinuationSources.has(text(audit.source)) && !['', 'commercial', 'project_overview', 'project_information_choice', 'catalog_search', 'catalog_select', 'financing_question', 'financing_selection_required',
+  const excluded = !commercialContinuationSources.has(text(audit.source)) && !['', 'commercial', 'project_overview', 'project_information_choice', 'catalog_search', 'catalog_select', 'financing_question', 'financing_selection_required',
     'catalog_reference', 'unit_price', 'location', 'unit_model_request', 'virtual_showroom', 'brochure', 'price_option_unavailable'].includes(text(audit.source))
   const protectedOperation = audit.source === 'financing' || /^(?:visit|advisor|reservation|financing_handoff)/.test(text(audit.source))
     || Boolean(audit.action || audit.registration_verified || audit.reservation)
   if ((protectedOperation || excluded) && !onlyProfile) return acknowledgeOnly()
   const url = input.brochureUrl || BROCHURE_URL
   const category = categoryFor(input), overview = generalInformation(input.current, audit, extracted)
-  if (!firstGreeting && !pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
+  if (!pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
   const base = withoutBrochure(input.reply, url)
   const deliver = pending || suppliedProfile || explicitBrochure(input.current) || missing.length === 0 || declined
   const deliverBrochure = deliver && (prior.brochure_sent !== true || explicitBrochure(input.current))

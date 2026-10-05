@@ -148,10 +148,17 @@ describe('progressive lead introduction', () => {
     assert.doesNotMatch(next.reply, /Mucho gusto|indicarnos su nombre|reside actualmente/)
     assert.equal(next.state.status, 'complete')
   })
-  it('asks name and residence with the brochure offer even on the first greeting', () => {
-    const greeting = leadIntroductionTurn(input({ current: 'Hola', reply: 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?', audit: { source: 'greeting' } }))
-    assert.equal(greeting.applied, true)
-    assert.ok(greeting.reply.endsWith(PROFILE_INVITATION))
+  it('keeps bare greetings short and asks name and residence on the following project inquiry', () => {
+    const reply = 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?'
+    for (const current of ['Hola', 'Buenos días', 'Buenas tardes', 'Hola, ¿cómo está?']) {
+      const greeting = leadIntroductionTurn(input({ current, reply, audit: { source: 'minimal_greeting' },
+        extracted: { turn_semantics: { primary_intent: 'project_information', confidence: 'high' } } }))
+      assert.equal(greeting.applied, false, current)
+      assert.equal(greeting.reply, reply)
+      assert.equal(greeting.audit.source, 'minimal_greeting')
+      assert.deepEqual(greeting.state, {})
+      assert.doesNotMatch(greeting.reply, /brochure|reside|nombre|La Vilet/)
+    }
     const turn = leadIntroductionTurn(input({ history: [
       { role: 'cliente', content: 'Hola' },
       { role: 'bot', content: 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?' },
@@ -162,6 +169,15 @@ describe('progressive lead introduction', () => {
     assert.doesNotMatch(turn.reply, /suite|departamento|penthouse|locales|https:\/\//i)
     assert.equal((turn.reply.match(/\?/g) || []).length, 1)
     assert.equal(turn.state.status, 'pending')
+  })
+  it('a greeting does not consume the pending profile reminder or mark the brochure sent', () => {
+    const state = { status: 'pending', request_sent: true, reminder_count: 0, brochure_sent: false }
+    const reply = 'Hola, ¿en qué podemos ayudarle?'
+    const result = leadIntroductionTurn(input({ current: 'Hola', reply, audit: { source: 'minimal_greeting' },
+      summary: { _lead_introduction: state } }))
+    assert.equal(result.applied, false)
+    assert.equal(result.reply, reply)
+    assert.deepEqual(result.state, state)
   })
   it('answers category interest briefly using the entire verified category catalog', () => {
     const turn = leadIntroductionTurn(input({ current: 'Hola, me interesan los departamentos',

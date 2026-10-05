@@ -1280,7 +1280,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       reply = introduction.reply
       audit = { ...audit, ...introduction.audit }
       summary._lead_introduction = introduction.state
-      if (introduction.applied && audit.source === 'minimal_greeting') { audit.source = 'lead_opening'; greetingTemplate = false }
       if (introduction.applied) trace.add('lead_introduction', 'Presentación y datos del lead', 'decision', 'lead-introduction.ts', 'succeeded', {}, introduction.audit)
     }
   }
