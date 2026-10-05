@@ -240,7 +240,8 @@ function purposeReply(info: Row) {
     ? `departamentos de ${bedrooms.join(' o ')} dormitorios`
     : 'departamentos en distintas plantas del edificio'
   const suites = catalog.some(unit => unit.category === 'suite') ? ' También contamos con suites de un dormitorio.' : ''
-  return `Para vivir en La Vilet, disponemos de ${departments}.${suites} ¿Le interesaría más revisar las suites o los departamentos?`
+  const penthouses = catalog.some(unit => unit.category === 'penthouse') ? ' y penthouses' : ''
+  return `Para vivir en La Vilet, disponemos de ${departments}${penthouses}.${suites} ¿Le interesaría más revisar las suites o los departamentos${penthouses ? ' o los penthouses' : ''}?`
 }
 
 function categoryReply(info: Row, current: string, category: PropertyCategory) {
@@ -279,19 +280,6 @@ function compareFloorsReply(info: Row, category: PropertyCategory) {
     ? '¿Qué ubicación dentro del edificio le gustaría revisar primero?'
     : `¿En cuál de estas plantas le gustaría revisar ${category === 'suite' ? 'una' : 'un'} ${label.singular}?`
   return `Perfecto. Podemos comparar las opciones disponibles por planta y valor: ${floors.join('; ')}. ${question}`
-}
-
-function floorReply(info: Row, category: PropertyCategory, floor: number) {
-  const pricesAllowed = object(info.politica_comercial).precios_autorizados === true
-  const units = availableCatalog(info, category).filter(unit => Number(unit.floor_number) === floor)
-    .sort((a, b) => Number(a.published_commercial_price || Infinity) - Number(b.published_commercial_price || Infinity)
-      || text(a.unit_number).localeCompare(text(b.unit_number), 'es', { numeric: true }))
-  if (!units.length) return ''
-  const options = units.slice(0, 6).map(unit => {
-    const price = pricesAllowed && Number(unit.published_commercial_price) > 0 ? `, ${money(unit.published_commercial_price)}` : ''
-    return `${categoryLabels[category].singular} ${text(unit.unit_number)}${price}`
-  })
-  return `En ${floorLabel(units[0])} tenemos estas opciones: ${options.join('; ')}. ¿Cuál le gustaría revisar?`
 }
 
 function selectedUnitReply(info: Row, unit: Row, current: string) {
@@ -338,11 +326,9 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
   }
   const floor = category ? floorNumber(current, /planta|piso|nivel/.test(previous)) : null
   if (category && floor !== null && (/planta|piso|nivel/.test(normalized(current)) || /planta|piso|nivel/.test(previous))) {
-    const reply = floorReply(info, category, floor)
-    if (reply) return { reply, audit: { source: 'property_floor_options', selected_floor: floor,
-      offered_unit_ids: availableCatalog(info, category).filter(unit => Number(unit.floor_number) === floor)
-        .sort((a, b) => Number(a.published_commercial_price || Infinity) - Number(b.published_commercial_price || Infinity)
-          || text(a.unit_number).localeCompare(text(b.unit_number), 'es', { numeric: true })).slice(0, 6).map(unit => unit.id), fallback: false } }
+    const query = { ...object(object(info.property_context).query), category, operation: 'search',
+      filters: { ...object(object(object(info.property_context).query).filters), floor_number: floor } }
+    return catalogDialogueReply({ ...info, referencia_unidad: { ...object(info.referencia_unidad), query } }, current)
   }
 
   if (category && (budgetUncertain(current, info.semantica_turno) || genericUncertainty && /presupuesto|cuanto.*invertir/.test(previous))) {
@@ -354,7 +340,7 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
   }
 
   if (!category && (budgetUncertain(current, info.semantica_turno) || genericUncertainty && /presupuesto|cuanto.*invertir/.test(previous))) {
-    return { reply: 'No se preocupe. Primero podemos identificar qué tipo de propiedad se adapta mejor a lo que busca y después revisar el presupuesto. ¿Le interesan las suites, los departamentos o los locales comerciales?', audit: { source: 'property_budget_deferred', fallback: false } }
+    return { reply: 'No se preocupe. Primero podemos identificar qué tipo de propiedad se adapta mejor a lo que busca y después revisar el presupuesto. ¿Le interesan las suites, los departamentos, los penthouses o los locales comerciales?', audit: { source: 'property_budget_deferred', fallback: false } }
   }
 
   if (category && categoryWasChosen(current, info.semantica_turno)) {

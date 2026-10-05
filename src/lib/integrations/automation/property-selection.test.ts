@@ -82,8 +82,11 @@ describe('property selection journey', () => {
     })
     const result = propertySelectionReply(info, 'En la segunda planta')
 
-    assert.match(result?.reply || '', /suite 210, USD 250\.000/i)
-    assert.match(result?.reply || '', /Cuál le gustaría revisar/i)
+    assert.match(result?.reply || '', /suite 210/i)
+    assert.match(result?.reply || '', /USD 250\.000/)
+    assert.match(result?.reply || '', /tour\?unidad=210/)
+    assert.match(result?.reply || '', /Desea continuar/i)
+    assert.deepEqual(result?.audit.selected_unit_ids, [])
   })
 
   it('continues an insufficient-budget comparison with real floor ranges', () => {

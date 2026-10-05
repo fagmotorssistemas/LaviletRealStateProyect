@@ -351,7 +351,7 @@ test('an affirmative to an ambiguous set never picks its first unit or invents a
   const previous = { _property_context: { last_reply: pending.question, pending_question: pending, offered_ids: ['u202', 'u302'], selected_ids: [] } }
   const reference = resolvePropertyTurn(catalog, 'sí está bien', previous, [{ role: 'bot', content: pending.question }], {})
   assert.equal(reference.needsClarification, true)
-  assert.equal(reference.reason, 'question_requires_choice')
+  assert.equal(reference.reason, 'unresolved_choice')
   assert.equal(reference.explicit, false)
   assert.deepEqual(reference.context.selected_ids, [])
   const malformed = { ...pending, id: 'property_category', act: 'explore_alternatives' }
@@ -687,6 +687,6 @@ test('the normalized current filter is not replaced a second time by a stale num
   const ref = resolvePropertyTurn(alternativeCatalog, current, {}, [], semantics(current, { operation: 'search', category: 'departamento',
     filters: { bedrooms: 2 }, filter_evidence: { bedrooms: 'prefiero 2 dormitorios' } }))
   assert.equal(ref.query.filters.bedrooms, 2)
-  assert.deepEqual(ref.matches.map(unit => unit.id), ['a304', 'a404'])
+  assert.deepEqual(ref.matches.map(unit => unit.id), ['p601', 'a304', 'a404'])
   assert.equal(ref.context.filter_resolution.ignored_lexical_filters.bedrooms, 3)
 })

@@ -223,6 +223,7 @@ Con pregunta_pendiente.id=reservation_invitation un sí inequívoco solicita ini
 amount se completa solo con una cifra expresada por el cliente en el mensaje actual. No copie cifras del historial.
 property.category solo indica una preferencia AFIRMADA AHORA: suite|departamento|penthouse|local, no la última categoría mencionada ni una inferencia del historial. En "me interesan más los departamentos porque los penthouse deben ser muy caros", category=departamento y excluded_categories=[penthouse]. Mencionar una opción para descartarla no es elegirla. Una preocupación por precios no declara un presupuesto.
 property.group distingue residential (vivienda en general) de commercial (locales). «Me interesa vivienda» y «algo para vivir» son group=residential, category=null: no implican elegir departamento ni excluir suites. Solo complete category si el mensaje realmente elige o consulta esa categoría concreta.
+Pedir dormitorios tampoco elige una tipología: «prefiero algo de dos dormitorios» conserva category=null y group=residential; incluye departamentos y penthouses compatibles. Una respuesta sobre dormitorios no hereda la categoría de los ejemplos del bot. Una preferencia anterior se conserva en la memoria, no se declara otra vez.
 property.operation distingue buscar opciones (search), preguntar cuáles son mayores/menores/baratas (rank), comparar (compare), elegir afirmativamente (select) y pedir detalles (details). «¿Cuál es la opción más grande?» es rank, NO select. «Prefiero la más grande de esas» es select. Un empate se puede mostrar como resultado de una consulta; no obliga al cliente a elegir antes de recibir información.
 property.filters expresa restricciones actuales: «5ta planta», «quinta planta» y «piso cinco» son floor_number=5; «de5habiataciones» expresa bedrooms=5. Corrija errores evidentes sin inventar datos. Una restricción no es un número de unidad ni una negativa a la pregunta anterior. «No tiene opciones de 5 habitaciones» pregunta disponibilidad, no rechaza presupuesto.
 bedrooms_required=true solo si declara indispensable/exacta esa cantidad; false solo si acepta expresamente otra cantidad; null si no expresa esa decisión. No insista con menos dormitorios cuando el requisito es indispensable.
@@ -419,6 +420,16 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
       normalizationIssues.push('bedroom_filter_without_bedroom_requirement')
     }
   }
+  // A bedroom answer is not a category choice. Keep a genuinely mentioned
+  // category; older confirmed preferences are inherited by property-context.
+  const bedroomRequest = filters.bedrooms != null || !!filters.bedrooms_any?.length
+    || Array.isArray(structuredCatalog?.requirements) && structuredCatalog.requirements.some(r => object(r).field === 'bedrooms')
+  if (bedroomRequest && category && !mentionedCategories.includes(category)
+    && !['explicit', 'relative', 'comparison'].includes(text(property.reference_kind))) {
+    category = null
+    group = 'residential'
+    normalizationIssues.push('bedroom_requirement_does_not_choose_category')
+  }
   // The interpreter has already identified bedrooms, not commercial rooms or
   // household size. Apply that typed meaning without scanning the message.
   if (propertyConfident && !category && group !== 'residential' && (filters.bedrooms != null || filters.bedrooms_any?.length
@@ -452,6 +463,10 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   }
   if (genericResidential && operation === 'select' && !selector && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
     operation = 'search'; normalizationIssues.push('generic_group_does_not_select_unit')
+  }
+  if (operation === 'select' && hasFilters && !selector && !['explicit', 'relative', 'comparison'].includes(text(property.reference_kind))
+    && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
+    operation = 'search'; normalizationIssues.push('property_filter_does_not_select_unit')
   }
   const queryScope = propertyConfident && queryScopes.has(text(property.query_scope)) ? text(property.query_scope)
     : operation === 'rank' && /\b(?:de es[at]as|entre es[at]as|de las (?:que|opciones))\b/.test(value) ? 'offered'

@@ -5,9 +5,17 @@ import { object, text, type Row } from './data'
 export function unresolvedChoice(current: string, pending: Row): Row | null {
   if (!['unit_choice', 'property_category', 'property_floor', 'property_bedrooms', 'property_area'].includes(text(pending.id))) return null
   const answer = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[.!¡,¿?]/g, '').trim()
-  if (!/^(?:si(?: claro| por favor| esta bien)?|claro(?: que si)?|de acuerdo|esta bien|perfecto|por supuesto)(?: gracias)?$/.test(answer)) return null
-  if (!/\s(?:o|u)\s/i.test(text(pending.question))) return null
-  return { question: pending.question,
+  const yes = /^(?:si(?: claro| por favor| esta bien)?|claro(?: que si)?|de acuerdo|esta bien|perfecto|por supuesto)(?: gracias)?$/.test(answer)
+  const unspecifiedUnit = /^(?:si )?(?:hay|tengo) una (?:unidad|opcion) (?:que me interesa|que quisiera|que quiero)(?: revisar| ver| conocer)?(?: primero)?$/.test(answer)
+  const alternatives = /\s(?:o|u)\s/i.test(text(pending.question))
+  const multiple = Array.isArray(pending.candidate_ids) && pending.candidate_ids.length > 1
+  const choice = ['choose_unit', 'choose_floor', 'choose_category'].includes(text(pending.act))
+  const asksWhich = /\b(?:cu[aá]l|qu[eé] (?:planta|piso|tipo)|prefiere)\b/i.test(text(pending.question))
+  if (!(yes && (alternatives || choice && multiple && asksWhich) || unspecifiedUnit && pending.id === 'unit_choice')) return null
+  const question = unspecifiedUnit || !alternatives && pending.id === 'unit_choice' ? '¿Cuál de las unidades le interesa revisar primero?'
+    : !alternatives && pending.id === 'property_floor' ? '¿En qué planta le gustaría revisar las opciones?'
+      : text(pending.question)
+  return { question,
     instruction: 'La respuesta afirmativa no elige entre las alternativas de la pregunta anterior. Pregunte cuál prefiere con el tono habitual, nombrando las opciones. Solo hace falta aclarar la elección: no añada precios, plantas, medidas ni una nueva descripción del proyecto. No elija una por su cuenta, no haga todavía la comparación ni repita el catálogo.' }
 }
 

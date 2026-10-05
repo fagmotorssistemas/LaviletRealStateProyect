@@ -274,7 +274,8 @@ test('a normalized fifth-floor answer focuses 502, and acceptance acts on that f
   assert.deepEqual(offered.audit.offered_unit_ids, ['unit-502'])
   assert.deepEqual(offered.audit.focused_unit_ids, ['unit-502'])
   assert.deepEqual(offered.audit.selected_unit_ids, [])
-  assert.equal(offered.audit.pending_question.act, 'show_unit_details')
+  assert.equal(offered.audit.pending_question.act, 'confirm_unit')
+  assert.match(offered.reply, /tour\?unidad=502/)
   assert.deepEqual(offered.audit.pending_question.target_ids, ['unit-502'])
   const accepted = catalogDialogueReply(info(query('details', { category: 'departamento', scope: 'selected' }), {
     property_context: { offered_ids: ['unit-202', 'unit-302', 'unit-402', 'unit-502'], focused_ids: ['unit-502'], pending_question: offered.audit.pending_question },
@@ -354,12 +355,13 @@ test('equal interior and exterior areas do not hide the different floors', () =>
   assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
 })
 
-test('category choices describe characteristics instead of giving only unit numbers', () => {
+test('category choices introduce bedrooms and floors before enumerating unit numbers', () => {
   for (const operation of ['search', 'select']) {
     const answer = catalogDialogueReply(info(query(operation, { category: 'departamento' })), 'departamentos')
-    assert.match(answer.reply, /3 dormitorios, 120,83 m² interiores/)
-    assert.match(answer.reply, /2 dormitorios, 109,69 m² interiores/)
-    assert.match(answer.reply, /La planta cambia:/)
+    assert.match(answer.reply, /departamentos de 2 o 3 dormitorios/)
+    assert.match(answer.reply, /2.ª planta.*5.ª planta/)
+    assert.match(answer.reply, /En qué planta/)
+    assert.doesNotMatch(answer.reply, /202|302|402|502|304|404|504/)
     assert.equal(answer.audit.offered_unit_ids.length, 7)
     assert.deepEqual(answer.audit.selected_unit_ids, [])
     assert.equal(validateCatalogReply(answer.reply, answer.audit).valid, true)
@@ -480,8 +482,10 @@ test('a fresh conversation carries housing, catalogue ranking, three-bedroom com
   assert.doesNotMatch(comparison.reply, /109[.,]69/)
   const floor = run('5ta planta', { operation: 'search', filters: { floor_number: 5 } }, 'answer_previous')
   assert.deepEqual(floor.audit.focused_unit_ids, ['unit-502'])
+  assert.match(floor.reply, /unidad=502/)
   const accepted = run('sí, está bien', { operation: 'none' }, 'answer_previous', { question_id: 'unit_choice', kind: 'affirmative', evidence: 'sí, está bien', confidence: 'high' })
-  assert.match(accepted.reply, /unidad=502/)
+  assert.deepEqual(accepted.audit.selected_unit_ids, ['unit-502'])
+  assert.doesNotMatch(accepted.reply, /unidad=502/, 'The tour was already delivered when only one unit remained')
   assert.doesNotMatch(accepted.reply, /unidad=202|cuál de estas/i)
 })
 

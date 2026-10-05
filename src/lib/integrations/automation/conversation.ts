@@ -1,5 +1,5 @@
 import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
-import { interpretCommercialJourney, journeyPendingQuestion, rememberCommercialJourney, purchaseReadiness } from './commercial-journey'
+import { interpretCommercialJourney, journeyPendingQuestion, rememberCommercialJourney, purchaseReadiness, commercialJourneyPlan } from './commercial-journey'
 import { leadBudget } from './budget-state'
 import { currentTopicReply } from './current-topic'
 import { withHandoffNotice } from './handoff-copy'
@@ -34,8 +34,9 @@ import { resolveTurnIntent } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
-import { financingContext, financingInputs, financingReply, financingQuestionReply, isFinancingTurn, avoidFinancingRepeat, priceFinancingReply, financingPartnerAnswer, financingPendingFields, financingPendingQuestion } from './financing'
-import { financingIdentity, financingNameQuestion } from './financing-identity'
+import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer, financingPendingQuestion } from './financing'
+import { financingCollection, personalDataFragments } from './financing-intake'
+import { financingIdentity } from './financing-identity'
 import { financingAmounts, financingBalance } from './financing-amounts'
 import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply, visitHoursWereOffered } from './visit-intake'
 import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
@@ -66,7 +67,7 @@ import { asksForHouse, houseProductReply } from './product-fit'
 import { declinesAllVisitAlternatives } from './visit-escalation'
 import { completeTurnReply } from './turn-completeness'
 import { scopeFallbackReply, scopeWritingContract, scopePolicyContext } from './scope-response'
-import { catalogQuery, filterCatalog, validateCatalogReply } from './catalog-dialogue'
+import { catalogQuery, filterCatalog, validateCatalogReply, catalogDialogueReply } from './catalog-dialogue'
 import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
 import { financingPrerequisiteReply } from './property-selection'
@@ -1079,16 +1080,25 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     {
       const financeAnswer = priceTurn || financingDataTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta), extracted)
       let financePrerequisite = '', financeReviewComplete = false
+      let financePrerequisiteAudit: Row = {}
       if (financeTurn && !financeAnswer) {
         const selectionInfo = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
           financiamiento: { ...finance, journey: summary._financing_journey }, referencia_unidad: reference, property_context: reference.context,
           semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory }
         financePrerequisite = financingPrerequisiteReply(selectionInfo, current)
+        if (financePrerequisite && commercialJourneyPlan(selectionInfo).action === 'select_property') {
+          const options = catalogDialogueReply({ ...selectionInfo,
+            semantica_turno: { ...turnSemantics, primary_intent: 'select_property' },
+            referencia_unidad: { ...reference, query: { ...object(reference.query), operation: 'search' } } }, current)
+          if (options) { financePrerequisite = options.reply; financePrerequisiteAudit = options.audit }
+        }
         financeReviewComplete = purchaseReadiness(selectionInfo).coverage === 'reviewed_financing'
         const profile = confirmedLeadProfile(summary._lead_profile), introduction = object(previousSummary._lead_introduction)
         if (introduction.request_sent !== true && !Array.isArray(introduction.requested_fields)
-          && (!profile.full_name || !profile.residence_city && !profile.residence_country))
+          && (!profile.full_name || !profile.residence_city && !profile.residence_country)) {
           financePrerequisite = 'Primero le ayudaremos a completar su presentación y después continuaremos con la selección y el financiamiento.'
+          financePrerequisiteAudit = {}
+        }
       }
       // A question about a product is not an application or consent to collect personal data.
       let fin: Row = {}, financeFailure = ''
@@ -1103,7 +1113,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         // A newly supplied invalid document supersedes an old ID. Empty clears
         // it; null means no document update, so an old value cannot authorize handoff.
         p_national_id: ['invalid_length', 'incomplete'].includes(text(object(extracted.document_validation).status)) ? '' : extracted.national_id,
-        p_source_message_id: activeLast.externalId, p_current_message: current })) }
+        p_source_message_id: activeLast.externalId, p_current_message: current }))
+          if (financeInput.partner && fin.selected_partner_name !== financeInput.partner)
+            throw new Error('FINANCING_PARTNER_NOT_PERSISTED')
+        }
         catch (error) {
           // Do not replay a financial write whose outcome is uncertain. Preserve
           // the client's request for a real advisor instead of silently stopping.
@@ -1115,7 +1128,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           && (isVisitDetail(current) || needsVisitHelp(current) || visitTurnIntent(current)==='counterproposal')))
       if (financePrerequisite) {
         reply = financePrerequisite
-        audit = { source: 'financing_selection_required', pending_financing: summary._financing_journey }
+        audit = { ...financePrerequisiteAudit, source: 'financing_selection_required', pending_financing: summary._financing_journey }
       } else if (financeFailure) {
         reply = await transferToAdvisor('continuar la revisión de financiamiento' + (financeInput.partner ? ' con ' + financeInput.partner : '') + '; comprobar el avance previo antes de volver a solicitar datos', { rule_id: 'financing.processing_failed', origin: 'operational', caused_by_step: semanticStep, facts: { failure_code: financeFailure } })
         if (financeInput.partner) reply = `Le ayudaremos a revisar la opción con ${financeInput.partner}. ` + reply
@@ -1150,20 +1163,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         audit = { source: 'financing_question' }
       } else if (fin.active === true) {
         try {
-          reply = avoidFinancingRepeat(financingReply(fin, finance.partners, financeInput.unsupported), current, text(state.ultima_respuesta), fin, finance.partners)
           const document = object(extracted.document_validation)
-          if (['invalid_length', 'incomplete'].includes(text(document.status))) reply = text(document.instruction)
-          else if (['identificacion_pendiente', 'nombre_pendiente'].includes(text(fin.state))
-            || object(summary._financing_identity).complete !== true
-              && (object(extracted.financing_identity).given_names || object(extracted.financing_identity).surnames))
-            reply = financingNameQuestion(object(summary._financing_identity))
-          const selectedPartner = text(fin.selected_partner_name) || financeInput.partner
+          const identity = object(summary._financing_identity)
+          const intake = financingCollection(fin, identity, document, finance.partners, financeInput.unsupported)
+          reply = intake.reply
+          const selectedPartner = text(fin.selected_partner_name) || null
           if (selectedPartner && financeInput.partner && !reply.includes(selectedPartner)) reply = `Continuamos con ${selectedPartner}. ` + reply
           audit = { source: 'financing', state: fin.state || fin.financing_state, selected_partner: selectedPartner,
-            financing_collection: { state: fin.state, next_question: reply,
-              pending_fields: financingPendingFields(fin), selected_partner: selectedPartner,
-              legal_name_complete: fin.legal_name_confirmed === true, document_validation: document,
-              instruction: 'Solicite el siguiente dato pendiente indicado; no lo sustituya por otro campo, no solicite RUC y no repita características de la unidad. Atienda primero una identificación incompleta o inválida si fue enviada.' } }
+            financing_collection: { ...intake.collection, next_question: reply,
+              client_data_fragments: personalDataFragments(current, identity, document) } }
         } catch (error) {
           if (!(error instanceof Error) || error.message !== 'UNKNOWN_FINANCING_STATE') throw error
           reply = await transferToAdvisor('continuar la revisión de financiamiento y comprobar los datos que faltan' + (financeInput.partner ? ' con ' + financeInput.partner : ''), { rule_id: 'financing.unknown_state', origin: 'operational', caused_by_step: semanticStep })
@@ -1266,7 +1274,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (text(deliveredTour.unit_number) && text(deliveredTour.url) && reply.includes(text(deliveredTour.url))
     && !finalNotice && !handoffNotice && !/^(?:visit|financing|advisor|price_and_visit)/.test(text(audit.source))) {
     const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
-      semantica_turno: turnSemantics, financiamiento: finance, memoria_comercial: memory }
+      semantica_turno: turnSemantics, financiamiento: { ...finance, journey: summary._financing_journey }, memoria_comercial: memory,
+      property_context: propertyTurn.context, referencia_unidad: propertyTurn, recorrido_comercial: summary._commercial_journey,
+      hechos_confirmados: summary._interpretation_memory }
     const unit = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object).find(row => text(row.unit_number) === text(deliveredTour.unit_number)) || {}
     const next = tourContinuation(info, unit, current)
     if (next.reply) {

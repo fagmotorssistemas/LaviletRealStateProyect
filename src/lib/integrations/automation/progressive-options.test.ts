@@ -58,7 +58,7 @@ test('accepting a changed category asks for available floor before enumerating u
     offered_ids: ['d1', 'd2'], preference_transition: { active: true, kind: 'cheaper' } }
   const result = catalogDialogueReply({ catalogo: catalog, property_context: context })!
   assert.match(result.reply, /departamentos de 3 dormitorios.*planta 2 y planta 4/i)
-  assert.match(result.reply, /¿Qué planta prefiere\?/)
+  assert.match(result.reply, /¿En qué planta le gustaría revisar las opciones\?/)
   assert.doesNotMatch(result.reply, /201|401|interiores|exteriores|360/)
 })
 

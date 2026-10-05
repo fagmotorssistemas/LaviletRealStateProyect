@@ -60,7 +60,7 @@ import { traceText } from './trace-summary'
 import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
 import { decidedOpening, replyOpening, recentReplyOpenings, informationRequestOpening } from './response-openings'
 import { claimSchema, CLAIM_RULES, reviewClaims, factualValuesSchema, reviewedContextualGuidance, groundedClaimReviewSchema } from './semantic-review'
-import { BUSINESS_RISK_REVIEW_RULES, businessRiskReviewInstructions, businessRiskReviewSchema, businessRiskDecision, businessRiskContext,
+import { BUSINESS_RISK_REVIEW_RULES, businessRiskReviewInstructions, businessRiskSchemaForSources, businessRiskDecision, businessRiskContext,
   BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
 import { validateBusinessFacts, factFindings, availableAssistance, ASSISTANCE_RULES } from './business-facts'
 
@@ -648,20 +648,21 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         allowedLinks: linkContract.allowed_links })
       const riskRules = businessRiskReviewInstructions(optimizedPrompt && !financialTask)
       normalRuleSets.set('review', { actual: riskRules, normal: BUSINESS_RISK_REVIEW_RULES })
-      let rawReview = await generate(riskRules, riskContext, businessRiskReviewSchema,
+      const riskSchema = businessRiskSchemaForSources(modelEvidence.units, modelEvidence.groups)
+      let rawReview = await generate(riskRules, riskContext, riskSchema,
         undefined, undefined, undefined, 'review')
       let riskDecision = businessRiskDecision(rawReview)
       const checkFacts = (facts: unknown) => validateBusinessFacts(facts, sharedEvidence.units, sharedEvidence.groups, effectiveTurnBudget(input.verified))
       let factChecks = checkFacts(rawReview.facts)
       const originalChecks = factChecks
       const repairableChecks = factChecks.filter(check => check.status === 'contradiction' || check.repairable)
-      if (!riskDecision.valid || repairableChecks.length) {
+      if ((!riskDecision.valid || repairableChecks.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
         const originalReview = rawReview
         let repairError = ''
         try {
           rawReview = await generate(riskRules + '\nREPARE SOLO LA REVISIÓN del mismo borrador, sin redactar otro mensaje. Compruebe si las observaciones señaladas interpretan fielmente lo escrito. Si la extracción es correcta y el dato del borrador es falso, mantenga ese dato y señale el riesgo. Si era un error de ficha, corrija kind, referencia, scope o relación. Los filtros de scope describen el conjunto afirmado, no los requisitos del cliente; no cambie las cifras para acomodarlas a un grupo incorrecto. Conserve statement para vincular cada reparación; no elimine una contradicción sin resolverla. Conserve las observaciones no afectadas y las obligaciones. Un cálculo no soportado por código no es por sí mismo un error comercial.',
             { ...riskContext, revision_anterior: originalReview, comprobaciones_a_revisar: repairableChecks },
-            businessRiskReviewSchema, undefined, undefined, undefined, 'review')
+            riskSchema, undefined, undefined, undefined, 'review')
         } catch (error) {
           // A previously approved draft does not become false because optional
           // metadata recovery timed out. Never waive a contradiction or guard.
@@ -1002,6 +1003,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       continue
     }
     unresolved = assessed.unresolved
+    const personalClarifications = new Set(assessed.assessments.filter(item => item.outcome === 'client_data_clarification').map(item => item.fragment))
+    requests = requests.map(request => personalClarifications.has(request.fragment) && request.status === 'missing_fact'
+      ? { ...request, status: 'clarification', evidence: 'Datos personales pendientes de aclaración por el cliente.' } : request)
     for (const repair of repairAttempts) repair.final_status = 'checked'
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,
       audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, editorial_observations: editorialObservations, link_contract: linkContract,

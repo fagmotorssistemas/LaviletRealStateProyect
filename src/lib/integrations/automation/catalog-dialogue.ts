@@ -1,6 +1,5 @@
 import { areaAssertions, satisfiesNumeric } from './numeric-relations'
 import { object, text, type Row } from './data'
-import { unitTourUrl } from '@/lib/tour/unitModels'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { factualValueIssues, reviewedCatalogDenials, reviewedContextualGuidance } from './semantic-review'
 import { turnEvidence } from './turn-evidence'
@@ -8,6 +7,7 @@ import { bedroomOptions } from './bedroom-options'
 import { bedroomComparison, bedroomCondition, matchesBedrooms, type BedroomComparison } from './bedroom-comparison'
 import { verifiedAbsenceReply } from './catalog-absence'
 import { requirementMatch, catalogNumber } from './catalog-request'
+import { unitModelDelivery } from './unit-model'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
 export type CatalogQuery = {
@@ -247,6 +247,15 @@ function categorySummary(units: Row[]) {
   })
 }
 
+/** At the floor-selection stage do not turn each floor into a list of codes. */
+export function catalogFloorOverview(units: Row[]) {
+  return [...categories].filter(category => units.some(unit => unit.category === category)).map(category => {
+    const members = units.filter(unit => unit.category === category)
+    const floors = [...new Set([...members].sort((a, b) => Number(a.floor_number) - Number(b.floor_number)).map(floorLabel).filter(Boolean))]
+    return `${categorySummary(members)[0]}${floors.length ? ` en ${join(floors)}` : ''}`
+  }).join('; ')
+}
+
 /** Category-level alternatives precede individual specifications and floor selection. */
 function alternativeOverview(units: Row[]) {
   const groups = [...categories].filter(category => units.some(unit => unit.category === category)).map(category => {
@@ -300,7 +309,6 @@ function comparisonReply(units: Row[], comparison: ReturnType<typeof compareCata
 
 /** Pure catalogue answer shared by every commercial route and writing style. */
 export function catalogDialogueReply(info: Row, _current = ''): { reply: string; audit: Row } | null {
-  void _current // Text is interpreted once, before this deterministic catalogue query.
   if (info.catalogue_price_requested === true) return null // Keep the existing authorized-price quote and affordability policy.
   if (['ask_price', 'request_visit', 'ask_financing', 'request_reservation', 'ask_reservation'].includes(text(object(info.semantica_turno).primary_intent))) return null
   const reference = object(info.referencia_unidad), context = object(info.property_context || reference.context)
@@ -327,6 +335,8 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     else if (!scopedIds?.length && query.scope !== 'catalog') scopedIds = ids(pending.candidate_ids).length
       ? ids(pending.candidate_ids) : ids(context.offered_ids)
   }
+  if (query.operation === 'select' && query.category && !query.selector && !scopedIds?.length
+    && reference.explicit !== true && reference.needsClarification !== true) query.operation = 'search'
   const partition = partitionCatalog(catalog, query, scopedIds)
   const candidates = partition.units
   const excluded = ids(semantic.excluded_categories)
@@ -334,9 +344,12 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const unknown = partition.unknown.filter(unit => !excluded.includes(text(unit.category)))
   const availableIds = new Set(unitIds(filterCatalog(catalog, catalogQuery({}))))
   const missingIds = (scopedIds || []).filter(id => !availableIds.has(id))
+  const semanticCandidates = query.operation === 'search' && object(info.catalog_retrieval).applied === true
   const baseAudit: Row = { query_transition: object(context.query_transition), filter_resolution: object(context.filter_resolution),
     reference_resolution: object(context.reference_resolution), source: `catalog_${query.operation}`, verified_catalog: true, catalog_query: query,
-    catalog_results: { unit_ids: unitIds(units), units: units.map(unit => facts(unit, object(info.politica_comercial).precios_autorizados === true)), complete: !unknown.length, unknown_unit_ids: unitIds(unknown) },
+    catalog_results: { unit_ids: unitIds(units), units: units.map(unit => facts(unit, object(info.politica_comercial).precios_autorizados === true)), complete: !unknown.length && !semanticCandidates, unknown_unit_ids: unitIds(unknown),
+      ...(semanticCandidates ? { selection: 'semantic_candidates' } : {}) },
+    ...(semanticCandidates ? { catalog_retrieval: info.catalog_retrieval, catalog_context_scope: info.catalog_context_scope } : {}),
     covered_requests: [`catalog_${query.operation}`], coverage_complete: false, catalog_excluded_categories: excluded,
     offered_unit_ids: [], focused_unit_ids: [], selected_unit_ids: [],
     catalog_coverage: { operation: query.operation, status: units.length ? 'answered' : unknown.length ? 'unknown' : 'no_results', result_unit_ids: unitIds(units),
@@ -344,17 +357,6 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     pending_question: { id: 'none', act: 'other', question: '', target_ids: [], candidate_ids: [] } }
   const respond = (reply: string, audit: Row = {}) => ({ reply, audit: { ...baseAudit, ...audit } })
   const question = (id: string, act: string, value: string, targets: Row[] = [], candidatesForQuestion = units) => ({ id, act, question: value, target_ids: unitIds(targets), candidate_ids: unitIds(candidatesForQuestion) })
-  if (query.operation === 'search' && object(info.catalog_retrieval).applied === true && units.length) {
-    const next = '¿Cuál de estas opciones le gustaría revisar?'
-    // A similarity score never certifies a feature or an exhaustive result.
-    const presentation = units.map(unit => `${label(unit)}: ${details(unit)}.`).join('\n')
-    return respond(`Estas son algunas opciones para revisar:\n${presentation}\n${next}`, {
-      catalog_retrieval: info.catalog_retrieval,
-      catalog_context_scope: info.catalog_context_scope,
-      catalog_results: { ...object(baseAudit.catalog_results), complete: false, selection: 'semantic_candidates' },
-      offered_unit_ids: unitIds(units), pending_question: question('unit_choice', 'choose_unit', next),
-    })
-  }
   if ((query.operation === 'compare' && (units.length < 2 || missingIds.length > 0 || reference.needsClarification === true))
     || ['details', 'select'].includes(query.operation) && (!units.length || missingIds.length > 0)) {
     const next = text(reference.clarification) || (query.operation === 'compare'
@@ -447,18 +449,25 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
       pending_question: question('property_category', 'choose_category', next),
     })
   }
-  if (query.operation === 'details' || query.operation === 'select') {
+  if (query.operation === 'details' || query.operation === 'select' || units.length === 1) {
     if (units.length !== 1 || reference.needsClarification === true) {
       const next = '¿Cuál de estas opciones le gustaría conocer?'
       return respond(`${groupedCharacteristics(units)}\n${floorComparison(units)} ${next}`, { offered_unit_ids: unitIds(units), pending_question: question('unit_choice', 'choose_unit', next),
         progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(units), criteria: query.filters, reason: 'details_require_unit_choice' } })
     }
-    const unit = units[0], url = unitTourUrl(text(unit.unit_number))
+    const unit = units[0]
+    const delivery = unitModelDelivery({ explicit: true, hasUnitMention: true, matches: [unit] }, _current, info.historial, info.unit_models_sent)
+    const tour = delivery?.unit_id ? { ...delivery, delivery_required: true, delivery_reason: query.operation === 'select' ? 'selected_unit' : 'single_compatible_option' } : null
     const spaces = sanitizeTourSpaces(Array.isArray(unit.spaces) ? unit.spaces : []).slice(0, 8).map(value => text(value).toLocaleLowerCase('es'))
     const description = text(unit.description).trim().replace(/\s+/g, ' ').slice(0, 350)
-    const reply = `${label(unit).charAt(0).toUpperCase() + label(unit).slice(1)}${details(unit) ? ` tiene ${details(unit)}` : ' está disponible'}.${description ? ` ${description.replace(/[.!]$/, '')}.` : ''}${spaces.length ? ` Incluye ${join(spaces)}.` : ''} Puede explorar sus espacios en el recorrido: ${url}`
+    const price = object(info.politica_comercial).precios_autorizados === true && Number(unit.published_commercial_price) > 0
+      ? ` Su precio${object(info.politica_comercial).precios_aproximados === true ? ' referencial' : ''} es USD ${number(Number(unit.published_commercial_price))}.` : ''
+    const next = query.operation === 'select' ? '' : `¿Desea continuar con ${label(unit)}?`
+    const reply = `${label(unit).charAt(0).toUpperCase() + label(unit).slice(1)}${details(unit) ? ` tiene ${details(unit)}` : ' está disponible'}.${description ? ` ${description.replace(/[.!]$/, '')}.` : ''}${spaces.length ? ` Incluye ${join(spaces)}.` : ''}${price}${tour ? ` ${tour.caption}` : ''}${next ? ` ${next}` : ''}`
     return respond(reply, { focused_unit_ids: unitIds(units), selected_unit_ids: query.operation === 'select' ? unitIds(units) : [], offered_unit_ids: unitIds(units),
-      unit_reference: { ids: unitIds(units), numbers: units.map(value => value.unit_number) }, unit_model: { unit_id: unit.id, unit_number: unit.unit_number, url } })
+      unit_reference: { ids: unitIds(units), numbers: units.map(value => value.unit_number) }, ...(tour ? { unit_model: tour } : {}),
+      ...(next ? { pending_question: question('unit_choice', 'confirm_unit', next, units),
+        progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(units), reason: 'single_option_is_not_client_selection' } } : {}) })
   }
   const broad = !query.category && query.filters.bedrooms === null && !query.filters.bedrooms_any?.length && query.filters.floor_number === null && query.filters.min_area_m2 === null && query.filters.max_area_m2 === null
   if (broad) {
@@ -467,17 +476,17 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     return respond(`Disponemos de ${join(categorySummary(units))}. ${questionText}`,
       { pending_question: question('property_category', 'choose_category', questionText) })
   }
-  const categoryOnly = query.category && Object.entries(query.filters).every(([key, value]) => key === 'bedrooms_required' || value === null)
   const floors = [...new Map([...units].filter(unit => finite(unit.floor_number) !== null)
     .sort((a, b) => Number(a.floor_number) - Number(b.floor_number))
     .map(unit => [Number(unit.floor_number), text(unit.floor) || `planta ${unit.floor_number}`])).values()]
   const choosingChangedCategory = object(context.preference_transition).active === true && query.category && query.filters.floor_number === null
-  if ((categoryOnly || choosingChangedCategory) && floors.length > 1) {
-    const next = '¿Qué planta prefiere?'
-    const body = choosingChangedCategory ? `Tenemos ${join(categorySummary(units))} en ${join(floors)}.` : `${groupedCharacteristics(units)}\n${floorComparison(units)}`
+  if (floors.length > 1) {
+    const next = '¿En qué planta le gustaría revisar las opciones?'
+    const body = `${semanticCandidates ? 'Entre las opciones encontradas hay' : 'Tenemos'} ${catalogFloorOverview(units)}.`
     return respond(`${body} ${next}`,
       { offered_unit_ids: unitIds(units), pending_question: question('property_floor', 'choose_floor', next),
-        ...(choosingChangedCategory ? { progressive_selection: { stage: 'choose_floor', question: next, candidate_ids: unitIds(units), criteria: query.filters, reason: 'category_selected_choose_floor', client_requested_change: true } } : {}) })
+        progressive_selection: { stage: 'choose_floor', question: next, candidate_ids: unitIds(units), criteria: query.filters, reason: 'choose_floor_before_unit', client_requested_change: !!choosingChangedCategory,
+          instruction: 'Mencione plantas y categorías compatibles, sin números de unidad. Pregunte explícitamente en qué planta quiere revisar opciones; no limite la pregunta a departamentos si también hay penthouses compatibles.' } })
   }
   const shown = units.slice(0, 8)
   const next = shown.length === 1 ? `¿Le gustaría ver los detalles de ${label(shown[0])}?` : '¿Cuál de estas opciones le gustaría conocer?'
@@ -485,6 +494,6 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     : `${label(shown[0])}${details(shown[0]) ? ` (${details(shown[0])})` : ''}.`
   return respond(`${choices}${units.length > shown.length ? ` Hay ${units.length} opciones que cumplen esos criterios; estas son las primeras ${shown.length}.` : ''} ${next}`,
     { offered_unit_ids: unitIds(shown), focused_unit_ids: shown.length === 1 ? unitIds(shown) : [],
-      ...(object(context.preference_transition).active === true ? { progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(shown), criteria: query.filters, reason: 'floor_selected_choose_unit', client_requested_change: true } } : {}),
+      progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(shown), criteria: query.filters, reason: 'floor_selected_choose_unit', client_requested_change: object(context.preference_transition).active === true },
       pending_question: question('unit_choice', shown.length === 1 ? 'show_unit_details' : 'choose_unit', next, shown.length === 1 ? shown : [], shown) })
 }

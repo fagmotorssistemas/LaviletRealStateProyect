@@ -115,8 +115,8 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const selection = plan('select_property', accepted
     ? 'Ya aceptó financiamiento: retome las opciones con las preferencias conocidas hasta elegir una unidad concreta. No repita que no alcanza, no pida otra aceptación, cédula ni datos laborales. No exija elegir una planta si ya la conoce.'
     : 'Ayude a comparar y elegir una unidad concreta con las preferencias conocidas. No vuelva a pedir datos ya respondidos.')
-  if (!category) {
-    const selectionQuery = catalogQuery({ ...query, filters: { ...filters, bedrooms: filters.bedrooms ?? lead.preferred_bedrooms } })
+  {
+    const selectionQuery = catalogQuery({ ...query, category: category || null, filters: { ...filters, bedrooms: filters.bedrooms ?? lead.preferred_bedrooms } })
     const scopedIds = selectionQuery.scope === 'offered' ? ids(context.offered_ids)
       : selectionQuery.scope === 'comparison' ? ids(context.comparison_ids)
         : selectionQuery.scope === 'selected' ? ids(context.selected_ids) : undefined
@@ -124,14 +124,26 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     const candidates = filterCatalog(rows(info.catalogo), selectionQuery, scopedIds).filter(unit => !excluded.has(text(unit.category)))
     const labels: Record<string, string> = { suite: 'las suites', departamento: 'los departamentos', penthouse: 'los penthouses', local: 'los locales comerciales' }
     const categories = Object.keys(labels).filter(category => candidates.some(unit => unit.category === category))
-    if (categories.length > 1) {
+    const floors = [...new Set(candidates.map(unit => unit.floor_number).filter(value => typeof value === 'number'))]
+    const selectionScope = { categories, unit_ids: candidates.map(unit => text(unit.id)).filter(Boolean), floors }
+    if (!floors.length && categories.length > 1) {
       const options = new Intl.ListFormat('es', { type: 'disjunction' }).format(categories.map(category => labels[category]))
-      return { ...selection, question: `¿Prefiere que revisemos ${options}?`, question_id: 'property_category',
-        selection_scope: { categories, unit_ids: candidates.map(unit => text(unit.id)).filter(Boolean) },
-        instruction: `${text(selection.instruction)} Aún no ha elegido entre ${options}. La pregunta debe mantener abiertas esas categorías: pregunte cuál prefiere revisar, sin limitar la elección a una sola categoría ni a sus plantas. Enumerarlas en el cuerpo y excluirlas en la pregunta no cumple este paso. No hace falta repetir las fichas ni usar una frase exacta.` }
+      return { ...selection, question: `¿Prefiere que revisemos ${options}?`, question_id: 'property_category', question_act: 'choose_category',
+        selection_scope: selectionScope, instruction: `${text(selection.instruction)} Mantenga abiertas las categorías compatibles; no invente las plantas que faltan en las fichas.` }
     }
+    if (candidates.length === 1) return { ...selection, question: `¿Desea continuar con ${text(candidates[0].category)} ${text(candidates[0].unit_number)}?`,
+      question_id: 'unit_choice', question_act: 'confirm_unit', selection_scope: selectionScope, presentation: 'single_unit',
+      instruction: `${text(selection.instruction)} Presente la única opción compatible con sus características y su recorrido autorizado. Mostrarla no significa que el cliente ya la eligió; confirme si desea continuar con ella.` }
+    if (floors.length > 1 || !candidates.length && filters.floor_number == null) {
+      const options = new Intl.ListFormat('es', { type: 'disjunction' }).format(categories.map(category => labels[category]))
+      return { ...selection, question: `¿En qué planta le gustaría revisar ${options || 'las opciones'}?`, question_id: 'property_floor', question_act: 'choose_floor',
+        selection_scope: selectionScope, presentation: 'floors',
+        instruction: `${text(selection.instruction)} Presente las plantas de todas las categorías compatibles y pregunte explícitamente en qué planta desea revisar opciones. No enumere números de unidad todavía. No excluya penthouses compatibles del cuerpo ni de la pregunta. No repita las fichas completas.` }
+    }
+    return { ...selection, question: '¿Cuál de las unidades de esta planta le gustaría revisar?', question_id: 'unit_choice', question_act: 'choose_unit',
+      selection_scope: selectionScope, presentation: 'units',
+      instruction: `${text(selection.instruction)} La planta está definida. Presente los números y características de las unidades compatibles para que elija una. Si ya indicó que una le interesa sin identificarla, pregunte cuál sin repetir el catálogo.` }
   }
-  return selection
 }
 
 export function journeyPendingQuestion(reply: string, plan: Row, approved: boolean): Row {
@@ -139,8 +151,8 @@ export function journeyPendingQuestion(reply: string, plan: Row, approved: boole
   const question = reply.match(/¿[^¿?]+\?\s*$/)?.[0]
   if (!question) return {}
   return { id: plan.question_id, act: plan.question_id === 'reservation_invitation' ? 'reservation' : plan.question_id === 'financing_invitation' ? 'financing'
-    : plan.question_id === 'property_category' ? 'choose_category' : 'other',
-    question, target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : [],
+    : text(plan.question_act) || (plan.question_id === 'property_category' ? 'choose_category' : 'other'),
+    question, target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : plan.question_act === 'confirm_unit' ? ids(object(plan.selection_scope).unit_ids) : [],
     ...(plan.selection_scope ? { candidate_ids: ids(object(plan.selection_scope).unit_ids) } : {}) }
 }
 

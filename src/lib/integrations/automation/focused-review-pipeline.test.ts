@@ -60,13 +60,13 @@ test('outside-to-property transition carries both profile obligations through th
     verified: { proyecto: { ubicacion: 'Cuenca' } },
     audit: { ...opening.audit, semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate)
   assert.equal(result.audit.status, 'checked')
-  assert.equal(result.reply, reply)
+  assert.equal(result.reply, `Con mucho gusto le comparto información. ${reply}`)
   assert.deepEqual(result.audit.repair_attempts, [])
   assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review'])
   const audit = { ...opening.audit, semantic_review_enabled: true, turn_completeness: result.audit }
-  assert.deepEqual(rememberLeadIntroduction({ previous: {}, planned: opening.state, profile: {}, reply, audit,
+  assert.deepEqual(rememberLeadIntroduction({ previous: {}, planned: opening.state, profile: {}, reply: result.reply, audit,
     accepted: false, followUpUsable: true }), {})
-  const delivered = rememberLeadIntroduction({ previous: {}, planned: opening.state, profile: {}, reply, audit,
+  const delivered = rememberLeadIntroduction({ previous: {}, planned: opening.state, profile: {}, reply: result.reply, audit,
     accepted: true, followUpUsable: true })
   assert.equal(delivered.collection_status, 'awaiting')
   assert.deepEqual(delivered.requested_fields, ['full_name', 'residence'])

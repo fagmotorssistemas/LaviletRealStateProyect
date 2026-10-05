@@ -112,7 +112,11 @@ export function tourContinuation(info: Row, unit: Row = {}, current = ''): TourC
   }
   if (info.recorrido_comercial) {
     const step = commercialJourneyPlan(info)
-    return answer(text(step.question), text(step.action), text(step.question_id))
+    const result = answer(text(step.question), text(step.action), text(step.question_id))
+    if (step.question_act) result.pending_question = { ...result.pending_question, act: step.question_act,
+      candidate_ids: object(step.selection_scope).unit_ids || [],
+      target_ids: step.question_act === 'confirm_unit' ? object(step.selection_scope).unit_ids || [] : [] }
+    return result
   }
   if (budget.status === 'not_discussed' || budget.status === 'maximum_total' && budget.amount === null) {
     return answer('¿Qué presupuesto aproximado tiene previsto para la compra?', 'budget_missing', 'budget_amount')

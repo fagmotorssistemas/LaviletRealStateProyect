@@ -106,8 +106,14 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
  * about financing. Consent and property prerequisites are checked by the caller. */
 export function financingPartnerAnswer(extracted: Row, input: { partner?: string | null }) {
   const semantics = object(extracted.turn_semantics), answer = object(semantics.answer_to_previous)
-  return !!input.partner && semantics.confidence === 'high' && semantics.primary_intent === 'answer_previous'
+  const evidence = text(answer.evidence), message = normalized(evidence)
+  const explicitChoice = /\b(?:prefiero|elijo|escojo|me quedo con|continuemos con)\b/.test(message)
+  const informationQuestion = /[¿?]/.test(evidence) || /\b(?:que ofrece|que requisitos|como funciona|cuales son|que condiciones)\b/.test(message)
+  // answer_to_previous is already bound to the actual pending question by the
+  // interpreter. A broad ask_financing label must not discard a lender choice.
+  return !!input.partner && answer.question_id === 'financing_partner'
     && answer.confidence === 'high' && answer.kind === 'value'
+    && (!informationQuestion || explicitChoice)
 }
 
 /** Describe missing fields from the persisted RPC result, never from prose. */
@@ -124,9 +130,11 @@ export function financingPendingFields(fin: Row): string[] {
 }
 
 export function financingPendingQuestion(reply: string, audit: Row): Row {
-  const state = text(object(audit.financing_collection).state)
+  const collection = object(audit.financing_collection), state = text(collection.state)
   if (!state.endsWith('_pendiente') || state === 'continuacion_pendiente') return {}
-  return { id: state === 'entidad_pendiente' ? 'financing_partner' : 'financing_data', act: 'financing',
+  const lenderRequested = Array.isArray(collection.requested_fields)
+    ? collection.requested_fields.includes('selected_partner_name') : state === 'entidad_pendiente'
+  return { id: lenderRequested ? 'financing_partner' : 'financing_data', act: 'financing',
     question: (reply.match(/¿[^¿?]+\?\s*$/)?.[0] || reply).trim().slice(0, 500), target_ids: [], candidate_ids: [] }
 }
 

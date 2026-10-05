@@ -35,6 +35,25 @@ export const businessRiskReviewSchema: Row = {
   required: ['review_contract', 'verdict', 'findings', 'facts', 'question'],
 }
 
+/** Tie metadata to this turn's sources at generation time. In particular a
+ * catalog fact needs a source, and a declared budget amount is an equality;
+ * neither should cost a second call merely to complete that contract. */
+export function businessRiskSchemaForSources(units: Row[], groups: Row[]): Row {
+  const sourceIds = [...new Set([...units, ...groups].map(row => text(row.id)).filter(Boolean))]
+  const properties = object(businessFactSchema.properties)
+  const variants = ['catalog_value', 'lead_budget', 'budget_difference', 'other_calculation'].map(kind => ({
+    ...businessFactSchema, properties: { ...properties, kind: { type: 'string', enum: [kind] },
+      ...(kind === 'catalog_value' || kind === 'budget_difference' ? {
+        subject_id: { type: 'string', enum: [...sourceIds, 'unresolved'], description: 'ID de la fuente para este sujeto y alcance. unresolved solo si no hay respaldo: señale el hallazgo comercial correspondiente.' },
+      } : {}),
+      ...(kind === 'lead_budget' ? { field: { type: 'string', enum: ['amount'] }, relation: { type: 'string', enum: ['eq'] },
+        subject_id: { type: 'null' }, scope: { type: 'null' }, value: { type: 'number' }, upper_value: { type: 'null' }, unit: { type: 'string', enum: ['USD'] } } : {}),
+    },
+  }))
+  return { ...businessRiskReviewSchema, properties: { ...object(businessRiskReviewSchema.properties),
+    facts: { type: 'array', items: { anyOf: variants } } } }
+}
+
 export const BUSINESS_RISK_REVIEW_RULES = `# Función del revisor
 
 Revise el borrador sin reescribirlo. Decida PASA o BLOQUEA exclusivamente por los tres riesgos siguientes.
@@ -55,6 +74,7 @@ No convierta una imprecisión de denominación en un riesgo material si el conju
 
 Compruebe únicamente obligaciones_del_turno. current_request exige atender las solicitudes actuales, incluso con una aclaración pertinente o explicando una limitación real de las fuentes. Para bloquear por turn_goal identifique en reason la obligación concreta omitida y su efecto. No cree obligaciones adicionales de preguntas, brochure, alternativas, perfilamiento o derivación. Una consulta atendida puede terminar sin pregunta si ninguna obligación exige hacerla. Acepte expresiones equivalentes; no espere que el cliente ya haya respondido una captura solicitada en el borrador.
 Cuando commercial_next_step incluya selection_scope, compruebe la pregunta realmente escrita: debe permitir elegir entre las categorías pendientes de ese alcance. Mencionarlas en el cuerpo no justifica una pregunta que solo permite continuar con una de ellas o con sus plantas. Una pregunta abierta que abarque todas las opciones presentadas también cumple; no exija enumerarlas otra vez. No reconstruya en question.next_decision alternativas que la pregunta del borrador excluye.
+Si presentation=floors, la siguiente elección es una planta entre las categorías compatibles; todavía no enumere códigos. Con presentation=units se elige entre unidades de la planta definida; single_unit presenta características y recorrido disponible, sin inventar aceptación. En financing_collection deben pedirse requested_fields y conservarse la entidad guardada. Una identidad incompleta requiere aclaración del cliente, no traspaso por missing_fact del proyecto.
 consultas_pendientes conserva mensajes sin respuesta: current_request incluye sus consultas informativas aún vigentes. Compruebe su atención junto con mensaje_actual; no repita acciones ni reabra consultas canceladas o sustituidas por el cliente. Un aviso de recuperación no las atiende.
 
 # Fuentes y alcance

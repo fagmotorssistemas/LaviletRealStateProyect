@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { intakeFragmentKey } from './financing-intake'
 
 export const coverageFactKeys = ['catalog_comparison', 'bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'floor_number', 'price', 'policy', 'other'] as const
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -56,6 +57,10 @@ export function catalogCoversFragment(fragment: string, factKey: unknown, audit:
 export function assessMissingFacts(fragments: string[], audit: Row, facts: Row[] = [], clarification: Row = {}) {
   const assessments = [...new Set(fragments)].map(fragment => {
     const request = facts.find(row => text(row.fragment) === fragment)
+    const collection = object(audit.financing_collection)
+    if (Array.isArray(collection.client_data_fragments) && collection.client_data_fragments.includes(intakeFragmentKey(fragment)))
+      return { fragment, fact_key: text(request?.fact_key) || null, outcome: 'client_data_clarification',
+        reason: 'Es una declaración de identidad del cliente; los datos pendientes se aclaran con él, no requieren derivación por falta de información del proyecto.' }
     const answered = catalogCoversFragment(fragment, request?.fact_key, audit)
     const question = text(clarification.text)
     // The independent reviewer identifies the current requests clarified by the
