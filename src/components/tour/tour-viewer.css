@@ -927,6 +927,27 @@ html.tour-is-force-landscape body {
   overflow-y: auto;
 }
 
+.tour-ficha-footer {
+  box-sizing: border-box;
+  height: 44px;
+  max-height: 44px;
+  min-height: 44px;
+}
+
+.tour-ficha-pdf,
+.tour-ficha-share-btn {
+  box-sizing: border-box;
+  height: 44px;
+  max-height: 44px;
+  min-height: 44px;
+}
+
+.tour-ficha-share-btn {
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+}
+
 .tour-ficha-shorthead {
   display: none;
 }
@@ -997,6 +1018,14 @@ html.tour-is-force-landscape body {
     height: 44px;
     max-height: 44px;
     min-height: 44px;
+    flex: 1 1 auto;
+  }
+
+  .tour-ficha-footer > .tour-ficha-share-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    max-height: 44px;
   }
 
   .tour-ficha-share {

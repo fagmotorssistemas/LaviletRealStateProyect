@@ -17,6 +17,7 @@ import {
   Rotate3d,
   Images,
   Ruler,
+  Share2,
   X,
 } from 'lucide-react'
 import { UNIT_STATUS_OPTIONS, type UnitStatus } from '@/types/inmobiliaria'
@@ -366,6 +367,29 @@ export function TourFichaDrawer({
       toast.error(t('No se pudo generar la ficha'))
     } finally {
       setPdfBusy(false)
+    }
+  }
+
+  const onShare = async () => {
+    if (!unit) return
+    const { buildUnitShareUrl } = await import('@/lib/tour/unitDeepLink')
+    const url = buildUnitShareUrl(unit.unit_number, { locale })
+    const title = `La Vilet · ${t(`Unidad ${unit.unit_number}`)}`
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share({ title, url, text: url })
+        return
+      }
+      await navigator.clipboard.writeText(url)
+      toast.success(t(`Enlace de la unidad ${unit.unit_number} copiado`))
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      try {
+        await navigator.clipboard.writeText(url)
+        toast.success(t(`Enlace de la unidad ${unit.unit_number} copiado`))
+      } catch {
+        toast.error(t('No se pudo copiar el enlace'))
+      }
     }
   }
 
@@ -723,15 +747,23 @@ export function TourFichaDrawer({
                 </div>
 
                 {expanded ? (
-                  <div className="tour-ficha-footer shrink-0 border-t border-[#2B1A18]/8 bg-white">
+                  <div className="tour-ficha-footer flex h-11 max-h-11 shrink-0 border-t border-[#2B1A18]/8 bg-white">
                     <button
                       type="button"
                       disabled={pdfBusy}
                       onClick={() => void onDownloadPdf()}
-                      className="tour-ficha-pdf flex h-11 w-full items-center justify-center gap-1.5 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
+                      className="tour-ficha-pdf flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
                     >
                       <Download size={14} strokeWidth={2} />
                       {t(pdfBusy ? 'Generando…' : 'Descargar PDF')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onShare()}
+                      className="tour-ficha-share-btn flex h-11 w-11 shrink-0 items-center justify-center border-l border-[#2B1A18]/12 bg-white text-[#2B1A18]"
+                      aria-label={t('Compartir')}
+                    >
+                      <Share2 size={16} strokeWidth={1.75} />
                     </button>
                   </div>
                 ) : (

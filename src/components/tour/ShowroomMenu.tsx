@@ -106,7 +106,7 @@ export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,
  const [content,setContent]=useState(false)
  const [open,setOpen]=useState(false),[section,setSection]=useState<Section>('home')
  const {locale:lang,setLocale:setLang,t:translate}=useTourLanguage()
- const [filters,setFilters]=useState(emptyUnitFilters),[full,setFull]=useState(false),[notice,setNotice]=useState(''),[share,commitShare]=useState<TourUnitSummary|null>(null),[qr,setQr]=useState(''),[ios,setIos]=useState(isIosShowroom),[homeHint,setHomeHint]=useState(false)
+ const [filters,setFilters]=useState(emptyUnitFilters),[full,setFull]=useState(false),[notice,setNotice]=useState(''),[share,commitShare]=useState<TourUnitSummary|null>(null),[qr,setQr]=useState(''),[ios,setIos]=useState(false),[homeHint,setHomeHint]=useState(false)
  const shareUrl=share?publicShowroomUrl(share.unit_number,UNIT_MODEL_ORIGIN)+(lang==='en'?'&lang=en':''):''
  const setShare=(unit:TourUnitSummary|null)=>{setQr('');commitShare(unit)}
  const router=useRouter()

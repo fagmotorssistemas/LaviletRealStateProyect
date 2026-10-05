@@ -1266,6 +1266,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const lastStillRef = useRef<string | null>(null)
   const stillScopeRef = useRef('')
   const viewModeRef = useRef(viewMode)
+  const moreActionsRef = useRef<HTMLDetailsElement>(null)
   const desiredPanoRef = useRef<string | null>(null)
   const shownPanoRef = useRef('')
   const steppedPanoRef = useRef<{ requested: string; shown: string } | null>(null)
@@ -1280,6 +1281,24 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const walkToRef = useRef<Position | null>(null)
   const walkingRef = useRef(false)
   const lookPromiseRef = useRef<PromiseLike<boolean> | null>(null)
+
+  useEffect(() => {
+    if (moreActionsRef.current?.open) moreActionsRef.current.open = false
+  }, [viewMode, selectedUnitId, room])
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const root = moreActionsRef.current
+      if (!root?.open) return
+      const target = event.target
+      if (!(target instanceof Node) || root.contains(target)) return
+      const secondary = root.parentElement?.querySelector('.tour-actions-secondary')
+      if (secondary?.contains(target)) return
+      root.open = false
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [])
 
   const preloadUrls = useCallback((viewer: Viewer, urls: string[]) => {
     if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return
@@ -1602,9 +1621,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         setPanoRevealed(false)
       })
       viewer.container.addEventListener('webglcontextrestored', () => {
-        const before = currentUrlRef.current
-        stepDownPanorama()
-        if (currentUrlRef.current !== before) return
         const recovering = currentUrlRef.current
         if (!recovering) return
         shownPanoRef.current = ''
@@ -1614,7 +1630,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           shownPanoRef.current = recovering
           revealTourRef.current(recovering)
         }).catch(() => {
-          setPanoRevealed(false)
+          stepDownPanorama()
         })
       })
 
@@ -3948,7 +3964,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {showUnitChrome && !fichaOpen && !navChooserOpen ? (
         <div className="tour-unit-actions absolute right-[max(0.5rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-1.5 sm:right-[max(0.75rem,env(safe-area-inset-right))] sm:gap-2">
-          <div className="tour-actions-secondary">
+          <div
+            className="tour-actions-secondary"
+            onClick={() => {
+              if (moreActionsRef.current?.open) moreActionsRef.current.open = false
+            }}
+          >
           {!isComparador && !isFinishCompare && !voiceAssistOpen ? (
                   <button
                     type="button"
@@ -4024,7 +4045,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             </a>
           ) : null}
           </div>
-          <details className="tour-actions-more">
+          <details ref={moreActionsRef} className="tour-actions-more">
             <summary className="tour-glass inline-flex h-11 items-center gap-1 px-2.5 text-[10px] font-semibold tracking-[0.12em] text-[#f7f3ee] uppercase">
               <MoreHorizontal size={16} strokeWidth={1.75} />
               {t('Más')}
