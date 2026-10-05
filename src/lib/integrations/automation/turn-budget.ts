@@ -89,7 +89,7 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
   const partners = Array.isArray(object(verified.financiamiento).partners)
     ? (object(verified.financiamiento).partners as unknown[]).map(text).filter(Boolean) : []
   const clarifyBudgetBasis = !!currentDeclaration && budget.status === 'amount' && !matching.length
-    && !alternatives.length && prices.length > 0 && !financeAccepted
+    && !alternatives.length && priceComplete && prices.length > 0 && !financeAccepted
   const continuation = financeAccepted ? 'continue_property_selection' : clarifyBudgetBasis ? partners.length && !financeDeclined ? 'offer_financing' : 'explain_budget_gap'
     : matching.length ? 'present_affordable_options' : alternatives.length ? 'present_affordable_alternatives'
     : priceComplete && units.length ? partners.length && !financeDeclined ? 'offer_financing' : 'explain_budget_gap'

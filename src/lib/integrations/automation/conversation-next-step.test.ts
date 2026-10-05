@@ -36,7 +36,10 @@ test('a broad offer retains all category ranges without sending every unit to th
   assert.deepEqual(input, before)
   assert.equal(evidence.units.length, units.length, 'Full canonical evidence remains available to validation.')
   const off = { ...input, catalog_search: { embeddingsEnabled: false } }
-  assert.equal(taskVerifiedContext(off, {}, '¿Qué ofrece?'), off)
+  const withoutRanking = taskVerifiedContext(off, {}, '¿Qué ofrece?')
+  assert.deepEqual(taskModelEvidence(turnEvidence(withoutRanking), withoutRanking).groups, model.groups)
+  assert.equal(taskModelEvidence(turnEvidence(withoutRanking), withoutRanking).units.length, 0)
+  assert.ok(model.groups.every(group => group.aggregation === 'range' && !('member_ids' in group)))
 })
 
 test('a concrete feature request cannot be reduced to a generic price overview', () => {

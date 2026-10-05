@@ -578,7 +578,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (['ask_price', 'request_reservation', 'ask_reservation'].includes(turnIntent.objective)) turnSemantics.primary_intent = turnIntent.objective
   trace.add('turn_intent', 'Resolver objetivo compartido del turno', 'decision', 'turn-intent.ts', 'succeeded',
     { classifier_scope: classifiedScope, extractor_intent: interpretation.diagnostic.primary_intent }, turnIntent)
-  turnSemantics.requests = interpretation.requests
+  turnSemantics.requests = turnIntent.requests
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: process.env.OPENAI_MODEL,
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
   const categoryPreference = preferredPropertyCategory(current, turnSemantics)
@@ -1356,7 +1356,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const info: Row = scopeOnlyReview
       ? { ...scopePolicyContext({ ...commercialInfo, financiamiento: finance, semantica_turno: currentSemantics,
         property_context: propertyTurn.context, referencia_unidad: propertyTurn,
-        solicitudes_interpretadas: interpretation.requests }, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
+        solicitudes_interpretadas: turnIntent.requests }, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
       : { ...commercialInfo, alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       ...(scopeContract ? { limite_alcance: scopeContract } : {}),
       estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
@@ -1365,7 +1365,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       contrato_turno: turnIntent,
       perfil_lead: summary._lead_profile,
       recorrido_comercial: summary._commercial_journey || {},
-      solicitudes_interpretadas: interpretation.requests,
+      solicitudes_interpretadas: turnIntent.requests,
       catalogo_verificacion: commercialInfo.catalogo,
       ...(audit.verified_catalog === true ? {
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }

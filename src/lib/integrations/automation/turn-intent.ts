@@ -4,24 +4,43 @@ import { normalizedReservation } from './turn-semantics'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 
+/** Resolve duplicate classifiers only when both cite the same current fragment.
+ * A neutral scope is not contrary evidence, but mixed/foreign/uncertain scope,
+ * pending requests and multiple requests must retain their independent domains. */
+function reconciledInformationRequest(input: { current: string; semantics: Row; requests: Row[]; scope: Row }, reservation: Row): Row | null {
+  if (input.semantics.primary_intent !== 'project_information' || input.semantics.confidence !== 'high'
+    || !['neutral', 'property'].includes(text(input.scope.kind)) || input.scope.uncertain !== false
+    || text(input.scope.outside_evidence).trim() || reservation.kind !== 'none' || input.requests.length !== 1) return null
+  const request = input.requests[0]
+  if (request.domain !== 'other' || request.confidence !== 'high' || request.source === 'pending' || request.source_message_id) return null
+  const primaryEvidence = text(input.semantics.primary_evidence).trim(), requestEvidence = text(request.evidence).trim()
+  const normalizedLiteral = (value: string) => value.normalize('NFKC').toLowerCase()
+  if (!primaryEvidence || primaryEvidence.length > 240 || !requestEvidence || requestEvidence.length > 500
+    || normalizedLiteral(primaryEvidence) !== normalizedLiteral(requestEvidence)
+    || !normalizedLiteral(input.current).includes(normalizedLiteral(primaryEvidence))) return null
+  return { ...request, domain: 'property' }
+}
+
 /** Shared interpretation, not permission to execute an appointment or financing action. */
 export function resolveTurnIntent(input: { current: string; history?: unknown; semantics: Row; requests: Row[]; scope: Row; previous?: unknown; profilePending?: boolean; pendingQuestion?: unknown }) {
   const previous = object(input.previous), property = object(input.semantics.property)
   const answer = object(input.semantics.answer_to_previous), pending = object(input.pendingQuestion)
   const confidentIntent = input.semantics.confidence === 'high' && !['', 'other'].includes(text(input.semantics.primary_intent))
   const reservation = normalizedReservation(input.semantics.reservation, input.current)
+  const reconciledRequest = reconciledInformationRequest(input, reservation)
+  const requests = reconciledRequest ? [reconciledRequest] : input.requests
   const reservationObjective = reservation.kind === 'request' ? 'request_reservation' : reservation.kind === 'information' ? 'ask_reservation' : null
   const lexicalPrice = asksUnitPrice(input.current, true)
   const propertyPriceFallback = !confidentIntent && lexicalPrice && /\b(?:suites?|departamentos?|apartamentos?|penthouses?|local(?:es)?(?: comerciales?)?)\b/i.test(input.current)
   const interpretedProperty = input.semantics.confidence === 'high' && (reservationObjective
-    || input.requests.some(request => request.domain === 'property' && request.confidence === 'high'))
+    || requests.some(request => request.domain === 'property' && request.confidence === 'high'))
   const inScope = !input.scope.uncertain && (['property', 'mixed'].includes(text(input.scope.kind))
     || input.scope.kind === 'neutral' && (interpretedProperty || propertyPriceFallback))
   const explicitPrice = inScope && (input.semantics.primary_intent === 'ask_price' || !confidentIntent && lexicalPrice)
-  const requestsPrice = input.requests.some(request => request.domain === 'property' && request.confidence === 'high' && asksUnitPrice(text(request.request), true))
+  const requestsPrice = requests.some(request => request.domain === 'property' && request.confidence === 'high' && asksUnitPrice(text(request.request), true))
   const categoryAnswer = ['select_property', 'answer_previous'].includes(text(input.semantics.primary_intent))
     && property.confidence === 'high' && (text(property.category) || Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0)
-    && !input.requests.some(request => request.confidence === 'high' && !['property', 'courtesy'].includes(text(request.domain)))
+    && !requests.some(request => request.confidence === 'high' && !['property', 'courtesy'].includes(text(request.domain)))
   // A legacy conversation may predate the durable contract. Require both the
   // current interpreted price request and a recent customer's price request.
   const recentClients = rows(input.history).filter(row => ['cliente', 'user'].includes(text(row.role)) && text(row.content) !== input.current).slice(-2)
@@ -37,10 +56,13 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const requiredFacts = inScope && (objective === 'ask_price' || requestsPrice) ? ['price'] : []
   const preserveDuringProfile = inScope && input.profilePending && !requiredFacts.length
     && ['other', 'answer_previous'].includes(objective)
-    && !input.requests.some(request => ['visit', 'financing'].includes(text(request.domain)))
+    && !requests.some(request => ['visit', 'financing'].includes(text(request.domain)))
   const interpretationSource = reservationObjective && inScope ? 'current_reservation' : inheritedPrice ? 'clarification_of_price_request'
     : confidentIntent ? 'extractor' : explicitPrice ? 'lexical_fallback' : 'current_turn'
   const decisions = [...rows(object(input.semantics.interpretation).decisions)]
+  if (reconciledRequest) decisions.push({ code: 'request_domain_reconciled_from_current_project_information',
+    source: 'primary_intent', original_domain: 'other', canonical_domain: 'property',
+    canonical_intent: objective, evidence: reconciledRequest.evidence })
   if (inScope && propertyPriceFallback && input.scope.kind === 'neutral') decisions.push({ code: 'neutral_scope_property_price_fallback', canonical_intent: objective })
   if (confidentIntent && lexicalPrice && input.semantics.primary_intent !== 'ask_price') decisions.push({ code: 'extractor_intent_precedes_price_keywords',
     extractor_intent: input.semantics.primary_intent, canonical_intent: objective })
@@ -63,7 +85,7 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
       unit_numbers: reservationObjective && Array.isArray(reservation.unit_numbers) && reservation.unit_numbers.length ? reservation.unit_numbers : property.unit_numbers || [],
       filters: object(property.filters) },
     needs_reference: objective === 'ask_price' && !property.category && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length),
-    requests: input.requests,
+    requests,
     scope: { kind: inScope && input.scope.kind === 'neutral' ? 'property' : input.scope.kind, reason: input.scope.reason || null, outside_evidence: input.scope.outside_evidence || null },
     pending_question: input.pendingQuestion || null,
     profile_pending: input.profilePending === true,

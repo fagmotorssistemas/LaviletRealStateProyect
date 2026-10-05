@@ -3,6 +3,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 require('./test-typescript.cjs')
 const { resolveTurnIntent, turnIntentIssues } = require('../src/lib/integrations/automation/turn-intent.ts')
+const { EXTRACTION_REQUEST_RULES } = require('../src/lib/integrations/automation/extraction-request-rules.ts')
 
 const scope = { kind: 'property', uncertain: false }
 const request = (value, domain = 'property') => ({ request: value, domain, confidence: 'high' })
@@ -172,4 +173,107 @@ test('a legacy neutral turn with an explicit property price question still retai
   for (const scope of [{ kind: 'out_of_scope' }, { kind: 'neutral', uncertain: true }]) {
     assert.deepEqual(resolveTurnIntent({ current, scope, semantics: { primary_intent: 'other', confidence: 'low' }, requests: [] }).required_facts, [])
   }
+})
+
+const informationalContradiction = current => ({ current, scope: { kind: 'neutral', uncertain: false, outside_evidence: null },
+  semantics: { primary_intent: 'project_information', primary_evidence: current, confidence: 'high' },
+  requests: [{ request: 'Comprender la información presentada', domain: 'other', confidence: 'high', evidence: current }] })
+
+test('one current evidenced project-information request reconciles its contradictory domain without vocabulary matching', () => {
+  for (const current of ['¿Para qué sirve eso que me ofrece?', '¿Qué significa ese concepto?', 'Explíqueme ese material', '¿En qué consiste ese servicio?']) {
+    const input = informationalContradiction(current)
+    input.semantics.interpretation = { decisions: [{ code: 'previous_normalization' }] }
+    const original = structuredClone(input)
+    const result = resolveTurnIntent(input)
+    assert.equal(result.objective, 'project_information')
+    assert.equal(result.scope.kind, 'property')
+    assert.equal(result.requests[0].domain, 'property')
+    assert.equal(result.requests[0].request, input.requests[0].request)
+    assert.equal(result.requests[0].evidence, current)
+    assert.equal(result.current_message, current)
+    assert.equal(result.requested_action, null)
+    assert.equal(result.continuation_goal, null)
+    assert.deepEqual(result.required_facts, [])
+    assert.deepEqual(input, original, 'reconciliation must not overwrite original extraction')
+    assert.equal(result.interpretation.decisions[0].code, 'previous_normalization')
+    assert.deepEqual(result.interpretation.decisions[1], {
+      code: 'request_domain_reconciled_from_current_project_information', source: 'primary_intent',
+      original_domain: 'other', canonical_domain: 'property', canonical_intent: 'project_information', evidence: current,
+    })
+  }
+})
+
+test('an existing property scope also reconciles the same informational request without changing its literal evidence', () => {
+  const input = informationalContradiction('¿Para qué me ayuda esto?')
+  input.scope = { kind: 'property', uncertain: false }
+  input.requests[0].evidence = '¿PARA QUÉ ME AYUDA ESTO?'
+  const result = resolveTurnIntent(input)
+  assert.equal(result.requests[0].domain, 'property')
+  assert.equal(result.requests[0].evidence, input.requests[0].evidence)
+})
+
+test('uncertain, mixed and foreign scope keep independent request domains despite a confident informational intent', () => {
+  for (const scope of [
+    { kind: 'neutral', uncertain: true }, { kind: 'neutral' }, { kind: 'mixed', uncertain: false },
+    { kind: 'out_of_scope', uncertain: false }, { kind: 'other', uncertain: false },
+    { kind: 'neutral', uncertain: false, outside_evidence: 'El servicio es de otro negocio' },
+  ]) {
+    const input = { ...informationalContradiction('¿Cómo funciona ese servicio?'), scope }
+    const result = resolveTurnIntent(input)
+    assert.deepEqual(result.requests, input.requests)
+    assert.ok(!result.interpretation.decisions.some(item => item.code === 'request_domain_reconciled_from_current_project_information'))
+    assert.equal(result.scope.kind, scope.kind)
+  }
+})
+
+test('low certainty, genuine other intents and action intents do not receive informational-domain reconciliation', () => {
+  for (const [primary_intent, confidence, requestConfidence] of [
+    ['project_information', 'medium', 'high'], ['project_information', 'low', 'high'],
+    ['project_information', 'high', 'medium'], ['project_information', 'high', 'low'],
+    ['other', 'high', 'high'], ['request_visit', 'high', 'high'], ['ask_financing', 'high', 'high'],
+  ]) {
+    const input = informationalContradiction('¿Cómo funciona ese servicio?')
+    input.semantics = { ...input.semantics, primary_intent, confidence }
+    input.requests[0].confidence = requestConfidence
+    const result = resolveTurnIntent(input)
+    assert.equal(result.requests[0].domain, 'other')
+    assert.equal(result.scope.kind, 'neutral')
+    assert.equal(result.requested_action, null)
+  }
+})
+
+test('multiple questions and separate current evidence preserve the extractor requests instead of folding them into the primary intent', () => {
+  for (const requests of [
+    [{ request: 'Entender el servicio', domain: 'other', confidence: 'high', evidence: '¿Cómo funciona?' },
+      { request: 'Consultar otro tema', domain: 'other', confidence: 'high', evidence: '¿Cuánto tarda?' }],
+    [{ request: 'Consultar duración', domain: 'other', confidence: 'high', evidence: '¿Cuánto tarda?' }],
+  ]) {
+    const input = { ...informationalContradiction('¿Cómo funciona? ¿Cuánto tarda?'), requests }
+    input.semantics.primary_evidence = '¿Cómo funciona?'
+    const result = resolveTurnIntent(input)
+    assert.deepEqual(result.requests, requests)
+    assert.equal(result.scope.kind, 'neutral')
+  }
+})
+
+test('pending, stale and absent evidence cannot become a new property-information request', () => {
+  const inputs = [
+    { ...informationalContradiction('¿Cómo funciona?'), semantics: { primary_intent: 'project_information', confidence: 'high' } },
+    { ...informationalContradiction('Gracias'), semantics: { primary_intent: 'project_information', primary_evidence: '¿Cómo funciona?', confidence: 'high' },
+      requests: [{ request: 'Entender el servicio', domain: 'other', confidence: 'high', evidence: '¿Cómo funciona?' }] },
+    { ...informationalContradiction('¿Cómo funciona?'), requests: [{ request: 'Entender el servicio', domain: 'other', confidence: 'high' }] },
+    { ...informationalContradiction('¿Cómo funciona?'), requests: [{ request: 'Entender el servicio', domain: 'other', confidence: 'high', evidence: '¿Cómo funciona?', source: 'pending' }] },
+    { ...informationalContradiction('¿Cómo funciona?'), requests: [{ request: 'Entender el servicio', domain: 'other', confidence: 'high', evidence: '¿Cómo funciona?', source_message_id: 'previous-message' }] },
+  ]
+  for (const input of inputs) {
+    const result = resolveTurnIntent(input)
+    assert.deepEqual(result.requests, input.requests)
+    assert.equal(result.scope.kind, 'neutral')
+    assert.equal(result.requested_action, null)
+  }
+})
+
+test('the extraction contract keeps informational concept requests in property without implying operational consent', () => {
+  assert.match(EXTRACTION_REQUEST_RULES, /concepto, material o servicio inmobiliario presentado pertenece a property y project_information/)
+  assert.match(EXTRACTION_REQUEST_RULES, /Informarse sobre un servicio no solicita iniciarlo ni autoriza gestiones/)
 })

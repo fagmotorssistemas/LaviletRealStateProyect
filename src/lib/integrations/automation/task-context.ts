@@ -3,15 +3,25 @@ import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { compactCatalogUnit } from './catalog-result'
 import { relevantFacts, selectPolicies } from './semantic-catalog-context'
 import { selectedFinancingUnit } from './financing-stage'
+import { leadBudget } from './budget-state'
 import { turnEvidence } from './turn-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
+const hasValues = (value: unknown): boolean => value != null && value !== false && value !== ''
+  && (Array.isArray(value) ? value.some(hasValues)
+    : typeof value === 'object' ? Object.values(object(value)).some(hasValues) : true)
 
 /** Context selection is independent of whether vector ranking is enabled.
  * Operational state and database snapshots are never changed by this projection. */
 export function taskVerifiedContext(verified: Row, audit: Row, current: string): Row {
   const intent = object(audit.resolved_turn_intent || verified.contrato_turno)
-  const requests = rows(verified.solicitudes_interpretadas || intent.requests).filter(r => r.domain !== 'courtesy')
+  const interpretedRequests = rows(verified.solicitudes_interpretadas), sharedRequests = rows(intent.requests)
+  // Use canonical domains without discarding any additional independent request
+  // in older contexts whose shared contract is incomplete.
+  const requestIdentity = (request: Row) => JSON.stringify([request.request, request.evidence, request.source, request.source_message_id])
+  const sharedIdentities = new Set(sharedRequests.map(requestIdentity))
+  const requests = [...sharedRequests, ...interpretedRequests.filter(request => !sharedIdentities.has(requestIdentity(request)))]
+    .filter(r => r.domain !== 'courtesy')
   const domains = new Set(requests.map(r => text(r.domain)))
   const source = text(audit.source)
   const semantics = object(verified.semantica_turno), property = object(semantics.property)
@@ -19,18 +29,47 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   const finance = domains.size === 1 && domains.has('financing') || /^financing/.test(source)
   const collectionOnly = !!audit.financing_collection && !domains.has('visit') && !domains.has('property')
   const budget = object(object(verified.semantica_turno).budget)
+  const effectiveBudget = leadBudget(verified)
   const newBudget = budget.confidence === 'high' && ['amount', 'maximum_total'].includes(text(budget.status))
   const financeOnly = collectionOnly || finance && !domains.has('property') && !domains.has('visit')
     && source !== 'financing_selection_required' && !newBudget
   const generalPrice = source === 'unit_price' && !rows(verified.referencia_unidad && object(verified.referencia_unidad).matches).length
     && !rows(object(verified.property_context).selected_ids).length
-  const overview = source === 'project_overview' && ['project_information', 'other'].includes(text(intent.objective))
   const catalogRequest = object(semantics.catalog_request || verified.catalog_request)
-  const broadInformation = !finance && !newBudget && domains.size <= 1 && !query.category && !query.group
+  // Classification has already been reconciled in the shared turn contract.
+  // Catalogue needs and compound requests take precedence over the route.
+  const overview = source === 'project_overview' && intent.objective === 'project_information'
+    && semantics.primary_intent === 'project_information' && semantics.confidence === 'high'
+    && requests.length === 1 && requests[0].confidence === 'high' && requests[0].domain === 'property'
+    && !finance && (!budget.status || budget.status === 'not_discussed') && effectiveBudget.status === 'not_discussed'
+    && !hasValues(intent.required_facts) && !hasValues(intent.subject)
+    && !['mixed', 'out_of_scope', 'uncertain', 'clarify_scope'].includes(text(object(intent.scope).kind))
+    && !Object.keys(object(verified.limite_alcance)).length
+    && (!catalogRequest.purpose || catalogRequest.purpose === 'none')
+    && !hasValues(catalogRequest.metric) && !hasValues(catalogRequest.requirements) && !hasValues(catalogRequest.semantic_preferences)
+    && property.operation === 'none' && property.reference_kind === 'none'
+    && !['category', 'group', 'unit_numbers', 'filters', 'filter_evidence', 'selector', 'excluded_categories'].some(key => hasValues(property[key]))
+    && !hasValues(semantics.housing_quantities) && !hasValues(semantics.household)
+    && !hasValues(query.category) && !hasValues(query.group) && !hasValues(query.filters)
+    && !hasValues(query.selector) && !hasValues(query.requirements)
+    && (!query.operation || query.operation === 'none')
+    && !['selected_ids', 'comparison_ids', 'offered_ids', 'focused_ids'].some(key => hasValues(context[key]))
+    && !text(object(verified.lead).unit_id)
+    && !hasValues(object(verified.referencia_unidad).matches) && object(verified.referencia_unidad).needsClarification !== true
+  const broadInformation = !finance && !newBudget && domains.size <= 1 && requests.length === 1 && requests[0].domain === 'property'
+    && (!requests[0].confidence || requests[0].confidence === 'high') && (!semantics.confidence || semantics.confidence === 'high')
+    && (!budget.status || budget.status === 'not_discussed') && effectiveBudget.status === 'not_discussed' && !hasValues(intent.required_facts)
+    && !text(object(verified.lead).unit_id)
+    && !query.category && !query.group && (!query.operation || ['none', 'search'].includes(text(query.operation)))
     && !rows(context.selected_ids).length && !rows(property.unit_numbers).length
     && (!catalogRequest.purpose || catalogRequest.purpose === 'none') && !rows(catalogRequest.requirements).length
+    && !hasValues(catalogRequest.metric) && !hasValues(catalogRequest.semantic_preferences)
+    && !hasValues(query.filters) && !hasValues(query.requirements) && !hasValues(query.selector)
+    && !hasValues(property.filters) && !hasValues(property.selector) && !hasValues(property.excluded_categories)
+    && !hasValues(semantics.housing_quantities) && !hasValues(semantics.household)
+    && !['mixed', 'out_of_scope', 'uncertain', 'clarify_scope'].includes(text(object(intent.scope).kind))
+    && !Object.keys(object(verified.limite_alcance)).length
     && property.reference_kind === 'none' && property.operation === 'none' && semantics.primary_intent === 'project_information'
-  const hasValues = (value: unknown) => Object.values(object(value)).some(v => v != null && v !== false && v !== '' && (!Array.isArray(v) || v.length > 0))
   // A broad residential/commercial/category introduction needs complete groups,
   // not every floor plan. Specific requirements, comparisons and preferences
   // retain their detailed evidence, even while the next step asks for bedrooms.
@@ -153,13 +192,13 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     groups = groups.map(group => ({ ...Object.fromEntries(Object.entries(group).filter(([key]) => keep.has(key))),
       ...(group.upper_values ? { upper_values:Object.fromEntries(Object.entries(object(group.upper_values)).filter(([key]) => needed.has(key))) } : {}) }))
   }
-  if (selection.task === 'category_overview') {
+  if (['category_overview', 'catalog_overview'].includes(text(selection.task))) {
     return { ...evidence, units: [], groups: groups.filter(group => group.aggregation === 'range').map(group => {
       const { member_ids, ...aggregate } = group
       return { ...aggregate, member_count: Array.isArray(member_ids) ? member_ids.length : 0,
         unit_count: group.unit_count ?? (Array.isArray(member_ids) ? member_ids.length : 0) }
     }), catalog_summary: catalogOverviewSummary(object(evidence).catalog_summary), query_result_ids: [],
-    model_scope: { task: 'category_overview', listed_unit_count: 0, evidence_unit_count: evidence.units.length,
+    model_scope: { task: selection.task, listed_unit_count: 0, evidence_unit_count: evidence.units.length,
       query, note: 'Presentación general de los tipos de espacio consultados. Los grupos se calcularon sobre todas las coincidencias; se omitieron fichas y listas de identificadores. Use las categorías y dormitorios para orientar y formular el siguiente paso. No atribuya distribuciones internas a partir de este resumen.' } } as T
   }
   return { ...evidence, units: units.map(unit => ({ ...compactCatalogUnit(unit, object(verified.politica_comercial).precios_autorizados === true), query_role: roleOf(unit) })),
