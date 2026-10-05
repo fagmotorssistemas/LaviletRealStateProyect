@@ -22,6 +22,8 @@ test('dynamic labels, room names and status translate without altering codes, nu
   assert.equal(translateTourText('Disponible', 'es'), 'Disponible')
   assert.equal(translateTourText('DORMITORIOS', 'en'), 'BEDROOMS')
   assert.equal(buildFichaSpecRows(units[0], 'en')[0].value, '87.97 m²')
+  assert.equal(buildFichaSpecRows({ ...units[0], area_exterior_m2: 0, area_terrace_covered_m2: null, area_terrace_open_m2: 0 }, 'es').some(row => row.label === 'Superficie exterior' || row.label === 'Superficie semi cub.' || row.label === 'Terraza descubierta'), false)
+  assert.equal(buildFichaSpecRows({ ...units[0], area_exterior_m2: 12 }, 'es').some((row) => row.value === '12 m²'), true)
 })
 
 test('shared links carry language; switching units preserves language, view hash and router state', () => {

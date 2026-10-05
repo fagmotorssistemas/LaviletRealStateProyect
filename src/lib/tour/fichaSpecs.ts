@@ -63,13 +63,13 @@ export function buildFichaSpecRows(unit: TourUnitSummary, locale: TourLocale = '
   if (internal != null) {
     rows.push({ label: 'Superficie cubierta', value: area(internal) })
   }
-  if (unit.area_exterior_m2 != null) {
+  if (unit.area_exterior_m2 != null && unit.area_exterior_m2 > 0) {
     rows.push({ label: 'Superficie exterior', value: area(unit.area_exterior_m2) })
   }
-  if (unit.area_terrace_covered_m2 != null) {
+  if (unit.area_terrace_covered_m2 != null && unit.area_terrace_covered_m2 > 0) {
     rows.push({ label: 'Superficie semi cub.', value: area(unit.area_terrace_covered_m2) })
   }
-  if (unit.area_terrace_open_m2 != null) {
+  if (unit.area_terrace_open_m2 != null && unit.area_terrace_open_m2 > 0) {
     rows.push({ label: 'Terraza descubierta', value: area(unit.area_terrace_open_m2) })
   }
   rows.push(

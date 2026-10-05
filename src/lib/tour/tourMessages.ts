@@ -119,7 +119,7 @@ export const tourEnglish: Record<string, string> = {
   'Aún no hay fotos de amenidades.': 'No amenity photos have been added yet.',
   'Aún no hay planos en esta tipología.': 'No floor plans are available for this layout yet.', 'Reintentar': 'Try again',
   'Abrir asistente de voz': 'Open voice assistant', 'Asistente de voz': 'Voice assistant', 'Abrir modos de vista': 'Open view modes',
-  'Modos': 'View modes', 'Volver a los pisos': 'Back to floors', 'Menú': 'Menu', 'Pisos': 'Floors', 'Ficha': 'Details', 'Financiar': 'Finance',
+  'Modos': 'View modes', 'Volver a los pisos': 'Back to floors', 'Menú': 'Menu', 'Más': 'More', 'Pisos': 'Floors', 'Ficha': 'Details', 'Financiar': 'Finance',
   'Cargando': 'Loading', 'Ver favoritos': 'View favorites', 'Cambiar control del tour': 'Change tour controls',
   'Cambiar entre giroscopio y dedo': 'Switch between motion and touch controls', 'Dedo': 'Touch',
   'Prueba el asistente de voz': 'Try the voice assistant', 'Dile qué necesitas': 'Tell it what you need', '¿No sabes por dónde empezar?': 'Not sure where to start?',

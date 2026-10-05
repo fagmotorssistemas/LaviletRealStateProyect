@@ -4,7 +4,7 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
-import { floorPlanLevelLabel, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
+import { floorPlanLevelLabel, floorPlanLevelShort, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import { fetchFloorPlanDoc, versionedFloorPlanUrl } from '@/lib/tour/floorPlanClientCache'
 import type { FloorPlanZonesDoc } from '@/lib/tour/floorPlanZones'
 import {
@@ -16,6 +16,7 @@ import {
 } from '@/lib/tour/floorPlanZones'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
+import { MapPin } from 'lucide-react'
 
 type TourFloorLocationPeekProps = {
   unit: TourUnitSummary | null
@@ -187,15 +188,25 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
           })
         }}
         className={cn(
-          'origin-bottom-right overflow-hidden rounded-2xl bg-[#1a1714] ring-1 ring-white/20 transition-[width,transform,box-shadow] duration-300 ease-out',
+          'tour-floor-peek origin-bottom-right bg-[#1a1714] ring-1 ring-white/20 transition-[width,transform,box-shadow] duration-300 ease-out',
           grown
-            ? 'w-72 translate-y-[-8px] scale-105 shadow-[0_22px_50px_rgba(0,0,0,0.55)] sm:w-80 sm:translate-y-[-12px] sm:scale-110'
-            : 'w-28 shadow-[0_8px_24px_rgba(0,0,0,0.35)] sm:w-32',
+            ? 'w-72 translate-y-[-8px] scale-105 overflow-hidden rounded-2xl shadow-[0_22px_50px_rgba(0,0,0,0.55)] sm:w-80 sm:translate-y-[-12px] sm:scale-110'
+            : coarsePointer
+              ? 'inline-flex h-11 items-center gap-1.5 rounded-full px-3 shadow-[0_8px_24px_rgba(0,0,0,0.35)]'
+              : 'w-28 overflow-hidden rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.35)] sm:w-32',
         )}
-        style={{ aspectRatio: `${planW} / ${planH}` }}
+        style={grown || !coarsePointer ? { aspectRatio: `${planW} / ${planH}` } : undefined}
         aria-label={t(`Ubicación en ${floor != null ? floorPlanLevelLabel(floor) : 'piso'} · Unidad ${unit.unit_number}`)}
         aria-expanded={grown}
       >
+        {coarsePointer && !grown ? (
+          <>
+            <MapPin size={15} strokeWidth={1.75} className="shrink-0 text-[#E8D9C0]" aria-hidden />
+            <span className="text-[11px] font-semibold tracking-wide whitespace-nowrap text-white">
+              {t('Piso')} {floor != null ? floorPlanLevelShort(floor) : ''}
+            </span>
+          </>
+        ) : (
         <div className="relative h-full w-full">
           <Image
             key={planImageUrl}
@@ -243,11 +254,12 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
               )}
             >
               {t(grown
-                ? `Unidad ${unit.unit_number}${floor != null ? ` · ${floorPlanLevelLabel(floor)}` : ''}`
+                ? `Unidad ${unit.unit_number}${floor != null ? ` · ${floorPlanLevelShort(floor)}` : ''}`
                 : 'Ubicación en piso')}
             </p>
           </div>
         </div>
+        )}
       </button>
     </div>
   )

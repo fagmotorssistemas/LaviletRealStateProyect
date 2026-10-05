@@ -27,6 +27,7 @@ import {
   Menu,
   Bookmark,
   Mic,
+  MoreHorizontal,
   Rotate3d,
   SwatchBook,
 } from 'lucide-react'
@@ -716,6 +717,17 @@ function isIOSWebKit() {
   return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
 }
 
+function panoramaFallbackUrls(url: string): string[] {
+  const urls: string[] = []
+  let cursor: string | null = url
+  for (let step = 0; step < 3; step += 1) {
+    cursor = smallerTourUrl(cursor)
+    if (!cursor || urls.includes(cursor)) break
+    urls.push(cursor)
+  }
+  return urls
+}
+
 /** Libera WebGL de forma agresiva (recargas en iOS dejan contextos vivos y tumba el tab). */
 function disposeTourViewer(viewer: Viewer | null | undefined, container?: HTMLElement | null) {
   if (viewer) {
@@ -1256,6 +1268,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const viewModeRef = useRef(viewMode)
   const desiredPanoRef = useRef<string | null>(null)
   const shownPanoRef = useRef('')
+  const steppedPanoRef = useRef<{ requested: string; shown: string } | null>(null)
+  const panoRequestRef = useRef<string | null>(null)
+  const triedPanoRef = useRef(new Set<string>())
   const pendingPreloadUrlRef = useRef<string | null>(null)
   const preloadingRef = useRef(new Set<string>())
   const revealTourRef = useRef<(url: string) => void>(() => {})
@@ -1562,15 +1577,45 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         requestAnimationFrame(() => applyTourMarkersRef.current())
       })
 
-      const panoStepRef = { url: '' }
-      viewer.addEventListener(events.PanoramaErrorEvent.type, () => {
+      const stepDownPanorama = () => {
         const failed = currentUrlRef.current
         const next = smallerTourUrl(failed)
-        if (!next || next === failed || panoStepRef.url === next) return
-        panoStepRef.url = next
+        if (!next || next === failed || triedPanoRef.current.has(next)) return
+        triedPanoRef.current.add(next)
+        const requested = steppedPanoRef.current?.requested || panoRequestRef.current || failed
+        steppedPanoRef.current = { requested, shown: next }
         currentUrlRef.current = next
         desiredPanoRef.current = next
-        void viewer.setPanorama(next, { showLoader: false, transition: false }).catch(() => undefined)
+        shownPanoRef.current = ''
+        setPanoRevealed(false)
+        void viewer.setPanorama(next, { showLoader: false, transition: false }).then(() => {
+          if (currentUrlRef.current !== next) return
+          shownPanoRef.current = next
+          revealTourRef.current(next)
+        }).catch(() => {
+          setPanoRevealed(false)
+        })
+      }
+      viewer.addEventListener(events.PanoramaErrorEvent.type, stepDownPanorama)
+      viewer.container.addEventListener('webglcontextlost', (event) => {
+        event.preventDefault()
+        setPanoRevealed(false)
+      })
+      viewer.container.addEventListener('webglcontextrestored', () => {
+        const before = currentUrlRef.current
+        stepDownPanorama()
+        if (currentUrlRef.current !== before) return
+        const recovering = currentUrlRef.current
+        if (!recovering) return
+        shownPanoRef.current = ''
+        setPanoRevealed(false)
+        void viewer.setPanorama(recovering, { showLoader: false, transition: false }).then(() => {
+          if (currentUrlRef.current !== recovering) return
+          shownPanoRef.current = recovering
+          revealTourRef.current(recovering)
+        }).catch(() => {
+          setPanoRevealed(false)
+        })
       })
 
       viewer.addEventListener(events.PanoramaLoadedEvent.type, () => {
@@ -2006,7 +2051,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     { coarse: entryCoarse },
   )
   const activePanoUrl = urlForRoom(room) ?? (room === homeSlug ? typologyPanoUrl : null)
-  desiredPanoRef.current = activePanoUrl
+  const steppedLive = steppedPanoRef.current
+  desiredPanoRef.current =
+    steppedLive && activePanoUrl && steppedLive.requested === activePanoUrl
+      ? steppedLive.shown
+      : activePanoUrl
   revealTourRef.current = (url: string) => {
     if (viewModeRef.current !== 'tour' || !url || desiredPanoRef.current !== url || shownPanoRef.current !== url) return
     requestAnimationFrame(() => {
@@ -2812,12 +2861,19 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       return
     }
     const url = activePanoUrl
-    if (currentUrlRef.current === url) {
+    const stepped = steppedPanoRef.current
+    const showingFallback = stepped?.requested === url && currentUrlRef.current === stepped.shown
+    if (currentUrlRef.current === url || showingFallback) {
       walkingRef.current = false
       setPanoLeaving(false)
       applyTourMarkersRef.current()
-      if (shownPanoRef.current === url) revealTourRef.current(url)
+      const visible = showingFallback ? stepped.shown : url
+      if (shownPanoRef.current === visible) revealTourRef.current(visible)
       return
+    }
+    if (panoRequestRef.current !== url) {
+      panoRequestRef.current = url
+      triedPanoRef.current = new Set([url])
     }
     const token = ++switchTokenRef.current
     const look = walkToRef.current
@@ -2867,17 +2923,25 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       }
 
       setLoading(true)
-      try {
-        await viewer.setPanorama(url, {
+      const candidates = [url, ...panoramaFallbackUrls(url)]
+      let shownUrl = ''
+      for (const candidate of candidates) {
+        if (token !== switchTokenRef.current) break
+        if (candidate !== url && triedPanoRef.current.has(candidate)) continue
+        triedPanoRef.current.add(candidate)
+        try {
+          await viewer.setPanorama(candidate, {
             showLoader: false,
-          transition: changing ? { effect: 'fade', speed: 400, rotation: false } : false,
+            transition: changing && candidate === url ? { effect: 'fade', speed: 400, rotation: false } : false,
             zoom: 0,
-        })
-      } catch {
-        /* still land so the walk never freezes */
-      } finally {
-        if (token === switchTokenRef.current) setLoading(false)
+          })
+          shownUrl = candidate
+          break
+        } catch {
+          /* la siguiente pasada usa la resolución menor */
+        }
       }
+      if (token === switchTokenRef.current) setLoading(false)
 
       if (token !== switchTokenRef.current) {
         walkingRef.current = false
@@ -2885,14 +2949,24 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         setPanoGhost(null)
         return
       }
-      const steppedDown = currentUrlRef.current !== url && smallerTourUrl(url) === currentUrlRef.current
-      if (!steppedDown) currentUrlRef.current = url
-      shownPanoRef.current = steppedDown ? currentUrlRef.current : url
+      if (!shownUrl) {
+        walkingRef.current = false
+        setPanoLeaving(false)
+        setPanoEntering(false)
+        setPanoGhost(null)
+        setPanoRevealed(false)
+        return
+      }
+      if (shownUrl === url) steppedPanoRef.current = null
+      else steppedPanoRef.current = { requested: url, shown: shownUrl }
+      currentUrlRef.current = shownUrl
+      desiredPanoRef.current = shownUrl
+      shownPanoRef.current = shownUrl
       appliedPanoKeyRef.current = `${selectedTypology}:${url}`
       viewer.needsUpdate()
       walkingRef.current = false
       applyTourMarkersRef.current()
-      revealTourRef.current(url)
+      revealTourRef.current(shownUrl)
       const neighborUrls = (currentTypology?.hotspots ?? [])
         .filter((item) => item.from === room && item.kind !== 'look' && item.slug !== room)
         .map((item) => urlForRoom(item.slug))
@@ -3107,7 +3181,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         <div
           className={cn(
             'tour-pano-stage h-full w-full bg-transparent transition-opacity duration-300',
-            viewMode === 'tour' && panoRevealed ? 'opacity-100' : 'pointer-events-none opacity-0',
+            viewMode === 'tour' ? 'opacity-100' : 'pointer-events-none opacity-0',
             panoLeaving && !showStill && !panoGhost && 'is-leaving',
             panoEntering && !showStill && 'is-entering',
           )}
@@ -3874,6 +3948,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {showUnitChrome && !fichaOpen && !navChooserOpen ? (
         <div className="tour-unit-actions absolute right-[max(0.5rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-1.5 sm:right-[max(0.75rem,env(safe-area-inset-right))] sm:gap-2">
+          <div className="tour-actions-secondary">
           {!isComparador && !isFinishCompare && !voiceAssistOpen ? (
                   <button
                     type="button"
@@ -3948,6 +4023,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <WhatsAppIcon size={15} />
             </a>
           ) : null}
+          </div>
+          <details className="tour-actions-more">
+            <summary className="tour-glass inline-flex h-11 items-center gap-1 px-2.5 text-[10px] font-semibold tracking-[0.12em] text-[#f7f3ee] uppercase">
+              <MoreHorizontal size={16} strokeWidth={1.75} />
+              {t('Más')}
+            </summary>
+          </details>
           {viewMode === 'tour' && showUnitChrome ? (
                   <button
                     type="button"

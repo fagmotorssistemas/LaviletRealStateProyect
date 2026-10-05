@@ -851,6 +851,23 @@ html.tour-is-force-landscape body {
   }
 }
 
+.tour-actions-secondary {
+  display: contents;
+}
+
+.tour-actions-more {
+  display: none;
+}
+
+.tour-actions-more summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.tour-actions-more summary::-webkit-details-marker {
+  display: none;
+}
+
 @media (max-height: 500px) and (orientation: landscape) {
   .tour-unit-actions {
     flex-direction: row;
@@ -859,12 +876,24 @@ html.tour-is-force-landscape body {
     left: max(0.5rem, env(safe-area-inset-left));
     right: max(0.5rem, env(safe-area-inset-right));
     bottom: max(0.35rem, env(safe-area-inset-bottom));
+    gap: 0.35rem;
   }
 
-  .tour-unit-actions button[aria-expanded] {
-    width: 44px;
-    height: 44px;
-    aspect-ratio: 1;
+  .tour-unit-actions .tour-actions-secondary {
+    display: none;
+  }
+
+  .tour-unit-actions:has(.tour-actions-more[open]) .tour-actions-secondary {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.4rem);
+    display: flex;
+    flex-direction: row;
+    gap: 0.35rem;
+  }
+
+  .tour-actions-more {
+    display: block;
   }
 
   [data-showroom-toolbar] {
@@ -930,6 +959,52 @@ html.tour-is-force-landscape body {
 
   .tour-ficha-shorthead {
     display: flex;
+    box-sizing: border-box;
+    height: 44px;
+    max-height: 44px;
+    min-height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
+  }
+
+  .tour-ficha-shorthead button[aria-label='Cerrar'] {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .tour-ficha-sheet.tour-modal-sheet {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .tour-ficha-scroll {
+    scroll-padding-top: 0.35rem;
+  }
+
+  .tour-ficha-specs {
+    margin-top: 0.35rem !important;
+  }
+
+  .tour-ficha-footer {
+    padding: 0;
+    max-height: 44px;
+  }
+
+  .tour-ficha-pdf {
+    height: 44px;
+    max-height: 44px;
+    min-height: 44px;
+  }
+
+  .tour-ficha-share {
+    margin-top: 0.75rem;
+  }
+
+  .tour-root:has(.tour-ficha-sheet) [data-plan-front] {
+    visibility: hidden;
   }
 
   .tour-ficha-chrome-mobile,

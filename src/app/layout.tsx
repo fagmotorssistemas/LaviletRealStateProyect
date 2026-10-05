@@ -39,6 +39,15 @@ export const metadata: Metadata = {
     template: '%s | Lavilet',
   },
   description: 'Proyectos inmobiliarios y gestión Lavilet',
+  applicationName: 'La Vilet',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'La Vilet',
+  },
+  icons: {
+    apple: '/icons/icon-180.png',
+  },
 }
 
 const supabaseOrigin = (() => {
@@ -53,6 +62,7 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  themeColor: '#14110e',
 }
 
 export default function RootLayout({

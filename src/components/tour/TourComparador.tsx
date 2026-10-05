@@ -358,7 +358,7 @@ export function TourComparador({
       ) : null}
 
       {/* Badges clickeables — cambian A/B sin pelear con el menú de modos */}
-      <div className="pointer-events-none absolute top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] left-[max(0.5rem,env(safe-area-inset-left))] z-[32] flex items-start justify-between gap-1.5 sm:top-4 sm:right-4 sm:left-4 sm:gap-2">
+      <div className="pointer-events-none absolute top-[calc(4rem+env(safe-area-inset-top)+0.4rem)] right-[max(0.5rem,env(safe-area-inset-right))] left-[max(0.5rem,env(safe-area-inset-left))] z-[32] flex items-start justify-between gap-1.5 sm:gap-2">
         <button
           type="button"
           onClick={() => setPicking('a')}

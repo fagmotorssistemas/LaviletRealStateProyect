@@ -83,17 +83,38 @@ function statusTone(status: string) {
   if (key.includes('vend')) return 'bg-[#ece7e1] text-[#6d645b]'
   return 'bg-[#efe8dc] text-[#756044]'
 }
+function isIosShowroom() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  if (/iPad|iPhone|iPod/.test(ua)) return true
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+}
+function isIPhoneSafari() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  if (!/iPhone/.test(ua) || /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua)) return false
+  return /Safari/.test(ua)
+}
+function isInstalledShowroom() {
+  if (typeof window === 'undefined') return false
+  const nav = navigator as Navigator & { standalone?: boolean }
+  if (nav.standalone) return true
+  return window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches
+}
+const HOME_HINT_KEY = 'lavilet-tour-a2hs'
 export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,onAmenities,onClosePanels,root,hideWebReturn=false,hidden=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean;hidden?:boolean}){
  const [content,setContent]=useState(false)
  const [open,setOpen]=useState(false),[section,setSection]=useState<Section>('home')
  const {locale:lang,setLocale:setLang,t:translate}=useTourLanguage()
- const [filters,setFilters]=useState(emptyUnitFilters),[full,setFull]=useState(false),[notice,setNotice]=useState(''),[share,commitShare]=useState<TourUnitSummary|null>(null),[qr,setQr]=useState('')
+ const [filters,setFilters]=useState(emptyUnitFilters),[full,setFull]=useState(false),[notice,setNotice]=useState(''),[share,commitShare]=useState<TourUnitSummary|null>(null),[qr,setQr]=useState(''),[ios,setIos]=useState(isIosShowroom),[homeHint,setHomeHint]=useState(false)
  const shareUrl=share?publicShowroomUrl(share.unit_number,UNIT_MODEL_ORIGIN)+(lang==='en'?'&lang=en':''):''
  const setShare=(unit:TourUnitSummary|null)=>{setQr('');commitShare(unit)}
  const router=useRouter()
  const button=useRef<HTMLButtonElement>(null)
  const t=(es:string,en:string)=>lang==='es'?es:en
  useEffect(()=>{const sync=()=>setFull(!!document.fullscreenElement);document.addEventListener('fullscreenchange',sync);return()=>document.removeEventListener('fullscreenchange',sync)},[])
+ useEffect(()=>{setIos(isIosShowroom());if(!isIPhoneSafari()||isInstalledShowroom())return;try{if(localStorage.getItem(HOME_HINT_KEY)==='1')return}catch{return}setHomeHint(true)},[])
+ useEffect(()=>{if(!notice)return;const timer=window.setTimeout(()=>setNotice(''),3000);return()=>window.clearTimeout(timer)},[notice])
  useEffect(()=>{if(!open)return;const close=(e:KeyboardEvent)=>{if(e.key==='Escape'){setOpen(false);button.current?.focus()}};document.addEventListener('keydown',close);return()=>document.removeEventListener('keydown',close)},[open])
  useEffect(()=>{if(!share)return;let active=true;const url=publicShowroomUrl(share.unit_number,UNIT_MODEL_ORIGIN)+(lang==='en'?'&lang=en':'');void QRCode.toDataURL(url,{width:224,margin:4,errorCorrectionLevel:'M'}).then(value=>{if(active)setQr(value)}).catch(()=>{if(active)setNotice('No se pudo generar el QR; use el enlace.')});return()=>{active=false}},[share,lang])
  const choices=(key:'floor'|'category'|'status'|'bedrooms')=>[...new Set(units.map(u=>u[key]).filter(v=>v!=null && v!==''))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}))
@@ -109,13 +130,14 @@ export function ShowroomMenu({units,catalog,selected,place,onHome,onPick,onTour,
  return <>
   <div role="toolbar" aria-label="Controles del showroom" data-showroom-toolbar className="absolute inset-x-0 top-0 z-[90] flex h-[calc(4rem+env(safe-area-inset-top))] items-center gap-2 bg-transparent px-3 pt-[env(safe-area-inset-top)] text-[#f7f3ee] [text-shadow:0_1px_3px_rgba(20,17,14,0.85)] sm:px-5">
    <button ref={button} type="button" data-showroom-menu aria-label={t('Abrir menú del showroom','Open showroom menu')} aria-expanded={open} onClick={()=>{onClosePanels();setContent(false);setShare(null);setNotice('');setOpen(true)}} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-0 text-[#f7f3ee]"><Menu size={20}/></button>
-   <button type="button" aria-label={full?t('Salir de pantalla completa','Exit fullscreen'):t('Pantalla completa','Fullscreen')} onClick={()=>void fullscreen()} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-0 text-[#f7f3ee]">{full?<Minimize size={20}/>:<Maximize size={20}/>}</button>
+   {ios?null:<button type="button" aria-label={full?t('Salir de pantalla completa','Exit fullscreen'):t('Pantalla completa','Fullscreen')} onClick={()=>void fullscreen()} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-0 text-[#f7f3ee]">{full?<Minimize size={20}/>:<Maximize size={20}/>}</button>}
    {open ? null : <span className="ml-2 min-w-0 truncate font-serif text-sm tracking-[.22em] sm:text-lg">LA VILET</span>}
    {hideWebReturn ? null : <a href="/inicio" aria-label={t('Volver a la página web','Back to website')} title={t('Volver a la página web','Back to website')} className={`ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 px-3 text-xs text-[#f7f3ee] [text-shadow:none] transition-colors hover:bg-[#3a342b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bda27e] ${place==='home'?'mr-[4.75rem]':''}`}>
     <ArrowLeft size={16} aria-hidden="true"/><span className="sm:hidden">{t('Volver','Back')}</span><span className="hidden sm:inline">{t('Volver a la web','Back to website')}</span>
    </a>}
   </div>
-  {!open && notice?<p role="status" className="absolute left-3 top-20 z-[90] rounded bg-[#f7f3ee] p-2 text-xs text-[#29251e]">{notice}</p>:null}
+  {!open && notice?<p role="status" className={`pointer-events-none absolute left-[max(0.75rem,env(safe-area-inset-left))] z-[80] max-w-[min(16rem,calc(100%-9.5rem-env(safe-area-inset-right)))] rounded bg-[#f7f3ee]/95 px-3 py-2 text-xs text-[#29251e] shadow-md ${homeHint?'top-[calc(4rem+env(safe-area-inset-top)+4.6rem)]':'top-[calc(4rem+env(safe-area-inset-top)+0.4rem)]'}`}>{notice}</p>:null}
+  {homeHint?<div className="absolute top-[calc(4rem+env(safe-area-inset-top)+0.4rem)] left-[max(0.75rem,env(safe-area-inset-left))] z-[80] flex w-[min(18rem,calc(100%-9.5rem-env(safe-area-inset-right)))] items-start gap-2 rounded-xl bg-[#f7f3ee]/95 px-3 py-2 text-[11px] leading-snug text-[#29251e] shadow-md"><p className="min-w-0 flex-1">{t('Para verlo en pantalla completa: Compartir → Agregar a pantalla de inicio','For fullscreen: Share → Add to Home Screen')}</p><button type="button" aria-label={t('Cerrar aviso','Dismiss notice')} onClick={()=>{try{localStorage.setItem(HOME_HINT_KEY,'1')}catch{/* el aviso no vuelve en esta visita */}setHomeHint(false)}} className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[#756044]"><X size={14}/></button></div>:null}
   {open?<div className="absolute inset-0 z-[200] flex bg-black/30 p-2 sm:p-3" onClick={close}>
    <FocusScope contain restoreFocus autoFocus><aside role="dialog" aria-modal="true" aria-label={t('Menú La Vilet','La Vilet menu')} lang={lang} onClick={e=>e.stopPropagation()} className={`flex h-full w-full flex-col overflow-y-auto rounded-2xl bg-[#f7f3ee] p-5 text-[#29251e] shadow-2xl ${!content?'max-w-[calc(320px+1cm)]':'max-w-md'}`}>
     <header className="flex items-center justify-between border-b border-[#bda27e]/40 pb-4"><div><p className="font-serif text-3xl tracking-[.16em]">LA VILET</p><p className="mt-2 text-xs">{SITE.city}</p></div><button type="button" aria-label={t('Cerrar menú','Close menu')} onClick={close} className="rounded-full border border-[#bda27e]/50 p-2"><X/></button></header>

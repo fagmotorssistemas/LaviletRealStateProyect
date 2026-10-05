@@ -17,7 +17,6 @@ import {
   Rotate3d,
   Images,
   Ruler,
-  Share2,
   X,
 } from 'lucide-react'
 import { UNIT_STATUS_OPTIONS, type UnitStatus } from '@/types/inmobiliaria'
@@ -370,30 +369,6 @@ export function TourFichaDrawer({
     }
   }
 
-  const onShare = async () => {
-    if (!unit) return
-    const { buildUnitShareUrl } = await import('@/lib/tour/unitDeepLink')
-    const url = buildUnitShareUrl(unit.unit_number, { locale })
-    const title = `La Vilet · ${t(`Unidad ${unit.unit_number}`)}`
-    try {
-      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        await navigator.share({ title, url, text: url })
-        return
-      }
-      await navigator.clipboard.writeText(url)
-      toast.success(t(`Enlace de la unidad ${unit.unit_number} copiado`))
-    } catch (error) {
-      // Cancelar share no es error; si clipboard falla, avisar.
-      if (error instanceof DOMException && error.name === 'AbortError') return
-      try {
-        await navigator.clipboard.writeText(url)
-        toast.success(t(`Enlace de la unidad ${unit.unit_number} copiado`))
-      } catch {
-        toast.error(t('No se pudo copiar el enlace'))
-      }
-    }
-  }
-
   return (
     <AnimatePresence>
       {open ? (
@@ -444,7 +419,7 @@ export function TourFichaDrawer({
             transition={{ type: 'spring', stiffness: 420, damping: 36 }}
             onWheel={(event) => event.stopPropagation()}
           >
-            <div className="tour-ficha-shorthead shrink-0 items-center gap-2 border-b border-[#eceff3] bg-white px-3 py-1.5">
+            <div className="tour-ficha-shorthead relative z-10 shrink-0 items-center gap-2 border-b border-[#eceff3] bg-white px-3">
               <p className="min-w-0 flex-1 truncate text-[13px] leading-none font-bold text-[#1a2744]">
                 {unit
                   ? `${t('Unidad')} ${unit.unit_number} · ${formatPrice(unit.published_commercial_price, locale)}`
@@ -686,7 +661,7 @@ export function TourFichaDrawer({
                       {t(" Especificaciones ")}</p>
                   ) : null}
 
-                  <div className={expanded ? 'mt-3' : 'mt-4 grid grid-cols-2 gap-2.5'}>
+                  <div className={expanded ? 'tour-ficha-specs mt-3' : 'tour-ficha-specs mt-4 grid grid-cols-2 gap-2.5'}>
                     {displayRows.map((row) => (
                       <SpecRow
                         key={row.label}
@@ -702,11 +677,11 @@ export function TourFichaDrawer({
                     <div className="mt-3">
                       <p className="mb-1.5 text-[10px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
                         {t(" Espacios ")}</p>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="tour-ficha-spaces flex gap-1.5 overflow-x-auto">
                         {sanitizeTourSpaces(unit.spaces).map((space) => (
                           <span
                             key={space}
-                            className="rounded-full bg-[#f3f4f6] px-2.5 py-1 text-[11px] text-[#4b5563]"
+                            className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1 text-[11px] whitespace-nowrap text-[#4b5563]"
                           >
                             {t(space)}
                           </span>
@@ -743,28 +718,20 @@ export function TourFichaDrawer({
                       </div>
                     </div>
                   ) : null}
-                  {expanded ? <div className="mt-4 border-t border-[#eceff3] pt-2"><UnitPublicQr number={unit.unit_number}/></div> : null}
+                  {expanded ? <div className="tour-ficha-share mt-4 border-t border-[#eceff3] pt-2"><UnitPublicQr number={unit.unit_number}/></div> : null}
                   </div>
                 </div>
 
                 {expanded ? (
-                  <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-2 border-t border-[#2B1A18]/8 bg-white p-3">
+                  <div className="tour-ficha-footer shrink-0 border-t border-[#2B1A18]/8 bg-white">
                     <button
                       type="button"
                       disabled={pdfBusy}
                       onClick={() => void onDownloadPdf()}
-                      className="flex h-10 items-center justify-center gap-1.5 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
+                      className="tour-ficha-pdf flex h-11 w-full items-center justify-center gap-1.5 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
                     >
                       <Download size={14} strokeWidth={2} />
                       {t(pdfBusy ? 'Generando…' : 'Descargar PDF')}
-                    </button>
-                      <button
-                      type="button"
-                      onClick={() => void onShare()}
-                      className="flex h-10 w-10 items-center justify-center border border-[#2B1A18]/12 bg-white text-[#2B1A18] transition-colors hover:bg-[#2B1A18]/5"
-                      aria-label={t("Compartir")}
-                    >
-                      <Share2 size={15} strokeWidth={1.75} />
                     </button>
                   </div>
                 ) : (
