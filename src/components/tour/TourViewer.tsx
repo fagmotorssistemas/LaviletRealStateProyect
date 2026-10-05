@@ -1155,6 +1155,16 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   }, [droneOn])
 
   useEffect(() => {
+    const cover = coverVideoRef.current
+    if (!cover) return
+    if (shellMode === 'plan' && planEntryOpen && !coverHidden) {
+      void cover.play().catch(() => undefined)
+      return
+    }
+    cover.pause()
+  }, [shellMode, planEntryOpen, coverHidden])
+
+  useEffect(() => {
     if (!awaitPlanClose || !planEntryOpen) return
     let fadeTimer = 0
     const close = () => {
@@ -3155,7 +3165,33 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         hideWebReturn={planEntryOpen}
         place={amenitiesOpen ? 'amenities' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
-        onHome={(view)=>{setAmenitiesOpen(false);setEntryVideo(false);setDroneOn(false);droneRef.current?.pause();setShellMode('plan');setViewMode('planos-3d');setPlanFloor(openingPlanFloor);setPlanEntryOpen(view!=='plan');setFichaOpen(false);setFichaExpanded(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onHome={(view) => {
+          setAmenitiesOpen(false)
+          setEntryVideo(false)
+          setDroneOn(false)
+          setCoverHidden(false)
+          setEntryExit(false)
+          setAwaitPlanClose(false)
+          entryFailedRef.current = false
+          const drone = droneRef.current
+          if (drone) {
+            drone.pause()
+            if (drone.readyState > 0) drone.currentTime = 0
+          }
+          setShellMode('plan')
+          setViewMode('planos-3d')
+          setPlanFloor(openingPlanFloor)
+          const reopen = view !== 'plan'
+          setPlanEntryOpen(reopen)
+          setFichaOpen(false)
+          setFichaExpanded(false)
+          setCompareOpen(false)
+          setFinishCompareOpen(false)
+          setSimulatorOpen(false)
+          setTerminacionesFocus(false)
+          setVoiceAssistOpen(false)
+          if (reopen) void coverVideoRef.current?.play().catch(() => undefined)
+        }}
         onAmenities={()=>{setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
@@ -4376,23 +4412,38 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       <TourRotateHint contained target={rootRef} inTour={viewMode === 'tour'} />
 
-      {planEntryOpen && shellMode === 'plan' ? (
-        <div className={cn('absolute inset-0 z-[30] bg-[#14110e] transition-opacity duration-[400ms] ease-linear', entryExit ? 'opacity-0' : 'opacity-100')}>
-          {coverHidden ? null : (
-            <div className="absolute inset-0 bg-[#14110e] opacity-100">
-              <CmafVideo
-                mp4="/inicio/portada.mp4?v=gop"
-                preload="auto"
-                label={t('Fachada Lavilet del día a la noche')}
-                videoRef={coverVideoRef}
-                onFirstFrame={() => setCoverReady(true)}
-                onError={() => setCoverReady(true)}
-                className="tour-entry-video absolute inset-0 h-full w-full"
-              />
-            </div>
+      {shellMode === 'plan' ? (
+        <div
+          className={cn(
+            'absolute inset-0 z-[30] bg-[#14110e]',
+            entryExit
+              ? 'pointer-events-none opacity-0 transition-opacity duration-[400ms] ease-linear [&_*]:pointer-events-none'
+              : planEntryOpen
+                ? 'opacity-100'
+                : 'pointer-events-none opacity-0 [&_*]:pointer-events-none',
           )}
+          aria-hidden={!planEntryOpen || entryExit}
+          inert={!planEntryOpen || entryExit ? true : undefined}
+        >
+          <div
+            className={cn(
+              'absolute inset-0 bg-[#14110e]',
+              coverHidden ? 'pointer-events-none opacity-0' : 'opacity-100',
+            )}
+          >
+            <CmafVideo
+              mp4="/inicio/portada.mp4?v=gop"
+              preload="auto"
+              autoPlay={planEntryOpen && !coverHidden}
+              label={t('Fachada Lavilet del día a la noche')}
+              videoRef={coverVideoRef}
+              onFirstFrame={() => setCoverReady(true)}
+              onError={() => setCoverReady(true)}
+              className="tour-entry-video absolute inset-0 h-full w-full"
+            />
+          </div>
           <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
-            {ingresoCoarse === null ? null : (
+            {!planEntryOpen || ingresoCoarse === null ? null : (
             <EntryLateral active={entryVideo && ingresoCoarse}>
               <CmafVideo
                 mp4={ingresoCoarse ? '/tour/ingreso-v2/ingreso-v2-mobile.mp4' : '/tour/ingreso-v2/ingreso-v2.mp4'}
