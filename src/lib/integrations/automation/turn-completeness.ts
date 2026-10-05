@@ -7,6 +7,7 @@ import { FINANCING_COLLECTION_WRITER_RULES } from './financing-prompt'
 import { catalogCostBaseline } from './catalog-cost-baseline'
 import { withPromptCostComparison } from './prompt-cost-comparison'
 import { turnBudgetAssessment, effectiveTurnBudget, budgetContinuationInstruction } from './turn-budget'
+import { commercialJourneyPlan, COMMERCIAL_JOURNEY_RULES } from './commercial-journey'
 import { recordBudgetDecision } from './ai-execution-trace'
 import { focusedValueScopeIssues } from './focused-value-scope'
 import { numericSubjectIssues } from './focused-subject-scope'
@@ -373,6 +374,15 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const budgetAssessment = turnBudgetAssessment(input.verified, input.audit || {})
   if (budgetAssessment) recordBudgetDecision(budgetAssessment)
   if (budgetAssessment) input = { ...input, verified: { ...input.verified, presupuesto_del_turno: budgetAssessment } }
+  if (input.verified.recorrido_comercial) {
+    const journey = commercialJourneyPlan(input.verified, input.audit || {})
+    input = { ...input, verified: { ...input.verified, siguiente_paso_comercial: journey }, audit: { ...input.audit, commercial_journey: journey } }
+    if (journey.question_id || journey.action === 'leave_open') {
+      input.preserveOperationalQuestion = false
+      delete input.audit!.progressive_selection
+      delete input.audit!.post_tour_continuation
+    }
+  }
   const originalBase = input.baseReply
   const adaptiveContinuation = commercialContinuationSources.has(text(input.audit?.source))
   if (adaptiveContinuation) input = { ...input, preserveOperationalQuestion: false }
@@ -477,6 +487,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, recovery, editorial_observations: editorialObservations, link_contract: linkContract, text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: writerContract, price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
         fallback_validation: { passed: false, issues: [...fallbackIssues, 'response_requires_validation'], details: fallbackCheck.details || [], unanswered_requests: uncoveredBase.map(request => request.fragment),
           recovery: 'pending_validation', rejected_preview: traceText(input.baseReply, MAX_REPLY_CHARACTERS) },
+        commercial_journey: input.verified.siguiente_paso_comercial,
         repair_budget: repairBudget(), missing_fact_fragments: reviewMissing, handoff_assessments: [],
         pending_missing_fact_fragments: assessed.unresolved, pending_gap_assessments: assessed.assessments,
         handoff_validation_status: 'pending_response_review',
@@ -517,7 +528,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
     if (input.verified.prompt_context_selection) writingRules += '\n' + (object(input.verified.prompt_context_selection).version === 'task-context-v1' ? TASK_CONTEXT_RULES : SEMANTIC_OPENING_RULE)
     if (budgetAssessment) writingRules += '\nPRESUPUESTO ACTUAL: contexto_verificado.presupuesto_del_turno contiene el importe interpretado y su comparación con los precios autorizados de la búsqueda. Responda ese punto junto con las características solicitadas. Una enumeración de plantas o una pregunta de preferencia no responde si el presupuesto alcanza. Si falta información, explique la limitación concreta en reply; marcar missing_fact en requests no la comunica al cliente. No invente precios, créditos, descuentos ni una derivación realizada.'
-    if (budgetAssessment) writingRules += '\n' + budgetContinuationInstruction(budgetAssessment)
+    if (budgetAssessment) writingRules += '\n' + (object(input.verified.siguiente_paso_comercial).action === 'introduction'
+      ? 'Responda el presupuesto y mencione financiamiento si corresponde, pero la única pregunta de esta apertura es nombre y residencia según profile_introduction.'
+      : input.verified.siguiente_paso_comercial ? 'Para continuar después de atender el presupuesto, siga únicamente siguiente_paso_comercial. No añada otra invitación de la respuesta base ni reabra pasos contestados. Sin un monto comparable, no invente una comparación con los precios.'
+        : budgetContinuationInstruction(budgetAssessment))
     if (input.audit?.progressive_selection || input.audit?.post_tour_continuation) writingRules += '\n' + PROGRESSIVE_OPTIONS_RULES
     for (let attempt = 0; attempt < 2; attempt++) {
     const previousDraft = proposedReply
@@ -533,6 +547,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         + '\nCumpla obligaciones_del_turno con redacción libre. Esta lista también se entrega al revisor. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
       ['Fuentes, políticas y precisión', BUSINESS_POLICY_RULES + visitRules],
       ['Ayudas disponibles y preguntas', ASSISTANCE_RULES],
+      ['Siguiente paso comercial', !!input.verified.siguiente_paso_comercial && COMMERCIAL_JOURNEY_RULES],
       ['Consultas pendientes', 'contexto_verificado.consultas_pendientes contiene mensajes del cliente aún sin respuesta. Atienda sus consultas informativas junto con mensaje_actual, salvo que el cliente las haya cancelado o sustituido. No repita gestiones ni reutilice consentimientos del pasado.'],
       ['Comparaciones, mínimos y máximos', NUMERIC_RELATION_WRITING_RULES],
       ['Reglas aplicables a esta respuesta', writingRules + '\n' + passiveSalesRules(engagement) + ACTION_INVITATION_RULE],
@@ -983,6 +998,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     for (const repair of repairAttempts) repair.final_status = 'checked'
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,
       audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, editorial_observations: editorialObservations, link_contract: linkContract,
+        commercial_journey: input.verified.siguiente_paso_comercial,
         follow_up: followUp, catalog_context_scope: input.verified.catalog_context_scope || { kind: 'full_turn' },
         ...(input.verified.prompt_context_selection ? { prompt_context_selection: input.verified.prompt_context_selection } : {}),
         operational_action_verified: object(input.audit?.reservation).handoff_verified === true && continuationChecks.operational_goal_preserved === true && continuationChecks.answers_supported === true,

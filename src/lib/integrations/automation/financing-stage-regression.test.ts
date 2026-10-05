@@ -110,7 +110,7 @@ test('recorded acceptance with a follow-up question stays in financing instead o
   const pending = { ...info(), financiamiento: { ...finance, journey } }
   assert.equal(financingStage(pending).stage, 'select_property')
   assert.equal(financingStage(pending).collection_allowed, false)
-  assert.match(financingPrerequisiteReply(pending, fixture.message), /departamentos o penthouses/)
+  assert.match(financingPrerequisiteReply(pending, fixture.message), /vivir o como inversión/)
   journey = financingJourney(journey, { consent: null }, 'choosing')
   const selected = { ...pending, property_context: { query, selected_ids: ['p602'] },
     referencia_unidad: { matches: [units[4]], query: { ...query, operation: 'select' } }, financiamiento: { ...finance, journey } }
@@ -166,8 +166,8 @@ test('a new budget compares only residential requirements; financial continuatio
   assert.equal(turnBudgetAssessment({ ...input, financiamiento: { ...finance, journey: { accepted: true } } }, { source: 'financing_selection_required' }), null)
   const ambiguous = turnBudgetAssessment({ ...changed,
     semantica_turno: { budget: { status: 'amount', amount: 100000, confidence: 'high', evidence: '100 mil' } } }, {})!
-  assert.equal(ambiguous.continuation, 'clarify_budget_basis')
-  assert.match(String(ambiguous.continuation_instruction), /sin deuda.*entrada/)
+  assert.equal(ambiguous.continuation, 'offer_financing')
+  assert.match(String(ambiguous.continuation_instruction), /entidades autorizadas/)
   assert.equal(result.continuation, 'offer_financing', 'An explicit total limit does not need the same clarification.')
 })
 

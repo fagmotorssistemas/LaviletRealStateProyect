@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
+import { commercialJourneyPlan } from './commercial-journey'
 
 type BudgetStatus = 'not_discussed' | 'unknown' | 'amount' | 'maximum_total' | 'initial_capital'
   | 'sufficient_for_selected_unit' | 'insufficient_for_selected_unit' | 'declines_to_disclose'
@@ -108,6 +109,10 @@ export function tourContinuation(info: Row, unit: Row = {}, current = ''): TourC
   const semantics = object(info.semantica_turno)
   if (['request_visit', 'ask_financing'].includes(text(semantics.primary_intent)) && semantics.confidence === 'high') {
     return answer('', 'requested_action_pending')
+  }
+  if (info.recorrido_comercial) {
+    const step = commercialJourneyPlan(info)
+    return answer(text(step.question), text(step.action), text(step.question_id))
   }
   if (budget.status === 'not_discussed' || budget.status === 'maximum_total' && budget.amount === null) {
     return answer('¿Qué presupuesto aproximado tiene previsto para la compra?', 'budget_missing', 'budget_amount')

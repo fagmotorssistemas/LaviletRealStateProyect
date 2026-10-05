@@ -128,20 +128,19 @@ describe('property selection journey', () => {
     assert.equal(result?.audit.source, 'property_budget_confirmed')
     assert.match(result?.reply || '', /departamento 202 se ajusta a su presupuesto/i)
     assert.match(result?.reply || '', /tour\?unidad=202/i)
-    assert.match(result?.reply || '', /coordinar una visita/i)
+    assert.doesNotMatch(result?.reply || '', /coordinar una visita/i)
     assert.doesNotMatch(result?.reply || '', /300\.000|rango|Banco Pichincha/i)
   })
 
-  it('requires a selected unit, without restarting budget discovery after selection', () => {
+  it('requires a selected unit and a budget answer before financing intake', () => {
     const withoutUnit = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite' } }), 'Quiero financiamiento')
-    assert.match(withoutUnit, /primero definamos qué suite/i)
-    assert.match(withoutUnit, /presupuesto aproximado/i)
+    assert.match(withoutUnit, /vivir o como inversión/i)
 
     const withoutBudget = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite', unit_id: suite210.id } }), 'Quiero financiamiento')
-    assert.equal(withoutBudget, '')
+    assert.match(withoutBudget, /presupuesto estimado/i)
 
     const ready = financingPrerequisiteReply(baseInfo({ lead: {
-      preferred_category: 'suite', unit_id: suite210.id,
+      preferred_category: 'suite', unit_id: suite210.id, budget: 100000,
       behavior_signals: { sdr: { presupuesto_texto: 'Tengo 100 mil dólares' } },
     } }), 'Sí, quiero iniciar la revisión')
     assert.equal(ready, '')

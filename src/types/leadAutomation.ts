@@ -221,6 +221,7 @@ export interface AutomationTimelineItem {
 }
 
 export interface LeadAutomationDetail {
+  profileCard?: import('@/lib/inmobiliaria/leadProfileCard').LeadProfileCardData
   row: LeadAutomationRow
   conversations: ConversationRow[]
   messages: MessageRow[]

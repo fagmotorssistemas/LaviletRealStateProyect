@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { confirmedInterpretationMemory } from './interpretation-memory'
+import { leadBudget } from './budget-state'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 
@@ -19,10 +20,13 @@ export const BUDGET_CONTINUATION_RULES = `La continuación del presupuesto es un
  * mutually exclusive branches in a generic financial procedure. */
 export function budgetContinuationInstruction(assessment: Row): string {
   const actions: Record<string, string> = {
+    continue_property_selection: 'El financiamiento ya fue aceptado. Atienda cualquier nuevo importe sin volver a descartar al lead por falta de efectivo. Si falta unidad, continúe eligiéndola; si ya está elegida, siga siguiente_paso_comercial sin reabrir la selección. No repita consentimiento ni afirme viabilidad o inviabilidad del crédito.',
+    offer_financing_undefined: 'El lead declaró no tener presupuesto definido. Explique que puede explorar financiamiento con las entidades autorizadas y pregunte si desea continuar. No exija una cifra ni suponga un presupuesto cero.',
+    ask_budget_amount: 'Confirmó tener presupuesto, pero falta el monto. Pregunte de cuánto es; no suponga una cifra ni vuelva a preguntar si lo tiene.',
     clarify_requirements: 'No hay coincidencias confirmadas con las características solicitadas. Explique el alcance comprobado y aclare únicamente el requisito que impide avanzar. No exija listar inmuebles incompatibles porque sean baratos, ni ofrecer financiamiento: el crédito no resuelve una característica ausente.',
     clarify_available_information: 'La información disponible no permite concluir si el presupuesto alcanza. Explique qué dato falta y el alcance comprobado. No afirme ausencia global de opciones ni exija ofrecer financiamiento sin precios comparables.',
     clarify_budget: 'Aclare si el importe es presupuesto total, entrada o cuota antes de compararlo con precios. No convierta una entrada en precio total.',
-    clarify_budget_basis: 'Explique la relación entre el importe y los precios verificados, limitada al alcance comprobado, y pregunte si ese dinero es el total que desea invertir sin deuda o el capital que destinaría a una entrada. Esa finalidad todavía no está confirmada. No sustituya esta aclaración por ofrecer información, un asesor u otras opciones.',
+    clarify_budget_basis: 'Explique que el importe declarado es menor que los precios comparables y ofrezca explorar financiamiento si hay entidades autorizadas, sin asumir que ese dinero ya es una entrada. Pregunte si desea continuar; no obligue a aumentar el presupuesto ni sugiera otros proyectos.',
     explain_budget_gap: 'Explique que las opciones compatibles verificadas superan el presupuesto. No prometa financiamiento ni entidades que no estén autorizadas.',
     present_affordable_options: 'Atienda la relación del presupuesto con las opciones verificadas que cumplen los requisitos. Puede mencionar ejemplos o un conjunto pertinente; no se exige enumerar todas las unidades ni una frase exacta.',
     present_affordable_alternatives: 'Explique las alternativas verificadas dentro del presupuesto y qué cambia respecto de la búsqueda original. No sustituya la selección del cliente ni relaje requisitos sin explicarlo.',
@@ -38,15 +42,25 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
   const semantics = object(verified.semantica_turno), currentBudget = object(semantics.budget)
   const currentDeclaration = currentBudget.status && currentBudget.status !== 'not_discussed'
   const requests = rows(verified.solicitudes_interpretadas || object(verified.contrato_turno).requests)
-  const financeAccepted = object(verified.etapa_financiamiento).accepted === true
+  const financeDeclined = object(object(verified.financiamiento).journey).status === 'declined'
+  const financeAccepted = !financeDeclined && (object(verified.etapa_financiamiento).accepted === true
     || object(object(verified.financiamiento).journey).accepted === true
-    || object(object(verified.financiamiento).current).explicit_consent === true
+    || object(object(verified.financiamiento).current).explicit_consent === true)
   // A remembered budget remains evidence, but does not create the same sales
   // obligation on each later question, form field or accepted financing step.
   if (!currentDeclaration && (/^(?:financing|advisor_handoff)/.test(text(audit.source))
     || requests.length > 0 && requests.every(r => ['financing', 'courtesy', 'visit', 'advisor'].includes(text(r.domain)))
     || financeAccepted)) return null
-  const budget = effectiveTurnBudget(verified)
+  const budget = leadBudget(verified)
+  if (['amount_pending', 'no_defined_budget'].includes(text(budget.status))) {
+    if (financeAccepted && budget.status === 'no_defined_budget') return null
+    const available = Array.isArray(object(verified.financiamiento).partners) && (object(verified.financiamiento).partners as unknown[]).length > 0
+    const declined = object(object(verified.financiamiento).journey).status === 'declined'
+    if (budget.status === 'no_defined_budget' && (!available || declined)) return null
+    const continuation = budget.status === 'amount_pending' ? 'ask_budget_amount' : 'offer_financing_undefined'
+    return { status: budget.status, amount: null, continuation,
+      continuation_instruction: budgetContinuationInstruction({ continuation }) }
+  }
   if (budget.confidence === 'high' && ['unknown', 'initial_capital'].includes(text(budget.status))) return {
     status: 'clarify_budget_basis', amount: budget.amount ?? null, evidence: budget.evidence,
     continuation: 'clarify_budget', instruction: BUDGET_CONTINUATION_RULES,
@@ -76,9 +90,9 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
     ? (object(verified.financiamiento).partners as unknown[]).map(text).filter(Boolean) : []
   const clarifyBudgetBasis = !!currentDeclaration && budget.status === 'amount' && !matching.length
     && !alternatives.length && prices.length > 0 && !financeAccepted
-  const continuation = clarifyBudgetBasis ? 'clarify_budget_basis'
+  const continuation = financeAccepted ? 'continue_property_selection' : clarifyBudgetBasis ? partners.length && !financeDeclined ? 'offer_financing' : 'explain_budget_gap'
     : matching.length ? 'present_affordable_options' : alternatives.length ? 'present_affordable_alternatives'
-    : priceComplete && units.length ? partners.length ? 'offer_financing' : 'explain_budget_gap'
+    : priceComplete && units.length ? partners.length && !financeDeclined ? 'offer_financing' : 'explain_budget_gap'
       : !priceComplete ? 'clarify_available_information' : 'clarify_requirements'
   return { amount: budget.amount, currency: 'USD', budget_source: budget.source, evidence: budget.evidence,
     clarify_budget_basis: clarifyBudgetBasis,

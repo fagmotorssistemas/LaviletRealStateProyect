@@ -1,4 +1,6 @@
 import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
+import { interpretCommercialJourney, journeyPendingQuestion, rememberCommercialJourney, purchaseReadiness } from './commercial-journey'
+import { leadBudget } from './budget-state'
 import { currentTopicReply } from './current-topic'
 import { withHandoffNotice } from './handoff-copy'
 import { requiresContentReview, unverifiedReply } from './delivery-integrity'
@@ -594,6 +596,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const declaredProfile = object(extracted.lead_profile)
   summary._lead_profile = mergeLeadProfile(previousSummary._lead_profile, declaredProfile,
     { message_id: activeLast.externalId, declared_at: activeLast.sentAt })
+  summary._commercial_journey = interpretCommercialJourney(object(previousSummary._commercial_journey), turnSemantics, pendingQuestion, reference.context.selected_ids)
+  const declaredBudget = object(turnSemantics.budget)
+  if (declaredBudget.confidence === 'high' && ['sufficient_for_selected_unit', 'insufficient_for_selected_unit'].includes(text(declaredBudget.status))) {
+    const chosen = Array.isArray(reference.context.selected_ids) ? reference.context.selected_ids : []
+    if (chosen.length === 1) {
+      declaredBudget.unit_id = chosen[0]
+      summary._interpretation_memory = { ...object(summary._interpretation_memory), budget: { ...declaredBudget } }
+    }
+  }
   trace.add('lead_profile_resolution', 'Interpretar los datos del lead', 'decision', 'lead-profile.ts', 'succeeded', {},
     { profile: summary._lead_profile, decisions: object(summary._lead_profile).diagnostics })
   extracted.turn_semantics = turnSemantics
@@ -602,7 +613,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   summary._financing_journey = financingJourney(object(previousSummary._financing_journey), financeInput, activeLast.externalId)
   summary._financing_identity = financingIdentity(object(previousSummary._financing_identity), extracted.financing_identity, current, text(state.ultima_respuesta))
   summary._financing_amounts = financingAmounts(object(previousSummary._financing_amounts), extracted.financing_amounts, current)
-  const financeSelection = { lead, catalogo: turnCatalog, referencia_unidad: reference, property_context: reference.context }
+  const financeSelection = { lead, catalogo: turnCatalog, referencia_unidad: reference, property_context: reference.context,
+    semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory }
   const financingAccepted = financingStage({ ...financeSelection,
     financiamiento: { ...finance, journey: summary._financing_journey } }).accepted === true
   const financingDataTurn = financingAccepted && !!selectedFinancingUnit(financeSelection)
@@ -610,6 +622,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       || !['absent', 'unsubstantiated'].includes(text(object(extracted.document_validation).status))
       || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null))
   const resumeFinancing = canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
+    || financingAccepted && !!selectedFinancingUnit(financeSelection) && leadBudget(financeSelection).answered === true
+      && declaredBudget.confidence === 'high' && declaredBudget.status !== 'not_discussed'
+      && !extracted.requested_advisor && !extracted.opt_out && object(extracted.visit_intent).kind !== 'request_visit'
   // Reuse the accepted review only when its missing prerequisite is now satisfied.
   if (resumeFinancing) financeInput.consent = true
   extracted.financing_consent = financeInput.consent
@@ -1062,16 +1077,21 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     await guard()
     {
       const financeAnswer = priceTurn || financingDataTurn || financeInput.consent === true ? '' : financingQuestionReply(current, finance.partners, text(state.ultima_respuesta), extracted)
-      let financePrerequisite = ''
+      let financePrerequisite = '', financeReviewComplete = false
       if (financeTurn && !financeAnswer) {
         const selectionInfo = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
           financiamiento: { ...finance, journey: summary._financing_journey }, referencia_unidad: reference, property_context: reference.context,
           semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory }
         financePrerequisite = financingPrerequisiteReply(selectionInfo, current)
+        financeReviewComplete = purchaseReadiness(selectionInfo).coverage === 'reviewed_financing'
+        const profile = confirmedLeadProfile(summary._lead_profile), introduction = object(previousSummary._lead_introduction)
+        if (introduction.request_sent !== true && !Array.isArray(introduction.requested_fields)
+          && (!profile.full_name || !profile.residence_city && !profile.residence_country))
+          financePrerequisite = 'Primero le ayudaremos a completar su presentación y después continuaremos con la selección y el financiamiento.'
       }
       // A question about a product is not an application or consent to collect personal data.
       let fin: Row = {}, financeFailure = ''
-      if (financeTurn && !financeAnswer && !financePrerequisite) {
+      if (financeTurn && !financeAnswer && !financePrerequisite && !financeReviewComplete) {
         if (financingAccepted && selectedFinancingUnit({ ...financeSelection, lead })) extracted.financing_consent = true
         const identity = object(summary._financing_identity)
         try { fin = object(await rpc('process_financing_message_v3', { p_lead_id: lead.id,
@@ -1151,6 +1171,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       else {
         const model = reference.needsClarification ? null : unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
         const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, propuestas: proposals,
+          recorrido_comercial: summary._commercial_journey || {}, perfil_lead: summary._lead_profile,
+          hechos_confirmados: summary._interpretation_memory,
           final_review_follows: true,
           contrato_turno: turnIntent,
           consultas_pendientes: pendingInputs,
@@ -1258,6 +1280,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       reply = introduction.reply
       audit = { ...audit, ...introduction.audit }
       summary._lead_introduction = introduction.state
+      if (introduction.applied && audit.source === 'minimal_greeting') { audit.source = 'lead_opening'; greetingTemplate = false }
       if (introduction.applied) trace.add('lead_introduction', 'Presentación y datos del lead', 'decision', 'lead-introduction.ts', 'succeeded', {}, introduction.audit)
     }
   }
@@ -1323,6 +1346,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
       contrato_turno: turnIntent,
       perfil_lead: summary._lead_profile,
+      recorrido_comercial: summary._commercial_journey || {},
       solicitudes_interpretadas: interpretation.requests,
       catalogo_verificacion: commercialInfo.catalogo,
       ...(audit.verified_catalog === true ? {
@@ -1356,6 +1380,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       costBaseline,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
       preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
+    audit.commercial_journey = reviewed.audit.commercial_journey
     // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
     const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
     const catalogValidation = validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence })
@@ -1526,12 +1551,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const canTrackFollowUp = followUpUsable(audit)
   const profilePending = canTrackFollowUp ? leadProfilePendingQuestion(reply, audit) : {}
   const progressivePending = canTrackFollowUp ? progressivePendingQuestion(reply, audit) : {}
+  const journeyPending = journeyPendingQuestion(reply, object(audit.commercial_journey), canTrackFollowUp && object(audit.turn_completeness).status === 'checked')
   const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
   // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
   const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
     ? declaredPending : pendingQuestionFromReply(reply)
   audit.pending_question = canTrackFollowUp && reply.includes('?') ? Object.keys(profilePending).length ? normalizedPendingQuestion(profilePending)
-    : Object.keys(progressivePending).length ? normalizedPendingQuestion(progressivePending, turnCatalog) : replyPending : {}
+    : Object.keys(journeyPending).length ? normalizedPendingQuestion(journeyPending, turnCatalog)
+      : Object.keys(progressivePending).length ? normalizedPendingQuestion(progressivePending, turnCatalog) : replyPending : {}
   if (recoveringTurn()) { audit.answered_topics = []; audit.coverage_complete = false }
   if (!reply.trim() || reply.length > MAX_REPLY_CHARACTERS) throw new Error('EMPTY_OR_LONG_REPLY')
   trace.finish(validationStep, 'succeeded', {
@@ -1616,12 +1643,16 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   summary._lead_introduction = rememberLeadIntroduction({ previous: previousSummary._lead_introduction,
     planned: summary._lead_introduction, profile: summary._lead_profile, reply, audit,
     accepted: true, followUpUsable: canTrackFollowUp, recovery: pendingRecovery })
+  summary._commercial_journey = rememberCommercialJourney(object(summary._commercial_journey), object(audit.commercial_journey), object(audit.pending_question),
+    canTrackFollowUp && !pendingRecovery && object(audit.turn_completeness).status === 'checked')
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
     _follow_up_review: canTrackFollowUp ? {} : { usable: false, reply },
     _pending_requests: pendingRecovery ? pendingRequests : [],
     _response_recovery: pendingRecovery ? { ...object(object(audit.turn_completeness).recovery), source_message_id: activeLast.externalId,
       current_request: writingCurrent, objective: turnIntent.objective } : {},
     _last_operational_step: !canTrackFollowUp ? { kind: 'unverified_offer', reply } : pendingRecovery ? object(summary._last_operational_step || previousSummary._last_operational_step)
+      : object(audit.pending_question).id === 'financing_invitation' ? { kind: 'financing_consent', reply }
+      : Object.keys(journeyPending).length ? { kind: 'commercial_question', question_id: journeyPending.id, reply }
       : reviewedOffer === 'ambiguous' ? { kind: 'ambiguous_offer', reply }
       : reviewedOffer === 'information' ? { kind: 'information_offer', reply }
       : reviewedOffer === 'internal_advisor' ? { kind: 'internal_advisor_offer', reply }

@@ -71,7 +71,8 @@ test('bedroom follow-up replaces commercial context and respects minimum plus fl
     assert.deepEqual(object(result.audit.catalog_results).unit_ids, ['home', 'larger'])
     assert.doesNotMatch(result.reply, /local comercial|LC01/)
     const budget = turnBudgetAssessment(info, result.audit)!
-    assert.equal(budget.continuation, 'clarify_budget_basis', 'An amount alone does not confirm total limit or down payment.')
+    assert.equal(budget.continuation, 'offer_financing', 'Insufficient amount offers financing without assuming it is a down payment.')
+    assert.equal(budget.clarify_budget_basis, true)
     assert.equal(budget.minimum_price, 250000)
     assert.deepEqual(budget.matching_unit_ids, [])
   }

@@ -4,6 +4,7 @@ import { normalized } from './sdr-rules'
 import { isUnitVisualRequest } from './unit-visual-request'
 import { isPropertyScopeRedirect, salesSubject } from './sales-subject'
 import { commercialEngagement, passiveSalesRules } from './commercial-engagement'
+import { commercialJourneyPlan } from './commercial-journey'
 
 const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
 const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|prefiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
@@ -96,7 +97,8 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
   if (policy.readiness) visits.readiness = policy.readiness as NonNullable<typeof visits.readiness>
   const recentInvitation = replies.slice(-3).some(row => invitation(text(row.content)))
-  const invite = !engagement.passive && visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
+  const journey = commercialJourneyPlan({ ...info, recorrido_comercial: summary._commercial_journey || {}, _sales_memory: memory })
+  const invite = journey.visit_offer_allowed === true && !engagement.passive && visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
     && (!memory.visit_invited || replies.length >= 3) && !memory.visit_declined
   // An old offer must not block a useful next step after the client starts a new search.
   const recentUnitOffer = replies.slice(-2).some(row => /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(text(row.content))))
@@ -123,7 +125,7 @@ export function salesPlan(info: Row, current: string, summary: Row) {
 Use datos ya conocidos de vivir/invertir, dormitorios y presupuesto; pregunte solo UN dato útil que falte, nunca uno aplazado o ya contestado.
 Cada pregunta debe tener un propósito concreto y un uso para la respuesta: seleccionar una unidad, mostrar material pertinente, coordinar una visita, iniciar una revisión financiera consentida o facilitar atención del asesor. Si no cambia ninguna decisión, omita la pregunta. No pregunte para mantener interacción ni clasifique a alguien como poco interesado por hacer preguntas; use decisiones expresas del cliente y respete su ritmo.
 Preguntar uso propio o inversión sirve para orientar la elección de la unidad. No afirme que alquilar generará ingresos aceptados por el banco ni que respalda o mejora la aprobación: faltan políticas verificadas de la entidad. Si preguntan por qué importa, explique el propósito comercial y que cualquier efecto crediticio debe verificarlo la entidad.
-Si el cliente expresa una duda sobre su capacidad de compra, ofrezca orientación de financiamiento sin aprobar un crédito ni exigir ingresos aquí. La ausencia de presupuesto por sí sola no autoriza esa oferta; respete el modo informativo del turno.
+Ofrezca financiamiento únicamente si lo pide, si su presupuesto no cubre la unidad u opciones pertinentes o si declara no tenerlo definido. No lo ofrezca cuando sí alcanza ni confunda un dato pendiente con no tener presupuesto. No ofrezca otros proyectos. Tras explicar el procedimiento, pregunte si desea continuar. Si ya aceptó, retome la unidad pendiente sin repetir que no alcanza. La reserva va antes de la visita cuando ya puede avanzar; respete siguiente_paso_comercial.
 Presente de uno a tres beneficios relevantes, solo los que ayudan a esta persona; no repita instalaciones ni rellene hasta llegar a tres.
 No suponga que «se ve interesante» acepta una visita. No cree cita ni avise al asesor al ofrecerla.
 ${invite ? 'El sistema añadirá una invitación a una visita. El mapa se entrega solo al solicitarlo el cliente o al confirmar realmente la cita, nunca por esta invitación.' : 'No añada una invitación a visita en este turno; si el cliente la solicita expresamente el sistema coordina esa petición.'}

@@ -18,6 +18,7 @@ import type {
   NutritionTask,
 } from '@/types/leadAutomation'
 import { buildAutomationTimeline, EMPTY_AUTOMATION_KPIS, sanitizeSearch, toInclusiveRange } from '@/lib/inmobiliaria/leadAutomation'
+import { leadProfileCard, parseLeadSummary } from '@/lib/inmobiliaria/leadProfileCard'
 
 const VIEW = 'vw_lead_automation_dashboard'
 
@@ -215,6 +216,8 @@ export async function getLeadAutomationDetail(
     unitsRes,
     visitsRes,
     nutritionJobsRes,
+    profileRes,
+    financingRes,
   ] = await Promise.all([
     supabase.from('conversations').select('*').eq('lead_id', leadId).order('started_at', { ascending: false }),
     supabase.from('lead_score_events').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
@@ -237,6 +240,10 @@ export async function getLeadAutomationDetail(
       .contains('payload', { leadId })
       .order('received_at', { ascending: false })
       .limit(30),
+    supabase.from('leads').select('name,phone,email,budget,budget_max,preferred_bedrooms,preferred_category,purchase_purpose,unit_id,behavior_signals,updated_at')
+      .eq('id', leadId).in('tenant_id', tenantIds).single(),
+    supabase.from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,legal_name,legal_name_confirmed,national_id,applicant_type,employment_stability_months,job_title,monthly_income')
+      .eq('lead_id', leadId).in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(1),
   ])
 
   const firstError = [
@@ -246,6 +253,8 @@ export async function getLeadAutomationDetail(
     stageRes.error,
     unitsRes.error,
     visitsRes.error,
+    profileRes.error,
+    financingRes.error,
   ].find(Boolean)
   if (firstError) throw firstError
 
@@ -331,7 +340,20 @@ export async function getLeadAutomationDetail(
     return { ...raw, unit: firstRelation(raw.unit) }
   })
 
+  const summary = parseLeadSummary(conversations[0]?.summary)
+  const property = parseLeadSummary(summary._property_context)
+  const knownUnits = units.flatMap(item => item.unit ? [item.unit] : [])
+  const mentionedIds = [...new Set([property.selected_ids, property.offered_ids, property.comparison_ids].flatMap(value => Array.isArray(value) ? value : [])
+    .concat(profileRes.data?.unit_id || []).filter((value): value is string => typeof value === 'string'))]
+  const missingIds = mentionedIds.filter(id => !knownUnits.some(unit => unit.id === id))
+  if (missingIds.length) {
+    const extra = await supabase.from('units').select('id,unit_number,category,status,published_commercial_price').in('id', missingIds)
+      .in('tenant_id', tenantIds).eq('project_id', row.project_id)
+    if (extra.error) throw extra.error
+    knownUnits.push(...(extra.data || []))
+  }
   const detailWithoutTimeline = {
+    profileCard: leadProfileCard(profileRes.data || {}, summary, financingRes.data?.[0] || {}, knownUnits),
     row,
     conversations,
     messages,

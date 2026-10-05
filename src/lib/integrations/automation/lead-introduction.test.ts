@@ -33,12 +33,16 @@ describe('commercial opening uses the existing grounded interpretation', () => {
     const next = leadIntroductionTurn(input({ current: 'y qué datos se necesitan?', reply: base,
       summary: { _lead_introduction: invited }, extracted: { turn_semantics: semantics }, audit: { source: 'financing_question' } }))
     assert.equal(next.reply, base)
-    for (const source of ['financing', 'financing_selection_required', 'reservation_handoff', 'visit_intake']) {
+    for (const source of ['financing', 'reservation_handoff', 'visit_intake']) {
       const turn = leadIntroductionTurn(input({ current: 'sí, continuemos', reply: base,
         extracted: { turn_semantics: semantics }, audit: { source, state: 'cedula_pendiente' } }))
       assert.equal(turn.reply, base, source)
       assert.equal(turn.applied, false, source)
     }
+    const selecting = leadIntroductionTurn(input({ current: 'sí, continuemos', reply: base,
+      extracted: { turn_semantics: semantics }, audit: { source: 'financing_selection_required' } }))
+    assert.equal(selecting.applied, true, 'An unasked introduction precedes selecting a unit for financing.')
+    assert.ok(selecting.reply.endsWith(PROFILE_INVITATION))
   })
 })
 
@@ -144,9 +148,10 @@ describe('progressive lead introduction', () => {
     assert.doesNotMatch(next.reply, /Mucho gusto|indicarnos su nombre|reside actualmente/)
     assert.equal(next.state.status, 'complete')
   })
-  it('waits after a greeting and starts on the first substantive request after greeting', () => {
+  it('asks name and residence with the brochure offer even on the first greeting', () => {
     const greeting = leadIntroductionTurn(input({ current: 'Hola', reply: 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?', audit: { source: 'greeting' } }))
-    assert.equal(greeting.applied, false)
+    assert.equal(greeting.applied, true)
+    assert.ok(greeting.reply.endsWith(PROFILE_INVITATION))
     const turn = leadIntroductionTurn(input({ history: [
       { role: 'cliente', content: 'Hola' },
       { role: 'bot', content: 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?' },

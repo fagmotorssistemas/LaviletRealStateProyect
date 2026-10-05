@@ -15,8 +15,10 @@ import {
   timelineTitle,
 } from '@/lib/inmobiliaria/leadAutomation'
 import type { AutomationTimelineKind, LeadAutomationDetail } from '@/types/leadAutomation'
+import { LeadProfileCard } from './LeadProfileCard'
 
 const TABS = [
+  { id: 'ficha', label: 'Ficha del lead' },
   { id: 'resumen', label: 'Resumen' },
   { id: 'conversacion', label: 'Conversación' },
   { id: 'puntuacion', label: 'Puntuación' },
@@ -62,11 +64,11 @@ export function AutomationLeadDetailDrawer({
   onClose,
 }: AutomationLeadDetailDrawerProps) {
   const leadId = detail?.row.lead_id ?? null
-  const [tabState, setTabState] = useState<{ leadId: string | null; tab: TabId }>({ leadId: null, tab: 'resumen' })
-  const tab = tabState.leadId === leadId ? tabState.tab : 'resumen'
+  const [tabState, setTabState] = useState<{ leadId: string | null; tab: TabId }>({ leadId: null, tab: 'ficha' })
+  const tab = tabState.leadId === leadId ? tabState.tab : 'ficha'
   const selectTab = (next: TabId) => setTabState({ leadId, tab: next })
   const close = useCallback(() => {
-    setTabState({ leadId, tab: 'resumen' })
+    setTabState({ leadId, tab: 'ficha' })
     onClose()
   }, [leadId, onClose])
 
@@ -143,6 +145,10 @@ export function AutomationLeadDetailDrawer({
 
 function TabBody({ tab, detail }: { tab: TabId; detail: LeadAutomationDetail }) {
   const { row } = detail
+  if (tab === 'ficha') return detail.profileCard
+    ? <LeadProfileCard key={row.lead_id} data={detail.profileCard} leadId={row.lead_id} />
+    : <p className="text-sm text-[#6e716b]">La ficha todavía no está disponible.</p>
+
   if (tab === 'resumen') {
     return (
       <div className="space-y-5">

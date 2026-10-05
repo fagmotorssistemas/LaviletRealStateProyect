@@ -7,6 +7,8 @@ import { catalogDialogueReply } from './catalog-dialogue'
 import { tourContinuation } from './tour-continuation'
 import { selectedFinancingUnit } from './financing-stage'
 import { effectiveTurnBudget } from './turn-budget'
+import { leadBudget, budgetQuestion } from './budget-state'
+import { commercialJourneyPlan } from './commercial-journey'
 
 type PropertyCategory = 'suite' | 'departamento' | 'penthouse' | 'local'
 
@@ -112,7 +114,7 @@ function simpleLivingPurpose(current: string) {
 }
 
 function budgetUncertain(current: string, semantics?: unknown) {
-  if (semanticBudgetStatus(semantics) === 'unknown') return true
+  if (['unknown', 'no_defined_budget'].includes(semanticBudgetStatus(semantics))) return true
   const message = normalized(current)
   return /\bno (?:se|estoy segur[oa]|tengo claro|tengo idea|he pensado)\b/.test(message)
     && /\b(?:presupuesto|cuanto|dinero|invertir|gastar|pagar)\b/.test(message)
@@ -176,7 +178,8 @@ function confirmedBudgetReply(info: Row, unit: Row) {
   const tour = rawCategory !== 'local' && /^\d{3,4}$/.test(unitNumber) ? unitTourUrl(unitNumber) : ''
   const alreadySent = tour && historyRows(info).some(row => ['bot', 'asesor'].includes(text(row.role)) && text(row.content).includes(tour))
   if (tour && !alreadySent) reply += ` Puede explorarlo en el recorrido virtual: ${tour}`
-  reply += ' ¿Le gustaría coordinar una visita para conocer el proyecto con más detalle?'
+  const next = commercialJourneyPlan(info)
+  if (next.question) reply += ` ${text(next.question)}`
   return reply
 }
 
@@ -370,13 +373,16 @@ export function financingPrerequisiteReply(info: Row, current: string) {
   const budget = budgetFromInfo(info, current)
   const deferred = budgetWasDeferred(info, current)
   if (!unit) {
+    const next = commercialJourneyPlan(info)
+    if (next.question && ['discover_use', 'discover_purpose', 'discover_bedrooms', 'ask_budget'].includes(text(next.action)))
+      return `Con gusto, continuemos con la elección de la propiedad para revisar su financiamiento. ${text(next.question)}`
     if (!category) return object(object(info.property_context).query).group === 'residential'
       ? 'Continuaremos con el financiamiento después de elegir la unidad. Retomemos las viviendas que se ajustan a sus preferencias. ¿Prefiere comparar departamentos o penthouses?'
       : 'Podemos ayudarle a revisar alternativas de financiamiento. Primero necesitamos identificar la propiedad sobre la que desea realizar la evaluación. ¿Qué tipo de inmueble le interesa?'
     if (budget === null && !deferred) return `Podemos ayudarle con el financiamiento. Primero definamos qué ${categoryLabels[category].singular} desea evaluar. ¿Con qué presupuesto aproximado cuenta para orientar la selección?`
-    return `Podemos ayudarle con el financiamiento. Primero necesitamos elegir la ${category === 'suite' ? 'suite' : category === 'departamento' ? 'unidad' : 'opción'} concreta sobre la que se realizará la evaluación. ¿En qué planta le gustaría buscar?`
+    const floor = object(object(object(info.property_context).query).filters).floor_number
+    return `Podemos ayudarle con el financiamiento. Primero necesitamos elegir la ${category === 'suite' ? 'suite' : category === 'departamento' ? 'unidad' : 'opción'} concreta sobre la que se realizará la evaluación. ${floor != null ? '¿Cuál de las unidades que revisamos le interesa?' : '¿En qué planta le gustaría buscar?'}`
   }
-  // Budget guides property selection; it must not restart or prevent the
-  // accepted intake once a concrete unit has already been chosen.
+  if (leadBudget(info).answered !== true) return budgetQuestion(info)
   return ''
 }

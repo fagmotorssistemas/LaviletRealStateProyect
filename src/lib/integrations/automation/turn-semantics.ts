@@ -5,6 +5,9 @@ import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
 import { normalizeCatalogRequest } from './catalog-request'
 
 export const questionIds = [
+  'reservation_invitation',
+  'financing_invitation',
+  'property_purpose',
   'visit_invitation',
   'visit_date_time',
   'budget_amount',
@@ -29,6 +32,7 @@ const primaryIntents = new Set([
 ])
 const answerKinds = new Set(['affirmative', 'negative', 'uncertain', 'value', 'none'])
 const budgetStatuses = new Set([
+  'amount_pending', 'no_defined_budget',
   'not_discussed', 'unknown', 'amount', 'maximum_total', 'initial_capital',
   'sufficient_for_selected_unit', 'insufficient_for_selected_unit', 'declines_to_disclose',
 ])
@@ -37,7 +41,7 @@ const referenceKinds = new Set(['none', 'explicit', 'relative', 'comparison', 'f
 const unitSelectors = new Set(['largest', 'smallest', 'cheapest', 'most_expensive', 'first', 'last'])
 const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'none'])
 const queryScopes = new Set(['catalog', 'offered', 'comparison', 'selected'])
-const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'budget', 'visit', 'profile', 'other'])
+const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'budget', 'visit', 'profile', 'reservation', 'financing', 'other'])
 const profileQuestionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation'])
 const reservationKinds = new Set(['request', 'information', 'declined', 'none'])
 
@@ -197,7 +201,7 @@ Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
     "confidence":"high|medium|low"
   },
   "budget":{
-    "status":"not_discussed|unknown|amount|maximum_total|initial_capital|sufficient_for_selected_unit|insufficient_for_selected_unit|declines_to_disclose",
+    "status":"not_discussed|unknown|amount_pending|no_defined_budget|amount|maximum_total|initial_capital|sufficient_for_selected_unit|insufficient_for_selected_unit|declines_to_disclose",
     "amount":null,
     "evidence":"copia literal breve del mensaje actual o cadena vacía",
     "confidence":"high|medium|low"
@@ -212,7 +216,8 @@ Resuelva primero sobre QUÉ pide información. Una solicitud general tras solo s
 answer_to_previous solo puede usar el question_id exacto recibido en pregunta_pendiente. Si no responde esa pregunta, use question_id=none y kind=none.
 Las preguntas lead_profile, lead_profile_name y lead_profile_residence recogen nombre y/o residencia; lead_residence_confirmation confirma si residence_candidate es la residencia actual. Una respuesta «sí» a esa confirmación es affirmative SOLO de lead_residence_confirmation, nunca acepta una visita, crédito o unidad. «No, vivo en otra ciudad» puede contestar negative y aportar la residencia explícita al perfil. El lugar candidato y su evidencia pertenecen al perfil, no al catálogo: nunca los convierta en unit_numbers, filtros o una propiedad seleccionada. Cuando no hay una pregunta de confirmación con candidato registrado, un «sí» aislado no declara una ciudad. Una respuesta al perfil puede además traer otra consulta; preserve ambas sin inventar autorización operativa.
 Una aceptación de una invitación a visita, incluso "sí está bien", es affirmative de visit_invitation. Una fecha u hora dada como respuesta es value de visit_date_time.
-En budget, unknown incluye dudas sobre cuánto puede gastar aunque haya errores ortográficos. sufficient_for_selected_unit significa que el cliente afirma que el precio de la unidad elegida sí se ajusta a su presupuesto; insufficient_for_selected_unit significa que afirma lo contrario. No convierta una simple aceptación, una cifra del precio citada por el bot ni una duda en una declaración de capacidad de pago.
+En budget, no_defined_budget significa que declara no tener presupuesto definido («todavía no tengo uno», «no he establecido cuánto»). amount_pending significa que confirma tener presupuesto sin decir cuánto («sí tengo» ante esa pregunta). unknown conserva una duda o importe ambiguo; not_discussed significa que este turno no declara presupuesto. No confunda estos estados. sufficient_for_selected_unit significa que afirma que el precio de la unidad elegida sí se ajusta a su presupuesto; insufficient_for_selected_unit afirma lo contrario. No convierta una simple aceptación, una cifra del precio citada por el bot ni una duda en capacidad de pago.
+Con pregunta_pendiente.id=reservation_invitation un sí inequívoco solicita iniciar esa reserva: reservation.kind=request, evidencia literal del sí y las unidades de target_ids; un no es declined. Con financing_invitation, «bueno continuemos» acepta continuar la orientación financiera, nunca una visita o un asesor. Conserve answer_to_previous con su id exacto. No asigne un significado distinto cuando la pregunta tiene alternativas ambiguas.
 amount se completa solo con una cifra expresada por el cliente en el mensaje actual. No copie cifras del historial.
 property.category solo indica una preferencia AFIRMADA AHORA: suite|departamento|penthouse|local, no la última categoría mencionada ni una inferencia del historial. En "me interesan más los departamentos porque los penthouse deben ser muy caros", category=departamento y excluded_categories=[penthouse]. Mencionar una opción para descartarla no es elegirla. Una preocupación por precios no declara un presupuesto.
 property.group distingue residential (vivienda en general) de commercial (locales). «Me interesa vivienda» y «algo para vivir» son group=residential, category=null: no implican elegir departamento ni excluir suites. Solo complete category si el mensaje realmente elige o consulta esa categoría concreta.

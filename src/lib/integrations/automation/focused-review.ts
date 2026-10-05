@@ -38,7 +38,10 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   if (['share_now', 'offer_after_profile'].includes(text(object(stage.brochure).accion))) obligations.push({ id: 'brochure_sequence',
     instruction: 'Evalúe el TEXTO del borrador según estado_comercial.brochure. Con share_now debe incluir el enlace autorizado. Con offer_after_profile basta ofrecer el brochure al pedir los datos pendientes: eso CUMPLE la obligación, sin esperar datos del cliente ni comprobante de envío. No exija entregar el brochure en una etapa que solo pide ofrecerlo.' })
   const policy = object(verified.politica_comercial)
-  if (needsPropertyPurpose(verified, audit, stage)) obligations.push({ id: 'property_purpose',
+  const journey = object(verified.siguiente_paso_comercial)
+  if (Object.keys(journey).length) obligations.push({ id: 'commercial_next_step',
+    ...journey, instruction: text(journey.instruction) + ' Atienda primero cualquier consulta concreta; si hay pregunta de presentación pendiente, tiene prioridad y no añada otra. La pregunta sugerida admite redacción equivalente, pero no un cambio de finalidad. No exija repetir detalles del sistema.' })
+  if (!journey.action && needsPropertyPurpose(verified, audit, stage)) obligations.push({ id: 'property_purpose',
     instruction: 'Después de responder el precio o la oferta general, presente brevemente los tipos autorizados disponibles (suites, departamentos, penthouses y locales, según las fuentes) y pregunte si busca vivienda o un espacio para comercio. El propósito aún no se conoce; no termine solamente con el brochure. No vuelva a pedir un propósito ya confirmado.' })
   if (audit.source === 'clarify_previous_choice') obligations.push({ id: 'clarify_previous_choice',
     ...object(audit.choice_clarification) })
@@ -49,15 +52,19 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   if (['shortfall', 'excess'].includes(text(balance.status)) && (audit.source === 'financing_question'
     || Array.isArray(object(verified.semantica_turno).financing_amounts) && (object(verified.semantica_turno).financing_amounts as unknown[]).length))
     obligations.push({ id: 'financing_balance', ...balance })
-  if (financing.stage === 'explain_and_offer' && (audit.source === 'financing_question'
+  if (stage.requiere_captura !== true && (!journey.action || journey.action === 'offer_financing') && financing.stage === 'explain_and_offer' && (audit.source === 'financing_question'
     || rows(verified.solicitudes_interpretadas).some(r => r.domain === 'financing'))) obligations.push({ id: 'financing_orientation',
     instruction: 'Explique brevemente el procedimiento y las entidades autorizadas y pregunte si desea continuar con la revisión por este chat. La pregunta debe tener ese único objeto; no mezcle aceptar información con aceptar revisión o contacto. No ofrezca asignar un contacto ni solicite datos financieros todavía.' })
-  if (financing.accepted === true && financing.collection_allowed !== true) obligations.push({ id: 'financing_property_first',
+  if (stage.requiere_captura !== true && financing.accepted === true && financing.stage === 'select_property') obligations.push({ id: 'financing_property_first',
     instruction: 'El lead aceptó continuar el financiamiento, pero todavía no eligió una unidad. Si este turno continúa esa revisión, retome la selección con sus preferencias conocidas. No solicite cédula, empleo ni ingresos antes de elegir inmueble, no vuelva a pedir la aceptación y no sustituya la selección por una derivación. Explicar requisitos cuando se preguntan no es solicitar que los entregue.' })
+  if (financing.stage === 'clarify_budget' && stage.requiere_captura !== true) obligations.push({ id: 'financing_budget_first', instruction: text(financing.instruction) })
   if (verified.presupuesto_del_turno) obligations.push({ id: 'current_budget_answer',
-    instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si hay precios autorizados, debe explicar su relación con el presupuesto; si faltan o no están autorizados, debe comunicar esa limitación o aclarar el dato necesario. Enumerar características y preguntar planta sin atender el presupuesto incumple. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
+    instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si existe un monto comparable y precios autorizados, explique su relación; sin monto declarado no exija comparar precios ni invente cero. Siga siguiente_paso_comercial para continuar sin repetir rechazos ni invitaciones ya contestadas. Si falta información para una comparación solicitada, comunique esa limitación. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
   if (object(verified.presupuesto_del_turno).continuation) obligations.push({ id: 'budget_continuation',
-    action: object(verified.presupuesto_del_turno).continuation, instruction: budgetContinuationInstruction(object(verified.presupuesto_del_turno)) })
+    action: object(verified.presupuesto_del_turno).continuation, instruction: stage.requiere_captura === true
+      ? 'Atienda la relación del presupuesto con los precios y mencione el financiamiento si corresponde. La única pregunta en esta apertura solicita nombre y residencia; no añada todavía aceptación financiera ni preferencias.'
+      : journey.action ? 'Atienda los hechos del presupuesto y continúe según commercial_next_step: ' + text(journey.instruction)
+        : budgetContinuationInstruction(object(verified.presupuesto_del_turno)) })
   if (policy.precios_aproximados === true) obligations.push({ id: 'price_conditions',
     instruction: 'Si el borrador comunica precios, preserve su carácter referencial de lanzamiento y posibilidad de cambio, con cualquier redacción equivalente. Si no comunica precios, esta obligación está cumplida.' })
   if (contract.decisiones_protegidas === true || audit.action || audit.visit_result || audit.reservation

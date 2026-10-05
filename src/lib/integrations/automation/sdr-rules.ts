@@ -43,6 +43,7 @@ function discoveryQuestion(key: string, question: string) {
     presupuesto: 'Filtrar precios de unidades y ofrecer orientación financiera si hace falta.',
     plazo_compra: 'Acordar el siguiente paso y momento útil de seguimiento, sin presionar.',
     visita: 'Solicitar una preferencia para coordinar una visita sujeta a confirmación del equipo.',
+    unidad: 'Identificar la unidad elegida antes de continuar con reserva o revisión financiera.',
   }
   return { key, question, purpose: purposes[key] }
 }
@@ -57,14 +58,11 @@ export function nextDiscoveryQuestion(lead: Row): { key: string; question: strin
     if (lead.purchase_purpose === 'negocio' && !sdr.actividad_comercial) return discoveryQuestion('actividad_comercial', '¿Qué tipo de negocio le gustaría instalar?')
     if (!sdr.prioridad) return discoveryQuestion('prioridad', '¿Qué sería lo más importante para usted al elegir el local?')
   } else {
-    if (category === 'departamento' && !lead.preferred_bedrooms && !sdr.dormitorios_texto) return discoveryQuestion('dormitorios', '¿Cuántos dormitorios necesita?')
-    if (!sdr.prioridad) return discoveryQuestion('prioridad', lead.purchase_purpose === 'invertir'
-      ? '¿Qué le gustaría priorizar en su inversión?'
-      : '¿Qué le gustaría mejorar en su día a día con su nueva vivienda?')
+    if (['departamento', 'penthouse'].includes(category) && !lead.preferred_bedrooms && !sdr.dormitorios_texto) return discoveryQuestion('dormitorios', '¿Cuántos dormitorios necesita?')
   }
   if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return discoveryQuestion('presupuesto', '¿Tiene un presupuesto aproximado en mente para orientar la búsqueda?')
   if (!sdr.plazo_compra) return discoveryQuestion('plazo_compra', '¿Para cuándo le gustaría tomar una decisión de compra?')
-  return discoveryQuestion('visita', '¿Le gustaría coordinar una visita para conocer mejor las opciones?')
+  return discoveryQuestion('unidad', '¿Cuál de las unidades que revisamos le interesa?')
 }
 
 export const reviewReasons = ['unsupported_fact', 'unsupported_action', 'ignored_question', 'repeated_greeting', 'repeated_question', 'style', 'missing_next_step'] as const
