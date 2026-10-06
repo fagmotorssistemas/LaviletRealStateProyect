@@ -86,6 +86,50 @@ El clasificador conserva su configuración independiente. La traza registra
 modelo, esfuerzo, consumo y presupuesto; los tokens de razonamiento ya forman
 parte de los tokens de salida y no se suman dos veces.
 
+### Prueba del redactor con GPT-4.1 mini — 6 de octubre de 2026
+
+El redactor final, sus borradores y sus reescrituras usan `gpt-4.1-mini` por
+defecto. `OPENAI_MODEL_WRITER` permite cambiar exclusivamente esos roles.
+El extractor, la interpretación auxiliar y la lectura de medios siguen
+`OPENAI_MODEL`; clasificador y revisor conservan sus configuraciones propias.
+Cambiar el modelo no modifica el contexto, las instrucciones comerciales,
+los esquemas estrictos, el límite de salida ni el interruptor de revisión final.
+
+El valor predeterminado entra en funcionamiento al desplegar esta revisión;
+no requiere una migración de base de datos ni cambiar `OPENAI_MODEL`.
+Una variable `OPENAI_MODEL_WRITER` explícita prevalece sobre el valor
+predeterminado. Para volver únicamente el redactor al modelo anterior, establezca
+`OPENAI_MODEL_WRITER=gpt-4.1` y reinicie o despliegue el servidor.
+
+En las ejecuciones nuevas, los pasos del redactor deben mostrar
+`gpt-4.1-mini`; las ejecuciones históricas conservan el modelo que realmente
+usaron. El registro del mensaje utiliza la configuración del redactor,
+en lugar de atribuirle la del extractor. Las tarifas del mini ya están
+contempladas en el cálculo de costes de la interfaz.
+
+La validación técnica comprueba la petición que sale a la API, el modelo
+registrado en la traza, la conservación del contrato y la reversión independiente.
+Las pruebas con respuestas simuladas verifican la integración; la calidad del
+modelo se evalúa separadamente con llamadas reales y revisión de los textos.
+
+La comprobación inicial pasó 46 pruebas específicas, TypeScript y ESLint.
+También se ejecutaron tres casos aislados con redactor mini y revisor real:
+presentación inicial, precio de penthouse y orientación para una familia de seis.
+El revisor aceptó las tres respuestas; la de precio necesitó una reescritura.
+La inspección manual encontró que la respuesta familiar afirma que las opciones
+son «ideales para familias numerosas» sin suficiente respaldo y no explica
+adecuadamente cómo valorar tres dormitorios para seis personas. Ese caso queda
+pendiente de calidad aunque su revisión automática haya sido favorable.
+
+Las ocho llamadas de ese recorrido costaron USD 0,04840475 calculados con el uso
+registrado y las tarifas locales: USD 0,020552 del redactor mini y el resto del
+revisor. No incluye extractor, clasificación ni transporte. La comparación con
+GPT-4.1 se interrumpió en el segundo caso por una salida incompleta del revisor,
+por lo que los totales no permiten calcular un ahorro global ni una mejora de
+latencia. Esta entrega activa una prueba solicitada del modelo, no certifica
+que conserve la calidad en todas las conversaciones.
+La evidencia está en `docs/automation/writer-mini-trial-2026-10-06.json`.
+
 Las evaluaciones aisladas no acceden a la base de datos ni envían mensajes:
 
 ```text

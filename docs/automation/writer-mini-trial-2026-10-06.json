@@ -1,0 +1,646 @@
+{
+  "date": "2026-10-06",
+  "base_commit": "b5348bd",
+  "requested_writer_model": "gpt-4.1-mini",
+  "technical_checks": {
+    "focused_tests_passed": 46,
+    "focused_tests_failed": 0,
+    "typescript": "passed",
+    "eslint": "passed"
+  },
+  "limitation": "Isolated synthetic fixtures through completeTurnReply. Not the full webhook, production prompts, CRM or WhatsApp delivery. The GPT-4.1 baseline stopped at a truncated reviewer response, so aggregate savings and latency are not comparable. Reviewer acceptance alone did not certify the family response.",
+  "mini": {
+    "writer_model": "gpt-4.1-mini",
+    "reviewer_model": "gpt-5-mini",
+    "totals": {
+      "calls": 8,
+      "measuredCalls": 8,
+      "pricedCalls": 8,
+      "inputTokens": 89395,
+      "cachedInputTokens": 0,
+      "outputTokens": 9501,
+      "totalTokens": 98896,
+      "estimatedUsd": 0.048404749999999996,
+      "inputUsd": 0.029663950000000005,
+      "cachedUsd": 0,
+      "outputUsd": 0.0187408,
+      "embeddingTokens": 0,
+      "embeddingUsd": 0,
+      "unmeasuredTransportAttempts": 0,
+      "priceVersion": "2026-09-30",
+      "priceSnapshots": [
+        {
+          "model": "gpt-4.1-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+        },
+        {
+          "model": "gpt-5-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+        }
+      ],
+      "complete": true
+    },
+    "model_costs": {
+      "gpt-4.1-mini": {
+        "calls": 4,
+        "measuredCalls": 4,
+        "pricedCalls": 4,
+        "inputTokens": 48768,
+        "cachedInputTokens": 0,
+        "outputTokens": 653,
+        "totalTokens": 49421,
+        "estimatedUsd": 0.020552,
+        "inputUsd": 0.019507200000000002,
+        "cachedUsd": 0,
+        "outputUsd": 0.0010448,
+        "embeddingTokens": 0,
+        "embeddingUsd": 0,
+        "unmeasuredTransportAttempts": 0,
+        "priceVersion": "2026-09-30",
+        "priceSnapshots": [
+          {
+            "model": "gpt-4.1-mini",
+            "version": "2026-09-30",
+            "source": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+          }
+        ],
+        "complete": true
+      },
+      "gpt-5-mini": {
+        "calls": 4,
+        "measuredCalls": 4,
+        "pricedCalls": 4,
+        "inputTokens": 40627,
+        "cachedInputTokens": 0,
+        "outputTokens": 8848,
+        "totalTokens": 49475,
+        "estimatedUsd": 0.02785275,
+        "inputUsd": 0.010156749999999999,
+        "cachedUsd": 0,
+        "outputUsd": 0.017696,
+        "embeddingTokens": 0,
+        "embeddingUsd": 0,
+        "unmeasuredTransportAttempts": 0,
+        "priceVersion": "2026-09-30",
+        "priceSnapshots": [
+          {
+            "model": "gpt-5-mini",
+            "version": "2026-09-30",
+            "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+          }
+        ],
+        "complete": true
+      }
+    },
+    "database_reads": 0,
+    "database_writes": 0,
+    "outbound_sends": 0,
+    "cases": [
+      {
+        "id": "greeting-1753",
+        "outcome": "generated_checked",
+        "accepted_by_reviewer": true,
+        "elapsed_ms": 20607,
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 17901,
+          "cachedInputTokens": 0,
+          "outputTokens": 1825,
+          "totalTokens": 19726,
+          "estimatedUsd": 0.0096708,
+          "inputUsd": 0.0060972,
+          "cachedUsd": 0,
+          "outputUsd": 0.0035736,
+          "embeddingTokens": 0,
+          "embeddingUsd": 0,
+          "unmeasuredTransportAttempts": 0,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-4.1-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+            },
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "writer_calls": 1,
+        "reviewer_calls": 1,
+        "final_reply": "Con mucho gusto le comparto información sobre La Vilet, un proyecto inmobiliario ubicado en el sector residencial Puertas del Sol, en Cuenca, con excelentes servicios cercanos y conectividad urbana. Para enviarle el brochure y una guía personalizada que le ayudarán a conocer mejor el proyecto, ¿podría indicarme su nombre completo y la ciudad o país donde reside actualmente?",
+        "manual_assessment": {
+          "status": "checked_in_this_fixture"
+        },
+        "calls": [
+          {
+            "role": "writer",
+            "model": "gpt-4.1-mini",
+            "request_kind": "writer",
+            "prompt_sha256": "b98f5dacfe0db94238e60f721e9504f204b0e26fcbc9f6c07d4c9c5b986ba55e",
+            "token_usage": {
+              "input_tokens": 10813,
+              "output_tokens": 191,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "elapsed_ms": 5746,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 2200,
+              "output_budget_exhausted": false
+            }
+          },
+          {
+            "role": "reviewer",
+            "model": "gpt-5-mini",
+            "request_kind": "review",
+            "prompt_sha256": "630ed4595fee947a8d6e1152cc4c29781442e44e843e1f4d75942ef09f9d6707",
+            "token_usage": {
+              "input_tokens": 7088,
+              "output_tokens": 1634,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 704
+            },
+            "elapsed_ms": 14811,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 4500,
+              "output_budget_exhausted": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "exact-price-floor",
+        "outcome": "generated_checked",
+        "accepted_by_reviewer": true,
+        "elapsed_ms": 47106,
+        "cost": {
+          "calls": 4,
+          "measuredCalls": 4,
+          "pricedCalls": 4,
+          "inputTokens": 48225,
+          "cachedInputTokens": 0,
+          "outputTokens": 5614,
+          "totalTokens": 53839,
+          "estimatedUsd": 0.027025150000000005,
+          "inputUsd": 0.015918750000000002,
+          "cachedUsd": 0,
+          "outputUsd": 0.0111064,
+          "embeddingTokens": 0,
+          "embeddingUsd": 0,
+          "unmeasuredTransportAttempts": 0,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-4.1-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+            },
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "writer_calls": 2,
+        "reviewer_calls": 2,
+        "final_reply": "Los penthouses disponibles en La Vilet, ubicados en la planta 6, cuentan con 2 y 3 dormitorios respectivamente. Ambos tienen un precio referencial de lanzamiento de $550,000 USD cada uno, sujeto a posibles modificaciones. Además, el proyecto ofrece suites, departamentos y locales. ¿Está buscando un espacio para vivir o para un negocio?",
+        "manual_assessment": {
+          "status": "checked_in_this_fixture"
+        },
+        "calls": [
+          {
+            "role": "writer",
+            "model": "gpt-4.1-mini",
+            "request_kind": "writer",
+            "prompt_sha256": "7f2c5d8727b3a5d375cc212556c0edc7adcc3814d74fafec5350db5507993c7e",
+            "token_usage": {
+              "input_tokens": 12648,
+              "output_tokens": 142,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "elapsed_ms": 3006,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 2200,
+              "output_budget_exhausted": false
+            }
+          },
+          {
+            "role": "reviewer",
+            "model": "gpt-5-mini",
+            "request_kind": "review",
+            "prompt_sha256": "ad09c946805aed3baa856214b5c92677b919ca33bc0cfae1542649b328693342",
+            "token_usage": {
+              "input_tokens": 11160,
+              "output_tokens": 2616,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 1024
+            },
+            "elapsed_ms": 18763,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 4500,
+              "output_budget_exhausted": false
+            }
+          },
+          {
+            "role": "writer",
+            "model": "gpt-4.1-mini",
+            "request_kind": "writer_repair",
+            "prompt_sha256": "065e5ace80e3d68866f759ac3ee8cc67af23d97eb0d9014589efb7226be48ad1",
+            "token_usage": {
+              "input_tokens": 13102,
+              "output_tokens": 162,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "elapsed_ms": 3164,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 2200,
+              "output_budget_exhausted": false
+            }
+          },
+          {
+            "role": "reviewer",
+            "model": "gpt-5-mini",
+            "request_kind": "review",
+            "prompt_sha256": "3e20b5f3fcd046e955a5bc43bc49d37af8c5d6dbd9eef8a024b9c4ca5e199d7b",
+            "token_usage": {
+              "input_tokens": 11315,
+              "output_tokens": 2694,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 1152
+            },
+            "elapsed_ms": 22051,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 4750,
+              "output_budget_exhausted": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "family-guidance",
+        "outcome": "generated_checked",
+        "accepted_by_reviewer": true,
+        "elapsed_ms": 19394,
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 23269,
+          "cachedInputTokens": 0,
+          "outputTokens": 2062,
+          "totalTokens": 25331,
+          "estimatedUsd": 0.0117088,
+          "inputUsd": 0.007648,
+          "cachedUsd": 0,
+          "outputUsd": 0.0040608,
+          "embeddingTokens": 0,
+          "embeddingUsd": 0,
+          "unmeasuredTransportAttempts": 0,
+          "priceVersion": "2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-4.1-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+            },
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "writer_calls": 1,
+        "reviewer_calls": 1,
+        "final_reply": "Los departamentos de tres dormitorios en La Vilet tienen 120.83 m² de área interna y 27.03 m² de espacio exterior, con dos baños completos, ideales para familias numerosas, aunque la comodidad puede depender de la distribución y las preferencias personales. Si lo desea, puedo compartir el brochure con más detalles.",
+        "manual_assessment": {
+          "status": "needs_review",
+          "findings": [
+            "Unsupported suitability claim for large families; does not adequately explain the six-person household tradeoff."
+          ]
+        },
+        "calls": [
+          {
+            "role": "writer",
+            "model": "gpt-4.1-mini",
+            "request_kind": "writer",
+            "prompt_sha256": "c10e5bdd23cb7f2a2005217321e298c163e1b7afd740ba84fe37a254940f0f34",
+            "token_usage": {
+              "input_tokens": 12205,
+              "output_tokens": 158,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "elapsed_ms": 3012,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 2200,
+              "output_budget_exhausted": false
+            }
+          },
+          {
+            "role": "reviewer",
+            "model": "gpt-5-mini",
+            "request_kind": "review",
+            "prompt_sha256": "3ccf77b4f5cb15092ba0218a4a330eb2c8a47ad1f6429850ef5e5a210d69062a",
+            "token_usage": {
+              "input_tokens": 11064,
+              "output_tokens": 1904,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 768
+            },
+            "elapsed_ms": 16357,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 4250,
+              "output_budget_exhausted": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "baseline": {
+    "writer_model": "gpt-4.1",
+    "reviewer_model": "gpt-5-mini",
+    "totals": {
+      "calls": 4,
+      "measuredCalls": 4,
+      "pricedCalls": 4,
+      "inputTokens": 41718,
+      "cachedInputTokens": 0,
+      "outputTokens": 6450,
+      "totalTokens": 48168,
+      "estimatedUsd": 0.06724225,
+      "inputUsd": 0.05148625,
+      "cachedUsd": 0,
+      "outputUsd": 0.015756,
+      "embeddingTokens": 0,
+      "embeddingUsd": 0,
+      "unmeasuredTransportAttempts": 0,
+      "priceVersion": "2026-09-29 y 2026-09-30",
+      "priceSnapshots": [
+        {
+          "model": "gpt-4.1",
+          "version": "2026-09-29",
+          "source": null
+        },
+        {
+          "model": "gpt-5-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+        }
+      ],
+      "complete": true
+    },
+    "model_costs": {
+      "gpt-4.1": {
+        "calls": 2,
+        "measuredCalls": 2,
+        "pricedCalls": 2,
+        "inputTokens": 23461,
+        "cachedInputTokens": 0,
+        "outputTokens": 476,
+        "totalTokens": 23937,
+        "estimatedUsd": 0.05073,
+        "inputUsd": 0.046922,
+        "cachedUsd": 0,
+        "outputUsd": 0.0038079999999999998,
+        "embeddingTokens": 0,
+        "embeddingUsd": 0,
+        "unmeasuredTransportAttempts": 0,
+        "priceVersion": "2026-09-29",
+        "priceSnapshots": [
+          {
+            "model": "gpt-4.1",
+            "version": "2026-09-29",
+            "source": null
+          }
+        ],
+        "complete": true
+      },
+      "gpt-5-mini": {
+        "calls": 2,
+        "measuredCalls": 2,
+        "pricedCalls": 2,
+        "inputTokens": 18257,
+        "cachedInputTokens": 0,
+        "outputTokens": 5974,
+        "totalTokens": 24231,
+        "estimatedUsd": 0.01651225,
+        "inputUsd": 0.00456425,
+        "cachedUsd": 0,
+        "outputUsd": 0.011948,
+        "embeddingTokens": 0,
+        "embeddingUsd": 0,
+        "unmeasuredTransportAttempts": 0,
+        "priceVersion": "2026-09-30",
+        "priceSnapshots": [
+          {
+            "model": "gpt-5-mini",
+            "version": "2026-09-30",
+            "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+          }
+        ],
+        "complete": true
+      }
+    },
+    "database_reads": 0,
+    "database_writes": 0,
+    "outbound_sends": 0,
+    "cases": [
+      {
+        "id": "greeting-1753",
+        "outcome": "generated_checked",
+        "accepted_by_reviewer": true,
+        "elapsed_ms": 17672,
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 17920,
+          "cachedInputTokens": 0,
+          "outputTokens": 1703,
+          "totalTokens": 19623,
+          "estimatedUsd": 0.02818275,
+          "inputUsd": 0.02340275,
+          "cachedUsd": 0,
+          "outputUsd": 0.00478,
+          "embeddingTokens": 0,
+          "embeddingUsd": 0,
+          "unmeasuredTransportAttempts": 0,
+          "priceVersion": "2026-09-29 y 2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-4.1",
+              "version": "2026-09-29",
+              "source": null
+            },
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "writer_calls": 1,
+        "reviewer_calls": 1,
+        "final_reply": "¡Gracias por su interés en La Vilet! Este proyecto está ubicado en Puertas del Sol, un sector residencial consolidado de Cuenca con servicios cercanos y excelente conectividad. Para poder compartirle el brochure oficial y ofrecerle una guía personalizada según sus necesidades, ¿puede indicarme su nombre completo y en qué ciudad o país reside actualmente?",
+        "manual_assessment": {
+          "status": "checked_in_this_fixture"
+        },
+        "calls": [
+          {
+            "role": "writer",
+            "model": "gpt-4.1",
+            "request_kind": "writer",
+            "prompt_sha256": "b98f5dacfe0db94238e60f721e9504f204b0e26fcbc9f6c07d4c9c5b986ba55e",
+            "token_usage": {
+              "input_tokens": 10813,
+              "output_tokens": 229,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "elapsed_ms": 4863,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 2200,
+              "output_budget_exhausted": false
+            }
+          },
+          {
+            "role": "reviewer",
+            "model": "gpt-5-mini",
+            "request_kind": "review",
+            "prompt_sha256": "597bf9a64b33093c26c176a93ec9c8067a3a17dd4671953ee0ea316290f6caeb",
+            "token_usage": {
+              "input_tokens": 7107,
+              "output_tokens": 1474,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 512
+            },
+            "elapsed_ms": 12755,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 4500,
+              "output_budget_exhausted": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "exact-price-floor",
+        "outcome": "inconclusive",
+        "accepted_by_reviewer": false,
+        "elapsed_ms": 38149,
+        "cost": {
+          "calls": 2,
+          "measuredCalls": 2,
+          "pricedCalls": 2,
+          "inputTokens": 23798,
+          "cachedInputTokens": 0,
+          "outputTokens": 4747,
+          "totalTokens": 28545,
+          "estimatedUsd": 0.0390595,
+          "inputUsd": 0.028083499999999997,
+          "cachedUsd": 0,
+          "outputUsd": 0.010976,
+          "embeddingTokens": 0,
+          "embeddingUsd": 0,
+          "unmeasuredTransportAttempts": 0,
+          "priceVersion": "2026-09-29 y 2026-09-30",
+          "priceSnapshots": [
+            {
+              "model": "gpt-4.1",
+              "version": "2026-09-29",
+              "source": null
+            },
+            {
+              "model": "gpt-5-mini",
+              "version": "2026-09-30",
+              "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+            }
+          ],
+          "complete": true
+        },
+        "writer_calls": 1,
+        "reviewer_calls": 1,
+        "final_reply": "Tengo pendiente responderle sobre su consulta de precios. No he podido validar una respuesta completa en este momento.",
+        "manual_assessment": {
+          "status": "inconclusive"
+        },
+        "calls": [
+          {
+            "role": "writer",
+            "model": "gpt-4.1",
+            "request_kind": "writer",
+            "prompt_sha256": "7f2c5d8727b3a5d375cc212556c0edc7adcc3814d74fafec5350db5507993c7e",
+            "token_usage": {
+              "input_tokens": 12648,
+              "output_tokens": 247,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "elapsed_ms": 3656,
+            "provider_diagnostics": {
+              "response_status": "completed",
+              "incomplete_reason": null,
+              "configured_max_output_tokens": 2200,
+              "output_budget_exhausted": false
+            }
+          },
+          {
+            "role": "reviewer",
+            "model": "gpt-5-mini",
+            "request_kind": "review",
+            "prompt_sha256": "5afc4f9b22158b39d29962f5296c2412085e4bf9d3ec2ba5ec7522a688129df2",
+            "token_usage": {
+              "input_tokens": 11150,
+              "output_tokens": 4500,
+              "cached_input_tokens": 0,
+              "reasoning_tokens": 896
+            },
+            "elapsed_ms": 34392,
+            "error": "OPENAI_incomplete",
+            "provider_diagnostics": {
+              "response_status": "incomplete",
+              "incomplete_reason": "max_output_tokens",
+              "configured_max_output_tokens": 4500,
+              "output_budget_exhausted": true
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

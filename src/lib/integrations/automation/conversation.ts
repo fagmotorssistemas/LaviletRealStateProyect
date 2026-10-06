@@ -11,6 +11,7 @@ import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
 import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import 'server-only'
 import { activePrompt, aiJson, mediaText } from './ai'
+import { automationModelForRole } from './ai-model-routing'
 import { OpenAIRequestError } from './openai-request'
 import { unansweredInbound } from './pending-inbound'
 import { confirmedInterpretationMemory } from './interpretation-memory'
@@ -1721,7 +1722,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (continuation) audit.nutrition_continuation = { topic: continuation.topic, source_message_id: continuation.sourceMessageId }
   audit.conversation_tone = conversationToneAudit()
   await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: reply,
-    p_model: greetingTemplate ? 'template:saludo_inicial' : process.env.OPENAI_MODEL, p_tool_calls: { source_message_id: activeLast.externalId,
+    p_model: greetingTemplate ? 'template:saludo_inicial' : automationModelForRole('writer'), p_tool_calls: { source_message_id: activeLast.externalId,
       answered_message_ids: recoveringTurn() ? [] : [...pendingInputs.map(message => message.message_id), ...inbound.normalized.map(event => event.externalId)],
       provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } })
   trace.finish(deliveryStep, 'succeeded', {

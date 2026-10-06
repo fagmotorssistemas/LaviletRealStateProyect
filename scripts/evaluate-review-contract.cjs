@@ -20,7 +20,7 @@ const args = process.argv.slice(2)
 const arg = (key, fallback) => args.includes(key) ? args[args.indexOf(key) + 1] : fallback
 const live = args.includes('--live'), liveWriter = args.includes('--live-writer')
 const model = arg('--model', automationModelForRole('reviewer'))
-const writerModel = arg('--writer-model', process.env.OPENAI_MODEL || 'gpt-4.1')
+const writerModel = arg('--writer-model', automationModelForRole('writer'))
 const reasoningEffort = arg('--reasoning-effort', automationReasoningEffortForRole('reviewer', model))
 const repeat = Number(arg('--repeat', '1')), maxCalls = Number(arg('--max-calls', '45')), maxUsd = Number(arg('--max-usd', '0.75'))
 const selected = arg('--case', '').split(',').filter(Boolean)

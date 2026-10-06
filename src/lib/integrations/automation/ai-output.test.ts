@@ -20,6 +20,60 @@ test('business fact extraction has bounded output room independent of catalogue 
 })
 const input = { respuesta_propuesta: 'Hola. Los valores referenciales van desde $145.000 hasta $550.000 USD, sujetos a cambios. Para compartirle el brochure y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?' }
 
+test('real request assembly and traces isolate the mini writer and support a writer-only rollback', async t => {
+  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_WRITER', 'OPENAI_MODEL_REVIEWER']) {
+    const previous = process.env[key]
+    if (key === 'OPENAI_API_KEY') process.env[key] = 'synthetic'
+    else if (key === 'OPENAI_MODEL') process.env[key] = 'gpt-4.1'
+    else delete process.env[key]
+    t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous })
+  }
+  const requests: Record<string, unknown>[] = []
+  t.mock.method(globalThis, 'fetch', async (url: unknown, init?: RequestInit) => {
+    assert.equal(url, 'https://api.openai.com/v1/responses')
+    requests.push(JSON.parse(String(init?.body)))
+    return new Response(JSON.stringify({ status: 'completed', usage: { input_tokens: 100, output_tokens: 10 },
+      output: [{ content: [{ type: 'output_text', text: '{"ok":true}' }] }] }), { status: 200 })
+  })
+  const contracts = [
+    { type: 'object', properties: { requests: {}, question: {} } },
+    { type: 'object', properties: { mensaje: {} } },
+    { type: 'object', properties: { turn_semantics: {} } },
+    { type: 'object', properties: { aprobada: {} } },
+  ]
+  const tasks = ['writing', 'writing', 'data', 'review'] as const
+  const settings: ToneSettings = { style: 'elegante', warmth: 2, detail: 2 }
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([{ id: '00000000-0000-4000-8000-000000000001' }], {
+    persist: async rows => { stored = rows; return { error: null } },
+  })
+  await withAIExecutionTrace(trace, async () => {
+    for (let index = 0; index < contracts.length; index++)
+      await aiJson('Conserve las reglas del turno.', input, contracts[index], undefined, undefined, settings, tasks[index])
+    process.env.OPENAI_MODEL_WRITER = 'gpt-4.1'
+    await aiJson('Conserve las reglas del turno.', input, contracts[0], undefined, undefined, settings, 'writing')
+    await aiJson('Conserve las reglas del turno.', input, contracts[2], undefined, undefined, settings, 'data')
+  })
+  await trace.flush()
+  const expectedModels = ['gpt-4.1-mini', 'gpt-4.1-mini', 'gpt-4.1', 'gpt-5-mini', 'gpt-4.1', 'gpt-4.1']
+  assert.deepEqual(requests.map(request => request.model), expectedModels)
+  assert.deepEqual(stored.filter(step => step.step_key === 'model_request').map(step =>
+    (step.input_summary as Record<string, unknown>).model), expectedModels)
+  for (let index = 0; index < contracts.length; index++) {
+    const request = requests[index]
+    assert.ok(String(request.instructions).startsWith('Conserve las reglas del turno.'))
+    assert.ok(String(request.instructions).includes('No invente acciones ni hechos'))
+    assert.deepEqual(request.input, [{ role: 'user', content: [{ type: 'input_text', text: 'Responda en JSON. Datos de entrada:\n' + JSON.stringify(input) }] }])
+    assert.deepEqual((request.text as Record<string, unknown>).format, {
+      type: 'json_schema', name: 'lavilet_result', strict: true, schema: contracts[index],
+    })
+    assert.equal(request.store, false)
+  }
+  assert.equal(requests[0].reasoning, undefined)
+  assert.equal(requests[1].reasoning, undefined)
+  assert.equal(requests[2].reasoning, undefined)
+})
+
 test('failed reviewer call records transport policy and sanitized diagnostics even without a model result', async t => {
   const previousKey = process.env.OPENAI_API_KEY
   process.env.OPENAI_API_KEY = 'synthetic'
@@ -194,7 +248,7 @@ test('writer inherits configured tone while all reviewers remain factual', async
 })
 
 test('GPT-5 mini reviewer sends low reasoning and traces effort and reasoning usage without enlarging output budget', async t => {
-  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_REVIEWER', 'OPENAI_REVIEW_REASONING_EFFORT']) {
+  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_WRITER', 'OPENAI_MODEL_REVIEWER', 'OPENAI_REVIEW_REASONING_EFFORT']) {
     const previous = process.env[key]
     if (key === 'OPENAI_API_KEY') process.env[key] = 'synthetic'
     else if (key === 'OPENAI_MODEL') process.env[key] = 'gpt-4.1'
@@ -232,6 +286,6 @@ test('GPT-5 mini reviewer sends low reasoning and traces effort and reasoning us
   assert.equal(sent[1].model, 'gpt-4o-mini')
   assert.equal(sent[1].reasoning, undefined, 'Model rollback must not send unsupported reasoning options')
   await aiJson('Write reply', {}, undefined, undefined, undefined, { style: 'actual', warmth: 1, detail: 1 }, 'writing')
-  assert.equal(sent[2].model, 'gpt-4.1')
+  assert.equal(sent[2].model, 'gpt-4.1-mini')
   assert.equal(sent[2].reasoning, undefined, 'Reviewer reasoning settings cannot change writer requests')
 })

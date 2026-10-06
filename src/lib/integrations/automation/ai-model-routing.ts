@@ -7,10 +7,11 @@ export function aiRequestRole(schema: unknown, task: string, attachments: boolea
       : task === 'writing' ? 'draft' : 'interpretation'
 }
 
-/** Role-specific defaults leave writer/extractor configuration and rollbacks independent. */
+/** Writer trials and rollbacks must never change extraction or media interpretation. */
 export function automationModelForRole(role: AIRequestRole, env: NodeJS.ProcessEnv = process.env): string | undefined {
   if (role === 'scope') return env.OPENAI_MODEL_SCOPE?.trim() || 'gpt-4o-mini'
   if (role === 'reviewer') return env.OPENAI_MODEL_REVIEWER?.trim() || 'gpt-5-mini'
+  if (role === 'writer' || role === 'draft') return env.OPENAI_MODEL_WRITER?.trim() || 'gpt-4.1-mini'
   return env.OPENAI_MODEL?.trim() || undefined
 }
 
