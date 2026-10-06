@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { useDualBuffer } from '@/components/tour/useDualBuffer'
 import { preloadStill } from '@/lib/tour/stillPreload'
@@ -17,6 +17,7 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
   const [items, setItems] = useState<AmenitySlide[]>([])
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [index, setIndex] = useState(0)
+  const [zoom, setZoom] = useState(1)
   const startRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
@@ -47,6 +48,7 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
     (delta: -1 | 1) => {
       if (count < 2) return
       setIndex((current) => (current + delta + count) % count)
+      setZoom(1)
     },
     [count],
   )
@@ -69,7 +71,7 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
 
   return (
     <div
-      className="absolute inset-0 z-[80] bg-[#14110e]"
+      className="absolute inset-0 z-[80] overflow-hidden bg-[#14110e]"
       onPointerDown={(event) => {
         if (event.button !== 0) return
         startRef.current = { x: event.clientX, y: event.clientY }
@@ -102,7 +104,8 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
                 draggable={false}
                 decoding="async"
                 fetchPriority={buffers.front === slot ? 'high' : 'low'}
-                className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-[400ms] ease-linear ${buffers.front === slot ? 'opacity-100' : 'opacity-0'}`}
+                className={`absolute inset-0 h-full w-full origin-center object-contain transition-opacity duration-[400ms] ease-linear ${buffers.front === slot ? 'opacity-100' : 'opacity-0'}`}
+                style={{ transform: `scale(${zoom})` }}
               />
             )
           })}
@@ -145,6 +148,29 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
           </button>
         </>
       ) : null}
+
+      <div className="pointer-events-auto absolute bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+4rem))] left-[max(0.5rem,env(safe-area-inset-left))] z-[4] flex gap-2">
+        <button
+          type="button"
+          aria-label={t('Alejar')}
+          disabled={zoom <= 1}
+          onClick={() => setZoom((value) => Math.max(1, Math.round((value - 0.5) * 10) / 10))}
+          onPointerDown={(event) => event.stopPropagation()}
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 disabled:opacity-40"
+        >
+          <Minus size={18} strokeWidth={2.25} />
+        </button>
+        <button
+          type="button"
+          aria-label={t('Acercar')}
+          disabled={zoom >= 3}
+          onClick={() => setZoom((value) => Math.min(3, Math.round((value + 0.5) * 10) / 10))}
+          onPointerDown={(event) => event.stopPropagation()}
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 disabled:opacity-40"
+        >
+          <Plus size={18} strokeWidth={2.25} />
+        </button>
+      </div>
 
       {caption ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-[3] flex justify-center px-3">

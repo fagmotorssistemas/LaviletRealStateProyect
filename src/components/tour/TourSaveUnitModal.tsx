@@ -19,9 +19,9 @@ import {
 } from '@/lib/tour/showroomIdentity'
 import {
   addTourFavorite,
+  mergeGuestFavoritesIntoPhone,
 } from '@/lib/tour/tourFavorites'
 import { captureWishlistAfterSave } from '@/lib/meta/wishlistBrowser'
-import { hasAdsConsent } from '@/lib/tour/consent'
 import { cn } from '@/lib/utils'
 import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 
@@ -45,29 +45,19 @@ type TourSaveUnitModalProps = {
 }
 
 export async function saveTourUnit(context: TourSaveContext, phone?: string) {
-  await openTourSession()
-  let leadId: string | null = null
+  const wasIdentified = isShowroomIdentified()
+  let normalized = getShowroomPhone()
+  let leadId: string | null = getShowroomLeadId() || null
 
-  if (!isShowroomIdentified()) {
-    const normalized = normalizeShowroomPhone(phone ?? '')
+  if (!wasIdentified) {
+    normalized = normalizeShowroomPhone(phone ?? '')
     if (normalized.replace(/\D/g, '').length < 8) {
       throw new Error('Ingrese un celular válido')
     }
-    leadId = await identifyTourLead({
-      mode: 'phone',
-      phone: normalized,
-      consent: true,
-      request_kind: 'save_unit',
-      typology_code: context.typologyCode || null,
-      unit_type_id: context.unitTypeId || null,
-      interest_room: context.roomLabel || null,
-      finish: context.finish || null,
-      light: context.light || null,
-      unit_id: context.unitId || null,
-      unit_number: context.unitNumber || null,
-    })
     setShowroomIdentity(normalized, leadId)
   }
+
+  if (normalized) mergeGuestFavoritesIntoPhone(normalized)
 
   if (context.unitId && context.unitNumber) {
     addTourFavorite({
@@ -78,33 +68,47 @@ export async function saveTourUnit(context: TourSaveContext, phone?: string) {
     })
   }
 
-  const durableFavorite = await logTourEvent({
-    event_type: 'guardar_unidad',
-    typology_code: context.typologyCode || null,
-    unit_type_id: context.unitTypeId || null,
-    room: context.roomLabel || null,
-    finish: context.finish || null,
-    light: context.light || null,
-    metadata: {
-      action: 'save',
-      unit_id: context.unitId ?? null,
-      unit_number: context.unitNumber ?? null,
-      phone_tail: (getShowroomPhone() || phone || '').replace(/\D/g, '').slice(-4) || null,
-      lead_id: leadId,
-    },
-  })
-
-  const captured = await captureWishlistAfterSave({
-    unitId: context.unitId,
-    unitNumber: context.unitNumber,
-    typologyCode: context.typologyCode,
-    leadId: leadId || getShowroomLeadId() || null,
-  })
-  if (!durableFavorite) {
-    throw new Error('No se pudo confirmar el guardado del favorito. Reintente.')
-  }
-  if (context.unitId && hasAdsConsent() && !captured) {
-    throw new Error('Guardamos el favorito, pero falta registrar su mediciÃ³n. Reintente para completarla.')
+  try {
+    await openTourSession()
+    if (!wasIdentified && normalized) {
+      leadId = await identifyTourLead({
+        mode: 'phone',
+        phone: normalized,
+        consent: true,
+        request_kind: 'save_unit',
+        typology_code: context.typologyCode || null,
+        unit_type_id: context.unitTypeId || null,
+        interest_room: context.roomLabel || null,
+        finish: context.finish || null,
+        light: context.light || null,
+        unit_id: context.unitId || null,
+        unit_number: context.unitNumber || null,
+      })
+      setShowroomIdentity(normalized, leadId)
+    }
+    await logTourEvent({
+      event_type: 'guardar_unidad',
+      typology_code: context.typologyCode || null,
+      unit_type_id: context.unitTypeId || null,
+      room: context.roomLabel || null,
+      finish: context.finish || null,
+      light: context.light || null,
+      metadata: {
+        action: 'save',
+        unit_id: context.unitId ?? null,
+        unit_number: context.unitNumber ?? null,
+        phone_tail: (normalized || phone || '').replace(/\D/g, '').slice(-4) || null,
+        lead_id: leadId,
+      },
+    })
+    await captureWishlistAfterSave({
+      unitId: context.unitId,
+      unitNumber: context.unitNumber,
+      typologyCode: context.typologyCode,
+      leadId,
+    })
+  } catch {
+    /* La unidad ya quedó en la lista local. */
   }
 }
 
@@ -122,6 +126,9 @@ export function TourSaveUnitModal({
   const [pending, setPending] = useState(false)
   const [phone, setPhone] = useState('')
   const [consent, setConsent] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const closeTimer = useRef<number | null>(null)
   const alreadyIn = isShowroomIdentified()
   const unitLabel = context.unitNumber
     ? `Unidad ${context.unitNumber}`
@@ -132,6 +139,11 @@ export function TourSaveUnitModal({
     setPending(false)
     setConsent(false)
     setPhone(getShowroomPhone())
+    setSaved(false)
+    setFormError(null)
+    return () => {
+      if (closeTimer.current != null) window.clearTimeout(closeTimer.current)
+    }
   }, [open])
 
   if (!open) return null
@@ -139,21 +151,26 @@ export function TourSaveUnitModal({
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     if (!alreadyIn && !consent) {
-      toast.error(t('Marque la casilla para guardar su departamento'))
+      const message = t('Marque la casilla para guardar su departamento')
+      setFormError(message)
+      toast.error(message)
       return
     }
     setPending(true)
+    setFormError(null)
     try {
       await saveTourUnit(context, alreadyIn ? getShowroomPhone() : phone)
       if (!alreadyIn) onIdentified?.()
-      toast.success(
-        t(context.unitNumber
-          ? `Guardamos el departamento ${context.unitNumber}`
-          : 'Guardamos su selección'),
-      )
-      onClose()
+      const message = t(context.unitNumber
+        ? `Ya se guardó la unidad ${context.unitNumber}`
+        : 'Ya se guardó')
+      setSaved(true)
+      toast.success(message)
+      closeTimer.current = window.setTimeout(() => onClose(), 1600)
     } catch (error) {
-      toast.error(t(error instanceof Error ? error.message : 'No se pudo guardar'))
+      const message = t(error instanceof Error ? error.message : 'No se pudo guardar')
+      setFormError(message)
+      toast.error(message)
     } finally {
       setPending(false)
     }
@@ -182,9 +199,13 @@ export function TourSaveUnitModal({
             <p className="text-[10px] font-semibold tracking-[0.16em] text-[#BDA27E] uppercase">
               {t(" Guardar favorito ")}</p>
             <p className="mt-1 text-sm leading-snug text-[#1a2744]">
-              {t(alreadyIn
-                ? `¿Guardamos ${unitLabel} en su lista?`
-                : `Deje su celular y guarde ${unitLabel}. Así accede al simulador de inversión y a opciones de financiamiento.`)}
+              {saved
+                ? t(context.unitNumber
+                  ? `Ya se guardó la unidad ${context.unitNumber}`
+                  : 'Ya se guardó')
+                : t(alreadyIn
+                  ? `¿Guardamos ${unitLabel} en su lista?`
+                  : `Deje su celular y guarde ${unitLabel}. Así accede al simulador de inversión y a opciones de financiamiento.`)}
             </p>
           </div>
           <button
@@ -197,7 +218,11 @@ export function TourSaveUnitModal({
           </button>
         </div>
 
-        {!alreadyIn ? (
+        {saved ? (
+          <p className="rounded-xl bg-[#f7f3ee] px-3 py-3 text-sm font-semibold text-[#29251e]">
+            {t('Ya se guardó. La encuentra en Ver favoritos.')}
+          </p>
+        ) : !alreadyIn ? (
           <>
             <label className="block text-[12px] font-medium text-[#1a2744]">
               {t(" Celular / WhatsApp ")}<input
@@ -238,6 +263,11 @@ export function TourSaveUnitModal({
           </div>
         )}
 
+        {formError ? (
+          <p className="mt-3 text-[12px] leading-snug text-[#9b2c2c]">{formError}</p>
+        ) : null}
+
+        {saved ? null : (
         <button
           type="submit"
           disabled={pending}
@@ -246,6 +276,7 @@ export function TourSaveUnitModal({
           <Bookmark size={15} strokeWidth={2} />
           {t(pending ? 'Guardando…' : alreadyIn ? 'Guardar' : 'Guardar con mi celular')}
         </button>
+        )}
       </form>
     </div>
   )

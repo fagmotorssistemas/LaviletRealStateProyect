@@ -27,6 +27,8 @@ import {
   Menu,
   Bookmark,
   Mic,
+  Plus,
+  Minus,
   MoreHorizontal,
   Rotate3d,
   SwatchBook,
@@ -156,6 +158,7 @@ function CrossfadeStill({
   fit = 'vistas',
   lateralPan = false,
   onStep,
+  zoom,
 }: {
   url: string | null
   alt: string
@@ -163,6 +166,7 @@ function CrossfadeStill({
   fit?: 'vistas' | 'planos'
   lateralPan?: boolean
   onStep?: (dir: 1 | -1) => void
+  zoom?: number
 }) {
   const { t } = useTourLanguage()
   const { aRef, bRef, front, assigned } = useDualBuffer(url)
@@ -174,7 +178,7 @@ function CrossfadeStill({
   const panRef = useRef(0)
   panRef.current = pan
   const dragRef = useRef<{ x: number; pan: number; moved: boolean; over: number } | null>(null)
-  const active = lateralPan && portrait && !contain
+  const active = lateralPan && portrait && !contain && zoom == null
   const maxPan = active ? Math.max(0, (box.h * aspect - box.w) / 2) : 0
 
   useEffect(() => {
@@ -268,11 +272,18 @@ function CrossfadeStill({
             decoding="async"
             fetchPriority={front === slot ? 'high' : 'low'}
             onLoad={front === slot ? onLoad : undefined}
-            style={active ? { objectPosition: position } : undefined}
+            style={
+              zoom != null
+                ? { transform: `scale(${zoom})` }
+                : active
+                  ? { objectPosition: position }
+                  : undefined
+            }
             className={cn(
-              contain
+              zoom != null || contain
                 ? 'h-full w-full object-contain object-center'
                 : 'absolute inset-0 h-full w-full object-cover',
+              zoom != null && 'origin-center',
             )}
           />
         </div>
@@ -1265,6 +1276,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     setFichaExpanded(true)
   }, [])
   const [galeriaIndex, setGaleriaIndex] = useState(0)
+  const [galleryZoom, setGalleryZoom] = useState(1)
+  useEffect(() => {
+    setGalleryZoom(1)
+  }, [galeriaIndex])
   /** Semilla estable: cambia al entrar a galería / tipología para re-sortear acabado×luz. */
   const [galeriaSeed, setGaleriaSeed] = useState(() => Math.floor(Math.random() * 1_000_000))
   const [compareGaleriaSeedB, setCompareGaleriaSeedB] = useState(() => Math.floor(Math.random() * 1_000_000))
@@ -2532,11 +2547,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (galeriaIndex >= galeriaImages.length) setGaleriaIndex(0)
   }, [galeriaImages.length, galeriaIndex])
 
-  // Al cambiar tipología o entrar a galería: nuevo sorteo de acabado/luz por ambiente.
+  // Al cambiar tipología o entrar a galería: nuevo sorteo y la foto de la sala.
+  const galleryOpenSalaRef = useRef(false)
   useEffect(() => {
     if (viewMode !== 'galeria') return
+    galleryOpenSalaRef.current = true
     setGaleriaSeed(Math.floor(Math.random() * 1_000_000) + 1)
-    setGaleriaIndex(0)
   }, [selectedTypology, viewMode])
 
   useEffect(() => {
@@ -2548,6 +2564,17 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   // Al cambiar acabado o luz, reubicar al mismo ambiente (no mezclar con otro combo).
   const galeriaRoomKeyRef = useRef<string | null>(null)
   useEffect(() => {
+    if (viewMode === 'galeria' && galleryOpenSalaRef.current) {
+      if (galeriaImages.length === 0) return
+      galleryOpenSalaRef.current = false
+      const sala = galeriaImages.findIndex((item) => (item.roomSlug || '').replace(/^vista-/, '') === 'sala')
+      const index = sala >= 0 ? sala : 0
+      const lead = galeriaImages[index]
+      galeriaRoomKeyRef.current = lead?.roomSlug ?? lead?.id.split(':')[0] ?? 'sala'
+      setGaleriaIndex(index)
+      if (lead?.roomSlug && lead.roomSlug !== room) setRoom(lead.roomSlug)
+      return
+    }
     const current = galeriaImages[Math.min(galeriaIndex, Math.max(galeriaImages.length - 1, 0))]
     if (!current?.id) return
     galeriaRoomKeyRef.current = current.roomSlug ?? current.id.split(':')[0] ?? current.id
@@ -3426,6 +3453,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           contain={isPlanosMode(viewMode)}
           fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
           lateralPan={viewMode === 'galeria'}
+          zoom={viewMode === 'galeria' ? galleryZoom : undefined}
           onStep={stepStill}
         />
         {selectedUnit && showStill && !overlayUrl?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{t('Esta unidad no tiene un recurso disponible para esta vista.')}</p>:null}
@@ -3463,6 +3491,30 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <ChevronRight size={22} strokeWidth={2} className="hidden sm:block" />
             </button>
           </>
+        ) : null}
+        {viewMode === 'galeria' && showStill && !fichaOpen ? (
+          <div className="pointer-events-auto absolute bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+4rem))] left-[max(0.5rem,env(safe-area-inset-left))] z-[4] flex gap-2">
+            <button
+              type="button"
+              aria-label={t('Alejar')}
+              disabled={galleryZoom <= 1}
+              onClick={() => setGalleryZoom((value) => Math.max(1, Math.round((value - 0.5) * 10) / 10))}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 disabled:opacity-40"
+            >
+              <Minus size={18} strokeWidth={2.25} />
+            </button>
+            <button
+              type="button"
+              aria-label={t('Acercar')}
+              disabled={galleryZoom >= 3}
+              onClick={() => setGalleryZoom((value) => Math.min(3, Math.round((value + 0.5) * 10) / 10))}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 disabled:opacity-40"
+            >
+              <Plus size={18} strokeWidth={2.25} />
+            </button>
+          </div>
         ) : null}
         {viewMode === 'galeria' && stillItems[stillIndex]?.label ? (
           <div
@@ -3673,45 +3725,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               onClick={() => setMobilePanel((value) => (value === 'modes' ? null : 'modes'))}
-              className="tour-glass inline-flex h-11 min-w-[7.5rem] items-center justify-center gap-1.5 border border-[#BDA27E]/50 px-3.5 text-[10px] font-semibold tracking-[0.16em] text-[#f7f3ee] uppercase shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.28)]"
               aria-expanded={mobilePanel === 'modes'}
               aria-haspopup="menu"
               aria-label={t("Abrir modos de vista")}
             >
-              {terminacionesFocus || isFinishCompare ? (
-                <SwatchBook size={14} strokeWidth={1.75} className="shrink-0" />
-              ) : isComparador ? (
-                <Columns2 size={14} strokeWidth={1.75} className="shrink-0" />
-              ) : viewMode === 'tour' ? (
-                <Rotate3d size={14} strokeWidth={1.75} className="shrink-0" />
-              ) : isPlanosMode(viewMode) ? (
-                <Layers size={14} strokeWidth={1.75} className="shrink-0" />
-              ) : (
-                <Images size={14} strokeWidth={1.75} className="shrink-0" />
-              )}
-              <span className="min-w-0 truncate">
-                {t(terminacionesFocus || isFinishCompare
-                  ? 'Terminaciones'
-                  : isComparador
-                    ? 'Comparador'
-                    : viewMode === 'tour'
-                      ? 'Tour 360°'
-                      : viewMode === 'planos-3d'
-                        ? 'Plano 3D'
-                        : viewMode === 'planos-2d'
-                          ? 'Plano 2D'
-                          : viewMode === 'galeria'
-                            ? 'Galería'
-                            : 'Modos')}
-              </span>
-              <ChevronLeft
-                size={12}
-                strokeWidth={2}
-                className={cn(
-                  'shrink-0 -rotate-90 opacity-70 transition-transform',
-                  mobilePanel === 'modes' && 'rotate-90',
-                )}
-              />
+              <Menu size={18} strokeWidth={2.25} />
             </button>
             {mobilePanel === 'modes' ? (
               <div
@@ -3919,11 +3938,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   onClick={() =>
                     setMobilePanel((value) => (value === 'nav' ? null : 'nav'))
                   }
-                  className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.28)]"
                   aria-expanded={mobilePanel === 'nav'}
+                  aria-label={t('Pisos')}
                 >
-                  <Menu size={13} strokeWidth={1.75} className="shrink-0" />
-                  {t(" Menú ")}</button>
+                  <Layers size={18} strokeWidth={2.25} />
+                </button>
                 {mobilePanel === 'nav' ? (
                   <div className="tour-glass absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
                     <button

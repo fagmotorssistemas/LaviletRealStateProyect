@@ -235,7 +235,7 @@ html.tour-is-immersive [data-site-header] {
 
 /* Solo aplica cuando .tour-root es hijo directo de body (TourViewer lo reparenta). */
 /* El banner de cookies vive en body (portal) y debe seguir usable sobre el tour. */
-html.tour-is-immersive body > *:not(.tour-root):not([data-lv-cookie-banner]) {
+html.tour-is-immersive body > *:not(.tour-root):not([data-lv-cookie-banner]):not([data-phone-preview-exit]):not(:has([data-sonner-toaster])) {
   visibility: hidden !important;
   pointer-events: none !important;
 }
@@ -250,6 +250,23 @@ html.tour-is-immersive [data-lv-cookie-banner] {
   visibility: visible !important;
   pointer-events: auto !important;
   z-index: 300 !important;
+}
+
+html.tour-is-immersive [data-phone-preview-exit] {
+  visibility: visible !important;
+  pointer-events: auto !important;
+  z-index: 400 !important;
+}
+
+html.tour-is-immersive body > section:has([data-sonner-toaster]) {
+  visibility: visible !important;
+  pointer-events: none !important;
+  z-index: 450 !important;
+}
+
+html.tour-is-immersive [data-sonner-toaster] {
+  visibility: visible !important;
+  pointer-events: auto !important;
 }
 
 body {

@@ -160,30 +160,30 @@ export function TourRotateHint({
       data-rotate-toast
       className={
         contained
-          ? 'pointer-events-none absolute bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+3.75rem))] left-[max(0.75rem,env(safe-area-inset-left))] z-[180] flex'
-          : 'pointer-events-none fixed bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+3.75rem))] left-[max(0.75rem,env(safe-area-inset-left))] z-[180] flex'
+          ? 'pointer-events-none absolute inset-0 z-[180] flex items-center justify-center p-5'
+          : 'pointer-events-none fixed inset-0 z-[180] flex items-center justify-center p-5'
       }
     >
-      <div className="pointer-events-auto flex w-[min(16rem,calc(100vw-6.75rem))] flex-col gap-2 overflow-hidden rounded-2xl border border-[#bda27e]/40 bg-[#14110e]/92 px-3 py-2 text-[#f7f3ee] shadow-[0_10px_28px_rgba(0,0,0,0.38)]">
-        <div className="flex items-start gap-2">
-          <Smartphone size={22} strokeWidth={1.75} className="tour-phone-rock mt-1 shrink-0 text-[#bda27e]" aria-hidden />
-          <p className="min-w-0 flex-1 text-[12px] leading-snug">
-            {t('Te recomendamos poner el celular en horizontal para una mejor experiencia')}
-          </p>
-          <button
-            type="button"
-            onClick={dismiss}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#f7f3ee]/80"
-            aria-label={t('Cerrar aviso')}
-          >
-            <X size={16} strokeWidth={2.25} />
-          </button>
-        </div>
+      <div className="pointer-events-auto relative w-[min(19rem,calc(100%-1.5rem))] rounded-3xl border border-[#bda27e]/55 bg-[#f7f3ee] px-5 pt-5 pb-5 text-center text-[#29251e] shadow-[0_24px_60px_rgba(20,17,14,0.38)]">
+        <button
+          type="button"
+          onClick={dismiss}
+          className="absolute top-2 right-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-[#756044]"
+          aria-label={t('Cerrar aviso')}
+        >
+          <X size={16} strokeWidth={2.25} />
+        </button>
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#29251e] text-[#bda27e]">
+          <Smartphone size={26} strokeWidth={1.75} className="tour-phone-rock" aria-hidden />
+        </span>
+        <p className="mt-3 text-[15px] leading-snug">
+          {t('Te recomendamos poner el celular en horizontal para una mejor experiencia')}
+        </p>
         {landscapeOffer ? (
           <button
             type="button"
             onClick={viewLandscape}
-            className="inline-flex min-h-10 items-center self-start rounded-full bg-[#BDA27E] px-3 text-[10px] font-semibold tracking-[0.08em] text-[#2B1A18] uppercase"
+            className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-[#BDA27E] px-4 text-[11px] font-semibold tracking-[0.08em] text-[#2B1A18] uppercase"
           >
             {t('Ver en horizontal')}
           </button>

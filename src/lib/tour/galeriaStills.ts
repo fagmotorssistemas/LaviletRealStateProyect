@@ -71,6 +71,28 @@ function pickRandomScene(scenes: TourRoomScene[], rand: () => number): TourRoomS
   return scenes[index]
 }
 
+/** La sala abre la ficha y la galería. El resto sigue el recorrido del departamento. */
+const ROOM_PRESENT_ORDER = [
+  'sala',
+  'comedor',
+  'estar',
+  'estudio',
+  'cocina',
+  'dormitorio',
+  'bano-completo',
+  'bano-social',
+  'lavado',
+  'despensa',
+  'terraza',
+  'balcon',
+]
+
+function presentRank(slug: string) {
+  const key = slug.replace(/^vista-/, '').replace(/-\d+$/, '')
+  const index = ROOM_PRESENT_ORDER.indexOf(key)
+  return index < 0 ? ROOM_PRESENT_ORDER.length : index
+}
+
 /**
  * Imágenes de Galería CRM.
  * - randomPerRoom: un still por ambiente (acabado/luz random; label = ambiente).
@@ -121,9 +143,11 @@ export function buildGaleriaStills(
     })
   }
 
-  const rooms = [...(typology.vistas ?? [])].sort((a, b) =>
-    a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }),
-  )
+  const rooms = [...(typology.vistas ?? [])].sort((a, b) => {
+    const rank = presentRank(a.slug) - presentRank(b.slug)
+    if (rank !== 0) return rank
+    return a.slug.localeCompare(b.slug, 'es')
+  })
 
   for (const room of rooms) {
     const scenes = [...(room.scenes ?? [])]

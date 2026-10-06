@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import {
   addTourFavorite,
   listTourFavorites,
+  mergeGuestFavoritesIntoPhone,
   removeTourFavorite,
   upsertFavoritesFromServer,
   type TourFavorite,
@@ -137,6 +138,9 @@ export function TourFavoritesPanel({
     }
 
     setPending(true)
+    setShowroomIdentity(normalized, getShowroomLeadId() || null)
+    mergeGuestFavoritesIntoPhone(normalized)
+    onIdentified?.()
     try {
       await openTourSession()
       const leadId = await identifyTourLead({
@@ -153,7 +157,6 @@ export function TourFavoritesPanel({
         unit_number: context?.unitNumber || null,
       })
       setShowroomIdentity(normalized, leadId)
-      onIdentified?.()
 
       if (hasCurrentUnit && context?.unitId && context.unitNumber) {
         addTourFavorite({
@@ -192,6 +195,8 @@ export function TourFavoritesPanel({
       setIdentified(true)
       refresh()
     } catch (error) {
+      setIdentified(isShowroomIdentified())
+      refresh()
       toast.error(t(error instanceof Error ? error.message : 'No se pudo verificar el celular'))
     } finally {
       setPending(false)

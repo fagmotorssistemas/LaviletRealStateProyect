@@ -454,6 +454,10 @@
   gap: 0.5rem;
 }
 
+.tour-desktop-nav > button {
+  border-radius: 999px;
+}
+
 .tour-mobile-nav {
   display: block;
   position: relative;
@@ -528,23 +532,13 @@ html.tour-is-force-landscape body {
   overflow-x: hidden;
 }
 
-/* En celular / landscape bajo: sin hero de imágenes (evita solapar botones). */
+/* La foto de la ficha se ve también en el celular: ya está cargada al entrar. */
 .tour-ficha-media {
   display: block;
 }
 
 .tour-ficha-chrome-mobile {
   display: none;
-}
-
-@media (max-width: 639px), (max-height: 560px) {
-  .tour-ficha-media {
-    display: none !important;
-  }
-
-  .tour-ficha-chrome-mobile {
-    display: flex !important;
-  }
 }
 
 @container tour (max-height: 520px) {
@@ -946,6 +940,26 @@ html.tour-is-force-landscape body {
 
 .tour-ficha-sheet.tour-modal-sheet {
   overflow: hidden;
+  border-radius: 1.75rem;
+}
+
+.tour-ficha-footer,
+.tour-ficha-sheet .grid.shrink-0 {
+  padding: 0.65rem 0.75rem;
+  gap: 0.5rem;
+  height: auto;
+  max-height: none;
+  background: #fff;
+}
+
+.tour-ficha-pdf,
+.tour-ficha-sheet .grid.shrink-0 > button,
+.tour-ficha-sheet .tour-modal-submit {
+  border-radius: 999px;
+}
+
+.tour-ficha-share-btn {
+  border-radius: 999px;
 }
 
 /* Escritorio: la ficha queda a la derecha del menú lateral de la unidad. */
@@ -965,7 +979,14 @@ html.tour-is-force-landscape body {
     left: max(0.65rem, env(safe-area-inset-left, 0px)) !important;
     width: auto !important;
     height: fit-content !important;
-    max-height: min(70dvh, calc(100dvh - 5.25rem - env(safe-area-inset-top, 0px))) !important;
+    max-height: min(52dvh, calc(100dvh - 8.5rem - env(safe-area-inset-top, 0px))) !important;
+  }
+
+  .tour-ficha-media {
+    aspect-ratio: auto !important;
+    height: 8.5rem !important;
+    max-height: 8.5rem !important;
+    min-height: 0 !important;
   }
 
   .tour-ficha-body,
@@ -986,7 +1007,7 @@ html.tour-is-force-landscape body {
     height: fit-content !important;
     max-height: calc(100dvh - 0.8rem) !important;
     margin: 0 !important;
-    border-radius: 1rem !important;
+    border-radius: 1.75rem !important;
   }
 
   .tour-ficha-body,
@@ -1028,8 +1049,9 @@ html.tour-is-force-landscape body {
   }
 
   .tour-ficha-footer {
-    padding: 0;
-    max-height: 44px;
+    padding: 0.45rem 0.55rem;
+    height: auto;
+    max-height: none;
   }
 
   .tour-ficha-pdf {
@@ -1037,6 +1059,7 @@ html.tour-is-force-landscape body {
     max-height: 44px;
     min-height: 44px;
     flex: 1 1 auto;
+    border-radius: 999px;
   }
 
   .tour-ficha-footer > .tour-ficha-share-btn {
@@ -1044,6 +1067,7 @@ html.tour-is-force-landscape body {
     height: 44px;
     min-width: 44px;
     max-height: 44px;
+    border-radius: 999px;
   }
 
   .tour-ficha-chrome-mobile,
@@ -1113,5 +1137,65 @@ html.tour-is-force-landscape body {
     min-width: 44px;
     min-height: 44px;
   }
+}
+
+/* Vista de revisión: el recorrido se ve como celular aunque el navegador sea ancho. */
+html.tour-phone-preview,
+html.tour-phone-preview body {
+  background: #14110e !important;
+}
+
+html.tour-phone-preview .tour-root {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: min(390px, calc(100vw - 2rem)) !important;
+  height: min(844px, calc(100dvh - 5.5rem)) !important;
+  max-width: calc(100vw - 2rem) !important;
+  transform: translate(-50%, -50%) !important;
+  overflow: hidden !important;
+  border-radius: 2.25rem !important;
+  box-shadow:
+    0 0 0 10px #2c261f,
+    0 0 0 12px #bda27e,
+    0 28px 80px rgba(0, 0, 0, 0.55) !important;
+}
+
+html.tour-phone-preview .tour-modes-desktop,
+html.tour-phone-preview .tour-desktop-nav {
+  display: none !important;
+}
+
+html.tour-phone-preview .tour-modes-mobile,
+html.tour-phone-preview .tour-mobile-nav {
+  display: block !important;
+}
+
+html.tour-phone-preview .tour-entry-video,
+html.tour-phone-preview .tour-pano-stage,
+html.tour-phone-preview .psv-container {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  object-fit: cover;
+}
+
+html.tour-phone-preview .tour-ficha-sheet.tour-modal-sheet {
+  top: auto !important;
+  right: 0.65rem !important;
+  bottom: 0.65rem !important;
+  left: 0.65rem !important;
+  width: auto !important;
+  height: fit-content !important;
+  max-height: 50% !important;
+}
+
+html.tour-phone-preview .tour-ficha-media {
+  aspect-ratio: auto !important;
+  height: 8.5rem !important;
+  max-height: 8.5rem !important;
+  min-height: 0 !important;
 }
 

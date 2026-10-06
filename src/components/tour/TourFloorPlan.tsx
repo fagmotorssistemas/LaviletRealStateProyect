@@ -391,6 +391,7 @@ export function TourFloorPlan({
   const displaySlotsRef = useRef<DisplaySlot[]>([])
   const htmlHoverUnitRef = useRef<TourUnitSummary | null>(null)
   const lastHtmlOpenAtRef = useRef(0)
+  const lastHtmlOpenKeyRef = useRef('')
   const whatsappHref = tourWhatsAppHref(floorPlanWhatsAppMessage(locale))
 
   useEffect(() => {
@@ -826,8 +827,10 @@ export function TourFloorPlan({
       if (!unit) return
       const slotId = fromPoint?.id ?? plantaId ?? unit.unit_number
       const now = Date.now()
-      if (now - lastHtmlOpenAtRef.current < 350) return
+      const openKey = unit.id
+      if (openKey === lastHtmlOpenKeyRef.current && now - lastHtmlOpenAtRef.current < 350) return
       lastHtmlOpenAtRef.current = now
+      lastHtmlOpenKeyRef.current = openKey
       htmlHoverUnitRef.current = unit
       htmlHoverLabelRef.current = unit.unit_number
       // El clic abre la ficha. El hover no pinta la unidad ni muestra un rótulo.
@@ -921,9 +924,10 @@ export function TourFloorPlan({
   const handleSelectSlot = (slot: DisplaySlot) => {
     if (!slot.unit) return
     const now = Date.now()
-    // Evita open doble (pointerup + click sintético) que a veces pelea con el drawer.
-    if (now - lastHtmlOpenAtRef.current < 400) return
+    // Ignora el click sintético del mismo toque. Otro departamento sí abre al primer toque.
+    if (slot.id === lastHtmlOpenKeyRef.current && now - lastHtmlOpenAtRef.current < 350) return
     lastHtmlOpenAtRef.current = now
+    lastHtmlOpenKeyRef.current = slot.id
     onSelectUnit(slot.unit, slot.id)
   }
 
@@ -952,7 +956,7 @@ export function TourFloorPlan({
     slotPointerRef.current = null
     if (panMovedRef.current) return
     if (!start || start.slotId !== slot.id || start.pointerId !== event.pointerId) return
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > (portraitPanRef.current ? 8 : 14)) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > (portraitPanRef.current ? 22 : 14)) return
     event.preventDefault()
     event.stopPropagation()
     handleSelectSlot(slot)
@@ -1083,7 +1087,7 @@ export function TourFloorPlan({
     if (!drag || drag.id !== event.pointerId) return
     const dx = event.clientX - drag.x
     const dy = event.clientY - drag.y
-    if (!drag.moved && Math.hypot(dx, dy) < 8) return
+    if (!drag.moved && Math.hypot(dx, dy) < 22) return
     if (!drag.moved) {
       drag.moved = true
       panMovedRef.current = true

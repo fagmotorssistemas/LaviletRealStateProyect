@@ -4,7 +4,7 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { UnitPublicQr } from './UnitPublicQr'
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   Bath,
@@ -190,6 +190,16 @@ function preloadUrl(url: string) {
   void preloadStill(url)
 }
 
+function leadSlide(items: FichaGalleryImage[]) {
+  const index = items.findIndex((item) => {
+    const id = item.id.replace(/^vista-/, '')
+    return id === 'sala' || id.startsWith('sala:')
+  })
+  if (index >= 0) return index
+  const byLabel = items.findIndex((item) => /^sala\b/i.test(item.label.trim()))
+  return byLabel >= 0 ? byLabel : 0
+}
+
 export function TourFichaDrawer({
   open,
   onClose,
@@ -217,12 +227,10 @@ export function TourFichaDrawer({
   const [unitId, setUnitId] = useState<string | null>(null)
   const [pdfBusy, setPdfBusy] = useState(false)
   const [slide, setSlide] = useState(0)
-  const [displayUrl, setDisplayUrl] = useState<string | null>(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const lastUrlRef = useRef<string | null>(null)
+  const slideTouchedRef = useRef(false)
   const busyRef = useRef(false)
-  const openedAtRef = useRef(0)
-  /** Hasta que esté armado, el backdrop no cierra (evita el click fantasma del mismo toque). */
-  const [outsideCloseArmed, setOutsideCloseArmed] = useState(false)
 
   const sorted = useMemo(
     () =>
@@ -239,11 +247,13 @@ export function TourFichaDrawer({
   )
   const safeSlide = carousel.length === 0 ? 0 : Math.min(slide, carousel.length - 1)
   const activeImage = carousel[safeSlide] ?? null
+  if (activeImage?.url) lastUrlRef.current = activeImage.url
+  const shownUrl = activeImage?.url ?? lastUrlRef.current
 
   useEffect(() => {
     if (!open) {
+      slideTouchedRef.current = false
       setSlide(0)
-      setDisplayUrl(null)
       setShowSuggestions(false)
       busyRef.current = false
       return
@@ -255,9 +265,15 @@ export function TourFichaDrawer({
       if (prev && sorted.some((item) => item.id === prev)) return prev
       return sorted[0]?.id ?? null
     })
-    setSlide(0)
+    slideTouchedRef.current = false
+    setSlide(leadSlide(images))
     setShowSuggestions(false)
   }, [open, sorted, initialUnitId])
+
+  useEffect(() => {
+    if (!open || slideTouchedRef.current) return
+    setSlide(leadSlide(images))
+  }, [open, images])
 
   useEffect(() => {
     if (carousel.length === 0) {
@@ -268,11 +284,7 @@ export function TourFichaDrawer({
   }, [carousel.length])
 
   useEffect(() => {
-    if (!activeImage) {
-      setDisplayUrl(null)
-      return
-    }
-    setDisplayUrl(activeImage.url)
+    if (!activeImage) return
     const prev = carousel[(safeSlide - 1 + carousel.length) % carousel.length]
     const next = carousel[(safeSlide + 1) % carousel.length]
     if (prev) preloadUrl(prev.url)
@@ -286,6 +298,7 @@ export function TourFichaDrawer({
   const goSlide = (nextIndex: number) => {
     if (carousel.length < 2 || busyRef.current) return
     busyRef.current = true
+    slideTouchedRef.current = true
     const idx = ((nextIndex % carousel.length) + carousel.length) % carousel.length
     setSlide(idx)
     onSelectGalleryImage?.(idx)
@@ -293,18 +306,6 @@ export function TourFichaDrawer({
       busyRef.current = false
     }, 120)
   }
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setOutsideCloseArmed(false)
-      return
-    }
-    openedAtRef.current = Date.now()
-    setOutsideCloseArmed(false)
-    // El click sintético de iOS/Android puede llegar 300–600ms después.
-    const t = window.setTimeout(() => setOutsideCloseArmed(true), 700)
-    return () => window.clearTimeout(t)
-  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -396,32 +397,15 @@ export function TourFichaDrawer({
     <AnimatePresence>
       {open ? (
         <>
-          <motion.button
-            type="button"
-            aria-label={t("Cerrar ficha técnica")}
+          <motion.div
+            aria-hidden="true"
             className={cn(
-              'z-[60]',
+              'pointer-events-none z-[60] bg-transparent',
               contained ? 'absolute inset-0' : 'fixed inset-0',
-              // Expandida: no cerrar al tocar el fondo (así no se pierden las imágenes).
-              // Sin armar: deja pasar el click fantasma sin cerrar (ni re-seleccionar debajo).
-              expanded || !outsideCloseArmed
-                ? 'pointer-events-none bg-transparent'
-                : 'bg-transparent',
             )}
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0 }}
-            onPointerDown={
-              expanded || !outsideCloseArmed
-                ? undefined
-                : (event) => {
-                    // Solo un toque NUEVO cierra; el click fantasma del gesto de apertura se ignora.
-                    if (event.pointerType === 'mouse' && event.button !== 0) return
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onClose()
-                  }
-            }
           />
 
           <motion.aside
@@ -430,7 +414,7 @@ export function TourFichaDrawer({
             aria-modal="true"
             aria-label={t("Ficha técnica")}
             className={cn(
-              'tour-modal-sheet tour-ficha-sheet z-[95] flex flex-col rounded-2xl bg-white shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
+              'tour-modal-sheet tour-ficha-sheet z-[95] flex flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
               'w-[min(22.5rem,calc(100%-1.5rem))] left-3 sm:left-4',
               // Reserve the showroom toolbar in both embedded and fullscreen layouts.
               'top-[calc(4.75rem+env(safe-area-inset-top))] bottom-[max(0.75rem,env(safe-area-inset-bottom))]',
@@ -492,11 +476,11 @@ export function TourFichaDrawer({
                   : 'aspect-[16/10] max-h-[10rem] min-h-[6rem]',
               )}
             >
-              {displayUrl ? (
+              {shownUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  key={displayUrl}
-                  src={displayUrl}
+                  key={shownUrl}
+                  src={shownUrl}
                   alt={t(activeImage?.label ?? 'Vista')}
                   decoding="async"
                   fetchPriority="high"
@@ -528,24 +512,16 @@ export function TourFichaDrawer({
               ) : null}
 
               {carousel.length > 1 ? (
-                <>
+                <div className="absolute inset-x-2 bottom-2 z-10 flex items-center gap-1.5">
                   <button
                     type="button"
                     aria-label={t("Anterior")}
                     onClick={() => goSlide(safeSlide - 1)}
-                    className="absolute top-1/2 left-2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow"
                   >
                     <ChevronLeft size={18} />
                   </button>
-                  <button
-                    type="button"
-                    aria-label={t("Siguiente")}
-                    onClick={() => goSlide(safeSlide + 1)}
-                    className="absolute top-1/2 right-2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow"
-                  >
-                    <ChevronRight size={18} />
-                  </button>
-                  <div className="absolute bottom-2 left-1/2 z-10 flex max-w-[90%] -translate-x-1/2 gap-1 overflow-x-auto px-1">
+                  <div className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto px-1">
                     {carousel.map((item, index) => (
                       <button
                         key={item.id}
@@ -559,7 +535,15 @@ export function TourFichaDrawer({
                       />
                     ))}
                   </div>
-                </>
+                  <button
+                    type="button"
+                    aria-label={t("Siguiente")}
+                    onClick={() => goSlide(safeSlide + 1)}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
               ) : null}
             </div>
 
@@ -619,7 +603,7 @@ export function TourFichaDrawer({
                     <button
                       type="button"
                       onClick={() => onRequestInfo(unit)}
-                      className="tour-modal-submit mt-3 flex h-10 w-full items-center justify-center gap-2 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
+                      className="tour-modal-submit mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
                     >
                       <Mail size={15} strokeWidth={2} />
                       {t(" Solicitar información ")}</button>
@@ -629,7 +613,7 @@ export function TourFichaDrawer({
                     <button
                       type="button"
                       onClick={() => setShowSuggestions((value) => !value)}
-                      className="mt-2 flex h-10 w-full items-center justify-center gap-2 border border-[#2B1A18]/15 bg-white text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
+                      className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-full border border-[#2B1A18]/15 bg-white text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
                     >
                       {t(showSuggestions ? 'Ocultar sugerencias' : 'Ver sugerencias')}
                     </button>
@@ -701,12 +685,12 @@ export function TourFichaDrawer({
                 </div>
 
                 {expanded ? (
-                  <div className="tour-ficha-footer flex h-11 max-h-11 shrink-0 border-t border-[#2B1A18]/8 bg-white">
+                  <div className="tour-ficha-footer flex shrink-0 items-center gap-2 border-t border-[#2B1A18]/8 bg-white px-3 py-2.5">
                     <button
                       type="button"
                       disabled={pdfBusy}
                       onClick={() => void onDownloadPdf()}
-                      className="tour-ficha-pdf flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
+                      className="tour-ficha-pdf flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
                     >
                       <Download size={14} strokeWidth={2} />
                       {t(pdfBusy ? 'Generando…' : 'Descargar PDF')}
@@ -714,7 +698,7 @@ export function TourFichaDrawer({
                     <button
                       type="button"
                       onClick={() => void onShare()}
-                      className="tour-ficha-share-btn flex h-11 w-11 shrink-0 items-center justify-center border-l border-[#2B1A18]/12 bg-white text-[#2B1A18]"
+                      className="tour-ficha-share-btn flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#2B1A18]/12 bg-white text-[#2B1A18]"
                       aria-label={t('Compartir')}
                     >
                       <Share2 size={16} strokeWidth={1.75} />
@@ -727,7 +711,7 @@ export function TourFichaDrawer({
                       onClick={() => {
                         if (onVerFicha) onVerFicha(unit)
                       }}
-                      className="flex h-10 min-w-0 items-center justify-center bg-[#BDA27E] px-2 text-center text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
+                      className="flex h-11 min-w-0 items-center justify-center rounded-full bg-[#BDA27E] px-2 text-center text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
                     >
                       {t(" Ver Ficha ")}</button>
                     <button
@@ -735,7 +719,7 @@ export function TourFichaDrawer({
                       onClick={() => {
                         onTour360?.(unit)
                       }}
-                      className="flex h-10 min-w-0 items-center justify-center gap-1.5 border border-[#2B1A18]/15 bg-white px-2 text-center text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
+                      className="flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-full border border-[#2B1A18]/15 bg-white px-2 text-center text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#2B1A18]/5"
                     >
                       {galleryOnly ? <Images size={15} strokeWidth={1.75} /> : <Rotate3d size={15} strokeWidth={1.75} />}
                       {t(galleryOnly ? 'Galería' : ' Tour 360° ')}</button>
